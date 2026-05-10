@@ -59,15 +59,15 @@ func publishedEventExecutionReference(providerName, referenceKey string, trigger
 	return gestalt.NewWorkflowExecutionReference(gestalt.WorkflowExecutionReferenceInput{
 		ID:                  "event_ref:" + hashID(referenceKey),
 		ProviderName:        strings.TrimSpace(providerName),
-		Target:              cloneTarget(trigger.GetTarget()),
+		Target:              workflowTargetInput(trigger.GetTarget()),
 		SubjectID:           subjectID,
 		CredentialSubjectID: subjectID,
-		Permissions:         permissions,
+		Permissions:         workflowPermissionInputs(permissions),
 		CreatedAt:           createdAt.UTC(),
 		SubjectKind:         strings.TrimSpace(actor.GetSubjectKind()),
 		DisplayName:         strings.TrimSpace(actor.GetDisplayName()),
 		AuthSource:          strings.TrimSpace(actor.GetAuthSource()),
-	}), nil
+	})
 }
 
 func eventExecutionReferencePermissions(trigger *proto.BoundWorkflowEventTrigger) ([]*proto.WorkflowAccessPermission, error) {
@@ -244,6 +244,23 @@ func clonePermissions(in []*proto.WorkflowAccessPermission) []*proto.WorkflowAcc
 		out = append(out, &proto.WorkflowAccessPermission{
 			Plugin:     strings.TrimSpace(permission.GetPlugin()),
 			Operations: ops,
+		})
+	}
+	return out
+}
+
+func workflowPermissionInputs(in []*proto.WorkflowAccessPermission) []gestalt.WorkflowAccessPermissionInput {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]gestalt.WorkflowAccessPermissionInput, 0, len(in))
+	for _, permission := range in {
+		if permission == nil {
+			continue
+		}
+		out = append(out, gestalt.WorkflowAccessPermissionInput{
+			Plugin:     strings.TrimSpace(permission.GetPlugin()),
+			Operations: append([]string(nil), permission.GetOperations()...),
 		})
 	}
 	return out

@@ -2054,19 +2054,11 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 		input := gestalt.BoundWorkflowTargetInputFromTarget(pending.Target)
 		targetInput = &input
 	}
-	var triggerInput *gestalt.WorkflowRunTriggerInput
-	if trigger := pending.triggerProto(); trigger != nil {
-		input, err := gestalt.WorkflowRunTriggerInputFromTrigger(trigger)
-		if err != nil {
-			return false, err
-		}
-		triggerInput = &input
-	}
 	stopRenewingClaim := p.startRunClaimRenewal(ctx, pending.ID, claimOwnerID, runClaimRenewEvery)
 	resp, invokeErr := host.InvokeOperation(ctx, gestalt.InvokeWorkflowOperationInput{
 		Target:       targetInput,
 		RunID:        pending.ID,
-		Trigger:      triggerInput,
+		Trigger:      pending.triggerInput(),
 		Metadata:     workflowInvokeMetadataInput(pending.WorkflowKey),
 		CreatedBy:    workflowActorInput(pending.CreatedBy),
 		ExecutionRef: pending.ExecutionRef,
@@ -3081,48 +3073,63 @@ func normalizeAgentDelivery(delivery *proto.WorkflowOutputDelivery, fieldName st
 	targetInput.Instance = strings.TrimSpace(targetInput.Instance)
 	targetInput.CredentialMode = ""
 	deliveryInput.CredentialMode = credentialMode
-	for _, binding := range deliveryInput.InputBindings {
-		if binding == nil {
-			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
-		}
-		binding.InputField = strings.TrimSpace(binding.GetInputField())
-		if binding.GetInputField() == "" {
+	for i := range deliveryInput.InputBindings {
+		binding := &deliveryInput.InputBindings[i]
+		binding.InputField = strings.TrimSpace(binding.InputField)
+		if binding.InputField == "" {
 			return fmt.Errorf("target.agent.%s.input_bindings.input_field is required", fieldName)
 		}
-		value := binding.GetValue()
-		if value == nil || value.GetKind() == nil {
+		value := binding.Value
+		if value == nil {
 			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
 		}
-		switch kind := value.GetKind().(type) {
-		case *proto.WorkflowOutputValueSource_AgentOutput:
+		selected := 0
+		if value.AgentOutput != "" {
+			selected++
 			if beforeTurn {
 				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_output is not available before the agent turn starts", fieldName)
 			}
-			kind.AgentOutput = strings.TrimSpace(kind.AgentOutput)
-			if kind.AgentOutput == "" {
+			value.AgentOutput = strings.TrimSpace(value.AgentOutput)
+			if value.AgentOutput == "" {
 				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_output is required", fieldName)
 			}
-		case *proto.WorkflowOutputValueSource_SignalPayload:
-			kind.SignalPayload = strings.TrimSpace(kind.SignalPayload)
-			if kind.SignalPayload == "" {
+		}
+		if value.SignalPayload != "" {
+			selected++
+			value.SignalPayload = strings.TrimSpace(value.SignalPayload)
+			if value.SignalPayload == "" {
 				return fmt.Errorf("target.agent.%s.input_bindings.value.signal_payload is required", fieldName)
 			}
-		case *proto.WorkflowOutputValueSource_SignalMetadata:
-			kind.SignalMetadata = strings.TrimSpace(kind.SignalMetadata)
-			if kind.SignalMetadata == "" {
+		}
+		if value.SignalMetadata != "" {
+			selected++
+			value.SignalMetadata = strings.TrimSpace(value.SignalMetadata)
+			if value.SignalMetadata == "" {
 				return fmt.Errorf("target.agent.%s.input_bindings.value.signal_metadata is required", fieldName)
 			}
-		case *proto.WorkflowOutputValueSource_AgentSession:
-			kind.AgentSession = strings.TrimSpace(kind.AgentSession)
-			if kind.AgentSession == "" {
+		}
+		if value.AgentSession != "" {
+			selected++
+			value.AgentSession = strings.TrimSpace(value.AgentSession)
+			if value.AgentSession == "" {
 				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_session is required", fieldName)
 			}
-		case *proto.WorkflowOutputValueSource_Literal:
-			if kind.Literal == nil {
+		}
+		if value.Literal != nil {
+			selected++
+		}
+		switch selected {
+		case 0:
+			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
+		case 1:
+			if value.Literal == nil {
+				continue
+			}
+			if _, err := gestalt.ValueFromAny(value.Literal); err != nil {
 				return fmt.Errorf("target.agent.%s.input_bindings.value.literal is required", fieldName)
 			}
 		default:
-			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
+			return fmt.Errorf("target.agent.%s.input_bindings.value must set exactly one source", fieldName)
 		}
 	}
 	normalized, err := gestalt.NewWorkflowOutputDelivery(*deliveryInput)
@@ -4224,15 +4231,15 @@ func publishedEventExecutionReference(providerName, runID string, trigger workfl
 	return gestalt.NewWorkflowExecutionReference(gestalt.WorkflowExecutionReferenceInput{
 		ID:                  eventExecutionRefID(runID),
 		ProviderName:        strings.TrimSpace(providerName),
-		Target:              cloneTarget(target),
+		Target:              workflowTargetInput(target),
 		SubjectID:           subjectID,
 		CredentialSubjectID: subjectID,
-		Permissions:         permissions,
+		Permissions:         workflowPermissionInputs(permissions),
 		CreatedAt:           createdAt.UTC(),
 		SubjectKind:         strings.TrimSpace(actor.GetSubjectKind()),
 		DisplayName:         strings.TrimSpace(actor.GetDisplayName()),
 		AuthSource:          strings.TrimSpace(actor.GetAuthSource()),
-	}), nil
+	})
 }
 
 func eventExecutionReferencePermissions(trigger workflowEventTriggerRecord) ([]*proto.WorkflowAccessPermission, error) {
@@ -4465,6 +4472,43 @@ func workflowActorInput(actor *proto.WorkflowActor) *gestalt.WorkflowActorInput 
 	}
 	input := gestalt.WorkflowActorInputFromActor(actor)
 	return &input
+}
+
+func workflowTargetInput(target *proto.BoundWorkflowTarget) *gestalt.BoundWorkflowTargetInput {
+	if target == nil {
+		return nil
+	}
+	input := gestalt.BoundWorkflowTargetInputFromTarget(target)
+	return &input
+}
+
+func workflowPermissionInputs(in []*proto.WorkflowAccessPermission) []gestalt.WorkflowAccessPermissionInput {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]gestalt.WorkflowAccessPermissionInput, 0, len(in))
+	for _, permission := range in {
+		if permission == nil {
+			continue
+		}
+		out = append(out, gestalt.WorkflowAccessPermissionInput{
+			Plugin:     strings.TrimSpace(permission.GetPlugin()),
+			Operations: append([]string(nil), permission.GetOperations()...),
+		})
+	}
+	return out
+}
+
+func workflowRunAsInput(runAs *proto.WorkflowRunAsSubject) *gestalt.WorkflowRunAsSubjectInput {
+	if runAs == nil {
+		return nil
+	}
+	return &gestalt.WorkflowRunAsSubjectInput{
+		SubjectID:   strings.TrimSpace(runAs.GetSubjectId()),
+		SubjectKind: strings.TrimSpace(runAs.GetSubjectKind()),
+		DisplayName: strings.TrimSpace(runAs.GetDisplayName()),
+		AuthSource:  strings.TrimSpace(runAs.GetAuthSource()),
+	}
 }
 
 func cloneEvent(event *proto.WorkflowEvent) *proto.WorkflowEvent {
@@ -4753,14 +4797,14 @@ func (r workflowScheduleRecord) toProto() (*proto.BoundWorkflowSchedule, error) 
 		ID:           r.ID,
 		Cron:         r.Cron,
 		Timezone:     r.Timezone,
-		Target:       cloneTarget(r.Target),
+		Target:       workflowTargetInput(r.Target),
 		Paused:       r.Paused,
 		CreatedAt:    r.CreatedAt,
 		UpdatedAt:    r.UpdatedAt,
 		NextRunAt:    r.NextRunAt,
 		CreatedBy:    workflowActorInput(r.CreatedBy),
 		ExecutionRef: r.ExecutionRef,
-	}), nil
+	})
 }
 
 func (r workflowEventTriggerRecord) toRecord() gestalt.Record {
@@ -4807,18 +4851,18 @@ func eventTriggerRecordFromRecord(record gestalt.Record) (workflowEventTriggerRe
 func (r workflowEventTriggerRecord) toProto() (*proto.BoundWorkflowEventTrigger, error) {
 	return gestalt.NewBoundWorkflowEventTrigger(gestalt.BoundWorkflowEventTriggerInput{
 		ID: r.ID,
-		Match: &proto.WorkflowEventMatch{
+		Match: &gestalt.WorkflowEventMatchInput{
 			Type:    r.MatchType,
 			Source:  r.MatchSource,
 			Subject: r.MatchSubject,
 		},
-		Target:       cloneTarget(r.Target),
+		Target:       workflowTargetInput(r.Target),
 		Paused:       r.Paused,
 		CreatedAt:    r.CreatedAt,
 		UpdatedAt:    r.UpdatedAt,
 		CreatedBy:    workflowActorInput(r.CreatedBy),
 		ExecutionRef: r.ExecutionRef,
-	}), nil
+	})
 }
 
 func (r workflowRunRecord) toRecord() gestalt.Record {
@@ -4891,8 +4935,8 @@ func (r workflowRunRecord) toProto() (*proto.BoundWorkflowRun, error) {
 	return gestalt.NewBoundWorkflowRun(gestalt.BoundWorkflowRunInput{
 		ID:            r.ID,
 		Status:        r.Status,
-		Target:        cloneTarget(r.Target),
-		Trigger:       r.triggerProto(),
+		Target:        workflowTargetInput(r.Target),
+		Trigger:       r.triggerInput(),
 		CreatedAt:     r.CreatedAt,
 		StartedAt:     r.StartedAt,
 		CompletedAt:   r.CompletedAt,
@@ -4901,28 +4945,32 @@ func (r workflowRunRecord) toProto() (*proto.BoundWorkflowRun, error) {
 		CreatedBy:     workflowActorInput(r.CreatedBy),
 		ExecutionRef:  r.ExecutionRef,
 		WorkflowKey:   r.WorkflowKey,
-	}), nil
+	})
 }
 
-func (r workflowRunRecord) triggerProto() *proto.WorkflowRunTrigger {
+func (r workflowRunRecord) triggerInput() *gestalt.WorkflowRunTriggerInput {
 	switch r.TriggerKind {
 	case triggerKindSchedule:
-		var scheduledFor time.Time
+		var scheduledFor *time.Time
 		if r.TriggerScheduledFor != nil {
-			scheduledFor = r.TriggerScheduledFor.UTC()
+			scheduledFor = timePtr(r.TriggerScheduledFor.UTC())
 		}
-		return gestalt.NewWorkflowScheduleTrigger(r.TriggerScheduleID, scheduledFor)
+		return &gestalt.WorkflowRunTriggerInput{Schedule: &gestalt.WorkflowScheduleTriggerInput{
+			ScheduleID:   r.TriggerScheduleID,
+			ScheduledFor: scheduledFor,
+		}}
 	case triggerKindEvent:
-		return &proto.WorkflowRunTrigger{
-			Kind: &proto.WorkflowRunTrigger_Event{
-				Event: &proto.WorkflowEventTriggerInvocation{
-					TriggerId: r.TriggerEventTriggerID,
-					Event:     cloneEvent(r.TriggerEvent),
-				},
-			},
+		var event *gestalt.WorkflowEventInput
+		if r.TriggerEvent != nil {
+			input := gestalt.WorkflowEventInputFromEvent(r.TriggerEvent)
+			event = &input
 		}
+		return &gestalt.WorkflowRunTriggerInput{Event: &gestalt.WorkflowEventTriggerInvocationInput{
+			TriggerID: r.TriggerEventTriggerID,
+			Event:     event,
+		}}
 	default:
-		return &proto.WorkflowRunTrigger{Kind: &proto.WorkflowRunTrigger_Manual{Manual: &proto.WorkflowManualTrigger{}}}
+		return &gestalt.WorkflowRunTriggerInput{Manual: true}
 	}
 }
 
@@ -5202,18 +5250,18 @@ func (r workflowExecutionReferenceRecord) toProto() (*proto.WorkflowExecutionRef
 	return gestalt.NewWorkflowExecutionReference(gestalt.WorkflowExecutionReferenceInput{
 		ID:                  r.ID,
 		ProviderName:        r.ProviderName,
-		Target:              cloneTarget(r.Target),
+		Target:              workflowTargetInput(r.Target),
 		SubjectID:           r.SubjectID,
 		CredentialSubjectID: r.CredentialSubjectID,
-		Permissions:         permissions,
+		Permissions:         workflowPermissionInputs(permissions),
 		CreatedAt:           r.CreatedAt,
 		RevokedAt:           r.RevokedAt,
 		SubjectKind:         r.SubjectKind,
 		DisplayName:         r.DisplayName,
 		AuthSource:          r.AuthSource,
 		CallerPluginName:    r.CallerPluginName,
-		RunAs:               runAs,
-	}), nil
+		RunAs:               workflowRunAsInput(runAs),
+	})
 }
 
 func executionReferenceRecordsEqual(left, right workflowExecutionReferenceRecord) bool {

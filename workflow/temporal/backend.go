@@ -434,17 +434,20 @@ func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *proto.UpsertW
 		createdAt = existing.GetCreatedAt().AsTime()
 		createdBy = createdByForUpsert(existing.GetCreatedBy(), req.GetRequestedBy())
 	}
-	schedule := gestalt.NewBoundWorkflowSchedule(gestalt.BoundWorkflowScheduleInput{
+	schedule, err := gestalt.NewBoundWorkflowSchedule(gestalt.BoundWorkflowScheduleInput{
 		ID:           scheduleID,
 		Cron:         cron,
 		Timezone:     timezone,
-		Target:       cloneTarget(target.Target),
+		Target:       workflowTargetInput(target.Target),
 		Paused:       req.GetPaused(),
 		CreatedAt:    createdAt,
 		UpdatedAt:    now,
 		CreatedBy:    actorInputPtr(createdBy),
 		ExecutionRef: strings.TrimSpace(req.GetExecutionRef()),
 	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "build workflow schedule: %v", err)
+	}
 	if err := b.upsertTemporalSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
@@ -529,7 +532,10 @@ func (b *temporalBackend) PauseSchedule(ctx context.Context, req *proto.PauseWor
 	}
 	scheduleInput.Paused = true
 	scheduleInput.UpdatedAt = time.Now().UTC()
-	schedule = gestalt.NewBoundWorkflowSchedule(scheduleInput)
+	schedule, err = gestalt.NewBoundWorkflowSchedule(scheduleInput)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "build workflow schedule: %v", err)
+	}
 	if err := b.state.putSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
@@ -557,7 +563,10 @@ func (b *temporalBackend) ResumeSchedule(ctx context.Context, req *proto.ResumeW
 	}
 	scheduleInput.Paused = false
 	scheduleInput.UpdatedAt = time.Now().UTC()
-	schedule = gestalt.NewBoundWorkflowSchedule(scheduleInput)
+	schedule, err = gestalt.NewBoundWorkflowSchedule(scheduleInput)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "build workflow schedule: %v", err)
+	}
 	if err := b.state.putSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
@@ -591,16 +600,23 @@ func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *proto.Ups
 		createdAt = existing.GetCreatedAt().AsTime()
 		createdBy = createdByForUpsert(existing.GetCreatedBy(), req.GetRequestedBy())
 	}
-	trigger := gestalt.NewBoundWorkflowEventTrigger(gestalt.BoundWorkflowEventTriggerInput{
-		ID:           triggerID,
-		Match:        &proto.WorkflowEventMatch{Type: strings.TrimSpace(match.GetType()), Source: strings.TrimSpace(match.GetSource()), Subject: strings.TrimSpace(match.GetSubject())},
-		Target:       cloneTarget(target.Target),
+	trigger, err := gestalt.NewBoundWorkflowEventTrigger(gestalt.BoundWorkflowEventTriggerInput{
+		ID: triggerID,
+		Match: &gestalt.WorkflowEventMatchInput{
+			Type:    strings.TrimSpace(match.GetType()),
+			Source:  strings.TrimSpace(match.GetSource()),
+			Subject: strings.TrimSpace(match.GetSubject()),
+		},
+		Target:       workflowTargetInput(target.Target),
 		Paused:       req.GetPaused(),
 		CreatedAt:    createdAt,
 		UpdatedAt:    now,
 		CreatedBy:    actorInputPtr(createdBy),
 		ExecutionRef: strings.TrimSpace(req.GetExecutionRef()),
 	})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "build workflow event trigger: %v", err)
+	}
 	if err := b.state.putTrigger(ctx, trigger); err != nil {
 		return nil, err
 	}
@@ -688,7 +704,10 @@ func (b *temporalBackend) PutExecutionReference(ctx context.Context, req *proto.
 	if refInput.CreatedAt.IsZero() {
 		refInput.CreatedAt = time.Now().UTC()
 	}
-	ref = gestalt.NewWorkflowExecutionReference(refInput)
+	ref, err = gestalt.NewWorkflowExecutionReference(refInput)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "build workflow execution reference: %v", err)
+	}
 	if err := b.state.putExecutionRef(ctx, ref); err != nil {
 		return nil, err
 	}
@@ -847,7 +866,10 @@ func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, pause
 	}
 	triggerInput.Paused = paused
 	triggerInput.UpdatedAt = time.Now().UTC()
-	trigger = gestalt.NewBoundWorkflowEventTrigger(triggerInput)
+	trigger, err = gestalt.NewBoundWorkflowEventTrigger(triggerInput)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "build workflow event trigger: %v", err)
+	}
 	if err := b.state.putTrigger(ctx, trigger); err != nil {
 		return nil, err
 	}
@@ -916,7 +938,11 @@ func (b *temporalBackend) fillScheduleNextRun(ctx context.Context, schedule *pro
 	}
 	nextRunAt := desc.Info.NextActionTimes[0].UTC()
 	scheduleInput.NextRunAt = &nextRunAt
-	*schedule = *gestalt.NewBoundWorkflowSchedule(scheduleInput)
+	next, err := gestalt.NewBoundWorkflowSchedule(scheduleInput)
+	if err != nil {
+		return
+	}
+	*schedule = *next
 }
 
 func (b *temporalBackend) temporalScheduleID(scheduleID string) string {

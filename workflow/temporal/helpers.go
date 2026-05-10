@@ -309,44 +309,63 @@ func normalizeAgentDelivery(delivery *proto.WorkflowOutputDelivery, fieldName st
 	default:
 		return fmt.Errorf("target.agent.%s.credential_mode %q is not supported", fieldName, delivery.GetCredentialMode())
 	}
-	for _, binding := range deliveryInput.InputBindings {
-		if binding == nil || binding.GetValue() == nil || binding.GetValue().GetKind() == nil {
-			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
-		}
-		binding.InputField = strings.TrimSpace(binding.GetInputField())
-		if binding.GetInputField() == "" {
+	for i := range deliveryInput.InputBindings {
+		binding := &deliveryInput.InputBindings[i]
+		binding.InputField = strings.TrimSpace(binding.InputField)
+		if binding.InputField == "" {
 			return fmt.Errorf("target.agent.%s.input_bindings.input_field is required", fieldName)
 		}
-		switch kind := binding.GetValue().GetKind().(type) {
-		case *proto.WorkflowOutputValueSource_AgentOutput:
+		value := binding.Value
+		if value == nil {
+			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
+		}
+		selected := 0
+		if value.AgentOutput != "" {
+			selected++
 			if beforeTurn {
 				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_output is not available before the agent turn starts", fieldName)
 			}
-			kind.AgentOutput = strings.TrimSpace(kind.AgentOutput)
-			if kind.AgentOutput == "" {
+			value.AgentOutput = strings.TrimSpace(value.AgentOutput)
+			if value.AgentOutput == "" {
 				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_output is required", fieldName)
 			}
-		case *proto.WorkflowOutputValueSource_SignalPayload:
-			kind.SignalPayload = strings.TrimSpace(kind.SignalPayload)
-			if kind.SignalPayload == "" {
+		}
+		if value.SignalPayload != "" {
+			selected++
+			value.SignalPayload = strings.TrimSpace(value.SignalPayload)
+			if value.SignalPayload == "" {
 				return fmt.Errorf("target.agent.%s.input_bindings.value.signal_payload is required", fieldName)
 			}
-		case *proto.WorkflowOutputValueSource_SignalMetadata:
-			kind.SignalMetadata = strings.TrimSpace(kind.SignalMetadata)
-			if kind.SignalMetadata == "" {
+		}
+		if value.SignalMetadata != "" {
+			selected++
+			value.SignalMetadata = strings.TrimSpace(value.SignalMetadata)
+			if value.SignalMetadata == "" {
 				return fmt.Errorf("target.agent.%s.input_bindings.value.signal_metadata is required", fieldName)
 			}
-		case *proto.WorkflowOutputValueSource_AgentSession:
-			kind.AgentSession = strings.TrimSpace(kind.AgentSession)
-			if kind.AgentSession == "" {
+		}
+		if value.AgentSession != "" {
+			selected++
+			value.AgentSession = strings.TrimSpace(value.AgentSession)
+			if value.AgentSession == "" {
 				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_session is required", fieldName)
 			}
-		case *proto.WorkflowOutputValueSource_Literal:
-			if kind.Literal == nil {
+		}
+		if value.Literal != nil {
+			selected++
+		}
+		switch selected {
+		case 0:
+			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
+		case 1:
+			if value.Literal == nil {
+				continue
+			}
+			if _, err := gestalt.ValueFromAny(value.Literal); err != nil {
 				return fmt.Errorf("target.agent.%s.input_bindings.value.literal is required", fieldName)
 			}
 		default:
-			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
+			return fmt.Errorf("target.agent.%s.input_bindings.value must set exactly one source", fieldName)
 		}
 	}
 	normalized, err := gestalt.NewWorkflowOutputDelivery(*deliveryInput)
