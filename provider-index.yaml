@@ -50,20 +50,6 @@ packages:
         platforms:
           - "linux/amd64"
           - "linux/arm64"
-  github.com/valon-technologies/gestalt-providers/agent/simple:
-    displayName: "Simple Agent"
-    description: "Simple multi-model agent provider for Gestalt with tool calling over the OpenAI and Anthropic SDKs."
-    versions:
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "agent"
-        runtime: "executable"
-        platforms:
-          - "darwin/amd64"
-          - "darwin/arm64"
-          - "linux/amd64"
-          - "linux/arm"
-          - "linux/arm64"
   github.com/valon-technologies/gestalt-providers/auth/oidc:
     displayName: "OIDC"
     description: "Authenticate users with an OpenID Connect provider."

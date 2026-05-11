@@ -11,7 +11,7 @@ import {
 
 type AgentSessionInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["createSession"]>>>;
 type AgentTurnInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["createTurn"]>>>;
-type AgentTurnEventInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["listTurnEvents"]>>>[number];
+type AgentTurnEventInit = AgentTurnEvent;
 
 export type PreparedWorkspace = {
   root: string;
@@ -153,7 +153,7 @@ export class InMemoryRunStore {
   }
 
   listSessions(input: {
-    sessionIds?: string[];
+    sessionIds?: readonly string[];
     subjectId: string | undefined;
     state: AgentSessionState | undefined;
     limit: number | undefined;
@@ -211,7 +211,7 @@ export class InMemoryRunStore {
     idempotencyKey: string;
     providerName: string;
     model: string;
-    messages: AgentMessage[];
+    messages: readonly AgentMessage[];
     createdBy: AgentActor | undefined;
     executionRef: string;
   }): { turn: StoredTurn; created: boolean } {
@@ -280,7 +280,7 @@ export class InMemoryRunStore {
 
   listTurns(input: {
     sessionId: string;
-    turnIds: string[] | undefined;
+    turnIds: readonly string[] | undefined;
     subjectId: string | undefined;
     status: AgentExecutionStatus | undefined;
     limit: number | undefined;
@@ -398,15 +398,15 @@ export class InMemoryRunStore {
   }
 }
 
-export function sessionToProto(session: StoredSession, summaryOnly = false): AgentSessionInit {
+export function sessionToAgentSession(session: StoredSession, summaryOnly = false): AgentSessionInit {
   const out: AgentSessionInit = {
     id: session.sessionId,
     providerName: session.providerName,
     model: session.model,
     clientRef: session.clientRef,
     state: session.state,
-    createdAt: timestamp(session.createdAt),
-    updatedAt: timestamp(session.updatedAt),
+    createdAt: new Date(session.createdAt),
+    updatedAt: new Date(session.updatedAt),
   };
   if (!summaryOnly && Object.keys(session.metadata).length > 0) {
     out.metadata = session.metadata as AgentSession["metadata"];
@@ -415,12 +415,12 @@ export function sessionToProto(session: StoredSession, summaryOnly = false): Age
     out.createdBy = session.createdBy;
   }
   if (session.lastTurnAt) {
-    out.lastTurnAt = timestamp(session.lastTurnAt);
+    out.lastTurnAt = new Date(session.lastTurnAt);
   }
   return out;
 }
 
-export function turnToProto(turn: StoredTurn, summaryOnly = false): AgentTurnInit {
+export function turnToAgentTurn(turn: StoredTurn, summaryOnly = false): AgentTurnInit {
   const out: AgentTurnInit = {
     id: turn.turnId,
     sessionId: turn.sessionId,
@@ -430,7 +430,7 @@ export function turnToProto(turn: StoredTurn, summaryOnly = false): AgentTurnIni
     outputText: summaryOnly ? "" : turn.outputText,
     statusMessage: turn.statusMessage,
     executionRef: turn.executionRef,
-    createdAt: timestamp(turn.createdAt),
+    createdAt: new Date(turn.createdAt),
   };
   if (!summaryOnly) {
     out.messages = cloneMessages(turn.messages);
@@ -439,15 +439,15 @@ export function turnToProto(turn: StoredTurn, summaryOnly = false): AgentTurnIni
     out.createdBy = turn.createdBy;
   }
   if (turn.startedAt) {
-    out.startedAt = timestamp(turn.startedAt);
+    out.startedAt = new Date(turn.startedAt);
   }
   if (turn.completedAt) {
-    out.completedAt = timestamp(turn.completedAt);
+    out.completedAt = new Date(turn.completedAt);
   }
   return out;
 }
 
-export function turnEventToProto(event: StoredTurnEvent): AgentTurnEventInit {
+export function turnEventToAgentTurnEvent(event: StoredTurnEvent): AgentTurnEventInit {
   return {
     id: event.eventId,
     turnId: event.turnId,
@@ -456,7 +456,7 @@ export function turnEventToProto(event: StoredTurnEvent): AgentTurnEventInit {
     source: event.source,
     visibility: event.visibility,
     data: event.data as AgentTurnEvent["data"],
-    createdAt: timestamp(event.createdAt),
+    createdAt: new Date(event.createdAt),
   };
 }
 
@@ -503,18 +503,10 @@ function cloneEvent(event: StoredTurnEvent): StoredTurnEvent {
   };
 }
 
-function cloneMessages(messages: AgentMessage[]): AgentMessage[] {
+function cloneMessages(messages: readonly AgentMessage[]): AgentMessage[] {
   return JSON.parse(JSON.stringify(messages)) as AgentMessage[];
 }
 
 function cloneMaybe<T>(value: T | undefined): T | undefined {
   return value === undefined ? undefined : (JSON.parse(JSON.stringify(value)) as T);
-}
-
-function timestamp(date: Date): NonNullable<AgentSessionInit["createdAt"]> {
-  const milliseconds = date.getTime();
-  return {
-    seconds: BigInt(Math.floor(milliseconds / 1000)),
-    nanos: (milliseconds % 1000) * 1_000_000,
-  };
 }

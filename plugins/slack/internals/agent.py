@@ -2735,9 +2735,7 @@ def _build_workflow_agent_target(
         "provider_name": _agent_provider(route),
         "model": _agent_model(route),
         "prompt": _workflow_agent_prompt(),
-        "messages": [
-            gestalt.AgentMessage(role="system", text=_agent_system_prompt(route)),
-        ],
+        "messages": [{"role": "system", "text": _agent_system_prompt(route)}],
         "tool_refs": _agent_event_tool_refs(route),
         "session_ready_delivery": _workflow_session_ready_delivery(),
         "output_delivery": _workflow_output_delivery(),
@@ -3052,15 +3050,15 @@ def _agent_tool_ref(
     title: str = "",
     description: str = "",
 ) -> Any:
-    return gestalt.AgentToolRef(
-        system=system,
-        plugin=plugin,
-        operation=operation,
-        connection=connection,
-        instance=instance,
-        title=title,
-        description=description,
-    )
+    return {
+        "system": system,
+        "plugin": plugin,
+        "operation": operation,
+        "connection": connection,
+        "instance": instance,
+        "title": title,
+        "description": description,
+    }
 
 
 def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:

@@ -116,9 +116,7 @@ def workflow_agent_target(
         provider_name=agent_provider(policy),
         model=agent_model(policy),
         prompt=workflow_agent_prompt(),
-        messages=[
-            gestalt.AgentMessage(role="system", text=agent_system_prompt(policy)),
-        ],
+        messages=[{"role": "system", "text": agent_system_prompt(policy)}],
         tool_refs=agent_tool_refs(policy),
         metadata=agent_session_metadata(summary, policy),
     )
@@ -168,7 +166,7 @@ def workflow_agent_prompt() -> str:
 
 def agent_tool_refs(policy: GitHubWebhookPolicy | None = None) -> list[Any]:
     return [
-        gestalt.AgentToolRef(plugin="github", operation=operation)
+        {"plugin": "github", "operation": operation}
         for operation in agent_operations(policy)
     ]
 

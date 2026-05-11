@@ -51,7 +51,7 @@ export class CursorSDKRunner {
     sessionId: string;
     turnId: string;
     model: string;
-    messages: AgentMessage[];
+    messages: readonly AgentMessage[];
     runGrant: string;
     cwd: string;
     onEvent: TurnEventSink;
@@ -108,7 +108,7 @@ export class CursorSDKRunner {
       sessionId: string;
       turnId: string;
       model: string;
-      messages: AgentMessage[];
+      messages: readonly AgentMessage[];
       runGrant: string;
       cwd: string;
       onEvent: TurnEventSink;
@@ -290,7 +290,7 @@ function recordSDKMessage(onEvent: TurnEventSink, message: SDKMessage): string {
 }
 
 function messagesToPrompt(
-  messages: AgentMessage[],
+  messages: readonly AgentMessage[],
   systemPrompt: string,
 ): string {
   const sections: string[] = [];

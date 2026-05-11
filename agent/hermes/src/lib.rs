@@ -9,14 +9,12 @@ use std::sync::Arc;
 
 use acp::{AcpNotification, AcpProcess};
 use config::HermesConfig;
-use gestalt::{proto::v1 as proto, protocol};
 use mcp_bridge::McpBridgeHandle;
 use serde_json::{Value as JsonValue, json};
 use store::{
-    BeginTurnResult, CreateSessionResult, Store, event_to_proto, session_to_proto, turn_to_proto,
+    BeginTurnResult, CreateSessionResult, Store, agent_session, agent_turn, agent_turn_event,
 };
 use tokio::sync::{Mutex, RwLock};
-use tonic::{Request, Response, Status};
 
 const PROVIDER_DISPLAY_NAME: &str = "Hermes ACP Agent";
 const PROVIDER_DESCRIPTION: &str = "Runs Hermes through the Agent Client Protocol.";
@@ -101,17 +99,13 @@ impl gestalt::AgentProvider for HermesAgentProvider {
         self.inner.warnings.write().await.clear();
         Ok(())
     }
-}
 
-#[gestalt::async_trait]
-impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
     async fn create_session(
         &self,
-        request: Request<proto::CreateAgentProviderSessionRequest>,
-    ) -> Result<Response<proto::AgentSession>, Status> {
-        let req = request.into_inner();
+        req: gestalt::CreateAgentProviderSessionRequest,
+    ) -> gestalt::Result<gestalt::AgentSession> {
         if req.session_id.trim().is_empty() {
-            return Err(Status::invalid_argument("session_id is required"));
+            return Err(gestalt::Error::bad_request("session_id is required"));
         }
         let config = self.require_config().await?;
         let provider_name = self.provider_name().await;
@@ -123,16 +117,16 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
             .await
             .existing_session_for_create(&req)
         {
-            return Ok(Response::new(session_to_proto(existing, false)));
+            return Ok(agent_session(existing, false));
         }
         let token = config
             .fresh_access_token()
             .await
-            .map_err(|err| Status::failed_precondition(redacted_token_error(err)))?;
+            .map_err(|err| gestalt::Error::failed_precondition(redacted_token_error(err)))?;
         let acp = Arc::new(
             AcpProcess::spawn(&config, token.as_deref())
                 .await
-                .map_err(Status::unavailable)?,
+                .map_err(gestalt::Error::unavailable)?,
         );
         let acp_session_result = async {
             acp.initialize(config.timeout).await?;
@@ -151,24 +145,23 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
         }
         .await;
         acp.kill().await;
-        let acp_session_id = acp_session_result.map_err(Status::unavailable)?;
+        let acp_session_id = acp_session_result.map_err(gestalt::Error::unavailable)?;
 
         let mut store = self.inner.store.lock().await;
         let session = match store.create_session(&req, &provider_name, model, acp_session_id) {
             Ok(CreateSessionResult::Created(session) | CreateSessionResult::Existing(session)) => {
                 session
             }
-            Err(err) => return Err(Status::invalid_argument(err)),
+            Err(err) => return Err(gestalt::Error::bad_request(err)),
         };
-        Ok(Response::new(session_to_proto(session, false)))
+        Ok(agent_session(session, false))
     }
 
     async fn get_session(
         &self,
-        request: Request<proto::GetAgentProviderSessionRequest>,
-    ) -> Result<Response<proto::AgentSession>, Status> {
+        req: gestalt::GetAgentProviderSessionRequest,
+    ) -> gestalt::Result<gestalt::AgentSession> {
         self.require_config().await?;
-        let req = request.into_inner();
         let session = self
             .inner
             .store
@@ -176,19 +169,21 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
             .await
             .get_session(&req.session_id)
             .ok_or_else(|| {
-                Status::not_found(format!("agent session {:?} was not found", req.session_id))
+                gestalt::Error::not_found(format!(
+                    "agent session {:?} was not found",
+                    req.session_id
+                ))
             })?;
-        Ok(Response::new(session_to_proto(session, false)))
+        Ok(agent_session(session, false))
     }
 
     async fn list_sessions(
         &self,
-        request: Request<proto::ListAgentProviderSessionsRequest>,
-    ) -> Result<Response<proto::ListAgentProviderSessionsResponse>, Status> {
+        req: gestalt::ListAgentProviderSessionsRequest,
+    ) -> gestalt::Result<gestalt::ListAgentProviderSessionsResponse> {
         self.require_config().await?;
-        let req = request.into_inner();
         if req.limit < 0 {
-            return Err(Status::invalid_argument("limit must be non-negative"));
+            return Err(gestalt::Error::bad_request("limit must be non-negative"));
         }
         let subject_id = req
             .subject
@@ -202,20 +197,17 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
             .await
             .list_sessions(&req.session_ids, &subject_id, req.state, req.limit)
             .into_iter()
-            .map(|session| session_to_proto(session, req.summary_only))
+            .map(|session| agent_session(session, req.summary_only))
             .collect();
-        Ok(Response::new(proto::ListAgentProviderSessionsResponse {
-            sessions,
-        }))
+        Ok(gestalt::ListAgentProviderSessionsResponse { sessions })
     }
 
     async fn update_session(
         &self,
-        request: Request<proto::UpdateAgentProviderSessionRequest>,
-    ) -> Result<Response<proto::AgentSession>, Status> {
+        req: gestalt::UpdateAgentProviderSessionRequest,
+    ) -> gestalt::Result<gestalt::AgentSession> {
         self.require_config().await?;
-        let req = request.into_inner();
-        let metadata = req.metadata.as_ref().map(protocol::json_from_struct);
+        let metadata = req.metadata.clone();
         let session = self
             .inner
             .store
@@ -223,23 +215,28 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
             .await
             .update_session(&req.session_id, &req.client_ref, req.state, metadata)
             .ok_or_else(|| {
-                Status::not_found(format!("agent session {:?} was not found", req.session_id))
+                gestalt::Error::not_found(format!(
+                    "agent session {:?} was not found",
+                    req.session_id
+                ))
             })?;
-        Ok(Response::new(session_to_proto(session, false)))
+        Ok(agent_session(session, false))
     }
 
     async fn create_turn(
         &self,
-        request: Request<proto::CreateAgentProviderTurnRequest>,
-    ) -> Result<Response<proto::AgentTurn>, Status> {
-        let req = request.into_inner();
+        req: gestalt::CreateAgentProviderTurnRequest,
+    ) -> gestalt::Result<gestalt::AgentTurn> {
         validate_turn_request(&req)?;
         let config = self.require_config().await?;
         let provider_name = self.provider_name().await;
         let model = {
             let store = self.inner.store.lock().await;
             let session = store.get_session(&req.session_id).ok_or_else(|| {
-                Status::not_found(format!("agent session {:?} was not found", req.session_id))
+                gestalt::Error::not_found(format!(
+                    "agent session {:?} was not found",
+                    req.session_id
+                ))
             })?;
             config.resolve_model(if req.model.trim().is_empty() {
                 &session.model
@@ -261,21 +258,22 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
                 }
                 Ok(BeginTurnResult::Existing(turn)) => turn,
                 Err(err) if err.contains("active turn") => {
-                    return Err(Status::failed_precondition(err));
+                    return Err(gestalt::Error::failed_precondition(err));
                 }
-                Err(err) if err.contains("was not found") => return Err(Status::not_found(err)),
-                Err(err) => return Err(Status::invalid_argument(err)),
+                Err(err) if err.contains("was not found") => {
+                    return Err(gestalt::Error::not_found(err));
+                }
+                Err(err) => return Err(gestalt::Error::bad_request(err)),
             }
         };
-        Ok(Response::new(turn_to_proto(turn, false)))
+        Ok(agent_turn(turn, false))
     }
 
     async fn get_turn(
         &self,
-        request: Request<proto::GetAgentProviderTurnRequest>,
-    ) -> Result<Response<proto::AgentTurn>, Status> {
+        req: gestalt::GetAgentProviderTurnRequest,
+    ) -> gestalt::Result<gestalt::AgentTurn> {
         self.require_config().await?;
-        let req = request.into_inner();
         let turn = self
             .inner
             .store
@@ -283,19 +281,18 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
             .await
             .get_turn(&req.turn_id)
             .ok_or_else(|| {
-                Status::not_found(format!("agent turn {:?} was not found", req.turn_id))
+                gestalt::Error::not_found(format!("agent turn {:?} was not found", req.turn_id))
             })?;
-        Ok(Response::new(turn_to_proto(turn, false)))
+        Ok(agent_turn(turn, false))
     }
 
     async fn list_turns(
         &self,
-        request: Request<proto::ListAgentProviderTurnsRequest>,
-    ) -> Result<Response<proto::ListAgentProviderTurnsResponse>, Status> {
+        req: gestalt::ListAgentProviderTurnsRequest,
+    ) -> gestalt::Result<gestalt::ListAgentProviderTurnsResponse> {
         self.require_config().await?;
-        let req = request.into_inner();
         if req.limit < 0 {
-            return Err(Status::invalid_argument("limit must be non-negative"));
+            return Err(gestalt::Error::bad_request("limit must be non-negative"));
         }
         let subject_id = req
             .subject
@@ -315,39 +312,36 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
                 req.limit,
             )
             .into_iter()
-            .map(|turn| turn_to_proto(turn, req.summary_only))
+            .map(|turn| agent_turn(turn, req.summary_only))
             .collect();
-        Ok(Response::new(proto::ListAgentProviderTurnsResponse {
-            turns,
-        }))
+        Ok(gestalt::ListAgentProviderTurnsResponse { turns })
     }
 
     async fn cancel_turn(
         &self,
-        request: Request<proto::CancelAgentProviderTurnRequest>,
-    ) -> Result<Response<proto::AgentTurn>, Status> {
+        req: gestalt::CancelAgentProviderTurnRequest,
+    ) -> gestalt::Result<gestalt::AgentTurn> {
         self.require_config().await?;
-        let req = request.into_inner();
         let provider_name = self.provider_name().await;
         let turn = {
             let mut store = self.inner.store.lock().await;
             let before = store.get_turn(&req.turn_id).ok_or_else(|| {
-                Status::not_found(format!("agent turn {:?} was not found", req.turn_id))
+                gestalt::Error::not_found(format!("agent turn {:?} was not found", req.turn_id))
             })?;
             let turn = store
                 .cancel_turn(&req.turn_id, &req.reason)
                 .ok_or_else(|| {
-                    Status::not_found(format!("agent turn {:?} was not found", req.turn_id))
+                    gestalt::Error::not_found(format!("agent turn {:?} was not found", req.turn_id))
                 })?;
-            if before.status != proto::AgentExecutionStatus::Canceled as i32
-                && turn.status == proto::AgentExecutionStatus::Canceled as i32
+            if before.status != gestalt::AgentExecutionStatus::Canceled
+                && turn.status == gestalt::AgentExecutionStatus::Canceled
             {
                 store.append_event(
                     &req.turn_id,
                     "turn.canceled",
                     &provider_name,
                     json!({ "reason": req.reason }),
-                    Some(proto::AgentTurnDisplay {
+                    Some(gestalt::AgentTurnDisplay {
                         kind: "status".to_string(),
                         phase: "completed".to_string(),
                         text: "Turn canceled".to_string(),
@@ -374,17 +368,16 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
         if let Some(bridge) = self.inner.mcp_bridges.lock().await.remove(&turn.id) {
             bridge.shutdown();
         }
-        Ok(Response::new(turn_to_proto(turn, false)))
+        Ok(agent_turn(turn, false))
     }
 
     async fn list_turn_events(
         &self,
-        request: Request<proto::ListAgentProviderTurnEventsRequest>,
-    ) -> Result<Response<proto::ListAgentProviderTurnEventsResponse>, Status> {
+        req: gestalt::ListAgentProviderTurnEventsRequest,
+    ) -> gestalt::Result<gestalt::ListAgentProviderTurnEventsResponse> {
         self.require_config().await?;
-        let req = request.into_inner();
         if req.limit < 0 {
-            return Err(Status::invalid_argument("limit must be non-negative"));
+            return Err(gestalt::Error::bad_request("limit must be non-negative"));
         }
         let events = self
             .inner
@@ -393,20 +386,17 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
             .await
             .list_events(&req.turn_id, req.after_seq, req.limit)
             .into_iter()
-            .map(event_to_proto)
+            .map(agent_turn_event)
             .collect();
-        Ok(Response::new(proto::ListAgentProviderTurnEventsResponse {
-            events,
-        }))
+        Ok(gestalt::ListAgentProviderTurnEventsResponse { events })
     }
 
     async fn get_interaction(
         &self,
-        request: Request<proto::GetAgentProviderInteractionRequest>,
-    ) -> Result<Response<proto::AgentInteraction>, Status> {
+        req: gestalt::GetAgentProviderInteractionRequest,
+    ) -> gestalt::Result<gestalt::AgentInteraction> {
         self.require_config().await?;
-        let req = request.into_inner();
-        Err(Status::not_found(format!(
+        Err(gestalt::Error::not_found(format!(
             "agent interaction {:?} was not found",
             req.interaction_id
         )))
@@ -414,23 +404,20 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
 
     async fn list_interactions(
         &self,
-        _request: Request<proto::ListAgentProviderInteractionsRequest>,
-    ) -> Result<Response<proto::ListAgentProviderInteractionsResponse>, Status> {
+        _request: gestalt::ListAgentProviderInteractionsRequest,
+    ) -> gestalt::Result<gestalt::ListAgentProviderInteractionsResponse> {
         self.require_config().await?;
-        Ok(Response::new(
-            proto::ListAgentProviderInteractionsResponse {
-                interactions: Vec::new(),
-            },
-        ))
+        Ok(gestalt::ListAgentProviderInteractionsResponse {
+            interactions: Vec::new(),
+        })
     }
 
     async fn resolve_interaction(
         &self,
-        request: Request<proto::ResolveAgentProviderInteractionRequest>,
-    ) -> Result<Response<proto::AgentInteraction>, Status> {
+        req: gestalt::ResolveAgentProviderInteractionRequest,
+    ) -> gestalt::Result<gestalt::AgentInteraction> {
         self.require_config().await?;
-        let req = request.into_inner();
-        Err(Status::not_found(format!(
+        Err(gestalt::Error::not_found(format!(
             "agent interaction {:?} was not found",
             req.interaction_id
         )))
@@ -438,10 +425,10 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
 
     async fn get_capabilities(
         &self,
-        _request: Request<proto::GetAgentProviderCapabilitiesRequest>,
-    ) -> Result<Response<proto::AgentProviderCapabilities>, Status> {
+        _request: gestalt::GetAgentProviderCapabilitiesRequest,
+    ) -> gestalt::Result<gestalt::AgentProviderCapabilities> {
         self.require_config().await?;
-        Ok(Response::new(proto::AgentProviderCapabilities {
+        Ok(gestalt::AgentProviderCapabilities {
             streaming_text: true,
             tool_calls: true,
             parallel_tool_calls: false,
@@ -450,21 +437,21 @@ impl proto::agent_provider_server::AgentProvider for HermesAgentProvider {
             resumable_turns: false,
             reasoning_summaries: true,
             bounded_list_hydration: true,
-            supported_tool_sources: vec![proto::AgentToolSourceMode::McpCatalog as i32],
+            supported_tool_sources: vec![gestalt::AgentToolSourceMode::McpCatalog],
             supports_session_start: false,
             supports_prepared_workspace: false,
-        }))
+        })
     }
 }
 
 impl HermesAgentProvider {
-    async fn require_config(&self) -> Result<HermesConfig, Status> {
+    async fn require_config(&self) -> gestalt::Result<HermesConfig> {
         self.inner
             .config
             .read()
             .await
             .clone()
-            .ok_or_else(|| Status::failed_precondition("provider has not been configured"))
+            .ok_or_else(|| gestalt::Error::failed_precondition("provider has not been configured"))
     }
 
     async fn provider_name(&self) -> String {
@@ -489,7 +476,7 @@ impl HermesAgentProvider {
         let current = store.get_turn(&turn_id);
         if current
             .as_ref()
-            .is_some_and(|turn| turn.status == proto::AgentExecutionStatus::Canceled as i32)
+            .is_some_and(|turn| turn.status == gestalt::AgentExecutionStatus::Canceled)
         {
             return;
         }
@@ -498,7 +485,7 @@ impl HermesAgentProvider {
                 store.append_event(&turn_id, "turn.completed", &provider_name, json!({}), None);
                 let _ = store.finish_turn(
                     &turn_id,
-                    proto::AgentExecutionStatus::Succeeded as i32,
+                    gestalt::AgentExecutionStatus::Succeeded,
                     String::new(),
                 );
             }
@@ -508,15 +495,14 @@ impl HermesAgentProvider {
                     "turn.failed",
                     &provider_name,
                     json!({ "message": err }),
-                    Some(proto::AgentTurnDisplay {
+                    Some(gestalt::AgentTurnDisplay {
                         kind: "error".to_string(),
                         phase: "completed".to_string(),
                         text: err.clone(),
                         ..Default::default()
                     }),
                 );
-                let _ =
-                    store.finish_turn(&turn_id, proto::AgentExecutionStatus::Failed as i32, err);
+                let _ = store.finish_turn(&turn_id, gestalt::AgentExecutionStatus::Failed, err);
             }
         }
     }
@@ -545,7 +531,7 @@ impl HermesAgentProvider {
                 turn.run_grant,
             )
         };
-        let mcp_catalog_enabled = tool_source == proto::AgentToolSourceMode::McpCatalog as i32;
+        let mcp_catalog_enabled = tool_source == gestalt::AgentToolSourceMode::McpCatalog;
         if self.is_turn_canceled(turn_id).await {
             return Err("turn canceled".to_string());
         }
@@ -624,7 +610,7 @@ impl HermesAgentProvider {
                         if stop_reason == "cancelled" {
                             return Err("Hermes ACP turn was cancelled".to_string());
                         }
-                        if let Some(err) = hermes_stderr_failure(&process.stderr().await) {
+                        if let Some(err) = hermes_terminal_stderr_failure(&process).await {
                             return Err(err);
                         }
                         return Ok(());
@@ -662,7 +648,7 @@ impl HermesAgentProvider {
             .lock()
             .await
             .get_turn(turn_id)
-            .is_some_and(|turn| turn.status == proto::AgentExecutionStatus::Canceled as i32)
+            .is_some_and(|turn| turn.status == gestalt::AgentExecutionStatus::Canceled)
     }
 
     async fn record_session_update(
@@ -709,7 +695,7 @@ impl HermesAgentProvider {
                     "agent.message.delta",
                     provider_name,
                     json!({ "text": text }),
-                    Some(proto::AgentTurnDisplay {
+                    Some(gestalt::AgentTurnDisplay {
                         kind: "text".to_string(),
                         phase: "delta".to_string(),
                         text,
@@ -724,7 +710,7 @@ impl HermesAgentProvider {
                     "agent.reasoning.delta",
                     provider_name,
                     json!({ "text": text }),
-                    Some(proto::AgentTurnDisplay {
+                    Some(gestalt::AgentTurnDisplay {
                         kind: "reasoning".to_string(),
                         phase: "delta".to_string(),
                         text,
@@ -752,7 +738,7 @@ impl HermesAgentProvider {
                     },
                     provider_name,
                     json!({ "update": update }),
-                    Some(proto::AgentTurnDisplay {
+                    Some(gestalt::AgentTurnDisplay {
                         kind: "tool".to_string(),
                         phase: phase.to_string(),
                         label: update
@@ -766,14 +752,8 @@ impl HermesAgentProvider {
                             .and_then(JsonValue::as_str)
                             .unwrap_or_default()
                             .to_string(),
-                        input: update
-                            .get("rawInput")
-                            .cloned()
-                            .map(protocol::value_from_json),
-                        output: update
-                            .get("rawOutput")
-                            .cloned()
-                            .map(protocol::value_from_json),
+                        input: update.get("rawInput").cloned(),
+                        output: update.get("rawOutput").cloned(),
                         ..Default::default()
                     }),
                 );
@@ -784,7 +764,7 @@ impl HermesAgentProvider {
                     "acp.session_update",
                     provider_name,
                     json!({ "update": update }),
-                    Some(proto::AgentTurnDisplay {
+                    Some(gestalt::AgentTurnDisplay {
                         kind: "status".to_string(),
                         phase: "progress".to_string(),
                         label: session_update.to_string(),
@@ -809,6 +789,14 @@ fn hermes_stderr_failure(stderr: &str) -> Option<String> {
     ))
 }
 
+async fn hermes_terminal_stderr_failure(process: &AcpProcess) -> Option<String> {
+    if let Some(err) = hermes_stderr_failure(&process.stderr().await) {
+        return Some(err);
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    hermes_stderr_failure(&process.stderr().await)
+}
+
 fn truncate_for_status(value: &str, max_chars: usize) -> String {
     let mut result = String::new();
     for ch in value.chars().take(max_chars) {
@@ -820,58 +808,53 @@ fn truncate_for_status(value: &str, max_chars: usize) -> String {
     result
 }
 
-fn validate_turn_request(req: &proto::CreateAgentProviderTurnRequest) -> Result<(), Status> {
+fn validate_turn_request(req: &gestalt::CreateAgentProviderTurnRequest) -> gestalt::Result<()> {
+    let has_object_fields = |value: Option<&JsonValue>| {
+        value
+            .and_then(JsonValue::as_object)
+            .is_some_and(|object| !object.is_empty())
+    };
     if req.messages.is_empty() {
-        return Err(Status::invalid_argument(
+        return Err(gestalt::Error::bad_request(
             "messages must contain at least one entry",
         ));
     }
     if !req.tools.is_empty() {
-        return Err(Status::invalid_argument(
+        return Err(gestalt::Error::bad_request(
             "resolved tools are not supported by agent/hermes; use tool_source=MCP_CATALOG",
         ));
     }
     validate_mcp_catalog_tool_refs(&req.tool_refs)?;
-    let tool_source = proto::AgentToolSourceMode::try_from(req.tool_source)
-        .map_err(|_| Status::invalid_argument("unsupported tool_source for agent/hermes"))?;
-    match tool_source {
-        proto::AgentToolSourceMode::Unspecified => {
+    match req.tool_source {
+        gestalt::AgentToolSourceMode::Unspecified => {
             if !req.tool_refs.is_empty() {
-                return Err(Status::invalid_argument(
+                return Err(gestalt::Error::bad_request(
                     "tool_source=MCP_CATALOG is required when tool_refs are provided",
                 ));
             }
         }
-        proto::AgentToolSourceMode::McpCatalog => {
+        gestalt::AgentToolSourceMode::McpCatalog => {
             if req.run_grant.trim().is_empty() {
-                return Err(Status::invalid_argument(
+                return Err(gestalt::Error::bad_request(
                     "run_grant is required when tool_source=MCP_CATALOG",
                 ));
             }
         }
     }
-    if req
-        .response_schema
-        .as_ref()
-        .is_some_and(|schema| !schema.fields.is_empty())
-    {
-        return Err(Status::invalid_argument(
+    if has_object_fields(req.response_schema.as_ref()) {
+        return Err(gestalt::Error::bad_request(
             "response_schema is not supported by agent/hermes",
         ));
     }
-    if req
-        .model_options
-        .as_ref()
-        .is_some_and(|options| !options.fields.is_empty())
-    {
-        return Err(Status::invalid_argument(
+    if has_object_fields(req.model_options.as_ref()) {
+        return Err(gestalt::Error::bad_request(
             "model_options are not supported by agent/hermes",
         ));
     }
     Ok(())
 }
 
-fn validate_mcp_catalog_tool_refs(refs: &[proto::AgentToolRef]) -> Result<(), Status> {
+fn validate_mcp_catalog_tool_refs(refs: &[gestalt::AgentToolRef]) -> gestalt::Result<()> {
     for (index, tool_ref) in refs.iter().enumerate() {
         let system = tool_ref.system.trim();
         let plugin = tool_ref.plugin.trim();
@@ -881,28 +864,28 @@ fn validate_mcp_catalog_tool_refs(refs: &[proto::AgentToolRef]) -> Result<(), St
         let title = tool_ref.title.trim();
         let description = tool_ref.description.trim();
         if system.is_empty() && plugin.is_empty() {
-            return Err(Status::invalid_argument(format!(
+            return Err(gestalt::Error::bad_request(format!(
                 "tool_refs[{index}].plugin or system is required"
             )));
         }
         if !system.is_empty() && !plugin.is_empty() {
-            return Err(Status::invalid_argument(format!(
+            return Err(gestalt::Error::bad_request(format!(
                 "tool_refs[{index}] must set exactly one of plugin or system"
             )));
         }
         if !system.is_empty() {
             if system != "workflow" {
-                return Err(Status::invalid_argument(format!(
+                return Err(gestalt::Error::bad_request(format!(
                     "tool_refs[{index}].system {system:?} is not supported"
                 )));
             }
             if operation.is_empty() {
-                return Err(Status::invalid_argument(format!(
+                return Err(gestalt::Error::bad_request(format!(
                     "tool_refs[{index}].operation is required for system refs"
                 )));
             }
             if operation == "*" {
-                return Err(Status::invalid_argument(format!(
+                return Err(gestalt::Error::bad_request(format!(
                     "tool_refs[{index}].operation wildcard is not supported"
                 )));
             }
@@ -911,14 +894,14 @@ fn validate_mcp_catalog_tool_refs(refs: &[proto::AgentToolRef]) -> Result<(), St
                 || !title.is_empty()
                 || !description.is_empty()
             {
-                return Err(Status::invalid_argument(format!(
+                return Err(gestalt::Error::bad_request(format!(
                     "tool_refs[{index}] system refs cannot include connection, instance, title, or description"
                 )));
             }
             continue;
         }
         if operation == "*" || connection == "*" || instance == "*" {
-            return Err(Status::invalid_argument(format!(
+            return Err(gestalt::Error::bad_request(format!(
                 "tool_refs[{index}] wildcard fields are not supported"
             )));
         }
@@ -929,7 +912,7 @@ fn validate_mcp_catalog_tool_refs(refs: &[proto::AgentToolRef]) -> Result<(), St
                 || !title.is_empty()
                 || !description.is_empty())
         {
-            return Err(Status::invalid_argument(format!(
+            return Err(gestalt::Error::bad_request(format!(
                 "tool_refs[{index}] global ref cannot include operation, connection, instance, title, or description"
             )));
         }
@@ -937,7 +920,7 @@ fn validate_mcp_catalog_tool_refs(refs: &[proto::AgentToolRef]) -> Result<(), St
     Ok(())
 }
 
-fn messages_to_prompt(messages: &[proto::AgentMessage]) -> Result<String, String> {
+fn messages_to_prompt(messages: &[gestalt::AgentMessage]) -> Result<String, String> {
     let mut prompt = String::new();
     for (index, message) in messages.iter().enumerate() {
         writeln!(
@@ -961,39 +944,37 @@ fn messages_to_prompt(messages: &[proto::AgentMessage]) -> Result<String, String
     Ok(prompt)
 }
 
-fn message_part_to_json(part: &proto::AgentMessagePart) -> JsonValue {
-    let part_type = proto::AgentMessagePartType::try_from(part.r#type)
-        .unwrap_or(proto::AgentMessagePartType::Unspecified);
-    match part_type {
-        proto::AgentMessagePartType::Text => json!({ "type": "text", "text": part.text }),
-        proto::AgentMessagePartType::Json => {
-            json!({ "type": "json", "json": part.json.as_ref().map(protocol::json_from_struct).unwrap_or(JsonValue::Null) })
+fn message_part_to_json(part: &gestalt::AgentMessagePart) -> JsonValue {
+    match part.r#type {
+        gestalt::AgentMessagePartType::Text => json!({ "type": "text", "text": part.text }),
+        gestalt::AgentMessagePartType::Json => {
+            json!({ "type": "json", "json": part.json.as_ref().cloned().unwrap_or(JsonValue::Null) })
         }
-        proto::AgentMessagePartType::ImageRef => json!({
+        gestalt::AgentMessagePartType::ImageRef => json!({
             "type": "image_ref",
             "uri": part.image_ref.as_ref().map(|image| image.uri.as_str()).unwrap_or_default(),
             "mime_type": part.image_ref.as_ref().map(|image| image.mime_type.as_str()).unwrap_or_default()
         }),
-        proto::AgentMessagePartType::ToolCall => match &part.tool_call {
+        gestalt::AgentMessagePartType::ToolCall => match &part.tool_call {
             Some(tool_call) => json!({
                 "type": "tool_call",
                 "id": tool_call.id,
                 "tool_id": tool_call.tool_id,
-                "arguments": tool_call.arguments.as_ref().map(protocol::json_from_struct).unwrap_or(JsonValue::Null)
+                "arguments": tool_call.arguments.as_ref().cloned().unwrap_or(JsonValue::Null)
             }),
             None => json!({ "type": "tool_call" }),
         },
-        proto::AgentMessagePartType::ToolResult => match &part.tool_result {
+        gestalt::AgentMessagePartType::ToolResult => match &part.tool_result {
             Some(tool_result) => json!({
                 "type": "tool_result",
                 "tool_call_id": tool_result.tool_call_id,
                 "status": tool_result.status,
                 "content": tool_result.content,
-                "output": tool_result.output.as_ref().map(protocol::json_from_struct).unwrap_or(JsonValue::Null)
+                "output": tool_result.output.as_ref().cloned().unwrap_or(JsonValue::Null)
             }),
             None => json!({ "type": "tool_result" }),
         },
-        proto::AgentMessagePartType::Unspecified => json!({ "type": "unspecified" }),
+        gestalt::AgentMessagePartType::Unspecified => json!({ "type": "unspecified" }),
     }
 }
 

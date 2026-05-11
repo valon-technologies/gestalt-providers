@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 import grpc
+import gestalt
 from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, ToolResultBlock, ToolUseBlock
 from google.protobuf import json_format
 from google.protobuf import empty_pb2 as _empty_pb2
@@ -27,7 +28,6 @@ from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.mcp_bridge import GestaltMCPBridge, _schema_from_json
-from internals.provider_io import CreateSessionInput, ProviderRequestError
 from internals.session_start import ADDITIONAL_CONTEXT_KEY, prepend_session_start_context, run_session_start_hooks
 from tests.fake_indexeddb import FakeIndexedDB, datastore_pb2_grpc
 
@@ -284,11 +284,6 @@ class _FakeClaudeSDKClient:
         self.disconnected = True
 
 
-class _FakeProviderContext:
-    def abort(self, code: grpc.StatusCode, details: str) -> None:
-        raise grpc.RpcError(f"{code.name}: {details}")
-
-
 class ClaudeProviderTests(unittest.TestCase):
     def setUp(self) -> None:
         assert _host_servicer is not None
@@ -356,44 +351,47 @@ class ClaudeProviderTests(unittest.TestCase):
 
     def test_provider_runs_session_start_once_and_prepends_context(self) -> None:
         _, provider_client = _configure_provider()
-        session_start = agent_pb2.AgentSessionStartConfig()
-        hook = session_start.hooks.add()
-        hook.id = "load-memory"
-        hook.type = "command"
-        hook.command.extend([sys.executable, "-c", "print('session context from provider')"])
-        hook.timeout = "5s"
-        hook.output.additional_context = True
-        hook.output.metadata = True
+        session_start = gestalt.AgentSessionStartConfig(
+            hooks=[
+                gestalt.AgentSessionStartHook(
+                    id="load-memory",
+                    type="command",
+                    command=[sys.executable, "-c", "print('session context from provider')"],
+                    timeout="5s",
+                    output=gestalt.AgentSessionStartHookOutput(additional_context=True, metadata=True),
+                )
+            ]
+        )
 
-        session = provider_module.provider.CreateSession(
-            agent_pb2.CreateAgentProviderSessionRequest(
+        session = provider_module.provider.create_session(
+            gestalt.CreateAgentProviderSessionRequest(
                 session_id="session-start-provider",
                 idempotency_key="session-start-idem",
                 session_start=session_start,
-                created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
-            ),
-            cast(grpc.ServicerContext, _FakeProviderContext()),
+                created_by=gestalt.AgentActor(subject_id="user-123", subject_kind="human"),
+            )
         )
-        metadata = json_format.MessageToDict(session.metadata)
+        metadata = session.metadata or {}
         self.assertEqual(
             metadata["__gestalt.lifecycle.sessionStart.results.load-memory"]["stdout"],
             "session context from provider\n",
         )
 
-        replay_session_start = agent_pb2.AgentSessionStartConfig()
-        replay_hook = replay_session_start.hooks.add()
-        replay_hook.id = "should-not-run"
-        replay_hook.type = "command"
-        replay_hook.command.extend([sys.executable, "-c", "import sys; sys.exit(7)"])
+        replay_session_start = gestalt.AgentSessionStartConfig(
+            hooks=[
+                gestalt.AgentSessionStartHook(
+                    id="should-not-run", type="command", command=[sys.executable, "-c", "import sys; sys.exit(7)"]
+                )
+            ]
+        )
 
-        replay = provider_module.provider.CreateSession(
-            agent_pb2.CreateAgentProviderSessionRequest(
+        replay = provider_module.provider.create_session(
+            gestalt.CreateAgentProviderSessionRequest(
                 session_id="session-start-provider-replay",
                 idempotency_key="session-start-idem",
                 session_start=replay_session_start,
-                created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
-            ),
-            cast(grpc.ServicerContext, _FakeProviderContext()),
+                created_by=gestalt.AgentActor(subject_id="user-123", subject_kind="human"),
+            )
         )
         self.assertEqual(replay.id, "session-start-provider")
 
@@ -547,48 +545,18 @@ class ClaudeProviderTests(unittest.TestCase):
             duplicate_docs = _make_claude_plugin(root, "duplicate-docs", manifest_name="docs")
 
             cases = [
-                (
-                    {"plugins": ["relative"]},
-                    "path must be absolute",
-                ),
-                (
-                    {"plugins": [{"path": valid}]},
-                    r"plugins\[1\] must be a local plugin path",
-                ),
-                (
-                    {"plugins": [valid, valid]},
-                    "resolve to the same path",
-                ),
-                (
-                    {"plugins": [valid, duplicate_docs]},
-                    "use the same manifest name",
-                ),
-                (
-                    {"plugins": [missing_manifest]},
-                    "must include .claude-plugin/plugin.json",
-                ),
-                (
-                    {"plugins": [missing_name_manifest]},
-                    "manifest name is required",
-                ),
-                (
-                    {"plugins": [manifest_executable_component]},
-                    "unsupported components",
-                ),
-                (
-                    {"plugins": [root_executable_component]},
-                    "unsupported root components",
-                ),
+                ({"plugins": ["relative"]}, "path must be absolute"),
+                ({"plugins": [{"path": valid}]}, r"plugins\[1\] must be a local plugin path"),
+                ({"plugins": [valid, valid]}, "resolve to the same path"),
+                ({"plugins": [valid, duplicate_docs]}, "use the same manifest name"),
+                ({"plugins": [missing_manifest]}, "must include .claude-plugin/plugin.json"),
+                ({"plugins": [missing_name_manifest]}, "manifest name is required"),
+                ({"plugins": [manifest_executable_component]}, "unsupported components"),
+                ({"plugins": [root_executable_component]}, "unsupported root components"),
                 ({"settingSources": ["workspace"]}, "settingSources entries must be one of"),
                 ({"skillDiscovery": "named"}, "skillDiscovery must be one of"),
-                (
-                    {"allowedTools": ["WebFetch"]},
-                    "unsupported Claude Code tool specifier",
-                ),
-                (
-                    {"allowedTools": "Read"},
-                    "allowedTools must be a list",
-                ),
+                ({"allowedTools": ["WebFetch"]}, "unsupported Claude Code tool specifier"),
+                ({"allowedTools": "Read"}, "allowedTools must be a list"),
                 (
                     {"pluginRegistry": {"docs": {"path": valid}}},
                     "unsupported Claude Code config fields: pluginRegistry",
@@ -601,23 +569,14 @@ class ClaudeProviderTests(unittest.TestCase):
                     {"toolPermissions": {"allowedTools": ["Read"]}},
                     "unsupported Claude Code config fields: toolPermissions",
                 ),
-                (
-                    {
-                        "permissionMode": "bypassPermissions",
-                        "allowedTools": ["Read"],
-                    },
-                    "bypassPermissions cannot be used",
-                ),
+                ({"permissionMode": "bypassPermissions", "allowedTools": ["Read"]}, "bypassPermissions cannot be used"),
             ]
             for config, message in cases:
                 with self.subTest(message=message):
                     with self.assertRaisesRegex(ValueError, message):
                         provider_module.ClaudeCodeAgentProvider().configure("claude", _base_config(config))
             provider_module.ClaudeCodeAgentProvider().configure(
-                "claude",
-                _base_config(
-                    {"plugins": [metadata_manifest, default_skills_dir_manifest]}
-                ),
+                "claude", _base_config({"plugins": [metadata_manifest, default_skills_dir_manifest]})
             )
 
     def test_provider_completes_turn_through_agent_sdk_with_catalog_tools(self) -> None:
@@ -719,10 +678,13 @@ class ClaudeProviderTests(unittest.TestCase):
         )
 
     def test_prepared_workspace_requires_root_and_cwd(self) -> None:
-        request = agent_pb2.CreateAgentProviderSessionRequest(session_id="bad-workspace")
-        request.prepared_workspace.root = "/workspace"
-        with self.assertRaisesRegex(ProviderRequestError, "root and cwd are required"):
-            CreateSessionInput.from_proto(request)
+        _configure_provider()
+        with self.assertRaisesRegex(gestalt.Error, "root and cwd are required"):
+            provider_module.provider.create_session(
+                gestalt.CreateAgentProviderSessionRequest(
+                    session_id="bad-workspace", prepared_workspace=gestalt.AgentPreparedWorkspace(root="/workspace")
+                )
+            )
 
     def test_indexeddb_persists_session_for_new_provider_instance(self) -> None:
         provider_a = provider_module.ClaudeCodeAgentProvider()
@@ -806,12 +768,12 @@ class ClaudeProviderTests(unittest.TestCase):
             },
         )
 
-        fetched_session = provider_client.GetSession(agent_pb2.GetAgentProviderSessionRequest(session_id="session-seeded"))
+        fetched_session = provider_client.GetSession(
+            agent_pb2.GetAgentProviderSessionRequest(session_id="session-seeded")
+        )
         listed_sessions = provider_client.ListSessions(agent_pb2.ListAgentProviderSessionsRequest())
         fetched_turn = provider_client.GetTurn(agent_pb2.GetAgentProviderTurnRequest(turn_id="turn-seeded"))
-        listed_turns = provider_client.ListTurns(
-            agent_pb2.ListAgentProviderTurnsRequest(session_id="session-seeded")
-        )
+        listed_turns = provider_client.ListTurns(agent_pb2.ListAgentProviderTurnsRequest(session_id="session-seeded"))
 
         self.assertEqual(fetched_session.id, "session-seeded")
         self.assertEqual(fetched_session.model, "sonnet-seeded")
@@ -919,9 +881,7 @@ class ClaudeProviderTests(unittest.TestCase):
             )
         )
         exact_session_without_subject = provider_client.ListSessions(
-            agent_pb2.ListAgentProviderSessionsRequest(
-                session_ids=["session-stream-b"], limit=10, summary_only=True
-            )
+            agent_pb2.ListAgentProviderSessionsRequest(session_ids=["session-stream-b"], limit=10, summary_only=True)
         )
         subject_mismatch_exact_session = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
@@ -932,9 +892,7 @@ class ClaudeProviderTests(unittest.TestCase):
             )
         )
         exact_turn_without_subject = provider_client.ListTurns(
-            agent_pb2.ListAgentProviderTurnsRequest(
-                turn_ids=["turn-stream-a"], limit=10, summary_only=True
-            )
+            agent_pb2.ListAgentProviderTurnsRequest(turn_ids=["turn-stream-a"], limit=10, summary_only=True)
         )
         bounded_source_session_get_all = (
             indexeddb.operation_count(store=source_session_store, operation="get_all")
@@ -978,10 +936,7 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(full_turns.turns[0].output_text, "Claude completed")
         self.assertEqual(list(running_turns.turns), [])
         self.assertEqual([turn.id for turn in succeeded_turns.turns], ["turn-stream-a"])
-        self.assertEqual(
-            [session.id for session in exact_session_without_subject.sessions],
-            ["session-stream-b"],
-        )
+        self.assertEqual([session.id for session in exact_session_without_subject.sessions], ["session-stream-b"])
         self.assertEqual(list(subject_mismatch_exact_session.sessions), [])
         self.assertEqual([turn.id for turn in exact_turn_without_subject.turns], ["turn-stream-a"])
         self.assertEqual([session.id for session in active_sessions.sessions], ["session-stream-a"])
@@ -1453,12 +1408,14 @@ class ClaudeProviderTests(unittest.TestCase):
     def test_sdk_cancelled_result_marks_turn_canceled(self) -> None:
         _FakeClaudeSDKClient.mode = "cancelled_result"
         _, provider_client = _configure_provider()
-        provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-cancelled-result"))
-        provider_client.CreateTurn(_turn_request(turn_id="turn-cancelled-result", session_id="session-cancelled-result"))
-
-        canceled = _wait_for_turn(
-            provider_client, "turn-cancelled-result", agent_pb2.AGENT_EXECUTION_STATUS_CANCELED
+        provider_client.CreateSession(
+            agent_pb2.CreateAgentProviderSessionRequest(session_id="session-cancelled-result")
         )
+        provider_client.CreateTurn(
+            _turn_request(turn_id="turn-cancelled-result", session_id="session-cancelled-result")
+        )
+
+        canceled = _wait_for_turn(provider_client, "turn-cancelled-result", agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
         self.assertEqual(canceled.status_message, "cancelled by sdk")
 
 
