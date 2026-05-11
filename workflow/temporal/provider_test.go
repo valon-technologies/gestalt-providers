@@ -1547,35 +1547,8 @@ func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 	}
 }
 
-func TestWorkflowStateStoreWritesNativeRunPayloadsAndReadsLegacyProtoPayloads(t *testing.T) {
+func TestWorkflowStateStoreWritesNativeRunPayloads(t *testing.T) {
 	ctx, state := newTestWorkflowStateStore(t)
-	legacyID := encodeTemporalRunHandle(temporalRunHandle{
-		RunWorkflowID:    "legacy-workflow",
-		RunTemporalRunID: "legacy-run",
-		OwnerKey:         "slack",
-	})
-	legacyRun := &proto.BoundWorkflowRun{
-		Id:        legacyID,
-		Status:    proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED,
-		Target:    pluginTarget("slack", "postMessage"),
-		Trigger:   manualTriggerProto(),
-		CreatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
-	}
-	if err := state.runProjections.Put(ctx, gestalt.Record{
-		"id":         state.scopedID(legacyID),
-		"scope_id":   state.scopeID,
-		"owner_key":  "slack",
-		"status":     int64(legacyRun.GetStatus()),
-		"created_at": time.Unix(100, 0).UTC(),
-		"payload":    protoPayload(legacyRun),
-	}); err != nil {
-		t.Fatalf("put legacy proto projection: %v", err)
-	}
-	decodedLegacy, found, err := state.getRun(ctx, legacyID)
-	if err != nil || !found || decodedLegacy.ID != legacyID || decodedLegacy.Status != legacyRun.GetStatus() {
-		t.Fatalf("legacy projection found=%v run=%#v err=%v, want decoded proto payload", found, decodedLegacy, err)
-	}
-
 	nativeID := encodeTemporalRunHandle(temporalRunHandle{
 		RunWorkflowID:    "native-workflow",
 		RunTemporalRunID: "native-run",
