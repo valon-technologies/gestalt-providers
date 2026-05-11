@@ -12,7 +12,6 @@ import (
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 )
 
 const (
@@ -28,7 +27,7 @@ const (
 
 type scopedTarget struct {
 	OwnerKey string
-	Target   *proto.BoundWorkflowTarget
+	Target   *gestalt.BoundWorkflowTargetInput
 }
 
 const runHandleKindV4 = "temporal-run-v4"
@@ -120,74 +119,66 @@ func workflowID(scopeID, kind string, parts ...string) string {
 	return "gestalt/" + hashID("scope", scopeID) + "/" + strings.Trim(strings.ReplaceAll(kind, " ", "-"), "/") + "/" + hashID(values...)
 }
 
-func normalizeTarget(target *proto.BoundWorkflowTarget) (scopedTarget, error) {
+func normalizeTarget(target *gestalt.BoundWorkflowTargetInput) (scopedTarget, error) {
 	if target == nil {
 		return scopedTarget{}, errors.New("target is required")
 	}
-	if agentTarget := target.GetAgent(); agentTarget != nil {
-		agentInput := gestalt.BoundWorkflowAgentTargetInputFromTarget(agentTarget)
-		agentInput.ProviderName = strings.TrimSpace(agentInput.ProviderName)
-		agentInput.Model = strings.TrimSpace(agentInput.Model)
-		agentInput.Prompt = strings.TrimSpace(agentInput.Prompt)
-		agent, err := gestalt.NewBoundWorkflowAgentTarget(agentInput)
-		if err != nil {
-			return scopedTarget{}, fmt.Errorf("target.agent: %w", err)
-		}
-		if agent.GetProviderName() == "" {
+	if target.Agent != nil {
+		agent := *target.Agent
+		agent.ProviderName = strings.TrimSpace(agent.ProviderName)
+		agent.Model = strings.TrimSpace(agent.Model)
+		agent.Prompt = strings.TrimSpace(agent.Prompt)
+		agent.OutputDelivery = cloneOutputDeliveryInput(agent.OutputDelivery)
+		agent.SessionReadyDelivery = cloneOutputDeliveryInput(agent.SessionReadyDelivery)
+		if agent.ProviderName == "" {
 			return scopedTarget{}, errors.New("target.agent.provider_name is required")
 		}
-		if agent.GetPrompt() == "" && len(agent.GetMessages()) == 0 {
+		if agent.Prompt == "" && len(agent.Messages) == 0 {
 			return scopedTarget{}, errors.New("target.agent.prompt or messages is required")
 		}
-		if agent.GetTimeoutSeconds() < 0 {
+		if agent.TimeoutSeconds < 0 {
 			return scopedTarget{}, errors.New("target.agent.timeout_seconds must not be negative")
 		}
-		if err := normalizeAgentOutputDelivery(agent.GetOutputDelivery()); err != nil {
+		if err := normalizeAgentOutputDelivery(agent.OutputDelivery); err != nil {
 			return scopedTarget{}, err
 		}
-		if err := normalizeAgentSessionReadyDelivery(agent.GetSessionReadyDelivery()); err != nil {
+		if err := normalizeAgentSessionReadyDelivery(agent.SessionReadyDelivery); err != nil {
 			return scopedTarget{}, err
 		}
-		agentInput = gestalt.BoundWorkflowAgentTargetInputFromTarget(agent)
-		normalized, err := gestalt.NewBoundWorkflowTarget(gestalt.BoundWorkflowTargetInput{
-			Agent: &agentInput,
-		})
-		if err != nil {
+		normalized := &gestalt.BoundWorkflowTargetInput{Agent: &agent}
+		if _, err := gestalt.NewBoundWorkflowTarget(*normalized); err != nil {
 			return scopedTarget{}, fmt.Errorf("target.agent: %w", err)
 		}
 		return scopedTarget{
-			OwnerKey: "agent:" + agent.GetProviderName(),
+			OwnerKey: "agent:" + agent.ProviderName,
 			Target:   normalized,
 		}, nil
 	}
-	plugin := target.GetPlugin()
-	if plugin == nil {
+	if target.Plugin == nil {
 		return scopedTarget{}, errors.New("target.plugin.plugin_name is required")
 	}
-	pluginName := strings.TrimSpace(plugin.GetPluginName())
-	operation := strings.TrimSpace(plugin.GetOperation())
+	plugin := *target.Plugin
+	pluginName := strings.TrimSpace(plugin.PluginName)
+	operation := strings.TrimSpace(plugin.Operation)
 	if pluginName == "" {
 		return scopedTarget{}, errors.New("target.plugin.plugin_name is required")
 	}
 	if operation == "" {
 		return scopedTarget{}, errors.New("target.plugin.operation is required")
 	}
-	credentialMode := strings.ToLower(strings.TrimSpace(plugin.GetCredentialMode()))
+	credentialMode := strings.ToLower(strings.TrimSpace(plugin.CredentialMode))
 	switch credentialMode {
 	case "", "none", "user":
 	default:
-		return scopedTarget{}, fmt.Errorf("target.plugin.credential_mode %q is not supported", plugin.GetCredentialMode())
+		return scopedTarget{}, fmt.Errorf("target.plugin.credential_mode %q is not supported", plugin.CredentialMode)
 	}
-	pluginInput := gestalt.BoundWorkflowPluginTargetInputFromTarget(plugin)
-	pluginInput.PluginName = pluginName
-	pluginInput.Operation = operation
-	pluginInput.Connection = strings.TrimSpace(pluginInput.Connection)
-	pluginInput.Instance = strings.TrimSpace(pluginInput.Instance)
-	pluginInput.CredentialMode = credentialMode
-	normalized, err := gestalt.NewBoundWorkflowTarget(gestalt.BoundWorkflowTargetInput{
-		Plugin: &pluginInput,
-	})
-	if err != nil {
+	plugin.PluginName = pluginName
+	plugin.Operation = operation
+	plugin.Connection = strings.TrimSpace(plugin.Connection)
+	plugin.Instance = strings.TrimSpace(plugin.Instance)
+	plugin.CredentialMode = credentialMode
+	normalized := &gestalt.BoundWorkflowTargetInput{Plugin: &plugin}
+	if _, err := gestalt.NewBoundWorkflowTarget(*normalized); err != nil {
 		return scopedTarget{}, fmt.Errorf("target.plugin.input: %w", err)
 	}
 	return scopedTarget{
@@ -196,92 +187,91 @@ func normalizeTarget(target *proto.BoundWorkflowTarget) (scopedTarget, error) {
 	}, nil
 }
 
-func normalizeAgentOutputDelivery(delivery *proto.WorkflowOutputDelivery) error {
+func normalizeAgentOutputDelivery(delivery *gestalt.WorkflowOutputDeliveryInput) error {
 	return normalizeAgentDelivery(delivery, "output_delivery", false)
 }
 
-func normalizeAgentSessionReadyDelivery(delivery *proto.WorkflowOutputDelivery) error {
+func normalizeAgentSessionReadyDelivery(delivery *gestalt.WorkflowOutputDeliveryInput) error {
 	return normalizeAgentDelivery(delivery, "session_ready_delivery", true)
 }
 
-func normalizeAgentDelivery(delivery *proto.WorkflowOutputDelivery, fieldName string, beforeTurn bool) error {
+func normalizeAgentDelivery(delivery *gestalt.WorkflowOutputDeliveryInput, fieldName string, beforeTurn bool) error {
 	if delivery == nil {
 		return nil
 	}
-	target := delivery.GetTarget()
+	target := delivery.Target
 	if target == nil {
 		return fmt.Errorf("target.agent.%s.target.plugin_name is required", fieldName)
 	}
-	pluginName := strings.TrimSpace(target.GetPluginName())
-	operation := strings.TrimSpace(target.GetOperation())
+	targetCopy := *target
+	pluginName := strings.TrimSpace(targetCopy.PluginName)
+	operation := strings.TrimSpace(targetCopy.Operation)
 	if pluginName == "" {
 		return fmt.Errorf("target.agent.%s.target.plugin_name is required", fieldName)
 	}
 	if operation == "" {
 		return fmt.Errorf("target.agent.%s.target.operation is required", fieldName)
 	}
-	targetCredentialMode := strings.ToLower(strings.TrimSpace(target.GetCredentialMode()))
+	targetCredentialMode := strings.ToLower(strings.TrimSpace(targetCopy.CredentialMode))
 	if targetCredentialMode != "" {
-		return fmt.Errorf("target.agent.%s.target.credential_mode %q is not supported", fieldName, target.GetCredentialMode())
+		return fmt.Errorf("target.agent.%s.target.credential_mode %q is not supported", fieldName, targetCopy.CredentialMode)
 	}
-	credentialMode := strings.ToLower(strings.TrimSpace(delivery.GetCredentialMode()))
+	credentialMode := strings.ToLower(strings.TrimSpace(delivery.CredentialMode))
 	switch credentialMode {
 	case "", "none", "user":
 	default:
-		return fmt.Errorf("target.agent.%s.credential_mode %q is not supported", fieldName, delivery.GetCredentialMode())
+		return fmt.Errorf("target.agent.%s.credential_mode %q is not supported", fieldName, delivery.CredentialMode)
 	}
-	target.PluginName = pluginName
-	target.Operation = operation
-	target.Connection = strings.TrimSpace(target.GetConnection())
-	target.Instance = strings.TrimSpace(target.GetInstance())
-	target.CredentialMode = ""
+	targetCopy.PluginName = pluginName
+	targetCopy.Operation = operation
+	targetCopy.Connection = strings.TrimSpace(targetCopy.Connection)
+	targetCopy.Instance = strings.TrimSpace(targetCopy.Instance)
+	targetCopy.CredentialMode = ""
 	delivery.CredentialMode = credentialMode
-	for _, binding := range delivery.GetInputBindings() {
-		if binding == nil || binding.GetValue() == nil || binding.GetValue().GetKind() == nil {
+	delivery.Target = &targetCopy
+	for i := range delivery.InputBindings {
+		binding := &delivery.InputBindings[i]
+		if binding.Value == nil {
 			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
 		}
-		binding.InputField = strings.TrimSpace(binding.GetInputField())
-		if binding.GetInputField() == "" {
+		binding.InputField = strings.TrimSpace(binding.InputField)
+		if binding.InputField == "" {
 			return fmt.Errorf("target.agent.%s.input_bindings.input_field is required", fieldName)
 		}
-		switch kind := binding.GetValue().GetKind().(type) {
-		case *proto.WorkflowOutputValueSource_AgentOutput:
+		value := binding.Value
+		value.AgentOutput = strings.TrimSpace(value.AgentOutput)
+		value.SignalPayload = strings.TrimSpace(value.SignalPayload)
+		value.SignalMetadata = strings.TrimSpace(value.SignalMetadata)
+		value.AgentSession = strings.TrimSpace(value.AgentSession)
+		selected := 0
+		if value.AgentOutput != "" {
+			selected++
 			if beforeTurn {
 				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_output is not available before the agent turn starts", fieldName)
 			}
-			kind.AgentOutput = strings.TrimSpace(kind.AgentOutput)
-			if kind.AgentOutput == "" {
-				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_output is required", fieldName)
-			}
-		case *proto.WorkflowOutputValueSource_SignalPayload:
-			kind.SignalPayload = strings.TrimSpace(kind.SignalPayload)
-			if kind.SignalPayload == "" {
-				return fmt.Errorf("target.agent.%s.input_bindings.value.signal_payload is required", fieldName)
-			}
-		case *proto.WorkflowOutputValueSource_SignalMetadata:
-			kind.SignalMetadata = strings.TrimSpace(kind.SignalMetadata)
-			if kind.SignalMetadata == "" {
-				return fmt.Errorf("target.agent.%s.input_bindings.value.signal_metadata is required", fieldName)
-			}
-		case *proto.WorkflowOutputValueSource_AgentSession:
-			kind.AgentSession = strings.TrimSpace(kind.AgentSession)
-			if kind.AgentSession == "" {
-				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_session is required", fieldName)
-			}
-		case *proto.WorkflowOutputValueSource_Literal:
-			if kind.Literal == nil {
-				return fmt.Errorf("target.agent.%s.input_bindings.value.literal is required", fieldName)
-			}
-		default:
+		}
+		if value.SignalPayload != "" {
+			selected++
+		}
+		if value.SignalMetadata != "" {
+			selected++
+		}
+		if value.AgentSession != "" {
+			selected++
+		}
+		if value.Literal != nil {
+			selected++
+		}
+		if selected == 0 {
 			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
 		}
+		if selected > 1 {
+			return fmt.Errorf("target.agent.%s.input_bindings.value must set exactly one source", fieldName)
+		}
 	}
-	deliveryInput := gestalt.WorkflowOutputDeliveryInputFromDelivery(delivery)
-	normalized, err := gestalt.NewWorkflowOutputDelivery(*deliveryInput)
-	if err != nil {
+	if _, err := gestalt.NewWorkflowOutputDelivery(*delivery); err != nil {
 		return fmt.Errorf("target.agent.%s: %w", fieldName, err)
 	}
-	*delivery = *normalized
 	return nil
 }
 
@@ -301,37 +291,41 @@ func targetOwnerKeyInput(target *gestalt.BoundWorkflowTargetInput) string {
 	return ""
 }
 
-func normalizeWorkflowEvent(event *proto.WorkflowEvent, now func() time.Time) (*proto.WorkflowEvent, error) {
+func normalizeWorkflowEvent(event *gestalt.WorkflowEventInput, now func() time.Time) (*gestalt.WorkflowEventInput, error) {
 	if event == nil {
 		return nil, errors.New("event is required")
 	}
-	source := strings.TrimSpace(event.GetSource())
+	source := strings.TrimSpace(event.Source)
 	if source == "" {
 		return nil, errors.New("event.source is required")
 	}
-	eventType := strings.TrimSpace(event.GetType())
+	eventType := strings.TrimSpace(event.Type)
 	if eventType == "" {
 		return nil, errors.New("event.type is required")
 	}
-	specVersion := strings.TrimSpace(event.GetSpecVersion())
+	specVersion := strings.TrimSpace(event.SpecVersion)
 	if specVersion == "" {
 		specVersion = defaultSpecVersion
 	}
 	eventTime := now().UTC()
-	if ts := event.GetTime(); ts != nil && ts.IsValid() {
-		eventTime = ts.AsTime().UTC()
+	if !event.Time.IsZero() {
+		eventTime = event.Time.UTC()
 	}
-	return gestalt.NewWorkflowEvent(gestalt.WorkflowEventInput{
-		ID:              strings.TrimSpace(event.GetId()),
+	normalized := &gestalt.WorkflowEventInput{
+		ID:              strings.TrimSpace(event.ID),
 		Source:          source,
 		SpecVersion:     specVersion,
 		Type:            eventType,
-		Subject:         strings.TrimSpace(event.GetSubject()),
+		Subject:         strings.TrimSpace(event.Subject),
 		Time:            eventTime,
-		DataContentType: strings.TrimSpace(event.GetDatacontenttype()),
-		Data:            gestalt.MapFromStruct(event.GetData()),
-		Extensions:      gestalt.MapFromValues(event.GetExtensions()),
-	})
+		DataContentType: strings.TrimSpace(event.DataContentType),
+		Data:            event.Data,
+		Extensions:      event.Extensions,
+	}
+	if _, err := gestalt.NewWorkflowEvent(*normalized); err != nil {
+		return nil, err
+	}
+	return normalized, nil
 }
 
 func normalizeWorkflowSignalInput(signal *gestalt.WorkflowSignalInput, now time.Time) (*gestalt.WorkflowSignalInput, error) {
@@ -358,103 +352,6 @@ func normalizeWorkflowSignalInput(signal *gestalt.WorkflowSignalInput, now time.
 	return &out, nil
 }
 
-func cloneTarget(target *proto.BoundWorkflowTarget) *proto.BoundWorkflowTarget {
-	if target == nil {
-		return nil
-	}
-	out, err := gestalt.NewBoundWorkflowTargetFromTarget(target)
-	if err != nil {
-		panic(fmt.Sprintf("clone workflow target: %v", err))
-	}
-	return out
-}
-
-func cloneActor(actor *proto.WorkflowActor) *proto.WorkflowActor {
-	if actor == nil {
-		return nil
-	}
-	return &proto.WorkflowActor{
-		SubjectId:   strings.TrimSpace(actor.GetSubjectId()),
-		SubjectKind: strings.TrimSpace(actor.GetSubjectKind()),
-		DisplayName: strings.TrimSpace(actor.GetDisplayName()),
-		AuthSource:  strings.TrimSpace(actor.GetAuthSource()),
-	}
-}
-
-func actorInputPtr(actor *proto.WorkflowActor) *gestalt.WorkflowActorInput {
-	actor = cloneActor(actor)
-	if actor == nil {
-		return nil
-	}
-	input := gestalt.WorkflowActorInputFromActor(actor)
-	return &input
-}
-
-func workflowTargetInput(target *proto.BoundWorkflowTarget) *gestalt.BoundWorkflowTargetInput {
-	if target == nil {
-		return nil
-	}
-	input := gestalt.BoundWorkflowTargetInputFromTarget(target)
-	return &input
-}
-
-func workflowTriggerInput(trigger *proto.WorkflowRunTrigger) *gestalt.WorkflowRunTriggerInput {
-	if trigger == nil {
-		return nil
-	}
-	input, err := gestalt.WorkflowRunTriggerInputFromTrigger(trigger)
-	if err != nil {
-		panic("workflow trigger input: " + err.Error())
-	}
-	return &input
-}
-
-func workflowTargetProto(input *gestalt.BoundWorkflowTargetInput) (*proto.BoundWorkflowTarget, error) {
-	if input == nil {
-		return nil, nil
-	}
-	return gestalt.NewBoundWorkflowTarget(*input)
-}
-
-func workflowActorProto(input *gestalt.WorkflowActorInput) *proto.WorkflowActor {
-	if input == nil {
-		return nil
-	}
-	return gestalt.NewWorkflowActor(*input)
-}
-
-func workflowEventProto(input *gestalt.WorkflowEventInput) (*proto.WorkflowEvent, error) {
-	if input == nil {
-		return nil, nil
-	}
-	return gestalt.NewWorkflowEvent(*input)
-}
-
-func cloneEvent(event *proto.WorkflowEvent) *proto.WorkflowEvent {
-	if event == nil {
-		return nil
-	}
-	out, err := gestalt.NewWorkflowEventFromEvent(event)
-	if err != nil {
-		panic(fmt.Sprintf("clone workflow event: %v", err))
-	}
-	return out
-}
-
-func cloneSignal(signal *proto.WorkflowSignal) *proto.WorkflowSignal {
-	if signal == nil {
-		return nil
-	}
-	out, err := gestalt.NewWorkflowSignalFromSignal(signal)
-	if err != nil {
-		panic(fmt.Sprintf("clone workflow signal: %v", err))
-	}
-	if out.GetCreatedBy() != nil {
-		out.CreatedBy = cloneActor(out.GetCreatedBy())
-	}
-	return out
-}
-
 func cloneRunInput(run *gestalt.BoundWorkflowRunInput) *gestalt.BoundWorkflowRunInput {
 	if run == nil {
 		return nil
@@ -465,6 +362,28 @@ func cloneRunInput(run *gestalt.BoundWorkflowRunInput) *gestalt.BoundWorkflowRun
 	out.ExecutionRef = strings.TrimSpace(out.ExecutionRef)
 	out.WorkflowKey = strings.TrimSpace(out.WorkflowKey)
 	out.CreatedBy = cloneActorInput(out.CreatedBy)
+	return &out
+}
+
+func cloneOutputDeliveryInput(delivery *gestalt.WorkflowOutputDeliveryInput) *gestalt.WorkflowOutputDeliveryInput {
+	if delivery == nil {
+		return nil
+	}
+	out := *delivery
+	if delivery.Target != nil {
+		target := *delivery.Target
+		out.Target = &target
+	}
+	if len(delivery.InputBindings) > 0 {
+		out.InputBindings = make([]gestalt.WorkflowOutputBindingInput, len(delivery.InputBindings))
+		for i, binding := range delivery.InputBindings {
+			out.InputBindings[i] = binding
+			if binding.Value != nil {
+				value := *binding.Value
+				out.InputBindings[i].Value = &value
+			}
+		}
+	}
 	return &out
 }
 
@@ -532,17 +451,8 @@ func eventMatchKey(ownerKey, typ, source, subject string) string {
 	return strings.TrimSpace(ownerKey) + "\x00" + strings.TrimSpace(typ) + "\x00" + strings.TrimSpace(source) + "\x00" + strings.TrimSpace(subject)
 }
 
-func actorHasSubject(actor *proto.WorkflowActor) bool {
-	return strings.TrimSpace(actor.GetSubjectId()) != ""
-}
-
-func isConfigManagedActor(actor *proto.WorkflowActor) bool {
-	if actor == nil {
-		return false
-	}
-	return strings.TrimSpace(actor.GetSubjectId()) == configManagedWorkflowSubject &&
-		strings.TrimSpace(actor.GetSubjectKind()) == configManagedWorkflowKind &&
-		strings.TrimSpace(actor.GetAuthSource()) == configManagedWorkflowAuth
+func actorHasSubject(actor *gestalt.WorkflowActorInput) bool {
+	return actor != nil && strings.TrimSpace(actor.SubjectID) != ""
 }
 
 func createdByForUpsertInput(existing, requested *gestalt.WorkflowActorInput) *gestalt.WorkflowActorInput {

@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 )
 
 func ownerIdempotencyLedgerKey(ownerKey, key string) string {
@@ -43,13 +42,17 @@ func startFingerprint(ownerKey, key, workflowKey, executionRef string, target *g
 	return hashID("start", ownerKey, key, workflowKey, executionRef, valueHashID(target), valueHashID(createdBy))
 }
 
-func eventRunWorkflowID(scopeID, triggerID string, event *proto.WorkflowEvent) string {
+func eventRunWorkflowID(scopeID, triggerID string, event *gestalt.WorkflowEventInput) string {
 	// The event-v3 family is a persisted idempotency namespace for published event
 	// IDs. Keep it stable even though the provider runtime is now V4-only.
-	if event.GetId() != "" {
-		return workflowID(scopeID, "event-v3", triggerID, event.GetSource(), event.GetId())
+	if event != nil && strings.TrimSpace(event.ID) != "" {
+		return workflowID(scopeID, "event-v3", triggerID, event.Source, event.ID)
 	}
-	return workflowID(scopeID, "event-v3", triggerID, event.GetSource(), uuid.NewString())
+	source := ""
+	if event != nil {
+		source = event.Source
+	}
+	return workflowID(scopeID, "event-v3", triggerID, source, uuid.NewString())
 }
 
 func signalInputForStartedRun(run *gestalt.BoundWorkflowRunInput, signal *gestalt.WorkflowSignalInput) *gestalt.WorkflowSignalInput {

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 )
 
 func validateExecutionReferenceInput(ref *gestalt.WorkflowExecutionReferenceInput) (*gestalt.WorkflowExecutionReferenceInput, error) {
@@ -23,15 +22,11 @@ func validateExecutionReferenceInput(ref *gestalt.WorkflowExecutionReferenceInpu
 	out.AuthSource = strings.TrimSpace(out.AuthSource)
 	out.CredentialSubjectID = strings.TrimSpace(out.CredentialSubjectID)
 	out.CallerPluginName = strings.TrimSpace(out.CallerPluginName)
-	targetProto, err := workflowTargetProto(out.Target)
+	target, err := normalizeTarget(out.Target)
 	if err != nil {
 		return nil, err
 	}
-	target, err := normalizeTarget(targetProto)
-	if err != nil {
-		return nil, err
-	}
-	out.Target = workflowTargetInput(target.Target)
+	out.Target = target.Target
 	if out.ID == "" {
 		return nil, fmt.Errorf("id is required")
 	}
@@ -51,7 +46,7 @@ func validateExecutionReferenceInput(ref *gestalt.WorkflowExecutionReferenceInpu
 	return &out, nil
 }
 
-func publishedEventExecutionReference(providerName, referenceKey string, trigger *proto.BoundWorkflowEventTrigger, actor *proto.WorkflowActor, createdAt time.Time) (*proto.WorkflowExecutionReference, error) {
+func publishedEventExecutionReference(providerName, referenceKey string, trigger *gestalt.BoundWorkflowEventTriggerInput, actor *gestalt.WorkflowActorInput, createdAt time.Time) (*gestalt.WorkflowExecutionReferenceInput, error) {
 	if !actorHasSubject(actor) || trigger == nil {
 		return nil, nil
 	}
@@ -59,73 +54,80 @@ func publishedEventExecutionReference(providerName, referenceKey string, trigger
 	if err != nil {
 		return nil, err
 	}
-	subjectID := strings.TrimSpace(actor.GetSubjectId())
-	return gestalt.NewWorkflowExecutionReference(gestalt.WorkflowExecutionReferenceInput{
+	subjectID := strings.TrimSpace(actor.SubjectID)
+	ref := &gestalt.WorkflowExecutionReferenceInput{
 		ID:                  "event_ref:" + hashID(referenceKey),
 		ProviderName:        strings.TrimSpace(providerName),
-		Target:              workflowTargetInput(trigger.GetTarget()),
+		Target:              trigger.Target,
 		SubjectID:           subjectID,
 		CredentialSubjectID: subjectID,
-		Permissions:         workflowPermissionInputs(permissions),
+		Permissions:         permissions,
 		CreatedAt:           createdAt.UTC(),
-		SubjectKind:         strings.TrimSpace(actor.GetSubjectKind()),
-		DisplayName:         strings.TrimSpace(actor.GetDisplayName()),
-		AuthSource:          strings.TrimSpace(actor.GetAuthSource()),
-	})
+		SubjectKind:         strings.TrimSpace(actor.SubjectKind),
+		DisplayName:         strings.TrimSpace(actor.DisplayName),
+		AuthSource:          strings.TrimSpace(actor.AuthSource),
+	}
+	if _, err := gestalt.NewWorkflowExecutionReference(*ref); err != nil {
+		return nil, err
+	}
+	return ref, nil
 }
 
-func eventExecutionReferencePermissions(trigger *proto.BoundWorkflowEventTrigger) ([]*proto.WorkflowAccessPermission, error) {
-	permissions := executionReferencePermissionsForTarget(trigger.GetTarget())
-	if !isConfigManagedActor(trigger.GetCreatedBy()) {
+func eventExecutionReferencePermissions(trigger *gestalt.BoundWorkflowEventTriggerInput) ([]gestalt.WorkflowAccessPermissionInput, error) {
+	permissions := executionReferencePermissionsForTarget(trigger.Target)
+	if !isConfigManagedActorInput(trigger.CreatedBy) {
 		return permissions, nil
 	}
-	extra, err := configuredEventRunPermissions(pluginTargetInput(trigger.GetTarget()))
+	extra, err := configuredEventRunPermissions(pluginTargetInput(trigger.Target))
 	if err != nil {
 		return nil, err
 	}
 	return mergeAccessPermissions(permissions, extra), nil
 }
 
-func executionReferencePermissionsForTarget(target *proto.BoundWorkflowTarget) []*proto.WorkflowAccessPermission {
+func executionReferencePermissionsForTarget(target *gestalt.BoundWorkflowTargetInput) []gestalt.WorkflowAccessPermissionInput {
 	if target == nil {
 		return nil
 	}
-	if agent := target.GetAgent(); agent != nil {
+	if agent := target.Agent; agent != nil {
 		set := map[string]map[string]struct{}{}
-		for _, tool := range agent.GetToolRefs() {
+		for _, tool := range agent.ToolRefs {
 			addPermission(set, strings.TrimSpace(tool.GetPlugin()), strings.TrimSpace(tool.GetOperation()))
 		}
-		if delivery := agent.GetOutputDelivery(); delivery != nil {
+		if delivery := agent.OutputDelivery; delivery != nil {
 			addDeliveryPermission(set, delivery)
 		}
-		if delivery := agent.GetSessionReadyDelivery(); delivery != nil {
+		if delivery := agent.SessionReadyDelivery; delivery != nil {
 			addDeliveryPermission(set, delivery)
 		}
 		return permissionsFromSet(set)
 	}
-	if plugin := target.GetPlugin(); plugin != nil {
-		pluginName := strings.TrimSpace(plugin.GetPluginName())
+	if plugin := target.Plugin; plugin != nil {
+		pluginName := strings.TrimSpace(plugin.PluginName)
 		if pluginName == "" {
 			return nil
 		}
-		permission := &proto.WorkflowAccessPermission{Plugin: pluginName}
-		if op := strings.TrimSpace(plugin.GetOperation()); op != "" {
+		permission := gestalt.WorkflowAccessPermissionInput{Plugin: pluginName}
+		if op := strings.TrimSpace(plugin.Operation); op != "" {
 			permission.Operations = []string{op}
 		}
-		return []*proto.WorkflowAccessPermission{permission}
+		return []gestalt.WorkflowAccessPermissionInput{permission}
 	}
 	return nil
 }
 
-func addDeliveryPermission(set map[string]map[string]struct{}, delivery *proto.WorkflowOutputDelivery) {
+func addDeliveryPermission(set map[string]map[string]struct{}, delivery *gestalt.WorkflowOutputDeliveryInput) {
 	if delivery == nil {
 		return
 	}
-	deliveryTarget := delivery.GetTarget()
-	addPermission(set, strings.TrimSpace(deliveryTarget.GetPluginName()), strings.TrimSpace(deliveryTarget.GetOperation()))
+	deliveryTarget := delivery.Target
+	if deliveryTarget == nil {
+		return
+	}
+	addPermission(set, strings.TrimSpace(deliveryTarget.PluginName), strings.TrimSpace(deliveryTarget.Operation))
 }
 
-func configuredEventRunPermissions(input map[string]any) ([]*proto.WorkflowAccessPermission, error) {
+func configuredEventRunPermissions(input map[string]any) ([]gestalt.WorkflowAccessPermissionInput, error) {
 	rawGestalt, ok := input[gestaltInputKey]
 	if !ok || rawGestalt == nil {
 		return nil, nil
@@ -142,7 +144,7 @@ func configuredEventRunPermissions(input map[string]any) ([]*proto.WorkflowAcces
 	if !ok {
 		return nil, fmt.Errorf("%s.%s must be a list", gestaltInputKey, eventRunPermissionsKey)
 	}
-	out := make([]*proto.WorkflowAccessPermission, 0, len(items))
+	out := make([]gestalt.WorkflowAccessPermissionInput, 0, len(items))
 	for i, item := range items {
 		value, ok := item.(map[string]any)
 		if !ok {
@@ -166,16 +168,23 @@ func configuredEventRunPermissions(input map[string]any) ([]*proto.WorkflowAcces
 		if len(ops) == 0 {
 			return nil, fmt.Errorf("%s.%s[%d].operations is required", gestaltInputKey, eventRunPermissionsKey, i)
 		}
-		out = append(out, &proto.WorkflowAccessPermission{Plugin: pluginName, Operations: ops})
+		out = append(out, gestalt.WorkflowAccessPermissionInput{Plugin: pluginName, Operations: ops})
 	}
 	return out, nil
 }
 
-func pluginTargetInput(target *proto.BoundWorkflowTarget) map[string]any {
-	if target == nil || target.GetPlugin() == nil || target.GetPlugin().GetInput() == nil {
+func pluginTargetInput(target *gestalt.BoundWorkflowTargetInput) map[string]any {
+	if target == nil || target.Plugin == nil || target.Plugin.Input == nil {
 		return nil
 	}
-	return target.GetPlugin().GetInput().AsMap()
+	if value, ok := target.Plugin.Input.(map[string]any); ok {
+		return value
+	}
+	value, err := gestalt.StructFromAny(target.Plugin.Input)
+	if err != nil {
+		return nil
+	}
+	return gestalt.MapFromStruct(value)
 }
 
 func stringAny(value any) string {
@@ -183,18 +192,15 @@ func stringAny(value any) string {
 	return text
 }
 
-func mergeAccessPermissions(groups ...[]*proto.WorkflowAccessPermission) []*proto.WorkflowAccessPermission {
+func mergeAccessPermissions(groups ...[]gestalt.WorkflowAccessPermissionInput) []gestalt.WorkflowAccessPermissionInput {
 	set := map[string]map[string]struct{}{}
 	for _, group := range groups {
 		for _, permission := range group {
-			if permission == nil {
-				continue
+			for _, op := range permission.Operations {
+				addPermission(set, permission.Plugin, op)
 			}
-			for _, op := range permission.GetOperations() {
-				addPermission(set, permission.GetPlugin(), op)
-			}
-			if len(permission.GetOperations()) == 0 {
-				addPermission(set, permission.GetPlugin(), "")
+			if len(permission.Operations) == 0 {
+				addPermission(set, permission.Plugin, "")
 			}
 		}
 	}
@@ -217,38 +223,20 @@ func addPermission(set map[string]map[string]struct{}, pluginName, operation str
 	}
 }
 
-func permissionsFromSet(set map[string]map[string]struct{}) []*proto.WorkflowAccessPermission {
+func permissionsFromSet(set map[string]map[string]struct{}) []gestalt.WorkflowAccessPermissionInput {
 	plugins := make([]string, 0, len(set))
 	for plugin := range set {
 		plugins = append(plugins, plugin)
 	}
 	sort.Strings(plugins)
-	out := make([]*proto.WorkflowAccessPermission, 0, len(plugins))
+	out := make([]gestalt.WorkflowAccessPermissionInput, 0, len(plugins))
 	for _, plugin := range plugins {
 		ops := make([]string, 0, len(set[plugin]))
 		for op := range set[plugin] {
 			ops = append(ops, op)
 		}
 		sort.Strings(ops)
-		out = append(out, &proto.WorkflowAccessPermission{Plugin: plugin, Operations: ops})
-	}
-	return out
-}
-
-func clonePermissions(in []*proto.WorkflowAccessPermission) []*proto.WorkflowAccessPermission {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]*proto.WorkflowAccessPermission, 0, len(in))
-	for _, permission := range in {
-		if permission == nil {
-			continue
-		}
-		ops := append([]string(nil), permission.GetOperations()...)
-		out = append(out, &proto.WorkflowAccessPermission{
-			Plugin:     strings.TrimSpace(permission.GetPlugin()),
-			Operations: ops,
-		})
+		out = append(out, gestalt.WorkflowAccessPermissionInput{Plugin: plugin, Operations: ops})
 	}
 	return out
 }
@@ -262,23 +250,6 @@ func clonePermissionInputs(in []gestalt.WorkflowAccessPermissionInput) []gestalt
 		out = append(out, gestalt.WorkflowAccessPermissionInput{
 			Plugin:     strings.TrimSpace(permission.Plugin),
 			Operations: append([]string(nil), permission.Operations...),
-		})
-	}
-	return out
-}
-
-func workflowPermissionInputs(in []*proto.WorkflowAccessPermission) []gestalt.WorkflowAccessPermissionInput {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]gestalt.WorkflowAccessPermissionInput, 0, len(in))
-	for _, permission := range in {
-		if permission == nil {
-			continue
-		}
-		out = append(out, gestalt.WorkflowAccessPermissionInput{
-			Plugin:     strings.TrimSpace(permission.GetPlugin()),
-			Operations: append([]string(nil), permission.GetOperations()...),
 		})
 	}
 	return out
