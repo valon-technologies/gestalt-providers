@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
@@ -143,8 +142,7 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkfl
 	}
 	key := strings.TrimSpace(req.IdempotencyKey)
 	workflowKey := strings.TrimSpace(req.WorkflowKey)
-	createdBy := workflowActorProto(req.CreatedBy)
-	fingerprint := startFingerprint(target.OwnerKey, key, workflowKey, req.ExecutionRef, target.Target, createdBy)
+	fingerprint := startFingerprint(target.OwnerKey, key, workflowKey, req.ExecutionRef, workflowTargetInput(target.Target), req.CreatedBy)
 	if key != "" && workflowKey == "" {
 		return b.startUnkeyedRunV4(ctx, target, req, key, fingerprint)
 	}
@@ -216,11 +214,11 @@ func (b *temporalBackend) CancelRun(ctx context.Context, req *gestalt.CancelWork
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "cancel temporal workflow: %v", err)
 	}
-	var run proto.BoundWorkflowRun
+	var run gestalt.BoundWorkflowRunInput
 	if err := update.Get(ctx, &run); err != nil {
 		return nil, mapTemporalWorkflowCallError("temporal workflow update", err)
 	}
-	return runInputFromProto(&run, nil)
+	return &run, nil
 }
 
 func (b *temporalBackend) SignalRun(ctx context.Context, req *gestalt.SignalWorkflowProviderRunRequest) (*gestalt.SignalWorkflowRunResponse, error) {
@@ -231,17 +229,13 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *gestalt.SignalWork
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	signalProto, err := workflowSignalProto(req.Signal)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	signal, err := normalizeWorkflowSignal(signalProto, time.Now().UTC())
+	signal, err := normalizeWorkflowSignalInput(req.Signal, time.Now().UTC())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	ownerKey := handle.OwnerKey
 	updateID := signalUpdateID(signal)
-	ledgerKey := ownerIdempotencyLedgerKey(ownerKey, signal.GetIdempotencyKey())
+	ledgerKey := ownerIdempotencyLedgerKey(ownerKey, signal.IdempotencyKey)
 	sigKey := explicitSignalLedgerKey(signal)
 	fingerprint := signalFingerprint(ownerKey, handle.WorkflowKey+"\x00"+req.RunID, signal)
 	var ownerResp *gestalt.SignalWorkflowRunResponse
@@ -253,7 +247,7 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *gestalt.SignalWork
 			OwnerKey:             ownerKey,
 			WorkflowKey:          handle.WorkflowKey,
 			RunID:                req.RunID,
-			SignalID:             signal.GetId(),
+			SignalID:             signal.ID,
 			AllowPayloadVariance: true,
 		})
 		if err != nil {
@@ -272,7 +266,7 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *gestalt.SignalWork
 			OwnerKey:    ownerKey,
 			WorkflowKey: handle.WorkflowKey,
 			RunID:       req.RunID,
-			SignalID:    signal.GetId(),
+			SignalID:    signal.ID,
 		})
 		if err != nil {
 			return nil, err
@@ -302,20 +296,17 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *gestalt.SignalWork
 		RunID:        handle.RunTemporalRunID,
 		UpdateID:     updateID,
 		UpdateName:   updateAddSignal,
-		Args:         []any{signal},
+		Args:         []any{*signal},
 		WaitForStage: client.WorkflowUpdateStageCompleted,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "signal temporal workflow: %v", err)
 	}
-	var out proto.SignalWorkflowRunResponse
+	var out gestalt.SignalWorkflowRunResponse
 	if err := update.Get(ctx, &out); err != nil {
 		return nil, mapTemporalWorkflowCallError("temporal workflow update", err)
 	}
-	resp, err := signalRunResponseInputFromProto(&out, nil)
-	if err != nil {
-		return nil, err
-	}
+	resp := cloneSignalResponseInput(&out)
 	if ledgerKey != "" {
 		if err := b.completeSignalIdempotency(ctx, ledgerKey, fingerprint, resp, true); err != nil {
 			return nil, err
@@ -345,18 +336,14 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *gestalt.Sig
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	signalProto, err := workflowSignalProto(req.Signal)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	signal, err := normalizeWorkflowSignal(signalProto, time.Now().UTC())
+	signal, err := normalizeWorkflowSignalInput(req.Signal, time.Now().UTC())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	ownerKey := target.OwnerKey
 	updateID := signalUpdateID(signal)
 	fingerprint := signalFingerprint(ownerKey, workflowKey, signal)
-	ledgerKey := ownerIdempotencyLedgerKey(ownerKey, signal.GetIdempotencyKey())
+	ledgerKey := ownerIdempotencyLedgerKey(ownerKey, signal.IdempotencyKey)
 	sigKey := explicitSignalLedgerKey(signal)
 	var ownerResp *gestalt.SignalWorkflowRunResponse
 	if ledgerKey != "" {
@@ -366,7 +353,7 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *gestalt.Sig
 			Fingerprint:          fingerprint,
 			OwnerKey:             ownerKey,
 			WorkflowKey:          workflowKey,
-			SignalID:             signal.GetId(),
+			SignalID:             signal.ID,
 			AllowPayloadVariance: true,
 		})
 		if err != nil {
@@ -384,7 +371,7 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *gestalt.Sig
 			Fingerprint: fingerprint,
 			OwnerKey:    ownerKey,
 			WorkflowKey: workflowKey,
-			SignalID:    signal.GetId(),
+			SignalID:    signal.ID,
 		})
 		if err != nil {
 			return nil, err
@@ -409,16 +396,12 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *gestalt.Sig
 		}
 		return ownerResp, nil
 	}
-	respProto, err := b.signalOrStartRunV4(ctx, target, req, workflowKey, signal, updateID)
+	resp, err := b.signalOrStartRunV4(ctx, target, req, workflowKey, signal, updateID)
 	if err != nil {
 		return nil, err
 	}
-	if respProto.GetRun() == nil {
+	if resp == nil || resp.Run == nil {
 		return nil, status.Error(codes.Internal, "signal-or-start returned no run")
-	}
-	resp, err := signalRunResponseInputFromProto(respProto, nil)
-	if err != nil {
-		return nil, err
 	}
 	if ledgerKey != "" {
 		if err := b.completeSignalIdempotency(ctx, ledgerKey, fingerprint, resp, true); err != nil {
@@ -1037,24 +1020,27 @@ func workflowRunTerminal(status gestalt.WorkflowRunStatus) bool {
 	}
 }
 
-func signalUpdateID(signal *proto.WorkflowSignal) string {
-	if signal.GetIdempotencyKey() != "" {
-		return "signal-key:" + hashID(signal.GetIdempotencyKey())
+func signalUpdateID(signal *gestalt.WorkflowSignalInput) string {
+	if signal == nil {
+		return "signal:" + uuid.NewString()
 	}
-	if signal.GetId() != "" {
-		return "signal-id:" + hashID(signal.GetId())
+	if signal.IdempotencyKey != "" {
+		return "signal-key:" + hashID(signal.IdempotencyKey)
+	}
+	if signal.ID != "" {
+		return "signal-id:" + hashID(signal.ID)
 	}
 	return "signal:" + uuid.NewString()
 }
 
-func cloneSignalResponse(resp *proto.SignalWorkflowRunResponse) *proto.SignalWorkflowRunResponse {
+func cloneSignalResponseInput(resp *gestalt.SignalWorkflowRunResponse) *gestalt.SignalWorkflowRunResponse {
 	if resp == nil {
 		return nil
 	}
-	return &proto.SignalWorkflowRunResponse{
-		Run:         cloneRun(resp.GetRun()),
-		Signal:      cloneSignal(resp.GetSignal()),
-		StartedRun:  resp.GetStartedRun(),
-		WorkflowKey: strings.TrimSpace(resp.GetWorkflowKey()),
+	return &gestalt.SignalWorkflowRunResponse{
+		Run:         cloneRunInput(resp.Run),
+		Signal:      cloneSignalInput(resp.Signal),
+		StartedRun:  resp.StartedRun,
+		WorkflowKey: strings.TrimSpace(resp.WorkflowKey),
 	}
 }

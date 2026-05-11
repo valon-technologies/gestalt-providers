@@ -3,8 +3,10 @@ package temporal
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 )
 
@@ -17,25 +19,28 @@ func ownerIdempotencyLedgerKey(ownerKey, key string) string {
 	return "owner-idem:" + hashID(ownerKey, key)
 }
 
-func explicitSignalLedgerKey(signal *proto.WorkflowSignal) string {
-	id := strings.TrimSpace(signal.GetId())
+func explicitSignalLedgerKey(signal *gestalt.WorkflowSignalInput) string {
+	if signal == nil {
+		return ""
+	}
+	id := strings.TrimSpace(signal.ID)
 	if id == "" {
 		return ""
 	}
 	return "signal-id:" + hashID(id)
 }
 
-func signalFingerprint(ownerKey, workflowKey string, signal *proto.WorkflowSignal) string {
-	stableSignal := cloneSignal(signal)
+func signalFingerprint(ownerKey, workflowKey string, signal *gestalt.WorkflowSignalInput) string {
+	stableSignal := cloneSignalInput(signal)
 	if stableSignal != nil {
-		stableSignal.CreatedAt = nil
+		stableSignal.CreatedAt = time.Time{}
 		stableSignal.Sequence = 0
 	}
-	return hashID("signal", ownerKey, workflowKey, protoHashID(stableSignal))
+	return hashID("signal", ownerKey, workflowKey, valueHashID(stableSignal))
 }
 
-func startFingerprint(ownerKey, key, workflowKey, executionRef string, target *proto.BoundWorkflowTarget, createdBy *proto.WorkflowActor) string {
-	return hashID("start", ownerKey, key, workflowKey, executionRef, protoHashID(target), protoHashID(createdBy))
+func startFingerprint(ownerKey, key, workflowKey, executionRef string, target *gestalt.BoundWorkflowTargetInput, createdBy *gestalt.WorkflowActorInput) string {
+	return hashID("start", ownerKey, key, workflowKey, executionRef, valueHashID(target), valueHashID(createdBy))
 }
 
 func eventRunWorkflowID(scopeID, triggerID string, event *proto.WorkflowEvent) string {
@@ -47,16 +52,20 @@ func eventRunWorkflowID(scopeID, triggerID string, event *proto.WorkflowEvent) s
 	return workflowID(scopeID, "event-v3", triggerID, event.GetSource(), uuid.NewString())
 }
 
-func signalForStartedRun(run *proto.BoundWorkflowRun, signal *proto.WorkflowSignal) *proto.WorkflowSignal {
-	out := cloneSignal(signal)
-	if out == nil {
+func signalInputForStartedRun(run *gestalt.BoundWorkflowRunInput, signal *gestalt.WorkflowSignalInput) *gestalt.WorkflowSignalInput {
+	if signal == nil {
 		return nil
 	}
-	if out.GetSequence() <= 0 {
+	out := *signal
+	if out.Sequence <= 0 {
 		out.Sequence = 1
 	}
-	if strings.TrimSpace(out.GetId()) == "" {
-		out.Id = "signal:" + hashID(run.GetId(), out.GetName(), fmt.Sprintf("%d", out.GetSequence()), out.GetIdempotencyKey())
+	if strings.TrimSpace(out.ID) == "" {
+		runID := ""
+		if run != nil {
+			runID = run.ID
+		}
+		out.ID = "signal:" + hashID(runID, out.Name, fmt.Sprintf("%d", out.Sequence), out.IdempotencyKey)
 	}
-	return out
+	return &out
 }

@@ -29,9 +29,7 @@ import (
 	sdkworkflow "go.temporal.io/sdk/workflow"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func newTestWorkflowEnvironment(suite *testsuite.WorkflowTestSuite) *testsuite.TestWorkflowEnvironment {
@@ -89,15 +87,15 @@ func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 
 	env.RegisterDelayedCallback(func() {
 		env.UpdateWorkflow(updateAddSignal, "signal-1", updateCallback(t, func(value interface{}) {
-			resp := value.(*proto.SignalWorkflowRunResponse)
-			if resp.GetSignal().GetIdempotencyKey() != "signal-1" {
-				t.Fatalf("queued signal response = %#v, want signal-1", resp.GetSignal())
+			resp := value.(*gestalt.SignalWorkflowRunResponse)
+			if resp.Signal == nil || resp.Signal.IdempotencyKey != "signal-1" {
+				t.Fatalf("queued signal response = %#v, want signal-1", resp.Signal)
 			}
-		}), &proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1", CreatedAt: timestamppb.Now()})
+		}), gestalt.WorkflowSignalInput{Name: "slack.event", IdempotencyKey: "signal-1", CreatedAt: time.Now().UTC()})
 		if len(host.calls) != 0 {
 			t.Fatalf("host calls before claim = %d, want 0", len(host.calls))
 		}
-		env.UpdateWorkflow(updateClaimRun, "claim-run", updateCallback(t, nil), &proto.BoundWorkflowRun{})
+		env.UpdateWorkflow(updateClaimRun, "claim-run", updateCallback(t, nil))
 	}, time.Millisecond)
 
 	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
@@ -120,42 +118,6 @@ func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 	}
 }
 
-func TestGestaltRunWorkflowV4AcceptsInitialSignalPayloadForReplayCompatibility(t *testing.T) {
-	var suite testsuite.WorkflowTestSuite
-	env := newTestWorkflowEnvironment(&suite)
-	host := &capturingHost{resp: &gestalt.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
-	env.RegisterWorkflow(gestaltRunWorkflowV4)
-	env.RegisterActivity(&workflowActivities{host: host})
-
-	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(updateClaimRun, "claim-run", updateCallback(t, nil), &proto.BoundWorkflowRun{})
-	}, time.Millisecond)
-
-	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
-		ExecutionRef:                  "ref-1",
-		ActivityStartToCloseTimeoutNS: time.Minute,
-		WorkflowKey:                   "thread-1",
-		OwnerKey:                      "slack",
-		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
-		TriggerPayload:                protoPayload(manualTriggerProto()),
-		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
-		InitialSignalPayload:          protoPayload(&proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1", CreatedAt: timestamppb.Now()}),
-		RequireSignal:                 true,
-		RequireClaim:                  true,
-	})
-
-	if err := env.GetWorkflowError(); err != nil {
-		t.Fatalf("workflow error: %v", err)
-	}
-	if len(host.calls) != 1 {
-		t.Fatalf("host calls = %d, want 1 after claim", len(host.calls))
-	}
-	signals := host.calls[0].Signals
-	if len(signals) != 1 || signals[0].IdempotencyKey != "signal-1" {
-		t.Fatalf("signals = %#v, want initial signal", signals)
-	}
-}
-
 func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
@@ -174,7 +136,7 @@ func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
 	}).Maybe()
 
 	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(updateClaimRun, "claim-run", updateCallback(t, nil), &proto.BoundWorkflowRun{})
+		env.UpdateWorkflow(updateClaimRun, "claim-run", updateCallback(t, nil))
 	}, time.Millisecond)
 
 	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
@@ -221,7 +183,7 @@ func TestGestaltRunWorkflowV4AddSignalUpdateDoesNotWaitForProjection(t *testing.
 	}).Maybe()
 
 	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(updateAddSignal, "signal-run", updateCallback(t, nil), &proto.WorkflowSignal{Name: "slack.event", CreatedAt: timestamppb.Now()})
+		env.UpdateWorkflow(updateAddSignal, "signal-run", updateCallback(t, nil), gestalt.WorkflowSignalInput{Name: "slack.event", CreatedAt: time.Now().UTC()})
 	}, time.Millisecond)
 
 	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
@@ -271,11 +233,11 @@ func TestGestaltRunWorkflowV4ContinuesWhenProjectionFails(t *testing.T) {
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	var run proto.BoundWorkflowRun
+	var run gestalt.BoundWorkflowRunInput
 	if err := env.GetWorkflowResult(&run); err != nil {
 		t.Fatalf("workflow result: %v", err)
 	}
-	if run.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED || run.GetResultBody() != "ok" {
+	if run.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED || run.ResultBody != "ok" {
 		t.Fatalf("run = %#v, want succeeded with body", &run)
 	}
 	if len(host.calls) != 1 {
@@ -652,8 +614,8 @@ func TestStartRunWithWorkflowKeyCompletesReservedIndexedDBIdempotency(t *testing
 
 	workflowKey := "thread-1"
 	key := "start-1"
-	target := pluginTarget("slack", "postMessage")
-	createdBy := &proto.WorkflowActor{SubjectId: "user-1"}
+	target := nativePluginTargetInput("slack", "postMessage")
+	createdBy := actor("user-1")
 	fingerprint := startFingerprint("slack", key, workflowKey, "", target, createdBy)
 	if _, _, err := state.reserveRunIdempotency(ctx, "slack", key, fingerprint, time.Hour, time.Unix(100, 0).UTC()); err != nil {
 		t.Fatalf("reserveRunIdempotency: %v", err)
@@ -667,7 +629,7 @@ func TestStartRunWithWorkflowKeyCompletesReservedIndexedDBIdempotency(t *testing
 			OwnerKey:         "slack",
 		}),
 		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-		Target:      workflowTargetInput(target),
+		Target:      target,
 		WorkflowKey: workflowKey,
 		CreatedAt:   time.Unix(100, 0).UTC(),
 	}
@@ -680,8 +642,8 @@ func TestStartRunWithWorkflowKeyCompletesReservedIndexedDBIdempotency(t *testing
 	recovered, err := backend.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
 		IdempotencyKey: key,
 		WorkflowKey:    workflowKey,
-		Target:         workflowTargetInput(target),
-		CreatedBy:      actorInputPtr(createdBy),
+		Target:         target,
+		CreatedBy:      createdBy,
 	})
 	if err != nil {
 		t.Fatalf("StartRun(recovery): %v", err)
@@ -695,8 +657,8 @@ func TestStartRunWithWorkflowKeyCompletesReservedIndexedDBIdempotency(t *testing
 	duplicate, err := backend.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
 		IdempotencyKey: key,
 		WorkflowKey:    workflowKey,
-		Target:         workflowTargetInput(target),
-		CreatedBy:      actorInputPtr(createdBy),
+		Target:         target,
+		CreatedBy:      createdBy,
 	})
 	if err != nil {
 		t.Fatalf("StartRun(duplicate): %v", err)
@@ -949,11 +911,7 @@ func TestSignalOrStartRunUsesExplicitSignalIDForStartWorkflowID(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SignalOrStartRun: %v", err)
 	}
-	signalProto, err := workflowSignalProto(signal)
-	if err != nil {
-		t.Fatalf("workflowSignalProto: %v", err)
-	}
-	expectedWorkflowID := workflowID("scope", "signal-keyed-v4", "slack", explicitSignalLedgerKey(signalProto), hashID("thread-1"))
+	expectedWorkflowID := workflowID("scope", "signal-keyed-v4", "slack", explicitSignalLedgerKey(signal), hashID("thread-1"))
 	if len(tc.executions) != 1 || tc.executions[0].WorkflowID != expectedWorkflowID {
 		t.Fatalf("executions = %#v, want workflow id %q", tc.executions, expectedWorkflowID)
 	}
@@ -1802,18 +1760,6 @@ func nativePluginTargetInput(plugin, operation string) *gestalt.BoundWorkflowTar
 	}}
 }
 
-func protoPayload(msg gproto.Message) []byte {
-	data, err := gproto.MarshalOptions{Deterministic: true}.Marshal(msg)
-	if err != nil {
-		return nil
-	}
-	return data
-}
-
-func manualTriggerProto() *proto.WorkflowRunTrigger {
-	return &proto.WorkflowRunTrigger{Kind: &proto.WorkflowRunTrigger_Manual{Manual: &proto.WorkflowManualTrigger{}}}
-}
-
 func cloneSignalOrStartRequest(req *gestalt.SignalOrStartWorkflowProviderRunRequest) *gestalt.SignalOrStartWorkflowProviderRunRequest {
 	if req == nil {
 		return nil
@@ -2267,10 +2213,22 @@ func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) erro
 		return nil
 	}
 	switch out := valuePtr.(type) {
+	case *gestalt.BoundWorkflowRunInput:
+		if len(h.update.Args) > 0 {
+			switch run := h.update.Args[len(h.update.Args)-1].(type) {
+			case *gestalt.BoundWorkflowRunInput:
+				*out = *cloneRunInput(run)
+			case *proto.BoundWorkflowRun:
+				input, err := gestalt.BoundWorkflowRunInputFromRun(run)
+				if err == nil {
+					*out = input
+				}
+			}
+		}
 	case *proto.BoundWorkflowRun:
 		if len(h.update.Args) > 0 {
 			if run, ok := h.update.Args[len(h.update.Args)-1].(*proto.BoundWorkflowRun); ok {
-				*out = *cloneRun(run)
+				*out = *run
 			}
 		}
 	case *proto.BoundWorkflowEventTrigger:
@@ -2288,7 +2246,7 @@ func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) erro
 	case *proto.SignalWorkflowRunResponse:
 		if len(h.update.Args) > 0 {
 			if resp, ok := h.update.Args[len(h.update.Args)-1].(*proto.SignalWorkflowRunResponse); ok {
-				*out = *cloneSignalResponse(resp)
+				*out = *resp
 				return nil
 			}
 			if signal, ok := h.update.Args[len(h.update.Args)-1].(*proto.WorkflowSignal); ok && h.update.Name == updateAddSignal {
@@ -2301,6 +2259,41 @@ func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) erro
 				}
 				out.StartedRun = true
 			}
+			if signal, ok := h.update.Args[len(h.update.Args)-1].(gestalt.WorkflowSignalInput); ok && h.update.Name == updateAddSignal {
+				signalPtr := signalInputForStartedRun(&gestalt.BoundWorkflowRunInput{ID: h.update.WorkflowID}, &signal)
+				if signalPtr != nil {
+					out.Signal, _ = gestalt.NewWorkflowSignal(*signalPtr)
+				}
+				out.StartedRun = true
+			}
+		}
+	case *gestalt.SignalWorkflowRunResponse:
+		if len(h.update.Args) == 0 {
+			return nil
+		}
+		switch resp := h.update.Args[len(h.update.Args)-1].(type) {
+		case *gestalt.SignalWorkflowRunResponse:
+			*out = *cloneSignalResponseInput(resp)
+		case *proto.SignalWorkflowRunResponse:
+			out.StartedRun = resp.GetStartedRun()
+			out.WorkflowKey = resp.GetWorkflowKey()
+			if resp.GetRun() != nil {
+				input, err := gestalt.BoundWorkflowRunInputFromRun(resp.GetRun())
+				if err == nil {
+					out.Run = &input
+				}
+			}
+			if resp.GetSignal() != nil {
+				input := gestalt.WorkflowSignalInputFromSignal(resp.GetSignal())
+				out.Signal = &input
+			}
+		case *proto.WorkflowSignal:
+			input := gestalt.WorkflowSignalInputFromSignal(resp)
+			out.Signal = signalInputForStartedRun(&gestalt.BoundWorkflowRunInput{ID: h.update.WorkflowID}, &input)
+			out.StartedRun = true
+		case gestalt.WorkflowSignalInput:
+			out.Signal = signalInputForStartedRun(&gestalt.BoundWorkflowRunInput{ID: h.update.WorkflowID}, &resp)
+			out.StartedRun = true
 		}
 	}
 	return nil
