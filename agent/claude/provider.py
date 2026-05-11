@@ -13,15 +13,16 @@ from internals import ClaudeAgentConfig, ClaudeSDKRunner, IndexedDBRunStore
 from internals.claude_code_config import ClaudeCodeTurnOptions
 from internals.claude_runner import ClaudeExecutionCanceled, ClaudeExecutionError
 from internals.provider_io import (
-    CancelTurnInput,
-    CreateSessionInput,
-    CreateTurnInput,
-    ListSessionsInput,
-    ListTurnEventsInput,
-    ListTurnsInput,
-    ProviderRequestError,
-    UpdateSessionInput,
+    has_session_start_hooks,
+    optional_request_metadata,
     prepared_workspace_cwd,
+    request_limit,
+    request_metadata,
+    request_prepared_workspace,
+    request_session_start,
+    request_subject_id,
+    request_text,
+    validate_create_turn_request,
 )
 from internals.session_start import (
     prepend_session_start_context,
@@ -77,53 +78,84 @@ class ClaudeCodeAgentProvider(
 
     def CreateSession(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, config = self._require_runtime(context)
-        create = _parse_request(context, lambda: CreateSessionInput.from_proto(request))
+        session_id = request_text(request, "session_id")
+        if not session_id:
+            _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "session_id is required")
+        prepared_workspace = _parse_request(context, lambda: request_prepared_workspace(request))
+        metadata = request_metadata(request)
         try:
-            model = config.resolve_model(create.requested_model)
+            model = config.resolve_model(request_text(request, "model"))
         except ValueError as exc:
             _abort(context, grpc.StatusCode.INVALID_ARGUMENT, str(exc))
         try:
-            validate_session_start_user_metadata(create.metadata)
+            validate_session_start_user_metadata(metadata)
         except ValueError as exc:
             _abort(context, grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-        metadata = create.metadata
-        if create.has_session_start_hooks:
+        session_start = request_session_start(request)
+        idempotency_key = request_text(request, "idempotency_key")
+        client_ref = request_text(request, "client_ref")
+        created_by = gestalt.agent_actor_to_dict(request.created_by)
+        if has_session_start_hooks(session_start):
             with self._session_start_lock:
                 existing = self._store_call(
-                    context, lambda: _existing_session_for_create(store, create.session_id, create.idempotency_key)
+                    context, lambda: _existing_session_for_create(store, session_id, idempotency_key)
                 )
                 if existing is not None:
-                    return _session_to_proto(existing)
+                    return _session_response(existing)
                 try:
-                    metadata = run_session_start_hooks(create.session_start, metadata)
+                    metadata = run_session_start_hooks(session_start, metadata)
                 except Exception as exc:
                     _abort(context, grpc.StatusCode.FAILED_PRECONDITION, str(exc))
-                return self._create_session(context=context, store=store, create=create, model=model, metadata=metadata)
-        return self._create_session(context=context, store=store, create=create, model=model, metadata=metadata)
+                return self._create_session(
+                    context=context,
+                    store=store,
+                    session_id=session_id,
+                    idempotency_key=idempotency_key,
+                    model=model,
+                    client_ref=client_ref,
+                    metadata=metadata,
+                    prepared_workspace=prepared_workspace,
+                    created_by=created_by,
+                )
+        return self._create_session(
+            context=context,
+            store=store,
+            session_id=session_id,
+            idempotency_key=idempotency_key,
+            model=model,
+            client_ref=client_ref,
+            metadata=metadata,
+            prepared_workspace=prepared_workspace,
+            created_by=created_by,
+        )
 
     def _create_session(
         self,
         *,
         context: grpc.ServicerContext,
         store: IndexedDBRunStore,
-        create: CreateSessionInput,
+        session_id: str,
+        idempotency_key: str,
         model: str,
+        client_ref: str,
         metadata: dict[str, Any],
+        prepared_workspace: dict[str, str] | None,
+        created_by: dict[str, Any],
     ) -> Any:
         session, _ = self._store_call(
             context,
             lambda: store.create_session(
-                session_id=create.session_id,
-                idempotency_key=create.idempotency_key,
+                session_id=session_id,
+                idempotency_key=idempotency_key,
                 provider_name=self._name,
                 model=model,
-                client_ref=create.client_ref,
+                client_ref=client_ref,
                 metadata=metadata,
-                prepared_workspace=create.prepared_workspace,
-                created_by=create.created_by,
+                prepared_workspace=prepared_workspace,
+                created_by=created_by,
             ),
         )
-        return _session_to_proto(session)
+        return _session_response(session)
 
     def GetSession(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
@@ -131,22 +163,23 @@ class ClaudeCodeAgentProvider(
         if session is None:
             context.abort(grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
             raise RuntimeError("unreachable after context.abort")
-        return _session_to_proto(session)
+        return _session_response(session)
 
     def ListSessions(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
-        query = _parse_request(context, lambda: ListSessionsInput.from_proto(request))
+        limit = _parse_request(context, lambda: request_limit(request))
+        summary_only = bool(getattr(request, "summary_only", False))
         return gestalt.ListAgentProviderSessionsResponse(
             sessions=[
-                _session_to_proto(session, summary_only=query.summary_only)
+                _session_response(session, summary_only=summary_only)
                 for session in self._store_call(
                     context,
                     lambda: store.list_sessions(
-                        session_ids=query.session_ids,
-                        subject_id=query.subject_id,
-                        state=query.state,
-                        limit=query.limit,
-                        summary_only=query.summary_only,
+                        session_ids=[str(value or "").strip() for value in getattr(request, "session_ids", [])],
+                        subject_id=request_subject_id(request),
+                        state=int(getattr(request, "state", 0) or 0),
+                        limit=limit,
+                        summary_only=summary_only,
                     ),
                 )
             ]
@@ -154,35 +187,40 @@ class ClaudeCodeAgentProvider(
 
     def UpdateSession(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
-        update = _parse_request(context, lambda: UpdateSessionInput.from_proto(request))
+        metadata = optional_request_metadata(request)
         try:
-            validate_session_start_user_metadata(update.metadata)
+            validate_session_start_user_metadata(metadata)
         except ValueError as exc:
             _abort(context, grpc.StatusCode.INVALID_ARGUMENT, str(exc))
         session = self._store_call(
             context,
             lambda: store.update_session(
-                session_id=update.session_id, client_ref=update.client_ref, state=update.state, metadata=update.metadata
+                session_id=request_text(request, "session_id"),
+                client_ref=request_text(request, "client_ref"),
+                state=int(getattr(request, "state", 0) or 0),
+                metadata=metadata,
             ),
         )
         if session is None:
             _abort(context, grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
-        return _session_to_proto(session)
+        return _session_response(session)
 
     def CreateTurn(self, request: Any, context: grpc.ServicerContext) -> Any:
         runner, store, config = self._require_runtime(context)
-        create = _parse_request(context, lambda: CreateTurnInput.from_proto(request))
-        session = self._store_call(context, lambda: store.get_session(create.session_id))
+        _parse_request(context, lambda: validate_create_turn_request(request))
+        session_id = request_text(request, "session_id")
+        session = self._store_call(context, lambda: store.get_session(session_id))
         if session is None:
             _abort(context, grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
-        if not create.messages:
+        messages = gestalt.agent_messages_to_dicts(getattr(request, "messages", []))
+        if not messages:
             _abort(context, grpc.StatusCode.INVALID_ARGUMENT, "messages must contain at least one entry")
         try:
-            model = config.resolve_model(create.requested_model or session.model)
+            model = config.resolve_model(request_text(request, "model") or session.model)
         except ValueError as exc:
             _abort(context, grpc.StatusCode.INVALID_ARGUMENT, str(exc))
 
-        messages = prepend_session_start_context(create.messages, session.metadata)
+        messages = prepend_session_start_context(messages, session.metadata)
         cwd = prepared_workspace_cwd(session.prepared_workspace)
         try:
             claude_code_options = config.claude_code.resolve_turn_options(session.metadata)
@@ -192,14 +230,14 @@ class ClaudeCodeAgentProvider(
             turn, created = self._store_call(
                 context,
                 lambda: store.begin_turn(
-                    turn_id=create.turn_id,
-                    session_id=create.session_id,
-                    idempotency_key=create.idempotency_key,
+                    turn_id=request_text(request, "turn_id"),
+                    session_id=session_id,
+                    idempotency_key=request_text(request, "idempotency_key"),
                     provider_name=self._name,
                     model=model,
                     messages=messages,
-                    created_by=create.created_by,
-                    execution_ref=create.execution_ref,
+                    created_by=gestalt.agent_actor_to_dict(request.created_by),
+                    execution_ref=request_text(request, "execution_ref"),
                 ),
             )
         except StoreConflictError as exc:
@@ -216,13 +254,13 @@ class ClaudeCodeAgentProvider(
                     "session_id": turn.session_id,
                     "model": model,
                     "messages": list(turn.messages),
-                    "run_grant": create.run_grant,
+                    "run_grant": request_text(request, "run_grant"),
                     "claude_code_options": claude_code_options,
                     "cwd": cwd,
                 },
                 daemon=True,
             ).start()
-        return _turn_to_proto(turn)
+        return _turn_response(turn)
 
     def GetTurn(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
@@ -230,23 +268,24 @@ class ClaudeCodeAgentProvider(
         if turn is None:
             context.abort(grpc.StatusCode.NOT_FOUND, f"agent turn {request.turn_id!r} was not found")
             raise RuntimeError("unreachable after context.abort")
-        return _turn_to_proto(turn)
+        return _turn_response(turn)
 
     def ListTurns(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
-        query = _parse_request(context, lambda: ListTurnsInput.from_proto(request))
+        limit = _parse_request(context, lambda: request_limit(request))
+        summary_only = bool(getattr(request, "summary_only", False))
         return gestalt.ListAgentProviderTurnsResponse(
             turns=[
-                _turn_to_proto(turn, summary_only=query.summary_only)
+                _turn_response(turn, summary_only=summary_only)
                 for turn in self._store_call(
                     context,
                     lambda: store.list_turns(
-                        session_id=query.session_id,
-                        turn_ids=query.turn_ids,
-                        subject_id=query.subject_id,
-                        status=query.status,
-                        limit=query.limit,
-                        summary_only=query.summary_only,
+                        session_id=request_text(request, "session_id"),
+                        turn_ids=[str(value or "").strip() for value in getattr(request, "turn_ids", [])],
+                        subject_id=request_subject_id(request),
+                        status=int(getattr(request, "status", 0) or 0),
+                        limit=limit,
+                        summary_only=summary_only,
                     ),
                 )
             ]
@@ -254,23 +293,28 @@ class ClaudeCodeAgentProvider(
 
     def CancelTurn(self, request: Any, context: grpc.ServicerContext) -> Any:
         runner, store, _ = self._require_runtime(context)
-        cancel = CancelTurnInput.from_proto(request)
-        turn = self._store_call(context, lambda: store.cancel_turn(turn_id=cancel.turn_id, reason=cancel.reason))
+        turn = self._store_call(
+            context,
+            lambda: store.cancel_turn(turn_id=request_text(request, "turn_id"), reason=request_text(request, "reason")),
+        )
         if turn is None:
             _abort(context, grpc.StatusCode.NOT_FOUND, f"agent turn {request.turn_id!r} was not found")
         if turn.status == gestalt.AGENT_EXECUTION_STATUS_CANCELED:
             runner.cancel_turn(turn.turn_id)
-        return _turn_to_proto(turn)
+        return _turn_response(turn)
 
     def ListTurnEvents(self, request: Any, context: grpc.ServicerContext) -> Any:
         _, store, _ = self._require_runtime(context)
-        query = ListTurnEventsInput.from_proto(request)
         return gestalt.ListAgentProviderTurnEventsResponse(
             events=[
-                _turn_event_to_proto(event)
+                _turn_event_response(event)
                 for event in self._store_call(
                     context,
-                    lambda: store.list_turn_events(turn_id=query.turn_id, after_seq=query.after_seq, limit=query.limit),
+                    lambda: store.list_turn_events(
+                        turn_id=request_text(request, "turn_id"),
+                        after_seq=int(getattr(request, "after_seq", 0) or 0),
+                        limit=int(getattr(request, "limit", 0) or 0),
+                    ),
                 )
             ]
         )
@@ -373,8 +417,8 @@ class ClaudeCodeAgentProvider(
 def _parse_request(context: grpc.ServicerContext, parse: Callable[[], T]) -> T:
     try:
         return parse()
-    except ProviderRequestError as exc:
-        _abort(context, exc.code, str(exc))
+    except ValueError as exc:
+        _abort(context, grpc.StatusCode.INVALID_ARGUMENT, str(exc))
 
 
 def _abort(context: grpc.ServicerContext, code: grpc.StatusCode, message: str) -> Never:
@@ -382,7 +426,7 @@ def _abort(context: grpc.ServicerContext, code: grpc.StatusCode, message: str) -
     raise RuntimeError("unreachable after context.abort")
 
 
-def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> Any:
+def _session_response(session: StoredSession, *, summary_only: bool = False) -> Any:
     return gestalt.AgentSession(
         id=session.session_id,
         provider_name=session.provider_name,
@@ -397,7 +441,7 @@ def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> 
     )
 
 
-def _turn_to_proto(turn: StoredTurn, *, summary_only: bool = False) -> Any:
+def _turn_response(turn: StoredTurn, *, summary_only: bool = False) -> Any:
     return gestalt.AgentTurn(
         id=turn.turn_id,
         session_id=turn.session_id,
@@ -415,7 +459,7 @@ def _turn_to_proto(turn: StoredTurn, *, summary_only: bool = False) -> Any:
     )
 
 
-def _turn_event_to_proto(event: StoredTurnEvent) -> Any:
+def _turn_event_response(event: StoredTurnEvent) -> Any:
     return gestalt.AgentTurnEvent(
         id=event.event_id,
         turn_id=event.turn_id,
