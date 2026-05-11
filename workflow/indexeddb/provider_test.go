@@ -1566,7 +1566,7 @@ func TestNormalizeTargetPreservesPluginCredentialMode(t *testing.T) {
 	target := protoBoundTarget(t, " github ", " reviewPullRequest ", nil)
 	target.GetPlugin().CredentialMode = " none "
 
-	scoped, err := normalizeTarget(target)
+	scoped, err := normalizeTarget(workflowTargetInput(target))
 	if err != nil {
 		t.Fatalf("normalizeTarget: %v", err)
 	}
@@ -1583,7 +1583,7 @@ func TestNormalizeTargetRejectsInvalidPluginCredentialMode(t *testing.T) {
 	target := protoBoundTarget(t, "github", "reviewPullRequest", nil)
 	target.GetPlugin().CredentialMode = "platform"
 
-	_, err := normalizeTarget(target)
+	_, err := normalizeTarget(workflowTargetInput(target))
 	if err == nil || !strings.Contains(err.Error(), `target.plugin.credential_mode "platform" is not supported`) {
 		t.Fatalf("normalizeTarget error = %v, want unsupported credential mode", err)
 	}
@@ -1593,7 +1593,7 @@ func TestNormalizeTargetRejectsOutputDeliveryTargetCredentialMode(t *testing.T) 
 	target := protoAgentTargetWithOutputDelivery("managed", "gpt-5.4", "send a Slack reminder")
 	target.GetAgent().GetOutputDelivery().GetTarget().CredentialMode = "none"
 
-	_, err := normalizeTarget(target)
+	_, err := normalizeTarget(workflowTargetInput(target))
 	if err == nil || !strings.Contains(err.Error(), `target.agent.output_delivery.target.credential_mode "none" is not supported`) {
 		t.Fatalf("normalizeTarget error = %v, want unsupported output delivery target mode", err)
 	}
@@ -1604,7 +1604,7 @@ func TestNormalizeTargetRejectsSessionReadyDeliveryInvalidSources(t *testing.T) 
 	target.GetAgent().SessionReadyDelivery = protoSessionReadyDelivery()
 	target.GetAgent().GetSessionReadyDelivery().GetTarget().CredentialMode = "none"
 
-	_, err := normalizeTarget(target)
+	_, err := normalizeTarget(workflowTargetInput(target))
 	if err == nil || !strings.Contains(err.Error(), `target.agent.session_ready_delivery.target.credential_mode "none" is not supported`) {
 		t.Fatalf("normalizeTarget error = %v, want unsupported session ready delivery target mode", err)
 	}
@@ -1615,7 +1615,7 @@ func TestNormalizeTargetRejectsSessionReadyDeliveryInvalidSources(t *testing.T) 
 		Kind: &proto.WorkflowOutputValueSource_AgentOutput{AgentOutput: "text"},
 	}
 
-	_, err = normalizeTarget(target)
+	_, err = normalizeTarget(workflowTargetInput(target))
 	if err == nil || !strings.Contains(err.Error(), "target.agent.session_ready_delivery.input_bindings.value.agent_output is not available before the agent turn starts") {
 		t.Fatalf("normalizeTarget error = %v, want unsupported session ready delivery agent output", err)
 	}

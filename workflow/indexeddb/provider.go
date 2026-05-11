@@ -779,7 +779,7 @@ func (p *Provider) StartRun(ctx context.Context, req *proto.StartWorkflowProvide
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
 
-	target, err := normalizeTarget(req.GetTarget())
+	target, err := normalizeTarget(workflowTargetInput(req.GetTarget()))
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -1129,7 +1129,7 @@ func (p *Provider) SignalOrStartRun(ctx context.Context, req *proto.SignalOrStar
 	if workflowKey == "" {
 		return nil, status.Error(codes.InvalidArgument, "workflow_key is required")
 	}
-	target, err := normalizeTarget(req.GetTarget())
+	target, err := normalizeTarget(workflowTargetInput(req.GetTarget()))
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -1221,7 +1221,7 @@ func (p *Provider) UpsertSchedule(ctx context.Context, req *proto.UpsertWorkflow
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	target, err := normalizeTarget(req.GetTarget())
+	target, err := normalizeTarget(workflowTargetInput(req.GetTarget()))
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -1411,7 +1411,7 @@ func (p *Provider) UpsertEventTrigger(ctx context.Context, req *proto.UpsertWork
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	target, err := normalizeTarget(req.GetTarget())
+	target, err := normalizeTarget(workflowTargetInput(req.GetTarget()))
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -3276,28 +3276,33 @@ func failStaleRunningRunTx(ctx context.Context, runStore recordPutter, workflowK
 	return markSignalsFailedTx(ctx, signalStore, signals, now, run.StatusMessage)
 }
 
-func normalizeTarget(target *proto.BoundWorkflowTarget) (scopedTarget, error) {
+func normalizeTarget(target *gestalt.BoundWorkflowTargetInput) (scopedTarget, error) {
 	if target == nil {
 		return scopedTarget{}, errors.New("target is required")
 	}
-	if agentTarget := target.GetAgent(); agentTarget != nil {
-		agentProvider := strings.TrimSpace(agentTarget.GetProviderName())
+	if target.Agent != nil {
+		agent := *target.Agent
+		agentProvider := strings.TrimSpace(agent.ProviderName)
 		if agentProvider == "" {
 			return scopedTarget{}, errors.New("target.agent.provider_name is required")
 		}
-		agentInput := gestalt.BoundWorkflowAgentTargetInputFromTarget(agentTarget)
-		agentInput.ProviderName = agentProvider
-		agent, err := gestalt.NewBoundWorkflowAgentTarget(agentInput)
-		if err != nil {
-			return scopedTarget{}, fmt.Errorf("target.agent: %w", err)
+		agent.ProviderName = agentProvider
+		agent.Model = strings.TrimSpace(agent.Model)
+		agent.Prompt = strings.TrimSpace(agent.Prompt)
+		if agent.Prompt == "" && len(agent.Messages) == 0 {
+			return scopedTarget{}, errors.New("target.agent.prompt or messages is required")
 		}
-		if err := normalizeAgentTarget(agent, agentProvider); err != nil {
+		if agent.TimeoutSeconds < 0 {
+			return scopedTarget{}, errors.New("target.agent.timeout_seconds must not be negative")
+		}
+		if err := normalizeAgentOutputDelivery(agent.OutputDelivery); err != nil {
 			return scopedTarget{}, err
 		}
-		agentInput = gestalt.BoundWorkflowAgentTargetInputFromTarget(agent)
-		normalized, err := gestalt.NewBoundWorkflowTarget(gestalt.BoundWorkflowTargetInput{
-			Agent: &agentInput,
-		})
+		if err := normalizeAgentSessionReadyDelivery(agent.SessionReadyDelivery); err != nil {
+			return scopedTarget{}, err
+		}
+		targetInput := &gestalt.BoundWorkflowTargetInput{Agent: &agent}
+		normalized, err := gestalt.NewBoundWorkflowTarget(*targetInput)
 		if err != nil {
 			return scopedTarget{}, fmt.Errorf("target.agent: %w", err)
 		}
@@ -3306,33 +3311,31 @@ func normalizeTarget(target *proto.BoundWorkflowTarget) (scopedTarget, error) {
 			Target:   normalized,
 		}, nil
 	}
-	pluginTarget := target.GetPlugin()
-	if pluginTarget == nil {
+	if target.Plugin == nil {
 		return scopedTarget{}, errors.New("target.plugin.plugin_name is required")
 	}
-	pluginName := strings.TrimSpace(pluginTarget.GetPluginName())
-	operation := strings.TrimSpace(pluginTarget.GetOperation())
+	plugin := *target.Plugin
+	pluginName := strings.TrimSpace(plugin.PluginName)
+	operation := strings.TrimSpace(plugin.Operation)
 	if pluginName == "" {
 		return scopedTarget{}, errors.New("target.plugin.plugin_name is required")
 	}
 	if operation == "" {
 		return scopedTarget{}, errors.New("target.plugin.operation is required")
 	}
-	credentialMode := strings.ToLower(strings.TrimSpace(pluginTarget.GetCredentialMode()))
+	credentialMode := strings.ToLower(strings.TrimSpace(plugin.CredentialMode))
 	switch credentialMode {
 	case "", "none", "user":
 	default:
-		return scopedTarget{}, fmt.Errorf("target.plugin.credential_mode %q is not supported", pluginTarget.GetCredentialMode())
+		return scopedTarget{}, fmt.Errorf("target.plugin.credential_mode %q is not supported", plugin.CredentialMode)
 	}
-	pluginInput := gestalt.BoundWorkflowPluginTargetInputFromTarget(pluginTarget)
-	pluginInput.PluginName = pluginName
-	pluginInput.Operation = operation
-	pluginInput.Connection = strings.TrimSpace(pluginInput.Connection)
-	pluginInput.Instance = strings.TrimSpace(pluginInput.Instance)
-	pluginInput.CredentialMode = credentialMode
-	normalized, err := gestalt.NewBoundWorkflowTarget(gestalt.BoundWorkflowTargetInput{
-		Plugin: &pluginInput,
-	})
+	plugin.PluginName = pluginName
+	plugin.Operation = operation
+	plugin.Connection = strings.TrimSpace(plugin.Connection)
+	plugin.Instance = strings.TrimSpace(plugin.Instance)
+	plugin.CredentialMode = credentialMode
+	targetInput := &gestalt.BoundWorkflowTargetInput{Plugin: &plugin}
+	normalized, err := gestalt.NewBoundWorkflowTarget(*targetInput)
 	if err != nil {
 		return scopedTarget{}, fmt.Errorf("target.plugin.input: %w", err)
 	}
@@ -3358,114 +3361,91 @@ func targetOwnerKey(target *proto.BoundWorkflowTarget) string {
 	return ""
 }
 
-func normalizeAgentTarget(target *proto.BoundWorkflowAgentTarget, providerName string) error {
-	if target == nil {
-		return errors.New("target.agent is required")
-	}
-	target.ProviderName = strings.TrimSpace(providerName)
-	target.Model = strings.TrimSpace(target.GetModel())
-	target.Prompt = strings.TrimSpace(target.GetPrompt())
-	if target.GetPrompt() == "" && len(target.GetMessages()) == 0 {
-		return errors.New("target.agent.prompt or messages is required")
-	}
-	if target.GetTimeoutSeconds() < 0 {
-		return errors.New("target.agent.timeout_seconds must not be negative")
-	}
-	if err := normalizeAgentOutputDelivery(target.GetOutputDelivery()); err != nil {
-		return err
-	}
-	if err := normalizeAgentSessionReadyDelivery(target.GetSessionReadyDelivery()); err != nil {
-		return err
-	}
-	return nil
-}
-
-func normalizeAgentOutputDelivery(delivery *proto.WorkflowOutputDelivery) error {
+func normalizeAgentOutputDelivery(delivery *gestalt.WorkflowOutputDeliveryInput) error {
 	return normalizeAgentDelivery(delivery, "output_delivery", false)
 }
 
-func normalizeAgentSessionReadyDelivery(delivery *proto.WorkflowOutputDelivery) error {
+func normalizeAgentSessionReadyDelivery(delivery *gestalt.WorkflowOutputDeliveryInput) error {
 	return normalizeAgentDelivery(delivery, "session_ready_delivery", true)
 }
 
-func normalizeAgentDelivery(delivery *proto.WorkflowOutputDelivery, fieldName string, beforeTurn bool) error {
+func normalizeAgentDelivery(delivery *gestalt.WorkflowOutputDeliveryInput, fieldName string, beforeTurn bool) error {
 	if delivery == nil {
 		return nil
 	}
-	target := delivery.GetTarget()
+	target := delivery.Target
 	if target == nil {
 		return fmt.Errorf("target.agent.%s.target.plugin_name is required", fieldName)
 	}
-	pluginName := strings.TrimSpace(target.GetPluginName())
-	operation := strings.TrimSpace(target.GetOperation())
+	targetCopy := *target
+	pluginName := strings.TrimSpace(targetCopy.PluginName)
+	operation := strings.TrimSpace(targetCopy.Operation)
 	if pluginName == "" {
 		return fmt.Errorf("target.agent.%s.target.plugin_name is required", fieldName)
 	}
 	if operation == "" {
 		return fmt.Errorf("target.agent.%s.target.operation is required", fieldName)
 	}
-	targetCredentialMode := strings.ToLower(strings.TrimSpace(target.GetCredentialMode()))
+	targetCredentialMode := strings.ToLower(strings.TrimSpace(targetCopy.CredentialMode))
 	if targetCredentialMode != "" {
-		return fmt.Errorf("target.agent.%s.target.credential_mode %q is not supported", fieldName, target.GetCredentialMode())
+		return fmt.Errorf("target.agent.%s.target.credential_mode %q is not supported", fieldName, targetCopy.CredentialMode)
 	}
-	credentialMode := strings.ToLower(strings.TrimSpace(delivery.GetCredentialMode()))
+	credentialMode := strings.ToLower(strings.TrimSpace(delivery.CredentialMode))
 	switch credentialMode {
 	case "", "none", "user":
 	default:
-		return fmt.Errorf("target.agent.%s.credential_mode %q is not supported", fieldName, delivery.GetCredentialMode())
+		return fmt.Errorf("target.agent.%s.credential_mode %q is not supported", fieldName, delivery.CredentialMode)
 	}
-	target.PluginName = pluginName
-	target.Operation = operation
-	target.Connection = strings.TrimSpace(target.GetConnection())
-	target.Instance = strings.TrimSpace(target.GetInstance())
-	target.CredentialMode = ""
+	targetCopy.PluginName = pluginName
+	targetCopy.Operation = operation
+	targetCopy.Connection = strings.TrimSpace(targetCopy.Connection)
+	targetCopy.Instance = strings.TrimSpace(targetCopy.Instance)
+	targetCopy.CredentialMode = ""
 	delivery.CredentialMode = credentialMode
-	for _, binding := range delivery.GetInputBindings() {
-		if binding == nil || binding.GetValue() == nil || binding.GetValue().GetKind() == nil {
+	delivery.Target = &targetCopy
+	for i := range delivery.InputBindings {
+		binding := &delivery.InputBindings[i]
+		if binding.Value == nil {
 			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
 		}
-		binding.InputField = strings.TrimSpace(binding.GetInputField())
-		if binding.GetInputField() == "" {
+		binding.InputField = strings.TrimSpace(binding.InputField)
+		if binding.InputField == "" {
 			return fmt.Errorf("target.agent.%s.input_bindings.input_field is required", fieldName)
 		}
-		switch kind := binding.GetValue().GetKind().(type) {
-		case *proto.WorkflowOutputValueSource_AgentOutput:
+		value := binding.Value
+		value.AgentOutput = strings.TrimSpace(value.AgentOutput)
+		value.SignalPayload = strings.TrimSpace(value.SignalPayload)
+		value.SignalMetadata = strings.TrimSpace(value.SignalMetadata)
+		value.AgentSession = strings.TrimSpace(value.AgentSession)
+		selected := 0
+		if value.AgentOutput != "" {
+			selected++
 			if beforeTurn {
 				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_output is not available before the agent turn starts", fieldName)
 			}
-			kind.AgentOutput = strings.TrimSpace(kind.AgentOutput)
-			if kind.AgentOutput == "" {
-				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_output is required", fieldName)
-			}
-		case *proto.WorkflowOutputValueSource_SignalPayload:
-			kind.SignalPayload = strings.TrimSpace(kind.SignalPayload)
-			if kind.SignalPayload == "" {
-				return fmt.Errorf("target.agent.%s.input_bindings.value.signal_payload is required", fieldName)
-			}
-		case *proto.WorkflowOutputValueSource_SignalMetadata:
-			kind.SignalMetadata = strings.TrimSpace(kind.SignalMetadata)
-			if kind.SignalMetadata == "" {
-				return fmt.Errorf("target.agent.%s.input_bindings.value.signal_metadata is required", fieldName)
-			}
-		case *proto.WorkflowOutputValueSource_AgentSession:
-			kind.AgentSession = strings.TrimSpace(kind.AgentSession)
-			if kind.AgentSession == "" {
-				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_session is required", fieldName)
-			}
-		case *proto.WorkflowOutputValueSource_Literal:
-			if kind.Literal == nil {
-				return fmt.Errorf("target.agent.%s.input_bindings.value.literal is required", fieldName)
-			}
-		default:
+		}
+		if value.SignalPayload != "" {
+			selected++
+		}
+		if value.SignalMetadata != "" {
+			selected++
+		}
+		if value.AgentSession != "" {
+			selected++
+		}
+		if value.Literal != nil {
+			selected++
+		}
+		if selected == 0 {
 			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
 		}
+		if selected > 1 {
+			return fmt.Errorf("target.agent.%s.input_bindings.value must set exactly one source", fieldName)
+		}
 	}
-	deliveryInput := gestalt.WorkflowOutputDeliveryInputFromDelivery(delivery)
-	normalized, err := gestalt.NewWorkflowOutputDelivery(*deliveryInput)
-	if err != nil {
+	if _, err := gestalt.NewWorkflowOutputDelivery(*delivery); err != nil {
 		return fmt.Errorf("target.agent.%s: %w", fieldName, err)
 	}
-	*delivery = *normalized
 	return nil
 }
 
@@ -5471,7 +5451,7 @@ func executionReferenceRecordFromProto(ref *proto.WorkflowExecutionReference) (w
 	if ref == nil {
 		return workflowExecutionReferenceRecord{}, errors.New("reference is required")
 	}
-	target, err := normalizeTarget(ref.GetTarget())
+	target, err := normalizeTarget(workflowTargetInput(ref.GetTarget()))
 	if err != nil {
 		return workflowExecutionReferenceRecord{}, err
 	}
