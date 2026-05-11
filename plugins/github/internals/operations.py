@@ -76,9 +76,27 @@ class GitHubFileContentRequest:
     owner: str
     repo: str
     path: str
-    ref: str
+    ref: str = ""
     installation_id: int = 0
     max_bytes: int = 80_000
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubRepositoryRequest:
+    owner: str
+    repo: str
+    installation_id: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubCodeSearchRequest:
+    owner: str
+    repo: str
+    query: str
+    path: str = ""
+    per_page: int = 10
+    page: int = 0
+    installation_id: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -1380,6 +1398,61 @@ def list_pull_request_files(
     return [item for item in data if isinstance(item, dict)]
 
 
+def get_repository(
+    request: GitHubRepositoryRequest,
+    *,
+    subject: Any,
+    external_identity: Any = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"contents": "read"}
+    )
+    return github.github_json("GET", repo_path(owner, repo), token)
+
+
+def search_code(
+    request: GitHubCodeSearchRequest,
+    *,
+    subject: Any,
+    external_identity: Any = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    query = require_text(request.query, "query")
+    search_path = normalize_optional_search_path(request.path)
+    params = pagination_params(per_page=request.per_page, page=request.page)
+    scoped_query = f"{query} repo:{owner}/{repo}"
+    if search_path:
+        scoped_query = f"{scoped_query} path:{search_path}"
+    params["q"] = scoped_query
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        explicit=request.installation_id,
+        external_identity=external_identity,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"contents": "read"}
+    )
+    return github.github_json("GET", path_with_query("/search/code", params), token)
+
+
 def get_file_text_at_ref(
     request: GitHubFileContentRequest,
     *,
@@ -1391,7 +1464,6 @@ def get_file_text_at_ref(
     owner = require_slug(request.owner, "owner")
     repo = require_slug(request.repo, "repo")
     path = normalize_file_content_path(request.path)
-    ref = require_text(request.ref, "ref")
     max_bytes = max(1, int(request.max_bytes or 1))
     installation_id = scoped_installation_id(
         subject,
@@ -1404,6 +1476,7 @@ def get_file_text_at_ref(
     token = github.installation_token(
         installation_id, repositories=[repo], permissions={"contents": "read"}
     )
+    ref = request.ref.strip() or github.repository_default_branch(token, owner, repo)
     data = github.github_json(
         "GET",
         path_with_query(
@@ -1436,6 +1509,15 @@ def normalize_file_content_path(path: str) -> str:
     normalized = path.strip().lstrip("/")
     if not normalized:
         raise ValueError("file path is required")
+    if normalized in {".", ".."} or "/../" in f"/{normalized}/":
+        raise ValueError(f"{normalized}: path must not contain '..'")
+    return normalized
+
+
+def normalize_optional_search_path(path: str) -> str:
+    normalized = path.strip().lstrip("/")
+    if normalized.endswith("/"):
+        normalized = normalized.rstrip("/")
     if normalized in {".", ".."} or "/../" in f"/{normalized}/":
         raise ValueError(f"{normalized}: path must not contain '..'")
     return normalized
@@ -2299,6 +2381,48 @@ def pull_request_ref_repo_summary(repo: Mapping[str, Any]) -> dict[str, Any]:
         "name": str_field(repo, "name"),
     }
     return {key: value for key, value in data.items() if value}
+
+
+def repository_summary(repo: Mapping[str, Any]) -> dict[str, Any]:
+    return _compact_dict(
+        {
+            "id": int_field(repo, "id"),
+            "name": str_field(repo, "name"),
+            "full_name": str_field(repo, "full_name"),
+            "owner": nested_str(repo, "owner", "login"),
+            "private": bool(repo.get("private")),
+            "description": str_field(repo, "description"),
+            "default_branch": str_field(repo, "default_branch"),
+            "html_url": str_field(repo, "html_url"),
+        }
+    )
+
+
+def code_search_summary(response: Mapping[str, Any]) -> dict[str, Any]:
+    items = response.get("items")
+    return {
+        "total_count": int_field(response, "total_count"),
+        "incomplete_results": bool(response.get("incomplete_results")),
+        "items": [
+            code_search_item_summary(item)
+            for item in (items if isinstance(items, list) else [])
+            if isinstance(item, dict)
+        ],
+    }
+
+
+def code_search_item_summary(item: Mapping[str, Any]) -> dict[str, Any]:
+    repo = map_field(item, "repository")
+    return _compact_dict(
+        {
+            "name": str_field(item, "name"),
+            "path": str_field(item, "path"),
+            "sha": str_field(item, "sha"),
+            "html_url": str_field(item, "html_url"),
+            "repository": str_field(repo, "full_name"),
+            "score": item.get("score"),
+        }
+    )
 
 
 def pull_request_file_summary(file: Mapping[str, Any]) -> dict[str, Any]:

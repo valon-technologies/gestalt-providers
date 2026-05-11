@@ -535,6 +535,9 @@ class GitHubProviderTests(unittest.TestCase):
             provider_module.ACTION_PREFERENCES_LIST_TARGETS_OPERATION
         ]
         resolve = operations[provider_module.BOT_RESOLVE_INSTALLATION_OPERATION]
+        repo = operations[provider_module.BOT_GET_REPOSITORY_OPERATION]
+        search_code = operations[provider_module.BOT_SEARCH_CODE_OPERATION]
+        get_content = operations[provider_module.BOT_GET_CONTENT_OPERATION]
         pr = operations[provider_module.BOT_GET_PULL_REQUEST_OPERATION]
         pr_files = operations[provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION]
         pr_review = operations[provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION]
@@ -561,6 +564,9 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("pull_request workflow signal", review["description"])
         self.assertIn("repositories", preference_targets["description"])
         self.assertIn("runAs identities", resolve["description"])
+        self.assertIn("repository metadata", repo["description"])
+        self.assertIn("Search code", search_code["description"])
+        self.assertIn("file content", get_content["description"])
         self.assertIn("pull request metadata", pr["description"])
         self.assertIn("changed files", pr_files["description"])
         self.assertIn("inline comments", pr_review["description"])
@@ -581,6 +587,18 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(
             ["owner", "repo"],
             [parameter["name"] for parameter in resolve["parameters"]],
+        )
+        self.assertIn(
+            "owner",
+            [parameter["name"] for parameter in repo["parameters"]],
+        )
+        self.assertIn(
+            "query",
+            [parameter["name"] for parameter in search_code["parameters"]],
+        )
+        self.assertIn(
+            "path",
+            [parameter["name"] for parameter in get_content["parameters"]],
         )
         self.assertIn(
             "per_page",
@@ -657,6 +675,9 @@ class GitHubProviderTests(unittest.TestCase):
         enum = schema["properties"]["webhookPolicies"]["items"]["properties"]["action"][
             "properties"
         ]["allowedOperations"]["items"]["enum"]
+        self.assertIn(provider_module.BOT_GET_REPOSITORY_OPERATION, enum)
+        self.assertIn(provider_module.BOT_SEARCH_CODE_OPERATION, enum)
+        self.assertIn(provider_module.BOT_GET_CONTENT_OPERATION, enum)
         self.assertIn(provider_module.BOT_GET_PULL_REQUEST_OPERATION, enum)
         self.assertIn(provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION, enum)
         self.assertIn(
@@ -3265,6 +3286,9 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(
             [tool.operation for tool in agent.tool_refs],
             [
+                provider_module.BOT_GET_REPOSITORY_OPERATION,
+                provider_module.BOT_SEARCH_CODE_OPERATION,
+                provider_module.BOT_GET_CONTENT_OPERATION,
                 provider_module.BOT_GET_PULL_REQUEST_OPERATION,
                 provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
                 provider_module.BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
@@ -6169,6 +6193,9 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(
             [tool.operation for tool in request.target.agent.tool_refs],
             [
+                provider_module.BOT_GET_REPOSITORY_OPERATION,
+                provider_module.BOT_SEARCH_CODE_OPERATION,
+                provider_module.BOT_GET_CONTENT_OPERATION,
                 provider_module.BOT_GET_PULL_REQUEST_OPERATION,
                 provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
                 provider_module.BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
@@ -9121,6 +9148,130 @@ class GitHubProviderTests(unittest.TestCase):
                 if call[1].endswith("access_tokens")
             ],
             [{"pull_requests": "read"}, {"pull_requests": "read"}],
+        )
+
+    def test_bot_repository_code_operations_use_installation_token(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/repos/acme/widgets/installation":
+                self.assertEqual(auth_header(request), "Bearer app-jwt")
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["repositories"], ["widgets"])
+                self.assertEqual(body["permissions"], {"contents": "read"})
+                return FakeHTTPResponse({"token": "contents-read-token"})
+            if path == "/repos/acme/widgets":
+                self.assertEqual(auth_header(request), "Bearer contents-read-token")
+                return FakeHTTPResponse(
+                    {
+                        "id": 123,
+                        "name": "widgets",
+                        "full_name": "acme/widgets",
+                        "owner": {"login": "acme"},
+                        "private": True,
+                        "default_branch": "main",
+                        "html_url": "https://github.com/acme/widgets",
+                    }
+                )
+            if path == "/search/code":
+                self.assertEqual(auth_header(request), "Bearer contents-read-token")
+                query = urllib.parse.parse_qs(
+                    urllib.parse.urlparse(request.full_url).query
+                )
+                self.assertEqual(query["per_page"], ["2"])
+                self.assertEqual(query["page"], ["3"])
+                self.assertEqual(query["q"], ["Widget repo:acme/widgets path:src"])
+                return FakeHTTPResponse(
+                    {
+                        "total_count": 1,
+                        "incomplete_results": False,
+                        "items": [
+                            {
+                                "name": "widget.py",
+                                "path": "src/widget.py",
+                                "sha": "abc123",
+                                "html_url": "https://github.com/acme/widgets/blob/main/src/widget.py",
+                                "repository": {"full_name": "acme/widgets"},
+                                "score": 1.0,
+                            }
+                        ],
+                    }
+                )
+            if path == "/repos/acme/widgets/contents/src/widget.py":
+                self.assertEqual(auth_header(request), "Bearer contents-read-token")
+                self.assertEqual(
+                    urllib.parse.parse_qs(
+                        urllib.parse.urlparse(request.full_url).query
+                    )["ref"],
+                    ["main"],
+                )
+                return FakeHTTPResponse(
+                    {
+                        "type": "file",
+                        "size": 12,
+                        "encoding": "base64",
+                        "content": "aGVsbG8gd29ybGQK",
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            repo = provider_module.bot_get_repository(
+                provider_module.RepositoryInput(owner="acme", repo="widgets"),
+                github_external_identity_request(),
+            )
+            search = provider_module.bot_search_code(
+                provider_module.SearchCodeInput(
+                    owner="acme",
+                    repo="widgets",
+                    query="Widget",
+                    path="src",
+                    per_page=2,
+                    page=3,
+                ),
+                github_external_identity_request(),
+            )
+            content = provider_module.bot_get_content(
+                provider_module.GetContentInput(
+                    owner="acme",
+                    repo="widgets",
+                    path="src/widget.py",
+                ),
+                github_external_identity_request(),
+            )
+
+        self.assertEqual(
+            cast(dict[str, Any], repo)["data"]["repository"]["full_name"],
+            "acme/widgets",
+        )
+        self.assertEqual(
+            cast(dict[str, Any], search)["data"]["items"][0]["path"],
+            "src/widget.py",
+        )
+        self.assertEqual(
+            cast(dict[str, Any], content)["data"]["content"], "hello world\n"
+        )
+        self.assertEqual(
+            [
+                call[2].get("permissions")
+                for call in calls
+                if call[1].endswith("access_tokens")
+            ],
+            [{"contents": "read"}, {"contents": "read"}, {"contents": "read"}],
         )
 
     def test_list_pull_request_files_rejects_invalid_pagination_before_github_calls(
