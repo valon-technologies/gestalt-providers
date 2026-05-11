@@ -5,6 +5,7 @@
 .claude/
 .env
 .env.*
+.terraform/
 __pycache__/
 auth/*/dist/
 credentials.json
