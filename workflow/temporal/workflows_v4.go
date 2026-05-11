@@ -13,17 +13,23 @@ import (
 )
 
 type runWorkflowV4Input struct {
-	ActivityStartToCloseTimeoutNS time.Duration `json:"activity_start_to_close_timeout_ns"`
-	ScheduleID                    string        `json:"schedule_id,omitempty"`
-	ExecutionRef                  string        `json:"execution_ref,omitempty"`
-	WorkflowKey                   string        `json:"workflow_key,omitempty"`
-	OwnerKey                      string        `json:"owner_key,omitempty"`
-	TargetPayload                 []byte        `json:"target_payload,omitempty"`
-	TriggerPayload                []byte        `json:"trigger_payload,omitempty"`
-	CreatedByPayload              []byte        `json:"created_by_payload,omitempty"`
-	InitialSignalPayload          []byte        `json:"initial_signal_payload,omitempty"`
-	RequireSignal                 bool          `json:"require_signal,omitempty"`
-	RequireClaim                  bool          `json:"require_claim,omitempty"`
+	ActivityStartToCloseTimeoutNS time.Duration                     `json:"activity_start_to_close_timeout_ns"`
+	ScheduleID                    string                            `json:"schedule_id,omitempty"`
+	ExecutionRef                  string                            `json:"execution_ref,omitempty"`
+	WorkflowKey                   string                            `json:"workflow_key,omitempty"`
+	OwnerKey                      string                            `json:"owner_key,omitempty"`
+	Target                        *gestalt.BoundWorkflowTargetInput `json:"target,omitempty"`
+	Trigger                       *gestalt.WorkflowRunTriggerInput  `json:"trigger,omitempty"`
+	CreatedBy                     *gestalt.WorkflowActorInput       `json:"created_by,omitempty"`
+	InitialSignal                 *gestalt.WorkflowSignalInput      `json:"initial_signal,omitempty"`
+	// Legacy payload fields are retained for replaying histories started before
+	// workflow inputs moved to native JSON values.
+	TargetPayload        []byte `json:"target_payload,omitempty"`
+	TriggerPayload       []byte `json:"trigger_payload,omitempty"`
+	CreatedByPayload     []byte `json:"created_by_payload,omitempty"`
+	InitialSignalPayload []byte `json:"initial_signal_payload,omitempty"`
+	RequireSignal        bool   `json:"require_signal,omitempty"`
+	RequireClaim         bool   `json:"require_claim,omitempty"`
 }
 
 const (
@@ -34,9 +40,6 @@ const (
 func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*proto.BoundWorkflowRun, error) {
 	info := workflow.GetInfo(ctx)
 	now := workflow.Now(ctx).UTC()
-	if input.ScheduleID != "" {
-		input.TriggerPayload = protoPayload(scheduleTrigger(input.ScheduleID, now))
-	}
 	handleKind := runHandleKindV4
 	if workflow.GetVersion(ctx, "temporal-run-v4-handle-kind", workflow.DefaultVersion, 1) == workflow.DefaultVersion {
 		// Alpha.19 V4 histories used the old handle kind. Preserve replay for
@@ -53,10 +56,10 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 	state, err := gestalt.NewBoundWorkflowRun(gestalt.BoundWorkflowRunInput{
 		ID:           publicID,
 		Status:       proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
-		Target:       workflowTargetInput(targetFromPayload(input.TargetPayload)),
-		Trigger:      workflowTriggerInput(triggerFromPayload(input.TriggerPayload)),
+		Target:       input.targetInput(),
+		Trigger:      input.triggerInput(now),
 		CreatedAt:    now,
-		CreatedBy:    actorInputPtr(actorFromPayload(input.CreatedByPayload)),
+		CreatedBy:    input.createdByInput(),
 		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
 		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
 	})
@@ -74,7 +77,11 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 			StartToCloseTimeout: input.ActivityStartToCloseTimeoutNS,
 			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 		})
-		_ = workflow.ExecuteActivity(activityCtx, (*workflowActivities).ProjectRun, cloneRun(state)).Get(activityCtx, nil)
+		runInput, err := gestalt.BoundWorkflowRunInputFromRun(state)
+		if err != nil {
+			return
+		}
+		_ = workflow.ExecuteActivity(activityCtx, (*workflowActivities).ProjectRun, runInput).Get(activityCtx, nil)
 	}
 	rebuildRun := func(mutate func(*gestalt.BoundWorkflowRunInput)) error {
 		input, err := gestalt.BoundWorkflowRunInputFromRun(state)
@@ -88,21 +95,20 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 		}
 		return nil
 	}
-	appendSignal := func(signal *proto.WorkflowSignal) (*proto.WorkflowSignal, error) {
-		input := gestalt.WorkflowSignalInputFromSignal(signal)
-		if input.CreatedAt.IsZero() {
-			input.CreatedAt = workflow.Now(ctx).UTC()
+	appendSignalInput := func(signalInput gestalt.WorkflowSignalInput) (*proto.WorkflowSignal, error) {
+		if signalInput.CreatedAt.IsZero() {
+			signalInput.CreatedAt = workflow.Now(ctx).UTC()
 		}
-		if input.Sequence <= 0 {
-			input.Sequence = nextSignalSequence
+		if signalInput.Sequence <= 0 {
+			signalInput.Sequence = nextSignalSequence
 		}
-		if input.Sequence >= nextSignalSequence {
-			nextSignalSequence = input.Sequence + 1
+		if signalInput.Sequence >= nextSignalSequence {
+			nextSignalSequence = signalInput.Sequence + 1
 		}
-		if strings.TrimSpace(input.ID) == "" {
-			input.ID = "signal:" + hashID(state.GetId(), input.Name, fmt.Sprintf("%d", input.Sequence), input.IdempotencyKey)
+		if strings.TrimSpace(signalInput.ID) == "" {
+			signalInput.ID = "signal:" + hashID(state.GetId(), signalInput.Name, fmt.Sprintf("%d", signalInput.Sequence), signalInput.IdempotencyKey)
 		}
-		signal, err := gestalt.NewWorkflowSignal(input)
+		signal, err := gestalt.NewWorkflowSignal(signalInput)
 		if err != nil {
 			return nil, err
 		}
@@ -110,8 +116,11 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 		signalCount++
 		return signal, nil
 	}
-	if initial := signalFromPayload(input.InitialSignalPayload); initial != nil {
-		if _, err := appendSignal(initial); err != nil {
+	appendSignal := func(signal *proto.WorkflowSignal) (*proto.WorkflowSignal, error) {
+		return appendSignalInput(gestalt.WorkflowSignalInputFromSignal(signal))
+	}
+	if initial := input.initialSignalInput(); initial != nil {
+		if _, err := appendSignalInput(*initial); err != nil {
 			return nil, err
 		}
 	}
@@ -277,4 +286,39 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*prot
 	project(ctx)
 	_ = workflow.Await(ctx, func() bool { return workflow.AllHandlersFinished(ctx) })
 	return cloneRun(state), nil
+}
+
+func (input runWorkflowV4Input) targetInput() *gestalt.BoundWorkflowTargetInput {
+	if input.Target != nil {
+		return input.Target
+	}
+	return workflowTargetInput(targetFromPayload(input.TargetPayload))
+}
+
+func (input runWorkflowV4Input) triggerInput(now time.Time) *gestalt.WorkflowRunTriggerInput {
+	if input.ScheduleID != "" {
+		return scheduleTriggerInput(input.ScheduleID, now)
+	}
+	if input.Trigger != nil {
+		return input.Trigger
+	}
+	return workflowTriggerInput(triggerFromPayload(input.TriggerPayload))
+}
+
+func (input runWorkflowV4Input) createdByInput() *gestalt.WorkflowActorInput {
+	if input.CreatedBy != nil {
+		return input.CreatedBy
+	}
+	return actorInputPtr(actorFromPayload(input.CreatedByPayload))
+}
+
+func (input runWorkflowV4Input) initialSignalInput() *gestalt.WorkflowSignalInput {
+	if input.InitialSignal != nil {
+		return input.InitialSignal
+	}
+	if signal := signalFromPayload(input.InitialSignalPayload); signal != nil {
+		native := gestalt.WorkflowSignalInputFromSignal(signal)
+		return &native
+	}
+	return nil
 }

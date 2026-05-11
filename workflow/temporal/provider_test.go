@@ -29,6 +29,7 @@ import (
 	sdkworkflow "go.temporal.io/sdk/workflow"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -51,9 +52,9 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
 		ExecutionRef:                  "ref-1",
 		ActivityStartToCloseTimeoutNS: time.Minute,
-		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
-		TriggerPayload:                protoPayload(newManualTrigger()),
-		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
+		Target:                        nativePluginTargetInput("slack", "postMessage"),
+		Trigger:                       &gestalt.WorkflowRunTriggerInput{Manual: true},
+		CreatedBy:                     actor("user-1"),
 	})
 
 	if err := env.GetWorkflowError(); err != nil {
@@ -104,9 +105,9 @@ func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 		ActivityStartToCloseTimeoutNS: time.Minute,
 		WorkflowKey:                   "thread-1",
 		OwnerKey:                      "slack",
-		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
-		TriggerPayload:                protoPayload(newManualTrigger()),
-		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
+		Target:                        nativePluginTargetInput("slack", "postMessage"),
+		Trigger:                       &gestalt.WorkflowRunTriggerInput{Manual: true},
+		CreatedBy:                     actor("user-1"),
 		RequireSignal:                 true,
 		RequireClaim:                  true,
 	})
@@ -165,10 +166,10 @@ func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
 
 	var mu sync.Mutex
 	var projectedStatuses []proto.WorkflowRunStatus
-	env.OnActivity(activities.ProjectRun, mock.Anything, mock.Anything).Return(func(_ context.Context, run *proto.BoundWorkflowRun) error {
+	env.OnActivity(activities.ProjectRun, mock.Anything, mock.Anything).Return(func(_ context.Context, run gestalt.BoundWorkflowRunInput) error {
 		mu.Lock()
 		defer mu.Unlock()
-		projectedStatuses = append(projectedStatuses, run.GetStatus())
+		projectedStatuses = append(projectedStatuses, run.Status)
 		return nil
 	}).Maybe()
 
@@ -181,10 +182,10 @@ func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
 		ActivityStartToCloseTimeoutNS: time.Minute,
 		WorkflowKey:                   "thread-1",
 		OwnerKey:                      "slack",
-		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
-		TriggerPayload:                protoPayload(newManualTrigger()),
-		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
-		InitialSignalPayload:          protoPayload(&proto.WorkflowSignal{Name: "slack.event", CreatedAt: timestamppb.Now()}),
+		Target:                        nativePluginTargetInput("slack", "postMessage"),
+		Trigger:                       &gestalt.WorkflowRunTriggerInput{Manual: true},
+		CreatedBy:                     actor("user-1"),
+		InitialSignal:                 &gestalt.WorkflowSignalInput{Name: "slack.event", CreatedAt: time.Now().UTC()},
 		RequireSignal:                 true,
 		RequireClaim:                  true,
 	})
@@ -212,10 +213,10 @@ func TestGestaltRunWorkflowV4AddSignalUpdateDoesNotWaitForProjection(t *testing.
 
 	var mu sync.Mutex
 	var projectedStatuses []proto.WorkflowRunStatus
-	env.OnActivity(activities.ProjectRun, mock.Anything, mock.Anything).Return(func(_ context.Context, run *proto.BoundWorkflowRun) error {
+	env.OnActivity(activities.ProjectRun, mock.Anything, mock.Anything).Return(func(_ context.Context, run gestalt.BoundWorkflowRunInput) error {
 		mu.Lock()
 		defer mu.Unlock()
-		projectedStatuses = append(projectedStatuses, run.GetStatus())
+		projectedStatuses = append(projectedStatuses, run.Status)
 		return nil
 	}).Maybe()
 
@@ -228,9 +229,9 @@ func TestGestaltRunWorkflowV4AddSignalUpdateDoesNotWaitForProjection(t *testing.
 		ActivityStartToCloseTimeoutNS: time.Minute,
 		WorkflowKey:                   "thread-1",
 		OwnerKey:                      "slack",
-		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
-		TriggerPayload:                protoPayload(newManualTrigger()),
-		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
+		Target:                        nativePluginTargetInput("slack", "postMessage"),
+		Trigger:                       &gestalt.WorkflowRunTriggerInput{Manual: true},
+		CreatedBy:                     actor("user-1"),
 		RequireSignal:                 true,
 	})
 
@@ -262,9 +263,9 @@ func TestGestaltRunWorkflowV4ContinuesWhenProjectionFails(t *testing.T) {
 	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
 		ExecutionRef:                  "ref-1",
 		ActivityStartToCloseTimeoutNS: time.Minute,
-		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
-		TriggerPayload:                protoPayload(newManualTrigger()),
-		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
+		Target:                        nativePluginTargetInput("slack", "postMessage"),
+		Trigger:                       &gestalt.WorkflowRunTriggerInput{Manual: true},
+		CreatedBy:                     actor("user-1"),
 	})
 
 	if err := env.GetWorkflowError(); err != nil {
@@ -1826,6 +1827,14 @@ func nativePluginTargetInput(plugin, operation string) *gestalt.BoundWorkflowTar
 		PluginName: strings.TrimSpace(plugin),
 		Operation:  strings.TrimSpace(operation),
 	}}
+}
+
+func protoPayload(msg gproto.Message) []byte {
+	data, err := gproto.MarshalOptions{Deterministic: true}.Marshal(msg)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 func cloneSignalOrStartRequest(req *gestalt.SignalOrStartWorkflowProviderRunRequest) *gestalt.SignalOrStartWorkflowProviderRunRequest {

@@ -116,14 +116,6 @@ func protoHashID(msg gproto.Message) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-func protoPayload(msg gproto.Message) []byte {
-	data, err := gproto.MarshalOptions{Deterministic: true}.Marshal(msg)
-	if err != nil {
-		return nil
-	}
-	return data
-}
-
 func targetFromPayload(data []byte) *proto.BoundWorkflowTarget {
 	if len(data) == 0 {
 		return nil
@@ -711,6 +703,14 @@ func newManualTrigger() *proto.WorkflowRunTrigger {
 
 func scheduleTrigger(scheduleID string, scheduledFor time.Time) *proto.WorkflowRunTrigger {
 	return gestalt.NewWorkflowScheduleTrigger(strings.TrimSpace(scheduleID), scheduledFor.UTC())
+}
+
+func scheduleTriggerInput(scheduleID string, scheduledFor time.Time) *gestalt.WorkflowRunTriggerInput {
+	scheduledFor = scheduledFor.UTC()
+	return &gestalt.WorkflowRunTriggerInput{Schedule: &gestalt.WorkflowScheduleTriggerInput{
+		ScheduleID:   strings.TrimSpace(scheduleID),
+		ScheduledFor: &scheduledFor,
+	}}
 }
 
 func eventTrigger(triggerID string, event *proto.WorkflowEvent) *proto.WorkflowRunTrigger {
