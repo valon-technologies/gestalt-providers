@@ -4,7 +4,6 @@ import (
 	"context"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 )
 
 const (
@@ -29,15 +28,4 @@ func (a *workflowActivities) ProjectRun(ctx context.Context, run gestalt.BoundWo
 		return nil
 	}
 	return a.state.putRun(ctx, &run)
-}
-
-func cloneRunTrigger(trigger *proto.WorkflowRunTrigger) *proto.WorkflowRunTrigger {
-	if trigger == nil {
-		return nil
-	}
-	out, err := gestalt.NewWorkflowRunTriggerFromTrigger(trigger)
-	if err != nil {
-		panic("clone workflow run trigger: " + err.Error())
-	}
-	return out
 }

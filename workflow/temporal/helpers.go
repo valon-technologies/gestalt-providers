@@ -13,7 +13,6 @@ import (
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-	gproto "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -104,60 +103,16 @@ func workflowInvokeMetadataInput(workflowKey string) any {
 	}
 }
 
-func protoHashID(msg gproto.Message) string {
-	if msg == nil {
+func valueHashID(value any) string {
+	if value == nil {
 		return ""
 	}
-	data, err := gproto.MarshalOptions{Deterministic: true}.Marshal(msg)
+	data, err := json.Marshal(value)
 	if err != nil {
-		return hashID("proto-marshal-error", err.Error())
+		return hashID("json-marshal-error", err.Error())
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:16])
-}
-
-func targetFromPayload(data []byte) *proto.BoundWorkflowTarget {
-	if len(data) == 0 {
-		return nil
-	}
-	var target proto.BoundWorkflowTarget
-	if err := gproto.Unmarshal(data, &target); err != nil {
-		return nil
-	}
-	return cloneTarget(&target)
-}
-
-func triggerFromPayload(data []byte) *proto.WorkflowRunTrigger {
-	if len(data) == 0 {
-		return nil
-	}
-	var trigger proto.WorkflowRunTrigger
-	if err := gproto.Unmarshal(data, &trigger); err != nil {
-		return nil
-	}
-	return cloneRunTrigger(&trigger)
-}
-
-func actorFromPayload(data []byte) *proto.WorkflowActor {
-	if len(data) == 0 {
-		return nil
-	}
-	var actor proto.WorkflowActor
-	if err := gproto.Unmarshal(data, &actor); err != nil {
-		return nil
-	}
-	return cloneActor(&actor)
-}
-
-func signalFromPayload(data []byte) *proto.WorkflowSignal {
-	if len(data) == 0 {
-		return nil
-	}
-	var signal proto.WorkflowSignal
-	if err := gproto.Unmarshal(data, &signal); err != nil {
-		return nil
-	}
-	return cloneSignal(&signal)
 }
 
 func workflowID(scopeID, kind string, parts ...string) string {
@@ -379,28 +334,28 @@ func normalizeWorkflowEvent(event *proto.WorkflowEvent, now func() time.Time) (*
 	})
 }
 
-func normalizeWorkflowSignal(signal *proto.WorkflowSignal, now time.Time) (*proto.WorkflowSignal, error) {
+func normalizeWorkflowSignalInput(signal *gestalt.WorkflowSignalInput, now time.Time) (*gestalt.WorkflowSignalInput, error) {
 	if signal == nil {
 		return nil, errors.New("signal is required")
 	}
-	name := strings.TrimSpace(signal.GetName())
+	out := *signal
+	name := strings.TrimSpace(out.Name)
 	if name == "" {
 		return nil, errors.New("signal.name is required")
 	}
-	createdAt := now.UTC()
-	if ts := signal.GetCreatedAt(); ts != nil && ts.IsValid() {
-		createdAt = ts.AsTime().UTC()
+	if out.CreatedAt.IsZero() {
+		out.CreatedAt = now.UTC()
+	} else {
+		out.CreatedAt = out.CreatedAt.UTC()
 	}
-	return gestalt.NewWorkflowSignal(gestalt.WorkflowSignalInput{
-		ID:             strings.TrimSpace(signal.GetId()),
-		Name:           name,
-		Payload:        gestalt.MapFromStruct(signal.GetPayload()),
-		Metadata:       gestalt.MapFromStruct(signal.GetMetadata()),
-		CreatedBy:      actorInputPtr(signal.GetCreatedBy()),
-		CreatedAt:      createdAt,
-		IdempotencyKey: strings.TrimSpace(signal.GetIdempotencyKey()),
-		Sequence:       signal.GetSequence(),
-	})
+	out.ID = strings.TrimSpace(out.ID)
+	out.Name = name
+	out.CreatedBy = cloneActorInput(out.CreatedBy)
+	out.IdempotencyKey = strings.TrimSpace(out.IdempotencyKey)
+	if _, err := gestalt.NewWorkflowSignal(out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func cloneTarget(target *proto.BoundWorkflowTarget) *proto.BoundWorkflowTarget {
@@ -454,17 +409,6 @@ func workflowTriggerInput(trigger *proto.WorkflowRunTrigger) *gestalt.WorkflowRu
 	return &input
 }
 
-func workflowSignalInputs(signals []*proto.WorkflowSignal) []gestalt.WorkflowSignalInput {
-	if len(signals) == 0 {
-		return nil
-	}
-	out := make([]gestalt.WorkflowSignalInput, 0, len(signals))
-	for _, signal := range signals {
-		out = append(out, gestalt.WorkflowSignalInputFromSignal(signal))
-	}
-	return out
-}
-
 func workflowTargetProto(input *gestalt.BoundWorkflowTargetInput) (*proto.BoundWorkflowTarget, error) {
 	if input == nil {
 		return nil, nil
@@ -484,45 +428,6 @@ func workflowEventProto(input *gestalt.WorkflowEventInput) (*proto.WorkflowEvent
 		return nil, nil
 	}
 	return gestalt.NewWorkflowEvent(*input)
-}
-
-func workflowSignalProto(input *gestalt.WorkflowSignalInput) (*proto.WorkflowSignal, error) {
-	if input == nil {
-		return nil, nil
-	}
-	return gestalt.NewWorkflowSignal(*input)
-}
-
-func runInputFromProto(run *proto.BoundWorkflowRun, err error) (*gestalt.BoundWorkflowRunInput, error) {
-	if err != nil || run == nil {
-		return nil, err
-	}
-	input, err := gestalt.BoundWorkflowRunInputFromRun(run)
-	if err != nil {
-		return nil, err
-	}
-	return &input, nil
-}
-
-func signalRunResponseInputFromProto(resp *proto.SignalWorkflowRunResponse, err error) (*gestalt.SignalWorkflowRunResponse, error) {
-	if err != nil || resp == nil {
-		return nil, err
-	}
-	run, err := runInputFromProto(resp.GetRun(), nil)
-	if err != nil {
-		return nil, err
-	}
-	var signal *gestalt.WorkflowSignalInput
-	if resp.GetSignal() != nil {
-		input := gestalt.WorkflowSignalInputFromSignal(resp.GetSignal())
-		signal = &input
-	}
-	return &gestalt.SignalWorkflowRunResponse{
-		Run:         run,
-		Signal:      signal,
-		StartedRun:  resp.GetStartedRun(),
-		WorkflowKey: resp.GetWorkflowKey(),
-	}, nil
 }
 
 func cloneEvent(event *proto.WorkflowEvent) *proto.WorkflowEvent {
@@ -550,18 +455,29 @@ func cloneSignal(signal *proto.WorkflowSignal) *proto.WorkflowSignal {
 	return out
 }
 
-func cloneRun(run *proto.BoundWorkflowRun) *proto.BoundWorkflowRun {
+func cloneRunInput(run *gestalt.BoundWorkflowRunInput) *gestalt.BoundWorkflowRunInput {
 	if run == nil {
 		return nil
 	}
-	out, err := gestalt.NewBoundWorkflowRunFromRun(run)
-	if err != nil {
-		panic(fmt.Sprintf("clone workflow run: %v", err))
+	out := *run
+	out.ID = strings.TrimSpace(out.ID)
+	out.StatusMessage = strings.TrimSpace(out.StatusMessage)
+	out.ExecutionRef = strings.TrimSpace(out.ExecutionRef)
+	out.WorkflowKey = strings.TrimSpace(out.WorkflowKey)
+	out.CreatedBy = cloneActorInput(out.CreatedBy)
+	return &out
+}
+
+func cloneSignalInput(signal *gestalt.WorkflowSignalInput) *gestalt.WorkflowSignalInput {
+	if signal == nil {
+		return nil
 	}
-	if out.GetCreatedBy() != nil {
-		out.CreatedBy = cloneActor(out.GetCreatedBy())
-	}
-	return out
+	out := *signal
+	out.ID = strings.TrimSpace(out.ID)
+	out.Name = strings.TrimSpace(out.Name)
+	out.IdempotencyKey = strings.TrimSpace(out.IdempotencyKey)
+	out.CreatedBy = cloneActorInput(out.CreatedBy)
+	return &out
 }
 
 func eventMatchesTriggerInput(event *gestalt.WorkflowEventInput, trigger *gestalt.BoundWorkflowEventTriggerInput) bool {
