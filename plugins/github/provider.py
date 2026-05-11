@@ -35,7 +35,9 @@ from internals.constants import (
     BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
     BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
     BOT_GET_CHECK_RUN_OPERATION,
+    BOT_GET_CONTENT_OPERATION,
     BOT_GET_PULL_REQUEST_OPERATION,
+    BOT_GET_REPOSITORY_OPERATION,
     BOT_GET_WORKFLOW_RUN_OPERATION,
     BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION,
     BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
@@ -47,6 +49,7 @@ from internals.constants import (
     BOT_REQUEST_REVIEWERS_OPERATION,
     BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
     BOT_RESOLVE_INSTALLATION_OPERATION,
+    BOT_SEARCH_CODE_OPERATION,
     BOT_UPDATE_CHECK_RUN_OPERATION,
     GITHUB_EVENT_OPERATION,
     GITHUB_EXTERNAL_IDENTITY_TYPE,
@@ -64,6 +67,7 @@ from internals.identity import (
 from internals.operations import (
     GitHubAddLabelsRequest,
     GitHubAddReactionRequest,
+    GitHubCodeSearchRequest,
     GitHubCoAuthor,
     GitHubCommitRequest,
     GitHubCheckRunRequest,
@@ -74,6 +78,7 @@ from internals.operations import (
     GitHubCreatePullRequestRequest,
     GitHubCreatePullRequestReviewRequest,
     GitHubUserCreatePullRequestRequest,
+    GitHubFileContentRequest,
     GitHubFileChange,
     GitHubListCheckRunsForRefRequest,
     GitHubListCheckSuiteCheckRunsRequest,
@@ -84,6 +89,7 @@ from internals.operations import (
     GitHubOpenPullRequestRequest,
     GitHubPullRequestRequest,
     GitHubPullRequestReviewComment,
+    GitHubRepositoryRequest,
     GitHubRemoveLabelsRequest,
     GitHubRequestReviewersRequest,
     GitHubResolvePullRequestReviewThreadRequest,
@@ -94,6 +100,7 @@ from internals.operations import (
     check_run_annotation_summary,
     check_run_summary,
     close_pull_request,
+    code_search_summary,
     commit_files,
     commit_result_dict,
     create_check_run,
@@ -103,7 +110,9 @@ from internals.operations import (
     create_pull_request_with_user_files,
     create_pull_request_with_files,
     get_check_run,
+    get_file_text_at_ref,
     get_pull_request,
+    get_repository,
     get_workflow_run,
     issue_comment_summary,
     installation_resolution_dict,
@@ -121,8 +130,10 @@ from internals.operations import (
     pull_request_summary,
     reaction_summary,
     remove_labels,
+    repository_summary,
     request_reviewers,
     resolve_pull_request_review_thread,
+    search_code,
     update_check_run,
     resolve_repository_installation,
     workflow_run_job_summary,
@@ -211,6 +222,61 @@ class CoAuthorInput(gestalt.Model):
 class ResolveInstallationInput(gestalt.Model):
     owner: str = gestalt.field(description="Repository owner")
     repo: str = gestalt.field(description="Repository name")
+
+
+class RepositoryInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is resolved from external_identity or the legacy webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
+class SearchCodeInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    query: str = gestalt.field(description="GitHub code search query")
+    path: str = gestalt.field(
+        description="Optional repository-relative path prefix to search within",
+        default="",
+        required=False,
+    )
+    per_page: int = gestalt.field(
+        description="Results per page, from 1 through 100",
+        default=10,
+        required=False,
+    )
+    page: int = gestalt.field(
+        description="Page number, starting at 1", default=0, required=False
+    )
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is resolved from external_identity or the legacy webhook service account subject.",
+        default=0,
+        required=False,
+    )
+
+
+class GetContentInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    path: str = gestalt.field(description="Repository-relative file path")
+    ref: str = gestalt.field(
+        description="Git ref, branch, or SHA. Defaults to the repository default branch.",
+        default="",
+        required=False,
+    )
+    max_bytes: int = gestalt.field(
+        description="Maximum UTF-8 bytes to return",
+        default=80000,
+        required=False,
+    )
+    installation_id: int = gestalt.field(
+        description="GitHub App installation ID. If omitted, it is resolved from external_identity or the legacy webhook service account subject.",
+        default=0,
+        required=False,
+    )
 
 
 class CommitFilesInput(gestalt.Model):
@@ -1789,6 +1855,97 @@ def bot_resolve_installation(
     except GitHubAPIError as err:
         return _github_error(err)
     return {"data": installation_resolution_dict(resolution)}
+
+
+@plugin.operation(
+    id=BOT_GET_REPOSITORY_OPERATION,
+    method="GET",
+    description="Get repository metadata using a GitHub App installation token",
+    tags=["repo", "repository"],
+)
+def bot_get_repository(input: RepositoryInput, req: gestalt.Request) -> OperationResult:
+    try:
+        repo = get_repository(
+            GitHubRepositoryRequest(
+                owner=input.owner,
+                repo=input.repo,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+            external_identity=_request_external_identity(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"repository": repository_summary(repo)}}
+
+
+@plugin.operation(
+    id=BOT_SEARCH_CODE_OPERATION,
+    method="GET",
+    description="Search code in one repository using a GitHub App installation token",
+    tags=["repo", "code", "search"],
+)
+def bot_search_code(input: SearchCodeInput, req: gestalt.Request) -> OperationResult:
+    try:
+        results = search_code(
+            GitHubCodeSearchRequest(
+                owner=input.owner,
+                repo=input.repo,
+                query=input.query,
+                path=input.path,
+                per_page=input.per_page,
+                page=input.page,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+            external_identity=_request_external_identity(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": code_search_summary(results)}
+
+
+@plugin.operation(
+    id=BOT_GET_CONTENT_OPERATION,
+    method="GET",
+    description="Get UTF-8 file content using a GitHub App installation token",
+    tags=["repo", "code", "content"],
+)
+def bot_get_content(input: GetContentInput, req: gestalt.Request) -> OperationResult:
+    try:
+        content = get_file_text_at_ref(
+            GitHubFileContentRequest(
+                owner=input.owner,
+                repo=input.repo,
+                path=input.path,
+                ref=input.ref,
+                max_bytes=input.max_bytes,
+                installation_id=input.installation_id,
+            ),
+            subject=req.subject,
+            external_identity=_request_external_identity(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"path": input.path, "ref": input.ref, "content": content}}
 
 
 @plugin.operation(

@@ -301,6 +301,9 @@ properties:
                 type: string
                 enum:
                   - bot.getPullRequest
+                  - bot.getRepository
+                  - bot.searchCode
+                  - bot.getContent
                   - bot.listPullRequestFiles
                   - bot.listPullRequestReviewThreads
                   - bot.getCheckRun

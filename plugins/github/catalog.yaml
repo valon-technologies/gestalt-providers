@@ -154,6 +154,88 @@ operations:
     type: string
     description: Repository name
     required: true
+- id: bot.getRepository
+  method: GET
+  description: Get repository metadata using a GitHub App installation token
+  tags: [repo, repository]
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is resolved from
+      external_identity or the legacy webhook service account subject.
+    default: 0
+- id: bot.searchCode
+  method: GET
+  description: Search code in one repository using a GitHub App installation token
+  tags: [repo, code, search]
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: query
+    type: string
+    description: GitHub code search query
+    required: true
+  - name: path
+    type: string
+    description: Optional repository-relative path prefix to search within
+    default: ''
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 10
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is resolved from
+      external_identity or the legacy webhook service account subject.
+    default: 0
+- id: bot.getContent
+  method: GET
+  description: Get UTF-8 file content using a GitHub App installation token
+  tags: [repo, code, content]
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: path
+    type: string
+    description: Repository-relative file path
+    required: true
+  - name: ref
+    type: string
+    description: Git ref, branch, or SHA. Defaults to the repository default branch.
+    default: ''
+  - name: max_bytes
+    type: integer
+    description: Maximum UTF-8 bytes to return
+    default: 80000
+  - name: installation_id
+    type: integer
+    description: GitHub App installation ID. If omitted, it is resolved from
+      external_identity or the legacy webhook service account subject.
+    default: 0
 - id: bot.commitFiles
   method: POST
   description: Create a Git commit on a branch using a GitHub App installation token
