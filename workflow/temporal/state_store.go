@@ -10,8 +10,10 @@ import (
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -1455,7 +1457,7 @@ func (s *workflowStateStore) triggerRecord(trigger *gestalt.BoundWorkflowEventTr
 }
 
 func triggerFromRecord(record gestalt.Record) (*gestalt.BoundWorkflowEventTriggerInput, error) {
-	return decodeNativePayload[gestalt.BoundWorkflowEventTriggerInput](recordBytes(record, "payload"), "workflow event trigger")
+	return decodeTriggerInputPayload(recordBytes(record, "payload"))
 }
 
 func (s *workflowStateStore) executionRefRecord(ref *gestalt.WorkflowExecutionReferenceInput) gestalt.Record {
@@ -1472,11 +1474,11 @@ func (s *workflowStateStore) executionRefRecord(ref *gestalt.WorkflowExecutionRe
 }
 
 func executionRefFromRecord(record gestalt.Record) (*gestalt.WorkflowExecutionReferenceInput, error) {
-	return decodeNativePayload[gestalt.WorkflowExecutionReferenceInput](recordBytes(record, "payload"), "workflow execution reference")
+	return decodeExecutionReferenceInputPayload(recordBytes(record, "payload"))
 }
 
 func scheduleInputFromRecord(record gestalt.Record) (*gestalt.BoundWorkflowScheduleInput, error) {
-	return decodeNativePayload[gestalt.BoundWorkflowScheduleInput](recordBytes(record, "payload"), "workflow schedule")
+	return decodeScheduleInputPayload(recordBytes(record, "payload"))
 }
 
 func nativePayload(value any) []byte {
@@ -1496,6 +1498,42 @@ func decodeNativePayload[T any](payload []byte, kind string) (*T, error) {
 		return nil, err
 	}
 	return &input, nil
+}
+
+func decodeDurablePayload[T any](payload []byte, kind string, legacy gproto.Message, convert func() (T, error)) (*T, error) {
+	input, err := decodeNativePayload[T](payload, kind)
+	if err == nil {
+		return input, nil
+	}
+	if err := gproto.Unmarshal(payload, legacy); err != nil {
+		return nil, err
+	}
+	converted, err := convert()
+	if err != nil {
+		return nil, err
+	}
+	return &converted, nil
+}
+
+func decodeScheduleInputPayload(payload []byte) (*gestalt.BoundWorkflowScheduleInput, error) {
+	var schedule proto.BoundWorkflowSchedule
+	return decodeDurablePayload(payload, "workflow schedule", &schedule, func() (gestalt.BoundWorkflowScheduleInput, error) {
+		return gestalt.BoundWorkflowScheduleInputFromSchedule(&schedule)
+	})
+}
+
+func decodeTriggerInputPayload(payload []byte) (*gestalt.BoundWorkflowEventTriggerInput, error) {
+	var trigger proto.BoundWorkflowEventTrigger
+	return decodeDurablePayload(payload, "workflow event trigger", &trigger, func() (gestalt.BoundWorkflowEventTriggerInput, error) {
+		return gestalt.BoundWorkflowEventTriggerInputFromTrigger(&trigger)
+	})
+}
+
+func decodeExecutionReferenceInputPayload(payload []byte) (*gestalt.WorkflowExecutionReferenceInput, error) {
+	var ref proto.WorkflowExecutionReference
+	return decodeDurablePayload(payload, "workflow execution reference", &ref, func() (gestalt.WorkflowExecutionReferenceInput, error) {
+		return gestalt.WorkflowExecutionReferenceInputFromReference(&ref)
+	})
 }
 
 func runInputFromPayload(payload []byte) *gestalt.BoundWorkflowRunInput {
