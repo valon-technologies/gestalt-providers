@@ -18,7 +18,7 @@ on:
       gcs-root:
         description: GCS destination root
         required: true
-        default: gs://valon-gestalt-provider-snapshots
+        default: gs://gitlab-peach-street-gestalt-provider-snapshots
         type: string
       dry-run:
         description: Validate and print uploads without writing to GCS
