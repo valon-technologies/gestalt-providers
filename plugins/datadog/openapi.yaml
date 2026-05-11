@@ -1065,9 +1065,13 @@ components:
         page:
           type: object
           properties:
+            cursor:
+              type: string
+              description: Pagination cursor returned from a previous log search response
             limit:
               type: integer
               default: 50
+              maximum: 1000
         sort:
           type: string
 
