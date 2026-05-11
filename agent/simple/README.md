@@ -79,15 +79,17 @@ providers:
 ```
 
 OpenAI-compatible custom model endpoints should be modeled as Gestalt
-connections and referenced from `modelOptions`. For a Vertex AI endpoint that
-uses OAuth client credentials:
+connections and referenced from `modelOptions`. For shared automation,
+provision the credential onto a managed service-account subject and run the
+agent turn or workflow with `runAs` for that subject. For a Vertex AI endpoint
+that uses OAuth client credentials:
 
 ```yaml
 apiVersion: gestaltd.config/v5
 
 connections:
   vertex-kimi:
-    mode: platform
+    mode: user
     auth:
       type: oauth2
       grantType: client_credentials
@@ -110,6 +112,10 @@ providers:
           vertex:
             connection: model
 ```
+
+Start workflows or agent turns that use this model as the managed subject with
+`runAs.subject.id: service_account:model-runner` so the runtime resolves the
+`vertex-kimi` credential from that service account.
 
 Bring the server up from the `gestalt` repo:
 
