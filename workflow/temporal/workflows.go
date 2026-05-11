@@ -28,7 +28,11 @@ func (a *workflowActivities) ProjectRun(ctx context.Context, run *proto.BoundWor
 	if a.state == nil {
 		return nil
 	}
-	return a.state.putRun(ctx, run)
+	input, err := gestalt.BoundWorkflowRunInputFromRun(run)
+	if err != nil {
+		return err
+	}
+	return a.state.putRun(ctx, &input)
 }
 
 func cloneRunTrigger(trigger *proto.WorkflowRunTrigger) *proto.WorkflowRunTrigger {

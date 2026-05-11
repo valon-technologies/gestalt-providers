@@ -2,6 +2,7 @@ package temporal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -66,14 +67,14 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("projected run found=%v err=%v", found, err)
 	}
-	if projected.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED || projected.GetResultBody() != "ok" {
+	if projected.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED || projected.ResultBody != "ok" {
 		t.Fatalf("projected run = %#v, want succeeded with body", projected)
 	}
 	listed, err := state.listRuns(ctx)
 	if err != nil {
 		t.Fatalf("listRuns: %v", err)
 	}
-	if len(listed) != 1 || listed[0].GetId() != run.GetId() {
+	if len(listed) != 1 || listed[0].ID != run.GetId() {
 		t.Fatalf("listed runs = %#v, want %q", listed, run.GetId())
 	}
 }
@@ -392,17 +393,17 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 		UpdatedAt: timestamppb.Now(),
 	}
 
-	if err := backend.state.putTrigger(context.Background(), trigger); err != nil {
+	if err := backend.state.putTrigger(context.Background(), mustTriggerInput(t, trigger)); err != nil {
 		t.Fatalf("state.putTrigger: %v", err)
 	}
 	if len(tc.updates) != 0 {
 		t.Fatalf("state.putTrigger touched workflow updates=%#v", tc.updates)
 	}
-	matched, err := backend.state.matchTriggers(context.Background(), "slack", &proto.WorkflowEvent{Type: "message.created"})
+	matched, err := backend.state.matchTriggers(context.Background(), "slack", workflowEventInputPtr(&proto.WorkflowEvent{Type: "message.created"}))
 	if err != nil {
 		t.Fatalf("state.matchTriggers: %v", err)
 	}
-	if len(matched) != 1 || matched[0].GetId() != trigger.GetId() {
+	if len(matched) != 1 || matched[0].ID != trigger.GetId() {
 		t.Fatalf("matched triggers = %#v, want %q", matched, trigger.GetId())
 	}
 	ref := &proto.WorkflowExecutionReference{
@@ -418,7 +419,7 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 			AuthSource:  "config",
 		},
 	}
-	if err := backend.state.putExecutionRef(context.Background(), ref); err != nil {
+	if err := backend.state.putExecutionRef(context.Background(), mustExecutionRefInput(t, ref)); err != nil {
 		t.Fatalf("state.putExecutionRef: %v", err)
 	}
 	if len(tc.updates) != 0 {
@@ -428,11 +429,11 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("state.listExecutionRefs: %v", err)
 	}
-	if len(refs) != 1 || refs[0].GetId() != ref.GetId() {
+	if len(refs) != 1 || refs[0].ID != ref.GetId() {
 		t.Fatalf("refs = %#v, want %q", refs, ref.GetId())
 	}
-	if refs[0].GetRunAs().GetSubjectId() != "service_account:slack-sync" {
-		t.Fatalf("ref run_as = %#v, want slack sync service account", refs[0].GetRunAs())
+	if refs[0].RunAs == nil || refs[0].RunAs.SubjectID != "service_account:slack-sync" {
+		t.Fatalf("ref run_as = %#v, want slack sync service account", refs[0].RunAs)
 	}
 	tc.scheduleClient = newFakeScheduleClient(map[string]*client.ScheduleDescription{
 		backend.temporalScheduleID("schedule-1"): {
@@ -474,14 +475,14 @@ func TestListSchedulesUsesIndexedDBMetadata(t *testing.T) {
 		},
 	})
 	tc.scheduleClient = scheduleClient
-	if err := state.putSchedule(ctx, &proto.BoundWorkflowSchedule{
+	if err := state.putSchedule(ctx, mustScheduleInput(t, &proto.BoundWorkflowSchedule{
 		Id:        "schedule-1",
 		Cron:      "0 * * * *",
 		Timezone:  "America/New_York",
 		Target:    pluginTarget("slack", "postMessage"),
 		CreatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
 		UpdatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("putSchedule: %v", err)
 	}
 
@@ -526,7 +527,7 @@ func TestStartRunUsesV4WorkflowAndStoresRunProjection(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("projected run found=%v err=%v", found, err)
 	}
-	if projected.GetId() != run.ID || projected.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING {
+	if projected.ID != run.ID || projected.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING {
 		t.Fatalf("projected run = %#v, want pending %q", projected, run.ID)
 	}
 }
@@ -562,8 +563,8 @@ func TestStartRunWithWorkflowKeyUsesV4AndStoresOwnership(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("getWorkflowKeyRun found=%v err=%v", found, err)
 	}
-	if owned.GetId() != run.ID {
-		t.Fatalf("owned run = %q, want %q", owned.GetId(), run.ID)
+	if owned.ID != run.ID {
+		t.Fatalf("owned run = %q, want %q", owned.ID, run.ID)
 	}
 	handle, err := decodeTemporalRunHandle(run.ID)
 	if err != nil {
@@ -665,7 +666,7 @@ func TestStartRunWithWorkflowKeyCompletesReservedIndexedDBIdempotency(t *testing
 		WorkflowKey: workflowKey,
 		CreatedAt:   timestamppb.New(time.Unix(100, 0).UTC()),
 	}
-	if _, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, run, time.Unix(100, 0).UTC()); err != nil || !claimed {
+	if _, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, mustRunInput(t, run), time.Unix(100, 0).UTC()); err != nil || !claimed {
 		t.Fatalf("claimWorkflowKeyRun claimed=%v err=%v", claimed, err)
 	}
 
@@ -811,10 +812,10 @@ func TestCompleteRunIdempotencyReadsThroughCompletedRecord(t *testing.T) {
 		t.Fatalf("reserveRunIdempotency: %v", err)
 	}
 	completedAt := time.Unix(200, 0).UTC()
-	if err := state.completeRunIdempotency(ctx, ownerKey, key, fingerprint, run, time.Hour, completedAt); err != nil {
+	if err := state.completeRunIdempotency(ctx, ownerKey, key, fingerprint, mustRunInput(t, run), time.Hour, completedAt); err != nil {
 		t.Fatalf("completeRunIdempotency(first): %v", err)
 	}
-	if err := state.completeRunIdempotency(ctx, ownerKey, key, fingerprint, run, time.Hour, time.Unix(300, 0).UTC()); err != nil {
+	if err := state.completeRunIdempotency(ctx, ownerKey, key, fingerprint, mustRunInput(t, run), time.Hour, time.Unix(300, 0).UTC()); err != nil {
 		t.Fatalf("completeRunIdempotency(duplicate): %v", err)
 	}
 	record, err := state.runIdempotency.Get(ctx, state.runIdempotencyID(ownerKey, key))
@@ -878,7 +879,7 @@ func TestSignalOrStartRunStartsV4WorkflowAndStoresOwnership(t *testing.T) {
 		t.Fatalf("updates = %#v, want add-signal update", tc.updates)
 	}
 	owned, found, err := state.getWorkflowKeyRun(ctx, "thread-1")
-	if err != nil || !found || resp.Run == nil || owned.GetId() != resp.Run.ID {
+	if err != nil || !found || resp.Run == nil || owned.ID != resp.Run.ID {
 		t.Fatalf("owned found=%v run=%#v err=%v, want response run", found, owned, err)
 	}
 }
@@ -1038,9 +1039,9 @@ func TestSignalOrStartRunReplacesTerminalWorkflowKeyOwner(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("get first run found=%v err=%v", found, err)
 	}
-	terminal := cloneRun(storedFirst)
+	terminal := *storedFirst
 	terminal.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED
-	if err := state.putRun(ctx, terminal); err != nil {
+	if err := state.putRun(ctx, &terminal); err != nil {
 		t.Fatalf("put terminal run: %v", err)
 	}
 
@@ -1060,7 +1061,7 @@ func TestSignalOrStartRunReplacesTerminalWorkflowKeyOwner(t *testing.T) {
 		t.Fatalf("executions = %d, want replacement execution", len(tc.executions))
 	}
 	owned, found, err := state.getWorkflowKeyRun(ctx, "thread-1")
-	if err != nil || !found || resp.Run == nil || owned.GetId() != resp.Run.ID {
+	if err != nil || !found || resp.Run == nil || owned.ID != resp.Run.ID {
 		t.Fatalf("owned found=%v run=%#v err=%v, want replacement", found, owned, err)
 	}
 }
@@ -1069,7 +1070,7 @@ func TestSignalOrStartRunReplacesMissingWorkflowKeyOwner(t *testing.T) {
 	ctx, state := newTestWorkflowStateStore(t)
 
 	stale := workflowKeyClaimRun("stale", "thread-1", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
-	if _, claimed, err := state.claimWorkflowKeyRun(ctx, "thread-1", stale, time.Unix(100, 0).UTC()); err != nil || !claimed {
+	if _, claimed, err := state.claimWorkflowKeyRun(ctx, "thread-1", mustRunInput(t, stale), time.Unix(100, 0).UTC()); err != nil || !claimed {
 		t.Fatalf("claim stale run claimed=%v err=%v", claimed, err)
 	}
 	tc := &recordingTemporalClient{updateErrs: []error{serviceerror.NewNotFound("missing workflow")}}
@@ -1090,7 +1091,7 @@ func TestSignalOrStartRunReplacesMissingWorkflowKeyOwner(t *testing.T) {
 		t.Fatalf("executions = %d, want replacement execution", len(tc.executions))
 	}
 	owned, found, err := state.getWorkflowKeyRun(ctx, "thread-1")
-	if err != nil || !found || resp.Run == nil || owned.GetId() != resp.Run.ID {
+	if err != nil || !found || resp.Run == nil || owned.ID != resp.Run.ID {
 		t.Fatalf("owned found=%v run=%#v err=%v, want replacement", found, owned, err)
 	}
 }
@@ -1166,15 +1167,15 @@ func TestWorkflowStateStoreClaimsWorkflowKeyRun(t *testing.T) {
 	workflowKey := "slack:T:C:1778164397.804829"
 	now := time.Unix(200, 0).UTC()
 	run := workflowKeyClaimRun("first", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
-	owner, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, run, now)
+	owner, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, mustRunInput(t, run), now)
 	if err != nil {
 		t.Fatalf("claimWorkflowKeyRun: %v", err)
 	}
-	if !claimed || owner.GetId() != run.GetId() {
-		t.Fatalf("claim owner=%q claimed=%v, want caller", owner.GetId(), claimed)
+	if !claimed || owner.ID != run.GetId() {
+		t.Fatalf("claim owner=%q claimed=%v, want caller", owner.ID, claimed)
 	}
 	got, found, err := state.getWorkflowKeyRun(ctx, workflowKey)
-	if err != nil || !found || got.GetId() != run.GetId() {
+	if err != nil || !found || got.ID != run.GetId() {
 		t.Fatalf("getWorkflowKeyRun found=%v run=%#v err=%v, want first run", found, got, err)
 	}
 	record, err := state.workflowKeys.Get(ctx, state.workflowKeyID(workflowKey))
@@ -1201,20 +1202,20 @@ func TestWorkflowStateStoreClaimsWorkflowKeyRun(t *testing.T) {
 
 	running := cloneRun(run)
 	running.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
-	owner, claimed, err = state.claimWorkflowKeyRun(ctx, workflowKey, running, now.Add(time.Minute))
+	owner, claimed, err = state.claimWorkflowKeyRun(ctx, workflowKey, mustRunInput(t, running), now.Add(time.Minute))
 	if err != nil {
 		t.Fatalf("claimWorkflowKeyRun(same run): %v", err)
 	}
-	if !claimed || owner.GetId() != run.GetId() || owner.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING {
+	if !claimed || owner.ID != run.GetId() || owner.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING {
 		t.Fatalf("same-run claim owner=%#v claimed=%v, want running caller", owner, claimed)
 	}
 	other := workflowKeyClaimRun("other", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
-	owner, claimed, err = state.claimWorkflowKeyRun(ctx, workflowKey, other, now.Add(2*time.Minute))
+	owner, claimed, err = state.claimWorkflowKeyRun(ctx, workflowKey, mustRunInput(t, other), now.Add(2*time.Minute))
 	if err != nil {
 		t.Fatalf("claimWorkflowKeyRun(conflict): %v", err)
 	}
-	if claimed || owner.GetId() != run.GetId() {
-		t.Fatalf("conflict owner=%q claimed=%v, want existing run", owner.GetId(), claimed)
+	if claimed || owner.ID != run.GetId() {
+		t.Fatalf("conflict owner=%q claimed=%v, want existing run", owner.ID, claimed)
 	}
 
 	cleared, err := state.clearWorkflowKeyRun(ctx, workflowKey, other.GetId())
@@ -1241,29 +1242,29 @@ func TestWorkflowStateStoreWorkflowKeyClaimReplacesTerminalOrMissingProjection(t
 
 	workflowKey := "thread-terminal"
 	terminal := workflowKeyClaimRun("terminal", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED)
-	if _, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, terminal, time.Unix(100, 0).UTC()); err != nil || !claimed {
+	if _, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, mustRunInput(t, terminal), time.Unix(100, 0).UTC()); err != nil || !claimed {
 		t.Fatalf("claim terminal claimed=%v err=%v", claimed, err)
 	}
 	got, found, err := state.getWorkflowKeyRun(ctx, workflowKey)
-	if err != nil || !found || got.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
+	if err != nil || !found || got.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
 		t.Fatalf("get terminal found=%v run=%#v err=%v, want terminal owner", found, got, err)
 	}
 	stale := cloneRun(terminal)
 	stale.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING
-	owner, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, stale, time.Unix(150, 0).UTC())
+	owner, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, mustRunInput(t, stale), time.Unix(150, 0).UTC())
 	if err != nil {
 		t.Fatalf("claim stale terminal owner: %v", err)
 	}
-	if !claimed || owner.GetId() != terminal.GetId() || owner.GetStatus() != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
+	if !claimed || owner.ID != terminal.GetId() || owner.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
 		t.Fatalf("stale terminal owner=%#v claimed=%v, want terminal projection", owner, claimed)
 	}
 	replacement := workflowKeyClaimRun("replacement", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
-	owner, claimed, err = state.claimWorkflowKeyRun(ctx, workflowKey, replacement, time.Unix(200, 0).UTC())
+	owner, claimed, err = state.claimWorkflowKeyRun(ctx, workflowKey, mustRunInput(t, replacement), time.Unix(200, 0).UTC())
 	if err != nil {
 		t.Fatalf("claim replacement: %v", err)
 	}
-	if !claimed || owner.GetId() != replacement.GetId() {
-		t.Fatalf("replacement owner=%q claimed=%v, want replacement", owner.GetId(), claimed)
+	if !claimed || owner.ID != replacement.GetId() {
+		t.Fatalf("replacement owner=%q claimed=%v, want replacement", owner.ID, claimed)
 	}
 
 	missingKey := "thread-missing"
@@ -1286,12 +1287,12 @@ func TestWorkflowStateStoreWorkflowKeyClaimReplacesTerminalOrMissingProjection(t
 		t.Fatalf("seed missing workflow key: %v", err)
 	}
 	missingReplacement := workflowKeyClaimRun("missing-replacement", missingKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
-	owner, claimed, err = state.claimWorkflowKeyRun(ctx, missingKey, missingReplacement, time.Unix(400, 0).UTC())
+	owner, claimed, err = state.claimWorkflowKeyRun(ctx, missingKey, mustRunInput(t, missingReplacement), time.Unix(400, 0).UTC())
 	if err != nil {
 		t.Fatalf("claim missing replacement: %v", err)
 	}
-	if !claimed || owner.GetId() != missingReplacement.GetId() {
-		t.Fatalf("missing replacement owner=%q claimed=%v, want replacement", owner.GetId(), claimed)
+	if !claimed || owner.ID != missingReplacement.GetId() {
+		t.Fatalf("missing replacement owner=%q claimed=%v, want replacement", owner.ID, claimed)
 	}
 }
 
@@ -1327,25 +1328,25 @@ func TestWorkflowStateStoreWorkflowKeyClaimValidationAndScopeIsolation(t *testin
 			},
 		},
 	} {
-		if _, _, err := scopeA.claimWorkflowKeyRun(ctx, tc.workflowKey, tc.run, time.Unix(100, 0).UTC()); err == nil {
+		if _, _, err := scopeA.claimWorkflowKeyRun(ctx, tc.workflowKey, mustRunInput(t, tc.run), time.Unix(100, 0).UTC()); err == nil {
 			t.Fatalf("%s claim succeeded, want error", name)
 		}
 	}
 
 	runA := workflowKeyClaimRun("scope-a", "shared-thread", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
 	runB := workflowKeyClaimRun("scope-b", "shared-thread", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
-	if _, claimed, err := scopeA.claimWorkflowKeyRun(ctx, "shared-thread", runA, time.Unix(200, 0).UTC()); err != nil || !claimed {
+	if _, claimed, err := scopeA.claimWorkflowKeyRun(ctx, "shared-thread", mustRunInput(t, runA), time.Unix(200, 0).UTC()); err != nil || !claimed {
 		t.Fatalf("scopeA claim claimed=%v err=%v", claimed, err)
 	}
-	if _, claimed, err := scopeB.claimWorkflowKeyRun(ctx, "shared-thread", runB, time.Unix(200, 0).UTC()); err != nil || !claimed {
+	if _, claimed, err := scopeB.claimWorkflowKeyRun(ctx, "shared-thread", mustRunInput(t, runB), time.Unix(200, 0).UTC()); err != nil || !claimed {
 		t.Fatalf("scopeB claim claimed=%v err=%v", claimed, err)
 	}
 	gotA, found, err := scopeA.getWorkflowKeyRun(ctx, "shared-thread")
-	if err != nil || !found || gotA.GetId() != runA.GetId() {
+	if err != nil || !found || gotA.ID != runA.GetId() {
 		t.Fatalf("scopeA get found=%v run=%#v err=%v, want runA", found, gotA, err)
 	}
 	gotB, found, err := scopeB.getWorkflowKeyRun(ctx, "shared-thread")
-	if err != nil || !found || gotB.GetId() != runB.GetId() {
+	if err != nil || !found || gotB.ID != runB.GetId() {
 		t.Fatalf("scopeB get found=%v run=%#v err=%v, want runB", found, gotB, err)
 	}
 }
@@ -1359,7 +1360,7 @@ func TestWorkflowStateStoreWorkflowKeyConcurrentClaim(t *testing.T) {
 		workflowKeyClaimRun("race-b", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING),
 	}
 	type claimResult struct {
-		owner   *proto.BoundWorkflowRun
+		owner   *gestalt.BoundWorkflowRunInput
 		claimed bool
 		err     error
 	}
@@ -1369,7 +1370,7 @@ func TestWorkflowStateStoreWorkflowKeyConcurrentClaim(t *testing.T) {
 		run := run
 		go func() {
 			<-start
-			owner, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, run, time.Unix(500, 0).UTC())
+			owner, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, mustRunInput(t, run), time.Unix(500, 0).UTC())
 			results <- claimResult{owner: owner, claimed: claimed, err: err}
 		}()
 	}
@@ -1382,19 +1383,19 @@ func TestWorkflowStateStoreWorkflowKeyConcurrentClaim(t *testing.T) {
 		if result.err != nil {
 			t.Fatalf("concurrent claim error: %v", result.err)
 		}
-		if result.owner == nil || result.owner.GetId() == "" {
+		if result.owner == nil || result.owner.ID == "" {
 			t.Fatalf("concurrent claim owner = %#v, want owner", result.owner)
 		}
 		if result.claimed {
 			claimedCount++
-			winner = result.owner.GetId()
+			winner = result.owner.ID
 		}
 	}
 	if claimedCount != 1 {
 		t.Fatalf("claimed count = %d, want 1", claimedCount)
 	}
 	got, found, err := state.getWorkflowKeyRun(ctx, workflowKey)
-	if err != nil || !found || got.GetId() != winner {
+	if err != nil || !found || got.ID != winner {
 		t.Fatalf("stored owner found=%v run=%#v err=%v, want winner %q", found, got, err, winner)
 	}
 }
@@ -1417,10 +1418,10 @@ func TestWorkflowStateStoreIgnoresUnsupportedRunHandleRecords(t *testing.T) {
 	})
 	legacyRun := &proto.BoundWorkflowRun{Id: legacyID, Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING, Target: pluginTarget("slack", "postMessage"), WorkflowKey: "legacy-thread"}
 	currentRun := &proto.BoundWorkflowRun{Id: currentID, Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING, Target: pluginTarget("slack", "postMessage"), WorkflowKey: "current-thread"}
-	if err := state.runProjections.Put(ctx, state.runRecord(legacyRun)); err != nil {
+	if err := state.runProjections.Put(ctx, state.runRecord(mustRunInput(t, legacyRun))); err != nil {
 		t.Fatalf("put legacy run projection: %v", err)
 	}
-	if err := state.putRun(ctx, currentRun); err != nil {
+	if err := state.putRun(ctx, mustRunInput(t, currentRun)); err != nil {
 		t.Fatalf("put current run: %v", err)
 	}
 	if err := state.workflowKeys.Put(ctx, state.workflowKeyRecord(workflowKeyRecord{
@@ -1469,12 +1470,12 @@ func TestWorkflowStateStoreIgnoresUnsupportedRunHandleRecords(t *testing.T) {
 		OwnerKey:         "slack",
 	})
 	replacementRun := &proto.BoundWorkflowRun{Id: replacementID, Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING, Target: pluginTarget("slack", "postMessage"), WorkflowKey: "legacy-thread"}
-	owner, claimed, err := state.claimWorkflowKeyRun(ctx, "legacy-thread", replacementRun, time.Unix(200, 0).UTC())
+	owner, claimed, err := state.claimWorkflowKeyRun(ctx, "legacy-thread", mustRunInput(t, replacementRun), time.Unix(200, 0).UTC())
 	if err != nil {
 		t.Fatalf("claim replacement over unsupported owner: %v", err)
 	}
-	if !claimed || owner.GetId() != replacementID {
-		t.Fatalf("replacement claim owner=%q claimed=%v, want replacement", owner.GetId(), claimed)
+	if !claimed || owner.ID != replacementID {
+		t.Fatalf("replacement claim owner=%q claimed=%v, want replacement", owner.ID, claimed)
 	}
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
@@ -1519,7 +1520,7 @@ func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 		Trigger:   newManualTrigger(),
 		CreatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
 	}
-	if err := state.putRun(ctx, run); err != nil {
+	if err := state.putRun(ctx, mustRunInput(t, run)); err != nil {
 		t.Fatalf("putRun: %v", err)
 	}
 
@@ -1537,6 +1538,59 @@ func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 	}
 }
 
+func TestWorkflowStateStoreWritesNativeRunPayloadsAndReadsLegacyProtoPayloads(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	legacyID := encodeTemporalRunHandle(temporalRunHandle{
+		RunWorkflowID:    "legacy-workflow",
+		RunTemporalRunID: "legacy-run",
+		OwnerKey:         "slack",
+	})
+	legacyRun := &proto.BoundWorkflowRun{
+		Id:        legacyID,
+		Status:    proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED,
+		Target:    pluginTarget("slack", "postMessage"),
+		Trigger:   newManualTrigger(),
+		CreatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
+	}
+	if err := state.runProjections.Put(ctx, gestalt.Record{
+		"id":         state.scopedID(legacyID),
+		"scope_id":   state.scopeID,
+		"owner_key":  "slack",
+		"status":     int64(legacyRun.GetStatus()),
+		"created_at": time.Unix(100, 0).UTC(),
+		"payload":    protoPayload(legacyRun),
+	}); err != nil {
+		t.Fatalf("put legacy proto projection: %v", err)
+	}
+	decodedLegacy, found, err := state.getRun(ctx, legacyID)
+	if err != nil || !found || decodedLegacy.ID != legacyID || decodedLegacy.Status != legacyRun.GetStatus() {
+		t.Fatalf("legacy projection found=%v run=%#v err=%v, want decoded proto payload", found, decodedLegacy, err)
+	}
+
+	nativeID := encodeTemporalRunHandle(temporalRunHandle{
+		RunWorkflowID:    "native-workflow",
+		RunTemporalRunID: "native-run",
+		OwnerKey:         "slack",
+	})
+	nativeRun := mustRunInput(t, &proto.BoundWorkflowRun{
+		Id:        nativeID,
+		Status:    proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Target:    pluginTarget("slack", "postMessage"),
+		Trigger:   newManualTrigger(),
+		CreatedAt: timestamppb.New(time.Unix(200, 0).UTC()),
+	})
+	if err := state.putRun(ctx, nativeRun); err != nil {
+		t.Fatalf("put native run: %v", err)
+	}
+	record, err := state.runProjections.Get(ctx, state.scopedID(nativeID))
+	if err != nil {
+		t.Fatalf("load native projection: %v", err)
+	}
+	if payload := recordBytes(record, "payload"); !json.Valid(payload) {
+		t.Fatalf("native projection payload is not JSON: %q", payload)
+	}
+}
+
 func TestTriggerMatchKeysAreReplacedAtomically(t *testing.T) {
 	_, state := newTestWorkflowStateStore(t)
 	backend := newRecordingTemporalBackend(&recordingTemporalClient{}, state)
@@ -1548,25 +1602,25 @@ func TestTriggerMatchKeysAreReplacedAtomically(t *testing.T) {
 		CreatedAt: timestamppb.Now(),
 		UpdatedAt: timestamppb.Now(),
 	}
-	if err := backend.state.putTrigger(context.Background(), trigger); err != nil {
+	if err := backend.state.putTrigger(context.Background(), mustTriggerInput(t, trigger)); err != nil {
 		t.Fatalf("state.putTrigger(first): %v", err)
 	}
 	trigger.Match = &proto.WorkflowEventMatch{Type: "reaction.added"}
-	if err := backend.state.putTrigger(context.Background(), trigger); err != nil {
+	if err := backend.state.putTrigger(context.Background(), mustTriggerInput(t, trigger)); err != nil {
 		t.Fatalf("state.putTrigger(second): %v", err)
 	}
-	oldMatches, err := backend.state.matchTriggers(context.Background(), "slack", &proto.WorkflowEvent{Type: "message.created"})
+	oldMatches, err := backend.state.matchTriggers(context.Background(), "slack", workflowEventInputPtr(&proto.WorkflowEvent{Type: "message.created"}))
 	if err != nil {
 		t.Fatalf("match old: %v", err)
 	}
 	if len(oldMatches) != 0 {
 		t.Fatalf("old match returned %#v, want none", oldMatches)
 	}
-	newMatches, err := backend.state.matchTriggers(context.Background(), "slack", &proto.WorkflowEvent{Type: "reaction.added"})
+	newMatches, err := backend.state.matchTriggers(context.Background(), "slack", workflowEventInputPtr(&proto.WorkflowEvent{Type: "reaction.added"}))
 	if err != nil {
 		t.Fatalf("match new: %v", err)
 	}
-	if len(newMatches) != 1 || newMatches[0].GetId() != trigger.GetId() {
+	if len(newMatches) != 1 || newMatches[0].ID != trigger.GetId() {
 		t.Fatalf("new match returned %#v, want %q", newMatches, trigger.GetId())
 	}
 }
@@ -1609,7 +1663,7 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 			UpdatedAt: timestamppb.Now(),
 		},
 	} {
-		if err := backend.state.putTrigger(context.Background(), trigger); err != nil {
+		if err := backend.state.putTrigger(context.Background(), mustTriggerInput(t, trigger)); err != nil {
 			t.Fatalf("state.putTrigger(%s): %v", trigger.GetId(), err)
 		}
 	}
@@ -1670,10 +1724,10 @@ func TestWorkflowStateStoreScopesMetadataByScopeID(t *testing.T) {
 	}
 	refB := cloneExecutionReference(refA)
 	refB.SubjectId = "user-2"
-	if err := scopeA.putExecutionRef(ctx, refA); err != nil {
+	if err := scopeA.putExecutionRef(ctx, mustExecutionRefInput(t, refA)); err != nil {
 		t.Fatalf("scopeA put ref: %v", err)
 	}
-	if err := scopeB.putExecutionRef(ctx, refB); err != nil {
+	if err := scopeB.putExecutionRef(ctx, mustExecutionRefInput(t, refB)); err != nil {
 		t.Fatalf("scopeB put ref: %v", err)
 	}
 	gotA, found, err := scopeA.getExecutionRef(ctx, "ref-1")
@@ -1684,18 +1738,18 @@ func TestWorkflowStateStoreScopesMetadataByScopeID(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("scopeB get ref found=%v err=%v", found, err)
 	}
-	if gotA.GetSubjectId() != "user-1" || gotB.GetSubjectId() != "user-2" {
-		t.Fatalf("scoped refs leaked: scopeA=%q scopeB=%q", gotA.GetSubjectId(), gotB.GetSubjectId())
+	if gotA.SubjectID != "user-1" || gotB.SubjectID != "user-2" {
+		t.Fatalf("scoped refs leaked: scopeA=%q scopeB=%q", gotA.SubjectID, gotB.SubjectID)
 	}
-	if gotA.GetRunAs().GetSubjectId() != "service_account:slack-sync" || gotB.GetRunAs().GetSubjectId() != "service_account:slack-sync" {
-		t.Fatalf("scoped ref run_as lost: scopeA=%#v scopeB=%#v", gotA.GetRunAs(), gotB.GetRunAs())
+	if gotA.RunAs == nil || gotB.RunAs == nil || gotA.RunAs.SubjectID != "service_account:slack-sync" || gotB.RunAs.SubjectID != "service_account:slack-sync" {
+		t.Fatalf("scoped ref run_as lost: scopeA=%#v scopeB=%#v", gotA.RunAs, gotB.RunAs)
 	}
 
 	trigger := &proto.BoundWorkflowEventTrigger{Id: "trigger-1", Match: &proto.WorkflowEventMatch{Type: "message.created"}, Target: pluginTarget("slack", "postMessage"), CreatedAt: timestamppb.Now(), UpdatedAt: timestamppb.Now()}
-	if err := scopeA.putTrigger(ctx, trigger); err != nil {
+	if err := scopeA.putTrigger(ctx, mustTriggerInput(t, trigger)); err != nil {
 		t.Fatalf("scopeA put trigger: %v", err)
 	}
-	matchesB, err := scopeB.matchTriggers(ctx, "slack", &proto.WorkflowEvent{Type: "message.created"})
+	matchesB, err := scopeB.matchTriggers(ctx, "slack", workflowEventInputPtr(&proto.WorkflowEvent{Type: "message.created"}))
 	if err != nil {
 		t.Fatalf("scopeB match: %v", err)
 	}
@@ -1831,6 +1885,54 @@ func workflowEventInputPtr(event *proto.WorkflowEvent) *gestalt.WorkflowEventInp
 		return nil
 	}
 	input := gestalt.WorkflowEventInputFromEvent(event)
+	return &input
+}
+
+func mustRunInput(t *testing.T, run *proto.BoundWorkflowRun) *gestalt.BoundWorkflowRunInput {
+	t.Helper()
+	if run == nil {
+		return nil
+	}
+	input, err := gestalt.BoundWorkflowRunInputFromRun(run)
+	if err != nil {
+		t.Fatalf("BoundWorkflowRunInputFromRun: %v", err)
+	}
+	return &input
+}
+
+func mustScheduleInput(t *testing.T, schedule *proto.BoundWorkflowSchedule) *gestalt.BoundWorkflowScheduleInput {
+	t.Helper()
+	if schedule == nil {
+		return nil
+	}
+	input, err := gestalt.BoundWorkflowScheduleInputFromSchedule(schedule)
+	if err != nil {
+		t.Fatalf("BoundWorkflowScheduleInputFromSchedule: %v", err)
+	}
+	return &input
+}
+
+func mustTriggerInput(t *testing.T, trigger *proto.BoundWorkflowEventTrigger) *gestalt.BoundWorkflowEventTriggerInput {
+	t.Helper()
+	if trigger == nil {
+		return nil
+	}
+	input, err := gestalt.BoundWorkflowEventTriggerInputFromTrigger(trigger)
+	if err != nil {
+		t.Fatalf("BoundWorkflowEventTriggerInputFromTrigger: %v", err)
+	}
+	return &input
+}
+
+func mustExecutionRefInput(t *testing.T, ref *proto.WorkflowExecutionReference) *gestalt.WorkflowExecutionReferenceInput {
+	t.Helper()
+	if ref == nil {
+		return nil
+	}
+	input, err := gestalt.WorkflowExecutionReferenceInputFromReference(ref)
+	if err != nil {
+		t.Fatalf("WorkflowExecutionReferenceInputFromReference: %v", err)
+	}
 	return &input
 }
 

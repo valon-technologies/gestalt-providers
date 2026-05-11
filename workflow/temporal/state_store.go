@@ -2,6 +2,7 @@ package temporal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime"
@@ -13,7 +14,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	gproto "google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -250,15 +250,14 @@ func (s *workflowStateStore) Close() error {
 	return s.db.Close()
 }
 
-func (s *workflowStateStore) putSchedule(ctx context.Context, schedule *proto.BoundWorkflowSchedule) error {
-	schedule = cloneSchedule(schedule)
-	if schedule == nil || strings.TrimSpace(schedule.GetId()) == "" {
+func (s *workflowStateStore) putSchedule(ctx context.Context, schedule *gestalt.BoundWorkflowScheduleInput) error {
+	if schedule == nil || strings.TrimSpace(schedule.ID) == "" {
 		return nil
 	}
 	return s.schedules.Put(ctx, s.scheduleRecord(schedule))
 }
 
-func (s *workflowStateStore) getSchedule(ctx context.Context, id string) (*proto.BoundWorkflowSchedule, bool, error) {
+func (s *workflowStateStore) getSchedule(ctx context.Context, id string) (*gestalt.BoundWorkflowScheduleInput, bool, error) {
 	record, err := s.schedules.Get(ctx, s.scopedID(strings.TrimSpace(id)))
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, false, nil
@@ -266,14 +265,14 @@ func (s *workflowStateStore) getSchedule(ctx context.Context, id string) (*proto
 	if err != nil {
 		return nil, false, err
 	}
-	var schedule proto.BoundWorkflowSchedule
-	if err := unmarshalRecordPayload(record, &schedule); err != nil {
+	schedule, err := scheduleInputFromRecord(record)
+	if err != nil {
 		return nil, false, err
 	}
-	return cloneSchedule(&schedule), schedule.GetId() != "", nil
+	return schedule, strings.TrimSpace(schedule.ID) != "", nil
 }
 
-func (s *workflowStateStore) listSchedules(ctx context.Context) ([]*proto.BoundWorkflowSchedule, error) {
+func (s *workflowStateStore) listSchedules(ctx context.Context) ([]*gestalt.BoundWorkflowScheduleInput, error) {
 	records, err := s.schedules.GetAll(ctx, nil)
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, nil
@@ -281,17 +280,17 @@ func (s *workflowStateStore) listSchedules(ctx context.Context) ([]*proto.BoundW
 	if err != nil {
 		return nil, err
 	}
-	schedules := make([]*proto.BoundWorkflowSchedule, 0, len(records))
+	schedules := make([]*gestalt.BoundWorkflowScheduleInput, 0, len(records))
 	for _, record := range records {
 		if recordString(record, "scope_id") != s.scopeID {
 			continue
 		}
-		var schedule proto.BoundWorkflowSchedule
-		if err := unmarshalRecordPayload(record, &schedule); err != nil {
+		schedule, err := scheduleInputFromRecord(record)
+		if err != nil {
 			return nil, err
 		}
-		if schedule.GetId() != "" {
-			schedules = append(schedules, cloneSchedule(&schedule))
+		if strings.TrimSpace(schedule.ID) != "" {
+			schedules = append(schedules, schedule)
 		}
 	}
 	return schedules, nil
@@ -305,9 +304,8 @@ func (s *workflowStateStore) deleteSchedule(ctx context.Context, id string) erro
 	return err
 }
 
-func (s *workflowStateStore) putRun(ctx context.Context, run *proto.BoundWorkflowRun) error {
-	run = cloneRun(run)
-	if run == nil || strings.TrimSpace(run.GetId()) == "" {
+func (s *workflowStateStore) putRun(ctx context.Context, run *gestalt.BoundWorkflowRunInput) error {
+	if run == nil || strings.TrimSpace(run.ID) == "" {
 		return nil
 	}
 	tx, err := s.db.Transaction(ctx, []string{storeTemporalRunProjections}, gestalt.TransactionReadwrite, gestalt.TransactionOptions{DurabilityHint: gestalt.TransactionDurabilityStrict})
@@ -330,19 +328,19 @@ func (s *workflowStateStore) putRun(ctx context.Context, run *proto.BoundWorkflo
 	return nil
 }
 
-func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store *gestalt.TransactionObjectStore, run *proto.BoundWorkflowRun) (*proto.BoundWorkflowRun, error) {
-	run = cloneRun(run)
-	if run == nil || strings.TrimSpace(run.GetId()) == "" {
+func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store *gestalt.TransactionObjectStore, run *gestalt.BoundWorkflowRunInput) (*gestalt.BoundWorkflowRunInput, error) {
+	if run == nil || strings.TrimSpace(run.ID) == "" {
 		return nil, nil
 	}
-	if unsupportedTemporalRunID(run.GetId()) {
+	run.ID = strings.TrimSpace(run.ID)
+	if unsupportedTemporalRunID(run.ID) {
 		return nil, nil
 	}
-	existing, found, err := s.getRunInTransaction(ctx, store, run.GetId())
+	existing, found, err := s.getRunInTransaction(ctx, store, run.ID)
 	if err != nil {
 		return nil, fmt.Errorf("load run projection: %w", err)
 	}
-	if found && workflowRunTerminal(existing.GetStatus()) && !workflowRunTerminal(run.GetStatus()) {
+	if found && workflowRunTerminal(existing.Status) && !workflowRunTerminal(run.Status) {
 		return existing, nil
 	}
 	if err := store.Put(ctx, s.runRecord(run)); err != nil {
@@ -351,7 +349,7 @@ func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store *ges
 	return run, nil
 }
 
-func (s *workflowStateStore) getRun(ctx context.Context, id string) (*proto.BoundWorkflowRun, bool, error) {
+func (s *workflowStateStore) getRun(ctx context.Context, id string) (*gestalt.BoundWorkflowRunInput, bool, error) {
 	record, err := s.runProjections.Get(ctx, s.scopedID(strings.TrimSpace(id)))
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, false, nil
@@ -360,25 +358,25 @@ func (s *workflowStateStore) getRun(ctx context.Context, id string) (*proto.Boun
 		return nil, false, err
 	}
 	run, err := runFromRecord(record)
-	if err == nil && unsupportedTemporalRunID(run.GetId()) {
+	if err == nil && unsupportedTemporalRunID(run.ID) {
 		return nil, false, nil
 	}
-	return run, err == nil && run.GetId() != "", err
+	return run, err == nil && strings.TrimSpace(run.ID) != "", err
 }
 
-func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store *gestalt.TransactionObjectStore, id string) (*proto.BoundWorkflowRun, bool, error) {
+func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store *gestalt.TransactionObjectStore, id string) (*gestalt.BoundWorkflowRunInput, bool, error) {
 	record, found, err := transactionGetRecord(ctx, store, s.scopedID(strings.TrimSpace(id)))
 	if err != nil || !found {
 		return nil, false, err
 	}
 	run, err := runFromRecord(record)
-	if err == nil && unsupportedTemporalRunID(run.GetId()) {
+	if err == nil && unsupportedTemporalRunID(run.ID) {
 		return nil, false, nil
 	}
-	return run, err == nil && run.GetId() != "", err
+	return run, err == nil && strings.TrimSpace(run.ID) != "", err
 }
 
-func (s *workflowStateStore) listRuns(ctx context.Context) ([]*proto.BoundWorkflowRun, error) {
+func (s *workflowStateStore) listRuns(ctx context.Context) ([]*gestalt.BoundWorkflowRunInput, error) {
 	records, err := s.runProjections.GetAll(ctx, nil)
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, nil
@@ -386,7 +384,7 @@ func (s *workflowStateStore) listRuns(ctx context.Context) ([]*proto.BoundWorkfl
 	if err != nil {
 		return nil, err
 	}
-	runs := make([]*proto.BoundWorkflowRun, 0, len(records))
+	runs := make([]*gestalt.BoundWorkflowRunInput, 0, len(records))
 	for _, record := range records {
 		if recordString(record, "scope_id") != s.scopeID {
 			continue
@@ -395,12 +393,12 @@ func (s *workflowStateStore) listRuns(ctx context.Context) ([]*proto.BoundWorkfl
 		if err != nil {
 			return nil, err
 		}
-		if unsupportedTemporalRunID(run.GetId()) {
+		if unsupportedTemporalRunID(run.ID) {
 			continue
 		}
 		runs = append(runs, run)
 	}
-	sortRuns(runs)
+	sortRunInputs(runs)
 	return runs, nil
 }
 
@@ -411,12 +409,12 @@ type workflowKeyRecord struct {
 	RunID              string
 	TemporalWorkflowID string
 	TemporalRunID      string
-	Status             proto.WorkflowRunStatus
+	Status             gestalt.WorkflowRunStatus
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 }
 
-func (s *workflowStateStore) claimWorkflowKeyRun(ctx context.Context, workflowKey string, run *proto.BoundWorkflowRun, now time.Time) (*proto.BoundWorkflowRun, bool, error) {
+func (s *workflowStateStore) claimWorkflowKeyRun(ctx context.Context, workflowKey string, run *gestalt.BoundWorkflowRunInput, now time.Time) (*gestalt.BoundWorkflowRunInput, bool, error) {
 	for attempt := 0; attempt < runIdempotencyMaxAttempts; attempt++ {
 		owner, claimed, err := s.claimWorkflowKeyRunOnce(ctx, workflowKey, run, now)
 		if err == nil || !isRunIdempotencyRetryableConflict(err) {
@@ -429,7 +427,7 @@ func (s *workflowStateStore) claimWorkflowKeyRun(ctx context.Context, workflowKe
 	return nil, false, status.Error(codes.Aborted, "workflow key claim raced too many times")
 }
 
-func (s *workflowStateStore) claimWorkflowKeyRunOnce(ctx context.Context, workflowKey string, run *proto.BoundWorkflowRun, now time.Time) (*proto.BoundWorkflowRun, bool, error) {
+func (s *workflowStateStore) claimWorkflowKeyRunOnce(ctx context.Context, workflowKey string, run *gestalt.BoundWorkflowRunInput, now time.Time) (*gestalt.BoundWorkflowRunInput, bool, error) {
 	record, run, err := s.workflowKeyRecordForRun(workflowKey, run, now)
 	if err != nil {
 		return nil, false, err
@@ -456,14 +454,14 @@ func (s *workflowStateStore) claimWorkflowKeyRunOnce(ctx context.Context, workfl
 		if err != nil {
 			return nil, false, err
 		}
-		if runFound && existingRun.GetId() != run.GetId() && !workflowRunTerminal(existingRun.GetStatus()) {
+		if runFound && existingRun.ID != run.ID && !workflowRunTerminal(existingRun.Status) {
 			if err := tx.Commit(ctx); err != nil {
 				return nil, false, err
 			}
 			committed = true
 			return existingRun, false, nil
 		}
-		if runFound && existingRun.GetId() == run.GetId() && !existingKey.CreatedAt.IsZero() {
+		if runFound && existingRun.ID == run.ID && !existingKey.CreatedAt.IsZero() {
 			record.CreatedAt = existingKey.CreatedAt
 		}
 	}
@@ -474,8 +472,8 @@ func (s *workflowStateStore) claimWorkflowKeyRunOnce(ctx context.Context, workfl
 	if storedRun == nil {
 		return nil, false, status.Error(codes.InvalidArgument, "run is required")
 	}
-	record.RunID = storedRun.GetId()
-	record.Status = storedRun.GetStatus()
+	record.RunID = storedRun.ID
+	record.Status = storedRun.Status
 	if found {
 		if err := keyStore.Put(ctx, s.workflowKeyRecord(record)); err != nil {
 			return nil, false, err
@@ -490,7 +488,7 @@ func (s *workflowStateStore) claimWorkflowKeyRunOnce(ctx context.Context, workfl
 	return storedRun, true, nil
 }
 
-func (s *workflowStateStore) getWorkflowKeyRun(ctx context.Context, workflowKey string) (*proto.BoundWorkflowRun, bool, error) {
+func (s *workflowStateStore) getWorkflowKeyRun(ctx context.Context, workflowKey string) (*gestalt.BoundWorkflowRunInput, bool, error) {
 	workflowKey = strings.TrimSpace(workflowKey)
 	if workflowKey == "" {
 		return nil, false, nil
@@ -555,20 +553,19 @@ func (s *workflowStateStore) clearWorkflowKeyRun(ctx context.Context, workflowKe
 	return true, nil
 }
 
-func (s *workflowStateStore) workflowKeyRecordForRun(workflowKey string, run *proto.BoundWorkflowRun, now time.Time) (workflowKeyRecord, *proto.BoundWorkflowRun, error) {
+func (s *workflowStateStore) workflowKeyRecordForRun(workflowKey string, run *gestalt.BoundWorkflowRunInput, now time.Time) (workflowKeyRecord, *gestalt.BoundWorkflowRunInput, error) {
 	workflowKey = strings.TrimSpace(workflowKey)
 	if workflowKey == "" {
 		return workflowKeyRecord{}, nil, status.Error(codes.InvalidArgument, "workflow_key is required")
 	}
-	run = cloneRun(run)
 	if run == nil {
 		return workflowKeyRecord{}, nil, status.Error(codes.InvalidArgument, "run is required")
 	}
-	run.Id = strings.TrimSpace(run.GetId())
-	if run.GetId() == "" {
+	run.ID = strings.TrimSpace(run.ID)
+	if run.ID == "" {
 		return workflowKeyRecord{}, nil, status.Error(codes.InvalidArgument, "run_id is required")
 	}
-	handle, err := decodeTemporalRunHandle(run.GetId())
+	handle, err := decodeTemporalRunHandle(run.ID)
 	if err != nil {
 		return workflowKeyRecord{}, nil, status.Errorf(codes.InvalidArgument, "decode run_id: %v", err)
 	}
@@ -578,20 +575,20 @@ func (s *workflowStateStore) workflowKeyRecordForRun(workflowKey string, run *pr
 	if handle.WorkflowKey != "" && handle.WorkflowKey != workflowKey {
 		return workflowKeyRecord{}, nil, status.Error(codes.InvalidArgument, "run_id workflow_key does not match claim")
 	}
-	run.WorkflowKey = strings.TrimSpace(run.GetWorkflowKey())
-	if run.GetWorkflowKey() == "" {
+	run.WorkflowKey = strings.TrimSpace(run.WorkflowKey)
+	if run.WorkflowKey == "" {
 		run.WorkflowKey = workflowKey
-	} else if run.GetWorkflowKey() != workflowKey {
+	} else if run.WorkflowKey != workflowKey {
 		return workflowKeyRecord{}, nil, status.Error(codes.InvalidArgument, "run workflow_key does not match claim")
 	}
 	ownerKey := strings.TrimSpace(handle.OwnerKey)
 	if ownerKey == "" {
-		ownerKey = targetOwnerKey(run.GetTarget())
+		ownerKey = targetOwnerKeyInput(run.Target)
 	}
 	if ownerKey == "" {
 		return workflowKeyRecord{}, nil, status.Error(codes.InvalidArgument, "owner_key is required")
 	}
-	if targetKey := targetOwnerKey(run.GetTarget()); targetKey != "" && targetKey != ownerKey {
+	if targetKey := targetOwnerKeyInput(run.Target); targetKey != "" && targetKey != ownerKey {
 		return workflowKeyRecord{}, nil, status.Error(codes.InvalidArgument, "run target owner_key does not match claim")
 	}
 	if now.IsZero() {
@@ -602,10 +599,10 @@ func (s *workflowStateStore) workflowKeyRecordForRun(workflowKey string, run *pr
 		ID:                 s.workflowKeyID(workflowKey),
 		WorkflowKey:        workflowKey,
 		OwnerKey:           ownerKey,
-		RunID:              run.GetId(),
+		RunID:              run.ID,
 		TemporalWorkflowID: handle.RunWorkflowID,
 		TemporalRunID:      handle.RunTemporalRunID,
-		Status:             run.GetStatus(),
+		Status:             run.Status,
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}, run, nil
@@ -719,7 +716,7 @@ func (s *workflowStateStore) reserveRunIdempotencyOnce(ctx context.Context, owne
 	return &reserved, false, nil
 }
 
-func (s *workflowStateStore) completeRunIdempotency(ctx context.Context, ownerKey, key, fingerprint string, run *proto.BoundWorkflowRun, retention time.Duration, now time.Time) error {
+func (s *workflowStateStore) completeRunIdempotency(ctx context.Context, ownerKey, key, fingerprint string, run *gestalt.BoundWorkflowRunInput, retention time.Duration, now time.Time) error {
 	for attempt := 0; attempt < runIdempotencyMaxAttempts; attempt++ {
 		err := s.completeRunIdempotencyOnce(ctx, ownerKey, key, fingerprint, run, retention, now)
 		if err == nil || !isRunIdempotencyRetryableConflict(err) {
@@ -732,7 +729,7 @@ func (s *workflowStateStore) completeRunIdempotency(ctx context.Context, ownerKe
 	return status.Error(codes.Aborted, "workflow run idempotency completion raced too many times")
 }
 
-func (s *workflowStateStore) completeRunIdempotencyOnce(ctx context.Context, ownerKey, key, fingerprint string, run *proto.BoundWorkflowRun, retention time.Duration, now time.Time) error {
+func (s *workflowStateStore) completeRunIdempotencyOnce(ctx context.Context, ownerKey, key, fingerprint string, run *gestalt.BoundWorkflowRunInput, retention time.Duration, now time.Time) error {
 	ownerKey = strings.TrimSpace(ownerKey)
 	key = strings.TrimSpace(key)
 	fingerprint = strings.TrimSpace(fingerprint)
@@ -771,7 +768,7 @@ func (s *workflowStateStore) completeRunIdempotencyOnce(ctx context.Context, own
 			}
 			return nil
 		}
-		if existing.Status == "completed" && runFromPayload(existing.RunPayload) != nil {
+		if existing.Status == "completed" && runInputFromPayload(existing.RunPayload) != nil {
 			if err := tx.Commit(ctx); err != nil {
 				return err
 			}
@@ -789,11 +786,11 @@ func (s *workflowStateStore) completeRunIdempotencyOnce(ctx context.Context, own
 		IdempotencyKey: key,
 		Fingerprint:    fingerprint,
 		Status:         "completed",
-		RunID:          strings.TrimSpace(run.GetId()),
+		RunID:          strings.TrimSpace(run.ID),
 		CreatedAt:      createdAt,
 		UpdatedAt:      now,
 		ExpiresAt:      now.Add(retention),
-		RunPayload:     protoPayload(run),
+		RunPayload:     nativePayload(run),
 	}
 	if err := store.Put(ctx, s.runIdempotencyRecord(record)); err != nil {
 		return err
@@ -921,7 +918,7 @@ func (s *workflowStateStore) reserveSignalIdempotencyOnce(ctx context.Context, r
 	return &reserved, false, nil
 }
 
-func (s *workflowStateStore) completeSignalIdempotency(ctx context.Context, key, fingerprint string, resp *proto.SignalWorkflowRunResponse, allowPayloadVariance bool, retention time.Duration, now time.Time) error {
+func (s *workflowStateStore) completeSignalIdempotency(ctx context.Context, key, fingerprint string, resp *gestalt.SignalWorkflowRunResponse, allowPayloadVariance bool, retention time.Duration, now time.Time) error {
 	for attempt := 0; attempt < runIdempotencyMaxAttempts; attempt++ {
 		err := s.completeSignalIdempotencyOnce(ctx, key, fingerprint, resp, allowPayloadVariance, retention, now)
 		if err == nil || !isRunIdempotencyRetryableConflict(err) {
@@ -934,7 +931,7 @@ func (s *workflowStateStore) completeSignalIdempotency(ctx context.Context, key,
 	return status.Error(codes.Aborted, "workflow signal idempotency completion raced too many times")
 }
 
-func (s *workflowStateStore) completeSignalIdempotencyOnce(ctx context.Context, key, fingerprint string, resp *proto.SignalWorkflowRunResponse, allowPayloadVariance bool, retention time.Duration, now time.Time) error {
+func (s *workflowStateStore) completeSignalIdempotencyOnce(ctx context.Context, key, fingerprint string, resp *gestalt.SignalWorkflowRunResponse, allowPayloadVariance bool, retention time.Duration, now time.Time) error {
 	key = strings.TrimSpace(key)
 	fingerprint = strings.TrimSpace(fingerprint)
 	if key == "" || fingerprint == "" || resp == nil {
@@ -972,7 +969,7 @@ func (s *workflowStateStore) completeSignalIdempotencyOnce(ctx context.Context, 
 				if !allowPayloadVariance {
 					return &runIdempotencyConflictError{Key: key}
 				}
-				if existing.Status == "completed" && signalResponseFromPayload(existing.ResponsePayload) != nil {
+				if existing.Status == "completed" && signalResponseInputFromPayload(existing.ResponsePayload) != nil {
 					if err := tx.Commit(ctx); err != nil {
 						return err
 					}
@@ -986,7 +983,7 @@ func (s *workflowStateStore) completeSignalIdempotencyOnce(ctx context.Context, 
 			}
 			break
 		}
-		if existing.Status == "completed" && signalResponseFromPayload(existing.ResponsePayload) != nil {
+		if existing.Status == "completed" && signalResponseInputFromPayload(existing.ResponsePayload) != nil {
 			if err := tx.Commit(ctx); err != nil {
 				return err
 			}
@@ -1000,15 +997,15 @@ func (s *workflowStateStore) completeSignalIdempotencyOnce(ctx context.Context, 
 	}
 	workflowKey := existing.WorkflowKey
 	if workflowKey == "" {
-		workflowKey = resp.GetWorkflowKey()
+		workflowKey = resp.WorkflowKey
 	}
 	runID := existing.RunID
-	if runID == "" {
-		runID = resp.GetRun().GetId()
+	if runID == "" && resp.Run != nil {
+		runID = resp.Run.ID
 	}
 	signalID := existing.SignalID
-	if signalID == "" {
-		signalID = resp.GetSignal().GetId()
+	if signalID == "" && resp.Signal != nil {
+		signalID = resp.Signal.ID
 	}
 	record := signalIdempotencyRecord{
 		ID:              id,
@@ -1023,8 +1020,8 @@ func (s *workflowStateStore) completeSignalIdempotencyOnce(ctx context.Context, 
 		CreatedAt:       createdAt,
 		UpdatedAt:       now,
 		ExpiresAt:       now.Add(retention),
-		ResponsePayload: protoPayload(resp),
-		RunPayload:      protoPayload(resp.GetRun()),
+		ResponsePayload: nativePayload(resp),
+		RunPayload:      nativePayload(resp.Run),
 	}
 	if err := store.Put(ctx, s.signalIdempotencyRecord(record)); err != nil {
 		return err
@@ -1065,9 +1062,8 @@ func yieldRunIdempotencyRetry(ctx context.Context) error {
 	}
 }
 
-func (s *workflowStateStore) putTrigger(ctx context.Context, trigger *proto.BoundWorkflowEventTrigger) error {
-	trigger = cloneTrigger(trigger)
-	if trigger == nil || strings.TrimSpace(trigger.GetId()) == "" {
+func (s *workflowStateStore) putTrigger(ctx context.Context, trigger *gestalt.BoundWorkflowEventTriggerInput) error {
+	if trigger == nil || strings.TrimSpace(trigger.ID) == "" {
 		return nil
 	}
 	tx, err := s.db.Transaction(ctx, []string{storeTemporalEventTriggers, storeTemporalEventTriggerKeys}, gestalt.TransactionReadwrite, gestalt.TransactionOptions{DurabilityHint: gestalt.TransactionDurabilityStrict})
@@ -1082,18 +1078,18 @@ func (s *workflowStateStore) putTrigger(ctx context.Context, trigger *proto.Boun
 	}()
 	triggerStore := tx.ObjectStore(storeTemporalEventTriggers)
 	keyStore := tx.ObjectStore(storeTemporalEventTriggerKeys)
-	if _, err := keyStore.Index(indexByTriggerID).Delete(ctx, s.scopedID(trigger.GetId())); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
+	if _, err := keyStore.Index(indexByTriggerID).Delete(ctx, s.scopedID(trigger.ID)); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
 		return err
 	}
 	if err := triggerStore.Put(ctx, s.triggerRecord(trigger)); err != nil {
 		return err
 	}
-	for _, key := range matchKeys(targetOwnerKey(trigger.GetTarget()), trigger.GetMatch()) {
+	for _, key := range matchKeysInput(targetOwnerKeyInput(trigger.Target), trigger.Match) {
 		if err := keyStore.Put(ctx, gestalt.Record{
-			"id":         s.scopedID(key, trigger.GetId()),
+			"id":         s.scopedID(key, trigger.ID),
 			"scope_id":   s.scopeID,
 			"match_key":  s.scopedID(key),
-			"trigger_id": s.scopedID(trigger.GetId()),
+			"trigger_id": s.scopedID(trigger.ID),
 		}); err != nil {
 			return err
 		}
@@ -1105,7 +1101,7 @@ func (s *workflowStateStore) putTrigger(ctx context.Context, trigger *proto.Boun
 	return nil
 }
 
-func (s *workflowStateStore) getTrigger(ctx context.Context, id string) (*proto.BoundWorkflowEventTrigger, bool, error) {
+func (s *workflowStateStore) getTrigger(ctx context.Context, id string) (*gestalt.BoundWorkflowEventTriggerInput, bool, error) {
 	record, err := s.eventTriggers.Get(ctx, s.scopedID(strings.TrimSpace(id)))
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, false, nil
@@ -1114,10 +1110,10 @@ func (s *workflowStateStore) getTrigger(ctx context.Context, id string) (*proto.
 		return nil, false, err
 	}
 	trigger, err := triggerFromRecord(record)
-	return trigger, err == nil && trigger.GetId() != "", err
+	return trigger, err == nil && strings.TrimSpace(trigger.ID) != "", err
 }
 
-func (s *workflowStateStore) listTriggers(ctx context.Context) ([]*proto.BoundWorkflowEventTrigger, error) {
+func (s *workflowStateStore) listTriggers(ctx context.Context) ([]*gestalt.BoundWorkflowEventTriggerInput, error) {
 	records, err := s.eventTriggers.GetAll(ctx, nil)
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, nil
@@ -1125,7 +1121,7 @@ func (s *workflowStateStore) listTriggers(ctx context.Context) ([]*proto.BoundWo
 	if err != nil {
 		return nil, err
 	}
-	triggers := make([]*proto.BoundWorkflowEventTrigger, 0, len(records))
+	triggers := make([]*gestalt.BoundWorkflowEventTriggerInput, 0, len(records))
 	for _, record := range records {
 		if recordString(record, "scope_id") != s.scopeID {
 			continue
@@ -1139,10 +1135,10 @@ func (s *workflowStateStore) listTriggers(ctx context.Context) ([]*proto.BoundWo
 	return triggers, nil
 }
 
-func (s *workflowStateStore) matchTriggers(ctx context.Context, ownerKey string, event *proto.WorkflowEvent) ([]*proto.BoundWorkflowEventTrigger, error) {
+func (s *workflowStateStore) matchTriggers(ctx context.Context, ownerKey string, event *gestalt.WorkflowEventInput) ([]*gestalt.BoundWorkflowEventTriggerInput, error) {
 	seen := map[string]struct{}{}
-	triggers := make([]*proto.BoundWorkflowEventTrigger, 0)
-	for _, key := range eventLookupKeys(ownerKey, event) {
+	triggers := make([]*gestalt.BoundWorkflowEventTriggerInput, 0)
+	for _, key := range eventLookupKeysInput(ownerKey, event) {
 		keyRecords, err := s.eventTriggerKeys.Index(indexByMatchKey).GetAll(ctx, nil, s.scopedID(key))
 		if errors.Is(err, gestalt.ErrNotFound) {
 			continue
@@ -1162,7 +1158,7 @@ func (s *workflowStateStore) matchTriggers(ctx context.Context, ownerKey string,
 			if err != nil {
 				return nil, err
 			}
-			if !found || !eventMatchesTrigger(event, trigger) {
+			if !found || !eventMatchesTriggerInput(event, trigger) {
 				continue
 			}
 			seen[triggerID] = struct{}{}
@@ -1211,15 +1207,14 @@ func (s *workflowStateStore) deleteTrigger(ctx context.Context, id string) (bool
 	return true, nil
 }
 
-func (s *workflowStateStore) putExecutionRef(ctx context.Context, ref *proto.WorkflowExecutionReference) error {
-	ref = cloneExecutionReference(ref)
-	if ref == nil || strings.TrimSpace(ref.GetId()) == "" {
+func (s *workflowStateStore) putExecutionRef(ctx context.Context, ref *gestalt.WorkflowExecutionReferenceInput) error {
+	if ref == nil || strings.TrimSpace(ref.ID) == "" {
 		return nil
 	}
 	return s.executionRefs.Put(ctx, s.executionRefRecord(ref))
 }
 
-func (s *workflowStateStore) getExecutionRef(ctx context.Context, id string) (*proto.WorkflowExecutionReference, bool, error) {
+func (s *workflowStateStore) getExecutionRef(ctx context.Context, id string) (*gestalt.WorkflowExecutionReferenceInput, bool, error) {
 	record, err := s.executionRefs.Get(ctx, s.scopedID(strings.TrimSpace(id)))
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, false, nil
@@ -1228,10 +1223,10 @@ func (s *workflowStateStore) getExecutionRef(ctx context.Context, id string) (*p
 		return nil, false, err
 	}
 	ref, err := executionRefFromRecord(record)
-	return ref, err == nil && ref.GetId() != "", err
+	return ref, err == nil && strings.TrimSpace(ref.ID) != "", err
 }
 
-func (s *workflowStateStore) listExecutionRefs(ctx context.Context, subjectID string) ([]*proto.WorkflowExecutionReference, error) {
+func (s *workflowStateStore) listExecutionRefs(ctx context.Context, subjectID string) ([]*gestalt.WorkflowExecutionReferenceInput, error) {
 	var (
 		records []gestalt.Record
 		err     error
@@ -1248,7 +1243,7 @@ func (s *workflowStateStore) listExecutionRefs(ctx context.Context, subjectID st
 	if err != nil {
 		return nil, err
 	}
-	refs := make([]*proto.WorkflowExecutionReference, 0, len(records))
+	refs := make([]*gestalt.WorkflowExecutionReferenceInput, 0, len(records))
 	for _, record := range records {
 		if recordString(record, "scope_id") != s.scopeID {
 			continue
@@ -1257,48 +1252,56 @@ func (s *workflowStateStore) listExecutionRefs(ctx context.Context, subjectID st
 		if err != nil {
 			return nil, err
 		}
-		if subjectID == "" || ref.GetSubjectId() == subjectID {
+		if subjectID == "" || ref.SubjectID == subjectID {
 			refs = append(refs, ref)
 		}
 	}
 	return refs, nil
 }
 
-func (s *workflowStateStore) scheduleRecord(schedule *proto.BoundWorkflowSchedule) gestalt.Record {
-	payload, _ := marshalProto(schedule)
+func (s *workflowStateStore) scheduleRecord(schedule *gestalt.BoundWorkflowScheduleInput) gestalt.Record {
+	payload := nativePayload(schedule)
 	now := time.Now().UTC()
+	createdAt := schedule.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = now
+	}
+	updatedAt := schedule.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = now
+	}
 	return gestalt.Record{
-		"id":         s.scopedID(schedule.GetId()),
+		"id":         s.scopedID(schedule.ID),
 		"scope_id":   s.scopeID,
-		"owner_key":  targetOwnerKey(schedule.GetTarget()),
-		"created_at": timeFromProtoOrNow(schedule.GetCreatedAt(), now),
-		"updated_at": timeFromProtoOrNow(schedule.GetUpdatedAt(), now),
+		"owner_key":  targetOwnerKeyInput(schedule.Target),
+		"created_at": createdAt.UTC(),
+		"updated_at": updatedAt.UTC(),
 		"payload":    payload,
 	}
 }
 
-func (s *workflowStateStore) runRecord(run *proto.BoundWorkflowRun) gestalt.Record {
-	payload, _ := marshalProto(run)
+func (s *workflowStateStore) runRecord(run *gestalt.BoundWorkflowRunInput) gestalt.Record {
+	payload := nativePayload(run)
 	now := time.Now().UTC()
+	createdAt := run.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = now
+	}
 	return gestalt.Record{
-		"id":           s.scopedID(run.GetId()),
+		"id":           s.scopedID(run.ID),
 		"scope_id":     s.scopeID,
-		"owner_key":    targetOwnerKey(run.GetTarget()),
-		"workflow_key": strings.TrimSpace(run.GetWorkflowKey()),
-		"status":       int64(run.GetStatus()),
-		"created_at":   timeFromProtoOrNow(run.GetCreatedAt(), now),
-		"started_at":   timeFromProto(run.GetStartedAt()),
-		"completed_at": timeFromProto(run.GetCompletedAt()),
+		"owner_key":    targetOwnerKeyInput(run.Target),
+		"workflow_key": strings.TrimSpace(run.WorkflowKey),
+		"status":       int64(run.Status),
+		"created_at":   createdAt.UTC(),
+		"started_at":   optionalTime(run.StartedAt),
+		"completed_at": optionalTime(run.CompletedAt),
 		"payload":      payload,
 	}
 }
 
-func runFromRecord(record gestalt.Record) (*proto.BoundWorkflowRun, error) {
-	var run proto.BoundWorkflowRun
-	if err := unmarshalRecordPayload(record, &run); err != nil {
-		return nil, err
-	}
-	return cloneRun(&run), nil
+func runFromRecord(record gestalt.Record) (*gestalt.BoundWorkflowRunInput, error) {
+	return decodeRunInputPayload(recordBytes(record, "payload"))
 }
 
 func (s *workflowStateStore) runIdempotencyID(ownerKey, key string) string {
@@ -1336,7 +1339,7 @@ func workflowKeyFromRecord(record gestalt.Record) workflowKeyRecord {
 		RunID:              recordString(record, "run_id"),
 		TemporalWorkflowID: recordString(record, "temporal_workflow_id"),
 		TemporalRunID:      recordString(record, "temporal_run_id"),
-		Status:             proto.WorkflowRunStatus(recordInt64(record, "status")),
+		Status:             gestalt.WorkflowRunStatus(recordInt64(record, "status")),
 	}
 	if createdAt := recordTime(record, "created_at"); createdAt != nil {
 		out.CreatedAt = createdAt.UTC()
@@ -1431,62 +1434,162 @@ func signalIdempotencyFromRecord(record gestalt.Record) signalIdempotencyRecord 
 	return out
 }
 
-func (s *workflowStateStore) triggerRecord(trigger *proto.BoundWorkflowEventTrigger) gestalt.Record {
-	payload, _ := marshalProto(trigger)
+func (s *workflowStateStore) triggerRecord(trigger *gestalt.BoundWorkflowEventTriggerInput) gestalt.Record {
+	payload := nativePayload(trigger)
 	now := time.Now().UTC()
+	createdAt := trigger.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = now
+	}
+	updatedAt := trigger.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = now
+	}
 	return gestalt.Record{
-		"id":         s.scopedID(trigger.GetId()),
+		"id":         s.scopedID(trigger.ID),
 		"scope_id":   s.scopeID,
-		"owner_key":  targetOwnerKey(trigger.GetTarget()),
-		"paused":     trigger.GetPaused(),
-		"created_at": timeFromProtoOrNow(trigger.GetCreatedAt(), now),
-		"updated_at": timeFromProtoOrNow(trigger.GetUpdatedAt(), now),
+		"owner_key":  targetOwnerKeyInput(trigger.Target),
+		"paused":     trigger.Paused,
+		"created_at": createdAt.UTC(),
+		"updated_at": updatedAt.UTC(),
 		"payload":    payload,
 	}
 }
 
-func triggerFromRecord(record gestalt.Record) (*proto.BoundWorkflowEventTrigger, error) {
-	var trigger proto.BoundWorkflowEventTrigger
-	if err := unmarshalRecordPayload(record, &trigger); err != nil {
-		return nil, err
-	}
-	return cloneTrigger(&trigger), nil
+func triggerFromRecord(record gestalt.Record) (*gestalt.BoundWorkflowEventTriggerInput, error) {
+	return decodeTriggerInputPayload(recordBytes(record, "payload"))
 }
 
-func (s *workflowStateStore) executionRefRecord(ref *proto.WorkflowExecutionReference) gestalt.Record {
-	payload, _ := marshalProto(ref)
+func (s *workflowStateStore) executionRefRecord(ref *gestalt.WorkflowExecutionReferenceInput) gestalt.Record {
+	payload := nativePayload(ref)
 	return gestalt.Record{
-		"id":            s.scopedID(ref.GetId()),
+		"id":            s.scopedID(ref.ID),
 		"scope_id":      s.scopeID,
-		"provider_name": ref.GetProviderName(),
-		"subject_id":    ref.GetSubjectId(),
-		"created_at":    timeFromProto(ref.GetCreatedAt()),
-		"revoked_at":    timeFromProto(ref.GetRevokedAt()),
+		"provider_name": ref.ProviderName,
+		"subject_id":    ref.SubjectID,
+		"created_at":    optionalTime(&ref.CreatedAt),
+		"revoked_at":    optionalTime(ref.RevokedAt),
 		"payload":       payload,
 	}
 }
 
-func executionRefFromRecord(record gestalt.Record) (*proto.WorkflowExecutionReference, error) {
-	var ref proto.WorkflowExecutionReference
-	if err := unmarshalRecordPayload(record, &ref); err != nil {
+func executionRefFromRecord(record gestalt.Record) (*gestalt.WorkflowExecutionReferenceInput, error) {
+	return decodeExecutionReferenceInputPayload(recordBytes(record, "payload"))
+}
+
+func scheduleInputFromRecord(record gestalt.Record) (*gestalt.BoundWorkflowScheduleInput, error) {
+	return decodeScheduleInputPayload(recordBytes(record, "payload"))
+}
+
+func nativePayload(value any) []byte {
+	if value == nil {
+		return nil
+	}
+	payload, _ := json.Marshal(value)
+	return payload
+}
+
+func decodeScheduleInputPayload(payload []byte) (*gestalt.BoundWorkflowScheduleInput, error) {
+	if len(payload) == 0 {
+		return nil, fmt.Errorf("empty workflow schedule payload")
+	}
+	var input gestalt.BoundWorkflowScheduleInput
+	if err := json.Unmarshal(payload, &input); err == nil {
+		return &input, nil
+	}
+	var schedule proto.BoundWorkflowSchedule
+	if err := gproto.Unmarshal(payload, &schedule); err != nil {
 		return nil, err
 	}
-	return cloneExecutionReference(&ref), nil
-}
-
-func marshalProto(msg gproto.Message) ([]byte, error) {
-	if msg == nil {
-		return nil, nil
+	converted, err := gestalt.BoundWorkflowScheduleInputFromSchedule(&schedule)
+	if err != nil {
+		return nil, err
 	}
-	return gproto.MarshalOptions{Deterministic: true}.Marshal(msg)
+	return &converted, nil
 }
 
-func unmarshalRecordPayload(record gestalt.Record, msg gproto.Message) error {
-	payload := recordBytes(record, "payload")
+func decodeRunInputPayload(payload []byte) (*gestalt.BoundWorkflowRunInput, error) {
 	if len(payload) == 0 {
-		return fmt.Errorf("record %q has empty payload", recordString(record, "id"))
+		return nil, fmt.Errorf("empty workflow run payload")
 	}
-	return gproto.Unmarshal(payload, msg)
+	var input gestalt.BoundWorkflowRunInput
+	if err := json.Unmarshal(payload, &input); err == nil {
+		return &input, nil
+	}
+	var run proto.BoundWorkflowRun
+	if err := gproto.Unmarshal(payload, &run); err != nil {
+		return nil, err
+	}
+	converted, err := gestalt.BoundWorkflowRunInputFromRun(&run)
+	if err != nil {
+		return nil, err
+	}
+	return &converted, nil
+}
+
+func runInputFromPayload(payload []byte) *gestalt.BoundWorkflowRunInput {
+	run, err := decodeRunInputPayload(payload)
+	if err != nil {
+		return nil
+	}
+	return run
+}
+
+func decodeTriggerInputPayload(payload []byte) (*gestalt.BoundWorkflowEventTriggerInput, error) {
+	if len(payload) == 0 {
+		return nil, fmt.Errorf("empty workflow event trigger payload")
+	}
+	var input gestalt.BoundWorkflowEventTriggerInput
+	if err := json.Unmarshal(payload, &input); err == nil {
+		return &input, nil
+	}
+	var trigger proto.BoundWorkflowEventTrigger
+	if err := gproto.Unmarshal(payload, &trigger); err != nil {
+		return nil, err
+	}
+	converted, err := gestalt.BoundWorkflowEventTriggerInputFromTrigger(&trigger)
+	if err != nil {
+		return nil, err
+	}
+	return &converted, nil
+}
+
+func decodeExecutionReferenceInputPayload(payload []byte) (*gestalt.WorkflowExecutionReferenceInput, error) {
+	if len(payload) == 0 {
+		return nil, fmt.Errorf("empty workflow execution reference payload")
+	}
+	var input gestalt.WorkflowExecutionReferenceInput
+	if err := json.Unmarshal(payload, &input); err == nil {
+		return &input, nil
+	}
+	var ref proto.WorkflowExecutionReference
+	if err := gproto.Unmarshal(payload, &ref); err != nil {
+		return nil, err
+	}
+	converted, err := gestalt.WorkflowExecutionReferenceInputFromReference(&ref)
+	if err != nil {
+		return nil, err
+	}
+	return &converted, nil
+}
+
+func signalResponseInputFromPayload(payload []byte) *gestalt.SignalWorkflowRunResponse {
+	if len(payload) == 0 {
+		return nil
+	}
+	var resp gestalt.SignalWorkflowRunResponse
+	if err := json.Unmarshal(payload, &resp); err == nil {
+		return &resp
+	}
+	var protoResp proto.SignalWorkflowRunResponse
+	if err := gproto.Unmarshal(payload, &protoResp); err != nil {
+		return nil
+	}
+	respInput, err := signalRunResponseInputFromProto(&protoResp, nil)
+	if err != nil {
+		return nil
+	}
+	return respInput
 }
 
 func recordBytes(record gestalt.Record, key string) []byte {
@@ -1536,6 +1639,14 @@ func recordTime(record gestalt.Record, key string) *time.Time {
 	}
 }
 
+func optionalTime(value *time.Time) *time.Time {
+	if value == nil || value.IsZero() {
+		return nil
+	}
+	asTime := value.UTC()
+	return &asTime
+}
+
 func transactionGetRecord(ctx context.Context, store *gestalt.TransactionObjectStore, id string) (gestalt.Record, bool, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -1565,22 +1676,4 @@ func (s *workflowStateStore) scopedID(parts ...string) string {
 func (s *workflowStateStore) unscopedID(id string) string {
 	prefix := s.scopeID + "\x00"
 	return strings.TrimSpace(strings.TrimPrefix(id, prefix))
-}
-
-func timeFromProto(value *timestamppb.Timestamp) *time.Time {
-	if value == nil {
-		return nil
-	}
-	if err := value.CheckValid(); err != nil {
-		return nil
-	}
-	utc := value.AsTime().UTC()
-	return &utc
-}
-
-func timeFromProtoOrNow(value *timestamppb.Timestamp, fallback time.Time) time.Time {
-	if asTime := timeFromProto(value); asTime != nil {
-		return *asTime
-	}
-	return fallback.UTC()
 }
