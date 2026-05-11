@@ -10,41 +10,45 @@ import (
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 )
 
-func validateExecutionReference(ref *proto.WorkflowExecutionReference) (*proto.WorkflowExecutionReference, error) {
+func validateExecutionReferenceInput(ref *gestalt.WorkflowExecutionReferenceInput) (*gestalt.WorkflowExecutionReferenceInput, error) {
 	if ref == nil {
 		return nil, fmt.Errorf("reference is required")
 	}
-	out := cloneExecutionReference(ref)
-	out.Id = strings.TrimSpace(out.GetId())
-	out.ProviderName = strings.TrimSpace(out.GetProviderName())
-	out.SubjectId = strings.TrimSpace(out.GetSubjectId())
-	out.SubjectKind = strings.TrimSpace(out.GetSubjectKind())
-	out.DisplayName = strings.TrimSpace(out.GetDisplayName())
-	out.AuthSource = strings.TrimSpace(out.GetAuthSource())
-	out.CredentialSubjectId = strings.TrimSpace(out.GetCredentialSubjectId())
-	out.CallerPluginName = strings.TrimSpace(out.GetCallerPluginName())
-	target, err := normalizeTarget(out.GetTarget())
+	out := *ref
+	out.ID = strings.TrimSpace(out.ID)
+	out.ProviderName = strings.TrimSpace(out.ProviderName)
+	out.SubjectID = strings.TrimSpace(out.SubjectID)
+	out.SubjectKind = strings.TrimSpace(out.SubjectKind)
+	out.DisplayName = strings.TrimSpace(out.DisplayName)
+	out.AuthSource = strings.TrimSpace(out.AuthSource)
+	out.CredentialSubjectID = strings.TrimSpace(out.CredentialSubjectID)
+	out.CallerPluginName = strings.TrimSpace(out.CallerPluginName)
+	targetProto, err := workflowTargetProto(out.Target)
 	if err != nil {
 		return nil, err
 	}
-	out.Target = target.Target
-	if out.GetId() == "" {
+	target, err := normalizeTarget(targetProto)
+	if err != nil {
+		return nil, err
+	}
+	out.Target = workflowTargetInput(target.Target)
+	if out.ID == "" {
 		return nil, fmt.Errorf("id is required")
 	}
-	if out.GetProviderName() == "" {
+	if out.ProviderName == "" {
 		return nil, fmt.Errorf("provider_name is required")
 	}
-	if out.GetSubjectId() == "" {
+	if out.SubjectID == "" {
 		return nil, fmt.Errorf("subject_id is required")
 	}
-	out.Permissions = clonePermissions(out.GetPermissions())
-	if out.GetCreatedAt() != nil && !out.GetCreatedAt().IsValid() {
-		out.CreatedAt = nil
-	}
-	if out.GetRevokedAt() != nil && !out.GetRevokedAt().IsValid() {
+	out.Permissions = clonePermissionInputs(out.Permissions)
+	if out.RevokedAt != nil && out.RevokedAt.IsZero() {
 		out.RevokedAt = nil
 	}
-	return out, nil
+	if _, err := gestalt.NewWorkflowExecutionReference(out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }
 
 func publishedEventExecutionReference(providerName, referenceKey string, trigger *proto.BoundWorkflowEventTrigger, actor *proto.WorkflowActor, createdAt time.Time) (*proto.WorkflowExecutionReference, error) {
@@ -244,6 +248,20 @@ func clonePermissions(in []*proto.WorkflowAccessPermission) []*proto.WorkflowAcc
 		out = append(out, &proto.WorkflowAccessPermission{
 			Plugin:     strings.TrimSpace(permission.GetPlugin()),
 			Operations: ops,
+		})
+	}
+	return out
+}
+
+func clonePermissionInputs(in []gestalt.WorkflowAccessPermissionInput) []gestalt.WorkflowAccessPermissionInput {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]gestalt.WorkflowAccessPermissionInput, 0, len(in))
+	for _, permission := range in {
+		out = append(out, gestalt.WorkflowAccessPermissionInput{
+			Plugin:     strings.TrimSpace(permission.Plugin),
+			Operations: append([]string(nil), permission.Operations...),
 		})
 	}
 	return out

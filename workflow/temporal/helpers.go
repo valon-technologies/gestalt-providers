@@ -501,13 +501,6 @@ func workflowSignalProto(input *gestalt.WorkflowSignalInput) (*proto.WorkflowSig
 	return gestalt.NewWorkflowSignal(*input)
 }
 
-func workflowExecutionReferenceProto(input *gestalt.WorkflowExecutionReferenceInput) (*proto.WorkflowExecutionReference, error) {
-	if input == nil {
-		return nil, nil
-	}
-	return gestalt.NewWorkflowExecutionReference(*input)
-}
-
 func runInputFromProto(run *proto.BoundWorkflowRun, err error) (*gestalt.BoundWorkflowRunInput, error) {
 	if err != nil || run == nil {
 		return nil, err

@@ -722,25 +722,17 @@ func (b *temporalBackend) PutExecutionReference(ctx context.Context, req *gestal
 	if req == nil || req.Reference == nil {
 		return nil, status.Error(codes.InvalidArgument, "reference is required")
 	}
-	ref, err := workflowExecutionReferenceProto(req.Reference)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	ref = cloneExecutionReference(ref)
-	if strings.TrimSpace(ref.GetProviderName()) == "" {
+	ref := *req.Reference
+	if strings.TrimSpace(ref.ProviderName) == "" {
 		ref.ProviderName = b.providerName
 	}
-	ref, err = validateExecutionReference(ref)
+	refInput, err := validateExecutionReferenceInput(&ref)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	existing, found, err := b.state.getExecutionRef(ctx, ref.GetId())
+	existing, found, err := b.state.getExecutionRef(ctx, refInput.ID)
 	if err != nil {
 		return nil, err
-	}
-	refInput, err := gestalt.WorkflowExecutionReferenceInputFromReference(ref)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "build workflow execution reference: %v", err)
 	}
 	if found && !existing.CreatedAt.IsZero() {
 		refInput.CreatedAt = existing.CreatedAt
@@ -748,18 +740,13 @@ func (b *temporalBackend) PutExecutionReference(ctx context.Context, req *gestal
 	if refInput.CreatedAt.IsZero() {
 		refInput.CreatedAt = time.Now().UTC()
 	}
-	ref, err = gestalt.NewWorkflowExecutionReference(refInput)
-	if err != nil {
+	if _, err := gestalt.NewWorkflowExecutionReference(*refInput); err != nil {
 		return nil, status.Errorf(codes.Internal, "build workflow execution reference: %v", err)
 	}
-	refInput, err = gestalt.WorkflowExecutionReferenceInputFromReference(ref)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "build workflow execution reference: %v", err)
-	}
-	if err := b.state.putExecutionRef(ctx, &refInput); err != nil {
+	if err := b.state.putExecutionRef(ctx, refInput); err != nil {
 		return nil, err
 	}
-	return &refInput, nil
+	return refInput, nil
 }
 
 func (b *temporalBackend) GetExecutionReference(ctx context.Context, req *gestalt.GetWorkflowExecutionReferenceRequest) (*gestalt.WorkflowExecutionReferenceInput, error) {
