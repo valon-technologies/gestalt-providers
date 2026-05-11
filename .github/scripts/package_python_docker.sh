@@ -69,5 +69,5 @@ docker run --rm --platform "${docker_platform}" \
     fi
     export "${PYTHON_ENV_VAR}=$PWD/.venv/bin/python"
     gestaltd provider release --version "${VERSION}" --platform "${RELEASE_PLATFORM}"
-    chmod -R a+rX dist
+    chmod -R a+rwX dist
   '
