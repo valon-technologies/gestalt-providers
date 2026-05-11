@@ -32,6 +32,8 @@ permissions:
 
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
+  GCP_SERVICE_ACCOUNT: gestalt-snapshot-pub@valon-internal-tools-elevated.iam.gserviceaccount.com
+  GCP_WORKLOAD_IDENTITY_PROVIDER: projects/508160571681/locations/global/workloadIdentityPools/github-pool/providers/github-provider
   PYTHON_ALPINE_VERSION: "3.23"
 
 jobs:
@@ -144,8 +146,8 @@ jobs:
       - uses: google-github-actions/auth@v2
         if: ${{ !inputs.dry-run }}
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_SERVICE_ACCOUNT }}
       - uses: google-github-actions/setup-gcloud@v2
         if: ${{ !inputs.dry-run }}
       - name: Package snapshot

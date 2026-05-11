@@ -8,15 +8,17 @@ The publisher service account and snapshot bucket already exist in
 service account IAM member that lets the `valon-technologies/gestalt-providers`
 GitHub repository impersonate the publisher service account.
 
+The matching GitHub Actions workflow uses checked-in Workload Identity resource
+names instead of GitHub secrets. If the service account, Workload Identity pool,
+or publisher repository changes, update both this Terraform root and
+`.github/workflows/publish-provider-snapshot.yml`.
+
 ## Apply
 
-Pick the approved remote state bucket/prefix for elevated internal-tools
-infrastructure, then initialize with backend config:
+Initialize with the configured remote backend:
 
 ```bash
-terraform init \
-  -backend-config=bucket=<terraform-state-bucket> \
-  -backend-config=prefix=gestalt-providers/provider-snapshots
+terraform init
 terraform plan
 terraform apply
 ```
@@ -26,4 +28,3 @@ The applying identity needs permission to read and update IAM policy on:
 ```text
 gestalt-snapshot-pub@valon-internal-tools-elevated.iam.gserviceaccount.com
 ```
-

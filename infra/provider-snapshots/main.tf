@@ -8,7 +8,10 @@ terraform {
     }
   }
 
-  backend "gcs" {}
+  backend "gcs" {
+    bucket = "toolshed-terraform-state"
+    prefix = "gestalt-providers/provider-snapshots"
+  }
 }
 
 provider "google" {
@@ -25,4 +28,3 @@ resource "google_service_account_iam_member" "snapshot_publisher_github_actions"
   role               = "roles/iam.workloadIdentityUser"
   member             = local.github_actions_repository_member
 }
-
