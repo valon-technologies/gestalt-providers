@@ -24,11 +24,11 @@ func (a *workflowActivities) InvokeOperation(ctx context.Context, req gestalt.In
 	return a.host.InvokeOperation(ctx, req)
 }
 
-func (a *workflowActivities) ProjectRun(ctx context.Context, run *proto.BoundWorkflowRun) error {
+func (a *workflowActivities) ProjectRun(ctx context.Context, run gestalt.BoundWorkflowRunInput) error {
 	if a.state == nil {
 		return nil
 	}
-	return a.state.putRun(ctx, run)
+	return a.state.putRun(ctx, &run)
 }
 
 func cloneRunTrigger(trigger *proto.WorkflowRunTrigger) *proto.WorkflowRunTrigger {

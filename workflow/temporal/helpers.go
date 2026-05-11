@@ -116,14 +116,6 @@ func protoHashID(msg gproto.Message) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-func protoPayload(msg gproto.Message) []byte {
-	data, err := marshalProto(msg)
-	if err != nil {
-		return nil
-	}
-	return data
-}
-
 func targetFromPayload(data []byte) *proto.BoundWorkflowTarget {
 	if len(data) == 0 {
 		return nil
@@ -166,28 +158,6 @@ func signalFromPayload(data []byte) *proto.WorkflowSignal {
 		return nil
 	}
 	return cloneSignal(&signal)
-}
-
-func runFromPayload(data []byte) *proto.BoundWorkflowRun {
-	if len(data) == 0 {
-		return nil
-	}
-	var run proto.BoundWorkflowRun
-	if err := gproto.Unmarshal(data, &run); err != nil {
-		return nil
-	}
-	return cloneRun(&run)
-}
-
-func signalResponseFromPayload(data []byte) *proto.SignalWorkflowRunResponse {
-	if len(data) == 0 {
-		return nil
-	}
-	var resp proto.SignalWorkflowRunResponse
-	if err := gproto.Unmarshal(data, &resp); err != nil {
-		return nil
-	}
-	return cloneSignalResponse(&resp)
 }
 
 func workflowID(scopeID, kind string, parts ...string) string {
@@ -283,33 +253,35 @@ func normalizeAgentDelivery(delivery *proto.WorkflowOutputDelivery, fieldName st
 	if delivery == nil {
 		return nil
 	}
-	deliveryInput := gestalt.WorkflowOutputDeliveryInputFromDelivery(delivery)
-	if deliveryInput == nil || deliveryInput.Target == nil {
+	target := delivery.GetTarget()
+	if target == nil {
 		return fmt.Errorf("target.agent.%s.target.plugin_name is required", fieldName)
 	}
-	targetInput := deliveryInput.Target
-	targetInput.PluginName = strings.TrimSpace(targetInput.PluginName)
-	targetInput.Operation = strings.TrimSpace(targetInput.Operation)
-	targetInput.Connection = strings.TrimSpace(targetInput.Connection)
-	targetInput.Instance = strings.TrimSpace(targetInput.Instance)
-	targetInput.CredentialMode = strings.ToLower(strings.TrimSpace(targetInput.CredentialMode))
-	if targetInput.PluginName == "" {
+	pluginName := strings.TrimSpace(target.GetPluginName())
+	operation := strings.TrimSpace(target.GetOperation())
+	if pluginName == "" {
 		return fmt.Errorf("target.agent.%s.target.plugin_name is required", fieldName)
 	}
-	if targetInput.Operation == "" {
+	if operation == "" {
 		return fmt.Errorf("target.agent.%s.target.operation is required", fieldName)
 	}
-	if targetInput.CredentialMode != "" {
-		return fmt.Errorf("target.agent.%s.target.credential_mode %q is not supported", fieldName, targetInput.CredentialMode)
+	targetCredentialMode := strings.ToLower(strings.TrimSpace(target.GetCredentialMode()))
+	if targetCredentialMode != "" {
+		return fmt.Errorf("target.agent.%s.target.credential_mode %q is not supported", fieldName, target.GetCredentialMode())
 	}
 	credentialMode := strings.ToLower(strings.TrimSpace(delivery.GetCredentialMode()))
 	switch credentialMode {
 	case "", "none", "user":
-		deliveryInput.CredentialMode = credentialMode
 	default:
 		return fmt.Errorf("target.agent.%s.credential_mode %q is not supported", fieldName, delivery.GetCredentialMode())
 	}
-	for _, binding := range deliveryInput.InputBindings {
+	target.PluginName = pluginName
+	target.Operation = operation
+	target.Connection = strings.TrimSpace(target.GetConnection())
+	target.Instance = strings.TrimSpace(target.GetInstance())
+	target.CredentialMode = ""
+	delivery.CredentialMode = credentialMode
+	for _, binding := range delivery.GetInputBindings() {
 		if binding == nil || binding.GetValue() == nil || binding.GetValue().GetKind() == nil {
 			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
 		}
@@ -349,6 +321,7 @@ func normalizeAgentDelivery(delivery *proto.WorkflowOutputDelivery, fieldName st
 			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
 		}
 	}
+	deliveryInput := gestalt.WorkflowOutputDeliveryInputFromDelivery(delivery)
 	normalized, err := gestalt.NewWorkflowOutputDelivery(*deliveryInput)
 	if err != nil {
 		return fmt.Errorf("target.agent.%s: %w", fieldName, err)
@@ -357,18 +330,18 @@ func normalizeAgentDelivery(delivery *proto.WorkflowOutputDelivery, fieldName st
 	return nil
 }
 
-func targetOwnerKey(target *proto.BoundWorkflowTarget) string {
+func targetOwnerKeyInput(target *gestalt.BoundWorkflowTargetInput) string {
 	if target == nil {
 		return ""
 	}
-	if agent := target.GetAgent(); agent != nil {
-		if provider := strings.TrimSpace(agent.GetProviderName()); provider != "" {
+	if target.Agent != nil {
+		if provider := strings.TrimSpace(target.Agent.ProviderName); provider != "" {
 			return "agent:" + provider
 		}
 		return ""
 	}
-	if plugin := target.GetPlugin(); plugin != nil {
-		return strings.TrimSpace(plugin.GetPluginName())
+	if target.Plugin != nil {
+		return strings.TrimSpace(target.Plugin.PluginName)
 	}
 	return ""
 }
@@ -492,6 +465,66 @@ func workflowSignalInputs(signals []*proto.WorkflowSignal) []gestalt.WorkflowSig
 	return out
 }
 
+func workflowTargetProto(input *gestalt.BoundWorkflowTargetInput) (*proto.BoundWorkflowTarget, error) {
+	if input == nil {
+		return nil, nil
+	}
+	return gestalt.NewBoundWorkflowTarget(*input)
+}
+
+func workflowActorProto(input *gestalt.WorkflowActorInput) *proto.WorkflowActor {
+	if input == nil {
+		return nil
+	}
+	return gestalt.NewWorkflowActor(*input)
+}
+
+func workflowEventProto(input *gestalt.WorkflowEventInput) (*proto.WorkflowEvent, error) {
+	if input == nil {
+		return nil, nil
+	}
+	return gestalt.NewWorkflowEvent(*input)
+}
+
+func workflowSignalProto(input *gestalt.WorkflowSignalInput) (*proto.WorkflowSignal, error) {
+	if input == nil {
+		return nil, nil
+	}
+	return gestalt.NewWorkflowSignal(*input)
+}
+
+func runInputFromProto(run *proto.BoundWorkflowRun, err error) (*gestalt.BoundWorkflowRunInput, error) {
+	if err != nil || run == nil {
+		return nil, err
+	}
+	input, err := gestalt.BoundWorkflowRunInputFromRun(run)
+	if err != nil {
+		return nil, err
+	}
+	return &input, nil
+}
+
+func signalRunResponseInputFromProto(resp *proto.SignalWorkflowRunResponse, err error) (*gestalt.SignalWorkflowRunResponse, error) {
+	if err != nil || resp == nil {
+		return nil, err
+	}
+	run, err := runInputFromProto(resp.GetRun(), nil)
+	if err != nil {
+		return nil, err
+	}
+	var signal *gestalt.WorkflowSignalInput
+	if resp.GetSignal() != nil {
+		input := gestalt.WorkflowSignalInputFromSignal(resp.GetSignal())
+		signal = &input
+	}
+	return &gestalt.SignalWorkflowRunResponse{
+		Run:         run,
+		Signal:      signal,
+		StartedRun:  resp.GetStartedRun(),
+		WorkflowKey: resp.GetWorkflowKey(),
+	}, nil
+}
+
 func cloneEvent(event *proto.WorkflowEvent) *proto.WorkflowEvent {
 	if event == nil {
 		return nil
@@ -531,71 +564,30 @@ func cloneRun(run *proto.BoundWorkflowRun) *proto.BoundWorkflowRun {
 	return out
 }
 
-func cloneSchedule(schedule *proto.BoundWorkflowSchedule) *proto.BoundWorkflowSchedule {
-	if schedule == nil {
-		return nil
-	}
-	out, err := gestalt.NewBoundWorkflowScheduleFromSchedule(schedule)
-	if err != nil {
-		panic(fmt.Sprintf("clone workflow schedule: %v", err))
-	}
-	if out.GetCreatedBy() != nil {
-		out.CreatedBy = cloneActor(out.GetCreatedBy())
-	}
-	return out
-}
-
-func cloneTrigger(trigger *proto.BoundWorkflowEventTrigger) *proto.BoundWorkflowEventTrigger {
-	if trigger == nil {
-		return nil
-	}
-	out, err := gestalt.NewBoundWorkflowEventTriggerFromTrigger(trigger)
-	if err != nil {
-		panic(fmt.Sprintf("clone workflow event trigger: %v", err))
-	}
-	if out.GetCreatedBy() != nil {
-		out.CreatedBy = cloneActor(out.GetCreatedBy())
-	}
-	return out
-}
-
-func cloneExecutionReference(ref *proto.WorkflowExecutionReference) *proto.WorkflowExecutionReference {
-	if ref == nil {
-		return nil
-	}
-	out, err := gestalt.NewWorkflowExecutionReferenceFromReference(ref)
-	if err != nil {
-		panic(fmt.Sprintf("clone workflow execution reference: %v", err))
-	}
-	out.Permissions = clonePermissions(out.GetPermissions())
-	return out
-}
-
-func eventMatchesTrigger(event *proto.WorkflowEvent, trigger *proto.BoundWorkflowEventTrigger) bool {
-	if event == nil || trigger == nil || trigger.GetPaused() {
+func eventMatchesTriggerInput(event *gestalt.WorkflowEventInput, trigger *gestalt.BoundWorkflowEventTriggerInput) bool {
+	if event == nil || trigger == nil || trigger.Paused || trigger.Match == nil {
 		return false
 	}
-	match := trigger.GetMatch()
-	if strings.TrimSpace(event.GetType()) != strings.TrimSpace(match.GetType()) {
+	if strings.TrimSpace(event.Type) != strings.TrimSpace(trigger.Match.Type) {
 		return false
 	}
-	if source := strings.TrimSpace(match.GetSource()); source != "" && strings.TrimSpace(event.GetSource()) != source {
+	if source := strings.TrimSpace(trigger.Match.Source); source != "" && strings.TrimSpace(event.Source) != source {
 		return false
 	}
-	if subject := strings.TrimSpace(match.GetSubject()); subject != "" && strings.TrimSpace(event.GetSubject()) != subject {
+	if subject := strings.TrimSpace(trigger.Match.Subject); subject != "" && strings.TrimSpace(event.Subject) != subject {
 		return false
 	}
 	return true
 }
 
-func matchKeys(ownerKey string, match *proto.WorkflowEventMatch) []string {
+func matchKeysInput(ownerKey string, match *gestalt.WorkflowEventMatchInput) []string {
 	if match == nil {
 		return nil
 	}
 	ownerKey = strings.TrimSpace(ownerKey)
-	typ := strings.TrimSpace(match.GetType())
-	source := strings.TrimSpace(match.GetSource())
-	subject := strings.TrimSpace(match.GetSubject())
+	typ := strings.TrimSpace(match.Type)
+	source := strings.TrimSpace(match.Source)
+	subject := strings.TrimSpace(match.Subject)
 	if typ == "" {
 		return nil
 	}
@@ -604,18 +596,20 @@ func matchKeys(ownerKey string, match *proto.WorkflowEventMatch) []string {
 	}
 }
 
-func eventLookupKeys(ownerKey string, event *proto.WorkflowEvent) []string {
+func eventLookupKeysInput(ownerKey string, event *gestalt.WorkflowEventInput) []string {
+	if event == nil {
+		return nil
+	}
 	ownerKey = strings.TrimSpace(ownerKey)
-	typ := strings.TrimSpace(event.GetType())
-	source := strings.TrimSpace(event.GetSource())
-	subject := strings.TrimSpace(event.GetSubject())
-	keys := []string{
+	typ := strings.TrimSpace(event.Type)
+	source := strings.TrimSpace(event.Source)
+	subject := strings.TrimSpace(event.Subject)
+	return []string{
 		eventMatchKey(ownerKey, typ, "", ""),
 		eventMatchKey(ownerKey, typ, source, ""),
 		eventMatchKey(ownerKey, typ, "", subject),
 		eventMatchKey(ownerKey, typ, source, subject),
 	}
-	return keys
 }
 
 func eventMatchKey(ownerKey, typ, source, subject string) string {
@@ -635,68 +629,86 @@ func isConfigManagedActor(actor *proto.WorkflowActor) bool {
 		strings.TrimSpace(actor.GetAuthSource()) == configManagedWorkflowAuth
 }
 
-func createdByForUpsert(existing, requested *proto.WorkflowActor) *proto.WorkflowActor {
-	if existing == nil || isConfigManagedActor(requested) {
-		return cloneActor(requested)
+func createdByForUpsertInput(existing, requested *gestalt.WorkflowActorInput) *gestalt.WorkflowActorInput {
+	if existing == nil || isConfigManagedActorInput(requested) {
+		return cloneActorInput(requested)
 	}
-	return cloneActor(existing)
+	return cloneActorInput(existing)
 }
 
-func newManualTrigger() *proto.WorkflowRunTrigger {
-	return &proto.WorkflowRunTrigger{Kind: &proto.WorkflowRunTrigger_Manual{Manual: &proto.WorkflowManualTrigger{}}}
+func cloneActorInput(actor *gestalt.WorkflowActorInput) *gestalt.WorkflowActorInput {
+	if actor == nil {
+		return nil
+	}
+	out := *actor
+	out.SubjectID = strings.TrimSpace(out.SubjectID)
+	out.SubjectKind = strings.TrimSpace(out.SubjectKind)
+	out.DisplayName = strings.TrimSpace(out.DisplayName)
+	out.AuthSource = strings.TrimSpace(out.AuthSource)
+	return &out
 }
 
-func scheduleTrigger(scheduleID string, scheduledFor time.Time) *proto.WorkflowRunTrigger {
-	return gestalt.NewWorkflowScheduleTrigger(strings.TrimSpace(scheduleID), scheduledFor.UTC())
+func isConfigManagedActorInput(actor *gestalt.WorkflowActorInput) bool {
+	if actor == nil {
+		return false
+	}
+	return strings.TrimSpace(actor.SubjectID) == configManagedWorkflowSubject &&
+		strings.TrimSpace(actor.SubjectKind) == configManagedWorkflowKind &&
+		strings.TrimSpace(actor.AuthSource) == configManagedWorkflowAuth
 }
 
-func eventTrigger(triggerID string, event *proto.WorkflowEvent) *proto.WorkflowRunTrigger {
-	return &proto.WorkflowRunTrigger{Kind: &proto.WorkflowRunTrigger_Event{Event: &proto.WorkflowEventTriggerInvocation{
-		TriggerId: strings.TrimSpace(triggerID),
-		Event:     cloneEvent(event),
-	}}}
+func manualTriggerInput() *gestalt.WorkflowRunTriggerInput {
+	return &gestalt.WorkflowRunTriggerInput{Manual: true}
 }
 
-func sortRuns(runs []*proto.BoundWorkflowRun) {
+func scheduleTriggerInput(scheduleID string, scheduledFor time.Time) *gestalt.WorkflowRunTriggerInput {
+	scheduledFor = scheduledFor.UTC()
+	return &gestalt.WorkflowRunTriggerInput{Schedule: &gestalt.WorkflowScheduleTriggerInput{
+		ScheduleID:   strings.TrimSpace(scheduleID),
+		ScheduledFor: &scheduledFor,
+	}}
+}
+
+func sortRunInputs(runs []*gestalt.BoundWorkflowRunInput) {
 	sort.SliceStable(runs, func(i, j int) bool {
-		a := runs[i].GetCreatedAt().AsTime()
-		b := runs[j].GetCreatedAt().AsTime()
+		a := runs[i].CreatedAt
+		b := runs[j].CreatedAt
 		if !a.Equal(b) {
 			return a.Before(b)
 		}
-		return runs[i].GetId() < runs[j].GetId()
+		return runs[i].ID < runs[j].ID
 	})
 }
 
-func sortSchedules(schedules []*proto.BoundWorkflowSchedule) {
+func sortScheduleInputs(schedules []*gestalt.BoundWorkflowScheduleInput) {
 	sort.SliceStable(schedules, func(i, j int) bool {
-		a := schedules[i].GetCreatedAt().AsTime()
-		b := schedules[j].GetCreatedAt().AsTime()
+		a := schedules[i].CreatedAt
+		b := schedules[j].CreatedAt
 		if !a.Equal(b) {
 			return a.Before(b)
 		}
-		return schedules[i].GetId() < schedules[j].GetId()
+		return schedules[i].ID < schedules[j].ID
 	})
 }
 
-func sortTriggers(triggers []*proto.BoundWorkflowEventTrigger) {
+func sortTriggerInputs(triggers []*gestalt.BoundWorkflowEventTriggerInput) {
 	sort.SliceStable(triggers, func(i, j int) bool {
-		a := triggers[i].GetCreatedAt().AsTime()
-		b := triggers[j].GetCreatedAt().AsTime()
+		a := triggers[i].CreatedAt
+		b := triggers[j].CreatedAt
 		if !a.Equal(b) {
 			return a.Before(b)
 		}
-		return triggers[i].GetId() < triggers[j].GetId()
+		return triggers[i].ID < triggers[j].ID
 	})
 }
 
-func sortReferences(refs []*proto.WorkflowExecutionReference) {
+func sortReferenceInputs(refs []*gestalt.WorkflowExecutionReferenceInput) {
 	sort.SliceStable(refs, func(i, j int) bool {
-		a := refs[i].GetCreatedAt().AsTime()
-		b := refs[j].GetCreatedAt().AsTime()
+		a := refs[i].CreatedAt
+		b := refs[j].CreatedAt
 		if !a.Equal(b) {
 			return a.Before(b)
 		}
-		return refs[i].GetId() < refs[j].GetId()
+		return refs[i].ID < refs[j].ID
 	})
 }

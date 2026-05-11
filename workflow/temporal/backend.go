@@ -129,17 +129,22 @@ func (b *temporalBackend) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-func (b *temporalBackend) StartRun(ctx context.Context, req *proto.StartWorkflowProviderRunRequest) (*proto.BoundWorkflowRun, error) {
+func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkflowProviderRunRequest) (*gestalt.BoundWorkflowRunInput, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	target, err := normalizeTarget(req.GetTarget())
+	targetProto, err := workflowTargetProto(req.Target)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	key := strings.TrimSpace(req.GetIdempotencyKey())
-	workflowKey := strings.TrimSpace(req.GetWorkflowKey())
-	fingerprint := startFingerprint(target.OwnerKey, key, workflowKey, req.GetExecutionRef(), target.Target, req.GetCreatedBy())
+	target, err := normalizeTarget(targetProto)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	key := strings.TrimSpace(req.IdempotencyKey)
+	workflowKey := strings.TrimSpace(req.WorkflowKey)
+	createdBy := workflowActorProto(req.CreatedBy)
+	fingerprint := startFingerprint(target.OwnerKey, key, workflowKey, req.ExecutionRef, target.Target, createdBy)
 	if key != "" && workflowKey == "" {
 		return b.startUnkeyedRunV4(ctx, target, req, key, fingerprint)
 	}
@@ -148,18 +153,18 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *proto.StartWorkflow
 	}
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "run-v4", uuid.NewString())
 	conflictPolicy := enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL
-	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.GetExecutionRef(), "", target.Target, newManualTrigger(), req.GetCreatedBy(), false), conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.ExecutionRef, "", workflowTargetInput(target.Target), manualTriggerInput(), req.CreatedBy, false), conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
 	}
 	return run, nil
 }
 
-func (b *temporalBackend) GetRun(ctx context.Context, req *proto.GetWorkflowProviderRunRequest) (*proto.BoundWorkflowRun, error) {
+func (b *temporalBackend) GetRun(ctx context.Context, req *gestalt.GetWorkflowProviderRunRequest) (*gestalt.BoundWorkflowRunInput, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	runID := strings.TrimSpace(req.GetRunId())
+	runID := strings.TrimSpace(req.RunID)
 	if runID == "" {
 		return nil, status.Error(codes.InvalidArgument, "run_id is required")
 	}
@@ -174,23 +179,29 @@ func (b *temporalBackend) GetRun(ctx context.Context, req *proto.GetWorkflowProv
 	return nil, status.Errorf(codes.NotFound, "workflow run %q not found", runID)
 }
 
-func (b *temporalBackend) ListRuns(ctx context.Context, _ *proto.ListWorkflowProviderRunsRequest) (*proto.ListWorkflowProviderRunsResponse, error) {
+func (b *temporalBackend) ListRuns(ctx context.Context, _ *gestalt.ListWorkflowProviderRunsRequest) (*gestalt.ListWorkflowProviderRunsResponse, error) {
 	runs, err := b.state.listRuns(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return &proto.ListWorkflowProviderRunsResponse{Runs: runs}, nil
+	inputs := make([]gestalt.BoundWorkflowRunInput, 0, len(runs))
+	for _, run := range runs {
+		if run != nil {
+			inputs = append(inputs, *run)
+		}
+	}
+	return &gestalt.ListWorkflowProviderRunsResponse{Runs: inputs}, nil
 }
 
-func (b *temporalBackend) CancelRun(ctx context.Context, req *proto.CancelWorkflowProviderRunRequest) (*proto.BoundWorkflowRun, error) {
+func (b *temporalBackend) CancelRun(ctx context.Context, req *gestalt.CancelWorkflowProviderRunRequest) (*gestalt.BoundWorkflowRunInput, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	handle, err := decodeTemporalRunHandle(req.GetRunId())
+	handle, err := decodeTemporalRunHandle(req.RunID)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	reason := strings.TrimSpace(req.GetReason())
+	reason := strings.TrimSpace(req.Reason)
 	if reason == "" {
 		reason = "canceled"
 	}
@@ -209,18 +220,22 @@ func (b *temporalBackend) CancelRun(ctx context.Context, req *proto.CancelWorkfl
 	if err := update.Get(ctx, &run); err != nil {
 		return nil, mapTemporalWorkflowCallError("temporal workflow update", err)
 	}
-	return &run, nil
+	return runInputFromProto(&run, nil)
 }
 
-func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkflowProviderRunRequest) (*proto.SignalWorkflowRunResponse, error) {
+func (b *temporalBackend) SignalRun(ctx context.Context, req *gestalt.SignalWorkflowProviderRunRequest) (*gestalt.SignalWorkflowRunResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	handle, err := decodeTemporalRunHandle(req.GetRunId())
+	handle, err := decodeTemporalRunHandle(req.RunID)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	signal, err := normalizeWorkflowSignal(req.GetSignal(), time.Now().UTC())
+	signalProto, err := workflowSignalProto(req.Signal)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	signal, err := normalizeWorkflowSignal(signalProto, time.Now().UTC())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -228,8 +243,8 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkfl
 	updateID := signalUpdateID(signal)
 	ledgerKey := ownerIdempotencyLedgerKey(ownerKey, signal.GetIdempotencyKey())
 	sigKey := explicitSignalLedgerKey(signal)
-	fingerprint := signalFingerprint(ownerKey, handle.WorkflowKey+"\x00"+req.GetRunId(), signal)
-	var ownerResp *proto.SignalWorkflowRunResponse
+	fingerprint := signalFingerprint(ownerKey, handle.WorkflowKey+"\x00"+req.RunID, signal)
+	var ownerResp *gestalt.SignalWorkflowRunResponse
 	if ledgerKey != "" {
 		resp, err := b.reserveSignalIdempotency(ctx, signalIdempotencyReserveRequest{
 			Key:                  ledgerKey,
@@ -237,7 +252,7 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkfl
 			Fingerprint:          fingerprint,
 			OwnerKey:             ownerKey,
 			WorkflowKey:          handle.WorkflowKey,
-			RunID:                req.GetRunId(),
+			RunID:                req.RunID,
 			SignalID:             signal.GetId(),
 			AllowPayloadVariance: true,
 		})
@@ -248,7 +263,7 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkfl
 			ownerResp = resp
 		}
 	}
-	var explicitResp *proto.SignalWorkflowRunResponse
+	var explicitResp *gestalt.SignalWorkflowRunResponse
 	if sigKey != "" {
 		resp, err := b.reserveSignalIdempotency(ctx, signalIdempotencyReserveRequest{
 			Key:         sigKey,
@@ -256,7 +271,7 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkfl
 			Fingerprint: fingerprint,
 			OwnerKey:    ownerKey,
 			WorkflowKey: handle.WorkflowKey,
-			RunID:       req.GetRunId(),
+			RunID:       req.RunID,
 			SignalID:    signal.GetId(),
 		})
 		if err != nil {
@@ -297,7 +312,10 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkfl
 	if err := update.Get(ctx, &out); err != nil {
 		return nil, mapTemporalWorkflowCallError("temporal workflow update", err)
 	}
-	resp := &out
+	resp, err := signalRunResponseInputFromProto(&out, nil)
+	if err != nil {
+		return nil, err
+	}
 	if ledgerKey != "" {
 		if err := b.completeSignalIdempotency(ctx, ledgerKey, fingerprint, resp, true); err != nil {
 			return nil, err
@@ -311,19 +329,27 @@ func (b *temporalBackend) SignalRun(ctx context.Context, req *proto.SignalWorkfl
 	return resp, nil
 }
 
-func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.SignalOrStartWorkflowProviderRunRequest) (*proto.SignalWorkflowRunResponse, error) {
+func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *gestalt.SignalOrStartWorkflowProviderRunRequest) (*gestalt.SignalWorkflowRunResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	workflowKey := strings.TrimSpace(req.GetWorkflowKey())
+	workflowKey := strings.TrimSpace(req.WorkflowKey)
 	if workflowKey == "" {
 		return nil, status.Error(codes.InvalidArgument, "workflow_key is required")
 	}
-	target, err := normalizeTarget(req.GetTarget())
+	targetProto, err := workflowTargetProto(req.Target)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	signal, err := normalizeWorkflowSignal(req.GetSignal(), time.Now().UTC())
+	target, err := normalizeTarget(targetProto)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	signalProto, err := workflowSignalProto(req.Signal)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	signal, err := normalizeWorkflowSignal(signalProto, time.Now().UTC())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -332,7 +358,7 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.Signa
 	fingerprint := signalFingerprint(ownerKey, workflowKey, signal)
 	ledgerKey := ownerIdempotencyLedgerKey(ownerKey, signal.GetIdempotencyKey())
 	sigKey := explicitSignalLedgerKey(signal)
-	var ownerResp *proto.SignalWorkflowRunResponse
+	var ownerResp *gestalt.SignalWorkflowRunResponse
 	if ledgerKey != "" {
 		resp, err := b.reserveSignalIdempotency(ctx, signalIdempotencyReserveRequest{
 			Key:                  ledgerKey,
@@ -350,7 +376,7 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.Signa
 			ownerResp = resp
 		}
 	}
-	var explicitResp *proto.SignalWorkflowRunResponse
+	var explicitResp *gestalt.SignalWorkflowRunResponse
 	if sigKey != "" {
 		resp, err := b.reserveSignalIdempotency(ctx, signalIdempotencyReserveRequest{
 			Key:         sigKey,
@@ -383,12 +409,16 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.Signa
 		}
 		return ownerResp, nil
 	}
-	resp, err := b.signalOrStartRunV4(ctx, target, req, workflowKey, signal, updateID)
+	respProto, err := b.signalOrStartRunV4(ctx, target, req, workflowKey, signal, updateID)
 	if err != nil {
 		return nil, err
 	}
-	if resp.GetRun() == nil {
+	if respProto.GetRun() == nil {
 		return nil, status.Error(codes.Internal, "signal-or-start returned no run")
+	}
+	resp, err := signalRunResponseInputFromProto(respProto, nil)
+	if err != nil {
+		return nil, err
 	}
 	if ledgerKey != "" {
 		if err := b.completeSignalIdempotency(ctx, ledgerKey, fingerprint, resp, true); err != nil {
@@ -403,23 +433,27 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *proto.Signa
 	return resp, nil
 }
 
-func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *proto.UpsertWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
+func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *gestalt.UpsertWorkflowProviderScheduleRequest) (*gestalt.BoundWorkflowScheduleInput, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	target, err := normalizeTarget(req.GetTarget())
+	targetProto, err := workflowTargetProto(req.Target)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	scheduleID := strings.TrimSpace(req.GetScheduleId())
+	target, err := normalizeTarget(targetProto)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	scheduleID := strings.TrimSpace(req.ScheduleID)
 	if scheduleID == "" {
 		scheduleID = uuid.NewString()
 	}
-	cron := strings.TrimSpace(req.GetCron())
+	cron := strings.TrimSpace(req.Cron)
 	if cron == "" {
 		return nil, status.Error(codes.InvalidArgument, "cron is required")
 	}
-	timezone := strings.TrimSpace(req.GetTimezone())
+	timezone := strings.TrimSpace(req.Timezone)
 	if timezone == "" {
 		timezone = defaultTimezone
 	}
@@ -429,22 +463,25 @@ func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *proto.UpsertW
 		return nil, err
 	}
 	createdAt := now
-	createdBy := cloneActor(req.GetRequestedBy())
+	createdBy := cloneActorInput(req.RequestedBy)
 	if found {
-		createdAt = existing.GetCreatedAt().AsTime()
-		createdBy = createdByForUpsert(existing.GetCreatedBy(), req.GetRequestedBy())
+		createdAt = existing.CreatedAt
+		createdBy = createdByForUpsertInput(existing.CreatedBy, req.RequestedBy)
 	}
-	schedule := gestalt.NewBoundWorkflowSchedule(gestalt.BoundWorkflowScheduleInput{
+	schedule := &gestalt.BoundWorkflowScheduleInput{
 		ID:           scheduleID,
 		Cron:         cron,
 		Timezone:     timezone,
-		Target:       cloneTarget(target.Target),
-		Paused:       req.GetPaused(),
+		Target:       workflowTargetInput(target.Target),
+		Paused:       req.Paused,
 		CreatedAt:    createdAt,
 		UpdatedAt:    now,
-		CreatedBy:    actorInputPtr(createdBy),
-		ExecutionRef: strings.TrimSpace(req.GetExecutionRef()),
-	})
+		CreatedBy:    createdBy,
+		ExecutionRef: strings.TrimSpace(req.ExecutionRef),
+	}
+	if _, err := gestalt.NewBoundWorkflowSchedule(*schedule); err != nil {
+		return nil, status.Errorf(codes.Internal, "build workflow schedule: %v", err)
+	}
 	if err := b.upsertTemporalSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
@@ -454,11 +491,11 @@ func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *proto.UpsertW
 	return schedule, nil
 }
 
-func (b *temporalBackend) GetSchedule(ctx context.Context, req *proto.GetWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
+func (b *temporalBackend) GetSchedule(ctx context.Context, req *gestalt.GetWorkflowProviderScheduleRequest) (*gestalt.BoundWorkflowScheduleInput, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	id := strings.TrimSpace(req.GetScheduleId())
+	id := strings.TrimSpace(req.ScheduleID)
 	if id == "" {
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
@@ -473,7 +510,7 @@ func (b *temporalBackend) GetSchedule(ctx context.Context, req *proto.GetWorkflo
 	return schedule, nil
 }
 
-func (b *temporalBackend) ListSchedules(ctx context.Context, _ *proto.ListWorkflowProviderSchedulesRequest) (*proto.ListWorkflowProviderSchedulesResponse, error) {
+func (b *temporalBackend) ListSchedules(ctx context.Context, _ *gestalt.ListWorkflowProviderSchedulesRequest) (*gestalt.ListWorkflowProviderSchedulesResponse, error) {
 	schedules, err := b.state.listSchedules(ctx)
 	if err != nil {
 		return nil, err
@@ -481,15 +518,21 @@ func (b *temporalBackend) ListSchedules(ctx context.Context, _ *proto.ListWorkfl
 	for _, schedule := range schedules {
 		b.fillScheduleNextRun(ctx, schedule)
 	}
-	sortSchedules(schedules)
-	return &proto.ListWorkflowProviderSchedulesResponse{Schedules: schedules}, nil
+	sortScheduleInputs(schedules)
+	inputs := make([]gestalt.BoundWorkflowScheduleInput, 0, len(schedules))
+	for _, schedule := range schedules {
+		if schedule != nil {
+			inputs = append(inputs, *schedule)
+		}
+	}
+	return &gestalt.ListWorkflowProviderSchedulesResponse{Schedules: inputs}, nil
 }
 
-func (b *temporalBackend) DeleteSchedule(ctx context.Context, req *proto.DeleteWorkflowProviderScheduleRequest) error {
+func (b *temporalBackend) DeleteSchedule(ctx context.Context, req *gestalt.DeleteWorkflowProviderScheduleRequest) error {
 	if req == nil {
 		return status.Error(codes.InvalidArgument, "request is required")
 	}
-	id := strings.TrimSpace(req.GetScheduleId())
+	id := strings.TrimSpace(req.ScheduleID)
 	if id == "" {
 		return status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
@@ -508,11 +551,11 @@ func (b *temporalBackend) DeleteSchedule(ctx context.Context, req *proto.DeleteW
 	return nil
 }
 
-func (b *temporalBackend) PauseSchedule(ctx context.Context, req *proto.PauseWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
-	if req == nil || strings.TrimSpace(req.GetScheduleId()) == "" {
+func (b *temporalBackend) PauseSchedule(ctx context.Context, req *gestalt.PauseWorkflowProviderScheduleRequest) (*gestalt.BoundWorkflowScheduleInput, error) {
+	if req == nil || strings.TrimSpace(req.ScheduleID) == "" {
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
-	id := strings.TrimSpace(req.GetScheduleId())
+	id := strings.TrimSpace(req.ScheduleID)
 	schedule, found, err := b.state.getSchedule(ctx, id)
 	if err != nil {
 		return nil, err
@@ -523,24 +566,19 @@ func (b *temporalBackend) PauseSchedule(ctx context.Context, req *proto.PauseWor
 	if err := b.client.ScheduleClient().GetHandle(ctx, b.temporalScheduleID(id)).Pause(ctx, client.SchedulePauseOptions{Note: "paused by Gestalt"}); err != nil {
 		return nil, status.Errorf(codes.Internal, "pause temporal schedule: %v", err)
 	}
-	scheduleInput, err := gestalt.BoundWorkflowScheduleInputFromSchedule(schedule)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "build workflow schedule: %v", err)
-	}
-	scheduleInput.Paused = true
-	scheduleInput.UpdatedAt = time.Now().UTC()
-	schedule = gestalt.NewBoundWorkflowSchedule(scheduleInput)
+	schedule.Paused = true
+	schedule.UpdatedAt = time.Now().UTC()
 	if err := b.state.putSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
 	return schedule, nil
 }
 
-func (b *temporalBackend) ResumeSchedule(ctx context.Context, req *proto.ResumeWorkflowProviderScheduleRequest) (*proto.BoundWorkflowSchedule, error) {
-	if req == nil || strings.TrimSpace(req.GetScheduleId()) == "" {
+func (b *temporalBackend) ResumeSchedule(ctx context.Context, req *gestalt.ResumeWorkflowProviderScheduleRequest) (*gestalt.BoundWorkflowScheduleInput, error) {
+	if req == nil || strings.TrimSpace(req.ScheduleID) == "" {
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
-	id := strings.TrimSpace(req.GetScheduleId())
+	id := strings.TrimSpace(req.ScheduleID)
 	schedule, found, err := b.state.getSchedule(ctx, id)
 	if err != nil {
 		return nil, err
@@ -551,33 +589,40 @@ func (b *temporalBackend) ResumeSchedule(ctx context.Context, req *proto.ResumeW
 	if err := b.client.ScheduleClient().GetHandle(ctx, b.temporalScheduleID(id)).Unpause(ctx, client.ScheduleUnpauseOptions{Note: "resumed by Gestalt"}); err != nil {
 		return nil, status.Errorf(codes.Internal, "resume temporal schedule: %v", err)
 	}
-	scheduleInput, err := gestalt.BoundWorkflowScheduleInputFromSchedule(schedule)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "build workflow schedule: %v", err)
-	}
-	scheduleInput.Paused = false
-	scheduleInput.UpdatedAt = time.Now().UTC()
-	schedule = gestalt.NewBoundWorkflowSchedule(scheduleInput)
+	schedule.Paused = false
+	schedule.UpdatedAt = time.Now().UTC()
 	if err := b.state.putSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
 	return schedule, nil
 }
 
-func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *proto.UpsertWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
+func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *gestalt.UpsertWorkflowProviderEventTriggerRequest) (*gestalt.BoundWorkflowEventTriggerInput, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	target, err := normalizeTarget(req.GetTarget())
+	targetProto, err := workflowTargetProto(req.Target)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	triggerID := strings.TrimSpace(req.GetTriggerId())
+	target, err := normalizeTarget(targetProto)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	triggerID := strings.TrimSpace(req.TriggerID)
 	if triggerID == "" {
 		triggerID = uuid.NewString()
 	}
-	match := req.GetMatch()
-	if strings.TrimSpace(match.GetType()) == "" {
+	match := req.Match
+	matchType := ""
+	matchSource := ""
+	matchSubject := ""
+	if match != nil {
+		matchType = strings.TrimSpace(match.Type)
+		matchSource = strings.TrimSpace(match.Source)
+		matchSubject = strings.TrimSpace(match.Subject)
+	}
+	if matchType == "" {
 		return nil, status.Error(codes.InvalidArgument, "match.type is required")
 	}
 	now := time.Now().UTC()
@@ -586,162 +631,183 @@ func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *proto.Ups
 		return nil, err
 	}
 	createdAt := now
-	createdBy := cloneActor(req.GetRequestedBy())
+	createdBy := cloneActorInput(req.RequestedBy)
 	if found {
-		createdAt = existing.GetCreatedAt().AsTime()
-		createdBy = createdByForUpsert(existing.GetCreatedBy(), req.GetRequestedBy())
+		createdAt = existing.CreatedAt
+		createdBy = createdByForUpsertInput(existing.CreatedBy, req.RequestedBy)
 	}
-	trigger := gestalt.NewBoundWorkflowEventTrigger(gestalt.BoundWorkflowEventTriggerInput{
-		ID:           triggerID,
-		Match:        &proto.WorkflowEventMatch{Type: strings.TrimSpace(match.GetType()), Source: strings.TrimSpace(match.GetSource()), Subject: strings.TrimSpace(match.GetSubject())},
-		Target:       cloneTarget(target.Target),
-		Paused:       req.GetPaused(),
+	trigger := &gestalt.BoundWorkflowEventTriggerInput{
+		ID: triggerID,
+		Match: &gestalt.WorkflowEventMatchInput{
+			Type:    matchType,
+			Source:  matchSource,
+			Subject: matchSubject,
+		},
+		Target:       workflowTargetInput(target.Target),
+		Paused:       req.Paused,
 		CreatedAt:    createdAt,
 		UpdatedAt:    now,
-		CreatedBy:    actorInputPtr(createdBy),
-		ExecutionRef: strings.TrimSpace(req.GetExecutionRef()),
-	})
+		CreatedBy:    createdBy,
+		ExecutionRef: strings.TrimSpace(req.ExecutionRef),
+	}
+	if _, err := gestalt.NewBoundWorkflowEventTrigger(*trigger); err != nil {
+		return nil, status.Errorf(codes.Internal, "build workflow event trigger: %v", err)
+	}
 	if err := b.state.putTrigger(ctx, trigger); err != nil {
 		return nil, err
 	}
 	return trigger, nil
 }
 
-func (b *temporalBackend) GetEventTrigger(ctx context.Context, req *proto.GetWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
-	if req == nil || strings.TrimSpace(req.GetTriggerId()) == "" {
+func (b *temporalBackend) GetEventTrigger(ctx context.Context, req *gestalt.GetWorkflowProviderEventTriggerRequest) (*gestalt.BoundWorkflowEventTriggerInput, error) {
+	if req == nil || strings.TrimSpace(req.TriggerID) == "" {
 		return nil, status.Error(codes.InvalidArgument, "trigger_id is required")
 	}
-	trigger, found, err := b.state.getTrigger(ctx, strings.TrimSpace(req.GetTriggerId()))
+	triggerID := strings.TrimSpace(req.TriggerID)
+	trigger, found, err := b.state.getTrigger(ctx, triggerID)
 	if err != nil {
 		return nil, err
 	}
 	if !found {
-		return nil, status.Errorf(codes.NotFound, "workflow event trigger %q not found", req.GetTriggerId())
+		return nil, status.Errorf(codes.NotFound, "workflow event trigger %q not found", triggerID)
 	}
 	return trigger, nil
 }
 
-func (b *temporalBackend) ListEventTriggers(ctx context.Context, _ *proto.ListWorkflowProviderEventTriggersRequest) (*proto.ListWorkflowProviderEventTriggersResponse, error) {
+func (b *temporalBackend) ListEventTriggers(ctx context.Context, _ *gestalt.ListWorkflowProviderEventTriggersRequest) (*gestalt.ListWorkflowProviderEventTriggersResponse, error) {
 	triggers, err := b.state.listTriggers(ctx)
 	if err != nil {
 		return nil, err
 	}
-	sortTriggers(triggers)
-	return &proto.ListWorkflowProviderEventTriggersResponse{Triggers: triggers}, nil
+	sortTriggerInputs(triggers)
+	inputs := make([]gestalt.BoundWorkflowEventTriggerInput, 0, len(triggers))
+	for _, trigger := range triggers {
+		if trigger != nil {
+			inputs = append(inputs, *trigger)
+		}
+	}
+	return &gestalt.ListWorkflowProviderEventTriggersResponse{Triggers: inputs}, nil
 }
 
-func (b *temporalBackend) DeleteEventTrigger(ctx context.Context, req *proto.DeleteWorkflowProviderEventTriggerRequest) error {
-	if req == nil || strings.TrimSpace(req.GetTriggerId()) == "" {
+func (b *temporalBackend) DeleteEventTrigger(ctx context.Context, req *gestalt.DeleteWorkflowProviderEventTriggerRequest) error {
+	if req == nil || strings.TrimSpace(req.TriggerID) == "" {
 		return status.Error(codes.InvalidArgument, "trigger_id is required")
 	}
-	found, err := b.state.deleteTrigger(ctx, strings.TrimSpace(req.GetTriggerId()))
+	triggerID := strings.TrimSpace(req.TriggerID)
+	found, err := b.state.deleteTrigger(ctx, triggerID)
 	if err != nil {
 		return err
 	}
 	if !found {
-		return status.Errorf(codes.NotFound, "workflow event trigger %q not found", req.GetTriggerId())
+		return status.Errorf(codes.NotFound, "workflow event trigger %q not found", triggerID)
 	}
 	return nil
 }
 
-func (b *temporalBackend) PauseEventTrigger(ctx context.Context, req *proto.PauseWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
-	if req == nil || strings.TrimSpace(req.GetTriggerId()) == "" {
+func (b *temporalBackend) PauseEventTrigger(ctx context.Context, req *gestalt.PauseWorkflowProviderEventTriggerRequest) (*gestalt.BoundWorkflowEventTriggerInput, error) {
+	if req == nil || strings.TrimSpace(req.TriggerID) == "" {
 		return nil, status.Error(codes.InvalidArgument, "trigger_id is required")
 	}
-	return b.setTriggerPaused(ctx, strings.TrimSpace(req.GetTriggerId()), true)
+	return b.setTriggerPaused(ctx, strings.TrimSpace(req.TriggerID), true)
 }
 
-func (b *temporalBackend) ResumeEventTrigger(ctx context.Context, req *proto.ResumeWorkflowProviderEventTriggerRequest) (*proto.BoundWorkflowEventTrigger, error) {
-	if req == nil || strings.TrimSpace(req.GetTriggerId()) == "" {
+func (b *temporalBackend) ResumeEventTrigger(ctx context.Context, req *gestalt.ResumeWorkflowProviderEventTriggerRequest) (*gestalt.BoundWorkflowEventTriggerInput, error) {
+	if req == nil || strings.TrimSpace(req.TriggerID) == "" {
 		return nil, status.Error(codes.InvalidArgument, "trigger_id is required")
 	}
-	return b.setTriggerPaused(ctx, strings.TrimSpace(req.GetTriggerId()), false)
+	return b.setTriggerPaused(ctx, strings.TrimSpace(req.TriggerID), false)
 }
 
-func (b *temporalBackend) PutExecutionReference(ctx context.Context, req *proto.PutWorkflowExecutionReferenceRequest) (*proto.WorkflowExecutionReference, error) {
-	if req == nil || req.GetReference() == nil {
+func (b *temporalBackend) PutExecutionReference(ctx context.Context, req *gestalt.PutWorkflowExecutionReferenceRequest) (*gestalt.WorkflowExecutionReferenceInput, error) {
+	if req == nil || req.Reference == nil {
 		return nil, status.Error(codes.InvalidArgument, "reference is required")
 	}
-	ref := cloneExecutionReference(req.GetReference())
-	if strings.TrimSpace(ref.GetProviderName()) == "" {
+	ref := *req.Reference
+	if strings.TrimSpace(ref.ProviderName) == "" {
 		ref.ProviderName = b.providerName
 	}
-	ref, err := validateExecutionReference(ref)
+	refInput, err := validateExecutionReferenceInput(&ref)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	existing, found, err := b.state.getExecutionRef(ctx, ref.GetId())
+	existing, found, err := b.state.getExecutionRef(ctx, refInput.ID)
 	if err != nil {
 		return nil, err
 	}
-	refInput, err := gestalt.WorkflowExecutionReferenceInputFromReference(ref)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "build workflow execution reference: %v", err)
-	}
-	if found && existing.GetCreatedAt() != nil && existing.GetCreatedAt().IsValid() {
-		existingInput, err := gestalt.WorkflowExecutionReferenceInputFromReference(existing)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "build workflow execution reference: %v", err)
-		}
-		refInput.CreatedAt = existingInput.CreatedAt
+	if found && !existing.CreatedAt.IsZero() {
+		refInput.CreatedAt = existing.CreatedAt
 	}
 	if refInput.CreatedAt.IsZero() {
 		refInput.CreatedAt = time.Now().UTC()
 	}
-	ref = gestalt.NewWorkflowExecutionReference(refInput)
-	if err := b.state.putExecutionRef(ctx, ref); err != nil {
+	if _, err := gestalt.NewWorkflowExecutionReference(*refInput); err != nil {
+		return nil, status.Errorf(codes.Internal, "build workflow execution reference: %v", err)
+	}
+	if err := b.state.putExecutionRef(ctx, refInput); err != nil {
 		return nil, err
 	}
-	return ref, nil
+	return refInput, nil
 }
 
-func (b *temporalBackend) GetExecutionReference(ctx context.Context, req *proto.GetWorkflowExecutionReferenceRequest) (*proto.WorkflowExecutionReference, error) {
-	if req == nil || strings.TrimSpace(req.GetId()) == "" {
+func (b *temporalBackend) GetExecutionReference(ctx context.Context, req *gestalt.GetWorkflowExecutionReferenceRequest) (*gestalt.WorkflowExecutionReferenceInput, error) {
+	if req == nil || strings.TrimSpace(req.ID) == "" {
 		return nil, status.Error(codes.InvalidArgument, "id is required")
 	}
-	ref, found, err := b.state.getExecutionRef(ctx, strings.TrimSpace(req.GetId()))
+	id := strings.TrimSpace(req.ID)
+	ref, found, err := b.state.getExecutionRef(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	if !found {
-		return nil, status.Errorf(codes.NotFound, "workflow execution reference %q not found", req.GetId())
+		return nil, status.Errorf(codes.NotFound, "workflow execution reference %q not found", id)
 	}
 	return ref, nil
 }
 
-func (b *temporalBackend) ListExecutionReferences(ctx context.Context, req *proto.ListWorkflowExecutionReferencesRequest) (*proto.ListWorkflowExecutionReferencesResponse, error) {
+func (b *temporalBackend) ListExecutionReferences(ctx context.Context, req *gestalt.ListWorkflowExecutionReferencesRequest) (*gestalt.ListWorkflowExecutionReferencesResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	refs, err := b.state.listExecutionRefs(ctx, strings.TrimSpace(req.GetSubjectId()))
+	refs, err := b.state.listExecutionRefs(ctx, strings.TrimSpace(req.SubjectID))
 	if err != nil {
 		return nil, err
 	}
-	sortReferences(refs)
-	return &proto.ListWorkflowExecutionReferencesResponse{References: refs}, nil
+	sortReferenceInputs(refs)
+	inputs := make([]gestalt.WorkflowExecutionReferenceInput, 0, len(refs))
+	for _, ref := range refs {
+		if ref != nil {
+			inputs = append(inputs, *ref)
+		}
+	}
+	return &gestalt.ListWorkflowExecutionReferencesResponse{References: inputs}, nil
 }
 
-func (b *temporalBackend) PublishEvent(ctx context.Context, req *proto.PublishWorkflowProviderEventRequest) error {
+func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflowProviderEventRequest) error {
 	if req == nil {
 		return status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := strings.TrimSpace(req.GetPluginName())
-	event, err := normalizeWorkflowEvent(req.GetEvent(), time.Now)
+	pluginName := strings.TrimSpace(req.PluginName)
+	eventProto, err := workflowEventProto(req.Event)
 	if err != nil {
 		return status.Error(codes.InvalidArgument, err.Error())
 	}
-	triggers, err := b.state.matchTriggers(ctx, pluginName, event)
+	event, err := normalizeWorkflowEvent(eventProto, time.Now)
+	if err != nil {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
+	eventInput := gestalt.WorkflowEventInputFromEvent(event)
+	triggers, err := b.state.matchTriggers(ctx, pluginName, &eventInput)
 	if err != nil {
 		return err
 	}
 	now := time.Now().UTC()
-	publishedBy := cloneActor(req.GetPublishedBy())
-	matchedTriggers := make([]*proto.BoundWorkflowEventTrigger, 0, len(triggers))
+	publishedBy := cloneActor(workflowActorProto(req.PublishedBy))
+	matchedTriggers := make([]*gestalt.BoundWorkflowEventTriggerInput, 0, len(triggers))
 	matchedTriggerCounts := map[string]int64{}
 	for _, trigger := range triggers {
-		if eventMatchesTrigger(event, trigger) {
+		if eventMatchesTriggerInput(&eventInput, trigger) {
 			matchedTriggers = append(matchedTriggers, trigger)
-			matchedTriggerCounts[workflowTelemetryTargetKind(trigger.GetTarget())]++
+			matchedTriggerCounts[workflowTelemetryTargetKindInput(trigger.Target)]++
 		}
 	}
 	for targetKind, count := range matchedTriggerCounts {
@@ -753,24 +819,36 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *proto.PublishWo
 		))
 	}
 	for _, trigger := range matchedTriggers {
-		createdBy := cloneActor(trigger.GetCreatedBy())
-		executionRef := strings.TrimSpace(trigger.GetExecutionRef())
+		createdBy := trigger.CreatedBy
+		executionRef := strings.TrimSpace(trigger.ExecutionRef)
 		if actorHasSubject(publishedBy) {
-			createdBy = cloneActor(publishedBy)
+			createdBy = actorInputPtr(publishedBy)
 		}
-		temporalWorkflowID := eventRunWorkflowID(b.cfg.ScopeID, trigger.GetId(), event)
+		temporalWorkflowID := eventRunWorkflowID(b.cfg.ScopeID, trigger.ID, event)
 		if actorHasSubject(publishedBy) {
-			ref, err := publishedEventExecutionReference(b.providerName, temporalWorkflowID, trigger, publishedBy, now)
+			triggerProto, err := gestalt.NewBoundWorkflowEventTrigger(*trigger)
+			if err != nil {
+				return status.Errorf(codes.Internal, "build workflow event trigger: %v", err)
+			}
+			ref, err := publishedEventExecutionReference(b.providerName, temporalWorkflowID, triggerProto, publishedBy, now)
 			if err != nil {
 				return status.Errorf(codes.Internal, "build event execution reference: %v", err)
 			}
 			if ref != nil {
-				if stored, err := b.PutExecutionReference(ctx, &proto.PutWorkflowExecutionReferenceRequest{Reference: ref}); err == nil && stored != nil {
-					executionRef = stored.GetId()
+				input, err := gestalt.WorkflowExecutionReferenceInputFromReference(ref)
+				if err != nil {
+					return status.Errorf(codes.Internal, "build event execution reference: %v", err)
+				}
+				if stored, err := b.PutExecutionReference(ctx, &gestalt.PutWorkflowExecutionReferenceRequest{Reference: &input}); err == nil && stored != nil {
+					executionRef = stored.ID
 				}
 			}
 		}
-		input := b.runV4Input(targetOwnerKey(trigger.GetTarget()), executionRef, "", cloneTarget(trigger.GetTarget()), eventTrigger(trigger.GetId(), event), createdBy, false)
+		eventTriggerInput := &gestalt.WorkflowRunTriggerInput{Event: &gestalt.WorkflowEventTriggerInvocationInput{
+			TriggerID: trigger.ID,
+			Event:     &eventInput,
+		}}
+		input := b.runV4Input(targetOwnerKeyInput(trigger.Target), executionRef, "", trigger.Target, eventTriggerInput, createdBy, false)
 		run, err := b.executeRunV4(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 		if err != nil {
 			if event.GetId() != "" && isAlreadyStarted(err) {
@@ -781,7 +859,7 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *proto.PublishWo
 		gestalt.RecordWorkflowRunStarted(ctx, b.workflowTelemetryOptions(
 			gestalt.WorkflowOperationPublishEvent,
 			gestalt.WorkflowTriggerKindEvent,
-			workflowTelemetryTargetKind(trigger.GetTarget()),
+			workflowTelemetryTargetKindInput(trigger.Target),
 			workflowTelemetryRunStatus(run),
 		))
 	}
@@ -802,38 +880,38 @@ func (b *temporalBackend) workflowTelemetryOptions(operationName, triggerKind, t
 	}
 }
 
-func workflowTelemetryTargetKind(target *proto.BoundWorkflowTarget) string {
+func workflowTelemetryTargetKindInput(target *gestalt.BoundWorkflowTargetInput) string {
 	switch {
-	case target.GetPlugin() != nil:
+	case target != nil && target.Plugin != nil:
 		return gestalt.WorkflowTargetKindPlugin
-	case target.GetAgent() != nil:
+	case target != nil && target.Agent != nil:
 		return gestalt.WorkflowTargetKindAgent
 	default:
 		return gestalt.WorkflowTargetKindUnknown
 	}
 }
 
-func workflowTelemetryRunStatus(run *proto.BoundWorkflowRun) string {
+func workflowTelemetryRunStatus(run *gestalt.BoundWorkflowRunInput) string {
 	if run == nil {
 		return gestalt.WorkflowRunStatusUnknown
 	}
-	switch run.GetStatus() {
-	case proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING:
+	switch run.Status {
+	case gestalt.WorkflowRunStatusValuePending:
 		return gestalt.WorkflowRunStatusPending
-	case proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING:
+	case gestalt.WorkflowRunStatusValueRunning:
 		return gestalt.WorkflowRunStatusRunning
-	case proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED:
+	case gestalt.WorkflowRunStatusValueSucceeded:
 		return gestalt.WorkflowRunStatusSucceeded
-	case proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED:
+	case gestalt.WorkflowRunStatusValueFailed:
 		return gestalt.WorkflowRunStatusFailed
-	case proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_CANCELED:
+	case gestalt.WorkflowRunStatusValueCanceled:
 		return gestalt.WorkflowRunStatusCanceled
 	default:
 		return gestalt.WorkflowRunStatusUnknown
 	}
 }
 
-func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, paused bool) (*proto.BoundWorkflowEventTrigger, error) {
+func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, paused bool) (*gestalt.BoundWorkflowEventTriggerInput, error) {
 	trigger, found, err := b.state.getTrigger(ctx, id)
 	if err != nil {
 		return nil, err
@@ -841,22 +919,20 @@ func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, pause
 	if !found {
 		return nil, status.Errorf(codes.NotFound, "workflow event trigger %q not found", id)
 	}
-	triggerInput, err := gestalt.BoundWorkflowEventTriggerInputFromTrigger(trigger)
-	if err != nil {
+	trigger.Paused = paused
+	trigger.UpdatedAt = time.Now().UTC()
+	if _, err := gestalt.NewBoundWorkflowEventTrigger(*trigger); err != nil {
 		return nil, status.Errorf(codes.Internal, "build workflow event trigger: %v", err)
 	}
-	triggerInput.Paused = paused
-	triggerInput.UpdatedAt = time.Now().UTC()
-	trigger = gestalt.NewBoundWorkflowEventTrigger(triggerInput)
 	if err := b.state.putTrigger(ctx, trigger); err != nil {
 		return nil, err
 	}
 	return trigger, nil
 }
 
-func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *proto.BoundWorkflowSchedule) error {
-	actionInput := b.runV4Input(targetOwnerKey(schedule.GetTarget()), schedule.GetExecutionRef(), "", cloneTarget(schedule.GetTarget()), scheduleTrigger(schedule.GetId(), time.Now().UTC()), cloneActor(schedule.GetCreatedBy()), false)
-	actionInput.ScheduleID = schedule.GetId()
+func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *gestalt.BoundWorkflowScheduleInput) error {
+	actionInput := b.runV4Input(targetOwnerKeyInput(schedule.Target), schedule.ExecutionRef, "", schedule.Target, scheduleTriggerInput(schedule.ID, time.Now().UTC()), schedule.CreatedBy, false)
+	actionInput.ScheduleID = schedule.ID
 	action := &client.ScheduleWorkflowAction{
 		Workflow:            gestaltRunWorkflowV4,
 		Args:                []any{actionInput},
@@ -864,10 +940,10 @@ func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *
 		WorkflowRunTimeout:  b.cfg.WorkflowRunTimeout,
 		WorkflowTaskTimeout: defaultWorkflowTaskTimeout,
 	}
-	temporalID := b.temporalScheduleID(schedule.GetId())
+	temporalID := b.temporalScheduleID(schedule.ID)
 	spec := client.ScheduleSpec{
-		CronExpressions: []string{schedule.GetCron()},
-		TimeZoneName:    schedule.GetTimezone(),
+		CronExpressions: []string{schedule.Cron},
+		TimeZoneName:    schedule.Timezone,
 	}
 	handle := b.client.ScheduleClient().GetHandle(ctx, temporalID)
 	_, err := handle.Describe(ctx)
@@ -881,7 +957,7 @@ func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *
 			Action:        action,
 			Overlap:       enumspb.SCHEDULE_OVERLAP_POLICY_SKIP,
 			CatchupWindow: b.cfg.ScheduleCatchupWindow,
-			Paused:        schedule.GetPaused(),
+			Paused:        schedule.Paused,
 		})
 		if err != nil {
 			return status.Errorf(codes.Internal, "create temporal schedule: %v", err)
@@ -896,7 +972,7 @@ func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *
 				Overlap:       enumspb.SCHEDULE_OVERLAP_POLICY_SKIP,
 				CatchupWindow: b.cfg.ScheduleCatchupWindow,
 			},
-			State: &client.ScheduleState{Paused: schedule.GetPaused()},
+			State: &client.ScheduleState{Paused: schedule.Paused},
 		}}, nil
 	}})
 	if err != nil {
@@ -905,18 +981,16 @@ func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *
 	return nil
 }
 
-func (b *temporalBackend) fillScheduleNextRun(ctx context.Context, schedule *proto.BoundWorkflowSchedule) {
-	desc, err := b.client.ScheduleClient().GetHandle(ctx, b.temporalScheduleID(schedule.GetId())).Describe(ctx)
+func (b *temporalBackend) fillScheduleNextRun(ctx context.Context, schedule *gestalt.BoundWorkflowScheduleInput) {
+	if schedule == nil {
+		return
+	}
+	desc, err := b.client.ScheduleClient().GetHandle(ctx, b.temporalScheduleID(schedule.ID)).Describe(ctx)
 	if err != nil || len(desc.Info.NextActionTimes) == 0 {
 		return
 	}
-	scheduleInput, err := gestalt.BoundWorkflowScheduleInputFromSchedule(schedule)
-	if err != nil {
-		return
-	}
 	nextRunAt := desc.Info.NextActionTimes[0].UTC()
-	scheduleInput.NextRunAt = &nextRunAt
-	*schedule = *gestalt.NewBoundWorkflowSchedule(scheduleInput)
+	schedule.NextRunAt = &nextRunAt
 }
 
 func (b *temporalBackend) temporalScheduleID(scheduleID string) string {
@@ -952,11 +1026,11 @@ func isAlreadyStarted(err error) bool {
 	return errors.As(err, &alreadyStarted) || strings.Contains(err.Error(), "already started")
 }
 
-func workflowRunTerminal(status proto.WorkflowRunStatus) bool {
+func workflowRunTerminal(status gestalt.WorkflowRunStatus) bool {
 	switch status {
-	case proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED,
-		proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED,
-		proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_CANCELED:
+	case gestalt.WorkflowRunStatusValueSucceeded,
+		gestalt.WorkflowRunStatusValueFailed,
+		gestalt.WorkflowRunStatusValueCanceled:
 		return true
 	default:
 		return false

@@ -6,12 +6,12 @@ import (
 	"strings"
 	"time"
 
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-func (b *temporalBackend) reserveSignalIdempotency(ctx context.Context, req signalIdempotencyReserveRequest) (*proto.SignalWorkflowRunResponse, error) {
+func (b *temporalBackend) reserveSignalIdempotency(ctx context.Context, req signalIdempotencyReserveRequest) (*gestalt.SignalWorkflowRunResponse, error) {
 	req.Key = strings.TrimSpace(req.Key)
 	req.Fingerprint = strings.TrimSpace(req.Fingerprint)
 	if req.Key == "" {
@@ -30,14 +30,14 @@ func (b *temporalBackend) reserveSignalIdempotency(ctx context.Context, req sign
 		return nil, status.Errorf(codes.Internal, "reserve workflow signal idempotency: %v", err)
 	}
 	if existing && entry != nil && entry.Status == "completed" {
-		if resp := signalResponseFromPayload(entry.ResponsePayload); resp != nil {
+		if resp := signalResponseInputFromPayload(entry.ResponsePayload); resp != nil {
 			return resp, nil
 		}
 	}
 	return nil, nil
 }
 
-func (b *temporalBackend) completeSignalIdempotency(ctx context.Context, key, fingerprint string, resp *proto.SignalWorkflowRunResponse, allowPayloadVariance bool) error {
+func (b *temporalBackend) completeSignalIdempotency(ctx context.Context, key, fingerprint string, resp *gestalt.SignalWorkflowRunResponse, allowPayloadVariance bool) error {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		return nil
