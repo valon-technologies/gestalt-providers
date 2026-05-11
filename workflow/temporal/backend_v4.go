@@ -61,7 +61,7 @@ func (b *temporalBackend) startKeyedRunV4(ctx context.Context, target scopedTarg
 		return nil, status.Errorf(codes.FailedPrecondition, "workflow key %q already has an active run", workflowKey)
 	}
 
-	input := b.runV4Input(target.OwnerKey, req.ExecutionRef, workflowKey, target.Target, newManualTrigger(), workflowActorProto(req.CreatedBy), false)
+	input := b.runV4Input(target.OwnerKey, req.ExecutionRef, workflowKey, workflowTargetInput(target.Target), manualTriggerInput(), req.CreatedBy, false)
 	input.RequireClaim = true
 	run, err := b.executeRunV4(ctx, temporalWorkflowID, input, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
@@ -109,7 +109,7 @@ func (b *temporalBackend) startUnkeyedRunV4(ctx context.Context, target scopedTa
 		}
 	}
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "manual-v4", target.OwnerKey, key)
-	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.ExecutionRef, "", target.Target, newManualTrigger(), workflowActorProto(req.CreatedBy), false), enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.ExecutionRef, "", workflowTargetInput(target.Target), manualTriggerInput(), req.CreatedBy, false), enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +241,7 @@ func (b *temporalBackend) startSignalWorkflowRunV4(ctx context.Context, target s
 		temporalWorkflowID = workflowID(b.cfg.ScopeID, "signal-keyed-v4", target.OwnerKey, signalIDKey, hashID(workflowKey))
 		conflictPolicy = enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
 	}
-	input := b.runV4Input(target.OwnerKey, req.ExecutionRef, workflowKey, target.Target, newManualTrigger(), workflowActorProto(req.CreatedBy), true)
+	input := b.runV4Input(target.OwnerKey, req.ExecutionRef, workflowKey, workflowTargetInput(target.Target), manualTriggerInput(), req.CreatedBy, true)
 	input.RequireClaim = true
 	startOperation := b.client.NewWithStartWorkflowOperation(
 		b.startWorkflowOptions(temporalWorkflowID, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE),
@@ -341,15 +341,15 @@ func mapWorkflowKeyLoadError(err error) error {
 	return status.Errorf(codes.Internal, "load workflow key: %v", err)
 }
 
-func (b *temporalBackend) runV4Input(ownerKey, executionRef, workflowKey string, target *proto.BoundWorkflowTarget, trigger *proto.WorkflowRunTrigger, createdBy *proto.WorkflowActor, requireSignal bool) runWorkflowV4Input {
+func (b *temporalBackend) runV4Input(ownerKey, executionRef, workflowKey string, target *gestalt.BoundWorkflowTargetInput, trigger *gestalt.WorkflowRunTriggerInput, createdBy *gestalt.WorkflowActorInput, requireSignal bool) runWorkflowV4Input {
 	return runWorkflowV4Input{
 		ActivityStartToCloseTimeoutNS: b.cfg.ActivityStartToCloseTimeout,
 		ExecutionRef:                  strings.TrimSpace(executionRef),
 		WorkflowKey:                   strings.TrimSpace(workflowKey),
 		OwnerKey:                      strings.TrimSpace(ownerKey),
-		Target:                        workflowTargetInput(target),
-		Trigger:                       workflowTriggerInput(trigger),
-		CreatedBy:                     actorInputPtr(createdBy),
+		Target:                        target,
+		Trigger:                       trigger,
+		CreatedBy:                     createdBy,
 		RequireSignal:                 requireSignal,
 	}
 }

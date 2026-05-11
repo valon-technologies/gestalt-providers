@@ -137,7 +137,7 @@ func TestGestaltRunWorkflowV4AcceptsInitialSignalPayloadForReplayCompatibility(t
 		WorkflowKey:                   "thread-1",
 		OwnerKey:                      "slack",
 		TargetPayload:                 protoPayload(pluginTarget("slack", "postMessage")),
-		TriggerPayload:                protoPayload(newManualTrigger()),
+		TriggerPayload:                protoPayload(manualTriggerProto()),
 		CreatedByPayload:              protoPayload(&proto.WorkflowActor{SubjectId: "user-1"}),
 		InitialSignalPayload:          protoPayload(&proto.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1", CreatedAt: timestamppb.Now()}),
 		RequireSignal:                 true,
@@ -1558,7 +1558,7 @@ func TestWorkflowStateStoreWritesNativeRunPayloadsAndReadsLegacyProtoPayloads(t 
 		Id:        legacyID,
 		Status:    proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED,
 		Target:    pluginTarget("slack", "postMessage"),
-		Trigger:   newManualTrigger(),
+		Trigger:   manualTriggerProto(),
 		CreatedAt: timestamppb.New(time.Unix(100, 0).UTC()),
 	}
 	if err := state.runProjections.Put(ctx, gestalt.Record{
@@ -1835,6 +1835,10 @@ func protoPayload(msg gproto.Message) []byte {
 		return nil
 	}
 	return data
+}
+
+func manualTriggerProto() *proto.WorkflowRunTrigger {
+	return &proto.WorkflowRunTrigger{Kind: &proto.WorkflowRunTrigger_Manual{Manual: &proto.WorkflowManualTrigger{}}}
 }
 
 func cloneSignalOrStartRequest(req *gestalt.SignalOrStartWorkflowProviderRunRequest) *gestalt.SignalOrStartWorkflowProviderRunRequest {
@@ -2302,13 +2306,13 @@ func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) erro
 	case *proto.BoundWorkflowEventTrigger:
 		if len(h.update.Args) > 0 {
 			if trigger, ok := h.update.Args[len(h.update.Args)-1].(*proto.BoundWorkflowEventTrigger); ok {
-				*out = *cloneTrigger(trigger)
+				*out = *trigger
 			}
 		}
 	case *proto.WorkflowExecutionReference:
 		if len(h.update.Args) > 0 {
 			if ref, ok := h.update.Args[len(h.update.Args)-1].(*proto.WorkflowExecutionReference); ok {
-				*out = *cloneExecutionReference(ref)
+				*out = *ref
 			}
 		}
 	case *proto.SignalWorkflowRunResponse:

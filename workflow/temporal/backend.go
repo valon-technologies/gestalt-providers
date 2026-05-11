@@ -153,7 +153,7 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkfl
 	}
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "run-v4", uuid.NewString())
 	conflictPolicy := enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL
-	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.ExecutionRef, "", target.Target, newManualTrigger(), createdBy, false), conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.ExecutionRef, "", workflowTargetInput(target.Target), manualTriggerInput(), req.CreatedBy, false), conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
 	}
@@ -819,17 +819,17 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 		))
 	}
 	for _, trigger := range matchedTriggers {
-		triggerProto, err := gestalt.NewBoundWorkflowEventTrigger(*trigger)
-		if err != nil {
-			return status.Errorf(codes.Internal, "build workflow event trigger: %v", err)
-		}
-		createdBy := workflowActorProto(trigger.CreatedBy)
+		createdBy := trigger.CreatedBy
 		executionRef := strings.TrimSpace(trigger.ExecutionRef)
 		if actorHasSubject(publishedBy) {
-			createdBy = cloneActor(publishedBy)
+			createdBy = actorInputPtr(publishedBy)
 		}
 		temporalWorkflowID := eventRunWorkflowID(b.cfg.ScopeID, trigger.ID, event)
 		if actorHasSubject(publishedBy) {
+			triggerProto, err := gestalt.NewBoundWorkflowEventTrigger(*trigger)
+			if err != nil {
+				return status.Errorf(codes.Internal, "build workflow event trigger: %v", err)
+			}
 			ref, err := publishedEventExecutionReference(b.providerName, temporalWorkflowID, triggerProto, publishedBy, now)
 			if err != nil {
 				return status.Errorf(codes.Internal, "build event execution reference: %v", err)
@@ -844,7 +844,11 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 				}
 			}
 		}
-		input := b.runV4Input(targetOwnerKeyInput(trigger.Target), executionRef, "", cloneTarget(triggerProto.GetTarget()), eventTrigger(trigger.ID, event), createdBy, false)
+		eventTriggerInput := &gestalt.WorkflowRunTriggerInput{Event: &gestalt.WorkflowEventTriggerInvocationInput{
+			TriggerID: trigger.ID,
+			Event:     &eventInput,
+		}}
+		input := b.runV4Input(targetOwnerKeyInput(trigger.Target), executionRef, "", trigger.Target, eventTriggerInput, createdBy, false)
 		run, err := b.executeRunV4(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 		if err != nil {
 			if event.GetId() != "" && isAlreadyStarted(err) {
@@ -927,11 +931,7 @@ func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, pause
 }
 
 func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *gestalt.BoundWorkflowScheduleInput) error {
-	target, err := workflowTargetProto(schedule.Target)
-	if err != nil {
-		return status.Errorf(codes.Internal, "build workflow schedule target: %v", err)
-	}
-	actionInput := b.runV4Input(targetOwnerKeyInput(schedule.Target), schedule.ExecutionRef, "", target, scheduleTrigger(schedule.ID, time.Now().UTC()), workflowActorProto(schedule.CreatedBy), false)
+	actionInput := b.runV4Input(targetOwnerKeyInput(schedule.Target), schedule.ExecutionRef, "", schedule.Target, scheduleTriggerInput(schedule.ID, time.Now().UTC()), schedule.CreatedBy, false)
 	actionInput.ScheduleID = schedule.ID
 	action := &client.ScheduleWorkflowAction{
 		Workflow:            gestaltRunWorkflowV4,
@@ -946,7 +946,7 @@ func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *
 		TimeZoneName:    schedule.Timezone,
 	}
 	handle := b.client.ScheduleClient().GetHandle(ctx, temporalID)
-	_, err = handle.Describe(ctx)
+	_, err := handle.Describe(ctx)
 	if err != nil {
 		if !isNotFound(err) {
 			return status.Errorf(codes.Internal, "describe temporal schedule: %v", err)

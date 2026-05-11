@@ -564,46 +564,6 @@ func cloneRun(run *proto.BoundWorkflowRun) *proto.BoundWorkflowRun {
 	return out
 }
 
-func cloneSchedule(schedule *proto.BoundWorkflowSchedule) *proto.BoundWorkflowSchedule {
-	if schedule == nil {
-		return nil
-	}
-	out, err := gestalt.NewBoundWorkflowScheduleFromSchedule(schedule)
-	if err != nil {
-		panic(fmt.Sprintf("clone workflow schedule: %v", err))
-	}
-	if out.GetCreatedBy() != nil {
-		out.CreatedBy = cloneActor(out.GetCreatedBy())
-	}
-	return out
-}
-
-func cloneTrigger(trigger *proto.BoundWorkflowEventTrigger) *proto.BoundWorkflowEventTrigger {
-	if trigger == nil {
-		return nil
-	}
-	out, err := gestalt.NewBoundWorkflowEventTriggerFromTrigger(trigger)
-	if err != nil {
-		panic(fmt.Sprintf("clone workflow event trigger: %v", err))
-	}
-	if out.GetCreatedBy() != nil {
-		out.CreatedBy = cloneActor(out.GetCreatedBy())
-	}
-	return out
-}
-
-func cloneExecutionReference(ref *proto.WorkflowExecutionReference) *proto.WorkflowExecutionReference {
-	if ref == nil {
-		return nil
-	}
-	out, err := gestalt.NewWorkflowExecutionReferenceFromReference(ref)
-	if err != nil {
-		panic(fmt.Sprintf("clone workflow execution reference: %v", err))
-	}
-	out.Permissions = clonePermissions(out.GetPermissions())
-	return out
-}
-
 func eventMatchesTriggerInput(event *gestalt.WorkflowEventInput, trigger *gestalt.BoundWorkflowEventTriggerInput) bool {
 	if event == nil || trigger == nil || trigger.Paused || trigger.Match == nil {
 		return false
@@ -697,12 +657,8 @@ func isConfigManagedActorInput(actor *gestalt.WorkflowActorInput) bool {
 		strings.TrimSpace(actor.AuthSource) == configManagedWorkflowAuth
 }
 
-func newManualTrigger() *proto.WorkflowRunTrigger {
-	return &proto.WorkflowRunTrigger{Kind: &proto.WorkflowRunTrigger_Manual{Manual: &proto.WorkflowManualTrigger{}}}
-}
-
-func scheduleTrigger(scheduleID string, scheduledFor time.Time) *proto.WorkflowRunTrigger {
-	return gestalt.NewWorkflowScheduleTrigger(strings.TrimSpace(scheduleID), scheduledFor.UTC())
+func manualTriggerInput() *gestalt.WorkflowRunTriggerInput {
+	return &gestalt.WorkflowRunTriggerInput{Manual: true}
 }
 
 func scheduleTriggerInput(scheduleID string, scheduledFor time.Time) *gestalt.WorkflowRunTriggerInput {
@@ -711,13 +667,6 @@ func scheduleTriggerInput(scheduleID string, scheduledFor time.Time) *gestalt.Wo
 		ScheduleID:   strings.TrimSpace(scheduleID),
 		ScheduledFor: &scheduledFor,
 	}}
-}
-
-func eventTrigger(triggerID string, event *proto.WorkflowEvent) *proto.WorkflowRunTrigger {
-	return &proto.WorkflowRunTrigger{Kind: &proto.WorkflowRunTrigger_Event{Event: &proto.WorkflowEventTriggerInvocation{
-		TriggerId: strings.TrimSpace(triggerID),
-		Event:     cloneEvent(event),
-	}}}
 }
 
 func sortRunInputs(runs []*gestalt.BoundWorkflowRunInput) {
