@@ -81,8 +81,6 @@ class GmailCredentialContractTests(unittest.TestCase):
         self.assertEqual(set(schema["properties"]), {"clientId", "clientSecret"})
         self.assertEqual(set(schema["required"]), {"clientId", "clientSecret"})
         self.assertFalse(schema["additionalProperties"])
-        self.assertNotIn("platformIdentity", schema["properties"])
-        self.assertNotIn("platformConnection", schema["properties"])
 
     def test_user_token_read_uses_resolved_oauth_token(self) -> None:
         with mock.patch.object(
