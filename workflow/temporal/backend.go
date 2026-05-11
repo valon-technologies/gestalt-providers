@@ -132,17 +132,13 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkfl
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	targetProto, err := workflowTargetProto(req.Target)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	target, err := normalizeTarget(targetProto)
+	target, err := normalizeTarget(req.Target)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	key := strings.TrimSpace(req.IdempotencyKey)
 	workflowKey := strings.TrimSpace(req.WorkflowKey)
-	fingerprint := startFingerprint(target.OwnerKey, key, workflowKey, req.ExecutionRef, workflowTargetInput(target.Target), req.CreatedBy)
+	fingerprint := startFingerprint(target.OwnerKey, key, workflowKey, req.ExecutionRef, target.Target, req.CreatedBy)
 	if key != "" && workflowKey == "" {
 		return b.startUnkeyedRunV4(ctx, target, req, key, fingerprint)
 	}
@@ -151,7 +147,7 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkfl
 	}
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "run-v4", uuid.NewString())
 	conflictPolicy := enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL
-	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.ExecutionRef, "", workflowTargetInput(target.Target), manualTriggerInput(), req.CreatedBy, false), conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.ExecutionRef, "", target.Target, manualTriggerInput(), req.CreatedBy, false), conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
 	}
@@ -328,11 +324,7 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *gestalt.Sig
 	if workflowKey == "" {
 		return nil, status.Error(codes.InvalidArgument, "workflow_key is required")
 	}
-	targetProto, err := workflowTargetProto(req.Target)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	target, err := normalizeTarget(targetProto)
+	target, err := normalizeTarget(req.Target)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -420,11 +412,7 @@ func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *gestalt.Upser
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	targetProto, err := workflowTargetProto(req.Target)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	target, err := normalizeTarget(targetProto)
+	target, err := normalizeTarget(req.Target)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -455,7 +443,7 @@ func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *gestalt.Upser
 		ID:           scheduleID,
 		Cron:         cron,
 		Timezone:     timezone,
-		Target:       workflowTargetInput(target.Target),
+		Target:       target.Target,
 		Paused:       req.Paused,
 		CreatedAt:    createdAt,
 		UpdatedAt:    now,
@@ -584,11 +572,7 @@ func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *gestalt.U
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	targetProto, err := workflowTargetProto(req.Target)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-	target, err := normalizeTarget(targetProto)
+	target, err := normalizeTarget(req.Target)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -626,7 +610,7 @@ func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *gestalt.U
 			Source:  matchSource,
 			Subject: matchSubject,
 		},
-		Target:       workflowTargetInput(target.Target),
+		Target:       target.Target,
 		Paused:       req.Paused,
 		CreatedAt:    createdAt,
 		UpdatedAt:    now,
@@ -770,25 +754,20 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 		return status.Error(codes.InvalidArgument, "request is required")
 	}
 	pluginName := strings.TrimSpace(req.PluginName)
-	eventProto, err := workflowEventProto(req.Event)
+	eventInput, err := normalizeWorkflowEvent(req.Event, time.Now)
 	if err != nil {
 		return status.Error(codes.InvalidArgument, err.Error())
 	}
-	event, err := normalizeWorkflowEvent(eventProto, time.Now)
-	if err != nil {
-		return status.Error(codes.InvalidArgument, err.Error())
-	}
-	eventInput := gestalt.WorkflowEventInputFromEvent(event)
-	triggers, err := b.state.matchTriggers(ctx, pluginName, &eventInput)
+	triggers, err := b.state.matchTriggers(ctx, pluginName, eventInput)
 	if err != nil {
 		return err
 	}
 	now := time.Now().UTC()
-	publishedBy := cloneActor(workflowActorProto(req.PublishedBy))
+	publishedBy := cloneActorInput(req.PublishedBy)
 	matchedTriggers := make([]*gestalt.BoundWorkflowEventTriggerInput, 0, len(triggers))
 	matchedTriggerCounts := map[string]int64{}
 	for _, trigger := range triggers {
-		if eventMatchesTriggerInput(&eventInput, trigger) {
+		if eventMatchesTriggerInput(eventInput, trigger) {
 			matchedTriggers = append(matchedTriggers, trigger)
 			matchedTriggerCounts[workflowTelemetryTargetKindInput(trigger.Target)]++
 		}
@@ -805,36 +784,28 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 		createdBy := trigger.CreatedBy
 		executionRef := strings.TrimSpace(trigger.ExecutionRef)
 		if actorHasSubject(publishedBy) {
-			createdBy = actorInputPtr(publishedBy)
+			createdBy = cloneActorInput(publishedBy)
 		}
-		temporalWorkflowID := eventRunWorkflowID(b.cfg.ScopeID, trigger.ID, event)
+		temporalWorkflowID := eventRunWorkflowID(b.cfg.ScopeID, trigger.ID, eventInput)
 		if actorHasSubject(publishedBy) {
-			triggerProto, err := gestalt.NewBoundWorkflowEventTrigger(*trigger)
-			if err != nil {
-				return status.Errorf(codes.Internal, "build workflow event trigger: %v", err)
-			}
-			ref, err := publishedEventExecutionReference(b.providerName, temporalWorkflowID, triggerProto, publishedBy, now)
+			ref, err := publishedEventExecutionReference(b.providerName, temporalWorkflowID, trigger, publishedBy, now)
 			if err != nil {
 				return status.Errorf(codes.Internal, "build event execution reference: %v", err)
 			}
 			if ref != nil {
-				input, err := gestalt.WorkflowExecutionReferenceInputFromReference(ref)
-				if err != nil {
-					return status.Errorf(codes.Internal, "build event execution reference: %v", err)
-				}
-				if stored, err := b.PutExecutionReference(ctx, &gestalt.PutWorkflowExecutionReferenceRequest{Reference: &input}); err == nil && stored != nil {
+				if stored, err := b.PutExecutionReference(ctx, &gestalt.PutWorkflowExecutionReferenceRequest{Reference: ref}); err == nil && stored != nil {
 					executionRef = stored.ID
 				}
 			}
 		}
 		eventTriggerInput := &gestalt.WorkflowRunTriggerInput{Event: &gestalt.WorkflowEventTriggerInvocationInput{
 			TriggerID: trigger.ID,
-			Event:     &eventInput,
+			Event:     eventInput,
 		}}
 		input := b.runV4Input(targetOwnerKeyInput(trigger.Target), executionRef, "", trigger.Target, eventTriggerInput, createdBy, false)
 		run, err := b.executeRunV4(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 		if err != nil {
-			if event.GetId() != "" && isAlreadyStarted(err) {
+			if strings.TrimSpace(eventInput.ID) != "" && isAlreadyStarted(err) {
 				continue
 			}
 			return status.Errorf(codes.Internal, "start event workflow: %v", err)

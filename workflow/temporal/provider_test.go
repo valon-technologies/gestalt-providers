@@ -29,7 +29,6 @@ import (
 	sdkworkflow "go.temporal.io/sdk/workflow"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func newTestWorkflowEnvironment(suite *testsuite.WorkflowTestSuite) *testsuite.TestWorkflowEnvironment {
@@ -1817,35 +1816,34 @@ func (h *blockingHost) InvokeOperation(ctx context.Context, req gestalt.InvokeWo
 
 func (h *blockingHost) Close() error { return nil }
 
-func pluginTarget(plugin, operation string) *proto.BoundWorkflowTarget {
-	input, _ := structpb.NewStruct(map[string]any{"text": "hello"})
-	return &proto.BoundWorkflowTarget{Kind: &proto.BoundWorkflowTarget_Plugin{Plugin: &proto.BoundWorkflowPluginTarget{
+func pluginTarget(plugin, operation string) *gestalt.BoundWorkflowTargetInput {
+	return &gestalt.BoundWorkflowTargetInput{Plugin: &gestalt.BoundWorkflowPluginTargetInput{
 		PluginName: strings.TrimSpace(plugin),
 		Operation:  strings.TrimSpace(operation),
-		Input:      input,
-	}}}
+		Input:      map[string]any{"text": "hello"},
+	}}
 }
 
 func TestNormalizeTargetPreservesPluginCredentialMode(t *testing.T) {
 	target := pluginTarget(" github ", " reviewPullRequest ")
-	target.GetPlugin().CredentialMode = " none "
+	target.Plugin.CredentialMode = " none "
 
 	scoped, err := normalizeTarget(target)
 	if err != nil {
 		t.Fatalf("normalizeTarget: %v", err)
 	}
-	plugin := scoped.Target.GetPlugin()
-	if plugin.GetPluginName() != "github" || plugin.GetOperation() != "reviewPullRequest" {
+	plugin := scoped.Target.Plugin
+	if plugin.PluginName != "github" || plugin.Operation != "reviewPullRequest" {
 		t.Fatalf("plugin target = %#v", plugin)
 	}
-	if got := plugin.GetCredentialMode(); got != "none" {
+	if got := plugin.CredentialMode; got != "none" {
 		t.Fatalf("credential mode = %q, want none", got)
 	}
 }
 
 func TestNormalizeTargetRejectsInvalidPluginCredentialMode(t *testing.T) {
 	target := pluginTarget("github", "reviewPullRequest")
-	target.GetPlugin().CredentialMode = "platform"
+	target.Plugin.CredentialMode = "platform"
 
 	_, err := normalizeTarget(target)
 	if err == nil || !strings.Contains(err.Error(), `target.plugin.credential_mode "platform" is not supported`) {
@@ -1854,19 +1852,19 @@ func TestNormalizeTargetRejectsInvalidPluginCredentialMode(t *testing.T) {
 }
 
 func TestNormalizeTargetRejectsOutputDeliveryTargetCredentialMode(t *testing.T) {
-	target := &proto.BoundWorkflowTarget{
-		Kind: &proto.BoundWorkflowTarget_Agent{Agent: &proto.BoundWorkflowAgentTarget{
+	target := &gestalt.BoundWorkflowTargetInput{
+		Agent: &gestalt.BoundWorkflowAgentTargetInput{
 			ProviderName: "managed",
 			Prompt:       "review",
-			OutputDelivery: &proto.WorkflowOutputDelivery{
-				Target: &proto.BoundWorkflowPluginTarget{
+			OutputDelivery: &gestalt.WorkflowOutputDeliveryInput{
+				Target: &gestalt.BoundWorkflowPluginTargetInput{
 					PluginName:     "github",
 					Operation:      "reviewPullRequest",
 					CredentialMode: "none",
 				},
 				CredentialMode: "none",
 			},
-		}},
+		},
 	}
 
 	_, err := normalizeTarget(target)
@@ -1882,23 +1880,21 @@ func TestNormalizeTargetPreservesSessionReadyDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("normalizeTarget: %v", err)
 	}
-	delivery := scoped.Target.GetAgent().GetSessionReadyDelivery()
-	if delivery.GetTarget().GetPluginName() != "slack" || delivery.GetTarget().GetOperation() != "events.replySessionStarted" {
-		t.Fatalf("session ready delivery target = %#v", delivery.GetTarget())
+	delivery := scoped.Target.Agent.SessionReadyDelivery
+	if delivery.Target.PluginName != "slack" || delivery.Target.Operation != "events.replySessionStarted" {
+		t.Fatalf("session ready delivery target = %#v", delivery.Target)
 	}
-	if delivery.GetCredentialMode() != "none" {
-		t.Fatalf("session ready delivery credential mode = %q, want none", delivery.GetCredentialMode())
+	if delivery.CredentialMode != "none" {
+		t.Fatalf("session ready delivery credential mode = %q, want none", delivery.CredentialMode)
 	}
-	if got := delivery.GetInputBindings()[0].GetValue().GetAgentSession(); got != "id" {
+	if got := delivery.InputBindings[0].Value.AgentSession; got != "id" {
 		t.Fatalf("agent session source = %q, want id", got)
 	}
 }
 
 func TestNormalizeTargetRejectsSessionReadyDeliveryAgentOutput(t *testing.T) {
 	target := temporalAgentTargetWithSessionReadyDelivery()
-	target.GetAgent().GetSessionReadyDelivery().InputBindings[0].Value = &proto.WorkflowOutputValueSource{
-		Kind: &proto.WorkflowOutputValueSource_AgentOutput{AgentOutput: "text"},
-	}
+	target.Agent.SessionReadyDelivery.InputBindings[0].Value = &gestalt.WorkflowOutputValueSourceInput{AgentOutput: "text"}
 
 	_, err := normalizeTarget(target)
 	if err == nil || !strings.Contains(err.Error(), "target.agent.session_ready_delivery.input_bindings.value.agent_output is not available before the agent turn starts") {
@@ -1910,12 +1906,12 @@ func TestExecutionReferencePermissionsIncludeSessionReadyDelivery(t *testing.T) 
 	permissions := executionReferencePermissionsForTarget(temporalAgentTargetWithSessionReadyDelivery())
 	got := map[string]map[string]bool{}
 	for _, permission := range permissions {
-		ops := got[permission.GetPlugin()]
+		ops := got[permission.Plugin]
 		if ops == nil {
 			ops = map[string]bool{}
-			got[permission.GetPlugin()] = ops
+			got[permission.Plugin] = ops
 		}
-		for _, operation := range permission.GetOperations() {
+		for _, operation := range permission.Operations {
 			ops[operation] = true
 		}
 	}
@@ -1924,30 +1920,28 @@ func TestExecutionReferencePermissionsIncludeSessionReadyDelivery(t *testing.T) 
 	}
 }
 
-func temporalAgentTargetWithSessionReadyDelivery() *proto.BoundWorkflowTarget {
-	return &proto.BoundWorkflowTarget{
-		Kind: &proto.BoundWorkflowTarget_Agent{Agent: &proto.BoundWorkflowAgentTarget{
+func temporalAgentTargetWithSessionReadyDelivery() *gestalt.BoundWorkflowTargetInput {
+	return &gestalt.BoundWorkflowTargetInput{
+		Agent: &gestalt.BoundWorkflowAgentTargetInput{
 			ProviderName: "managed",
 			Prompt:       "review",
-			ToolRefs: []*proto.AgentToolRef{
+			ToolRefs: []*gestalt.AgentToolRef{
 				{Plugin: "slack", Operation: "chat.postMessage"},
 			},
-			SessionReadyDelivery: &proto.WorkflowOutputDelivery{
-				Target: &proto.BoundWorkflowPluginTarget{
+			SessionReadyDelivery: &gestalt.WorkflowOutputDeliveryInput{
+				Target: &gestalt.BoundWorkflowPluginTargetInput{
 					PluginName: "slack",
 					Operation:  "events.replySessionStarted",
 				},
 				CredentialMode: "none",
-				InputBindings: []*proto.WorkflowOutputBinding{
+				InputBindings: []gestalt.WorkflowOutputBindingInput{
 					{
 						InputField: "session_id",
-						Value: &proto.WorkflowOutputValueSource{
-							Kind: &proto.WorkflowOutputValueSource_AgentSession{AgentSession: "id"},
-						},
+						Value:      &gestalt.WorkflowOutputValueSourceInput{AgentSession: "id"},
 					},
 				},
 			},
-		}},
+		},
 	}
 }
 
@@ -2250,7 +2244,8 @@ func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) erro
 				return nil
 			}
 			if signal, ok := h.update.Args[len(h.update.Args)-1].(*proto.WorkflowSignal); ok && h.update.Name == updateAddSignal {
-				out.Signal = cloneSignal(signal)
+				input := gestalt.WorkflowSignalInputFromSignal(signal)
+				out.Signal, _ = gestalt.NewWorkflowSignal(input)
 				if out.Signal.Sequence == 0 {
 					out.Signal.Sequence = 1
 				}
