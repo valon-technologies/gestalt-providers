@@ -10,8 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
+	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
 	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/txstream"
-	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/wirecodec"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -453,7 +453,7 @@ func indexEntryMatchesValues(entry cursorutil.Entry, values []*proto.TypedValue)
 	if len(values) == 0 {
 		return true, nil
 	}
-	expected, err := wirecodec.AnyFromTypedValues(values)
+	expected, err := sdkcompat.AnyFromTypedValues(values)
 	if err != nil {
 		return false, status.Errorf(codes.InvalidArgument, "invalid index values: %v", err)
 	}

@@ -9,7 +9,6 @@ import (
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
 	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
-	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/wirecodec"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -519,7 +518,7 @@ func (s *Store) indexFilter(ctx context.Context, store, index string, values []*
 	}
 
 	filter := bson.M{}
-	goValues, err := wirecodec.AnyFromTypedValues(values)
+	goValues, err := sdkcompat.AnyFromTypedValues(values)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid index values: %v", err)
 	}
@@ -537,7 +536,7 @@ func keyRangeFilter(r *proto.KeyRange) (bson.M, error) {
 	}
 	idFilter := bson.M{}
 	if r.GetLower() != nil {
-		lower, err := wirecodec.AnyFromTypedValue(r.GetLower())
+		lower, err := sdkcompat.AnyFromTypedValue(r.GetLower())
 		if err != nil {
 			return nil, err
 		}
@@ -548,7 +547,7 @@ func keyRangeFilter(r *proto.KeyRange) (bson.M, error) {
 		}
 	}
 	if r.GetUpper() != nil {
-		upper, err := wirecodec.AnyFromTypedValue(r.GetUpper())
+		upper, err := sdkcompat.AnyFromTypedValue(r.GetUpper())
 		if err != nil {
 			return nil, err
 		}

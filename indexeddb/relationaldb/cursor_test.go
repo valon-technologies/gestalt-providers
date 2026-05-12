@@ -8,7 +8,6 @@ import (
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
 	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
-	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/wirecodec"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -346,7 +345,7 @@ func TestOpenCursorIndexRangeUsesIndexKeys(t *testing.T) {
 		entry := cursorEntryFromResponse(t, resp)
 		keys = append(keys, entry.GetPrimaryKey())
 
-		indexKey, err := wirecodec.KeyValuesToAny(entry.GetKey())
+		indexKey, err := sdkcompat.KeyValuesToAny(entry.GetKey())
 		if err != nil {
 			t.Fatalf("KeyValuesToAny: %v", err)
 		}
@@ -384,7 +383,7 @@ func TestOpenCursorOrdersNumericPrimaryKeysByNativeType(t *testing.T) {
 
 		entry := cursorEntryFromResponse(t, resp)
 		gotPrimaryKeys = append(gotPrimaryKeys, entry.GetPrimaryKey())
-		key, err := wirecodec.KeyValuesToAny(entry.GetKey())
+		key, err := sdkcompat.KeyValuesToAny(entry.GetKey())
 		if err != nil {
 			t.Fatalf("KeyValuesToAny: %v", err)
 		}
@@ -579,7 +578,7 @@ func TestOpenCursorIndexUpdatePreservesSnapshotKeyOrder(t *testing.T) {
 	first := cursorEntryFromResponse(t, sendCursorCommand(t, stream, &proto.CursorCommand{
 		Command: &proto.CursorCommand_Next{Next: true},
 	}))
-	firstKey, err := wirecodec.KeyValuesToAny(first.GetKey())
+	firstKey, err := sdkcompat.KeyValuesToAny(first.GetKey())
 	if err != nil {
 		t.Fatalf("KeyValuesToAny(first): %v", err)
 	}
@@ -602,7 +601,7 @@ func TestOpenCursorIndexUpdatePreservesSnapshotKeyOrder(t *testing.T) {
 	updated := cursorEntryFromResponse(t, sendCursorCommand(t, stream, &proto.CursorCommand{
 		Command: &proto.CursorCommand_Update{Update: updateRecord},
 	}))
-	updatedKey, err := wirecodec.KeyValuesToAny(updated.GetKey())
+	updatedKey, err := sdkcompat.KeyValuesToAny(updated.GetKey())
 	if err != nil {
 		t.Fatalf("KeyValuesToAny(updated): %v", err)
 	}
@@ -623,7 +622,7 @@ func TestOpenCursorIndexUpdatePreservesSnapshotKeyOrder(t *testing.T) {
 	second := cursorEntryFromResponse(t, sendCursorCommand(t, stream, &proto.CursorCommand{
 		Command: &proto.CursorCommand_Next{Next: true},
 	}))
-	secondKey, err := wirecodec.KeyValuesToAny(second.GetKey())
+	secondKey, err := sdkcompat.KeyValuesToAny(second.GetKey())
 	if err != nil {
 		t.Fatalf("KeyValuesToAny(second): %v", err)
 	}
@@ -663,7 +662,7 @@ func TestOpenCursorIndexUpdateAllowsClearingIndexedField(t *testing.T) {
 	updated := cursorEntryFromResponse(t, sendCursorCommand(t, stream, &proto.CursorCommand{
 		Command: &proto.CursorCommand_Update{Update: updateRecord},
 	}))
-	updatedKey, err := wirecodec.KeyValuesToAny(updated.GetKey())
+	updatedKey, err := sdkcompat.KeyValuesToAny(updated.GetKey())
 	if err != nil {
 		t.Fatalf("KeyValuesToAny(updated): %v", err)
 	}
