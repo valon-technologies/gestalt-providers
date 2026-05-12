@@ -2762,6 +2762,7 @@ class SlackProviderTests(unittest.TestCase):
                 return_value=workflow_manager,
                 create=True,
             ),
+            self.assertLogs(provider_module._agent.logger, level="INFO") as logs,
         ):
             result = provider_module.slack_events_handle(payload, request)
 
@@ -2773,6 +2774,16 @@ class SlackProviderTests(unittest.TestCase):
             {"error": "failed to signal workflow run: signal failed"},
         )
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+        raw_idempotency_key = "slack:event:T123:C789:1712161829.000300:U456"
+        expected_hash = hashlib.sha256(raw_idempotency_key.encode()).hexdigest()
+        log_text = "\n".join(logs.output)
+        self.assertIn("attempting Slack event workflow signal", log_text)
+        self.assertIn("failed to signal Slack event workflow", log_text)
+        self.assertIn(f"idempotency_key_sha256={expected_hash}", log_text)
+        self.assertIn("error_type=RuntimeError", log_text)
+        self.assertIn("error=signal failed", log_text)
+        self.assertNotIn(raw_idempotency_key, log_text)
+        self.assertNotIn("<@UBOT> summarize deploy status", log_text)
 
     def test_slack_event_handler_notifies_unlinked_user(self) -> None:
         provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
@@ -4176,6 +4187,7 @@ class SlackProviderTests(unittest.TestCase):
                 return_value=workflow_manager,
                 create=True,
             ),
+            self.assertLogs(provider_module._agent.logger, level="INFO") as logs,
         ):
             result = provider_module.slack_interactions_handle(
                 {"payload": json.dumps(interaction_payload)},
@@ -4192,6 +4204,20 @@ class SlackProviderTests(unittest.TestCase):
             {"error": "failed to signal workflow run: signal failed"},
         )
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
+        workflow_request = workflow_manager.signal_or_start_requests[0]
+        raw_idempotency_key = workflow_request.idempotency_key
+        expected_hash = hashlib.sha256(raw_idempotency_key.encode()).hexdigest()
+        raw_interaction_ref = interaction_payload["actions"][0]["value"]
+        log_text = "\n".join(logs.output)
+        self.assertIn("attempting Slack interaction workflow signal", log_text)
+        self.assertIn("failed to signal Slack interaction workflow", log_text)
+        self.assertIn(f"idempotency_key_sha256={expected_hash}", log_text)
+        self.assertIn("error_type=RuntimeError", log_text)
+        self.assertIn("error=signal failed", log_text)
+        self.assertNotIn(raw_idempotency_key, log_text)
+        self.assertNotIn(raw_interaction_ref, log_text)
+        self.assertNotIn("response_url", log_text)
+        self.assertNotIn("<@UBOT> approve deployment", log_text)
 
     def test_slack_event_status_and_reactions_use_reply_ref_contract(self) -> None:
         provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})

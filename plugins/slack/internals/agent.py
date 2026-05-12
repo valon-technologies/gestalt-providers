@@ -336,6 +336,74 @@ def _field_value(source: Any, *names: str) -> Any:
     return None
 
 
+def _workflow_handoff_log_context(
+    workflow_request: Any | None,
+    err: BaseException | None = None,
+) -> str:
+    idempotency_key = str(
+        _field_value(workflow_request, "idempotency_key", "idempotencyKey") or ""
+    ).strip()
+    return _log_context(
+        workflow_provider=_field_value(
+            workflow_request, "provider_name", "providerName"
+        ),
+        idempotency_key_sha256=_sha256_log_value(idempotency_key),
+        error_type=type(err).__name__ if err else "",
+        error_code=_exception_code(err),
+        error_details=_truncate_log_value(_exception_details(err)),
+        error=_truncate_log_value(str(err)) if err else "",
+    )
+
+
+def _sha256_log_value(value: str) -> str:
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _exception_code(err: BaseException | None) -> str:
+    value = _call_exception_attr(err, "code")
+    if value is None:
+        return ""
+    name = getattr(value, "name", None)
+    if name:
+        return str(name)
+    return str(value)
+
+
+def _exception_details(err: BaseException | None) -> str:
+    value = _call_exception_attr(err, "details")
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _call_exception_attr(err: BaseException | None, name: str) -> Any:
+    if err is None:
+        return None
+    attr = getattr(err, name, None)
+    if not callable(attr):
+        return None
+    try:
+        return attr()
+    except Exception:
+        return None
+
+
+def _truncate_log_value(value: str, *, max_bytes: int = 512) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    truncated = encoded[: max(0, max_bytes - 3)]
+    while truncated and (truncated[-1] & 0xC0) == 0x80:
+        truncated = truncated[:-1]
+    return truncated.decode("utf-8", errors="ignore") + "..."
+
+
 def _bool_field_value(value: Any) -> bool:
     if isinstance(value, bool):
         return value
@@ -456,6 +524,7 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
     acknowledgement_reaction_error = ""
     assistant_status_error = ""
     workflow_provider = _workflow_provider_name(route)
+    workflow_request: Any | None = None
     try:
         reply_ref = _sign_reply_ref(event, subject_id, route)
         if not workflow_provider:
@@ -479,9 +548,18 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             workflow_request = _build_workflow_signal_or_start_request(
                 event, route, reply_ref
             )
+            logger.info(
+                "attempting Slack event workflow signal %s %s",
+                log_context,
+                _workflow_handoff_log_context(workflow_request),
+            )
             workflow_response = workflow_manager.signal_or_start_run(workflow_request)
     except Exception as err:
-        logger.exception("failed to signal Slack event workflow %s", log_context)
+        logger.exception(
+            "failed to signal Slack event workflow %s %s",
+            log_context,
+            _workflow_handoff_log_context(workflow_request, err),
+        )
         return _server_error(f"failed to signal workflow run: {err}")
 
     try:
@@ -673,14 +751,24 @@ def handle_slack_interaction(
         logger.error("%s %s", message, log_context)
         return _server_error(message)
 
+    workflow_request: Any | None = None
     try:
         workflow_request = _build_workflow_interaction_signal_or_start_request(
             payload, selected_action, verified_ref, route
         )
         with workflow_manager_factory() as workflow_manager:
+            logger.info(
+                "attempting Slack interaction workflow signal %s %s",
+                log_context,
+                _workflow_handoff_log_context(workflow_request),
+            )
             workflow_response = workflow_manager.signal_or_start_run(workflow_request)
     except Exception as err:
-        logger.exception("failed to signal Slack interaction workflow %s", log_context)
+        logger.exception(
+            "failed to signal Slack interaction workflow %s %s",
+            log_context,
+            _workflow_handoff_log_context(workflow_request, err),
+        )
         return _server_error(f"failed to signal workflow run: {err}")
 
     try:
