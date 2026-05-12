@@ -168,6 +168,41 @@
     },
     {
       "configTarget": {
+        "entryKind": "agent",
+        "section": "providers.agent"
+      },
+      "description": "Simple multi-model agent provider for Gestalt with tool calling over the OpenAI and Anthropic SDKs.",
+      "displayName": "Simple Agent",
+      "docs": [],
+      "iconUrl": null,
+      "kind": "agent",
+      "latestInstallableVersion": "0.0.1-alpha.1",
+      "manifestUrl": null,
+      "manifestVersion": null,
+      "name": "simple",
+      "package": "github.com/valon-technologies/gestalt-providers/agent/simple",
+      "packagePath": "agent/simple",
+      "readmeUrl": null,
+      "registryPath": "/providers/agent/simple/",
+      "sourceUrl": null,
+      "versions": [
+        {
+          "kind": "agent",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.1"
+        }
+      ]
+    },
+    {
+      "configTarget": {
         "entryKind": "authentication",
         "section": "providers.authentication"
       },
