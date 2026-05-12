@@ -9,7 +9,7 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
-func validateExecutionReferenceInput(ref *gestalt.WorkflowExecutionReferenceInput) (*gestalt.WorkflowExecutionReferenceInput, error) {
+func validateExecutionReferenceInput(ref *gestalt.WorkflowExecutionReference) (*gestalt.WorkflowExecutionReference, error) {
 	if ref == nil {
 		return nil, fmt.Errorf("reference is required")
 	}
@@ -46,7 +46,7 @@ func validateExecutionReferenceInput(ref *gestalt.WorkflowExecutionReferenceInpu
 	return &out, nil
 }
 
-func publishedEventExecutionReference(providerName, referenceKey string, trigger *gestalt.BoundWorkflowEventTriggerInput, actor *gestalt.WorkflowActorInput, createdAt time.Time) (*gestalt.WorkflowExecutionReferenceInput, error) {
+func publishedEventExecutionReference(providerName, referenceKey string, trigger *gestalt.BoundWorkflowEventTrigger, actor *gestalt.WorkflowActor, createdAt time.Time) (*gestalt.WorkflowExecutionReference, error) {
 	if !actorHasSubject(actor) || trigger == nil {
 		return nil, nil
 	}
@@ -55,7 +55,7 @@ func publishedEventExecutionReference(providerName, referenceKey string, trigger
 		return nil, err
 	}
 	subjectID := strings.TrimSpace(actor.SubjectID)
-	ref := &gestalt.WorkflowExecutionReferenceInput{
+	ref := &gestalt.WorkflowExecutionReference{
 		ID:                  "event_ref:" + hashID(referenceKey),
 		ProviderName:        strings.TrimSpace(providerName),
 		Target:              trigger.Target,
@@ -73,7 +73,7 @@ func publishedEventExecutionReference(providerName, referenceKey string, trigger
 	return ref, nil
 }
 
-func eventExecutionReferencePermissions(trigger *gestalt.BoundWorkflowEventTriggerInput) ([]gestalt.WorkflowAccessPermissionInput, error) {
+func eventExecutionReferencePermissions(trigger *gestalt.BoundWorkflowEventTrigger) ([]gestalt.WorkflowAccessPermission, error) {
 	permissions := executionReferencePermissionsForTarget(trigger.Target)
 	if !isConfigManagedActorInput(trigger.CreatedBy) {
 		return permissions, nil
@@ -85,7 +85,7 @@ func eventExecutionReferencePermissions(trigger *gestalt.BoundWorkflowEventTrigg
 	return mergeAccessPermissions(permissions, extra), nil
 }
 
-func executionReferencePermissionsForTarget(target *gestalt.BoundWorkflowTargetInput) []gestalt.WorkflowAccessPermissionInput {
+func executionReferencePermissionsForTarget(target *gestalt.BoundWorkflowTarget) []gestalt.WorkflowAccessPermission {
 	if target == nil {
 		return nil
 	}
@@ -107,16 +107,16 @@ func executionReferencePermissionsForTarget(target *gestalt.BoundWorkflowTargetI
 		if pluginName == "" {
 			return nil
 		}
-		permission := gestalt.WorkflowAccessPermissionInput{Plugin: pluginName}
+		permission := gestalt.WorkflowAccessPermission{Plugin: pluginName}
 		if op := strings.TrimSpace(plugin.Operation); op != "" {
 			permission.Operations = []string{op}
 		}
-		return []gestalt.WorkflowAccessPermissionInput{permission}
+		return []gestalt.WorkflowAccessPermission{permission}
 	}
 	return nil
 }
 
-func addDeliveryPermission(set map[string]map[string]struct{}, delivery *gestalt.WorkflowOutputDeliveryInput) {
+func addDeliveryPermission(set map[string]map[string]struct{}, delivery *gestalt.WorkflowOutputDelivery) {
 	if delivery == nil {
 		return
 	}
@@ -127,7 +127,7 @@ func addDeliveryPermission(set map[string]map[string]struct{}, delivery *gestalt
 	addPermission(set, strings.TrimSpace(deliveryTarget.PluginName), strings.TrimSpace(deliveryTarget.Operation))
 }
 
-func configuredEventRunPermissions(input map[string]any) ([]gestalt.WorkflowAccessPermissionInput, error) {
+func configuredEventRunPermissions(input map[string]any) ([]gestalt.WorkflowAccessPermission, error) {
 	rawGestalt, ok := input[gestaltInputKey]
 	if !ok || rawGestalt == nil {
 		return nil, nil
@@ -144,7 +144,7 @@ func configuredEventRunPermissions(input map[string]any) ([]gestalt.WorkflowAcce
 	if !ok {
 		return nil, fmt.Errorf("%s.%s must be a list", gestaltInputKey, eventRunPermissionsKey)
 	}
-	out := make([]gestalt.WorkflowAccessPermissionInput, 0, len(items))
+	out := make([]gestalt.WorkflowAccessPermission, 0, len(items))
 	for i, item := range items {
 		value, ok := item.(map[string]any)
 		if !ok {
@@ -168,12 +168,12 @@ func configuredEventRunPermissions(input map[string]any) ([]gestalt.WorkflowAcce
 		if len(ops) == 0 {
 			return nil, fmt.Errorf("%s.%s[%d].operations is required", gestaltInputKey, eventRunPermissionsKey, i)
 		}
-		out = append(out, gestalt.WorkflowAccessPermissionInput{Plugin: pluginName, Operations: ops})
+		out = append(out, gestalt.WorkflowAccessPermission{Plugin: pluginName, Operations: ops})
 	}
 	return out, nil
 }
 
-func pluginTargetInput(target *gestalt.BoundWorkflowTargetInput) map[string]any {
+func pluginTargetInput(target *gestalt.BoundWorkflowTarget) map[string]any {
 	if target == nil || target.Plugin == nil || target.Plugin.Input == nil {
 		return nil
 	}
@@ -192,7 +192,7 @@ func stringAny(value any) string {
 	return text
 }
 
-func mergeAccessPermissions(groups ...[]gestalt.WorkflowAccessPermissionInput) []gestalt.WorkflowAccessPermissionInput {
+func mergeAccessPermissions(groups ...[]gestalt.WorkflowAccessPermission) []gestalt.WorkflowAccessPermission {
 	set := map[string]map[string]struct{}{}
 	for _, group := range groups {
 		for _, permission := range group {
@@ -223,31 +223,31 @@ func addPermission(set map[string]map[string]struct{}, pluginName, operation str
 	}
 }
 
-func permissionsFromSet(set map[string]map[string]struct{}) []gestalt.WorkflowAccessPermissionInput {
+func permissionsFromSet(set map[string]map[string]struct{}) []gestalt.WorkflowAccessPermission {
 	plugins := make([]string, 0, len(set))
 	for plugin := range set {
 		plugins = append(plugins, plugin)
 	}
 	sort.Strings(plugins)
-	out := make([]gestalt.WorkflowAccessPermissionInput, 0, len(plugins))
+	out := make([]gestalt.WorkflowAccessPermission, 0, len(plugins))
 	for _, plugin := range plugins {
 		ops := make([]string, 0, len(set[plugin]))
 		for op := range set[plugin] {
 			ops = append(ops, op)
 		}
 		sort.Strings(ops)
-		out = append(out, gestalt.WorkflowAccessPermissionInput{Plugin: plugin, Operations: ops})
+		out = append(out, gestalt.WorkflowAccessPermission{Plugin: plugin, Operations: ops})
 	}
 	return out
 }
 
-func clonePermissionInputs(in []gestalt.WorkflowAccessPermissionInput) []gestalt.WorkflowAccessPermissionInput {
+func clonePermissionInputs(in []gestalt.WorkflowAccessPermission) []gestalt.WorkflowAccessPermission {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make([]gestalt.WorkflowAccessPermissionInput, 0, len(in))
+	out := make([]gestalt.WorkflowAccessPermission, 0, len(in))
 	for _, permission := range in {
-		out = append(out, gestalt.WorkflowAccessPermissionInput{
+		out = append(out, gestalt.WorkflowAccessPermission{
 			Plugin:     strings.TrimSpace(permission.Plugin),
 			Operations: append([]string(nil), permission.Operations...),
 		})

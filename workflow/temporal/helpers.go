@@ -27,7 +27,7 @@ const (
 
 type scopedTarget struct {
 	OwnerKey string
-	Target   *gestalt.BoundWorkflowTargetInput
+	Target   *gestalt.BoundWorkflowTarget
 }
 
 const runHandleKindV4 = "temporal-run-v4"
@@ -119,7 +119,7 @@ func workflowID(scopeID, kind string, parts ...string) string {
 	return "gestalt/" + hashID("scope", scopeID) + "/" + strings.Trim(strings.ReplaceAll(kind, " ", "-"), "/") + "/" + hashID(values...)
 }
 
-func normalizeTarget(target *gestalt.BoundWorkflowTargetInput) (scopedTarget, error) {
+func normalizeTarget(target *gestalt.BoundWorkflowTarget) (scopedTarget, error) {
 	if target == nil {
 		return scopedTarget{}, errors.New("target is required")
 	}
@@ -145,7 +145,7 @@ func normalizeTarget(target *gestalt.BoundWorkflowTargetInput) (scopedTarget, er
 		if err := normalizeAgentSessionReadyDelivery(agent.SessionReadyDelivery); err != nil {
 			return scopedTarget{}, err
 		}
-		normalized := &gestalt.BoundWorkflowTargetInput{Agent: &agent}
+		normalized := &gestalt.BoundWorkflowTarget{Agent: &agent}
 		if _, err := gestalt.NewBoundWorkflowTarget(*normalized); err != nil {
 			return scopedTarget{}, fmt.Errorf("target.agent: %w", err)
 		}
@@ -177,7 +177,7 @@ func normalizeTarget(target *gestalt.BoundWorkflowTargetInput) (scopedTarget, er
 	plugin.Connection = strings.TrimSpace(plugin.Connection)
 	plugin.Instance = strings.TrimSpace(plugin.Instance)
 	plugin.CredentialMode = credentialMode
-	normalized := &gestalt.BoundWorkflowTargetInput{Plugin: &plugin}
+	normalized := &gestalt.BoundWorkflowTarget{Plugin: &plugin}
 	if _, err := gestalt.NewBoundWorkflowTarget(*normalized); err != nil {
 		return scopedTarget{}, fmt.Errorf("target.plugin.input: %w", err)
 	}
@@ -187,15 +187,15 @@ func normalizeTarget(target *gestalt.BoundWorkflowTargetInput) (scopedTarget, er
 	}, nil
 }
 
-func normalizeAgentOutputDelivery(delivery *gestalt.WorkflowOutputDeliveryInput) error {
+func normalizeAgentOutputDelivery(delivery *gestalt.WorkflowOutputDelivery) error {
 	return normalizeAgentDelivery(delivery, "output_delivery", false)
 }
 
-func normalizeAgentSessionReadyDelivery(delivery *gestalt.WorkflowOutputDeliveryInput) error {
+func normalizeAgentSessionReadyDelivery(delivery *gestalt.WorkflowOutputDelivery) error {
 	return normalizeAgentDelivery(delivery, "session_ready_delivery", true)
 }
 
-func normalizeAgentDelivery(delivery *gestalt.WorkflowOutputDeliveryInput, fieldName string, beforeTurn bool) error {
+func normalizeAgentDelivery(delivery *gestalt.WorkflowOutputDelivery, fieldName string, beforeTurn bool) error {
 	if delivery == nil {
 		return nil
 	}
@@ -275,7 +275,7 @@ func normalizeAgentDelivery(delivery *gestalt.WorkflowOutputDeliveryInput, field
 	return nil
 }
 
-func targetOwnerKeyInput(target *gestalt.BoundWorkflowTargetInput) string {
+func targetOwnerKeyInput(target *gestalt.BoundWorkflowTarget) string {
 	if target == nil {
 		return ""
 	}
@@ -291,7 +291,7 @@ func targetOwnerKeyInput(target *gestalt.BoundWorkflowTargetInput) string {
 	return ""
 }
 
-func normalizeWorkflowEvent(event *gestalt.WorkflowEventInput, now func() time.Time) (*gestalt.WorkflowEventInput, error) {
+func normalizeWorkflowEvent(event *gestalt.WorkflowEvent, now func() time.Time) (*gestalt.WorkflowEvent, error) {
 	if event == nil {
 		return nil, errors.New("event is required")
 	}
@@ -311,7 +311,7 @@ func normalizeWorkflowEvent(event *gestalt.WorkflowEventInput, now func() time.T
 	if !event.Time.IsZero() {
 		eventTime = event.Time.UTC()
 	}
-	normalized := &gestalt.WorkflowEventInput{
+	normalized := &gestalt.WorkflowEvent{
 		ID:              strings.TrimSpace(event.ID),
 		Source:          source,
 		SpecVersion:     specVersion,
@@ -328,7 +328,7 @@ func normalizeWorkflowEvent(event *gestalt.WorkflowEventInput, now func() time.T
 	return normalized, nil
 }
 
-func normalizeWorkflowSignalInput(signal *gestalt.WorkflowSignalInput, now time.Time) (*gestalt.WorkflowSignalInput, error) {
+func normalizeWorkflowSignalInput(signal *gestalt.WorkflowSignal, now time.Time) (*gestalt.WorkflowSignal, error) {
 	if signal == nil {
 		return nil, errors.New("signal is required")
 	}
@@ -352,7 +352,7 @@ func normalizeWorkflowSignalInput(signal *gestalt.WorkflowSignalInput, now time.
 	return &out, nil
 }
 
-func cloneRunInput(run *gestalt.BoundWorkflowRunInput) *gestalt.BoundWorkflowRunInput {
+func cloneRunInput(run *gestalt.BoundWorkflowRun) *gestalt.BoundWorkflowRun {
 	if run == nil {
 		return nil
 	}
@@ -365,7 +365,7 @@ func cloneRunInput(run *gestalt.BoundWorkflowRunInput) *gestalt.BoundWorkflowRun
 	return &out
 }
 
-func cloneOutputDeliveryInput(delivery *gestalt.WorkflowOutputDeliveryInput) *gestalt.WorkflowOutputDeliveryInput {
+func cloneOutputDeliveryInput(delivery *gestalt.WorkflowOutputDelivery) *gestalt.WorkflowOutputDelivery {
 	if delivery == nil {
 		return nil
 	}
@@ -375,7 +375,7 @@ func cloneOutputDeliveryInput(delivery *gestalt.WorkflowOutputDeliveryInput) *ge
 		out.Target = &target
 	}
 	if len(delivery.InputBindings) > 0 {
-		out.InputBindings = make([]gestalt.WorkflowOutputBindingInput, len(delivery.InputBindings))
+		out.InputBindings = make([]gestalt.WorkflowOutputBinding, len(delivery.InputBindings))
 		for i, binding := range delivery.InputBindings {
 			out.InputBindings[i] = binding
 			if binding.Value != nil {
@@ -387,7 +387,7 @@ func cloneOutputDeliveryInput(delivery *gestalt.WorkflowOutputDeliveryInput) *ge
 	return &out
 }
 
-func cloneSignalInput(signal *gestalt.WorkflowSignalInput) *gestalt.WorkflowSignalInput {
+func cloneSignalInput(signal *gestalt.WorkflowSignal) *gestalt.WorkflowSignal {
 	if signal == nil {
 		return nil
 	}
@@ -399,7 +399,7 @@ func cloneSignalInput(signal *gestalt.WorkflowSignalInput) *gestalt.WorkflowSign
 	return &out
 }
 
-func eventMatchesTriggerInput(event *gestalt.WorkflowEventInput, trigger *gestalt.BoundWorkflowEventTriggerInput) bool {
+func eventMatchesTriggerInput(event *gestalt.WorkflowEvent, trigger *gestalt.BoundWorkflowEventTrigger) bool {
 	if event == nil || trigger == nil || trigger.Paused || trigger.Match == nil {
 		return false
 	}
@@ -415,7 +415,7 @@ func eventMatchesTriggerInput(event *gestalt.WorkflowEventInput, trigger *gestal
 	return true
 }
 
-func matchKeysInput(ownerKey string, match *gestalt.WorkflowEventMatchInput) []string {
+func matchKeysInput(ownerKey string, match *gestalt.WorkflowEventMatch) []string {
 	if match == nil {
 		return nil
 	}
@@ -431,7 +431,7 @@ func matchKeysInput(ownerKey string, match *gestalt.WorkflowEventMatchInput) []s
 	}
 }
 
-func eventLookupKeysInput(ownerKey string, event *gestalt.WorkflowEventInput) []string {
+func eventLookupKeysInput(ownerKey string, event *gestalt.WorkflowEvent) []string {
 	if event == nil {
 		return nil
 	}
@@ -451,18 +451,18 @@ func eventMatchKey(ownerKey, typ, source, subject string) string {
 	return strings.TrimSpace(ownerKey) + "\x00" + strings.TrimSpace(typ) + "\x00" + strings.TrimSpace(source) + "\x00" + strings.TrimSpace(subject)
 }
 
-func actorHasSubject(actor *gestalt.WorkflowActorInput) bool {
+func actorHasSubject(actor *gestalt.WorkflowActor) bool {
 	return actor != nil && strings.TrimSpace(actor.SubjectID) != ""
 }
 
-func createdByForUpsertInput(existing, requested *gestalt.WorkflowActorInput) *gestalt.WorkflowActorInput {
+func createdByForUpsertInput(existing, requested *gestalt.WorkflowActor) *gestalt.WorkflowActor {
 	if existing == nil || isConfigManagedActorInput(requested) {
 		return cloneActorInput(requested)
 	}
 	return cloneActorInput(existing)
 }
 
-func cloneActorInput(actor *gestalt.WorkflowActorInput) *gestalt.WorkflowActorInput {
+func cloneActorInput(actor *gestalt.WorkflowActor) *gestalt.WorkflowActor {
 	if actor == nil {
 		return nil
 	}
@@ -474,7 +474,7 @@ func cloneActorInput(actor *gestalt.WorkflowActorInput) *gestalt.WorkflowActorIn
 	return &out
 }
 
-func isConfigManagedActorInput(actor *gestalt.WorkflowActorInput) bool {
+func isConfigManagedActorInput(actor *gestalt.WorkflowActor) bool {
 	if actor == nil {
 		return false
 	}
@@ -483,19 +483,19 @@ func isConfigManagedActorInput(actor *gestalt.WorkflowActorInput) bool {
 		strings.TrimSpace(actor.AuthSource) == configManagedWorkflowAuth
 }
 
-func manualTriggerInput() *gestalt.WorkflowRunTriggerInput {
-	return &gestalt.WorkflowRunTriggerInput{Manual: true}
+func manualTriggerInput() *gestalt.WorkflowRunTrigger {
+	return &gestalt.WorkflowRunTrigger{Manual: true}
 }
 
-func scheduleTriggerInput(scheduleID string, scheduledFor time.Time) *gestalt.WorkflowRunTriggerInput {
+func scheduleTriggerInput(scheduleID string, scheduledFor time.Time) *gestalt.WorkflowRunTrigger {
 	scheduledFor = scheduledFor.UTC()
-	return &gestalt.WorkflowRunTriggerInput{Schedule: &gestalt.WorkflowScheduleTriggerInput{
+	return &gestalt.WorkflowRunTrigger{Schedule: &gestalt.WorkflowScheduleTrigger{
 		ScheduleID:   strings.TrimSpace(scheduleID),
 		ScheduledFor: &scheduledFor,
 	}}
 }
 
-func sortRunInputs(runs []*gestalt.BoundWorkflowRunInput) {
+func sortRunInputs(runs []*gestalt.BoundWorkflowRun) {
 	sort.SliceStable(runs, func(i, j int) bool {
 		a := runs[i].CreatedAt
 		b := runs[j].CreatedAt
@@ -506,7 +506,7 @@ func sortRunInputs(runs []*gestalt.BoundWorkflowRunInput) {
 	})
 }
 
-func sortScheduleInputs(schedules []*gestalt.BoundWorkflowScheduleInput) {
+func sortScheduleInputs(schedules []*gestalt.BoundWorkflowSchedule) {
 	sort.SliceStable(schedules, func(i, j int) bool {
 		a := schedules[i].CreatedAt
 		b := schedules[j].CreatedAt
@@ -517,7 +517,7 @@ func sortScheduleInputs(schedules []*gestalt.BoundWorkflowScheduleInput) {
 	})
 }
 
-func sortTriggerInputs(triggers []*gestalt.BoundWorkflowEventTriggerInput) {
+func sortTriggerInputs(triggers []*gestalt.BoundWorkflowEventTrigger) {
 	sort.SliceStable(triggers, func(i, j int) bool {
 		a := triggers[i].CreatedAt
 		b := triggers[j].CreatedAt
@@ -528,7 +528,7 @@ func sortTriggerInputs(triggers []*gestalt.BoundWorkflowEventTriggerInput) {
 	})
 }
 
-func sortReferenceInputs(refs []*gestalt.WorkflowExecutionReferenceInput) {
+func sortReferenceInputs(refs []*gestalt.WorkflowExecutionReference) {
 	sort.SliceStable(refs, func(i, j int) bool {
 		a := refs[i].CreatedAt
 		b := refs[j].CreatedAt

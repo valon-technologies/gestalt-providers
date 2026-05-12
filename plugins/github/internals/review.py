@@ -923,7 +923,7 @@ def ask_agent_for_findings(
             string_value(signal.get("delivery_id")),
         ]
     )
-    session_request = gestalt.AgentManagerCreateSessionInput(
+    session_request = gestalt.AgentManagerCreateSession(
         provider_name=settings.agent_provider,
         model=settings.model,
         client_ref=f"{subject.repository}#{subject.pull_number}",
@@ -935,12 +935,12 @@ def ask_agent_for_findings(
     except Exception as err:
         raise RuntimeError(f"review agent session request failed: {err}") from err
 
-    turn_request = gestalt.AgentManagerCreateTurnInput(
+    turn_request = gestalt.AgentManagerCreateTurn(
         session_id=session.id,
         model=settings.model,
         messages=[
-            gestalt.AgentMessageInput(role="system", text=settings.system_prompt),
-            gestalt.AgentMessageInput(
+            gestalt.AgentMessage(role="system", text=settings.system_prompt),
+            gestalt.AgentMessage(
                 role="user", text=review_prompt(subject, pull_request, files, settings)
             ),
         ],
@@ -989,7 +989,7 @@ def ask_agent_for_fix(
             string_value(signal.get("delivery_id")),
         ]
     )
-    session_request = gestalt.AgentManagerCreateSessionInput(
+    session_request = gestalt.AgentManagerCreateSession(
         provider_name=settings.agent_provider,
         model=settings.model,
         client_ref=f"{subject.repository}#{subject.pull_number}:self-fix",
@@ -1001,12 +1001,12 @@ def ask_agent_for_fix(
     except Exception as err:
         raise RuntimeError(f"self-fix agent session request failed: {err}") from err
 
-    turn_request = gestalt.AgentManagerCreateTurnInput(
+    turn_request = gestalt.AgentManagerCreateTurn(
         session_id=session.id,
         model=settings.model,
         messages=[
-            gestalt.AgentMessageInput(role="system", text=SELF_FIX_SYSTEM_PROMPT),
-            gestalt.AgentMessageInput(
+            gestalt.AgentMessage(role="system", text=SELF_FIX_SYSTEM_PROMPT),
+            gestalt.AgentMessage(
                 role="user",
                 text=self_fix_prompt(
                     subject,
@@ -1045,7 +1045,7 @@ def wait_for_turn(manager: Any, turn: Any, settings: ReviewSettings) -> Any:
         if time.monotonic() >= deadline:
             raise RuntimeError(f"agent turn {turn.id} timed out")
         time.sleep(settings.poll_interval_ms / 1000)
-        turn = manager.get_turn(gestalt.AgentManagerGetTurnInput(turn_id=turn.id))
+        turn = manager.get_turn(gestalt.AgentManagerGetTurn(turn_id=turn.id))
     return turn
 
 

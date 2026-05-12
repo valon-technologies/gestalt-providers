@@ -22,6 +22,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
+	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/wirecodec"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
@@ -787,7 +788,7 @@ func extractPrimaryKeyValue(record *proto.Record, pkCol string) (any, error) {
 	if !ok || v == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "record missing primary key %q", pkCol)
 	}
-	value, err := gestalt.AnyFromTypedValue(v)
+	value, err := wirecodec.AnyFromTypedValue(v)
 	if err != nil {
 		return nil, err
 	}

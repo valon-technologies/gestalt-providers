@@ -248,14 +248,14 @@ func (s *workflowStateStore) Close() error {
 	return s.db.Close()
 }
 
-func (s *workflowStateStore) putSchedule(ctx context.Context, schedule *gestalt.BoundWorkflowScheduleInput) error {
+func (s *workflowStateStore) putSchedule(ctx context.Context, schedule *gestalt.BoundWorkflowSchedule) error {
 	if schedule == nil || strings.TrimSpace(schedule.ID) == "" {
 		return nil
 	}
 	return s.schedules.Put(ctx, s.scheduleRecord(schedule))
 }
 
-func (s *workflowStateStore) getSchedule(ctx context.Context, id string) (*gestalt.BoundWorkflowScheduleInput, bool, error) {
+func (s *workflowStateStore) getSchedule(ctx context.Context, id string) (*gestalt.BoundWorkflowSchedule, bool, error) {
 	record, err := s.schedules.Get(ctx, s.scopedID(strings.TrimSpace(id)))
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, false, nil
@@ -270,7 +270,7 @@ func (s *workflowStateStore) getSchedule(ctx context.Context, id string) (*gesta
 	return schedule, strings.TrimSpace(schedule.ID) != "", nil
 }
 
-func (s *workflowStateStore) listSchedules(ctx context.Context) ([]*gestalt.BoundWorkflowScheduleInput, error) {
+func (s *workflowStateStore) listSchedules(ctx context.Context) ([]*gestalt.BoundWorkflowSchedule, error) {
 	records, err := s.schedules.GetAll(ctx, nil)
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, nil
@@ -278,7 +278,7 @@ func (s *workflowStateStore) listSchedules(ctx context.Context) ([]*gestalt.Boun
 	if err != nil {
 		return nil, err
 	}
-	schedules := make([]*gestalt.BoundWorkflowScheduleInput, 0, len(records))
+	schedules := make([]*gestalt.BoundWorkflowSchedule, 0, len(records))
 	for _, record := range records {
 		if recordString(record, "scope_id") != s.scopeID {
 			continue
@@ -302,7 +302,7 @@ func (s *workflowStateStore) deleteSchedule(ctx context.Context, id string) erro
 	return err
 }
 
-func (s *workflowStateStore) putRun(ctx context.Context, run *gestalt.BoundWorkflowRunInput) error {
+func (s *workflowStateStore) putRun(ctx context.Context, run *gestalt.BoundWorkflowRun) error {
 	if run == nil || strings.TrimSpace(run.ID) == "" {
 		return nil
 	}
@@ -326,7 +326,7 @@ func (s *workflowStateStore) putRun(ctx context.Context, run *gestalt.BoundWorkf
 	return nil
 }
 
-func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store *gestalt.TransactionObjectStore, run *gestalt.BoundWorkflowRunInput) (*gestalt.BoundWorkflowRunInput, error) {
+func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store *gestalt.TransactionObjectStore, run *gestalt.BoundWorkflowRun) (*gestalt.BoundWorkflowRun, error) {
 	if run == nil || strings.TrimSpace(run.ID) == "" {
 		return nil, nil
 	}
@@ -347,7 +347,7 @@ func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store *ges
 	return run, nil
 }
 
-func (s *workflowStateStore) getRun(ctx context.Context, id string) (*gestalt.BoundWorkflowRunInput, bool, error) {
+func (s *workflowStateStore) getRun(ctx context.Context, id string) (*gestalt.BoundWorkflowRun, bool, error) {
 	record, err := s.runProjections.Get(ctx, s.scopedID(strings.TrimSpace(id)))
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, false, nil
@@ -362,7 +362,7 @@ func (s *workflowStateStore) getRun(ctx context.Context, id string) (*gestalt.Bo
 	return run, err == nil && strings.TrimSpace(run.ID) != "", err
 }
 
-func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store *gestalt.TransactionObjectStore, id string) (*gestalt.BoundWorkflowRunInput, bool, error) {
+func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store *gestalt.TransactionObjectStore, id string) (*gestalt.BoundWorkflowRun, bool, error) {
 	record, found, err := transactionGetRecord(ctx, store, s.scopedID(strings.TrimSpace(id)))
 	if err != nil || !found {
 		return nil, false, err
@@ -374,7 +374,7 @@ func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store *ges
 	return run, err == nil && strings.TrimSpace(run.ID) != "", err
 }
 
-func (s *workflowStateStore) listRuns(ctx context.Context) ([]*gestalt.BoundWorkflowRunInput, error) {
+func (s *workflowStateStore) listRuns(ctx context.Context) ([]*gestalt.BoundWorkflowRun, error) {
 	records, err := s.runProjections.GetAll(ctx, nil)
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, nil
@@ -382,7 +382,7 @@ func (s *workflowStateStore) listRuns(ctx context.Context) ([]*gestalt.BoundWork
 	if err != nil {
 		return nil, err
 	}
-	runs := make([]*gestalt.BoundWorkflowRunInput, 0, len(records))
+	runs := make([]*gestalt.BoundWorkflowRun, 0, len(records))
 	for _, record := range records {
 		if recordString(record, "scope_id") != s.scopeID {
 			continue
@@ -412,7 +412,7 @@ type workflowKeyRecord struct {
 	UpdatedAt          time.Time
 }
 
-func (s *workflowStateStore) claimWorkflowKeyRun(ctx context.Context, workflowKey string, run *gestalt.BoundWorkflowRunInput, now time.Time) (*gestalt.BoundWorkflowRunInput, bool, error) {
+func (s *workflowStateStore) claimWorkflowKeyRun(ctx context.Context, workflowKey string, run *gestalt.BoundWorkflowRun, now time.Time) (*gestalt.BoundWorkflowRun, bool, error) {
 	for attempt := 0; attempt < runIdempotencyMaxAttempts; attempt++ {
 		owner, claimed, err := s.claimWorkflowKeyRunOnce(ctx, workflowKey, run, now)
 		if err == nil || !isRunIdempotencyRetryableConflict(err) {
@@ -425,7 +425,7 @@ func (s *workflowStateStore) claimWorkflowKeyRun(ctx context.Context, workflowKe
 	return nil, false, status.Error(codes.Aborted, "workflow key claim raced too many times")
 }
 
-func (s *workflowStateStore) claimWorkflowKeyRunOnce(ctx context.Context, workflowKey string, run *gestalt.BoundWorkflowRunInput, now time.Time) (*gestalt.BoundWorkflowRunInput, bool, error) {
+func (s *workflowStateStore) claimWorkflowKeyRunOnce(ctx context.Context, workflowKey string, run *gestalt.BoundWorkflowRun, now time.Time) (*gestalt.BoundWorkflowRun, bool, error) {
 	record, run, err := s.workflowKeyRecordForRun(workflowKey, run, now)
 	if err != nil {
 		return nil, false, err
@@ -486,7 +486,7 @@ func (s *workflowStateStore) claimWorkflowKeyRunOnce(ctx context.Context, workfl
 	return storedRun, true, nil
 }
 
-func (s *workflowStateStore) getWorkflowKeyRun(ctx context.Context, workflowKey string) (*gestalt.BoundWorkflowRunInput, bool, error) {
+func (s *workflowStateStore) getWorkflowKeyRun(ctx context.Context, workflowKey string) (*gestalt.BoundWorkflowRun, bool, error) {
 	workflowKey = strings.TrimSpace(workflowKey)
 	if workflowKey == "" {
 		return nil, false, nil
@@ -551,7 +551,7 @@ func (s *workflowStateStore) clearWorkflowKeyRun(ctx context.Context, workflowKe
 	return true, nil
 }
 
-func (s *workflowStateStore) workflowKeyRecordForRun(workflowKey string, run *gestalt.BoundWorkflowRunInput, now time.Time) (workflowKeyRecord, *gestalt.BoundWorkflowRunInput, error) {
+func (s *workflowStateStore) workflowKeyRecordForRun(workflowKey string, run *gestalt.BoundWorkflowRun, now time.Time) (workflowKeyRecord, *gestalt.BoundWorkflowRun, error) {
 	workflowKey = strings.TrimSpace(workflowKey)
 	if workflowKey == "" {
 		return workflowKeyRecord{}, nil, status.Error(codes.InvalidArgument, "workflow_key is required")
@@ -714,7 +714,7 @@ func (s *workflowStateStore) reserveRunIdempotencyOnce(ctx context.Context, owne
 	return &reserved, false, nil
 }
 
-func (s *workflowStateStore) completeRunIdempotency(ctx context.Context, ownerKey, key, fingerprint string, run *gestalt.BoundWorkflowRunInput, retention time.Duration, now time.Time) error {
+func (s *workflowStateStore) completeRunIdempotency(ctx context.Context, ownerKey, key, fingerprint string, run *gestalt.BoundWorkflowRun, retention time.Duration, now time.Time) error {
 	for attempt := 0; attempt < runIdempotencyMaxAttempts; attempt++ {
 		err := s.completeRunIdempotencyOnce(ctx, ownerKey, key, fingerprint, run, retention, now)
 		if err == nil || !isRunIdempotencyRetryableConflict(err) {
@@ -727,7 +727,7 @@ func (s *workflowStateStore) completeRunIdempotency(ctx context.Context, ownerKe
 	return status.Error(codes.Aborted, "workflow run idempotency completion raced too many times")
 }
 
-func (s *workflowStateStore) completeRunIdempotencyOnce(ctx context.Context, ownerKey, key, fingerprint string, run *gestalt.BoundWorkflowRunInput, retention time.Duration, now time.Time) error {
+func (s *workflowStateStore) completeRunIdempotencyOnce(ctx context.Context, ownerKey, key, fingerprint string, run *gestalt.BoundWorkflowRun, retention time.Duration, now time.Time) error {
 	ownerKey = strings.TrimSpace(ownerKey)
 	key = strings.TrimSpace(key)
 	fingerprint = strings.TrimSpace(fingerprint)
@@ -1060,7 +1060,7 @@ func yieldRunIdempotencyRetry(ctx context.Context) error {
 	}
 }
 
-func (s *workflowStateStore) putTrigger(ctx context.Context, trigger *gestalt.BoundWorkflowEventTriggerInput) error {
+func (s *workflowStateStore) putTrigger(ctx context.Context, trigger *gestalt.BoundWorkflowEventTrigger) error {
 	if trigger == nil || strings.TrimSpace(trigger.ID) == "" {
 		return nil
 	}
@@ -1099,7 +1099,7 @@ func (s *workflowStateStore) putTrigger(ctx context.Context, trigger *gestalt.Bo
 	return nil
 }
 
-func (s *workflowStateStore) getTrigger(ctx context.Context, id string) (*gestalt.BoundWorkflowEventTriggerInput, bool, error) {
+func (s *workflowStateStore) getTrigger(ctx context.Context, id string) (*gestalt.BoundWorkflowEventTrigger, bool, error) {
 	record, err := s.eventTriggers.Get(ctx, s.scopedID(strings.TrimSpace(id)))
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, false, nil
@@ -1111,7 +1111,7 @@ func (s *workflowStateStore) getTrigger(ctx context.Context, id string) (*gestal
 	return trigger, err == nil && strings.TrimSpace(trigger.ID) != "", err
 }
 
-func (s *workflowStateStore) listTriggers(ctx context.Context) ([]*gestalt.BoundWorkflowEventTriggerInput, error) {
+func (s *workflowStateStore) listTriggers(ctx context.Context) ([]*gestalt.BoundWorkflowEventTrigger, error) {
 	records, err := s.eventTriggers.GetAll(ctx, nil)
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, nil
@@ -1119,7 +1119,7 @@ func (s *workflowStateStore) listTriggers(ctx context.Context) ([]*gestalt.Bound
 	if err != nil {
 		return nil, err
 	}
-	triggers := make([]*gestalt.BoundWorkflowEventTriggerInput, 0, len(records))
+	triggers := make([]*gestalt.BoundWorkflowEventTrigger, 0, len(records))
 	for _, record := range records {
 		if recordString(record, "scope_id") != s.scopeID {
 			continue
@@ -1133,9 +1133,9 @@ func (s *workflowStateStore) listTriggers(ctx context.Context) ([]*gestalt.Bound
 	return triggers, nil
 }
 
-func (s *workflowStateStore) matchTriggers(ctx context.Context, ownerKey string, event *gestalt.WorkflowEventInput) ([]*gestalt.BoundWorkflowEventTriggerInput, error) {
+func (s *workflowStateStore) matchTriggers(ctx context.Context, ownerKey string, event *gestalt.WorkflowEvent) ([]*gestalt.BoundWorkflowEventTrigger, error) {
 	seen := map[string]struct{}{}
-	triggers := make([]*gestalt.BoundWorkflowEventTriggerInput, 0)
+	triggers := make([]*gestalt.BoundWorkflowEventTrigger, 0)
 	for _, key := range eventLookupKeysInput(ownerKey, event) {
 		keyRecords, err := s.eventTriggerKeys.Index(indexByMatchKey).GetAll(ctx, nil, s.scopedID(key))
 		if errors.Is(err, gestalt.ErrNotFound) {
@@ -1205,14 +1205,14 @@ func (s *workflowStateStore) deleteTrigger(ctx context.Context, id string) (bool
 	return true, nil
 }
 
-func (s *workflowStateStore) putExecutionRef(ctx context.Context, ref *gestalt.WorkflowExecutionReferenceInput) error {
+func (s *workflowStateStore) putExecutionRef(ctx context.Context, ref *gestalt.WorkflowExecutionReference) error {
 	if ref == nil || strings.TrimSpace(ref.ID) == "" {
 		return nil
 	}
 	return s.executionRefs.Put(ctx, s.executionRefRecord(ref))
 }
 
-func (s *workflowStateStore) getExecutionRef(ctx context.Context, id string) (*gestalt.WorkflowExecutionReferenceInput, bool, error) {
+func (s *workflowStateStore) getExecutionRef(ctx context.Context, id string) (*gestalt.WorkflowExecutionReference, bool, error) {
 	record, err := s.executionRefs.Get(ctx, s.scopedID(strings.TrimSpace(id)))
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, false, nil
@@ -1224,7 +1224,7 @@ func (s *workflowStateStore) getExecutionRef(ctx context.Context, id string) (*g
 	return ref, err == nil && strings.TrimSpace(ref.ID) != "", err
 }
 
-func (s *workflowStateStore) listExecutionRefs(ctx context.Context, subjectID string) ([]*gestalt.WorkflowExecutionReferenceInput, error) {
+func (s *workflowStateStore) listExecutionRefs(ctx context.Context, subjectID string) ([]*gestalt.WorkflowExecutionReference, error) {
 	var (
 		records []gestalt.Record
 		err     error
@@ -1241,7 +1241,7 @@ func (s *workflowStateStore) listExecutionRefs(ctx context.Context, subjectID st
 	if err != nil {
 		return nil, err
 	}
-	refs := make([]*gestalt.WorkflowExecutionReferenceInput, 0, len(records))
+	refs := make([]*gestalt.WorkflowExecutionReference, 0, len(records))
 	for _, record := range records {
 		if recordString(record, "scope_id") != s.scopeID {
 			continue
@@ -1257,7 +1257,7 @@ func (s *workflowStateStore) listExecutionRefs(ctx context.Context, subjectID st
 	return refs, nil
 }
 
-func (s *workflowStateStore) scheduleRecord(schedule *gestalt.BoundWorkflowScheduleInput) gestalt.Record {
+func (s *workflowStateStore) scheduleRecord(schedule *gestalt.BoundWorkflowSchedule) gestalt.Record {
 	payload := nativePayload(schedule)
 	now := time.Now().UTC()
 	createdAt := schedule.CreatedAt
@@ -1278,7 +1278,7 @@ func (s *workflowStateStore) scheduleRecord(schedule *gestalt.BoundWorkflowSched
 	}
 }
 
-func (s *workflowStateStore) runRecord(run *gestalt.BoundWorkflowRunInput) gestalt.Record {
+func (s *workflowStateStore) runRecord(run *gestalt.BoundWorkflowRun) gestalt.Record {
 	payload := nativePayload(run)
 	now := time.Now().UTC()
 	createdAt := run.CreatedAt
@@ -1298,8 +1298,8 @@ func (s *workflowStateStore) runRecord(run *gestalt.BoundWorkflowRunInput) gesta
 	}
 }
 
-func runFromRecord(record gestalt.Record) (*gestalt.BoundWorkflowRunInput, error) {
-	return decodeNativePayload[gestalt.BoundWorkflowRunInput](recordBytes(record, "payload"), "workflow run")
+func runFromRecord(record gestalt.Record) (*gestalt.BoundWorkflowRun, error) {
+	return decodeNativePayload[gestalt.BoundWorkflowRun](recordBytes(record, "payload"), "workflow run")
 }
 
 func (s *workflowStateStore) runIdempotencyID(ownerKey, key string) string {
@@ -1432,7 +1432,7 @@ func signalIdempotencyFromRecord(record gestalt.Record) signalIdempotencyRecord 
 	return out
 }
 
-func (s *workflowStateStore) triggerRecord(trigger *gestalt.BoundWorkflowEventTriggerInput) gestalt.Record {
+func (s *workflowStateStore) triggerRecord(trigger *gestalt.BoundWorkflowEventTrigger) gestalt.Record {
 	payload := nativePayload(trigger)
 	now := time.Now().UTC()
 	createdAt := trigger.CreatedAt
@@ -1454,11 +1454,11 @@ func (s *workflowStateStore) triggerRecord(trigger *gestalt.BoundWorkflowEventTr
 	}
 }
 
-func triggerFromRecord(record gestalt.Record) (*gestalt.BoundWorkflowEventTriggerInput, error) {
-	return decodeNativePayload[gestalt.BoundWorkflowEventTriggerInput](recordBytes(record, "payload"), "workflow event trigger")
+func triggerFromRecord(record gestalt.Record) (*gestalt.BoundWorkflowEventTrigger, error) {
+	return decodeNativePayload[gestalt.BoundWorkflowEventTrigger](recordBytes(record, "payload"), "workflow event trigger")
 }
 
-func (s *workflowStateStore) executionRefRecord(ref *gestalt.WorkflowExecutionReferenceInput) gestalt.Record {
+func (s *workflowStateStore) executionRefRecord(ref *gestalt.WorkflowExecutionReference) gestalt.Record {
 	payload := nativePayload(ref)
 	return gestalt.Record{
 		"id":            s.scopedID(ref.ID),
@@ -1471,12 +1471,12 @@ func (s *workflowStateStore) executionRefRecord(ref *gestalt.WorkflowExecutionRe
 	}
 }
 
-func executionRefFromRecord(record gestalt.Record) (*gestalt.WorkflowExecutionReferenceInput, error) {
-	return decodeNativePayload[gestalt.WorkflowExecutionReferenceInput](recordBytes(record, "payload"), "workflow execution reference")
+func executionRefFromRecord(record gestalt.Record) (*gestalt.WorkflowExecutionReference, error) {
+	return decodeNativePayload[gestalt.WorkflowExecutionReference](recordBytes(record, "payload"), "workflow execution reference")
 }
 
-func scheduleInputFromRecord(record gestalt.Record) (*gestalt.BoundWorkflowScheduleInput, error) {
-	return decodeNativePayload[gestalt.BoundWorkflowScheduleInput](recordBytes(record, "payload"), "workflow schedule")
+func scheduleInputFromRecord(record gestalt.Record) (*gestalt.BoundWorkflowSchedule, error) {
+	return decodeNativePayload[gestalt.BoundWorkflowSchedule](recordBytes(record, "payload"), "workflow schedule")
 }
 
 func nativePayload(value any) []byte {
@@ -1498,8 +1498,8 @@ func decodeNativePayload[T any](payload []byte, kind string) (*T, error) {
 	return &input, nil
 }
 
-func runInputFromPayload(payload []byte) *gestalt.BoundWorkflowRunInput {
-	run, err := decodeNativePayload[gestalt.BoundWorkflowRunInput](payload, "workflow run")
+func runInputFromPayload(payload []byte) *gestalt.BoundWorkflowRun {
+	run, err := decodeNativePayload[gestalt.BoundWorkflowRun](payload, "workflow run")
 	if err != nil {
 		return nil
 	}

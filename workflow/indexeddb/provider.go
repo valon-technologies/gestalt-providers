@@ -258,7 +258,7 @@ func (p *NativeProvider) Close() error {
 	return p.core.Close()
 }
 
-func (p *NativeProvider) StartRun(ctx context.Context, req *gestalt.StartWorkflowProviderRunRequest) (*gestalt.BoundWorkflowRunInput, error) {
+func (p *NativeProvider) StartRun(ctx context.Context, req *gestalt.StartWorkflowProviderRunRequest) (*gestalt.BoundWorkflowRun, error) {
 	target, err := workflowTargetProto(req.Target)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -273,7 +273,7 @@ func (p *NativeProvider) StartRun(ctx context.Context, req *gestalt.StartWorkflo
 	return workflowRunInputFromProto(run, err)
 }
 
-func (p *NativeProvider) GetRun(ctx context.Context, req *gestalt.GetWorkflowProviderRunRequest) (*gestalt.BoundWorkflowRunInput, error) {
+func (p *NativeProvider) GetRun(ctx context.Context, req *gestalt.GetWorkflowProviderRunRequest) (*gestalt.BoundWorkflowRun, error) {
 	run, err := p.core.GetRun(ctx, &proto.GetWorkflowProviderRunRequest{RunId: req.RunID})
 	return workflowRunInputFromProto(run, err)
 }
@@ -283,9 +283,9 @@ func (p *NativeProvider) ListRuns(ctx context.Context, req *gestalt.ListWorkflow
 	if err != nil {
 		return nil, err
 	}
-	runs := make([]gestalt.BoundWorkflowRunInput, 0, len(resp.GetRuns()))
+	runs := make([]gestalt.BoundWorkflowRun, 0, len(resp.GetRuns()))
 	for _, run := range resp.GetRuns() {
-		input, err := gestalt.BoundWorkflowRunInputFromRun(run)
+		input, err := gestalt.BoundWorkflowRunFromRun(run)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "build run response: %v", err)
 		}
@@ -294,7 +294,7 @@ func (p *NativeProvider) ListRuns(ctx context.Context, req *gestalt.ListWorkflow
 	return &gestalt.ListWorkflowProviderRunsResponse{Runs: runs}, nil
 }
 
-func (p *NativeProvider) CancelRun(ctx context.Context, req *gestalt.CancelWorkflowProviderRunRequest) (*gestalt.BoundWorkflowRunInput, error) {
+func (p *NativeProvider) CancelRun(ctx context.Context, req *gestalt.CancelWorkflowProviderRunRequest) (*gestalt.BoundWorkflowRun, error) {
 	run, err := p.core.CancelRun(ctx, &proto.CancelWorkflowProviderRunRequest{RunId: req.RunID, Reason: req.Reason})
 	return workflowRunInputFromProto(run, err)
 }
@@ -328,7 +328,7 @@ func (p *NativeProvider) SignalOrStartRun(ctx context.Context, req *gestalt.Sign
 	return signalWorkflowRunResponseInputFromProto(resp, err)
 }
 
-func (p *NativeProvider) UpsertSchedule(ctx context.Context, req *gestalt.UpsertWorkflowProviderScheduleRequest) (*gestalt.BoundWorkflowScheduleInput, error) {
+func (p *NativeProvider) UpsertSchedule(ctx context.Context, req *gestalt.UpsertWorkflowProviderScheduleRequest) (*gestalt.BoundWorkflowSchedule, error) {
 	target, err := workflowTargetProto(req.Target)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -345,7 +345,7 @@ func (p *NativeProvider) UpsertSchedule(ctx context.Context, req *gestalt.Upsert
 	return workflowScheduleInputFromProto(schedule, err)
 }
 
-func (p *NativeProvider) GetSchedule(ctx context.Context, req *gestalt.GetWorkflowProviderScheduleRequest) (*gestalt.BoundWorkflowScheduleInput, error) {
+func (p *NativeProvider) GetSchedule(ctx context.Context, req *gestalt.GetWorkflowProviderScheduleRequest) (*gestalt.BoundWorkflowSchedule, error) {
 	schedule, err := p.core.GetSchedule(ctx, &proto.GetWorkflowProviderScheduleRequest{ScheduleId: req.ScheduleID})
 	return workflowScheduleInputFromProto(schedule, err)
 }
@@ -355,9 +355,9 @@ func (p *NativeProvider) ListSchedules(ctx context.Context, req *gestalt.ListWor
 	if err != nil {
 		return nil, err
 	}
-	schedules := make([]gestalt.BoundWorkflowScheduleInput, 0, len(resp.GetSchedules()))
+	schedules := make([]gestalt.BoundWorkflowSchedule, 0, len(resp.GetSchedules()))
 	for _, schedule := range resp.GetSchedules() {
-		input, err := gestalt.BoundWorkflowScheduleInputFromSchedule(schedule)
+		input, err := gestalt.BoundWorkflowScheduleFromSchedule(schedule)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "build schedule response: %v", err)
 		}
@@ -370,17 +370,17 @@ func (p *NativeProvider) DeleteSchedule(ctx context.Context, req *gestalt.Delete
 	return p.core.DeleteSchedule(ctx, &proto.DeleteWorkflowProviderScheduleRequest{ScheduleId: req.ScheduleID})
 }
 
-func (p *NativeProvider) PauseSchedule(ctx context.Context, req *gestalt.PauseWorkflowProviderScheduleRequest) (*gestalt.BoundWorkflowScheduleInput, error) {
+func (p *NativeProvider) PauseSchedule(ctx context.Context, req *gestalt.PauseWorkflowProviderScheduleRequest) (*gestalt.BoundWorkflowSchedule, error) {
 	schedule, err := p.core.PauseSchedule(ctx, &proto.PauseWorkflowProviderScheduleRequest{ScheduleId: req.ScheduleID})
 	return workflowScheduleInputFromProto(schedule, err)
 }
 
-func (p *NativeProvider) ResumeSchedule(ctx context.Context, req *gestalt.ResumeWorkflowProviderScheduleRequest) (*gestalt.BoundWorkflowScheduleInput, error) {
+func (p *NativeProvider) ResumeSchedule(ctx context.Context, req *gestalt.ResumeWorkflowProviderScheduleRequest) (*gestalt.BoundWorkflowSchedule, error) {
 	schedule, err := p.core.ResumeSchedule(ctx, &proto.ResumeWorkflowProviderScheduleRequest{ScheduleId: req.ScheduleID})
 	return workflowScheduleInputFromProto(schedule, err)
 }
 
-func (p *NativeProvider) UpsertEventTrigger(ctx context.Context, req *gestalt.UpsertWorkflowProviderEventTriggerRequest) (*gestalt.BoundWorkflowEventTriggerInput, error) {
+func (p *NativeProvider) UpsertEventTrigger(ctx context.Context, req *gestalt.UpsertWorkflowProviderEventTriggerRequest) (*gestalt.BoundWorkflowEventTrigger, error) {
 	target, err := workflowTargetProto(req.Target)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -396,7 +396,7 @@ func (p *NativeProvider) UpsertEventTrigger(ctx context.Context, req *gestalt.Up
 	return workflowEventTriggerInputFromProto(trigger, err)
 }
 
-func (p *NativeProvider) GetEventTrigger(ctx context.Context, req *gestalt.GetWorkflowProviderEventTriggerRequest) (*gestalt.BoundWorkflowEventTriggerInput, error) {
+func (p *NativeProvider) GetEventTrigger(ctx context.Context, req *gestalt.GetWorkflowProviderEventTriggerRequest) (*gestalt.BoundWorkflowEventTrigger, error) {
 	trigger, err := p.core.GetEventTrigger(ctx, &proto.GetWorkflowProviderEventTriggerRequest{TriggerId: req.TriggerID})
 	return workflowEventTriggerInputFromProto(trigger, err)
 }
@@ -406,9 +406,9 @@ func (p *NativeProvider) ListEventTriggers(ctx context.Context, req *gestalt.Lis
 	if err != nil {
 		return nil, err
 	}
-	triggers := make([]gestalt.BoundWorkflowEventTriggerInput, 0, len(resp.GetTriggers()))
+	triggers := make([]gestalt.BoundWorkflowEventTrigger, 0, len(resp.GetTriggers()))
 	for _, trigger := range resp.GetTriggers() {
-		input, err := gestalt.BoundWorkflowEventTriggerInputFromTrigger(trigger)
+		input, err := gestalt.BoundWorkflowEventTriggerFromTrigger(trigger)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "build event trigger response: %v", err)
 		}
@@ -421,17 +421,17 @@ func (p *NativeProvider) DeleteEventTrigger(ctx context.Context, req *gestalt.De
 	return p.core.DeleteEventTrigger(ctx, &proto.DeleteWorkflowProviderEventTriggerRequest{TriggerId: req.TriggerID})
 }
 
-func (p *NativeProvider) PauseEventTrigger(ctx context.Context, req *gestalt.PauseWorkflowProviderEventTriggerRequest) (*gestalt.BoundWorkflowEventTriggerInput, error) {
+func (p *NativeProvider) PauseEventTrigger(ctx context.Context, req *gestalt.PauseWorkflowProviderEventTriggerRequest) (*gestalt.BoundWorkflowEventTrigger, error) {
 	trigger, err := p.core.PauseEventTrigger(ctx, &proto.PauseWorkflowProviderEventTriggerRequest{TriggerId: req.TriggerID})
 	return workflowEventTriggerInputFromProto(trigger, err)
 }
 
-func (p *NativeProvider) ResumeEventTrigger(ctx context.Context, req *gestalt.ResumeWorkflowProviderEventTriggerRequest) (*gestalt.BoundWorkflowEventTriggerInput, error) {
+func (p *NativeProvider) ResumeEventTrigger(ctx context.Context, req *gestalt.ResumeWorkflowProviderEventTriggerRequest) (*gestalt.BoundWorkflowEventTrigger, error) {
 	trigger, err := p.core.ResumeEventTrigger(ctx, &proto.ResumeWorkflowProviderEventTriggerRequest{TriggerId: req.TriggerID})
 	return workflowEventTriggerInputFromProto(trigger, err)
 }
 
-func (p *NativeProvider) PutExecutionReference(ctx context.Context, req *gestalt.PutWorkflowExecutionReferenceRequest) (*gestalt.WorkflowExecutionReferenceInput, error) {
+func (p *NativeProvider) PutExecutionReference(ctx context.Context, req *gestalt.PutWorkflowExecutionReferenceRequest) (*gestalt.WorkflowExecutionReference, error) {
 	ref, err := workflowExecutionReferenceProto(req.Reference)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -440,7 +440,7 @@ func (p *NativeProvider) PutExecutionReference(ctx context.Context, req *gestalt
 	return workflowExecutionReferenceInputFromProto(resp, err)
 }
 
-func (p *NativeProvider) GetExecutionReference(ctx context.Context, req *gestalt.GetWorkflowExecutionReferenceRequest) (*gestalt.WorkflowExecutionReferenceInput, error) {
+func (p *NativeProvider) GetExecutionReference(ctx context.Context, req *gestalt.GetWorkflowExecutionReferenceRequest) (*gestalt.WorkflowExecutionReference, error) {
 	ref, err := p.core.GetExecutionReference(ctx, &proto.GetWorkflowExecutionReferenceRequest{Id: req.ID})
 	return workflowExecutionReferenceInputFromProto(ref, err)
 }
@@ -450,9 +450,9 @@ func (p *NativeProvider) ListExecutionReferences(ctx context.Context, req *gesta
 	if err != nil {
 		return nil, err
 	}
-	refs := make([]gestalt.WorkflowExecutionReferenceInput, 0, len(resp.GetReferences()))
+	refs := make([]gestalt.WorkflowExecutionReference, 0, len(resp.GetReferences()))
 	for _, ref := range resp.GetReferences() {
-		input, err := gestalt.WorkflowExecutionReferenceInputFromReference(ref)
+		input, err := gestalt.WorkflowExecutionReferenceFromReference(ref)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "build execution reference response: %v", err)
 		}
@@ -473,35 +473,35 @@ func (p *NativeProvider) PublishEvent(ctx context.Context, req *gestalt.PublishW
 	})
 }
 
-func workflowTargetProto(input *gestalt.BoundWorkflowTargetInput) (*proto.BoundWorkflowTarget, error) {
+func workflowTargetProto(input *gestalt.BoundWorkflowTarget) (*proto.BoundWorkflowTarget, error) {
 	if input == nil {
 		return nil, nil
 	}
 	return gestalt.NewBoundWorkflowTarget(*input)
 }
 
-func workflowActorProto(input *gestalt.WorkflowActorInput) *proto.WorkflowActor {
+func workflowActorProto(input *gestalt.WorkflowActor) *proto.WorkflowActor {
 	if input == nil {
 		return nil
 	}
 	return gestalt.NewWorkflowActor(*input)
 }
 
-func workflowSignalProto(input *gestalt.WorkflowSignalInput) (*proto.WorkflowSignal, error) {
+func workflowSignalProto(input *gestalt.WorkflowSignal) (*proto.WorkflowSignal, error) {
 	if input == nil {
 		return nil, nil
 	}
 	return gestalt.NewWorkflowSignal(*input)
 }
 
-func workflowEventProto(input *gestalt.WorkflowEventInput) (*proto.WorkflowEvent, error) {
+func workflowEventProto(input *gestalt.WorkflowEvent) (*proto.WorkflowEvent, error) {
 	if input == nil {
 		return nil, nil
 	}
 	return gestalt.NewWorkflowEvent(*input)
 }
 
-func workflowEventMatchProto(input *gestalt.WorkflowEventMatchInput) *proto.WorkflowEventMatch {
+func workflowEventMatchProto(input *gestalt.WorkflowEventMatch) *proto.WorkflowEventMatch {
 	if input == nil {
 		return nil
 	}
@@ -512,51 +512,51 @@ func workflowEventMatchProto(input *gestalt.WorkflowEventMatchInput) *proto.Work
 	}
 }
 
-func workflowExecutionReferenceProto(input *gestalt.WorkflowExecutionReferenceInput) (*proto.WorkflowExecutionReference, error) {
+func workflowExecutionReferenceProto(input *gestalt.WorkflowExecutionReference) (*proto.WorkflowExecutionReference, error) {
 	if input == nil {
 		return nil, nil
 	}
 	return gestalt.NewWorkflowExecutionReference(*input)
 }
 
-func workflowRunInputFromProto(run *proto.BoundWorkflowRun, err error) (*gestalt.BoundWorkflowRunInput, error) {
+func workflowRunInputFromProto(run *proto.BoundWorkflowRun, err error) (*gestalt.BoundWorkflowRun, error) {
 	if err != nil || run == nil {
 		return nil, err
 	}
-	input, err := gestalt.BoundWorkflowRunInputFromRun(run)
+	input, err := gestalt.BoundWorkflowRunFromRun(run)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "build run response: %v", err)
 	}
 	return &input, nil
 }
 
-func workflowScheduleInputFromProto(schedule *proto.BoundWorkflowSchedule, err error) (*gestalt.BoundWorkflowScheduleInput, error) {
+func workflowScheduleInputFromProto(schedule *proto.BoundWorkflowSchedule, err error) (*gestalt.BoundWorkflowSchedule, error) {
 	if err != nil || schedule == nil {
 		return nil, err
 	}
-	input, err := gestalt.BoundWorkflowScheduleInputFromSchedule(schedule)
+	input, err := gestalt.BoundWorkflowScheduleFromSchedule(schedule)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "build schedule response: %v", err)
 	}
 	return &input, nil
 }
 
-func workflowEventTriggerInputFromProto(trigger *proto.BoundWorkflowEventTrigger, err error) (*gestalt.BoundWorkflowEventTriggerInput, error) {
+func workflowEventTriggerInputFromProto(trigger *proto.BoundWorkflowEventTrigger, err error) (*gestalt.BoundWorkflowEventTrigger, error) {
 	if err != nil || trigger == nil {
 		return nil, err
 	}
-	input, err := gestalt.BoundWorkflowEventTriggerInputFromTrigger(trigger)
+	input, err := gestalt.BoundWorkflowEventTriggerFromTrigger(trigger)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "build event trigger response: %v", err)
 	}
 	return &input, nil
 }
 
-func workflowExecutionReferenceInputFromProto(ref *proto.WorkflowExecutionReference, err error) (*gestalt.WorkflowExecutionReferenceInput, error) {
+func workflowExecutionReferenceInputFromProto(ref *proto.WorkflowExecutionReference, err error) (*gestalt.WorkflowExecutionReference, error) {
 	if err != nil || ref == nil {
 		return nil, err
 	}
-	input, err := gestalt.WorkflowExecutionReferenceInputFromReference(ref)
+	input, err := gestalt.WorkflowExecutionReferenceFromReference(ref)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "build execution reference response: %v", err)
 	}
@@ -571,9 +571,9 @@ func signalWorkflowRunResponseInputFromProto(resp *proto.SignalWorkflowRunRespon
 	if err != nil {
 		return nil, err
 	}
-	var signal *gestalt.WorkflowSignalInput
+	var signal *gestalt.WorkflowSignal
 	if resp.GetSignal() != nil {
-		input := gestalt.WorkflowSignalInputFromSignal(resp.GetSignal())
+		input := gestalt.WorkflowSignalFromSignal(resp.GetSignal())
 		signal = &input
 	}
 	return &gestalt.SignalWorkflowRunResponse{
@@ -2397,9 +2397,9 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 	host := state.host
 	releaseWorker()
 
-	var targetInput *gestalt.BoundWorkflowTargetInput
+	var targetInput *gestalt.BoundWorkflowTarget
 	if pending.Target != nil {
-		input := gestalt.BoundWorkflowTargetInputFromTarget(pending.Target)
+		input := gestalt.BoundWorkflowTargetFromTarget(pending.Target)
 		targetInput = &input
 	}
 	stopRenewingClaim := p.startRunClaimRenewal(ctx, pending.ID, claimOwnerID, runClaimRenewEvery)
@@ -3276,7 +3276,7 @@ func failStaleRunningRunTx(ctx context.Context, runStore recordPutter, workflowK
 	return markSignalsFailedTx(ctx, signalStore, signals, now, run.StatusMessage)
 }
 
-func normalizeTarget(target *gestalt.BoundWorkflowTargetInput) (scopedTarget, error) {
+func normalizeTarget(target *gestalt.BoundWorkflowTarget) (scopedTarget, error) {
 	if target == nil {
 		return scopedTarget{}, errors.New("target is required")
 	}
@@ -3301,7 +3301,7 @@ func normalizeTarget(target *gestalt.BoundWorkflowTargetInput) (scopedTarget, er
 		if err := normalizeAgentSessionReadyDelivery(agent.SessionReadyDelivery); err != nil {
 			return scopedTarget{}, err
 		}
-		targetInput := &gestalt.BoundWorkflowTargetInput{Agent: &agent}
+		targetInput := &gestalt.BoundWorkflowTarget{Agent: &agent}
 		normalized, err := gestalt.NewBoundWorkflowTarget(*targetInput)
 		if err != nil {
 			return scopedTarget{}, fmt.Errorf("target.agent: %w", err)
@@ -3334,7 +3334,7 @@ func normalizeTarget(target *gestalt.BoundWorkflowTargetInput) (scopedTarget, er
 	plugin.Connection = strings.TrimSpace(plugin.Connection)
 	plugin.Instance = strings.TrimSpace(plugin.Instance)
 	plugin.CredentialMode = credentialMode
-	targetInput := &gestalt.BoundWorkflowTargetInput{Plugin: &plugin}
+	targetInput := &gestalt.BoundWorkflowTarget{Plugin: &plugin}
 	normalized, err := gestalt.NewBoundWorkflowTarget(*targetInput)
 	if err != nil {
 		return scopedTarget{}, fmt.Errorf("target.plugin.input: %w", err)
@@ -3361,15 +3361,15 @@ func targetOwnerKey(target *proto.BoundWorkflowTarget) string {
 	return ""
 }
 
-func normalizeAgentOutputDelivery(delivery *gestalt.WorkflowOutputDeliveryInput) error {
+func normalizeAgentOutputDelivery(delivery *gestalt.WorkflowOutputDelivery) error {
 	return normalizeAgentDelivery(delivery, "output_delivery", false)
 }
 
-func normalizeAgentSessionReadyDelivery(delivery *gestalt.WorkflowOutputDeliveryInput) error {
+func normalizeAgentSessionReadyDelivery(delivery *gestalt.WorkflowOutputDelivery) error {
 	return normalizeAgentDelivery(delivery, "session_ready_delivery", true)
 }
 
-func normalizeAgentDelivery(delivery *gestalt.WorkflowOutputDeliveryInput, fieldName string, beforeTurn bool) error {
+func normalizeAgentDelivery(delivery *gestalt.WorkflowOutputDelivery, fieldName string, beforeTurn bool) error {
 	if delivery == nil {
 		return nil
 	}
@@ -3469,7 +3469,7 @@ func normalizeWorkflowEvent(event *proto.WorkflowEvent, now time.Time) (*proto.W
 	if ts := event.GetTime(); ts != nil && ts.IsValid() {
 		eventTime = ts.AsTime().UTC()
 	}
-	return gestalt.NewWorkflowEvent(gestalt.WorkflowEventInput{
+	return gestalt.NewWorkflowEvent(gestalt.WorkflowEvent{
 		ID:              id,
 		Source:          strings.TrimSpace(event.GetSource()),
 		SpecVersion:     specVersion,
@@ -3494,7 +3494,7 @@ func normalizeWorkflowSignal(signal *proto.WorkflowSignal, now time.Time) (*prot
 	if ts := signal.GetCreatedAt(); ts != nil && ts.IsValid() {
 		createdAt = ts.AsTime().UTC()
 	}
-	return gestalt.NewWorkflowSignal(gestalt.WorkflowSignalInput{
+	return gestalt.NewWorkflowSignal(gestalt.WorkflowSignal{
 		ID:             strings.TrimSpace(signal.GetId()),
 		Name:           name,
 		Payload:        gestalt.MapFromStruct(signal.GetPayload()),
@@ -3795,13 +3795,13 @@ func hasSignalsInState(ctx context.Context, store *gestalt.ObjectStoreClient, ru
 	return count > 0, nil
 }
 
-func signalInputs(records []workflowSignalRecord) []gestalt.WorkflowSignalInput {
+func signalInputs(records []workflowSignalRecord) []gestalt.WorkflowSignal {
 	if len(records) == 0 {
 		return nil
 	}
-	out := make([]gestalt.WorkflowSignalInput, 0, len(records))
+	out := make([]gestalt.WorkflowSignal, 0, len(records))
 	for _, record := range records {
-		out = append(out, gestalt.WorkflowSignalInputFromSignal(record.signalProto()))
+		out = append(out, gestalt.WorkflowSignalFromSignal(record.signalProto()))
 	}
 	return out
 }
@@ -4537,7 +4537,7 @@ func publishedEventExecutionReference(providerName, runID string, trigger workfl
 		return nil, err
 	}
 	subjectID := strings.TrimSpace(actor.GetSubjectId())
-	return gestalt.NewWorkflowExecutionReference(gestalt.WorkflowExecutionReferenceInput{
+	return gestalt.NewWorkflowExecutionReference(gestalt.WorkflowExecutionReference{
 		ID:                  eventExecutionRefID(runID),
 		ProviderName:        strings.TrimSpace(providerName),
 		Target:              workflowTargetInput(target),
@@ -4775,32 +4775,32 @@ func cloneActor(actor *proto.WorkflowActor) *proto.WorkflowActor {
 	}
 }
 
-func workflowActorInput(actor *proto.WorkflowActor) *gestalt.WorkflowActorInput {
+func workflowActorInput(actor *proto.WorkflowActor) *gestalt.WorkflowActor {
 	if actor == nil {
 		return nil
 	}
-	input := gestalt.WorkflowActorInputFromActor(actor)
+	input := gestalt.WorkflowActorFromActor(actor)
 	return &input
 }
 
-func workflowTargetInput(target *proto.BoundWorkflowTarget) *gestalt.BoundWorkflowTargetInput {
+func workflowTargetInput(target *proto.BoundWorkflowTarget) *gestalt.BoundWorkflowTarget {
 	if target == nil {
 		return nil
 	}
-	input := gestalt.BoundWorkflowTargetInputFromTarget(target)
+	input := gestalt.BoundWorkflowTargetFromTarget(target)
 	return &input
 }
 
-func workflowPermissionInputs(in []*proto.WorkflowAccessPermission) []gestalt.WorkflowAccessPermissionInput {
+func workflowPermissionInputs(in []*proto.WorkflowAccessPermission) []gestalt.WorkflowAccessPermission {
 	if len(in) == 0 {
 		return nil
 	}
-	out := make([]gestalt.WorkflowAccessPermissionInput, 0, len(in))
+	out := make([]gestalt.WorkflowAccessPermission, 0, len(in))
 	for _, permission := range in {
 		if permission == nil {
 			continue
 		}
-		out = append(out, gestalt.WorkflowAccessPermissionInput{
+		out = append(out, gestalt.WorkflowAccessPermission{
 			Plugin:     strings.TrimSpace(permission.GetPlugin()),
 			Operations: append([]string(nil), permission.GetOperations()...),
 		})
@@ -4808,11 +4808,11 @@ func workflowPermissionInputs(in []*proto.WorkflowAccessPermission) []gestalt.Wo
 	return out
 }
 
-func workflowRunAsInput(runAs *proto.WorkflowRunAsSubject) *gestalt.WorkflowRunAsSubjectInput {
+func workflowRunAsInput(runAs *proto.WorkflowRunAsSubject) *gestalt.WorkflowRunAsSubject {
 	if runAs == nil {
 		return nil
 	}
-	return &gestalt.WorkflowRunAsSubjectInput{
+	return &gestalt.WorkflowRunAsSubject{
 		SubjectID:   strings.TrimSpace(runAs.GetSubjectId()),
 		SubjectKind: strings.TrimSpace(runAs.GetSubjectKind()),
 		DisplayName: strings.TrimSpace(runAs.GetDisplayName()),
@@ -4962,7 +4962,7 @@ func eventFromAny(value any) *proto.WorkflowEvent {
 	if !ok || len(data) == 0 {
 		return nil
 	}
-	input := gestalt.WorkflowEventInput{
+	input := gestalt.WorkflowEvent{
 		ID:              stringField(data, "id"),
 		Source:          stringField(data, "source"),
 		SpecVersion:     stringField(data, "spec_version"),
@@ -5102,7 +5102,7 @@ func scheduleRecordFromRecord(record gestalt.Record) (workflowScheduleRecord, er
 }
 
 func (r workflowScheduleRecord) toProto() (*proto.BoundWorkflowSchedule, error) {
-	return gestalt.NewBoundWorkflowSchedule(gestalt.BoundWorkflowScheduleInput{
+	return gestalt.NewBoundWorkflowSchedule(gestalt.BoundWorkflowSchedule{
 		ID:           r.ID,
 		Cron:         r.Cron,
 		Timezone:     r.Timezone,
@@ -5158,9 +5158,9 @@ func eventTriggerRecordFromRecord(record gestalt.Record) (workflowEventTriggerRe
 }
 
 func (r workflowEventTriggerRecord) toProto() (*proto.BoundWorkflowEventTrigger, error) {
-	return gestalt.NewBoundWorkflowEventTrigger(gestalt.BoundWorkflowEventTriggerInput{
+	return gestalt.NewBoundWorkflowEventTrigger(gestalt.BoundWorkflowEventTrigger{
 		ID: r.ID,
-		Match: &gestalt.WorkflowEventMatchInput{
+		Match: &gestalt.WorkflowEventMatch{
 			Type:    r.MatchType,
 			Source:  r.MatchSource,
 			Subject: r.MatchSubject,
@@ -5241,7 +5241,7 @@ func runRecordFromRecord(record gestalt.Record) (workflowRunRecord, error) {
 }
 
 func (r workflowRunRecord) toProto() (*proto.BoundWorkflowRun, error) {
-	return gestalt.NewBoundWorkflowRun(gestalt.BoundWorkflowRunInput{
+	return gestalt.NewBoundWorkflowRun(gestalt.BoundWorkflowRun{
 		ID:            r.ID,
 		Status:        r.Status,
 		Target:        workflowTargetInput(r.Target),
@@ -5257,29 +5257,29 @@ func (r workflowRunRecord) toProto() (*proto.BoundWorkflowRun, error) {
 	})
 }
 
-func (r workflowRunRecord) triggerInput() *gestalt.WorkflowRunTriggerInput {
+func (r workflowRunRecord) triggerInput() *gestalt.WorkflowRunTrigger {
 	switch r.TriggerKind {
 	case triggerKindSchedule:
 		var scheduledFor *time.Time
 		if r.TriggerScheduledFor != nil {
 			scheduledFor = timePtr(r.TriggerScheduledFor.UTC())
 		}
-		return &gestalt.WorkflowRunTriggerInput{Schedule: &gestalt.WorkflowScheduleTriggerInput{
+		return &gestalt.WorkflowRunTrigger{Schedule: &gestalt.WorkflowScheduleTrigger{
 			ScheduleID:   r.TriggerScheduleID,
 			ScheduledFor: scheduledFor,
 		}}
 	case triggerKindEvent:
-		var event *gestalt.WorkflowEventInput
+		var event *gestalt.WorkflowEvent
 		if r.TriggerEvent != nil {
-			input := gestalt.WorkflowEventInputFromEvent(r.TriggerEvent)
+			input := gestalt.WorkflowEventFromEvent(r.TriggerEvent)
 			event = &input
 		}
-		return &gestalt.WorkflowRunTriggerInput{Event: &gestalt.WorkflowEventTriggerInvocationInput{
+		return &gestalt.WorkflowRunTrigger{Event: &gestalt.WorkflowEventTriggerInvocation{
 			TriggerID: r.TriggerEventTriggerID,
 			Event:     event,
 		}}
 	default:
-		return &gestalt.WorkflowRunTriggerInput{Manual: true}
+		return &gestalt.WorkflowRunTrigger{Manual: true}
 	}
 }
 
@@ -5422,7 +5422,7 @@ func signalRecordFromRecord(record gestalt.Record) (workflowSignalRecord, error)
 }
 
 func (r workflowSignalRecord) signalProto() *proto.WorkflowSignal {
-	input := gestalt.WorkflowSignalInputFromSignal(r.Signal)
+	input := gestalt.WorkflowSignalFromSignal(r.Signal)
 	if input.ID == "" {
 		input.ID = r.ID
 	}
@@ -5556,7 +5556,7 @@ func (r workflowExecutionReferenceRecord) toProto() (*proto.WorkflowExecutionRef
 	if err != nil {
 		return nil, err
 	}
-	return gestalt.NewWorkflowExecutionReference(gestalt.WorkflowExecutionReferenceInput{
+	return gestalt.NewWorkflowExecutionReference(gestalt.WorkflowExecutionReference{
 		ID:                  r.ID,
 		ProviderName:        r.ProviderName,
 		Target:              workflowTargetInput(r.Target),

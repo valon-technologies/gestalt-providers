@@ -68,7 +68,7 @@ class FakeWorkflowManager:
         self.requests.append(request)
         if self.fail:
             raise RuntimeError("workflow manager unavailable")
-        signal = request.signal or gestalt.WorkflowSignalInput()
+        signal = request.signal or gestalt.WorkflowSignal()
         return gestalt.WorkflowManagerRunSignal(
             provider_name=request.provider_name,
             run=gestalt.WorkflowManagerBoundRun(
@@ -77,7 +77,7 @@ class FakeWorkflowManager:
                 target=request.target,
                 workflow_key=request.workflow_key,
             ),
-            signal=gestalt.WorkflowSignalInput(
+            signal=gestalt.WorkflowSignal(
                 id="signal-123",
                 name=signal.name,
                 payload=signal.payload,

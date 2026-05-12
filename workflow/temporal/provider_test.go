@@ -50,7 +50,7 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 		ExecutionRef:                  "ref-1",
 		ActivityStartToCloseTimeoutNS: time.Minute,
 		Target:                        nativePluginTargetInput("slack", "postMessage"),
-		Trigger:                       &gestalt.WorkflowRunTriggerInput{Manual: true},
+		Trigger:                       &gestalt.WorkflowRunTrigger{Manual: true},
 		CreatedBy:                     actor("user-1"),
 	})
 
@@ -90,7 +90,7 @@ func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 			if resp.Signal == nil || resp.Signal.IdempotencyKey != "signal-1" {
 				t.Fatalf("queued signal response = %#v, want signal-1", resp.Signal)
 			}
-		}), gestalt.WorkflowSignalInput{Name: "slack.event", IdempotencyKey: "signal-1", CreatedAt: time.Now().UTC()})
+		}), gestalt.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1", CreatedAt: time.Now().UTC()})
 		if len(host.calls) != 0 {
 			t.Fatalf("host calls before claim = %d, want 0", len(host.calls))
 		}
@@ -103,7 +103,7 @@ func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 		WorkflowKey:                   "thread-1",
 		OwnerKey:                      "slack",
 		Target:                        nativePluginTargetInput("slack", "postMessage"),
-		Trigger:                       &gestalt.WorkflowRunTriggerInput{Manual: true},
+		Trigger:                       &gestalt.WorkflowRunTrigger{Manual: true},
 		CreatedBy:                     actor("user-1"),
 		RequireSignal:                 true,
 		RequireClaim:                  true,
@@ -127,7 +127,7 @@ func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
 
 	var mu sync.Mutex
 	var projectedStatuses []proto.WorkflowRunStatus
-	env.OnActivity(activities.ProjectRun, mock.Anything, mock.Anything).Return(func(_ context.Context, run gestalt.BoundWorkflowRunInput) error {
+	env.OnActivity(activities.ProjectRun, mock.Anything, mock.Anything).Return(func(_ context.Context, run gestalt.BoundWorkflowRun) error {
 		mu.Lock()
 		defer mu.Unlock()
 		projectedStatuses = append(projectedStatuses, run.Status)
@@ -144,9 +144,9 @@ func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
 		WorkflowKey:                   "thread-1",
 		OwnerKey:                      "slack",
 		Target:                        nativePluginTargetInput("slack", "postMessage"),
-		Trigger:                       &gestalt.WorkflowRunTriggerInput{Manual: true},
+		Trigger:                       &gestalt.WorkflowRunTrigger{Manual: true},
 		CreatedBy:                     actor("user-1"),
-		InitialSignal:                 &gestalt.WorkflowSignalInput{Name: "slack.event", CreatedAt: time.Now().UTC()},
+		InitialSignal:                 &gestalt.WorkflowSignal{Name: "slack.event", CreatedAt: time.Now().UTC()},
 		RequireSignal:                 true,
 		RequireClaim:                  true,
 	})
@@ -174,7 +174,7 @@ func TestGestaltRunWorkflowV4AddSignalUpdateDoesNotWaitForProjection(t *testing.
 
 	var mu sync.Mutex
 	var projectedStatuses []proto.WorkflowRunStatus
-	env.OnActivity(activities.ProjectRun, mock.Anything, mock.Anything).Return(func(_ context.Context, run gestalt.BoundWorkflowRunInput) error {
+	env.OnActivity(activities.ProjectRun, mock.Anything, mock.Anything).Return(func(_ context.Context, run gestalt.BoundWorkflowRun) error {
 		mu.Lock()
 		defer mu.Unlock()
 		projectedStatuses = append(projectedStatuses, run.Status)
@@ -182,7 +182,7 @@ func TestGestaltRunWorkflowV4AddSignalUpdateDoesNotWaitForProjection(t *testing.
 	}).Maybe()
 
 	env.RegisterDelayedCallback(func() {
-		env.UpdateWorkflow(updateAddSignal, "signal-run", updateCallback(t, nil), gestalt.WorkflowSignalInput{Name: "slack.event", CreatedAt: time.Now().UTC()})
+		env.UpdateWorkflow(updateAddSignal, "signal-run", updateCallback(t, nil), gestalt.WorkflowSignal{Name: "slack.event", CreatedAt: time.Now().UTC()})
 	}, time.Millisecond)
 
 	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
@@ -191,7 +191,7 @@ func TestGestaltRunWorkflowV4AddSignalUpdateDoesNotWaitForProjection(t *testing.
 		WorkflowKey:                   "thread-1",
 		OwnerKey:                      "slack",
 		Target:                        nativePluginTargetInput("slack", "postMessage"),
-		Trigger:                       &gestalt.WorkflowRunTriggerInput{Manual: true},
+		Trigger:                       &gestalt.WorkflowRunTrigger{Manual: true},
 		CreatedBy:                     actor("user-1"),
 		RequireSignal:                 true,
 	})
@@ -225,14 +225,14 @@ func TestGestaltRunWorkflowV4ContinuesWhenProjectionFails(t *testing.T) {
 		ExecutionRef:                  "ref-1",
 		ActivityStartToCloseTimeoutNS: time.Minute,
 		Target:                        nativePluginTargetInput("slack", "postMessage"),
-		Trigger:                       &gestalt.WorkflowRunTriggerInput{Manual: true},
+		Trigger:                       &gestalt.WorkflowRunTrigger{Manual: true},
 		CreatedBy:                     actor("user-1"),
 	})
 
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	var run gestalt.BoundWorkflowRunInput
+	var run gestalt.BoundWorkflowRun
 	if err := env.GetWorkflowResult(&run); err != nil {
 		t.Fatalf("workflow result: %v", err)
 	}
@@ -347,9 +347,9 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	_, state := newTestWorkflowStateStore(t)
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
-	trigger := &gestalt.BoundWorkflowEventTriggerInput{
+	trigger := &gestalt.BoundWorkflowEventTrigger{
 		ID:        "trigger-1",
-		Match:     &gestalt.WorkflowEventMatchInput{Type: "message.created"},
+		Match:     &gestalt.WorkflowEventMatch{Type: "message.created"},
 		Target:    nativePluginTargetInput("slack", "postMessage"),
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
@@ -361,20 +361,20 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	if len(tc.updates) != 0 {
 		t.Fatalf("state.putTrigger touched workflow updates=%#v", tc.updates)
 	}
-	matched, err := backend.state.matchTriggers(context.Background(), "slack", &gestalt.WorkflowEventInput{Type: "message.created"})
+	matched, err := backend.state.matchTriggers(context.Background(), "slack", &gestalt.WorkflowEvent{Type: "message.created"})
 	if err != nil {
 		t.Fatalf("state.matchTriggers: %v", err)
 	}
 	if len(matched) != 1 || matched[0].ID != trigger.ID {
 		t.Fatalf("matched triggers = %#v, want %q", matched, trigger.ID)
 	}
-	ref := &gestalt.WorkflowExecutionReferenceInput{
+	ref := &gestalt.WorkflowExecutionReference{
 		ID:           "ref-1",
 		ProviderName: "temporal",
 		Target:       nativePluginTargetInput("slack", "postMessage"),
 		SubjectID:    "user-1",
 		CreatedAt:    time.Now().UTC(),
-		RunAs: &gestalt.WorkflowRunAsSubjectInput{
+		RunAs: &gestalt.WorkflowRunAsSubject{
 			SubjectID:   "service_account:slack-sync",
 			SubjectKind: "service_account",
 			DisplayName: "Slack sync",
@@ -411,7 +411,7 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 		Cron:       "0 * * * *",
 		Timezone:   "America/New_York",
 		Target:     nativePluginTargetInput("slack", "postMessage"),
-		RequestedBy: &gestalt.WorkflowActorInput{
+		RequestedBy: &gestalt.WorkflowActor{
 			SubjectID:   "system:config",
 			SubjectKind: "system",
 			AuthSource:  "config",
@@ -441,7 +441,7 @@ func TestListSchedulesUsesIndexedDBMetadata(t *testing.T) {
 		},
 	})
 	tc.scheduleClient = scheduleClient
-	if err := state.putSchedule(ctx, &gestalt.BoundWorkflowScheduleInput{
+	if err := state.putSchedule(ctx, &gestalt.BoundWorkflowSchedule{
 		ID:        "schedule-1",
 		Cron:      "0 * * * *",
 		Timezone:  "America/New_York",
@@ -620,7 +620,7 @@ func TestStartRunWithWorkflowKeyCompletesReservedIndexedDBIdempotency(t *testing
 		t.Fatalf("reserveRunIdempotency: %v", err)
 	}
 	temporalWorkflowID := workflowID("scope", "manual-keyed-v4", "slack", key, hashID(workflowKey))
-	run := &gestalt.BoundWorkflowRunInput{
+	run := &gestalt.BoundWorkflowRun{
 		ID: encodeTemporalRunHandle(temporalRunHandle{
 			RunWorkflowID:    temporalWorkflowID,
 			RunTemporalRunID: "run-1",
@@ -773,7 +773,7 @@ func TestCompleteRunIdempotencyReadsThroughCompletedRecord(t *testing.T) {
 	ownerKey := "slack"
 	key := "start-1"
 	fingerprint := "same-request"
-	run := &gestalt.BoundWorkflowRunInput{ID: "run-1", Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING}
+	run := &gestalt.BoundWorkflowRun{ID: "run-1", Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING}
 	if _, _, err := state.reserveRunIdempotency(ctx, ownerKey, key, fingerprint, time.Hour, time.Unix(100, 0).UTC()); err != nil {
 		t.Fatalf("reserveRunIdempotency: %v", err)
 	}
@@ -803,7 +803,7 @@ func TestSignalOrStartRunStartsV4WorkflowAndStoresOwnership(t *testing.T) {
 		WorkflowKey: "thread-1",
 		Target:      nativePluginTargetInput("slack", "postMessage"),
 		CreatedBy:   actor("user-1"),
-		Signal:      &gestalt.WorkflowSignalInput{Name: "slack.event"},
+		Signal:      &gestalt.WorkflowSignal{Name: "slack.event"},
 	})
 	if err != nil {
 		t.Fatalf("SignalOrStartRun: %v", err)
@@ -859,7 +859,7 @@ func TestSignalOrStartRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 		WorkflowKey: "thread-1",
 		Target:      nativePluginTargetInput("slack", "postMessage"),
 		CreatedBy:   actor("user-1"),
-		Signal:      &gestalt.WorkflowSignalInput{Name: "slack.event", IdempotencyKey: "signal-1"},
+		Signal:      &gestalt.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1"},
 	}
 	first, err := backend.SignalOrStartRun(ctx, req)
 	if err != nil {
@@ -901,7 +901,7 @@ func TestSignalOrStartRunUsesExplicitSignalIDForStartWorkflowID(t *testing.T) {
 
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
-	signal := &gestalt.WorkflowSignalInput{ID: "signal-id-1", Name: "slack.event"}
+	signal := &gestalt.WorkflowSignal{ID: "signal-id-1", Name: "slack.event"}
 	if _, err := backend.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
 		Target:      nativePluginTargetInput("slack", "postMessage"),
@@ -925,7 +925,7 @@ func TestSignalOrStartRunRejectsExplicitSignalIDPayloadMismatchWithOwnerKey(t *t
 		WorkflowKey: "thread-1",
 		Target:      nativePluginTargetInput("slack", "postMessage"),
 		CreatedBy:   actor("user-1"),
-		Signal:      &gestalt.WorkflowSignalInput{ID: "signal-id-1", Name: "slack.event", IdempotencyKey: "owner-key-1"},
+		Signal:      &gestalt.WorkflowSignal{ID: "signal-id-1", Name: "slack.event", IdempotencyKey: "owner-key-1"},
 	}
 	if _, err := backend.SignalOrStartRun(ctx, req); err != nil {
 		t.Fatalf("SignalOrStartRun(first): %v", err)
@@ -965,7 +965,7 @@ func TestSignalOrStartRunSignalsExistingV4Workflow(t *testing.T) {
 		WorkflowKey: "thread-1",
 		Target:      nativePluginTargetInput("slack", "sendMessage"),
 		CreatedBy:   actor("user-2"),
-		Signal:      &gestalt.WorkflowSignalInput{Name: "slack.event"},
+		Signal:      &gestalt.WorkflowSignal{Name: "slack.event"},
 	})
 	if err != nil {
 		t.Fatalf("SignalOrStartRun: %v", err)
@@ -1015,7 +1015,7 @@ func TestSignalOrStartRunReplacesTerminalWorkflowKeyOwner(t *testing.T) {
 		WorkflowKey: "thread-1",
 		Target:      nativePluginTargetInput("slack", "sendMessage"),
 		CreatedBy:   actor("user-2"),
-		Signal:      &gestalt.WorkflowSignalInput{Name: "slack.event"},
+		Signal:      &gestalt.WorkflowSignal{Name: "slack.event"},
 	})
 	if err != nil {
 		t.Fatalf("SignalOrStartRun: %v", err)
@@ -1045,7 +1045,7 @@ func TestSignalOrStartRunReplacesMissingWorkflowKeyOwner(t *testing.T) {
 		WorkflowKey: "thread-1",
 		Target:      nativePluginTargetInput("slack", "sendMessage"),
 		CreatedBy:   actor("user-2"),
-		Signal:      &gestalt.WorkflowSignalInput{Name: "slack.event"},
+		Signal:      &gestalt.WorkflowSignal{Name: "slack.event"},
 	})
 	if err != nil {
 		t.Fatalf("SignalOrStartRun: %v", err)
@@ -1070,7 +1070,7 @@ func TestSignalRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 	backend := newRecordingTemporalBackend(tc, state)
 	req := &gestalt.SignalWorkflowProviderRunRequest{
 		RunID:  run.ID,
-		Signal: &gestalt.WorkflowSignalInput{Name: "slack.event", IdempotencyKey: "signal-1"},
+		Signal: &gestalt.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1"},
 	}
 	first, err := backend.SignalRun(ctx, req)
 	if err != nil {
@@ -1110,14 +1110,14 @@ func TestSignalRunRejectsExplicitSignalIDPayloadMismatchWithOwnerKey(t *testing.
 	backend := newRecordingTemporalBackend(tc, state)
 	if _, err := backend.SignalRun(ctx, &gestalt.SignalWorkflowProviderRunRequest{
 		RunID:  run.ID,
-		Signal: &gestalt.WorkflowSignalInput{ID: "signal-id-1", Name: "slack.event", IdempotencyKey: "owner-key-1"},
+		Signal: &gestalt.WorkflowSignal{ID: "signal-id-1", Name: "slack.event", IdempotencyKey: "owner-key-1"},
 	}); err != nil {
 		t.Fatalf("SignalRun(first): %v", err)
 	}
 	updateCount := len(tc.updates)
 	_, err := backend.SignalRun(ctx, &gestalt.SignalWorkflowProviderRunRequest{
 		RunID:  run.ID,
-		Signal: &gestalt.WorkflowSignalInput{ID: "signal-id-1", Name: "slack.changed", IdempotencyKey: "owner-key-1"},
+		Signal: &gestalt.WorkflowSignal{ID: "signal-id-1", Name: "slack.changed", IdempotencyKey: "owner-key-1"},
 	})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("SignalRun(conflict) error = %v, want FailedPrecondition", err)
@@ -1279,15 +1279,15 @@ func TestWorkflowStateStoreWorkflowKeyClaimValidationAndScopeIsolation(t *testin
 	valid := workflowKeyClaimRun("valid", "thread", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
 	for name, tc := range map[string]struct {
 		workflowKey string
-		run         *gestalt.BoundWorkflowRunInput
+		run         *gestalt.BoundWorkflowRun
 	}{
 		"empty workflow key": {workflowKey: "", run: valid},
 		"nil run":            {workflowKey: "thread", run: nil},
-		"empty run id":       {workflowKey: "thread", run: &gestalt.BoundWorkflowRunInput{}},
-		"malformed run id":   {workflowKey: "thread", run: &gestalt.BoundWorkflowRunInput{ID: "not-a-handle", WorkflowKey: "thread", Target: nativePluginTargetInput("slack", "postMessage")}},
+		"empty run id":       {workflowKey: "thread", run: &gestalt.BoundWorkflowRun{}},
+		"malformed run id":   {workflowKey: "thread", run: &gestalt.BoundWorkflowRun{ID: "not-a-handle", WorkflowKey: "thread", Target: nativePluginTargetInput("slack", "postMessage")}},
 		"missing temporal run id": {
 			workflowKey: "thread",
-			run: &gestalt.BoundWorkflowRunInput{
+			run: &gestalt.BoundWorkflowRun{
 				ID:          encodeTemporalRunHandle(temporalRunHandle{RunWorkflowID: "workflow-without-run-id", WorkflowKey: "thread", OwnerKey: "slack"}),
 				WorkflowKey: "thread",
 				Target:      nativePluginTargetInput("slack", "postMessage"),
@@ -1321,12 +1321,12 @@ func TestWorkflowStateStoreWorkflowKeyConcurrentClaim(t *testing.T) {
 	ctx, state := newTestWorkflowStateStore(t)
 
 	workflowKey := "thread-race"
-	runs := []*gestalt.BoundWorkflowRunInput{
+	runs := []*gestalt.BoundWorkflowRun{
 		workflowKeyClaimRun("race-a", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING),
 		workflowKeyClaimRun("race-b", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING),
 	}
 	type claimResult struct {
-		owner   *gestalt.BoundWorkflowRunInput
+		owner   *gestalt.BoundWorkflowRun
 		claimed bool
 		err     error
 	}
@@ -1382,8 +1382,8 @@ func TestWorkflowStateStoreIgnoresUnsupportedRunHandleRecords(t *testing.T) {
 		WorkflowKey:      "current-thread",
 		OwnerKey:         "slack",
 	})
-	legacyRun := &gestalt.BoundWorkflowRunInput{ID: legacyID, Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING, Target: nativePluginTargetInput("slack", "postMessage"), WorkflowKey: "legacy-thread"}
-	currentRun := &gestalt.BoundWorkflowRunInput{ID: currentID, Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING, Target: nativePluginTargetInput("slack", "postMessage"), WorkflowKey: "current-thread"}
+	legacyRun := &gestalt.BoundWorkflowRun{ID: legacyID, Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING, Target: nativePluginTargetInput("slack", "postMessage"), WorkflowKey: "legacy-thread"}
+	currentRun := &gestalt.BoundWorkflowRun{ID: currentID, Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING, Target: nativePluginTargetInput("slack", "postMessage"), WorkflowKey: "current-thread"}
 	if err := state.runProjections.Put(ctx, state.runRecord(legacyRun)); err != nil {
 		t.Fatalf("put legacy run projection: %v", err)
 	}
@@ -1435,7 +1435,7 @@ func TestWorkflowStateStoreIgnoresUnsupportedRunHandleRecords(t *testing.T) {
 		WorkflowKey:      "legacy-thread",
 		OwnerKey:         "slack",
 	})
-	replacementRun := &gestalt.BoundWorkflowRunInput{ID: replacementID, Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING, Target: nativePluginTargetInput("slack", "postMessage"), WorkflowKey: "legacy-thread"}
+	replacementRun := &gestalt.BoundWorkflowRun{ID: replacementID, Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING, Target: nativePluginTargetInput("slack", "postMessage"), WorkflowKey: "legacy-thread"}
 	owner, claimed, err := state.claimWorkflowKeyRun(ctx, "legacy-thread", replacementRun, time.Unix(200, 0).UTC())
 	if err != nil {
 		t.Fatalf("claim replacement over unsupported owner: %v", err)
@@ -1475,7 +1475,7 @@ func TestGetRunUsesIndexedDBRunProjectionOnly(t *testing.T) {
 
 func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 	ctx, state := newTestWorkflowStateStore(t)
-	run := &gestalt.BoundWorkflowRunInput{
+	run := &gestalt.BoundWorkflowRun{
 		ID: encodeTemporalRunHandle(temporalRunHandle{
 			RunWorkflowID:    "run-projected-workflow",
 			RunTemporalRunID: "run-projected-temporal-run",
@@ -1483,7 +1483,7 @@ func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 		}),
 		Status:    proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED,
 		Target:    nativePluginTargetInput("slack", "postMessage"),
-		Trigger:   &gestalt.WorkflowRunTriggerInput{Manual: true},
+		Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
 		CreatedAt: time.Unix(100, 0).UTC(),
 	}
 	if err := state.putRun(ctx, run); err != nil {
@@ -1511,11 +1511,11 @@ func TestWorkflowStateStoreWritesNativeRunPayloads(t *testing.T) {
 		RunTemporalRunID: "native-run",
 		OwnerKey:         "slack",
 	})
-	nativeRun := &gestalt.BoundWorkflowRunInput{
+	nativeRun := &gestalt.BoundWorkflowRun{
 		ID:        nativeID,
 		Status:    proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
 		Target:    nativePluginTargetInput("slack", "postMessage"),
-		Trigger:   &gestalt.WorkflowRunTriggerInput{Manual: true},
+		Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
 		CreatedAt: time.Unix(200, 0).UTC(),
 	}
 	if err := state.putRun(ctx, nativeRun); err != nil {
@@ -1534,9 +1534,9 @@ func TestTriggerMatchKeysAreReplacedAtomically(t *testing.T) {
 	_, state := newTestWorkflowStateStore(t)
 	backend := newRecordingTemporalBackend(&recordingTemporalClient{}, state)
 
-	trigger := &gestalt.BoundWorkflowEventTriggerInput{
+	trigger := &gestalt.BoundWorkflowEventTrigger{
 		ID:        "trigger-1",
-		Match:     &gestalt.WorkflowEventMatchInput{Type: "message.created"},
+		Match:     &gestalt.WorkflowEventMatch{Type: "message.created"},
 		Target:    nativePluginTargetInput("slack", "postMessage"),
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
@@ -1544,18 +1544,18 @@ func TestTriggerMatchKeysAreReplacedAtomically(t *testing.T) {
 	if err := backend.state.putTrigger(context.Background(), trigger); err != nil {
 		t.Fatalf("state.putTrigger(first): %v", err)
 	}
-	trigger.Match = &gestalt.WorkflowEventMatchInput{Type: "reaction.added"}
+	trigger.Match = &gestalt.WorkflowEventMatch{Type: "reaction.added"}
 	if err := backend.state.putTrigger(context.Background(), trigger); err != nil {
 		t.Fatalf("state.putTrigger(second): %v", err)
 	}
-	oldMatches, err := backend.state.matchTriggers(context.Background(), "slack", &gestalt.WorkflowEventInput{Type: "message.created"})
+	oldMatches, err := backend.state.matchTriggers(context.Background(), "slack", &gestalt.WorkflowEvent{Type: "message.created"})
 	if err != nil {
 		t.Fatalf("match old: %v", err)
 	}
 	if len(oldMatches) != 0 {
 		t.Fatalf("old match returned %#v, want none", oldMatches)
 	}
-	newMatches, err := backend.state.matchTriggers(context.Background(), "slack", &gestalt.WorkflowEventInput{Type: "reaction.added"})
+	newMatches, err := backend.state.matchTriggers(context.Background(), "slack", &gestalt.WorkflowEvent{Type: "reaction.added"})
 	if err != nil {
 		t.Fatalf("match new: %v", err)
 	}
@@ -1578,24 +1578,24 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
-	for _, trigger := range []*gestalt.BoundWorkflowEventTriggerInput{
+	for _, trigger := range []*gestalt.BoundWorkflowEventTrigger{
 		{
 			ID:        "trigger-plugin-1",
-			Match:     &gestalt.WorkflowEventMatchInput{Type: "message.created"},
+			Match:     &gestalt.WorkflowEventMatch{Type: "message.created"},
 			Target:    nativePluginTargetInput("slack", "postMessage"),
 			CreatedAt: time.Now().UTC(),
 			UpdatedAt: time.Now().UTC(),
 		},
 		{
 			ID:        "trigger-plugin-2",
-			Match:     &gestalt.WorkflowEventMatchInput{Type: "message.created"},
+			Match:     &gestalt.WorkflowEventMatch{Type: "message.created"},
 			Target:    nativePluginTargetInput("slack", "sendMessage"),
 			CreatedAt: time.Now().UTC(),
 			UpdatedAt: time.Now().UTC(),
 		},
 		{
 			ID:        "trigger-paused",
-			Match:     &gestalt.WorkflowEventMatchInput{Type: "message.created"},
+			Match:     &gestalt.WorkflowEventMatch{Type: "message.created"},
 			Target:    nativePluginTargetInput("slack", "archiveMessage"),
 			Paused:    true,
 			CreatedAt: time.Now().UTC(),
@@ -1609,7 +1609,7 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 
 	err := backend.PublishEvent(context.Background(), &gestalt.PublishWorkflowProviderEventRequest{
 		PluginName: "slack",
-		Event:      &gestalt.WorkflowEventInput{ID: "event-1", Source: "slack", Type: "message.created"},
+		Event:      &gestalt.WorkflowEvent{ID: "event-1", Source: "slack", Type: "message.created"},
 	})
 	if err != nil {
 		t.Fatalf("PublishEvent: %v", err)
@@ -1648,13 +1648,13 @@ func TestWorkflowStateStoreScopesMetadataByScopeID(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = scopeB.Close() })
 
-	refA := &gestalt.WorkflowExecutionReferenceInput{
+	refA := &gestalt.WorkflowExecutionReference{
 		ID:           "ref-1",
 		ProviderName: "temporal",
 		Target:       nativePluginTargetInput("slack", "postMessage"),
 		SubjectID:    "user-1",
 		CreatedAt:    time.Now().UTC(),
-		RunAs: &gestalt.WorkflowRunAsSubjectInput{
+		RunAs: &gestalt.WorkflowRunAsSubject{
 			SubjectID:   "service_account:slack-sync",
 			SubjectKind: "service_account",
 			DisplayName: "Slack sync",
@@ -1684,11 +1684,11 @@ func TestWorkflowStateStoreScopesMetadataByScopeID(t *testing.T) {
 		t.Fatalf("scoped ref run_as lost: scopeA=%#v scopeB=%#v", gotA.RunAs, gotB.RunAs)
 	}
 
-	trigger := &gestalt.BoundWorkflowEventTriggerInput{ID: "trigger-1", Match: &gestalt.WorkflowEventMatchInput{Type: "message.created"}, Target: nativePluginTargetInput("slack", "postMessage"), CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	trigger := &gestalt.BoundWorkflowEventTrigger{ID: "trigger-1", Match: &gestalt.WorkflowEventMatch{Type: "message.created"}, Target: nativePluginTargetInput("slack", "postMessage"), CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 	if err := scopeA.putTrigger(ctx, trigger); err != nil {
 		t.Fatalf("scopeA put trigger: %v", err)
 	}
-	matchesB, err := scopeB.matchTriggers(ctx, "slack", &gestalt.WorkflowEventInput{Type: "message.created"})
+	matchesB, err := scopeB.matchTriggers(ctx, "slack", &gestalt.WorkflowEvent{Type: "message.created"})
 	if err != nil {
 		t.Fatalf("scopeB match: %v", err)
 	}
@@ -1733,8 +1733,8 @@ func (h *capturingHost) InvokeOperation(_ context.Context, req gestalt.InvokeWor
 
 func (h *capturingHost) Close() error { return nil }
 
-func workflowKeyClaimRun(suffix, workflowKey string, status proto.WorkflowRunStatus) *gestalt.BoundWorkflowRunInput {
-	return &gestalt.BoundWorkflowRunInput{
+func workflowKeyClaimRun(suffix, workflowKey string, status proto.WorkflowRunStatus) *gestalt.BoundWorkflowRun {
+	return &gestalt.BoundWorkflowRun{
 		ID: encodeTemporalRunHandle(temporalRunHandle{
 			RunWorkflowID:    "temporal-workflow-" + strings.TrimSpace(suffix),
 			RunTemporalRunID: "temporal-run-" + strings.TrimSpace(suffix),
@@ -1748,12 +1748,12 @@ func workflowKeyClaimRun(suffix, workflowKey string, status proto.WorkflowRunSta
 	}
 }
 
-func actor(subjectID string) *gestalt.WorkflowActorInput {
-	return &gestalt.WorkflowActorInput{SubjectID: strings.TrimSpace(subjectID)}
+func actor(subjectID string) *gestalt.WorkflowActor {
+	return &gestalt.WorkflowActor{SubjectID: strings.TrimSpace(subjectID)}
 }
 
-func nativePluginTargetInput(plugin, operation string) *gestalt.BoundWorkflowTargetInput {
-	return &gestalt.BoundWorkflowTargetInput{Plugin: &gestalt.BoundWorkflowPluginTargetInput{
+func nativePluginTargetInput(plugin, operation string) *gestalt.BoundWorkflowTarget {
+	return &gestalt.BoundWorkflowTarget{Plugin: &gestalt.BoundWorkflowPluginTarget{
 		PluginName: strings.TrimSpace(plugin),
 		Operation:  strings.TrimSpace(operation),
 	}}
@@ -1816,8 +1816,8 @@ func (h *blockingHost) InvokeOperation(ctx context.Context, req gestalt.InvokeWo
 
 func (h *blockingHost) Close() error { return nil }
 
-func pluginTarget(plugin, operation string) *gestalt.BoundWorkflowTargetInput {
-	return &gestalt.BoundWorkflowTargetInput{Plugin: &gestalt.BoundWorkflowPluginTargetInput{
+func pluginTarget(plugin, operation string) *gestalt.BoundWorkflowTarget {
+	return &gestalt.BoundWorkflowTarget{Plugin: &gestalt.BoundWorkflowPluginTarget{
 		PluginName: strings.TrimSpace(plugin),
 		Operation:  strings.TrimSpace(operation),
 		Input:      map[string]any{"text": "hello"},
@@ -1852,12 +1852,12 @@ func TestNormalizeTargetRejectsInvalidPluginCredentialMode(t *testing.T) {
 }
 
 func TestNormalizeTargetRejectsOutputDeliveryTargetCredentialMode(t *testing.T) {
-	target := &gestalt.BoundWorkflowTargetInput{
-		Agent: &gestalt.BoundWorkflowAgentTargetInput{
+	target := &gestalt.BoundWorkflowTarget{
+		Agent: &gestalt.BoundWorkflowAgentTarget{
 			ProviderName: "managed",
 			Prompt:       "review",
-			OutputDelivery: &gestalt.WorkflowOutputDeliveryInput{
-				Target: &gestalt.BoundWorkflowPluginTargetInput{
+			OutputDelivery: &gestalt.WorkflowOutputDelivery{
+				Target: &gestalt.BoundWorkflowPluginTarget{
 					PluginName:     "github",
 					Operation:      "reviewPullRequest",
 					CredentialMode: "none",
@@ -1894,7 +1894,7 @@ func TestNormalizeTargetPreservesSessionReadyDelivery(t *testing.T) {
 
 func TestNormalizeTargetRejectsSessionReadyDeliveryAgentOutput(t *testing.T) {
 	target := temporalAgentTargetWithSessionReadyDelivery()
-	target.Agent.SessionReadyDelivery.InputBindings[0].Value = &gestalt.WorkflowOutputValueSourceInput{AgentOutput: "text"}
+	target.Agent.SessionReadyDelivery.InputBindings[0].Value = &gestalt.WorkflowOutputValueSource{AgentOutput: "text"}
 
 	_, err := normalizeTarget(target)
 	if err == nil || !strings.Contains(err.Error(), "target.agent.session_ready_delivery.input_bindings.value.agent_output is not available before the agent turn starts") {
@@ -1920,24 +1920,24 @@ func TestExecutionReferencePermissionsIncludeSessionReadyDelivery(t *testing.T) 
 	}
 }
 
-func temporalAgentTargetWithSessionReadyDelivery() *gestalt.BoundWorkflowTargetInput {
-	return &gestalt.BoundWorkflowTargetInput{
-		Agent: &gestalt.BoundWorkflowAgentTargetInput{
+func temporalAgentTargetWithSessionReadyDelivery() *gestalt.BoundWorkflowTarget {
+	return &gestalt.BoundWorkflowTarget{
+		Agent: &gestalt.BoundWorkflowAgentTarget{
 			ProviderName: "managed",
 			Prompt:       "review",
-			ToolRefs: []*gestalt.AgentToolRef{
+			ToolRefs: []gestalt.AgentToolRef{
 				{Plugin: "slack", Operation: "chat.postMessage"},
 			},
-			SessionReadyDelivery: &gestalt.WorkflowOutputDeliveryInput{
-				Target: &gestalt.BoundWorkflowPluginTargetInput{
+			SessionReadyDelivery: &gestalt.WorkflowOutputDelivery{
+				Target: &gestalt.BoundWorkflowPluginTarget{
 					PluginName: "slack",
 					Operation:  "events.replySessionStarted",
 				},
 				CredentialMode: "none",
-				InputBindings: []gestalt.WorkflowOutputBindingInput{
+				InputBindings: []gestalt.WorkflowOutputBinding{
 					{
 						InputField: "session_id",
-						Value:      &gestalt.WorkflowOutputValueSourceInput{AgentSession: "id"},
+						Value:      &gestalt.WorkflowOutputValueSource{AgentSession: "id"},
 					},
 				},
 			},
@@ -2207,13 +2207,13 @@ func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) erro
 		return nil
 	}
 	switch out := valuePtr.(type) {
-	case *gestalt.BoundWorkflowRunInput:
+	case *gestalt.BoundWorkflowRun:
 		if len(h.update.Args) > 0 {
 			switch run := h.update.Args[len(h.update.Args)-1].(type) {
-			case *gestalt.BoundWorkflowRunInput:
+			case *gestalt.BoundWorkflowRun:
 				*out = *cloneRunInput(run)
 			case *proto.BoundWorkflowRun:
-				input, err := gestalt.BoundWorkflowRunInputFromRun(run)
+				input, err := gestalt.BoundWorkflowRunFromRun(run)
 				if err == nil {
 					*out = input
 				}
@@ -2244,7 +2244,7 @@ func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) erro
 				return nil
 			}
 			if signal, ok := h.update.Args[len(h.update.Args)-1].(*proto.WorkflowSignal); ok && h.update.Name == updateAddSignal {
-				input := gestalt.WorkflowSignalInputFromSignal(signal)
+				input := gestalt.WorkflowSignalFromSignal(signal)
 				out.Signal, _ = gestalt.NewWorkflowSignal(input)
 				if out.Signal.Sequence == 0 {
 					out.Signal.Sequence = 1
@@ -2254,8 +2254,8 @@ func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) erro
 				}
 				out.StartedRun = true
 			}
-			if signal, ok := h.update.Args[len(h.update.Args)-1].(gestalt.WorkflowSignalInput); ok && h.update.Name == updateAddSignal {
-				signalPtr := signalInputForStartedRun(&gestalt.BoundWorkflowRunInput{ID: h.update.WorkflowID}, &signal)
+			if signal, ok := h.update.Args[len(h.update.Args)-1].(gestalt.WorkflowSignal); ok && h.update.Name == updateAddSignal {
+				signalPtr := signalInputForStartedRun(&gestalt.BoundWorkflowRun{ID: h.update.WorkflowID}, &signal)
 				if signalPtr != nil {
 					out.Signal, _ = gestalt.NewWorkflowSignal(*signalPtr)
 				}
@@ -2273,21 +2273,21 @@ func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) erro
 			out.StartedRun = resp.GetStartedRun()
 			out.WorkflowKey = resp.GetWorkflowKey()
 			if resp.GetRun() != nil {
-				input, err := gestalt.BoundWorkflowRunInputFromRun(resp.GetRun())
+				input, err := gestalt.BoundWorkflowRunFromRun(resp.GetRun())
 				if err == nil {
 					out.Run = &input
 				}
 			}
 			if resp.GetSignal() != nil {
-				input := gestalt.WorkflowSignalInputFromSignal(resp.GetSignal())
+				input := gestalt.WorkflowSignalFromSignal(resp.GetSignal())
 				out.Signal = &input
 			}
 		case *proto.WorkflowSignal:
-			input := gestalt.WorkflowSignalInputFromSignal(resp)
-			out.Signal = signalInputForStartedRun(&gestalt.BoundWorkflowRunInput{ID: h.update.WorkflowID}, &input)
+			input := gestalt.WorkflowSignalFromSignal(resp)
+			out.Signal = signalInputForStartedRun(&gestalt.BoundWorkflowRun{ID: h.update.WorkflowID}, &input)
 			out.StartedRun = true
-		case gestalt.WorkflowSignalInput:
-			out.Signal = signalInputForStartedRun(&gestalt.BoundWorkflowRunInput{ID: h.update.WorkflowID}, &resp)
+		case gestalt.WorkflowSignal:
+			out.Signal = signalInputForStartedRun(&gestalt.BoundWorkflowRun{ID: h.update.WorkflowID}, &resp)
 			out.StartedRun = true
 		}
 	}

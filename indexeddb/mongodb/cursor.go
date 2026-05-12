@@ -8,7 +8,7 @@ import (
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
 	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
-	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/wirecodec"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -236,7 +236,7 @@ func mongoExtractID(record *proto.Record) (any, string, error) {
 	if !ok || value == nil {
 		return nil, "", status.Error(codes.InvalidArgument, "record must contain an \"id\" field")
 	}
-	goValue, err := gestalt.AnyFromTypedValue(value)
+	goValue, err := wirecodec.AnyFromTypedValue(value)
 	if err != nil {
 		return nil, "", err
 	}

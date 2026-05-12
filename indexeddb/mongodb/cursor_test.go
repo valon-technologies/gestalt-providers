@@ -6,7 +6,7 @@ import (
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
 	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
-	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/wirecodec"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
@@ -26,7 +26,7 @@ func mongoTestRecord(t *testing.T, id string, fields map[string]any) *proto.Reco
 
 func mongoMustTypedValue(t *testing.T, value any) *proto.TypedValue {
 	t.Helper()
-	pb, err := gestalt.TypedValueFromAny(value)
+	pb, err := wirecodec.TypedValueFromAny(value)
 	if err != nil {
 		t.Fatalf("TypedValueFromAny(%#v): %v", value, err)
 	}
