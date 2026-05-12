@@ -3,7 +3,7 @@ import { TroubleshootingDocsPage } from "../DocsContent";
 
 export const metadata: Metadata = {
   title: "Troubleshooting",
-  description: "Troubleshooting for the Gestalt user guide and client workflows.",
+  description: "Troubleshooting for the Gestalt user guide and client tasks.",
 };
 
 export default function TroubleshootingPage() {

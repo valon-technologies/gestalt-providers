@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { CheckIcon, CopyIcon } from "@/components/icons";
@@ -14,28 +13,13 @@ const mcpTabs = [
   { id: "mcp-other", label: "Other Clients" },
 ] as const;
 
-const agentEnvironmentTabs = [
-  { id: "agent-claude-code", label: "Claude Code web" },
-  { id: "agent-codex", label: "Codex Cloud" },
-  { id: "agent-cursor", label: "Cursor Cloud Agents" },
-] as const;
-
 type McpTabId = (typeof mcpTabs)[number]["id"];
-type AgentEnvironmentTabId = (typeof agentEnvironmentTabs)[number]["id"];
 
 const mcpTabIds = mcpTabs.map((tab) => tab.id);
 const defaultMcpTabId: McpTabId = "mcp-claude-code";
 
-const agentEnvironmentTabIds = agentEnvironmentTabs.map((tab) => tab.id);
-const defaultAgentEnvironmentTabId: AgentEnvironmentTabId = "agent-claude-code";
-
-function agentStartupScript() {
+function clientStartupScript() {
   return "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh";
-}
-
-function cloudEnvironmentVariables(origin: string) {
-  return `GESTALT_URL=${origin}
-GESTALT_API_KEY=gst_api_your_token_here`;
 }
 
 export function GettingStartedDocsPage() {
@@ -48,7 +32,7 @@ export function GettingStartedDocsPage() {
         title="Getting Started"
         description={
           <>
-            This guide covers the user-facing workflows for the Gestalt
+            This guide covers the user-facing tasks for the Gestalt
             workspace you are currently using: install{" "}
             <code className="font-mono text-sm text-primary">gestalt</code>,
             point it at this workspace, sign in when required, connect
@@ -188,41 +172,6 @@ brew install valon-technologies/gestalt/gestalt`}
         />
         <p className="doc-copy">Then verify access:</p>
         <CodeBlock code="gestalt plugins list" />
-
-        <Subheading
-          id="agent-environments"
-          title="Configure cloud environments"
-        />
-        <p className="doc-copy">
-          Configure the hosted coding environment before starting cloud tasks.
-          Set the workspace URL and API token in that environment, then install
-          the CLI in the platform setup or startup script.
-        </p>
-        <AgentEnvironmentTabs origin={origin} />
-
-        <Subheading id="workflows" title="Inspect workflows" />
-        <p className="doc-copy">
-          After your workspace URL and auth are set, use{" "}
-          <code className="font-mono text-sm text-primary">gestalt workflows</code>{" "}
-          to inspect schedules, event triggers, and recent runs from the CLI.
-        </p>
-        <CodeBlock
-          code={`gestalt workflows --help
-gestalt workflows schedules list
-gestalt workflows triggers list
-gestalt workflows runs list`}
-        />
-        <p className="doc-copy">
-          For a deeper walkthrough, open{" "}
-          <Link href="/docs/workflows" className="doc-link">
-            Workflows
-          </Link>
-          . If you prefer the browser, the same workflow surfaces are also available on{" "}
-          <Link href="/workflows" className="doc-link">
-            Workflows
-          </Link>
-          .
-        </p>
       </DocsPageBody>
     </>
   );
@@ -303,110 +252,6 @@ gestalt tokens revoke <token-id>`}
   );
 }
 
-export function WorkflowsDocsPage() {
-  return (
-    <>
-      <DocsPageHeader
-        eyebrow="Workflows"
-        title="Manage Workflows"
-        description="Use the workflow CLI to inspect scheduled work, manage event-driven automation, and review run history without leaving the terminal."
-      />
-      <DocsPageBody>
-        <p className="doc-copy">
-          Start by checking the commands exposed by the CLI installed on your machine.
-          Different builds may expose different workflow subcommands, so{" "}
-          <code className="font-mono text-sm text-primary">--help</code> is the
-          fastest source of truth.
-        </p>
-
-        <Subheading id="wf-help" title="Start with help" />
-        <CodeBlock code="gestalt workflows --help" />
-        <p className="doc-copy">
-          In this workspace, the main entry points are schedules for delayed
-          execution, triggers for event-driven execution, and runs for reviewing
-          recent execution history.
-        </p>
-
-        <Subheading id="wf-schedules" title="Manage schedules" />
-        <p className="doc-copy">
-          Workflow schedules invoke a plugin operation later on a cron. Use the same
-          parameter syntax as{" "}
-          <code className="font-mono text-sm text-primary">gestalt plugins invoke</code>
-          : plain strings with{" "}
-          <code className="font-mono text-sm text-primary">key=value</code> or JSON
-          with{" "}
-          <code className="font-mono text-sm text-primary">key:=json</code>.
-        </p>
-        <CodeBlock
-          code={`gestalt workflows schedules list
-gestalt workflows schedules list --plugin <plugin>
-gestalt workflows schedules get <schedule-id>
-
-gestalt workflows schedules create \\
-  --cron "0 */5 * * *" \\
-  --timezone "UTC" \\
-  --plugin <plugin> \\
-  --operation <operation> \\
-  -p key=value
-
-gestalt workflows schedules pause <schedule-id>
-gestalt workflows schedules resume <schedule-id>
-gestalt workflows schedules delete <schedule-id>`}
-        />
-        <p className="doc-copy">
-          Use{" "}
-          <code className="font-mono text-sm text-primary">--format json</code>{" "}
-          when you want to script against the output.
-        </p>
-
-        <Subheading id="wf-triggers" title="Manage event triggers" />
-        <p className="doc-copy">
-          Event triggers run a plugin operation when an incoming event matches
-          a type, source, or subject filter. Use them when a webhook or other
-          event stream should start the workflow immediately instead of on a cron.
-        </p>
-        <CodeBlock
-          code={`gestalt workflows triggers list
-gestalt workflows triggers list --plugin <plugin>
-gestalt workflows triggers list --type <event-type>
-gestalt workflows triggers get <trigger-id>
-
-gestalt workflows triggers create \\
-  --type <event-type> \\
-  --source <event-source> \\
-  --subject <event-subject> \\
-  --plugin <plugin> \\
-  --operation <operation> \\
-  -p key=value
-
-gestalt workflows triggers pause <trigger-id>
-gestalt workflows triggers resume <trigger-id>
-gestalt workflows triggers delete <trigger-id>`}
-        />
-
-        <Subheading id="wf-runs" title="Inspect runs" />
-        <p className="doc-copy">
-          Run history tells you whether scheduled or event-driven work actually
-          executed, what plugin and operation ran, and whether the run succeeded
-          or failed.
-        </p>
-        <CodeBlock
-          code={`gestalt workflows runs list
-gestalt workflows runs list --plugin <plugin>
-gestalt workflows runs get <run-id>`}
-        />
-        <p className="doc-copy">
-          The browser surface at{" "}
-          <Link href="/workflows" className="doc-link">
-            Workflows
-          </Link>{" "}
-          shows schedules, event triggers, and recent runs if you want a UI for inspection.
-        </p>
-      </DocsPageBody>
-    </>
-  );
-}
-
 export function McpDocsPage() {
   const origin = useDeploymentOrigin();
 
@@ -423,10 +268,10 @@ export function McpDocsPage() {
           and header blocks shown below.
         </p>
         <p className="doc-copy">
-          These examples assume the agent environment runs this startup script
+          These examples assume the client environment runs this startup script
           before the MCP client starts.
         </p>
-        <CodeBlock code={agentStartupScript()} />
+        <CodeBlock code={clientStartupScript()} />
         <InfoTable
           rows={[
             ["Endpoint", `${origin}/mcp`],
@@ -774,205 +619,6 @@ curl \\
   -d '{"example":"value"}' \\
   ${origin}/api/v1/<plugin>/<operation>`}
         />
-      </section>
-    </div>
-  );
-}
-
-function AgentEnvironmentTabs({ origin }: { origin: string }) {
-  const [activeTabId, setActiveTabId] = useHashTab(
-    agentEnvironmentTabIds,
-    defaultAgentEnvironmentTabId,
-  );
-
-  return (
-    <div className="space-y-5">
-      <div
-        role="tablist"
-        aria-label="Cloud environment configuration"
-        className="flex flex-wrap gap-5 border-b border-alpha"
-      >
-        {agentEnvironmentTabs.map((tab) => {
-          const isActive = tab.id === activeTabId;
-          return (
-            <button
-              key={tab.id}
-              id={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={`${tab.id}-panel`}
-              onClick={() => setActiveTabId(tab.id)}
-              className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
-                isActive
-                  ? "border-gold-600 text-primary dark:border-gold-300"
-                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
-              }`}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-
-      <section
-        id="agent-codex-panel"
-        role="tabpanel"
-        aria-labelledby="agent-codex"
-        hidden={activeTabId !== "agent-codex"}
-        className={
-          activeTabId === "agent-codex"
-            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
-            : "hidden"
-        }
-      >
-        <p className="doc-copy">
-          Navigate to{" "}
-          <a
-            href="https://chatgpt.com/codex/settings/environments"
-            target="_blank"
-            rel="noreferrer"
-            className="doc-link"
-          >
-            Codex environment settings
-          </a>
-          , open the cloud environment, and add these environment variables.
-          Use a scoped API token for the cloud agent.
-        </p>
-        <CodeBlock code={cloudEnvironmentVariables(origin)} />
-        <p className="doc-copy">
-          Then add this to the environment setup script.
-        </p>
-        <CodeBlock code={agentStartupScript()} />
-        <p className="doc-copy">
-          Keep the values above in the cloud environment variables, not in the
-          setup script. Codex secrets are only available during setup.
-        </p>
-        <p className="doc-copy">
-          Reference:{" "}
-          <a
-            href="https://developers.openai.com/codex/cloud/environments"
-            target="_blank"
-            rel="noreferrer"
-            className="doc-link"
-          >
-            Codex cloud environments
-          </a>
-          .
-        </p>
-      </section>
-
-      <section
-        id="agent-cursor-panel"
-        role="tabpanel"
-        aria-labelledby="agent-cursor"
-        hidden={activeTabId !== "agent-cursor"}
-        className={
-          activeTabId === "agent-cursor"
-            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
-            : "hidden"
-        }
-      >
-        <p className="doc-copy">
-          Navigate to{" "}
-          <a
-            href="https://cursor.com/dashboard/cloud-agents#environments"
-            target="_blank"
-            rel="noreferrer"
-            className="doc-link"
-          >
-            Cursor Cloud Agents settings
-          </a>
-          , configure the workspace URL as an environment variable, and add the
-          API token as a Cursor secret. Put the install command in{" "}
-          <code className="font-mono text-sm text-primary">
-            .cursor/environment.json
-          </code>
-          .
-        </p>
-        <CodeBlock
-          code={`{
-  "install": "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh"
-}`}
-        />
-        <p className="doc-copy">
-          Set{" "}
-          <code className="font-mono text-sm text-primary">GESTALT_URL</code>{" "}
-          to{" "}
-          <code className="font-mono text-sm text-primary">{origin}</code> and{" "}
-          <code className="font-mono text-sm text-primary">
-            GESTALT_API_KEY
-          </code>{" "}
-          as a Cursor Cloud Agent secret containing a Gestalt API token. Cursor
-          provides the secret to the agent environment at runtime under that
-          variable name.
-        </p>
-        <p className="doc-copy">
-          Reference:{" "}
-          <a
-            href="https://cursor.com/docs/cloud-agent"
-            target="_blank"
-            rel="noreferrer"
-            className="doc-link"
-          >
-            Cursor Cloud Agents
-          </a>
-          .
-        </p>
-      </section>
-
-      <section
-        id="agent-claude-code-panel"
-        role="tabpanel"
-        aria-labelledby="agent-claude-code"
-        hidden={activeTabId !== "agent-claude-code"}
-        className={
-          activeTabId === "agent-claude-code"
-            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
-            : "hidden"
-        }
-      >
-        <p className="doc-copy">
-          Navigate to{" "}
-          <a
-            href="https://claude.ai/code"
-            target="_blank"
-            rel="noreferrer"
-            className="doc-link"
-          >
-            claude.ai/code
-          </a>
-          , choose the cloud environment, and open its settings.
-        </p>
-        <Image
-          src="/docs/claude-code-web-environment.png"
-          alt="Claude Code web environment picker with the settings control highlighted"
-          width={1170}
-          height={558}
-          unoptimized
-          className="w-full rounded-lg border border-alpha"
-        />
-        <p className="doc-copy">
-          Add environment variables in the cloud environment editor. Values use{" "}
-          <code className="font-mono text-sm text-primary">.env</code> format.
-        </p>
-        <CodeBlock code={cloudEnvironmentVariables(origin)} />
-        <p className="doc-copy">
-          Then add this to the cloud environment setup script.
-        </p>
-        <CodeBlock code={agentStartupScript()} />
-        <p className="doc-copy">
-          Reference:{" "}
-          <a
-            href="https://code.claude.com/docs/en/claude-code-on-the-web"
-            target="_blank"
-            rel="noreferrer"
-            className="doc-link"
-          >
-            Claude Code web
-          </a>
-          .
-        </p>
       </section>
     </div>
   );
