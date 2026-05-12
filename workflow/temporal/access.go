@@ -92,7 +92,7 @@ func executionReferencePermissionsForTarget(target *gestalt.BoundWorkflowTargetI
 	if agent := target.Agent; agent != nil {
 		set := map[string]map[string]struct{}{}
 		for _, tool := range agent.ToolRefs {
-			addPermission(set, strings.TrimSpace(tool.GetPlugin()), strings.TrimSpace(tool.GetOperation()))
+			addPermission(set, strings.TrimSpace(tool.Plugin), strings.TrimSpace(tool.Operation))
 		}
 		if delivery := agent.OutputDelivery; delivery != nil {
 			addDeliveryPermission(set, delivery)
