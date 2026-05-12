@@ -27,7 +27,7 @@ import (
 )
 
 const (
-	providerVersion        = "0.0.1-alpha.2"
+	providerVersion        = "0.0.1-alpha.1"
 	payloadSigningAuto     = "auto"
 	payloadSigningSigned   = "signed"
 	signingMiddlewareID    = "Signing"

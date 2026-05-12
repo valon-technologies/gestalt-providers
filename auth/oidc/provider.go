@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	providerVersion             = "0.0.1-alpha.2"
+	providerVersion             = "0.0.1-alpha.1"
 	defaultSessionTTL           = 24 * time.Hour
 	defaultDisplayName          = "SSO"
 	defaultHTTPTimeout          = 10 * time.Second

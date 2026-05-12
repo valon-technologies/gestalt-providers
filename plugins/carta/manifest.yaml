@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/carta
-version: 0.0.1-alpha.2
+version: 0.0.1-alpha.1
 displayName: Carta
 description: Access Carta Launch, Investor, Issuer, Portfolio, corporation, compensation, open cap table, file upload, and user APIs.
 iconFile: assets/icon.svg

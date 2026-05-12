@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/agent/codex
-version: 0.0.1-alpha.5
+version: 0.0.1-alpha.1
 displayName: Codex MCP Agent
 description: Agent provider that runs Codex CLI through its MCP harness with Gestalt MCP catalog tools exposed by grant.
 kind: agent

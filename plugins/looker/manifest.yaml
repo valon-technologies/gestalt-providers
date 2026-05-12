@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/looker
-version: 0.0.1-alpha.2
+version: 0.0.1-alpha.1
 displayName: Looker
 description: Run queries, manage dashboards, looks, folders, users, groups, schedules, projects, content validation, and instance configuration in Looker.
 iconFile: assets/icon.svg

@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/plugins/incident_io
-version: 0.0.1-alpha.3
+version: 0.0.1-alpha.1
 displayName: incident.io
 description: Manage incidents, schedules, users, severities, statuses, and incident.io MCP tools.
 iconFile: assets/icon.svg
