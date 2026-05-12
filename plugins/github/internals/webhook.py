@@ -227,7 +227,7 @@ def webhook_ignored_reason(
         try:
             if is_configured_bot_sender(payload):
                 return "configured_bot_sender"
-        except GitHubAPIError, GitHubConfigError:
+        except (GitHubAPIError, GitHubConfigError):
             if is_bot_sender(payload):
                 return "unresolved_bot_sender"
     return ""

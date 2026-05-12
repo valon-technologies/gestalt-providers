@@ -8,6 +8,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import asdict, is_dataclass
 from email.message import Message
 from http import HTTPStatus
 from types import SimpleNamespace
@@ -15,9 +16,6 @@ from typing import Any, cast
 from unittest import mock
 
 import gestalt
-from google.protobuf import json_format
-from gestalt._gen.v1 import agent_pb2 as _agent_pb2
-from gestalt._gen.v1 import workflow_pb2 as _workflow_pb2
 import yaml
 
 import internals.client as client_module
@@ -29,8 +27,16 @@ from internals.config import GitHubBotIdentity, GitHubUserIdentity
 from internals.errors import GitHubAPIError
 import provider as provider_module
 
-agent_pb2: Any = _agent_pb2
-workflow_pb2: Any = _workflow_pb2
+def sdk_value_to_dict(value: Any) -> Any:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return {str(key): sdk_value_to_dict(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [sdk_value_to_dict(item) for item in value]
+    if is_dataclass(value):
+        return sdk_value_to_dict(asdict(value))
+    return value
 
 
 class FakeHTTPResponse:
@@ -62,19 +68,22 @@ class FakeWorkflowManager:
         self.requests.append(request)
         if self.fail:
             raise RuntimeError("workflow manager unavailable")
-        run = workflow_pb2.BoundWorkflowRun(
-            id="workflow-run-123",
-            status=workflow_pb2.WORKFLOW_RUN_STATUS_RUNNING,
-            target=request.target,
-            workflow_key=request.workflow_key,
-        )
-        signal = workflow_pb2.WorkflowSignal(id="signal-123")
-        signal.CopyFrom(request.signal)
-        signal.id = "signal-123"
-        return workflow_pb2.ManagedWorkflowRunSignal(
+        signal = request.signal or gestalt.WorkflowSignalInput()
+        return gestalt.WorkflowManagerRunSignal(
             provider_name=request.provider_name,
-            run=run,
-            signal=signal,
+            run=gestalt.WorkflowManagerBoundRun(
+                id="workflow-run-123",
+                status=gestalt.WORKFLOW_RUN_STATUS_RUNNING,
+                target=request.target,
+                workflow_key=request.workflow_key,
+            ),
+            signal=gestalt.WorkflowSignalInput(
+                id="signal-123",
+                name=signal.name,
+                payload=signal.payload,
+                metadata=signal.metadata,
+                idempotency_key=signal.idempotency_key,
+            ),
             started_run=True,
             workflow_key=request.workflow_key,
         )
@@ -154,29 +163,34 @@ class FakeAgentManager:
 
     def create_session(self, request: Any) -> Any:
         self.sessions.append(request)
-        return agent_pb2.AgentSession(id="agent-session-1")
+        return gestalt.AgentSession(id="agent-session-1")
 
     def create_turn(self, request: Any) -> Any:
         self.turns.append(request)
-        if self.require_no_response_schema and request.response_schema.fields:
+        response_schema = getattr(request, "response_schema", None)
+        has_response_schema = bool(
+            getattr(response_schema, "fields", None)
+            if response_schema is not None
+            else response_schema
+        )
+        if self.require_no_response_schema and has_response_schema:
             raise AssertionError("response_schema should not be set")
         if self.turn_error is not None:
             raise self.turn_error
-        turn = agent_pb2.AgentTurn(
-            id="agent-turn-1",
-            session_id=request.session_id,
-            status=agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
-        )
         output_index = len(self.turns) - 1
         if output_index < len(self.output_texts):
-            turn.output_text = self.output_texts[output_index]
+            output_text = self.output_texts[output_index]
         elif self.output_text is not None:
-            turn.output_text = self.output_text
+            output_text = self.output_text
         else:
-            turn.output_text = json.dumps({"findings": self.findings})
-        if self.structured_output is not None:
-            turn.structured_output.update(self.structured_output)
-        return turn
+            output_text = json.dumps({"findings": self.findings})
+        return gestalt.AgentTurn(
+            id="agent-turn-1",
+            session_id=request.session_id,
+            status=gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED,
+            output_text=output_text,
+            structured_output=self.structured_output,
+        )
 
     def get_turn(self, request: Any) -> Any:
         raise AssertionError(f"unexpected get_turn call for {request.turn_id}")
@@ -1275,13 +1289,13 @@ class GitHubProviderTests(unittest.TestCase):
                 provider_module.BOT_CREATE_PULL_REQUEST_OPERATION,
             ],
         )
-        metadata = json_format.MessageToDict(agent.metadata)
+        metadata = sdk_value_to_dict(agent.metadata)
         self.assertEqual(metadata["github"]["installation_id"], 99)
         self.assertEqual(metadata["github"]["repository"], "acme/widgets")
         self.assertEqual(metadata["github"]["number"], 7)
 
         self.assertEqual(request.signal.name, "github.app.webhook")
-        data = json_format.MessageToDict(request.signal.payload)
+        data = sdk_value_to_dict(request.signal.payload)
         self.assertEqual(data["delivery_id"], "delivery-123")
         self.assertEqual(data["github_event"], "pull_request")
         self.assertEqual(data["github_action"], "opened")
@@ -1354,7 +1368,7 @@ class GitHubProviderTests(unittest.TestCase):
                 self.assertEqual(request.workflow_key, expected_key)
                 data = cast(
                     dict[str, Any],
-                    json_format.MessageToDict(request.signal.payload),
+                    sdk_value_to_dict(request.signal.payload),
                 )
                 event_id_key = f"{event_type}_id"
                 if "id" in event_object:
@@ -1368,7 +1382,7 @@ class GitHubProviderTests(unittest.TestCase):
                     self.assertEqual(data["summary"]["number"], number)
                 self.assertIn(
                     event_type,
-                    json_format.MessageToDict(request.target.agent.metadata)["github"][
+                    sdk_value_to_dict(request.target.agent.metadata)["github"][
                         "session_ref"
                     ],
                 )
@@ -1540,7 +1554,7 @@ class GitHubProviderTests(unittest.TestCase):
                 )
                 data = cast(
                     dict[str, Any],
-                    json_format.MessageToDict(request.signal.payload),
+                    sdk_value_to_dict(request.signal.payload),
                 )
                 self.assertEqual(
                     data["webhook_policy"]["canonical"]["workflow_key"],
@@ -1623,7 +1637,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn("pull request timeline comments", system_prompt)
         data = cast(
             dict[str, Any],
-            json_format.MessageToDict(inline_only.signal.payload),
+            sdk_value_to_dict(inline_only.signal.payload),
         )
         self.assertEqual(
             data["webhook_policy"]["tool_refs"],
@@ -1708,7 +1722,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn("bot.commitFiles", system_prompt)
         data = cast(
             dict[str, Any],
-            json_format.MessageToDict(request.signal.payload),
+            sdk_value_to_dict(request.signal.payload),
         )
         self.assertEqual(data["webhook_policy"]["tool_refs"], operations)
         self.assertEqual(
@@ -1845,7 +1859,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("pull_request.head_ref value as branch", system_prompt)
         self.assertNotIn("bot.createPullRequest ", system_prompt)
 
-        data = cast(dict[str, Any], json_format.MessageToDict(request.signal.payload))
+        data = cast(dict[str, Any], sdk_value_to_dict(request.signal.payload))
         pull_request = data["agent_request"]["pull_request"]
         self.assertEqual(pull_request["head_ref"], "feature")
         self.assertEqual(pull_request["base_ref"], "main")
@@ -1915,7 +1929,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn(provider_module.BOT_COMMIT_FILES_OPERATION, operations)
         self.assertNotIn(provider_module.BOT_OPEN_PULL_REQUEST_OPERATION, operations)
         self.assertNotIn(provider_module.BOT_CREATE_PULL_REQUEST_OPERATION, operations)
-        data = cast(dict[str, Any], json_format.MessageToDict(request.signal.payload))
+        data = cast(dict[str, Any], sdk_value_to_dict(request.signal.payload))
         self.assertEqual(
             data["webhook_policy"]["action_preferences"]["effective"]["self_fix_mode"],
             "branch_commit",
@@ -2053,7 +2067,7 @@ class GitHubProviderTests(unittest.TestCase):
         with mock.patch.object(provider_module, "get_pull_request") as get_pull_request:
             request = self._workflow_signal_request(self._full_pull_request_payload())
         get_pull_request.assert_not_called()
-        data = cast(dict[str, Any], json_format.MessageToDict(request.signal.payload))
+        data = cast(dict[str, Any], sdk_value_to_dict(request.signal.payload))
         self.assertEqual(
             data["agent_request"]["pull_request"]["head_repo"]["full_name"],
             "acme/widgets",
@@ -2100,7 +2114,7 @@ class GitHubProviderTests(unittest.TestCase):
                 }
             )
 
-        data = cast(dict[str, Any], json_format.MessageToDict(request.signal.payload))
+        data = cast(dict[str, Any], sdk_value_to_dict(request.signal.payload))
         self.assertNotIn("action_preferences", data["webhook_policy"])
         self.assertIn(
             provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
@@ -2164,7 +2178,7 @@ class GitHubProviderTests(unittest.TestCase):
             provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
             operations,
         )
-        data = cast(dict[str, Any], json_format.MessageToDict(request.signal.payload))
+        data = cast(dict[str, Any], sdk_value_to_dict(request.signal.payload))
         preferences = data["webhook_policy"]["action_preferences"]
         self.assertEqual(preferences["source"], "external_subject_id")
         self.assertEqual(preferences["record_id"], record_id)
@@ -2228,7 +2242,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn(provider_module.BOT_COMMIT_FILES_OPERATION, operations)
         self.assertNotIn(provider_module.BOT_OPEN_PULL_REQUEST_OPERATION, operations)
         self.assertNotIn(provider_module.BOT_CREATE_PULL_REQUEST_OPERATION, operations)
-        data = cast(dict[str, Any], json_format.MessageToDict(request.signal.payload))
+        data = cast(dict[str, Any], sdk_value_to_dict(request.signal.payload))
         self.assertEqual(
             data["webhook_policy"]["action_preferences"]["source"], "subject_id"
         )
@@ -2502,7 +2516,7 @@ class GitHubProviderTests(unittest.TestCase):
                 ):
                     request = self._workflow_signal_request(payload)
                 data = cast(
-                    dict[str, Any], json_format.MessageToDict(request.signal.payload)
+                    dict[str, Any], sdk_value_to_dict(request.signal.payload)
                 )
                 self.assertEqual(
                     data["webhook_policy"]["action_preferences"]["identity"][
@@ -2950,7 +2964,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         fallback_data = cast(
             dict[str, Any],
-            json_format.MessageToDict(fallback.signal.payload),
+            sdk_value_to_dict(fallback.signal.payload),
         )
         self.assertEqual(
             fallback_data["webhook_policy"]["id"],
@@ -2965,7 +2979,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         manual_data = cast(
             dict[str, Any],
-            json_format.MessageToDict(manual.signal.payload),
+            sdk_value_to_dict(manual.signal.payload),
         )
         self.assertEqual(manual_data["webhook_policy"]["id"], "manual-review")
 
@@ -2992,7 +3006,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         draft_data = cast(
             dict[str, Any],
-            json_format.MessageToDict(draft.signal.payload),
+            sdk_value_to_dict(draft.signal.payload),
         )
         self.assertEqual(draft_data["webhook_policy"]["id"], "draft-fallback")
 
@@ -3007,7 +3021,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         ready_data = cast(
             dict[str, Any],
-            json_format.MessageToDict(ready.signal.payload),
+            sdk_value_to_dict(ready.signal.payload),
         )
         self.assertEqual(ready_data["webhook_policy"]["id"], "non-draft-pr")
 
@@ -3302,13 +3316,13 @@ class GitHubProviderTests(unittest.TestCase):
                 provider_module.BOT_CREATE_ISSUE_COMMENT_OPERATION,
             ],
         )
-        metadata = json_format.MessageToDict(agent.metadata)
+        metadata = sdk_value_to_dict(agent.metadata)
         self.assertEqual(metadata["github"]["policy"]["id"], "failed-ci-comment")
         self.assertEqual(metadata["github"]["policy"]["mode"], "comment")
 
         data = cast(
             dict[str, Any],
-            json_format.MessageToDict(request.signal.payload),
+            sdk_value_to_dict(request.signal.payload),
         )
         self.assertEqual(data["webhook_policy"]["id"], "failed-ci-comment")
         self.assertEqual(data["check_run"]["name"], "Build Gestalt")
@@ -3484,15 +3498,15 @@ class GitHubProviderTests(unittest.TestCase):
             agent_request.signal.idempotency_key,
         )
         self.assertEqual(
-            json_format.MessageToDict(plugin_request.signal.payload),
-            json_format.MessageToDict(agent_request.signal.payload),
+            sdk_value_to_dict(plugin_request.signal.payload),
+            sdk_value_to_dict(agent_request.signal.payload),
         )
         self.assertEqual(
-            json_format.MessageToDict(plugin_request.signal.metadata),
-            json_format.MessageToDict(agent_request.signal.metadata),
+            sdk_value_to_dict(plugin_request.signal.metadata),
+            sdk_value_to_dict(agent_request.signal.metadata),
         )
-        self.assertEqual(agent_request.target.WhichOneof("kind"), "agent")
-        self.assertEqual(plugin_request.target.WhichOneof("kind"), "plugin")
+        self.assertIsNotNone(agent_request.target.agent)
+        self.assertIsNotNone(plugin_request.target.plugin)
 
         plugin = plugin_request.target.plugin
         self.assertEqual(plugin.plugin_name, "github")
@@ -3501,14 +3515,14 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(plugin.instance, "prod")
         self.assertEqual(plugin.credential_mode, "none")
 
-        target_input = json_format.MessageToDict(plugin.input)
+        target_input = sdk_value_to_dict(plugin.input)
         self.assertEqual(target_input["maxComments"], 10)
         self.assertEqual(target_input["changedLinesOnly"], True)
         self.assertEqual(target_input["dryRun"], True)
         self.assertNotIn("pull_request", target_input)
         self.assertNotIn("repository", target_input)
 
-        signal_payload = json_format.MessageToDict(plugin_request.signal.payload)
+        signal_payload = sdk_value_to_dict(plugin_request.signal.payload)
         self.assertEqual(signal_payload["repository"]["full_name"], "acme/widgets")
         self.assertEqual(signal_payload["agent_request"]["pull_request"]["number"], 7)
 
@@ -3616,7 +3630,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(result["ok"], True)
         self.assertEqual(events, ["check-list", "check-create", "workflow"])
         self.assertEqual(len(workflow_manager.requests), 1)
-        signal_payload = json_format.MessageToDict(
+        signal_payload = sdk_value_to_dict(
             workflow_manager.requests[0].signal.payload
         )
         self.assertEqual(signal_payload["review_check_run"]["id"], 456)
@@ -3803,7 +3817,7 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(result["ok"], True)
         self.assertEqual(events, ["check-update"])
-        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
         self.assertEqual(payload["review_check_run"]["id"], 456)
 
     def test_builtin_review_policy_reuses_matching_failed_completed_check_run(
@@ -3866,7 +3880,7 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(result["ok"], True)
         self.assertEqual(events, ["check-list"])
-        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
         self.assertEqual(payload["review_check_run"]["id"], 456)
         self.assertEqual(payload["review_check_run"]["status"], "completed")
         self.assertEqual(payload["review_check_run"]["conclusion"], "failure")
@@ -3945,7 +3959,7 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(result["ok"], True)
         self.assertEqual(events, ["check-list", "check-update"])
-        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
         self.assertEqual(payload["review_check_run"]["id"], 456)
         self.assertEqual(payload["review_check_run"]["status"], "in_progress")
 
@@ -4041,7 +4055,7 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(result["ok"], True)
         self.assertEqual(events, ["pull", "check-list", "check-create"])
-        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
         self.assertEqual(payload["review_check_run"]["head_sha"], "abc123")
 
     def test_app_mention_manual_review_creates_check_run(self) -> None:
@@ -4144,7 +4158,7 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(result["ok"], True)
         self.assertEqual(events, ["pull", "check-list", "check-create"])
-        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
         self.assertEqual(
             payload["webhook_policy"]["trigger"]["require_app_mention"], True
         )
@@ -4212,7 +4226,7 @@ class GitHubProviderTests(unittest.TestCase):
             )
 
         self.assertEqual(result["ok"], True)
-        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
         self.assertNotIn("review_check_run", payload)
 
     def test_review_pull_request_posts_validated_inline_comments(self) -> None:
@@ -4350,7 +4364,7 @@ class GitHubProviderTests(unittest.TestCase):
             "Use only added RIGHT-side lines",
             prompt_data["output_contract"]["line_policy"],
         )
-        self.assertFalse(agent_manager.turns[0].response_schema.fields)
+        self.assertFalse(getattr(agent_manager.turns[0], "response_schema", None))
 
         self.assertEqual(len(created_reviews), 1)
         review_request, review_subject = created_reviews[0]
@@ -6828,7 +6842,7 @@ class GitHubProviderTests(unittest.TestCase):
         request = self._workflow_signal_request(payload)
         return cast(
             dict[str, Any],
-            json_format.MessageToDict(request.signal.payload),
+            sdk_value_to_dict(request.signal.payload),
         )
 
     def _configure_builtin_review_policy(self) -> None:
@@ -7070,7 +7084,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         issue_comment = cast(
             dict[str, Any],
-            json_format.MessageToDict(issue_comment_request.signal.payload),
+            sdk_value_to_dict(issue_comment_request.signal.payload),
         )
         self.assertEqual(issue_comment["github_event"], "issue_comment")
         self.assertNotIn("payload", issue_comment)
@@ -7079,7 +7093,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn(
             "please update this workflow", json.dumps(issue_comment["summary"])
         )
-        issue_metadata = json_format.MessageToDict(
+        issue_metadata = sdk_value_to_dict(
             issue_comment_request.signal.metadata
         )
         self.assertNotIn("comment_body", issue_metadata["github"])
@@ -7147,12 +7161,12 @@ class GitHubProviderTests(unittest.TestCase):
         )
         review = cast(
             dict[str, Any],
-            json_format.MessageToDict(review_request.signal.payload),
+            sdk_value_to_dict(review_request.signal.payload),
         )
         self.assertEqual(review["github_event"], "pull_request_review")
         self.assertNotIn("review_body", review["summary"])
         self.assertNotIn("please update this workflow", json.dumps(review["summary"]))
-        review_metadata = json_format.MessageToDict(review_request.signal.metadata)
+        review_metadata = sdk_value_to_dict(review_request.signal.metadata)
         self.assertNotIn("review_body", review_metadata["github"])
         self.assertNotIn("please update this workflow", json.dumps(review_metadata))
         self.assertLess(len(review["agent_request"]["review"]["body"]), 5000)

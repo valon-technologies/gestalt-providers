@@ -2018,8 +2018,8 @@ def _build_workflow_publish_event_request(
     route: SlackEventPublishRoute,
     raw_payload: dict[str, Any],
 ) -> Any:
-    workflow_request = gestalt.WorkflowManagerPublishEventInput(
-        event=gestalt.WorkflowEventInput(
+    workflow_request = gestalt.WorkflowManagerPublishEvent(
+        event=gestalt.WorkflowEvent(
             id=_workflow_event_id(event, route),
             source=route.source or "slack",
             spec_version="1.0",
@@ -2441,8 +2441,14 @@ def _subject_kind_from_id(subject_id: str) -> str:
 def _subject_display_name(subject: Any) -> str:
     properties = getattr(subject, "properties", None)
     if isinstance(properties, dict):
+        data = properties
+    elif properties is not None and getattr(properties, "fields", None):
+        data = gestalt.struct_to_dict(properties)
+    else:
+        data = {}
+    if data:
         for key in ("displayName", "display_name", "email", "name"):
-            value = properties.get(key)
+            value = data.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
     return str(getattr(subject, "id", "") or "").strip()
@@ -2755,12 +2761,12 @@ def _build_workflow_signal_or_start_request(
 ) -> Any:
     workflow_key = _agent_session_ref(event)
     thread_context = _prefetch_thread_context(event, route)
-    request = gestalt.WorkflowManagerSignalOrStartRunInput(
+    request = gestalt.WorkflowManagerSignalOrStartRun(
         provider_name=_workflow_provider_name(route),
         workflow_key=workflow_key,
         idempotency_key=_agent_turn_idempotency_key(event),
         target=_build_workflow_agent_target(event, route),
-        signal=gestalt.WorkflowSignalInput(
+        signal=gestalt.WorkflowSignal(
             name=SLACK_EVENT_WORKFLOW_SIGNAL,
             idempotency_key=_agent_turn_idempotency_key(event),
             payload=_slack_workflow_signal_payload(event, reply_ref, thread_context),
@@ -2779,7 +2785,7 @@ def _build_workflow_agent_target(
         "model": _agent_model(route),
         "prompt": _workflow_agent_prompt(),
         "messages": [
-            gestalt.AgentMessageInput(role="system", text=_agent_system_prompt(route))
+            gestalt.AgentMessage(role="system", text=_agent_system_prompt(route))
         ],
         "tool_refs": _agent_event_tool_refs(route),
         "session_ready_delivery": _workflow_session_ready_delivery(),
@@ -2792,8 +2798,8 @@ def _build_workflow_agent_target(
     model_options = _agent_model_options(route)
     if model_options:
         target_kwargs["model_options"] = model_options
-    agent = gestalt.BoundWorkflowAgentTargetInput(**target_kwargs)
-    return gestalt.BoundWorkflowTargetInput(agent=agent)
+    agent = gestalt.BoundWorkflowAgentTarget(**target_kwargs)
+    return gestalt.BoundWorkflowTarget(agent=agent)
 
 
 def _workflow_agent_prompt() -> str:
@@ -2811,20 +2817,20 @@ def _workflow_agent_prompt() -> str:
 
 
 def _workflow_output_delivery() -> Any:
-    return gestalt.WorkflowOutputDeliveryInput(
-        target=gestalt.BoundWorkflowPluginTargetInput(
+    return gestalt.WorkflowOutputDelivery(
+        target=gestalt.BoundWorkflowPluginTarget(
             plugin_name=_agent_config.plugin_name,
             operation=SLACK_REPLY_OPERATION,
         ),
         credential_mode="none",
         input_bindings=[
-            gestalt.WorkflowOutputBindingInput(
+            gestalt.WorkflowOutputBinding(
                 input_field="text",
-                value=gestalt.WorkflowOutputValueSourceInput(agent_output="text"),
+                value=gestalt.WorkflowOutputValueSource(agent_output="text"),
             ),
-            gestalt.WorkflowOutputBindingInput(
+            gestalt.WorkflowOutputBinding(
                 input_field="reply_ref",
-                value=gestalt.WorkflowOutputValueSourceInput(
+                value=gestalt.WorkflowOutputValueSource(
                     signal_payload="reply_ref"
                 ),
             ),
@@ -2833,20 +2839,20 @@ def _workflow_output_delivery() -> Any:
 
 
 def _workflow_session_ready_delivery() -> Any:
-    return gestalt.WorkflowOutputDeliveryInput(
-        target=gestalt.BoundWorkflowPluginTargetInput(
+    return gestalt.WorkflowOutputDelivery(
+        target=gestalt.BoundWorkflowPluginTarget(
             plugin_name=_agent_config.plugin_name,
             operation=SLACK_SESSION_STARTED_REPLY_OPERATION,
         ),
         credential_mode="none",
         input_bindings=[
-            gestalt.WorkflowOutputBindingInput(
+            gestalt.WorkflowOutputBinding(
                 input_field="session_id",
-                value=gestalt.WorkflowOutputValueSourceInput(agent_session="id"),
+                value=gestalt.WorkflowOutputValueSource(agent_session="id"),
             ),
-            gestalt.WorkflowOutputBindingInput(
+            gestalt.WorkflowOutputBinding(
                 input_field="reply_ref",
-                value=gestalt.WorkflowOutputValueSourceInput(
+                value=gestalt.WorkflowOutputValueSource(
                     signal_payload="reply_ref"
                 ),
             ),
@@ -2986,7 +2992,7 @@ def _build_workflow_interaction_signal_or_start_request(
     route: SlackAgentRoute | None,
 ) -> Any:
     event = _interaction_event(payload, interaction_ref)
-    signal = gestalt.WorkflowSignalInput(
+    signal = gestalt.WorkflowSignal(
         name=SLACK_INTERACTION_WORKFLOW_SIGNAL,
         idempotency_key=_interaction_idempotency_key(payload, selected_action),
         payload=_slack_interaction_signal_payload(
@@ -2994,7 +3000,7 @@ def _build_workflow_interaction_signal_or_start_request(
         ),
         metadata=_agent_metadata(event, route),
     )
-    return gestalt.WorkflowManagerSignalOrStartRunInput(
+    return gestalt.WorkflowManagerSignalOrStartRun(
         provider_name=_workflow_provider_name(route),
         workflow_key=interaction_ref.workflow_key,
         idempotency_key=signal.idempotency_key,
@@ -3092,7 +3098,7 @@ def _agent_tool_ref(
     title: str = "",
     description: str = "",
 ) -> Any:
-    return gestalt.AgentToolRefInput(
+    return gestalt.AgentToolRef(
         system=system,
         plugin=plugin,
         operation=operation,
@@ -3440,21 +3446,21 @@ def _workflow_manager_contract_available() -> bool:
     if not all(
         getattr(gestalt, name, None) is not None
         for name in (
-            "BoundWorkflowAgentTargetInput",
-            "BoundWorkflowPluginTargetInput",
-            "BoundWorkflowTargetInput",
-            "WorkflowOutputBindingInput",
-            "WorkflowOutputDeliveryInput",
-            "WorkflowOutputValueSourceInput",
-            "WorkflowManagerSignalOrStartRunInput",
-            "WorkflowSignalInput",
+            "BoundWorkflowAgentTarget",
+            "BoundWorkflowPluginTarget",
+            "BoundWorkflowTarget",
+            "WorkflowOutputBinding",
+            "WorkflowOutputDelivery",
+            "WorkflowOutputValueSource",
+            "WorkflowManagerSignalOrStartRun",
+            "WorkflowSignal",
         )
     ):
         return False
     try:
-        agent = gestalt.BoundWorkflowAgentTargetInput()
-        source = gestalt.WorkflowOutputValueSourceInput(agent_session="id")
-        gestalt.WorkflowManagerSignalOrStartRunInput()
+        agent = gestalt.BoundWorkflowAgentTarget()
+        source = gestalt.WorkflowOutputValueSource(agent_session="id")
+        gestalt.WorkflowManagerSignalOrStartRun()
     except Exception:
         return False
     return (
@@ -3464,7 +3470,7 @@ def _workflow_manager_contract_available() -> bool:
 
 
 def _workflow_publish_contract_available() -> bool:
-    request_type = getattr(gestalt, "WorkflowManagerPublishEventInput", None)
+    request_type = getattr(gestalt, "WorkflowManagerPublishEvent", None)
     if request_type is None:
         return False
     try:
@@ -3483,7 +3489,7 @@ def _workflow_publish_provider_selection_required(
 
 
 def _workflow_publish_provider_selection_available() -> bool:
-    request_type = getattr(gestalt, "WorkflowManagerPublishEventInput", None)
+    request_type = getattr(gestalt, "WorkflowManagerPublishEvent", None)
     if request_type is None:
         return False
     try:
