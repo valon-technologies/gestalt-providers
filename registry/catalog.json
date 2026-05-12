@@ -78,8 +78,8 @@
             "darwin/amd64",
             "darwin/arm64",
             "linux/amd64",
-            "linux/arm",
-            "linux/arm64"
+            "linux/arm64",
+            "linux/arm"
           ],
           "runtime": "executable",
           "version": "0.0.1-alpha.1"

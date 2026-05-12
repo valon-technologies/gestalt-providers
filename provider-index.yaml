@@ -26,8 +26,8 @@ packages:
           - "darwin/amd64"
           - "darwin/arm64"
           - "linux/amd64"
-          - "linux/arm"
           - "linux/arm64"
+          - "linux/arm"
   github.com/valon-technologies/gestalt-providers/agent/cursor:
     displayName: "Cursor Agent SDK"
     description: "Agent provider that runs the Cursor Agent SDK with Gestalt MCP catalog tools exposed through a per-turn MCP server."
