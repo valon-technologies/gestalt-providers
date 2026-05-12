@@ -76,8 +76,8 @@ packages:
           - "darwin/amd64"
           - "darwin/arm64"
           - "linux/amd64"
-          - "linux/arm"
           - "linux/arm64"
+          - "linux/arm"
   github.com/valon-technologies/gestalt-providers/authorization/indexeddb:
     displayName: "IndexedDB Authorization"
     description: "Authorization provider backed by the host IndexedDB service."
@@ -90,8 +90,8 @@ packages:
           - "darwin/amd64"
           - "darwin/arm64"
           - "linux/amd64"
-          - "linux/arm"
           - "linux/arm64"
+          - "linux/arm"
   github.com/valon-technologies/gestalt-providers/cache/valkey:
     displayName: "Valkey"
     description: "Valkey-backed cache provider."
@@ -118,8 +118,8 @@ packages:
           - "darwin/amd64"
           - "darwin/arm64"
           - "linux/amd64"
-          - "linux/arm"
           - "linux/arm64"
+          - "linux/arm"
   github.com/valon-technologies/gestalt-providers/indexeddb/dynamodb:
     displayName: "DynamoDB"
     description: "Amazon DynamoDB datastore provider."
@@ -160,8 +160,8 @@ packages:
           - "darwin/amd64"
           - "darwin/arm64"
           - "linux/amd64"
-          - "linux/arm"
           - "linux/arm64"
+          - "linux/arm"
   github.com/valon-technologies/gestalt-providers/plugins/asana:
     displayName: "Asana"
     description: "Manage tasks, projects, and workspaces."
@@ -194,8 +194,9 @@ packages:
           - "darwin/amd64"
           - "darwin/arm64"
           - "linux/amd64"
-          - "linux/arm"
           - "linux/arm64"
+          - "linux/arm"
+          - "generic"
   github.com/valon-technologies/gestalt-providers/plugins/carta:
     displayName: "Carta"
     description: "Access Carta Launch, Investor, Issuer, Portfolio, corporation, compensation, open cap table, file upload, and user APIs."
@@ -273,8 +274,13 @@ packages:
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
-        runtime: "declarative"
+        runtime: "executable"
         platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
           - "generic"
   github.com/valon-technologies/gestalt-providers/plugins/gitlab:
     displayName: "GitLab"
@@ -298,8 +304,9 @@ packages:
           - "darwin/amd64"
           - "darwin/arm64"
           - "linux/amd64"
-          - "linux/arm"
           - "linux/arm64"
+          - "linux/arm"
+          - "generic"
   github.com/valon-technologies/gestalt-providers/plugins/gong:
     displayName: "Gong"
     description: "Access the Gong public API v2 for calls, users, stats, settings, CRM, library, coaching, and data privacy workflows."
@@ -407,8 +414,13 @@ packages:
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/hex/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
-        runtime: "declarative"
+        runtime: "executable"
         platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
           - "generic"
   github.com/valon-technologies/gestalt-providers/plugins/httpbin:
     displayName: "HTTPBin"
@@ -622,8 +634,13 @@ packages:
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/vercel/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
-        runtime: "declarative"
+        runtime: "executable"
         platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
           - "generic"
   github.com/valon-technologies/gestalt-providers/plugins/zendesk:
     displayName: "Zendesk"
@@ -647,8 +664,8 @@ packages:
           - "darwin/amd64"
           - "darwin/arm64"
           - "linux/amd64"
-          - "linux/arm"
           - "linux/arm64"
+          - "linux/arm"
   github.com/valon-technologies/gestalt-providers/runtime/kubernetes:
     displayName: "Kubernetes Runtime"
     description: "Hosted executable-plugin runtime backed by Kubernetes."
@@ -675,8 +692,8 @@ packages:
           - "darwin/amd64"
           - "darwin/arm64"
           - "linux/amd64"
-          - "linux/arm"
           - "linux/arm64"
+          - "linux/arm"
   github.com/valon-technologies/gestalt-providers/runtime/nebius:
     displayName: "Nebius Runtime"
     description: "Hosted executable-plugin runtime backed by Nebius Compute VMs."
@@ -689,8 +706,8 @@ packages:
           - "darwin/amd64"
           - "darwin/arm64"
           - "linux/amd64"
-          - "linux/arm"
           - "linux/arm64"
+          - "linux/arm"
   github.com/valon-technologies/gestalt-providers/s3/s3:
     displayName: "S3"
     description: "S3 provider for AWS S3, GCS XML interoperability, MinIO, and similar backends."
@@ -703,8 +720,8 @@ packages:
           - "darwin/amd64"
           - "darwin/arm64"
           - "linux/amd64"
-          - "linux/arm"
           - "linux/arm64"
+          - "linux/arm"
   github.com/valon-technologies/gestalt-providers/secrets/aws:
     displayName: "AWS Secrets Manager"
     description: "Resolves secrets from AWS Secrets Manager."
@@ -745,8 +762,8 @@ packages:
           - "darwin/amd64"
           - "darwin/arm64"
           - "linux/amd64"
-          - "linux/arm"
           - "linux/arm64"
+          - "linux/arm"
   github.com/valon-technologies/gestalt-providers/secrets/keeper:
     displayName: "Keeper Secrets Manager"
     description: "Resolves secrets from Keeper Secrets Manager."
@@ -821,8 +838,8 @@ packages:
           - "darwin/amd64"
           - "darwin/arm64"
           - "linux/amd64"
-          - "linux/arm"
           - "linux/arm64"
+          - "linux/arm"
   github.com/valon-technologies/gestalt-providers/workflow/temporal:
     displayName: "Temporal Workflow"
     description: "Temporal Cloud-backed workflow provider with durable workflow state and schedules."
