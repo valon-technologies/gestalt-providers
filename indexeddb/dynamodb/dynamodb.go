@@ -16,7 +16,6 @@ import (
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
 	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
-	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -1188,7 +1187,7 @@ func unmarshalIndexKey(raw []byte, keyParts int) ([]any, error) {
 		if !ok || value == nil {
 			return nil, fmt.Errorf("missing index key part %d", i)
 		}
-		decoded, err := gestalt.AnyFromTypedValue(value)
+		decoded, err := sdkcompat.AnyFromTypedValue(value)
 		if err != nil {
 			return nil, err
 		}
@@ -1277,7 +1276,7 @@ func extractID(record *proto.Record) (string, error) {
 	if !ok {
 		return "", status.Error(codes.InvalidArgument, "record must contain an \"id\" field")
 	}
-	value, err := gestalt.AnyFromTypedValue(v)
+	value, err := sdkcompat.AnyFromTypedValue(v)
 	if err != nil {
 		return "", status.Errorf(codes.InvalidArgument, "record id: %v", err)
 	}
@@ -1320,7 +1319,7 @@ func marshalRecord(record *proto.Record) ([]byte, error) {
 }
 
 func typedValueKeyString(value *proto.TypedValue) string {
-	goValue, err := gestalt.AnyFromTypedValue(value)
+	goValue, err := sdkcompat.AnyFromTypedValue(value)
 	if err != nil {
 		return ""
 	}
