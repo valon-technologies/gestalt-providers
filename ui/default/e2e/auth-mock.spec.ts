@@ -3,7 +3,11 @@ import {
   expect,
   mockAuthInfo,
   mockIntegrations,
+  mockManagedIdentities,
   mockTokens,
+  mockWorkflowEventTriggers,
+  mockWorkflowRuns,
+  mockWorkflowSchedules,
 } from "./fixtures";
 
 const hasBackend =
@@ -73,6 +77,9 @@ test.describe("Authentication", () => {
     });
     await mockIntegrations(page, []);
     await mockTokens(page, []);
+    await mockWorkflowSchedules(page, []);
+    await mockWorkflowEventTriggers(page, []);
+    await mockWorkflowRuns(page, []);
 
     await page.goto("/login");
     await expect(page).toHaveURL("/");
@@ -95,6 +102,16 @@ test.describe("Authentication", () => {
       page.getByRole("link", { name: "Authorization", exact: true }),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: /Logout/i })).toHaveCount(0);
+
+    await page.goto("/identities");
+    await expect(
+      page.getByRole("heading", { name: "Agent Identities" }),
+    ).toBeVisible();
+
+    await page.goto("/identities?id=agent-1");
+    await expect(
+      page.getByRole("heading", { name: "Agent Identities" }),
+    ).toBeVisible();
   });
 
   test("authenticated user sees dashboard", async ({ authenticatedPage }) => {
@@ -102,10 +119,14 @@ test.describe("Authentication", () => {
     await page.route("**/api/v1/auth/info", (route) => {
       route.abort();
     });
+    await mockManagedIdentities(page, []);
     await mockIntegrations(page, [
       { name: "test-svc", displayName: "Test Service" },
     ]);
     await mockTokens(page, []);
+    await mockWorkflowSchedules(page, []);
+    await mockWorkflowEventTriggers(page, []);
+    await mockWorkflowRuns(page, []);
 
     await page.goto("/");
     await expect(
@@ -126,8 +147,12 @@ test.describe("Authentication", () => {
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
+    await mockManagedIdentities(page, []);
     await mockIntegrations(page, []);
     await mockTokens(page, []);
+    await mockWorkflowSchedules(page, []);
+    await mockWorkflowEventTriggers(page, []);
+    await mockWorkflowRuns(page, []);
 
     await page.goto("/login");
     await expect(page).toHaveURL("/");
@@ -138,8 +163,12 @@ test.describe("Authentication", () => {
       provider: "test-sso",
       displayName: "Test SSO",
     });
+    await mockManagedIdentities(page, []);
     await mockIntegrations(page, []);
     await mockTokens(page, []);
+    await mockWorkflowSchedules(page, []);
+    await mockWorkflowEventTriggers(page, []);
+    await mockWorkflowRuns(page, []);
     await page.route("**/api/v1/auth/logout", (route) => {
       route.fulfill({ json: { status: "ok" } });
     });
@@ -222,8 +251,12 @@ test.describe("Authentication", () => {
     const wrappedState = encodeWrappedState("correct-state");
 
     await seedOAuthState(page, "correct-state");
+    await mockManagedIdentities(page, []);
     await mockIntegrations(page, []);
     await mockTokens(page, []);
+    await mockWorkflowSchedules(page, []);
+    await mockWorkflowEventTriggers(page, []);
+    await mockWorkflowRuns(page, []);
 
     let callbackState: string | null = null;
     await page.route("**/api/v1/auth/login/callback?**", (route, request) => {
@@ -294,6 +327,15 @@ test.describe("Authentication", () => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
     await page.route("**/api/v1/tokens", (route) => {
+      route.fulfill({ status: 401, json: { error: "invalid token" } });
+    });
+    await page.route("**/api/v1/workflow/schedules", (route) => {
+      route.fulfill({ status: 401, json: { error: "invalid token" } });
+    });
+    await page.route("**/api/v1/workflow/event-triggers", (route) => {
+      route.fulfill({ status: 401, json: { error: "invalid token" } });
+    });
+    await page.route("**/api/v1/workflow/runs", (route) => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
 

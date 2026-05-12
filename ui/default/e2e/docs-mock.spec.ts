@@ -14,7 +14,7 @@ test.describe("Docs page", () => {
     "Docs page test uses mocked auth info and does not apply when running against a real server",
   );
 
-  test("docs are reachable before login and cover the main user flows", async ({
+  test("docs are reachable before login and cover the main user workflows", async ({
     page,
   }) => {
     const pageErrors = trackPageErrors(page);
@@ -78,10 +78,73 @@ test.describe("Docs page", () => {
     await expect(page.getByText("gestalt plugins list", { exact: true })).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Configure cloud environments" }),
-    ).toHaveCount(0);
+    ).toBeVisible();
+    const agentTabs = page.getByRole("tablist", {
+      name: "Cloud environment configuration",
+    });
     await expect(
-      page.getByRole("heading", { name: "Inspect workflows" }),
-    ).toHaveCount(0);
+      agentTabs.getByRole("tab", { name: "Claude Code web" }),
+    ).toBeVisible();
+    await expect(agentTabs.getByRole("tab", { name: "Codex Cloud" })).toBeVisible();
+    await expect(
+      agentTabs.getByRole("tab", { name: "Cursor Cloud Agents" }),
+    ).toBeVisible();
+    await expect(agentTabs.getByRole("tab")).toHaveText([
+      "Claude Code web",
+      "Codex Cloud",
+      "Cursor Cloud Agents",
+    ]);
+    await expect(
+      page.getByRole("link", { name: "claude.ai/code" }),
+    ).toHaveAttribute("href", "https://claude.ai/code");
+    await expect(
+      page.getByAltText(
+        "Claude Code web environment picker with the settings control highlighted",
+      ),
+    ).toBeVisible();
+    await expect(page.locator("#agent-claude-code-panel")).toContainText(
+      `GESTALT_URL=${expectedOrigin}`,
+    );
+    await expect(page.locator("#agent-claude-code-panel")).not.toContainText("BASE_URL");
+    await expect(page.locator("#agent-claude-code-panel")).not.toContainText(
+      "dedicated secrets store",
+    );
+    await agentTabs.getByRole("tab", { name: "Codex Cloud" }).click();
+    await expect(
+      page.getByRole("link", { name: "Codex environment settings" }),
+    ).toHaveAttribute("href", "https://chatgpt.com/codex/settings/environments");
+    await expect(page.locator("#agent-codex-panel")).toContainText(
+      "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh",
+    );
+    await expect(page.locator("#agent-codex-panel")).not.toContainText("BASE_URL");
+    await expect(page.locator("#agent-codex-panel")).toContainText(
+      `GESTALT_URL=${expectedOrigin}`,
+    );
+    await expect(page.locator("#agent-codex-panel")).not.toContainText(
+      "export GESTALT_API_KEY",
+    );
+    await expect(page.locator("#agent-codex-panel")).toContainText(
+      "Codex secrets are only available during setup",
+    );
+    await agentTabs.getByRole("tab", { name: "Cursor Cloud Agents" }).click();
+    await expect(
+      page.getByRole("link", { name: "Cursor Cloud Agents settings" }),
+    ).toHaveAttribute("href", "https://cursor.com/dashboard/cloud-agents#environments");
+    await expect(page.locator("#agent-cursor-panel")).toContainText(
+      ".cursor/environment.json",
+    );
+    await expect(page.locator("#agent-cursor-panel")).toContainText(
+      '"install": "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh"',
+    );
+    await expect(page.locator("#agent-cursor-panel")).toContainText(
+      `Set GESTALT_URL to ${expectedOrigin}`,
+    );
+    await expect(page.locator("#agent-cursor-panel")).toContainText(
+      "GESTALT_API_KEY as a Cursor Cloud Agent secret",
+    );
+    await expect(page.locator("#agent-cursor-panel")).not.toContainText(
+      "export GESTALT_API_KEY",
+    );
 
     await leftNav.getByRole("link", { name: "Invoke Operations" }).click();
     await expect(page).toHaveURL(/\/docs\/invoke/);
@@ -95,9 +158,13 @@ test.describe("Docs page", () => {
       page.getByText("/api/v1/integrations").first(),
     ).toBeVisible();
 
+    await leftNav.getByRole("link", { name: "Manage Workflows" }).click();
+    await expect(page).toHaveURL(/\/docs\/workflows/);
     await expect(
-      leftNav.getByRole("link", { name: "Manage Workflows" }),
-    ).toHaveCount(0);
+      page.getByRole("heading", { name: "Manage Workflows" }),
+    ).toBeVisible();
+    await expect(page.locator("article")).toContainText("gestalt workflows triggers list");
+    await expect(page.locator("article")).toContainText("gestalt workflows runs list");
 
     await leftNav.getByRole("link", { name: "Use With MCP" }).click();
     await expect(page).toHaveURL(/\/docs\/mcp/);

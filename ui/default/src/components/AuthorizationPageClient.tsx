@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { getTokens, type APIToken } from "@/lib/api";
 import AuthGuard from "@/components/AuthGuard";
 import Nav from "@/components/Nav";
@@ -78,6 +79,20 @@ export default function AuthorizationPageClient() {
                 <TokenTable tokens={tokens} onRevoked={loadTokens} />
               </div>
             ) : null}
+          </section>
+
+          <section className="mt-6 animate-fade-in-up rounded-2xl border border-alpha bg-base-white p-6 [animation-delay:180ms] dark:bg-surface">
+            <AuthorizationSectionIntro
+              eyebrow="Service Accounts"
+              title="Managed Identities"
+              description="Create shared service-account subjects, grant plugin roles, and mint subject-owned API tokens for automation."
+            />
+            <Link
+              href="/identities"
+              className="mt-6 inline-flex rounded-md border border-alpha px-4 py-2 text-sm font-medium text-primary transition-colors duration-150 hover:border-alpha-strong hover:bg-base-100 dark:hover:bg-surface-raised"
+            >
+              Manage identities
+            </Link>
           </section>
         </main>
       </div>
