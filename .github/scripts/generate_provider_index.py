@@ -32,7 +32,7 @@ PACKAGE_ROOTS = (
     "plugins",
     "auth",
     "authorization",
-    "external_credentials",
+    "externalcredentials",
     "s3",
     "indexeddb",
     "workflow",
@@ -149,8 +149,9 @@ def normalize_kind(kind: Any) -> str:
     value = str(kind or "").strip().lower()
     aliases = {
         "auth": "authentication",
-        "externalcredentials": "external_credentials",
-        "external-credentials": "external_credentials",
+        "external_credentials": "externalcredentials",
+        "externalcredentials": "externalcredentials",
+        "external-credentials": "externalcredentials",
     }
     return aliases.get(value, value)
 
@@ -656,7 +657,7 @@ def config_target(kind: str) -> dict[str, Any]:
             "entryKind": "ui",
             "requiredSet": {"path": "/"},
         }
-    if kind == "external_credentials":
+    if kind == "externalcredentials":
         return {"section": "providers.externalCredentials", "entryKind": kind}
     if kind in {
         "authentication",

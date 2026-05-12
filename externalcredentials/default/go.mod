@@ -1,4 +1,4 @@
-module github.com/valon-technologies/gestalt-providers/external_credentials/default
+module github.com/valon-technologies/gestalt-providers/externalcredentials/default
 
 go 1.26
 

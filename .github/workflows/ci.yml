@@ -11,7 +11,7 @@ on:
       - 'plugins/**'
       - 'auth/**'
       - 'authorization/**'
-      - 'external_credentials/**'
+      - 'externalcredentials/**'
       - 's3/**'
       - 'indexeddb/**'
       - 'workflow/**'
@@ -32,7 +32,7 @@ on:
       - 'plugins/**'
       - 'auth/**'
       - 'authorization/**'
-      - 'external_credentials/**'
+      - 'externalcredentials/**'
       - 's3/**'
       - 'indexeddb/**'
       - 'workflow/**'
@@ -102,7 +102,7 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          package_roots = ("agent", "runtime", "plugins", "auth", "authorization", "external_credentials", "s3", "indexeddb", "workflow", "cache", "secrets")
+          package_roots = ("agent", "runtime", "plugins", "auth", "authorization", "externalcredentials", "s3", "indexeddb", "workflow", "cache", "secrets")
           all_plugins = []
           for root_name in package_roots:
               root = repo / root_name
@@ -161,10 +161,10 @@ jobs:
                           break
                       if parts[1] == "internal":
                           selected.update(packages_by_root.get("indexeddb", set()))
-                          selected.update(packages_by_root.get("external_credentials", set()))
+                          selected.update(packages_by_root.get("externalcredentials", set()))
                           continue
                       if parts[1] == "relationaldb":
-                          selected.update(packages_by_root.get("external_credentials", set()))
+                          selected.update(packages_by_root.get("externalcredentials", set()))
                   if len(parts) >= 2 and parts[0] == "cache":
                       if parts[1] == "internal":
                           selected.update(packages_by_root.get("cache", set()))
@@ -429,7 +429,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/ui-default-release" "${RUNNER_TEMP}/indexeddb-relationaldb-release" "${RUNNER_TEMP}/external-credentials-default-release"
           (cd ui/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/ui-default-release")
           (cd indexeddb/relationaldb && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/indexeddb-relationaldb-release")
-          (cd external_credentials/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/external-credentials-default-release")
+          (cd externalcredentials/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/external-credentials-default-release")
 
           cat >"${RUNNER_TEMP}/gestaltd-web-e2e.yaml" <<EOF
           apiVersion: gestaltd.config/v5
