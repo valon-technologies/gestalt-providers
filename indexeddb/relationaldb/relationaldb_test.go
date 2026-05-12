@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
-	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -331,7 +330,7 @@ func TestFullLifecycle(t *testing.T) {
 	if got := resp.Record.Fields["code"].GetStringValue(); got != "W-001" {
 		t.Fatalf("Get code: got %q, want W-001", got)
 	}
-	createdAt, err := gestalt.AnyFromTypedValue(resp.Record.Fields["created_at"])
+	createdAt, err := sdkcompat.AnyFromTypedValue(resp.Record.Fields["created_at"])
 	if err != nil {
 		t.Fatalf("AnyFromTypedValue(created_at): %v", err)
 	}
@@ -361,7 +360,7 @@ func TestFullLifecycle(t *testing.T) {
 	}
 
 	// Index query.
-	vals, _ := gestalt.TypedValuesFromAny([]any{"W-001"})
+	vals, _ := sdkcompat.TypedValuesFromAny([]any{"W-001"})
 	idxResp, err := s.IndexGet(ctx, &proto.IndexQueryRequest{
 		Store: "widgets", Index: "by_code", Values: vals,
 	})
@@ -460,7 +459,7 @@ func TestGenericStoreSupportsTypedPrimaryKeyLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get typed primary key: %v", err)
 	}
-	id, err := gestalt.AnyFromTypedValue(resp.Record.Fields["id"])
+	id, err := sdkcompat.AnyFromTypedValue(resp.Record.Fields["id"])
 	if err != nil {
 		t.Fatalf("AnyFromTypedValue(id): %v", err)
 	}
@@ -603,7 +602,7 @@ func TestCreateObjectStoreRejectsSchemaChanges(t *testing.T) {
 	if got := count.GetCount(); got != 1 {
 		t.Fatalf("Count after rejected schema change = %d, want 1", got)
 	}
-	vals, _ := gestalt.TypedValuesFromAny([]any{"W-001"})
+	vals, _ := sdkcompat.TypedValuesFromAny([]any{"W-001"})
 	if _, err := s.IndexGet(ctx, &proto.IndexQueryRequest{
 		Store: "widgets", Index: "by_code", Values: vals,
 	}); status.Code(err) != codes.NotFound {
@@ -905,7 +904,7 @@ func TestCreateGenericIndexEntriesTableSQLMySQLUsesLongBlobPayloads(t *testing.T
 
 func mustTypedValue(t *testing.T, value any) *proto.TypedValue {
 	t.Helper()
-	pbValue, err := gestalt.TypedValueFromAny(value)
+	pbValue, err := sdkcompat.TypedValueFromAny(value)
 	if err != nil {
 		t.Fatalf("TypedValueFromAny(%#v): %v", value, err)
 	}

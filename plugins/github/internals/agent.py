@@ -60,12 +60,12 @@ def build_workflow_signal_or_start_request(
     pull_request_context: Any | None = None,
 ) -> Any:
     idempotency_key = agent_turn_idempotency_key(payload, summary, policy)
-    request = gestalt.WorkflowManagerSignalOrStartRunRequest(
+    request = gestalt.WorkflowManagerSignalOrStartRunInput(
         provider_name=workflow_provider(policy),
         workflow_key=agent_session_ref(summary, policy),
         idempotency_key=idempotency_key,
         target=workflow_target(summary, policy),
-        signal=gestalt.WorkflowSignal(
+        signal=gestalt.WorkflowSignalInput(
             name=GITHUB_WORKFLOW_SIGNAL_NAME,
             idempotency_key=idempotency_key,
             payload=workflow_signal_payload(
@@ -97,7 +97,7 @@ def workflow_target(
 
 
 def workflow_plugin_target(target: GitHubWorkflowPluginTarget) -> Any:
-    plugin = gestalt.BoundWorkflowPluginTarget(
+    plugin = gestalt.BoundWorkflowPluginTargetInput(
         plugin_name=target.plugin_name,
         operation=target.operation,
         connection=target.connection,
@@ -105,27 +105,25 @@ def workflow_plugin_target(target: GitHubWorkflowPluginTarget) -> Any:
         credential_mode=target.credential_mode,
         input=target.input,
     )
-    return gestalt.BoundWorkflowTarget(plugin=plugin)
+    return gestalt.BoundWorkflowTargetInput(plugin=plugin)
 
 
 def workflow_agent_target(
     summary: dict[str, Any], policy: GitHubWebhookPolicy | None = None
 ) -> Any:
     model_options = agent_model_options(policy)
-    agent = gestalt.BoundWorkflowAgentTarget(
+    agent = gestalt.BoundWorkflowAgentTargetInput(
         provider_name=agent_provider(policy),
         model=agent_model(policy),
         prompt=workflow_agent_prompt(),
-        messages=[{"role": "system", "text": agent_system_prompt(policy)}],
+        messages=[
+            gestalt.AgentMessage(role="system", text=agent_system_prompt(policy))
+        ],
         tool_refs=agent_tool_refs(policy),
         metadata=agent_session_metadata(summary, policy),
+        model_options=model_options or None,
     )
-    if model_options:
-        target_options = getattr(agent, "model_options", None)
-        if target_options is None:
-            target_options = agent.provider_options
-        target_options.update(model_options)
-    return gestalt.BoundWorkflowTarget(agent=agent)
+    return gestalt.BoundWorkflowTargetInput(agent=agent)
 
 
 def workflow_signal_payload(
@@ -166,7 +164,7 @@ def workflow_agent_prompt() -> str:
 
 def agent_tool_refs(policy: GitHubWebhookPolicy | None = None) -> list[Any]:
     return [
-        {"plugin": "github", "operation": operation}
+        gestalt.AgentToolRef(plugin="github", operation=operation)
         for operation in agent_operations(policy)
     ]
 

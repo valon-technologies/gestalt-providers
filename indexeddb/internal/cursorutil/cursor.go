@@ -8,7 +8,7 @@ import (
 	"sort"
 	"time"
 
-	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/wirecodec"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -199,14 +199,14 @@ func (s *Snapshot) CurrentEntry() (*proto.CursorEntry, error) {
 	case []any:
 		out.Key = make([]*proto.KeyValue, len(key))
 		for i, part := range key {
-			kv, err := gestalt.AnyToKeyValue(part)
+			kv, err := wirecodec.AnyToKeyValue(part)
 			if err != nil {
 				return nil, status.Errorf(codes.InvalidArgument, "marshal cursor key[%d]: %v", i, err)
 			}
 			out.Key[i] = kv
 		}
 	default:
-		kv, err := gestalt.AnyToKeyValue(key)
+		kv, err := wirecodec.AnyToKeyValue(key)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "marshal cursor key: %v", err)
 		}
@@ -317,7 +317,7 @@ func CloneRecordWithField(record *proto.Record, field string, value any) (*proto
 	if cloned.Fields == nil {
 		cloned.Fields = map[string]*proto.TypedValue{}
 	}
-	keyValue, err := gestalt.TypedValueFromAny(value)
+	keyValue, err := wirecodec.TypedValueFromAny(value)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "marshal primary key: %v", err)
 	}
@@ -333,14 +333,14 @@ func DirectRecordField(record *proto.Record, field string) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("field %q not found", field)
 	}
-	return gestalt.AnyFromTypedValue(value)
+	return wirecodec.AnyFromTypedValue(value)
 }
 
 func TargetToAny(kvs []*proto.KeyValue, indexCursor bool) (any, error) {
 	if len(kvs) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "continue key is required")
 	}
-	parts, err := gestalt.KeyValuesToAny(kvs)
+	parts, err := wirecodec.KeyValuesToAny(kvs)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "unmarshal continue key: %v", err)
 	}
@@ -356,7 +356,7 @@ func TargetToAny(kvs []*proto.KeyValue, indexCursor bool) (any, error) {
 func RangeBounds(kr *proto.KeyRange, indexCursor bool) (any, any, error) {
 	var lower any
 	if kr.GetLower() != nil {
-		value, err := gestalt.AnyFromTypedValue(kr.GetLower())
+		value, err := wirecodec.AnyFromTypedValue(kr.GetLower())
 		if err != nil {
 			return nil, nil, status.Errorf(codes.InvalidArgument, "key range lower: %v", err)
 		}
@@ -367,7 +367,7 @@ func RangeBounds(kr *proto.KeyRange, indexCursor bool) (any, any, error) {
 
 	var upper any
 	if kr.GetUpper() != nil {
-		value, err := gestalt.AnyFromTypedValue(kr.GetUpper())
+		value, err := wirecodec.AnyFromTypedValue(kr.GetUpper())
 		if err != nil {
 			return nil, nil, status.Errorf(codes.InvalidArgument, "key range upper: %v", err)
 		}

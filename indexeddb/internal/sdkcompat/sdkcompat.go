@@ -7,6 +7,7 @@ import (
 
 	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
 	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/txstream"
+	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/wirecodec"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
@@ -73,10 +74,26 @@ const (
 	transactionDurabilityRelaxed = 2
 )
 
+func TypedValueFromAny(v any) (*proto.TypedValue, error) {
+	return wirecodec.TypedValueFromAny(v)
+}
+
+func AnyFromTypedValue(v *proto.TypedValue) (any, error) {
+	return wirecodec.AnyFromTypedValue(v)
+}
+
+func TypedValuesFromAny(values []any) ([]*proto.TypedValue, error) {
+	return wirecodec.TypedValuesFromAny(values)
+}
+
+func AnyFromTypedValues(values []*proto.TypedValue) ([]any, error) {
+	return wirecodec.AnyFromTypedValues(values)
+}
+
 func RecordToProto(record gestalt.Record) (*proto.Record, error) {
 	out := &proto.Record{Fields: make(map[string]*proto.TypedValue, len(record))}
 	for key, value := range record {
-		typed, err := gestalt.TypedValueFromAny(value)
+		typed, err := TypedValueFromAny(value)
 		if err != nil {
 			return nil, fmt.Errorf("field %q: %w", key, err)
 		}
@@ -91,7 +108,7 @@ func RecordFromProto(record *proto.Record) (gestalt.Record, error) {
 	}
 	out := make(gestalt.Record, len(record.GetFields()))
 	for key, typed := range record.GetFields() {
-		value, err := gestalt.AnyFromTypedValue(typed)
+		value, err := AnyFromTypedValue(typed)
 		if err != nil {
 			return nil, fmt.Errorf("field %q: %w", key, err)
 		}
@@ -110,6 +127,34 @@ func RecordsFromProto(records []*proto.Record) ([]gestalt.Record, error) {
 		out[i] = decoded
 	}
 	return out, nil
+}
+
+func RecordsToProto(records []gestalt.Record) ([]*proto.Record, error) {
+	out := make([]*proto.Record, len(records))
+	for i, record := range records {
+		encoded, err := RecordToProto(record)
+		if err != nil {
+			return nil, fmt.Errorf("record %d: %w", i, err)
+		}
+		out[i] = encoded
+	}
+	return out, nil
+}
+
+func KeyValuesToAny(kvs []*proto.KeyValue) ([]any, error) {
+	return wirecodec.KeyValuesToAny(kvs)
+}
+
+func KeyValueToAny(kv *proto.KeyValue) (any, error) {
+	return wirecodec.KeyValueToAny(kv)
+}
+
+func AnyToKeyValue(v any) (*proto.KeyValue, error) {
+	return wirecodec.AnyToKeyValue(v)
+}
+
+func CursorKeyToProto(key any, indexCursor bool) ([]*proto.KeyValue, error) {
+	return wirecodec.CursorKeyToProto(key, indexCursor)
 }
 
 func CreateObjectStoreRequest(name string, schema gestalt.ObjectStoreSchema) *proto.CreateObjectStoreRequest {
@@ -220,14 +265,14 @@ func KeyRange(r *gestalt.KeyRange) (*proto.KeyRange, error) {
 	}
 	out := &proto.KeyRange{LowerOpen: r.LowerOpen, UpperOpen: r.UpperOpen}
 	if r.Lower != nil {
-		lower, err := gestalt.TypedValueFromAny(r.Lower)
+		lower, err := TypedValueFromAny(r.Lower)
 		if err != nil {
 			return nil, fmt.Errorf("lower bound: %w", err)
 		}
 		out.Lower = lower
 	}
 	if r.Upper != nil {
-		upper, err := gestalt.TypedValueFromAny(r.Upper)
+		upper, err := TypedValueFromAny(r.Upper)
 		if err != nil {
 			return nil, fmt.Errorf("upper bound: %w", err)
 		}
@@ -237,15 +282,7 @@ func KeyRange(r *gestalt.KeyRange) (*proto.KeyRange, error) {
 }
 
 func TypedValues(values []any) ([]*proto.TypedValue, error) {
-	out := make([]*proto.TypedValue, len(values))
-	for i, value := range values {
-		typed, err := gestalt.TypedValueFromAny(value)
-		if err != nil {
-			return nil, fmt.Errorf("value %d: %w", i, err)
-		}
-		out[i] = typed
-	}
-	return out, nil
+	return TypedValuesFromAny(values)
 }
 
 func TransactionMode(mode gestalt.TransactionMode) proto.TransactionMode {
@@ -314,7 +351,7 @@ func cursorEntry(entry *proto.CursorEntry, ok bool, err error) (*gestalt.Indexed
 }
 
 func cursorKey(values []*proto.KeyValue, indexCursor bool) (any, error) {
-	parts, err := gestalt.KeyValuesToAny(values)
+	parts, err := KeyValuesToAny(values)
 	if err != nil {
 		return nil, err
 	}
