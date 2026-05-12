@@ -170,21 +170,15 @@ function buildAuthActions(connections: NormalizedConnection[]): AuthAction[] {
 
 function connectionActionCopy(
   connection: NormalizedConnection,
-  context: ConnectionContext,
+  _context: ConnectionContext,
 ): string | null {
   if (!connection.canAdminConfigure) {
     return null;
   }
-  if (context === "managed_subject") {
-    return "Ask an admin to configure credentials for this identity.";
-  }
   return "Ask an admin to configure deployment-managed credentials.";
 }
 
-function disconnectCopy(displayName: string, context: ConnectionContext): string {
-  if (context === "managed_subject") {
-    return `This will remove this identity's connection to ${displayName}. It can be reconnected later.`;
-  }
+function disconnectCopy(displayName: string, _context: ConnectionContext): string {
   return `This will remove your connection to ${displayName}. You can reconnect at any time.`;
 }
 

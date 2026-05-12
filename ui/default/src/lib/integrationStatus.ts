@@ -618,7 +618,7 @@ function integrationSummaryLabel(
     return "Deployment configured";
   }
   if (credentialState === "connected" && status === "ready") {
-    return context === "managed_subject" ? "Identity connected" : "Connected";
+    return "Connected";
   }
   return statusDisplayLabel(status, context);
 }
@@ -637,14 +637,14 @@ function connectionSummaryLabel(
     return "Deployment configured";
   }
   if (credentialState === "connected" && status === "ready") {
-    return context === "managed_subject" ? "Identity connected" : "Connected";
+    return "Connected";
   }
   return statusDisplayLabel(status, context);
 }
 
 function statusDisplayLabel(
   status: IntegrationStatus,
-  context: ConnectionContext,
+  _context: ConnectionContext,
 ): string {
   switch (status) {
     case "ready":
@@ -652,9 +652,7 @@ function statusDisplayLabel(
     case "degraded":
       return "Degraded";
     case "needs_user_connection":
-      return context === "managed_subject"
-        ? "Identity connection required"
-        : "Not connected";
+      return "Not connected";
     case "needs_instance_selection":
       return "Instance selection required";
     case "needs_admin_configuration":
@@ -670,7 +668,7 @@ function credentialDisplayLabel(
   state: CredentialState,
   isPlatformManaged: boolean,
   isNoAuth: boolean,
-  isManagedSubjectOwned: boolean,
+  _isManagedSubjectOwned: boolean,
 ): string {
   if (isNoAuth) return "No credentials required";
   if (isPlatformManaged) {
@@ -689,27 +687,17 @@ function credentialDisplayLabel(
   }
   switch (state) {
     case "connected":
-      return isManagedSubjectOwned
-        ? "Identity credentials connected"
-        : "User credentials connected";
+      return "Credentials connected";
     case "configured":
-      return isManagedSubjectOwned
-        ? "Identity credentials configured"
-        : "User credentials configured";
+      return "Credentials configured";
     case "missing":
-      return isManagedSubjectOwned
-        ? "Identity credentials missing"
-        : "User credentials missing";
+      return "Credentials missing";
     case "invalid":
-      return isManagedSubjectOwned
-        ? "Identity credentials invalid"
-        : "User credentials invalid";
+      return "Credentials invalid";
     case "not_required":
       return "No credentials required";
     case "unknown":
-      return isManagedSubjectOwned
-        ? "Identity credential status unknown"
-        : "Credential status unknown";
+      return "Credential status unknown";
   }
 }
 
@@ -731,11 +719,11 @@ function healthDisplayLabel(state: HealthState): string | undefined {
 function ownerDisplayLabel(
   isPlatformManaged: boolean,
   isNoAuth: boolean,
-  isManagedSubjectOwned: boolean,
+  _isManagedSubjectOwned: boolean,
 ): string {
   if (isPlatformManaged) return "Deployment managed";
   if (isNoAuth) return "No credential owner";
-  return isManagedSubjectOwned ? "Managed identity owned" : "User owned";
+  return "User owned";
 }
 
 function compact(values: (string | undefined)[]): string[] {

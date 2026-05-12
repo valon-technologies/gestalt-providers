@@ -4,12 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { clearSession, getUserEmail } from "@/lib/auth";
-import {
-  getAgentSessions,
-  getAuthInfo,
-  isAPIErrorStatus,
-  logout,
-} from "@/lib/api";
+import { getAuthInfo, logout } from "@/lib/api";
 import { DOCS_PATH, LOGIN_PATH } from "@/lib/constants";
 import { useTheme } from "@/hooks/use-theme";
 import { MoonIcon, SunIcon, SunMoonIcon } from "./icons";
@@ -18,8 +13,6 @@ const links = [
   { href: "/", label: "Dashboard" },
   { href: "/authorization", label: "Authorization" },
   { href: "/integrations", label: "Plugins" },
-  { href: "/workflows", label: "Workflows" },
-  { href: "/agents", label: "Agents" },
   { href: DOCS_PATH, label: "Docs" },
 ];
 
@@ -27,7 +20,6 @@ export default function Nav() {
   const pathname = usePathname();
   const [email, setEmail] = useState<string | null>(null);
   const [loginSupported, setLoginSupported] = useState(false);
-  const [agentAvailable, setAgentAvailable] = useState(false);
   const { theme, setTheme } = useTheme();
 
   useEffect(() => {
@@ -38,37 +30,19 @@ export default function Nav() {
   useEffect(() => {
     if (!email) {
       setLoginSupported(false);
-      setAgentAvailable(false);
       return;
     }
 
     let active = true;
     getAuthInfo()
-      .then(async (info) => {
+      .then((info) => {
         if (active) {
           setLoginSupported(info.loginSupported);
-        }
-        if (typeof info.features?.agent === "boolean") {
-          if (active) {
-            setAgentAvailable(info.features.agent);
-          }
-          return;
-        }
-        try {
-          await getAgentSessions({ view: "summary", limit: 1 });
-          if (active) {
-            setAgentAvailable(true);
-          }
-        } catch (err) {
-          if (active) {
-            setAgentAvailable(!isAPIErrorStatus(err, 412));
-          }
         }
       })
       .catch(() => {
         if (active) {
           setLoginSupported(true);
-          setAgentAvailable(true);
         }
       });
 
@@ -91,7 +65,7 @@ export default function Nav() {
             Gestalt
           </Link>
           <div className="flex gap-5">
-            {links.filter((link) => link.href !== "/agents" || agentAvailable).map((link) => {
+            {links.map((link) => {
               const isActive =
                 pathname === link.href ||
                 (link.href === "/authorization" && pathname === "/tokens") ||
