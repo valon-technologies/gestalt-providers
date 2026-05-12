@@ -108,9 +108,9 @@ def list_tools(
     return tools
 
 
-def tool_entry(tool_proto: Any) -> ToolEntry:
-    tool_id = str(tool_proto.id or "").strip()
-    mcp_name = str(tool_proto.mcp_name or "").strip()
+def tool_entry(tool: Any) -> ToolEntry:
+    tool_id = str(tool.id or "").strip()
+    mcp_name = str(tool.mcp_name or "").strip()
     if not tool_id:
         raise ToolBridgeError("ListTools returned a tool without an id")
     if not mcp_name:
@@ -120,10 +120,10 @@ def tool_entry(tool_proto: Any) -> ToolEntry:
     return ToolEntry(
         tool_id=tool_id,
         mcp_name=mcp_name,
-        title=str(tool_proto.title or "").strip(),
-        description=str(tool_proto.description or "").strip(),
-        input_schema=schema_from_json(str(tool_proto.input_schema or "")),
-        annotations=tool_annotations(tool_proto.annotations, title=str(tool_proto.title or "").strip()),
+        title=str(tool.title or "").strip(),
+        description=str(tool.description or "").strip(),
+        input_schema=schema_from_json(str(tool.input_schema or "")),
+        annotations=tool_annotations(tool.annotations, title=str(tool.title or "").strip()),
     )
 
 
@@ -257,17 +257,17 @@ def schema_required(value: Any, properties: dict[str, Any]) -> set[str]:
     return {item for item in value if isinstance(item, str) and item in properties}
 
 
-def tool_annotations(annotations_proto: Any, *, title: str) -> mcp_types.ToolAnnotations | None:
+def tool_annotations(annotations: Any, *, title: str) -> mcp_types.ToolAnnotations | None:
     values: dict[str, Any] = {}
     if title:
         values["title"] = title
-    for proto_name, sdk_name in (
+    for source_attr, sdk_name in (
         ("read_only_hint", "readOnlyHint"),
         ("idempotent_hint", "idempotentHint"),
         ("destructive_hint", "destructiveHint"),
         ("open_world_hint", "openWorldHint"),
     ):
-        value = getattr(annotations_proto, proto_name, None)
+        value = getattr(annotations, source_attr, None)
         if value is not None:
             values[sdk_name] = bool(value)
     return mcp_types.ToolAnnotations(**values) if values else None

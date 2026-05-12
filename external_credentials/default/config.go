@@ -157,7 +157,7 @@ func credentialRefreshTargetFromResolvedConnection(index int, conn resolvedConne
 	if err != nil {
 		return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].credentialRefresh.refreshBeforeExpiry: %w", index, err)
 	}
-	auth := conn.Auth.toProto()
+	auth := conn.Auth.authConfig()
 	if err := validateCredentialAuthConfig(conn.Mode, auth); err != nil {
 		return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].auth: %w", index, err)
 	}
@@ -252,7 +252,7 @@ func refreshAuthComparable(auth *gestalt.ExternalCredentialAuthConfig) credentia
 	}
 }
 
-func (auth resolvedConnectionAuthConfig) toProto() *gestalt.ExternalCredentialAuthConfig {
+func (auth resolvedConnectionAuthConfig) authConfig() *gestalt.ExternalCredentialAuthConfig {
 	drivers := make([]*gestalt.ExternalCredentialTokenExchangeDriver, 0, len(auth.TokenExchangeDrivers))
 	for _, driver := range auth.TokenExchangeDrivers {
 		drivers = append(drivers, &gestalt.ExternalCredentialTokenExchangeDriver{

@@ -162,7 +162,7 @@ func (p *Provider) ExchangeCredential(ctx context.Context, req *gestalt.Exchange
 		return nil, status.Error(codes.Unavailable, sanitizeTokenError(err))
 	}
 	resp.RefreshSource = req.GetCredentialJson()
-	return &gestalt.ExchangeExternalCredentialResponse{TokenResponse: tokenResponseToProto(resp)}, nil
+	return &gestalt.ExchangeExternalCredentialResponse{TokenResponse: externalCredentialTokenResponse(resp)}, nil
 }
 
 func resolveStoredCredential(ctx context.Context, st *store, req *gestalt.ResolveExternalCredentialRequest) (*gestalt.ExternalCredential, error) {
@@ -428,7 +428,7 @@ func parseTokenResponse(body []byte, accessTokenPath string) (*tokenResponse, er
 	return &tokenResponse{AccessToken: accessToken, RefreshToken: refreshToken, ExpiresIn: expiresIn, TokenType: tokenType, Extra: raw}, nil
 }
 
-func tokenResponseToProto(resp *tokenResponse) *gestalt.ExternalCredentialTokenResponse {
+func externalCredentialTokenResponse(resp *tokenResponse) *gestalt.ExternalCredentialTokenResponse {
 	if resp == nil {
 		return nil
 	}
