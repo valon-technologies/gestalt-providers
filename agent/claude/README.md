@@ -142,6 +142,5 @@ chaining, pipes, redirection, and command substitution are rejected.
 `permissionMode: bypassPermissions` cannot be combined with configured
 `allowedTools`.
 
-Linux release artifacts are built on the same Alpine/musl Python base as
-`agent/simple`, and only for `linux/amd64` and `linux/arm64`. The Claude Agent
-SDK does not publish a bundled CLI wheel for `linux/arm`.
+Linux release artifacts are built only for `linux/amd64` and `linux/arm64`.
+The Claude Agent SDK does not publish a bundled CLI wheel for `linux/arm`.

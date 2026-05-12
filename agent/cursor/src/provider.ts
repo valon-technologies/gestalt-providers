@@ -42,9 +42,9 @@ import {
   InMemoryRunStore,
   StoreConflictError,
   type PreparedWorkspace,
-  sessionToProto,
-  turnEventToProto,
-  turnToProto,
+  sessionToAgentSession,
+  turnEventToAgentTurnEvent,
+  turnToAgentTurn,
 } from "./store.ts";
 
 export type CursorAgentProviderDependencies = {
@@ -147,7 +147,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
             request.idempotencyKey,
           );
           if (existing) {
-            return sessionToProto(existing);
+            return sessionToAgentSession(existing);
           }
           metadata = await runSessionStartHooks(sessionStart, metadata);
           const { session } = this.store.createSession({
@@ -160,7 +160,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
             preparedWorkspace,
             createdBy: request.createdBy,
           });
-          return sessionToProto(session);
+          return sessionToAgentSession(session);
         });
       }
       const { session } = this.store.createSession({
@@ -173,7 +173,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         preparedWorkspace,
         createdBy: request.createdBy,
       });
-      return sessionToProto(session);
+      return sessionToAgentSession(session);
     } catch (error) {
       if (errorMessage(error).startsWith("sessionStart hook")) {
         throw new ConnectError(errorMessage(error), Code.FailedPrecondition);
@@ -192,7 +192,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         `agent session ${JSON.stringify(request.sessionId)} was not found`,
       );
     }
-    return sessionToProto(session);
+    return sessionToAgentSession(session);
   }
 
   async listSessions(
@@ -209,7 +209,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         state: request.state,
         limit: request.limit,
       })
-      .map((session) => sessionToProto(session, request.summaryOnly));
+      .map((session) => sessionToAgentSession(session, request.summaryOnly));
   }
 
   async updateSession(
@@ -234,7 +234,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         `agent session ${JSON.stringify(request.sessionId)} was not found`,
       );
     }
-    return sessionToProto(session);
+    return sessionToAgentSession(session);
   }
 
   async createTurn(
@@ -286,7 +286,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         cwd: session.preparedWorkspace?.cwd ?? "",
       });
     }
-    return turnToProto(turn);
+    return turnToAgentTurn(turn);
   }
 
   async getTurn(request: GetAgentProviderTurnRequest): Promise<AgentTurnInit> {
@@ -297,7 +297,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         `agent turn ${JSON.stringify(request.turnId)} was not found`,
       );
     }
-    return turnToProto(turn);
+    return turnToAgentTurn(turn);
   }
 
   async listTurns(
@@ -315,7 +315,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         status: request.status,
         limit: request.limit,
       })
-      .map((turn) => turnToProto(turn, request.summaryOnly));
+      .map((turn) => turnToAgentTurn(turn, request.summaryOnly));
   }
 
   async cancelTurn(
@@ -331,7 +331,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     if (turn.status === AgentExecutionStatus.CANCELED) {
       void runner.cancelTurn(turn.turnId);
     }
-    return turnToProto(turn);
+    return turnToAgentTurn(turn);
   }
 
   async listTurnEvents(
@@ -344,7 +344,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         afterSeq: request.afterSeq,
         limit: request.limit,
       })
-      .map(turnEventToProto);
+      .map(turnEventToAgentTurnEvent);
   }
 
   async getInteraction(

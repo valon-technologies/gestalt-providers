@@ -490,6 +490,7 @@ def _annotations(value: Any, *, title: str) -> ToolAnnotations | None:
         ("idempotent_hint", "idempotentHint"),
         ("open_world_hint", "openWorldHint"),
     ):
-        if gestalt.has_field(value, proto_name):
-            payload[sdk_name] = bool(getattr(value, proto_name))
+        current = getattr(value, proto_name, None)
+        if current is not None:
+            payload[sdk_name] = bool(current)
     return ToolAnnotations.model_validate({k: v for k, v in payload.items() if v is not None})

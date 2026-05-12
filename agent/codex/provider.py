@@ -3,10 +3,9 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from typing import Any, cast
+from typing import Any
 
 import gestalt
-import grpc
 
 from internals.codex_runner import CodexExecutionCanceled, CodexExecutionError
 from internals.codex_runner import CodexMCPRunner
@@ -62,40 +61,35 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         self._runner = None
         self._config = None
 
-    def CreateSession(self, request: Any, context: grpc.ServicerContext) -> Any:
-        _, store, config = self._require_runtime(context)
+    def create_session(self, request: gestalt.CreateAgentProviderSessionRequest) -> gestalt.AgentSession:
+        _, store, config = self._require_runtime()
         session_id = str(request.session_id or "").strip()
         if not session_id:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "session_id is required")
+            raise gestalt.Error(400, "session_id is required")
         try:
             model = config.resolve_model(str(request.model or ""))
         except ValueError as exc:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-        metadata = gestalt.struct_to_dict(request.metadata)
+            raise gestalt.Error(400, str(exc)) from exc
+        metadata = dict(request.metadata or {})
         try:
             validate_session_start_user_metadata(metadata)
         except ValueError as exc:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-            raise RuntimeError("unreachable after context.abort") from exc
-        prepared_workspace = None
-        if gestalt.has_field(request, "prepared_workspace"):
-            try:
-                prepared_workspace = _prepared_workspace_to_dict(request.prepared_workspace)
-            except ValueError as exc:
-                context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-                raise RuntimeError("unreachable after context.abort") from exc
+            raise gestalt.Error(400, str(exc)) from exc
+        try:
+            prepared_workspace = _prepared_workspace_to_dict(request.prepared_workspace)
+        except ValueError as exc:
+            raise gestalt.Error(400, str(exc)) from exc
         idempotency_key = str(request.idempotency_key or "").strip()
-        session_start = request.session_start if gestalt.has_field(request, "session_start") else None
+        session_start = request.session_start
         if session_start is not None and len(list(getattr(session_start, "hooks", []) or [])) > 0:
             with self._session_start_lock:
                 existing = _existing_session_for_create(store, session_id, idempotency_key)
                 if existing is not None:
-                    return _session_to_proto(existing)
+                    return _agent_session(existing)
                 try:
                     metadata = run_session_start_hooks(session_start, metadata)
                 except Exception as exc:
-                    context.abort(grpc.StatusCode.FAILED_PRECONDITION, str(exc))
-                    raise RuntimeError("unreachable after context.abort") from exc
+                    raise gestalt.Error(412, str(exc)) from exc
                 session, _ = store.create_session(
                     session_id=session_id,
                     idempotency_key=idempotency_key,
@@ -104,9 +98,9 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                     client_ref=str(request.client_ref or "").strip(),
                     metadata=metadata,
                     prepared_workspace=prepared_workspace,
-                    created_by=cast(dict[str, str], gestalt.agent_actor_to_dict(request.created_by)),
+                    created_by=gestalt.agent_actor_to_dict(request.created_by),
                 )
-                return _session_to_proto(session)
+                return _agent_session(session)
         session, _ = store.create_session(
             session_id=session_id,
             idempotency_key=idempotency_key,
@@ -115,43 +109,43 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             client_ref=str(request.client_ref or "").strip(),
             metadata=metadata,
             prepared_workspace=prepared_workspace,
-            created_by=cast(dict[str, str], gestalt.agent_actor_to_dict(request.created_by)),
+            created_by=gestalt.agent_actor_to_dict(request.created_by),
         )
-        return _session_to_proto(session)
+        return _agent_session(session)
 
-    def GetSession(self, request: Any, context: grpc.ServicerContext) -> Any:
-        _, store, _ = self._require_runtime(context)
+    def get_session(self, request: gestalt.GetAgentProviderSessionRequest) -> gestalt.AgentSession:
+        _, store, _ = self._require_runtime()
         session = store.get_session(str(request.session_id or "").strip())
         if session is None:
-            context.abort(grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
-            raise RuntimeError("unreachable after context.abort")
-        return _session_to_proto(session)
+            raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
+        return _agent_session(session)
 
-    def ListSessions(self, request: Any, context: grpc.ServicerContext) -> Any:
-        _, store, _ = self._require_runtime(context)
+    def list_sessions(
+        self, request: gestalt.ListAgentProviderSessionsRequest
+    ) -> gestalt.ListAgentProviderSessionsResponse:
+        _, store, _ = self._require_runtime()
         limit = int(getattr(request, "limit", 0) or 0)
         if limit < 0:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "limit must be non-negative")
+            raise gestalt.Error(400, "limit must be non-negative")
         return gestalt.ListAgentProviderSessionsResponse(
             sessions=[
-                _session_to_proto(session, summary_only=bool(getattr(request, "summary_only", False)))
+                _agent_session(session, summary_only=bool(getattr(request, "summary_only", False)))
                 for session in store.list_sessions(
                     session_ids=[str(value or "").strip() for value in getattr(request, "session_ids", [])],
-                    subject_id=_subject_id(request),
+                    subject_id=_subject_id(request.subject),
                     state=int(getattr(request, "state", 0) or 0),
                     limit=limit,
                 )
             ]
         )
 
-    def UpdateSession(self, request: Any, context: grpc.ServicerContext) -> Any:
-        _, store, _ = self._require_runtime(context)
-        metadata = gestalt.struct_to_dict(request.metadata) if gestalt.has_field(request, "metadata") else None
+    def update_session(self, request: gestalt.UpdateAgentProviderSessionRequest) -> gestalt.AgentSession:
+        _, store, _ = self._require_runtime()
+        metadata = dict(request.metadata) if request.metadata is not None else None
         try:
             validate_session_start_user_metadata(metadata)
         except ValueError as exc:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-            raise RuntimeError("unreachable after context.abort") from exc
+            raise gestalt.Error(400, str(exc)) from exc
         session = store.update_session(
             session_id=str(request.session_id or "").strip(),
             client_ref=str(request.client_ref or "").strip(),
@@ -159,23 +153,21 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             metadata=metadata,
         )
         if session is None:
-            context.abort(grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
-            raise RuntimeError("unreachable after context.abort")
-        return _session_to_proto(session)
+            raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
+        return _agent_session(session)
 
-    def CreateTurn(self, request: Any, context: grpc.ServicerContext) -> Any:
-        runner, store, config = self._require_runtime(context)
-        _validate_create_turn_request(request, context)
+    def create_turn(self, request: gestalt.CreateAgentProviderTurnRequest) -> gestalt.AgentTurn:
+        runner, store, config = self._require_runtime()
+        _validate_create_turn_request(request)
         session = store.get_session(str(request.session_id or "").strip())
         if session is None:
-            context.abort(grpc.StatusCode.NOT_FOUND, f"agent session {request.session_id!r} was not found")
-            raise RuntimeError("unreachable after context.abort")
+            raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
         if len(list(request.messages)) == 0:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "messages must contain at least one entry")
+            raise gestalt.Error(400, "messages must contain at least one entry")
         try:
             model = config.resolve_model(str(request.model or "").strip() or session.model)
         except ValueError as exc:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
+            raise gestalt.Error(400, str(exc)) from exc
 
         messages = prepend_session_start_context(gestalt.agent_messages_to_dicts(request.messages), session.metadata)
         skill_roots = session_start_metadata_paths(
@@ -190,15 +182,13 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                 provider_name=self._name,
                 model=model,
                 messages=messages,
-                created_by=cast(dict[str, str], gestalt.agent_actor_to_dict(request.created_by)),
+                created_by=gestalt.agent_actor_to_dict(request.created_by),
                 execution_ref=str(request.execution_ref or "").strip(),
             )
         except StoreConflictError as exc:
-            context.abort(grpc.StatusCode.ALREADY_EXISTS, str(exc))
-            raise RuntimeError("unreachable after context.abort")
+            raise gestalt.Error(409, str(exc)) from exc
         except ValueError as exc:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(exc))
-            raise RuntimeError("unreachable after context.abort")
+            raise gestalt.Error(400, str(exc)) from exc
         if created:
             threading.Thread(
                 target=self._complete_turn,
@@ -215,49 +205,49 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                 },
                 daemon=True,
             ).start()
-        return _turn_to_proto(turn)
+        return _agent_turn(turn)
 
-    def GetTurn(self, request: Any, context: grpc.ServicerContext) -> Any:
-        _, store, _ = self._require_runtime(context)
+    def get_turn(self, request: gestalt.GetAgentProviderTurnRequest) -> gestalt.AgentTurn:
+        _, store, _ = self._require_runtime()
         turn = store.get_turn(str(request.turn_id or "").strip())
         if turn is None:
-            context.abort(grpc.StatusCode.NOT_FOUND, f"agent turn {request.turn_id!r} was not found")
-            raise RuntimeError("unreachable after context.abort")
-        return _turn_to_proto(turn)
+            raise gestalt.Error(404, f"agent turn {request.turn_id!r} was not found")
+        return _agent_turn(turn)
 
-    def ListTurns(self, request: Any, context: grpc.ServicerContext) -> Any:
-        _, store, _ = self._require_runtime(context)
+    def list_turns(self, request: gestalt.ListAgentProviderTurnsRequest) -> gestalt.ListAgentProviderTurnsResponse:
+        _, store, _ = self._require_runtime()
         limit = int(getattr(request, "limit", 0) or 0)
         if limit < 0:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "limit must be non-negative")
+            raise gestalt.Error(400, "limit must be non-negative")
         return gestalt.ListAgentProviderTurnsResponse(
             turns=[
-                _turn_to_proto(turn, summary_only=bool(getattr(request, "summary_only", False)))
+                _agent_turn(turn, summary_only=bool(getattr(request, "summary_only", False)))
                 for turn in store.list_turns(
                     session_id=str(request.session_id or "").strip(),
                     turn_ids=[str(value or "").strip() for value in getattr(request, "turn_ids", [])],
-                    subject_id=_subject_id(request),
+                    subject_id=_subject_id(request.subject),
                     status=int(getattr(request, "status", 0) or 0),
                     limit=limit,
                 )
             ]
         )
 
-    def CancelTurn(self, request: Any, context: grpc.ServicerContext) -> Any:
-        runner, store, _ = self._require_runtime(context)
+    def cancel_turn(self, request: gestalt.CancelAgentProviderTurnRequest) -> gestalt.AgentTurn:
+        runner, store, _ = self._require_runtime()
         turn = store.cancel_turn(turn_id=str(request.turn_id or "").strip(), reason=str(request.reason or "").strip())
         if turn is None:
-            context.abort(grpc.StatusCode.NOT_FOUND, f"agent turn {request.turn_id!r} was not found")
-            raise RuntimeError("unreachable after context.abort")
+            raise gestalt.Error(404, f"agent turn {request.turn_id!r} was not found")
         if turn.status == gestalt.AGENT_EXECUTION_STATUS_CANCELED:
             runner.cancel_turn(turn.turn_id)
-        return _turn_to_proto(turn)
+        return _agent_turn(turn)
 
-    def ListTurnEvents(self, request: Any, context: grpc.ServicerContext) -> Any:
-        _, store, _ = self._require_runtime(context)
+    def list_turn_events(
+        self, request: gestalt.ListAgentProviderTurnEventsRequest
+    ) -> gestalt.ListAgentProviderTurnEventsResponse:
+        _, store, _ = self._require_runtime()
         return gestalt.ListAgentProviderTurnEventsResponse(
             events=[
-                _turn_event_to_proto(event)
+                _agent_turn_event(event)
                 for event in store.list_turn_events(
                     turn_id=str(request.turn_id or "").strip(),
                     after_seq=int(request.after_seq or 0),
@@ -266,20 +256,24 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             ]
         )
 
-    def GetInteraction(self, request: Any, context: grpc.ServicerContext) -> Any:
-        self._require_runtime(context)
-        context.abort(grpc.StatusCode.NOT_FOUND, f"agent interaction {request.interaction_id!r} was not found")
+    def get_interaction(self, request: gestalt.GetAgentProviderInteractionRequest) -> gestalt.AgentInteraction:
+        self._require_runtime()
+        raise gestalt.Error(404, f"agent interaction {request.interaction_id!r} was not found")
 
-    def ListInteractions(self, request: Any, context: grpc.ServicerContext) -> Any:
-        self._require_runtime(context)
+    def list_interactions(
+        self, request: gestalt.ListAgentProviderInteractionsRequest
+    ) -> gestalt.ListAgentProviderInteractionsResponse:
+        self._require_runtime()
         return gestalt.ListAgentProviderInteractionsResponse(interactions=[])
 
-    def ResolveInteraction(self, request: Any, context: grpc.ServicerContext) -> Any:
-        self._require_runtime(context)
-        context.abort(grpc.StatusCode.NOT_FOUND, f"agent interaction {request.interaction_id!r} was not found")
+    def resolve_interaction(self, request: gestalt.ResolveAgentProviderInteractionRequest) -> gestalt.AgentInteraction:
+        self._require_runtime()
+        raise gestalt.Error(404, f"agent interaction {request.interaction_id!r} was not found")
 
-    def GetCapabilities(self, request: Any, context: grpc.ServicerContext) -> Any:
-        self._require_runtime(context)
+    def get_capabilities(
+        self, request: gestalt.GetAgentProviderCapabilitiesRequest
+    ) -> gestalt.AgentProviderCapabilities:
+        self._require_runtime()
         caps = gestalt.AgentProviderCapabilities(
             streaming_text=False,
             tool_calls=True,
@@ -297,11 +291,9 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             caps.supports_prepared_workspace = True
         return caps
 
-    def _require_runtime(
-        self, context: grpc.ServicerContext
-    ) -> tuple[CodexMCPRunner, InMemoryRunStore, CodexAgentConfig]:
+    def _require_runtime(self) -> tuple[CodexMCPRunner, InMemoryRunStore, CodexAgentConfig]:
         if self._runner is None or self._store is None or self._config is None:
-            context.abort(grpc.StatusCode.FAILED_PRECONDITION, "agent provider has not been configured")
+            raise gestalt.Error(412, "agent provider has not been configured")
         return self._runner, self._store, self._config
 
     def _complete_turn(
@@ -353,7 +345,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         return warnings
 
 
-def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> Any:
+def _agent_session(session: StoredSession, *, summary_only: bool = False) -> gestalt.AgentSession:
     return gestalt.AgentSession(
         id=session.session_id,
         provider_name=session.provider_name,
@@ -368,7 +360,7 @@ def _session_to_proto(session: StoredSession, *, summary_only: bool = False) -> 
     )
 
 
-def _turn_to_proto(turn: StoredTurn, *, summary_only: bool = False) -> Any:
+def _agent_turn(turn: StoredTurn, *, summary_only: bool = False) -> gestalt.AgentTurn:
     return gestalt.AgentTurn(
         id=turn.turn_id,
         session_id=turn.session_id,
@@ -386,7 +378,7 @@ def _turn_to_proto(turn: StoredTurn, *, summary_only: bool = False) -> Any:
     )
 
 
-def _turn_event_to_proto(event: StoredTurnEvent) -> Any:
+def _agent_turn_event(event: StoredTurnEvent) -> gestalt.AgentTurnEvent:
     return gestalt.AgentTurnEvent(
         id=event.event_id,
         turn_id=event.turn_id,
@@ -417,50 +409,44 @@ def _which(binary: str) -> str | None:
     return None
 
 
-def _validate_create_turn_request(request: Any, context: grpc.ServicerContext) -> None:
+def _validate_create_turn_request(request: Any) -> None:
     if int(getattr(request, "tool_source", 0) or 0) != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
-        context.abort(grpc.StatusCode.INVALID_ARGUMENT, "agent/codex requires toolSource mcp_catalog")
+        raise gestalt.Error(400, "agent/codex requires toolSource mcp_catalog")
     if not str(request.run_grant or "").strip():
-        context.abort(grpc.StatusCode.INVALID_ARGUMENT, "run_grant is required")
+        raise gestalt.Error(400, "run_grant is required")
     if len(list(getattr(request, "tools", []))) > 0:
-        context.abort(
-            grpc.StatusCode.INVALID_ARGUMENT, "resolved tools are not supported; use tool_refs with mcp_catalog"
-        )
-    if gestalt.struct_to_dict(getattr(request, "response_schema", None)):
-        context.abort(grpc.StatusCode.INVALID_ARGUMENT, "response_schema is not supported by agent/codex")
-    if gestalt.struct_to_dict(getattr(request, "model_options", None)):
-        context.abort(grpc.StatusCode.INVALID_ARGUMENT, "model_options are not supported by agent/codex")
-    _validate_tool_refs(list(getattr(request, "tool_refs", [])), context)
+        raise gestalt.Error(400, "resolved tools are not supported; use tool_refs with mcp_catalog")
+    if dict(getattr(request, "response_schema", None) or {}):
+        raise gestalt.Error(400, "response_schema is not supported by agent/codex")
+    if dict(getattr(request, "model_options", None) or {}):
+        raise gestalt.Error(400, "model_options are not supported by agent/codex")
+    _validate_tool_refs(list(getattr(request, "tool_refs", [])))
 
 
-def _validate_tool_refs(tool_refs: list[Any], context: grpc.ServicerContext) -> None:
+def _validate_tool_refs(tool_refs: list[Any]) -> None:
     if not tool_refs:
-        context.abort(grpc.StatusCode.INVALID_ARGUMENT, "tool_refs are required for mcp_catalog turns")
+        raise gestalt.Error(400, "tool_refs are required for mcp_catalog turns")
     for index, ref in enumerate(tool_refs, start=1):
-        tool_ref = gestalt.agent_tool_ref_to_dict(ref)
-        plugin = _text(tool_ref.get("plugin"))
-        system = _text(tool_ref.get("system"))
-        operation = _text(tool_ref.get("operation"))
-        connection = _text(tool_ref.get("connection"))
-        instance = _text(tool_ref.get("instance"))
+        plugin = _text(getattr(ref, "plugin", ""))
+        system = _text(getattr(ref, "system", ""))
+        operation = _text(getattr(ref, "operation", ""))
+        connection = _text(getattr(ref, "connection", ""))
+        instance = _text(getattr(ref, "instance", ""))
         if not operation:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}].operation is required")
+            raise gestalt.Error(400, f"tool_refs[{index}].operation is required")
         if "*" in {plugin, system, operation, connection, instance}:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "wildcard tool_refs are not supported")
+            raise gestalt.Error(400, "wildcard tool_refs are not supported")
         if bool(plugin) == bool(system):
-            context.abort(
-                grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}] must set exactly one of plugin or system"
-            )
+            raise gestalt.Error(400, f"tool_refs[{index}] must set exactly one of plugin or system")
         if system and system != "workflow":
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"tool_refs[{index}].system {system!r} is not supported")
+            raise gestalt.Error(400, f"tool_refs[{index}].system {system!r} is not supported")
 
 
 def _prepared_workspace_to_dict(value: Any | None) -> dict[str, str] | None:
     if value is None:
         return None
-    workspace = gestalt.prepared_workspace_to_dict(value)
-    root = _text(workspace.get("root"))
-    cwd = _text(workspace.get("cwd"))
+    root = _text(getattr(value, "root", ""))
+    cwd = _text(getattr(value, "cwd", ""))
     if not root and not cwd:
         return None
     if not root or not cwd:
@@ -485,9 +471,8 @@ def _existing_session_for_create(
     return store.get_session_by_idempotency_key(idempotency_key)
 
 
-def _subject_id(request: Any) -> str:
-    subject = gestalt.agent_subject_context_to_dict(getattr(request, "subject", None))
-    return _text(subject.get("subject_id"))
+def _subject_id(subject: Any) -> str:
+    return _text(getattr(subject, "subject_id", ""))
 
 
 def _text(value: Any) -> str:

@@ -232,8 +232,11 @@ describe("Cursor agent provider contract", () => {
       }),
     );
     expect(
-      (created.metadata?.["__gestalt.lifecycle.sessionStart.results.load-context"] as any)
-        ?.stdout,
+      (
+        created.metadata as
+          | Record<string, { stdout?: string } | undefined>
+          | undefined
+      )?.["__gestalt.lifecycle.sessionStart.results.load-context"]?.stdout,
     ).toBe("cursor context\n");
 
     const replay = await provider.createSession(
@@ -1063,7 +1066,7 @@ describe("Cursor agent provider contract", () => {
         turnId: "events-turn",
       }),
     );
-    expect(events.map((event) => event.type)).toContain("turn.completed");
+    expect((events as readonly { type?: string }[]).map((event) => event.type)).toContain("turn.completed");
   });
 });
 

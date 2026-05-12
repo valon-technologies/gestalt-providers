@@ -9,7 +9,10 @@ use axum::extract::State;
 use axum::http::{Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::Response;
-use gestalt::{AgentHost, AgentHostExecuteToolInput, AgentHostListToolsInput, proto::v1 as proto};
+use gestalt::{
+    AgentHost, AgentHostExecuteToolInput, AgentHostListToolsInput, AgentToolAnnotations,
+    AgentToolRef, ListedAgentTool,
+};
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
     CallToolRequestParams, CallToolResult, Content, ErrorData, Implementation, ListToolsResult,
@@ -72,7 +75,7 @@ struct GestaltMcpBridge {
     turn_id: String,
     run_grant: String,
     host: Arc<Mutex<AgentHost>>,
-    tools_by_name: Arc<Mutex<HashMap<String, proto::ListedAgentTool>>>,
+    tools_by_name: Arc<Mutex<HashMap<String, ListedAgentTool>>>,
     next_tool_call_id: Arc<AtomicU64>,
 }
 
@@ -85,11 +88,11 @@ struct ProxyError {
 #[derive(Clone)]
 enum ToolSelector {
     MCPName(String),
-    Ref(proto::AgentToolRef),
+    Ref(AgentToolRef),
 }
 
 struct ScoredTool {
-    tool: proto::ListedAgentTool,
+    tool: ListedAgentTool,
     score: usize,
     order: usize,
 }
@@ -339,7 +342,7 @@ impl GestaltMcpBridge {
     async fn list_matching_tools(
         &self,
         query: &str,
-        load_refs: &[proto::AgentToolRef],
+        load_refs: &[AgentToolRef],
         desired_count: usize,
     ) -> Result<(Vec<ScoredTool>, bool), ProxyError> {
         let tokens = query_tokens(query);
@@ -384,17 +387,14 @@ impl GestaltMcpBridge {
     async fn resolve_selector(
         &self,
         selector: ToolSelector,
-    ) -> Result<proto::ListedAgentTool, ProxyError> {
+    ) -> Result<ListedAgentTool, ProxyError> {
         match selector {
             ToolSelector::MCPName(name) => self.find_tool_by_mcp_name(&name).await,
             ToolSelector::Ref(ref_selector) => self.find_tool_by_ref(&ref_selector).await,
         }
     }
 
-    async fn find_tool_by_mcp_name(
-        &self,
-        name: &str,
-    ) -> Result<proto::ListedAgentTool, ProxyError> {
+    async fn find_tool_by_mcp_name(&self, name: &str) -> Result<ListedAgentTool, ProxyError> {
         validate_mcp_name_text(name)
             .map_err(|message| ProxyError::new("invalid_selector", message))?;
         if let Some(tool) = self.tools_by_name.lock().await.get(name).cloned() {
@@ -426,11 +426,11 @@ impl GestaltMcpBridge {
 
     async fn find_tool_by_ref(
         &self,
-        ref_selector: &proto::AgentToolRef,
-    ) -> Result<proto::ListedAgentTool, ProxyError> {
+        ref_selector: &AgentToolRef,
+    ) -> Result<ListedAgentTool, ProxyError> {
         let mut page_token = String::new();
         let mut seen_tokens = HashSet::new();
-        let mut matched: Vec<proto::ListedAgentTool> = Vec::new();
+        let mut matched: Vec<ListedAgentTool> = Vec::new();
         for _ in 0..MAX_SCAN_PAGES {
             if !seen_tokens.insert(page_token.clone()) {
                 return Err(ProxyError::new(
@@ -466,7 +466,7 @@ impl GestaltMcpBridge {
     async fn fetch_tools_page(
         &self,
         page_token: &str,
-    ) -> Result<(Vec<proto::ListedAgentTool>, String), ProxyError> {
+    ) -> Result<(Vec<ListedAgentTool>, String), ProxyError> {
         let response = self
             .host
             .lock()
@@ -490,7 +490,7 @@ impl GestaltMcpBridge {
         Ok((response.tools, response.next_page_token.trim().to_string()))
     }
 
-    async fn remember_tools(&self, tools: &[proto::ListedAgentTool]) -> Result<(), ProxyError> {
+    async fn remember_tools(&self, tools: &[ListedAgentTool]) -> Result<(), ProxyError> {
         let mut cache = self.tools_by_name.lock().await;
         for tool in tools {
             validate_mcp_name_text(&tool.mcp_name)
@@ -703,9 +703,7 @@ fn bounded_usize_arg(
     Ok(number as usize)
 }
 
-fn load_refs_arg(
-    arguments: &JsonMap<String, JsonValue>,
-) -> Result<Vec<proto::AgentToolRef>, ProxyError> {
+fn load_refs_arg(arguments: &JsonMap<String, JsonValue>) -> Result<Vec<AgentToolRef>, ProxyError> {
     let Some(value) = arguments.get("load_refs") else {
         return Ok(Vec::new());
     };
@@ -727,14 +725,14 @@ fn load_refs_arg(
     items.iter().map(agent_tool_ref_arg).collect()
 }
 
-fn agent_tool_ref_arg(value: &JsonValue) -> Result<proto::AgentToolRef, ProxyError> {
+fn agent_tool_ref_arg(value: &JsonValue) -> Result<AgentToolRef, ProxyError> {
     let JsonValue::Object(object) = value else {
         return Err(ProxyError::new(
             "invalid_arguments",
             "ref entries must be objects",
         ));
     };
-    let out = proto::AgentToolRef {
+    let out = AgentToolRef {
         system: string_field(object, "system")?,
         plugin: string_field(object, "plugin")?,
         operation: string_field(object, "operation")?,
@@ -768,9 +766,9 @@ fn string_field(object: &JsonMap<String, JsonValue>, key: &str) -> Result<String
 }
 
 fn tool_match_score(
-    tool: &proto::ListedAgentTool,
+    tool: &ListedAgentTool,
     tokens: &[String],
-    load_refs: &[proto::AgentToolRef],
+    load_refs: &[AgentToolRef],
 ) -> Option<usize> {
     if !load_refs.is_empty() {
         return load_refs
@@ -798,7 +796,7 @@ fn query_tokens(query: &str) -> Vec<String> {
         .collect()
 }
 
-fn listed_tool_search_haystack(tool: &proto::ListedAgentTool) -> String {
+fn listed_tool_search_haystack(tool: &ListedAgentTool) -> String {
     let mut values = vec![
         tool.mcp_name.as_str(),
         tool.title.as_str(),
@@ -816,10 +814,7 @@ fn listed_tool_search_haystack(tool: &proto::ListedAgentTool) -> String {
     values.join(" ").to_ascii_lowercase()
 }
 
-fn listed_tool_ref_matches(
-    candidate: Option<&proto::AgentToolRef>,
-    requested: &proto::AgentToolRef,
-) -> bool {
+fn listed_tool_ref_matches(candidate: Option<&AgentToolRef>, requested: &AgentToolRef) -> bool {
     let Some(candidate) = candidate else {
         return false;
     };
@@ -842,7 +837,7 @@ fn listed_tool_ref_matches(
     any_field
 }
 
-fn listed_tool_json(tool: &proto::ListedAgentTool, include_schema: bool) -> JsonValue {
+fn listed_tool_json(tool: &ListedAgentTool, include_schema: bool) -> JsonValue {
     let mut object = JsonMap::new();
     object.insert(
         "mcp_name".to_string(),
@@ -869,7 +864,7 @@ fn listed_tool_json(tool: &proto::ListedAgentTool, include_schema: bool) -> Json
     JsonValue::Object(object)
 }
 
-fn agent_tool_ref_json(ref_value: &proto::AgentToolRef) -> JsonValue {
+fn agent_tool_ref_json(ref_value: &AgentToolRef) -> JsonValue {
     let mut object = JsonMap::new();
     insert_nonempty(&mut object, "system", &ref_value.system);
     insert_nonempty(&mut object, "plugin", &ref_value.plugin);
@@ -879,7 +874,7 @@ fn agent_tool_ref_json(ref_value: &proto::AgentToolRef) -> JsonValue {
     JsonValue::Object(object)
 }
 
-fn annotations_json(annotations: &proto::OperationAnnotations) -> JsonValue {
+fn annotations_json(annotations: &AgentToolAnnotations) -> JsonValue {
     let mut object = JsonMap::new();
     insert_optional_bool(&mut object, "read_only_hint", annotations.read_only_hint);
     insert_optional_bool(

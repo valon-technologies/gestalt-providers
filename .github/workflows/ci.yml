@@ -277,6 +277,7 @@ jobs:
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
           .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "$GESTALT_REF"
           echo "GESTALT_CHECKOUT=$toolchain_dir" >> "$GITHUB_ENV"
+          echo "GESTALT_TYPESCRIPT_SDK_DIR=$toolchain_dir/sdk/typescript" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v4
         with:
           name: gestaltd

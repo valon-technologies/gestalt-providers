@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use gestalt::{proto::v1 as proto, protocol};
+use gestalt::{
+    AgentActor, AgentExecutionStatus, AgentMessage, AgentSession, AgentSessionState, AgentToolRef,
+    AgentToolSourceMode, AgentTurn, AgentTurnDisplay, AgentTurnEvent,
+    CreateAgentProviderSessionRequest, CreateAgentProviderTurnRequest,
+};
 
 #[derive(Clone)]
 pub struct StoredSession {
@@ -10,9 +14,9 @@ pub struct StoredSession {
     pub acp_session_id: String,
     pub model: String,
     pub client_ref: String,
-    pub state: i32,
+    pub state: AgentSessionState,
     pub metadata: Option<serde_json::Value>,
-    pub created_by: Option<proto::AgentActor>,
+    pub created_by: Option<AgentActor>,
     pub created_at: Option<SystemTime>,
     pub updated_at: Option<SystemTime>,
     pub last_turn_at: Option<SystemTime>,
@@ -25,17 +29,17 @@ pub struct StoredTurn {
     pub session_id: String,
     pub provider_name: String,
     pub model: String,
-    pub status: i32,
-    pub messages: Vec<proto::AgentMessage>,
+    pub status: AgentExecutionStatus,
+    pub messages: Vec<AgentMessage>,
     pub output_text: String,
     pub status_message: String,
-    pub created_by: Option<proto::AgentActor>,
+    pub created_by: Option<AgentActor>,
     pub created_at: Option<SystemTime>,
     pub started_at: Option<SystemTime>,
     pub completed_at: Option<SystemTime>,
     pub execution_ref: String,
-    pub tool_refs: Vec<proto::AgentToolRef>,
-    pub tool_source: i32,
+    pub tool_refs: Vec<AgentToolRef>,
+    pub tool_source: AgentToolSourceMode,
     pub run_grant: String,
 }
 
@@ -48,7 +52,7 @@ pub struct StoredEvent {
     pub source: String,
     pub visibility: String,
     pub data: serde_json::Value,
-    pub display: Option<proto::AgentTurnDisplay>,
+    pub display: Option<AgentTurnDisplay>,
     pub created_at: Option<SystemTime>,
 }
 
@@ -82,7 +86,7 @@ impl Store {
 
     pub fn create_session(
         &mut self,
-        req: &proto::CreateAgentProviderSessionRequest,
+        req: &CreateAgentProviderSessionRequest,
         provider_name: &str,
         model: String,
         acp_session_id: String,
@@ -110,8 +114,8 @@ impl Store {
             acp_session_id,
             model,
             client_ref: req.client_ref.trim().to_string(),
-            state: proto::AgentSessionState::Active as i32,
-            metadata: req.metadata.as_ref().map(protocol::json_from_struct),
+            state: AgentSessionState::Active,
+            metadata: req.metadata.clone(),
             created_by: req.created_by.clone(),
             created_at: Some(now),
             updated_at: Some(now),
@@ -128,7 +132,7 @@ impl Store {
 
     pub fn existing_session_for_create(
         &self,
-        req: &proto::CreateAgentProviderSessionRequest,
+        req: &CreateAgentProviderSessionRequest,
     ) -> Option<StoredSession> {
         let session_id = req.session_id.trim();
         if let Some(existing) = self.sessions.get(session_id) {
@@ -151,7 +155,7 @@ impl Store {
         &self,
         ids: &[String],
         subject_id: &str,
-        state: i32,
+        state: AgentSessionState,
         limit: i32,
     ) -> Vec<StoredSession> {
         let requested: Vec<&str> = ids
@@ -175,7 +179,7 @@ impl Store {
                     .is_some_and(|actor| actor.subject_id.trim() == subject_id)
             });
         }
-        if state != 0 {
+        if state != AgentSessionState::Unspecified {
             sessions.retain(|session| session.state == state);
         }
         sessions.sort_by(|left, right| {
@@ -193,14 +197,14 @@ impl Store {
         &mut self,
         id: &str,
         client_ref: &str,
-        state: i32,
+        state: AgentSessionState,
         metadata: Option<serde_json::Value>,
     ) -> Option<StoredSession> {
         let session = self.sessions.get_mut(id.trim())?;
         if !client_ref.trim().is_empty() {
             session.client_ref = client_ref.trim().to_string();
         }
-        if state != 0 {
+        if state != AgentSessionState::Unspecified {
             session.state = state;
         }
         if metadata.is_some() {
@@ -212,7 +216,7 @@ impl Store {
 
     pub fn begin_turn(
         &mut self,
-        req: &proto::CreateAgentProviderTurnRequest,
+        req: &CreateAgentProviderTurnRequest,
         provider_name: &str,
         model: String,
     ) -> Result<BeginTurnResult, String> {
@@ -258,7 +262,7 @@ impl Store {
             session_id: session_id.to_string(),
             provider_name: provider_name.to_string(),
             model,
-            status: proto::AgentExecutionStatus::Running as i32,
+            status: AgentExecutionStatus::Running,
             messages: req.messages.clone(),
             output_text: String::new(),
             status_message: String::new(),
@@ -300,7 +304,7 @@ impl Store {
         session_id: &str,
         ids: &[String],
         subject_id: &str,
-        status: i32,
+        status: AgentExecutionStatus,
         limit: i32,
     ) -> Vec<StoredTurn> {
         let requested: Vec<&str> = ids
@@ -329,7 +333,7 @@ impl Store {
                     .is_some_and(|actor| actor.subject_id.trim() == subject_id)
             });
         }
-        if status != 0 {
+        if status != AgentExecutionStatus::Unspecified {
             turns.retain(|turn| turn.status == status);
         }
         turns.sort_by(|left, right| {
@@ -350,7 +354,7 @@ impl Store {
     pub fn finish_turn(
         &mut self,
         turn_id: &str,
-        status: i32,
+        status: AgentExecutionStatus,
         status_message: String,
     ) -> Option<StoredTurn> {
         let now = SystemTime::now();
@@ -373,7 +377,7 @@ impl Store {
     pub fn cancel_turn(&mut self, turn_id: &str, reason: &str) -> Option<StoredTurn> {
         self.finish_turn(
             turn_id,
-            proto::AgentExecutionStatus::Canceled as i32,
+            AgentExecutionStatus::Canceled,
             reason.trim().to_string(),
         )
     }
@@ -384,7 +388,7 @@ impl Store {
         event_type: &str,
         source: &str,
         data: serde_json::Value,
-        display: Option<proto::AgentTurnDisplay>,
+        display: Option<AgentTurnDisplay>,
     ) -> StoredEvent {
         let events = self.events.entry(turn_id.to_string()).or_default();
         let seq = events.len() as i64 + 1;
@@ -419,31 +423,23 @@ impl Store {
     }
 }
 
-pub fn session_to_proto(session: StoredSession, summary_only: bool) -> proto::AgentSession {
-    proto::AgentSession {
+pub fn agent_session(session: StoredSession, summary_only: bool) -> AgentSession {
+    AgentSession {
         id: session.id,
         provider_name: session.provider_name,
         model: session.model,
         client_ref: session.client_ref,
         state: session.state,
-        metadata: if summary_only {
-            None
-        } else {
-            session
-                .metadata
-                .and_then(|metadata| protocol::struct_from_json(metadata).ok())
-        },
+        metadata: if summary_only { None } else { session.metadata },
         created_by: session.created_by,
-        created_at: session.created_at.map(protocol::timestamp_from_system_time),
-        updated_at: session.updated_at.map(protocol::timestamp_from_system_time),
-        last_turn_at: session
-            .last_turn_at
-            .map(protocol::timestamp_from_system_time),
+        created_at: session.created_at,
+        updated_at: session.updated_at,
+        last_turn_at: session.last_turn_at,
     }
 }
 
-pub fn turn_to_proto(turn: StoredTurn, summary_only: bool) -> proto::AgentTurn {
-    proto::AgentTurn {
+pub fn agent_turn(turn: StoredTurn, summary_only: bool) -> AgentTurn {
+    AgentTurn {
         id: turn.id,
         session_id: turn.session_id,
         provider_name: turn.provider_name,
@@ -454,35 +450,39 @@ pub fn turn_to_proto(turn: StoredTurn, summary_only: bool) -> proto::AgentTurn {
         } else {
             turn.messages
         },
-        output_text: turn.output_text,
+        output_text: if summary_only {
+            String::new()
+        } else {
+            turn.output_text
+        },
         structured_output: None,
         status_message: turn.status_message,
         created_by: turn.created_by,
-        created_at: turn.created_at.map(protocol::timestamp_from_system_time),
-        started_at: turn.started_at.map(protocol::timestamp_from_system_time),
-        completed_at: turn.completed_at.map(protocol::timestamp_from_system_time),
+        created_at: turn.created_at,
+        started_at: turn.started_at,
+        completed_at: turn.completed_at,
         execution_ref: turn.execution_ref,
     }
 }
 
-pub fn event_to_proto(event: StoredEvent) -> proto::AgentTurnEvent {
-    proto::AgentTurnEvent {
+pub fn agent_turn_event(event: StoredEvent) -> AgentTurnEvent {
+    AgentTurnEvent {
         id: event.id,
         turn_id: event.turn_id,
         seq: event.seq,
         r#type: event.event_type,
         source: event.source,
         visibility: event.visibility,
-        data: protocol::struct_from_json(event.data).ok(),
-        created_at: event.created_at.map(protocol::timestamp_from_system_time),
+        data: Some(event.data),
+        created_at: event.created_at,
         display: event.display,
     }
 }
 
-fn is_terminal(status: i32) -> bool {
-    status == proto::AgentExecutionStatus::Succeeded as i32
-        || status == proto::AgentExecutionStatus::Failed as i32
-        || status == proto::AgentExecutionStatus::Canceled as i32
+fn is_terminal(status: AgentExecutionStatus) -> bool {
+    status == AgentExecutionStatus::Succeeded
+        || status == AgentExecutionStatus::Failed
+        || status == AgentExecutionStatus::Canceled
 }
 
 fn timestamp_key(ts: Option<&SystemTime>) -> SystemTime {

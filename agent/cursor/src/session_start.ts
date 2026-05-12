@@ -55,12 +55,12 @@ export function validateSessionStartUserMetadata(
 }
 
 export function prependSessionStartContext(
-  messages: AgentMessage[],
+  messages: readonly AgentMessage[],
   metadata: Record<string, unknown>,
 ): AgentMessage[] {
   const context = String(metadata[SESSION_START_ADDITIONAL_CONTEXT_KEY] ?? "").trim();
   if (!context) {
-    return messages;
+    return [...messages];
   }
   return [
     {

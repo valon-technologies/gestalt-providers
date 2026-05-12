@@ -7,14 +7,13 @@ use std::time::{Duration, Instant};
 use gestalt::proto::v1::agent_host_server::{
     AgentHost as AgentHostRpc, AgentHostServer as AgentHostGrpcServer,
 };
-use gestalt::proto::v1::agent_provider_server::AgentProvider as AgentProviderService;
-use gestalt::{proto::v1 as proto, protocol};
+use gestalt::{AgentProvider as _, proto::v1 as proto};
 use serde_json::{Map as JsonMap, Value as JsonValue, json};
 use tempfile::TempDir;
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
+use tonic::Request;
 use tonic::transport::Server;
-use tonic::{Code, Request};
 
 use gestalt_agent_hermes::HermesAgentProvider;
 
@@ -26,36 +25,44 @@ async fn completes_turn_and_refreshes_adc_token_per_turn() {
     let provider = fixture.configure_provider().await;
 
     let capabilities = provider
-        .get_capabilities(Request::new(proto::GetAgentProviderCapabilitiesRequest {}))
+        .get_capabilities(gestalt::GetAgentProviderCapabilitiesRequest {})
         .await
-        .unwrap()
-        .into_inner();
+        .unwrap();
     assert!(capabilities.streaming_text);
     assert!(capabilities.tool_calls);
     assert!(capabilities.bounded_list_hydration);
     assert_eq!(
         capabilities.supported_tool_sources,
-        vec![proto::AgentToolSourceMode::McpCatalog as i32]
+        vec![gestalt::AgentToolSourceMode::McpCatalog]
     );
 
     create_session(&provider).await;
     create_session(&provider).await;
     create_turn(&provider, "turn-1").await;
-    let turn = wait_for_turn(&provider, "turn-1", proto::AgentExecutionStatus::Succeeded).await;
+    let turn = wait_for_turn(
+        &provider,
+        "turn-1",
+        gestalt::AgentExecutionStatus::Succeeded,
+    )
+    .await;
     assert_eq!(turn.output_text, "Hermes says hi");
     create_turn(&provider, "turn-1").await;
 
     create_turn(&provider, "turn-2").await;
-    wait_for_turn(&provider, "turn-2", proto::AgentExecutionStatus::Succeeded).await;
+    wait_for_turn(
+        &provider,
+        "turn-2",
+        gestalt::AgentExecutionStatus::Succeeded,
+    )
+    .await;
 
     let events = provider
-        .list_turn_events(Request::new(proto::ListAgentProviderTurnEventsRequest {
+        .list_turn_events(gestalt::ListAgentProviderTurnEventsRequest {
             turn_id: "turn-1".to_string(),
             ..Default::default()
-        }))
+        })
         .await
         .unwrap()
-        .into_inner()
         .events;
     assert!(
         events
@@ -103,7 +110,7 @@ async fn auto_approves_acp_permission_requests() {
     wait_for_turn(
         &provider,
         "turn-permission",
-        proto::AgentExecutionStatus::Succeeded,
+        gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
 
@@ -133,7 +140,7 @@ async fn fixed_profile_mode_skips_acp_model_switching() {
     let turn = wait_for_turn(
         &provider,
         "turn-fixed-profile",
-        proto::AgentExecutionStatus::Succeeded,
+        gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
     assert_eq!(turn.output_text, "Hermes says hi");
@@ -164,7 +171,7 @@ async fn mcp_catalog_turn_bridges_gestalt_tools_to_hermes() {
     let turn = wait_for_turn(
         &provider,
         "turn-mcp",
-        proto::AgentExecutionStatus::Succeeded,
+        gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
     assert_eq!(turn.output_text, "Hermes used Gestalt MCP");
@@ -267,7 +274,7 @@ async fn mcp_catalog_turn_does_not_prefetch_tools_before_mcp_use() {
     let turn = wait_for_turn(
         &provider,
         "turn-mcp-no-prefetch",
-        proto::AgentExecutionStatus::Succeeded,
+        gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
     assert_eq!(turn.output_text, "Hermes used Gestalt MCP");
@@ -325,7 +332,7 @@ async fn mcp_catalog_turn_marks_unavailable_sentinel_call_as_error() {
     let turn = wait_for_turn(
         &provider,
         "turn-mcp-sentinel",
-        proto::AgentExecutionStatus::Succeeded,
+        gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
     assert_eq!(turn.output_text, "Hermes used Gestalt MCP");
@@ -382,7 +389,7 @@ async fn mcp_catalog_turn_preserves_empty_target_error_body() {
     wait_for_turn(
         &provider,
         "turn-mcp-empty-error",
-        proto::AgentExecutionStatus::Succeeded,
+        gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
 
@@ -419,7 +426,7 @@ async fn mcp_catalog_proxy_gets_schema_by_returned_mcp_name() {
     wait_for_turn(
         &provider,
         "turn-mcp-schema",
-        proto::AgentExecutionStatus::Succeeded,
+        gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
 
@@ -464,7 +471,7 @@ async fn mcp_catalog_proxy_rejects_ambiguous_ref_selectors() {
     wait_for_turn(
         &provider,
         "turn-mcp-ambiguous",
-        proto::AgentExecutionStatus::Succeeded,
+        gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
 
@@ -502,7 +509,7 @@ async fn mcp_catalog_proxy_rejects_invalid_selectors_before_lookup() {
     wait_for_turn(
         &provider,
         "turn-mcp-invalid-selector",
-        proto::AgentExecutionStatus::Succeeded,
+        gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
 
@@ -536,7 +543,7 @@ async fn mcp_catalog_proxy_searches_only_catalog_metadata() {
     wait_for_turn(
         &provider,
         "turn-mcp-schema-only",
-        proto::AgentExecutionStatus::Succeeded,
+        gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
 
@@ -572,7 +579,7 @@ async fn mcp_catalog_proxy_ranks_matches_across_pages() {
     wait_for_turn(
         &provider,
         "turn-mcp-ranked-pages",
-        proto::AgentExecutionStatus::Succeeded,
+        gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
 
@@ -626,7 +633,7 @@ async fn mcp_catalog_proxy_reports_cursor_and_page_errors_as_tool_errors() {
         wait_for_turn(
             &provider,
             &format!("turn-mcp-{name}"),
-            proto::AgentExecutionStatus::Succeeded,
+            gestalt::AgentExecutionStatus::Succeeded,
         )
         .await;
 
@@ -661,7 +668,7 @@ async fn mcp_catalog_proxy_reports_list_rpc_errors_as_tool_errors() {
     wait_for_turn(
         &provider,
         "turn-mcp-list-error",
-        proto::AgentExecutionStatus::Succeeded,
+        gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
 
@@ -721,7 +728,7 @@ async fn mcp_catalog_proxy_reports_invalid_catalog_tools_as_tool_errors() {
         wait_for_turn(
             &provider,
             &format!("turn-mcp-{name}"),
-            proto::AgentExecutionStatus::Succeeded,
+            gestalt::AgentExecutionStatus::Succeeded,
         )
         .await;
 
@@ -753,7 +760,7 @@ async fn mcp_catalog_proxy_reports_input_cap_errors_without_listing_tools() {
     wait_for_turn(
         &provider,
         "turn-mcp-input-caps",
-        proto::AgentExecutionStatus::Succeeded,
+        gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
 
@@ -788,7 +795,7 @@ async fn mcp_catalog_proxy_reports_execute_rpc_errors_as_tool_errors() {
     wait_for_turn(
         &provider,
         "turn-mcp-execute-error",
-        proto::AgentExecutionStatus::Succeeded,
+        gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
 
@@ -826,7 +833,7 @@ async fn mcp_catalog_does_not_require_advertised_acp_http_mcp_support() {
     let turn = wait_for_turn(
         &provider,
         "turn-no-cap",
-        proto::AgentExecutionStatus::Succeeded,
+        gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
     assert_eq!(turn.output_text, "Hermes used Gestalt MCP");
@@ -844,23 +851,23 @@ async fn explicit_no_tool_turn_allows_run_grant_without_mcp_servers() {
 
     create_session(&provider).await;
     provider
-        .create_turn(Request::new(proto::CreateAgentProviderTurnRequest {
+        .create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: "turn-no-tools-with-grant".to_string(),
             session_id: "session-1".to_string(),
             run_grant: "grant-no-tools".to_string(),
-            messages: vec![proto::AgentMessage {
+            messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "say hi".to_string(),
                 ..Default::default()
             }],
             ..Default::default()
-        }))
+        })
         .await
         .unwrap();
     wait_for_turn(
         &provider,
         "turn-no-tools-with-grant",
-        proto::AgentExecutionStatus::Succeeded,
+        gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
 
@@ -886,7 +893,7 @@ async fn terminal_hermes_stderr_marks_turn_failed() {
     let turn = wait_for_turn(
         &provider,
         "turn-stderr-fail",
-        proto::AgentExecutionStatus::Failed,
+        gestalt::AgentExecutionStatus::Failed,
     )
     .await;
     assert!(
@@ -910,76 +917,76 @@ async fn rejects_unsupported_tool_and_model_options() {
     create_session(&provider).await;
 
     let err = provider
-        .create_turn(Request::new(proto::CreateAgentProviderTurnRequest {
+        .create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: "turn-resolved-tools".to_string(),
             session_id: "session-1".to_string(),
-            messages: vec![proto::AgentMessage {
+            messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "hi".to_string(),
                 ..Default::default()
             }],
-            tools: vec![proto::ResolvedAgentTool {
+            tools: vec![gestalt::ResolvedAgentTool {
                 id: "tool-1".to_string(),
                 name: "tool".to_string(),
                 ..Default::default()
             }],
             ..Default::default()
-        }))
+        })
         .await
         .unwrap_err();
-    assert_eq!(err.code(), Code::InvalidArgument);
+    assert_eq!(err.status(), Some(400));
 
     let err = provider
-        .create_turn(Request::new(proto::CreateAgentProviderTurnRequest {
+        .create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: "turn-missing-grant".to_string(),
             session_id: "session-1".to_string(),
-            messages: vec![proto::AgentMessage {
+            messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "hi".to_string(),
                 ..Default::default()
             }],
-            tool_source: proto::AgentToolSourceMode::McpCatalog as i32,
-            tool_refs: vec![proto::AgentToolRef {
+            tool_source: gestalt::AgentToolSourceMode::McpCatalog,
+            tool_refs: vec![gestalt::AgentToolRef {
                 plugin: "*".to_string(),
                 ..Default::default()
             }],
             ..Default::default()
-        }))
+        })
         .await
         .unwrap_err();
-    assert_eq!(err.code(), Code::InvalidArgument);
+    assert_eq!(err.status(), Some(400));
 
     let err = provider
-        .create_turn(Request::new(proto::CreateAgentProviderTurnRequest {
+        .create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: "turn-schema".to_string(),
             session_id: "session-1".to_string(),
-            messages: vec![proto::AgentMessage {
+            messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "hi".to_string(),
                 ..Default::default()
             }],
-            response_schema: protocol::struct_from_json(json!({ "type": "object" })).ok(),
+            response_schema: Some(json!({ "type": "object" })),
             ..Default::default()
-        }))
+        })
         .await
         .unwrap_err();
-    assert_eq!(err.code(), Code::InvalidArgument);
+    assert_eq!(err.status(), Some(400));
 
     let err = provider
-        .create_turn(Request::new(proto::CreateAgentProviderTurnRequest {
+        .create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: "turn-model-options".to_string(),
             session_id: "session-1".to_string(),
-            messages: vec![proto::AgentMessage {
+            messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "hi".to_string(),
                 ..Default::default()
             }],
-            model_options: protocol::struct_from_json(json!({ "type": "object" })).ok(),
+            model_options: Some(json!({ "type": "object" })),
             ..Default::default()
-        }))
+        })
         .await
         .unwrap_err();
-    assert_eq!(err.code(), Code::InvalidArgument);
+    assert_eq!(err.status(), Some(400));
 }
 
 #[tokio::test]
@@ -988,14 +995,14 @@ async fn rejects_empty_session_id_without_spawning_hermes() {
     let provider = fixture.configure_provider().await;
 
     let err = provider
-        .create_session(Request::new(proto::CreateAgentProviderSessionRequest {
+        .create_session(gestalt::CreateAgentProviderSessionRequest {
             session_id: "   ".to_string(),
             model: "kimi-k2.6".to_string(),
             ..Default::default()
-        }))
+        })
         .await
         .unwrap_err();
-    assert_eq!(err.code(), Code::InvalidArgument);
+    assert_eq!(err.status(), Some(400));
     assert!(
         fixture.log_events().is_empty(),
         "Hermes should not start for invalid session ids"
@@ -1011,18 +1018,14 @@ async fn cancel_turn_sends_acp_cancel_and_marks_turn_canceled() {
 
     wait_for_log_event(&fixture.log_path, "prompt").await;
     let canceled = provider
-        .cancel_turn(Request::new(proto::CancelAgentProviderTurnRequest {
+        .cancel_turn(gestalt::CancelAgentProviderTurnRequest {
             turn_id: "turn-cancel".to_string(),
             reason: "operator requested".to_string(),
             ..Default::default()
-        }))
+        })
         .await
-        .unwrap()
-        .into_inner();
-    assert_eq!(
-        canceled.status,
-        proto::AgentExecutionStatus::Canceled as i32
-    );
+        .unwrap();
+    assert_eq!(canceled.status, gestalt::AgentExecutionStatus::Canceled);
     wait_for_log_event(&fixture.log_path, "cancel").await;
     assert_turn_event(&provider, "turn-cancel", "turn.canceled").await;
 }
@@ -1035,18 +1038,14 @@ async fn cancel_before_acp_spawn_prevents_prompt() {
     create_turn(&provider, "turn-early-cancel").await;
 
     let canceled = provider
-        .cancel_turn(Request::new(proto::CancelAgentProviderTurnRequest {
+        .cancel_turn(gestalt::CancelAgentProviderTurnRequest {
             turn_id: "turn-early-cancel".to_string(),
             reason: "operator requested".to_string(),
             ..Default::default()
-        }))
+        })
         .await
-        .unwrap()
-        .into_inner();
-    assert_eq!(
-        canceled.status,
-        proto::AgentExecutionStatus::Canceled as i32
-    );
+        .unwrap();
+    assert_eq!(canceled.status, gestalt::AgentExecutionStatus::Canceled);
     tokio::time::sleep(Duration::from_millis(1_300)).await;
 
     let log = fixture.log_events();
@@ -1476,61 +1475,58 @@ impl Fixture {
     }
 }
 
-async fn create_session(provider: &HermesAgentProvider) -> proto::AgentSession {
+async fn create_session(provider: &HermesAgentProvider) -> gestalt::AgentSession {
     provider
-        .create_session(Request::new(proto::CreateAgentProviderSessionRequest {
+        .create_session(gestalt::CreateAgentProviderSessionRequest {
             session_id: "session-1".to_string(),
             model: "kimi-k2.6".to_string(),
-            created_by: Some(proto::AgentActor {
+            created_by: Some(gestalt::AgentActor {
                 subject_id: "user-1".to_string(),
                 subject_kind: "human".to_string(),
                 ..Default::default()
             }),
             ..Default::default()
-        }))
+        })
         .await
         .unwrap()
-        .into_inner()
 }
 
-async fn create_turn(provider: &HermesAgentProvider, turn_id: &str) -> proto::AgentTurn {
+async fn create_turn(provider: &HermesAgentProvider, turn_id: &str) -> gestalt::AgentTurn {
     provider
-        .create_turn(Request::new(proto::CreateAgentProviderTurnRequest {
+        .create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: turn_id.to_string(),
             session_id: "session-1".to_string(),
-            messages: vec![proto::AgentMessage {
+            messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "say hi".to_string(),
                 ..Default::default()
             }],
             ..Default::default()
-        }))
+        })
         .await
         .unwrap()
-        .into_inner()
 }
 
-async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> proto::AgentTurn {
+async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> gestalt::AgentTurn {
     provider
-        .create_turn(Request::new(proto::CreateAgentProviderTurnRequest {
+        .create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: turn_id.to_string(),
             session_id: "session-1".to_string(),
-            messages: vec![proto::AgentMessage {
+            messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "show me my linear tickets".to_string(),
                 ..Default::default()
             }],
-            tool_source: proto::AgentToolSourceMode::McpCatalog as i32,
-            tool_refs: vec![proto::AgentToolRef {
+            tool_source: gestalt::AgentToolSourceMode::McpCatalog,
+            tool_refs: vec![gestalt::AgentToolRef {
                 plugin: "*".to_string(),
                 ..Default::default()
             }],
             run_grant: "grant-mcp".to_string(),
             ..Default::default()
-        }))
+        })
         .await
         .unwrap()
-        .into_inner()
 }
 
 async fn serve_agent_host(
@@ -1552,24 +1548,23 @@ async fn serve_agent_host(
 async fn wait_for_turn(
     provider: &HermesAgentProvider,
     turn_id: &str,
-    status: proto::AgentExecutionStatus,
-) -> proto::AgentTurn {
+    status: gestalt::AgentExecutionStatus,
+) -> gestalt::AgentTurn {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let turn = provider
-            .get_turn(Request::new(proto::GetAgentProviderTurnRequest {
+            .get_turn(gestalt::GetAgentProviderTurnRequest {
                 turn_id: turn_id.to_string(),
                 ..Default::default()
-            }))
+            })
             .await
-            .unwrap()
-            .into_inner();
-        if turn.status == status as i32 {
+            .unwrap();
+        if turn.status == status {
             return turn;
         }
         assert!(
             Instant::now() < deadline,
-            "turn {turn_id} did not reach {status:?}; current status {} message {:?}",
+            "turn {turn_id} did not reach {status:?}; current status {:?} message {:?}",
             turn.status,
             turn.status_message
         );
@@ -1596,13 +1591,12 @@ async fn wait_for_log_event(log_path: &Path, event_name: &str) {
 
 async fn assert_turn_event(provider: &HermesAgentProvider, turn_id: &str, event_type: &str) {
     let events = provider
-        .list_turn_events(Request::new(proto::ListAgentProviderTurnEventsRequest {
+        .list_turn_events(gestalt::ListAgentProviderTurnEventsRequest {
             turn_id: turn_id.to_string(),
             ..Default::default()
-        }))
+        })
         .await
         .unwrap()
-        .into_inner()
         .events;
     assert!(
         events.iter().any(|event| event.r#type == event_type),

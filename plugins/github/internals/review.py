@@ -939,10 +939,8 @@ def ask_agent_for_findings(
         session_id=session.id,
         model=settings.model,
         messages=[
-            gestalt.AgentMessage(role="system", text=settings.system_prompt),
-            gestalt.AgentMessage(
-                role="user", text=review_prompt(subject, pull_request, files, settings)
-            ),
+            {"role": "system", "text": settings.system_prompt},
+            {"role": "user", "text": review_prompt(subject, pull_request, files, settings)},
         ],
         idempotency_key=f"{idempotency_base}:turn",
     )
@@ -1005,17 +1003,17 @@ def ask_agent_for_fix(
         session_id=session.id,
         model=settings.model,
         messages=[
-            gestalt.AgentMessage(role="system", text=SELF_FIX_SYSTEM_PROMPT),
-            gestalt.AgentMessage(
-                role="user",
-                text=self_fix_prompt(
+            {"role": "system", "text": SELF_FIX_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "text": self_fix_prompt(
                     subject,
                     pull_request,
                     findings=findings,
                     files=files,
                     settings=settings,
                 ),
-            ),
+            },
         ],
         idempotency_key=f"{idempotency_base}:turn",
     )

@@ -267,15 +267,20 @@ def tool_annotations(annotations_proto: Any, *, title: str) -> mcp_types.ToolAnn
         ("destructive_hint", "destructiveHint"),
         ("open_world_hint", "openWorldHint"),
     ):
-        if gestalt.has_field(annotations_proto, proto_name):
-            values[sdk_name] = bool(getattr(annotations_proto, proto_name))
+        value = getattr(annotations_proto, proto_name, None)
+        if value is not None:
+            values[sdk_name] = bool(value)
     return mcp_types.ToolAnnotations(**values) if values else None
 
 
 def _agent_host_call(*, host: gestalt.AgentHost, rpc_name: str, request: Any, timeout_seconds: float) -> Any:
     timeout = _coerce_timeout_seconds(timeout_seconds)
     try:
-        return getattr(getattr(host, "_stub"), rpc_name)(request, timeout=timeout)
+        if rpc_name == "ListTools":
+            return host.list_tools(request, timeout_seconds=timeout)
+        if rpc_name == "ExecuteTool":
+            return host.execute_tool(request, timeout_seconds=timeout)
+        raise ToolBridgeError(f"unsupported AgentHost RPC {rpc_name!r}")
     except grpc.RpcError as exc:
         raise ToolBridgeError(_grpc_error_message(rpc_name, exc)) from exc
 
