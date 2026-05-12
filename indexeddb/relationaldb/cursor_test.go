@@ -7,6 +7,7 @@ import (
 	"time"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
+	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -75,7 +76,7 @@ func cursorItemsSchema() *proto.ObjectStoreSchema {
 }
 
 func makeCursorItem(id, name, status, email string) *proto.Record {
-	record, _ := RecordToProto(map[string]any{
+	record, _ := sdkcompat.RecordToProto(map[string]any{
 		"id":     id,
 		"name":   name,
 		"status": status,
@@ -94,7 +95,7 @@ func cursorNumberSchema() *proto.ObjectStoreSchema {
 }
 
 func makeCursorNumberItem(id int64, name string) *proto.Record {
-	record, _ := RecordToProto(map[string]any{
+	record, _ := sdkcompat.RecordToProto(map[string]any{
 		"id":   id,
 		"name": name,
 	})
@@ -111,7 +112,7 @@ func cursorBytesSchema() *proto.ObjectStoreSchema {
 }
 
 func makeCursorBytesItem(id []byte, name string) *proto.Record {
-	record, _ := RecordToProto(map[string]any{
+	record, _ := sdkcompat.RecordToProto(map[string]any{
 		"id":   id,
 		"name": name,
 	})
@@ -344,7 +345,7 @@ func TestOpenCursorIndexRangeUsesIndexKeys(t *testing.T) {
 		entry := cursorEntryFromResponse(t, resp)
 		keys = append(keys, entry.GetPrimaryKey())
 
-		indexKey, err := KeyValuesToAny(entry.GetKey())
+		indexKey, err := sdkcompat.KeyValuesToAny(entry.GetKey())
 		if err != nil {
 			t.Fatalf("KeyValuesToAny: %v", err)
 		}
@@ -382,7 +383,7 @@ func TestOpenCursorOrdersNumericPrimaryKeysByNativeType(t *testing.T) {
 
 		entry := cursorEntryFromResponse(t, resp)
 		gotPrimaryKeys = append(gotPrimaryKeys, entry.GetPrimaryKey())
-		key, err := KeyValuesToAny(entry.GetKey())
+		key, err := sdkcompat.KeyValuesToAny(entry.GetKey())
 		if err != nil {
 			t.Fatalf("KeyValuesToAny: %v", err)
 		}
@@ -523,7 +524,7 @@ func TestOpenCursorUpdatePersistsRecordWithCurrentPrimaryKey(t *testing.T) {
 		t.Fatalf("first primary key = %q, want %q", entry.GetPrimaryKey(), "a")
 	}
 
-	updateRecord, err := RecordToProto(map[string]any{
+	updateRecord, err := sdkcompat.RecordToProto(map[string]any{
 		"name":   "Updated",
 		"status": "inactive",
 		"email":  "updated@test.com",
@@ -540,7 +541,7 @@ func TestOpenCursorUpdatePersistsRecordWithCurrentPrimaryKey(t *testing.T) {
 		t.Fatalf("updated primary key = %q, want %q", got, "a")
 	}
 
-	record, err := RecordFromProto(updated.GetRecord())
+	record, err := sdkcompat.RecordFromProto(updated.GetRecord())
 	if err != nil {
 		t.Fatalf("RecordFromProto: %v", err)
 	}
@@ -555,7 +556,7 @@ func TestOpenCursorUpdatePersistsRecordWithCurrentPrimaryKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get(updated): %v", err)
 	}
-	storedRecord, err := RecordFromProto(stored.GetRecord())
+	storedRecord, err := sdkcompat.RecordFromProto(stored.GetRecord())
 	if err != nil {
 		t.Fatalf("RecordFromProto(stored): %v", err)
 	}
@@ -577,7 +578,7 @@ func TestOpenCursorIndexUpdatePreservesSnapshotKeyOrder(t *testing.T) {
 	first := cursorEntryFromResponse(t, sendCursorCommand(t, stream, &proto.CursorCommand{
 		Command: &proto.CursorCommand_Next{Next: true},
 	}))
-	firstKey, err := KeyValuesToAny(first.GetKey())
+	firstKey, err := sdkcompat.KeyValuesToAny(first.GetKey())
 	if err != nil {
 		t.Fatalf("KeyValuesToAny(first): %v", err)
 	}
@@ -588,7 +589,7 @@ func TestOpenCursorIndexUpdatePreservesSnapshotKeyOrder(t *testing.T) {
 		t.Fatalf("first key = %#v, want [\"active\"]", firstKey)
 	}
 
-	updateRecord, err := RecordToProto(map[string]any{
+	updateRecord, err := sdkcompat.RecordToProto(map[string]any{
 		"name":   "Alice Updated",
 		"status": "inactive",
 		"email":  "alice-updated@test.com",
@@ -600,7 +601,7 @@ func TestOpenCursorIndexUpdatePreservesSnapshotKeyOrder(t *testing.T) {
 	updated := cursorEntryFromResponse(t, sendCursorCommand(t, stream, &proto.CursorCommand{
 		Command: &proto.CursorCommand_Update{Update: updateRecord},
 	}))
-	updatedKey, err := KeyValuesToAny(updated.GetKey())
+	updatedKey, err := sdkcompat.KeyValuesToAny(updated.GetKey())
 	if err != nil {
 		t.Fatalf("KeyValuesToAny(updated): %v", err)
 	}
@@ -610,7 +611,7 @@ func TestOpenCursorIndexUpdatePreservesSnapshotKeyOrder(t *testing.T) {
 	if len(updatedKey) != 1 || updatedKey[0] != "active" {
 		t.Fatalf("updated key = %#v, want snapshot key [\"active\"]", updatedKey)
 	}
-	updatedRecord, err := RecordFromProto(updated.GetRecord())
+	updatedRecord, err := sdkcompat.RecordFromProto(updated.GetRecord())
 	if err != nil {
 		t.Fatalf("RecordFromProto(updated): %v", err)
 	}
@@ -621,7 +622,7 @@ func TestOpenCursorIndexUpdatePreservesSnapshotKeyOrder(t *testing.T) {
 	second := cursorEntryFromResponse(t, sendCursorCommand(t, stream, &proto.CursorCommand{
 		Command: &proto.CursorCommand_Next{Next: true},
 	}))
-	secondKey, err := KeyValuesToAny(second.GetKey())
+	secondKey, err := sdkcompat.KeyValuesToAny(second.GetKey())
 	if err != nil {
 		t.Fatalf("KeyValuesToAny(second): %v", err)
 	}
@@ -650,7 +651,7 @@ func TestOpenCursorIndexUpdateAllowsClearingIndexedField(t *testing.T) {
 		t.Fatalf("first primary key = %q, want %q", got, "a")
 	}
 
-	updateRecord, err := RecordToProto(map[string]any{
+	updateRecord, err := sdkcompat.RecordToProto(map[string]any{
 		"name":  "Alice Missing Status",
 		"email": "alice-missing-status@test.com",
 	})
@@ -661,7 +662,7 @@ func TestOpenCursorIndexUpdateAllowsClearingIndexedField(t *testing.T) {
 	updated := cursorEntryFromResponse(t, sendCursorCommand(t, stream, &proto.CursorCommand{
 		Command: &proto.CursorCommand_Update{Update: updateRecord},
 	}))
-	updatedKey, err := KeyValuesToAny(updated.GetKey())
+	updatedKey, err := sdkcompat.KeyValuesToAny(updated.GetKey())
 	if err != nil {
 		t.Fatalf("KeyValuesToAny(updated): %v", err)
 	}
@@ -676,7 +677,7 @@ func TestOpenCursorIndexUpdateAllowsClearingIndexedField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get(a): %v", err)
 	}
-	storedRecord, err := RecordFromProto(stored.GetRecord())
+	storedRecord, err := sdkcompat.RecordFromProto(stored.GetRecord())
 	if err != nil {
 		t.Fatalf("RecordFromProto(stored): %v", err)
 	}

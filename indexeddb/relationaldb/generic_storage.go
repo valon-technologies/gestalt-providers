@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
+	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -37,7 +38,7 @@ type encodedKey struct {
 }
 
 func encodeKeyValue(value any) (encodedKey, error) {
-	kv, err := AnyToKeyValue(value)
+	kv, err := sdkcompat.AnyToKeyValue(value)
 	if err != nil {
 		return encodedKey{}, status.Errorf(codes.InvalidArgument, "encode key: %v", err)
 	}
@@ -58,7 +59,7 @@ func decodeKeyValue(raw []byte) (any, error) {
 	if err := gproto.Unmarshal(raw, kv); err != nil {
 		return nil, status.Errorf(codes.Internal, "decode key: %v", err)
 	}
-	value, err := KeyValueToAny(kv)
+	value, err := sdkcompat.KeyValueToAny(kv)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "decode key value: %v", err)
 	}
@@ -755,7 +756,7 @@ func (s *Store) genericIndexEntries(ctx context.Context, store string, m *storeM
 	var uniqueRows []genericIndexRow
 	var err error
 	if len(values) == len(idx.GetKeyPath()) && len(values) > 0 {
-		keyParts, err := AnyFromTypedValues(values)
+		keyParts, err := sdkcompat.AnyFromTypedValues(values)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "index values: %v", err)
 		}

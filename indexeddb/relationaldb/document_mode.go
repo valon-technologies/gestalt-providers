@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
+	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -54,7 +55,7 @@ func recordFieldAny(record *proto.Record, field string) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("field %q not found", field)
 	}
-	current, err := AnyFromTypedValue(value)
+	current, err := sdkcompat.AnyFromTypedValue(value)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +94,7 @@ func filterEntriesByPrefix(entries []cursorutil.Entry, values []*proto.TypedValu
 	if len(values) == 0 {
 		return entries, nil
 	}
-	prefix, err := AnyFromTypedValues(values)
+	prefix, err := sdkcompat.AnyFromTypedValues(values)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "index values: %v", err)
 	}

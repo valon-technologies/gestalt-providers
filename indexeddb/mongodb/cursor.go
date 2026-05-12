@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
+	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -234,7 +235,7 @@ func mongoExtractID(record *proto.Record) (any, string, error) {
 	if !ok || value == nil {
 		return nil, "", status.Error(codes.InvalidArgument, "record must contain an \"id\" field")
 	}
-	goValue, err := AnyFromTypedValue(value)
+	goValue, err := sdkcompat.AnyFromTypedValue(value)
 	if err != nil {
 		return nil, "", err
 	}
@@ -253,7 +254,7 @@ func mongoRecordFieldAny(record *proto.Record, field string) (any, error) {
 		return nil, fmt.Errorf("record is required")
 	}
 
-	fields, err := RecordFromProto(record)
+	fields, err := sdkcompat.RecordFromProto(record)
 	if err != nil {
 		return nil, err
 	}
