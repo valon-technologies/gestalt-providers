@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import io
 import json
 import pathlib
@@ -33,6 +34,34 @@ agent_pb2: Any = _agent_pb2
 workflow_pb2: Any = _workflow_pb2
 
 
+def _plain(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, Mapping):
+        return {key: _plain(inner) for key, inner in value.items()}
+    if isinstance(value, list | tuple):
+        return [_plain(inner) for inner in value]
+    if dataclasses.is_dataclass(value):
+        return {
+            field.name: _plain(getattr(value, field.name))
+            for field in dataclasses.fields(value)
+            if getattr(value, field.name, None) not in (None, "", [], {})
+        }
+    if hasattr(value, "DESCRIPTOR"):
+        return json_format.MessageToDict(value)
+    return value
+
+
+def _workflow_target_kind(target: Any) -> str | None:
+    if hasattr(target, "WhichOneof"):
+        return target.WhichOneof("kind")
+    if getattr(target, "agent", None) is not None:
+        return "agent"
+    if getattr(target, "plugin", None) is not None:
+        return "plugin"
+    return None
+
+
 class FakeHTTPResponse:
     def __init__(self, body: Any = None) -> None:
         self._body = json.dumps(body or {}).encode("utf-8")
@@ -62,16 +91,17 @@ class FakeWorkflowManager:
         self.requests.append(request)
         if self.fail:
             raise RuntimeError("workflow manager unavailable")
-        run = workflow_pb2.BoundWorkflowRun(
+        run = SimpleNamespace(
             id="workflow-run-123",
             status=workflow_pb2.WORKFLOW_RUN_STATUS_RUNNING,
-            target=request.target,
             workflow_key=request.workflow_key,
         )
-        signal = workflow_pb2.WorkflowSignal(id="signal-123")
-        signal.CopyFrom(request.signal)
-        signal.id = "signal-123"
-        return workflow_pb2.ManagedWorkflowRunSignal(
+        signal = SimpleNamespace(
+            id="signal-123",
+            name=getattr(request.signal, "name", ""),
+            idempotency_key=getattr(request.signal, "idempotency_key", ""),
+        )
+        return SimpleNamespace(
             provider_name=request.provider_name,
             run=run,
             signal=signal,
@@ -152,11 +182,18 @@ class FakeAgentManager:
         self.sessions: list[Any] = []
         self.turns: list[Any] = []
 
-    def create_session(self, request: Any) -> Any:
+    def create_session(self, request: Any = None, **kwargs: Any) -> Any:
+        if request is None:
+            request = SimpleNamespace(**kwargs)
         self.sessions.append(request)
         return agent_pb2.AgentSession(id="agent-session-1")
 
-    def create_turn(self, request: Any) -> Any:
+    def create_turn(self, request: Any = None, **kwargs: Any) -> Any:
+        if request is None:
+            request = SimpleNamespace(
+                response_schema=SimpleNamespace(fields={}),
+                **kwargs,
+            )
         self.turns.append(request)
         if self.require_no_response_schema and request.response_schema.fields:
             raise AssertionError("response_schema should not be set")
@@ -178,8 +215,9 @@ class FakeAgentManager:
             turn.structured_output.update(self.structured_output)
         return turn
 
-    def get_turn(self, request: Any) -> Any:
-        raise AssertionError(f"unexpected get_turn call for {request.turn_id}")
+    def get_turn(self, request: Any = None, **kwargs: Any) -> Any:
+        turn_id = kwargs.get("turn_id", getattr(request, "turn_id", ""))
+        raise AssertionError(f"unexpected get_turn call for {turn_id}")
 
 
 def request_json(request: urllib.request.Request) -> dict[str, Any]:
@@ -1275,13 +1313,13 @@ class GitHubProviderTests(unittest.TestCase):
                 provider_module.BOT_CREATE_PULL_REQUEST_OPERATION,
             ],
         )
-        metadata = json_format.MessageToDict(agent.metadata)
+        metadata = _plain(agent.metadata)
         self.assertEqual(metadata["github"]["installation_id"], 99)
         self.assertEqual(metadata["github"]["repository"], "acme/widgets")
         self.assertEqual(metadata["github"]["number"], 7)
 
         self.assertEqual(request.signal.name, "github.app.webhook")
-        data = json_format.MessageToDict(request.signal.payload)
+        data = _plain(request.signal.payload)
         self.assertEqual(data["delivery_id"], "delivery-123")
         self.assertEqual(data["github_event"], "pull_request")
         self.assertEqual(data["github_action"], "opened")
@@ -1354,7 +1392,7 @@ class GitHubProviderTests(unittest.TestCase):
                 self.assertEqual(request.workflow_key, expected_key)
                 data = cast(
                     dict[str, Any],
-                    json_format.MessageToDict(request.signal.payload),
+                    _plain(request.signal.payload),
                 )
                 event_id_key = f"{event_type}_id"
                 if "id" in event_object:
@@ -1368,9 +1406,7 @@ class GitHubProviderTests(unittest.TestCase):
                     self.assertEqual(data["summary"]["number"], number)
                 self.assertIn(
                     event_type,
-                    json_format.MessageToDict(request.target.agent.metadata)["github"][
-                        "session_ref"
-                    ],
+                    _plain(request.target.agent.metadata)["github"]["session_ref"],
                 )
         digest_fallback = self._workflow_signal_request(
             {
@@ -1540,7 +1576,7 @@ class GitHubProviderTests(unittest.TestCase):
                 )
                 data = cast(
                     dict[str, Any],
-                    json_format.MessageToDict(request.signal.payload),
+                    _plain(request.signal.payload),
                 )
                 self.assertEqual(
                     data["webhook_policy"]["canonical"]["workflow_key"],
@@ -1623,7 +1659,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn("pull request timeline comments", system_prompt)
         data = cast(
             dict[str, Any],
-            json_format.MessageToDict(inline_only.signal.payload),
+            _plain(inline_only.signal.payload),
         )
         self.assertEqual(
             data["webhook_policy"]["tool_refs"],
@@ -1708,7 +1744,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn("bot.commitFiles", system_prompt)
         data = cast(
             dict[str, Any],
-            json_format.MessageToDict(request.signal.payload),
+            _plain(request.signal.payload),
         )
         self.assertEqual(data["webhook_policy"]["tool_refs"], operations)
         self.assertEqual(
@@ -1845,7 +1881,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("pull_request.head_ref value as branch", system_prompt)
         self.assertNotIn("bot.createPullRequest ", system_prompt)
 
-        data = cast(dict[str, Any], json_format.MessageToDict(request.signal.payload))
+        data = cast(dict[str, Any], _plain(request.signal.payload))
         pull_request = data["agent_request"]["pull_request"]
         self.assertEqual(pull_request["head_ref"], "feature")
         self.assertEqual(pull_request["base_ref"], "main")
@@ -1915,7 +1951,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn(provider_module.BOT_COMMIT_FILES_OPERATION, operations)
         self.assertNotIn(provider_module.BOT_OPEN_PULL_REQUEST_OPERATION, operations)
         self.assertNotIn(provider_module.BOT_CREATE_PULL_REQUEST_OPERATION, operations)
-        data = cast(dict[str, Any], json_format.MessageToDict(request.signal.payload))
+        data = cast(dict[str, Any], _plain(request.signal.payload))
         self.assertEqual(
             data["webhook_policy"]["action_preferences"]["effective"]["self_fix_mode"],
             "branch_commit",
@@ -2053,7 +2089,7 @@ class GitHubProviderTests(unittest.TestCase):
         with mock.patch.object(provider_module, "get_pull_request") as get_pull_request:
             request = self._workflow_signal_request(self._full_pull_request_payload())
         get_pull_request.assert_not_called()
-        data = cast(dict[str, Any], json_format.MessageToDict(request.signal.payload))
+        data = cast(dict[str, Any], _plain(request.signal.payload))
         self.assertEqual(
             data["agent_request"]["pull_request"]["head_repo"]["full_name"],
             "acme/widgets",
@@ -2100,7 +2136,7 @@ class GitHubProviderTests(unittest.TestCase):
                 }
             )
 
-        data = cast(dict[str, Any], json_format.MessageToDict(request.signal.payload))
+        data = cast(dict[str, Any], _plain(request.signal.payload))
         self.assertNotIn("action_preferences", data["webhook_policy"])
         self.assertIn(
             provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
@@ -2164,7 +2200,7 @@ class GitHubProviderTests(unittest.TestCase):
             provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
             operations,
         )
-        data = cast(dict[str, Any], json_format.MessageToDict(request.signal.payload))
+        data = cast(dict[str, Any], _plain(request.signal.payload))
         preferences = data["webhook_policy"]["action_preferences"]
         self.assertEqual(preferences["source"], "external_subject_id")
         self.assertEqual(preferences["record_id"], record_id)
@@ -2228,7 +2264,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn(provider_module.BOT_COMMIT_FILES_OPERATION, operations)
         self.assertNotIn(provider_module.BOT_OPEN_PULL_REQUEST_OPERATION, operations)
         self.assertNotIn(provider_module.BOT_CREATE_PULL_REQUEST_OPERATION, operations)
-        data = cast(dict[str, Any], json_format.MessageToDict(request.signal.payload))
+        data = cast(dict[str, Any], _plain(request.signal.payload))
         self.assertEqual(
             data["webhook_policy"]["action_preferences"]["source"], "subject_id"
         )
@@ -2501,9 +2537,7 @@ class GitHubProviderTests(unittest.TestCase):
                     ),
                 ):
                     request = self._workflow_signal_request(payload)
-                data = cast(
-                    dict[str, Any], json_format.MessageToDict(request.signal.payload)
-                )
+                data = cast(dict[str, Any], _plain(request.signal.payload))
                 self.assertEqual(
                     data["webhook_policy"]["action_preferences"]["identity"][
                         "external_subject_id"
@@ -2950,7 +2984,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         fallback_data = cast(
             dict[str, Any],
-            json_format.MessageToDict(fallback.signal.payload),
+            _plain(fallback.signal.payload),
         )
         self.assertEqual(
             fallback_data["webhook_policy"]["id"],
@@ -2965,7 +2999,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         manual_data = cast(
             dict[str, Any],
-            json_format.MessageToDict(manual.signal.payload),
+            _plain(manual.signal.payload),
         )
         self.assertEqual(manual_data["webhook_policy"]["id"], "manual-review")
 
@@ -2992,7 +3026,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         draft_data = cast(
             dict[str, Any],
-            json_format.MessageToDict(draft.signal.payload),
+            _plain(draft.signal.payload),
         )
         self.assertEqual(draft_data["webhook_policy"]["id"], "draft-fallback")
 
@@ -3007,7 +3041,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         ready_data = cast(
             dict[str, Any],
-            json_format.MessageToDict(ready.signal.payload),
+            _plain(ready.signal.payload),
         )
         self.assertEqual(ready_data["webhook_policy"]["id"], "non-draft-pr")
 
@@ -3302,13 +3336,13 @@ class GitHubProviderTests(unittest.TestCase):
                 provider_module.BOT_CREATE_ISSUE_COMMENT_OPERATION,
             ],
         )
-        metadata = json_format.MessageToDict(agent.metadata)
+        metadata = _plain(agent.metadata)
         self.assertEqual(metadata["github"]["policy"]["id"], "failed-ci-comment")
         self.assertEqual(metadata["github"]["policy"]["mode"], "comment")
 
         data = cast(
             dict[str, Any],
-            json_format.MessageToDict(request.signal.payload),
+            _plain(request.signal.payload),
         )
         self.assertEqual(data["webhook_policy"]["id"], "failed-ci-comment")
         self.assertEqual(data["check_run"]["name"], "Build Gestalt")
@@ -3484,15 +3518,15 @@ class GitHubProviderTests(unittest.TestCase):
             agent_request.signal.idempotency_key,
         )
         self.assertEqual(
-            json_format.MessageToDict(plugin_request.signal.payload),
-            json_format.MessageToDict(agent_request.signal.payload),
+            _plain(plugin_request.signal.payload),
+            _plain(agent_request.signal.payload),
         )
         self.assertEqual(
-            json_format.MessageToDict(plugin_request.signal.metadata),
-            json_format.MessageToDict(agent_request.signal.metadata),
+            _plain(plugin_request.signal.metadata),
+            _plain(agent_request.signal.metadata),
         )
-        self.assertEqual(agent_request.target.WhichOneof("kind"), "agent")
-        self.assertEqual(plugin_request.target.WhichOneof("kind"), "plugin")
+        self.assertEqual(_workflow_target_kind(agent_request.target), "agent")
+        self.assertEqual(_workflow_target_kind(plugin_request.target), "plugin")
 
         plugin = plugin_request.target.plugin
         self.assertEqual(plugin.plugin_name, "github")
@@ -3501,14 +3535,14 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(plugin.instance, "prod")
         self.assertEqual(plugin.credential_mode, "none")
 
-        target_input = json_format.MessageToDict(plugin.input)
+        target_input = _plain(plugin.input)
         self.assertEqual(target_input["maxComments"], 10)
         self.assertEqual(target_input["changedLinesOnly"], True)
         self.assertEqual(target_input["dryRun"], True)
         self.assertNotIn("pull_request", target_input)
         self.assertNotIn("repository", target_input)
 
-        signal_payload = json_format.MessageToDict(plugin_request.signal.payload)
+        signal_payload = _plain(plugin_request.signal.payload)
         self.assertEqual(signal_payload["repository"]["full_name"], "acme/widgets")
         self.assertEqual(signal_payload["agent_request"]["pull_request"]["number"], 7)
 
@@ -3616,9 +3650,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(result["ok"], True)
         self.assertEqual(events, ["check-list", "check-create", "workflow"])
         self.assertEqual(len(workflow_manager.requests), 1)
-        signal_payload = json_format.MessageToDict(
-            workflow_manager.requests[0].signal.payload
-        )
+        signal_payload = _plain(workflow_manager.requests[0].signal.payload)
         self.assertEqual(signal_payload["review_check_run"]["id"], 456)
         self.assertEqual(signal_payload["review_check_run"]["name"], "Bugbot Review")
 
@@ -3803,7 +3835,7 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(result["ok"], True)
         self.assertEqual(events, ["check-update"])
-        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        payload = _plain(workflow_manager.requests[0].signal.payload)
         self.assertEqual(payload["review_check_run"]["id"], 456)
 
     def test_builtin_review_policy_reuses_matching_failed_completed_check_run(
@@ -3866,7 +3898,7 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(result["ok"], True)
         self.assertEqual(events, ["check-list"])
-        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        payload = _plain(workflow_manager.requests[0].signal.payload)
         self.assertEqual(payload["review_check_run"]["id"], 456)
         self.assertEqual(payload["review_check_run"]["status"], "completed")
         self.assertEqual(payload["review_check_run"]["conclusion"], "failure")
@@ -3945,7 +3977,7 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(result["ok"], True)
         self.assertEqual(events, ["check-list", "check-update"])
-        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        payload = _plain(workflow_manager.requests[0].signal.payload)
         self.assertEqual(payload["review_check_run"]["id"], 456)
         self.assertEqual(payload["review_check_run"]["status"], "in_progress")
 
@@ -4041,7 +4073,7 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(result["ok"], True)
         self.assertEqual(events, ["pull", "check-list", "check-create"])
-        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        payload = _plain(workflow_manager.requests[0].signal.payload)
         self.assertEqual(payload["review_check_run"]["head_sha"], "abc123")
 
     def test_app_mention_manual_review_creates_check_run(self) -> None:
@@ -4144,7 +4176,7 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(result["ok"], True)
         self.assertEqual(events, ["pull", "check-list", "check-create"])
-        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        payload = _plain(workflow_manager.requests[0].signal.payload)
         self.assertEqual(
             payload["webhook_policy"]["trigger"]["require_app_mention"], True
         )
@@ -4212,7 +4244,7 @@ class GitHubProviderTests(unittest.TestCase):
             )
 
         self.assertEqual(result["ok"], True)
-        payload = json_format.MessageToDict(workflow_manager.requests[0].signal.payload)
+        payload = _plain(workflow_manager.requests[0].signal.payload)
         self.assertNotIn("review_check_run", payload)
 
     def test_review_pull_request_posts_validated_inline_comments(self) -> None:
@@ -6828,7 +6860,7 @@ class GitHubProviderTests(unittest.TestCase):
         request = self._workflow_signal_request(payload)
         return cast(
             dict[str, Any],
-            json_format.MessageToDict(request.signal.payload),
+            _plain(request.signal.payload),
         )
 
     def _configure_builtin_review_policy(self) -> None:
@@ -7070,7 +7102,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         issue_comment = cast(
             dict[str, Any],
-            json_format.MessageToDict(issue_comment_request.signal.payload),
+            _plain(issue_comment_request.signal.payload),
         )
         self.assertEqual(issue_comment["github_event"], "issue_comment")
         self.assertNotIn("payload", issue_comment)
@@ -7079,9 +7111,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn(
             "please update this workflow", json.dumps(issue_comment["summary"])
         )
-        issue_metadata = json_format.MessageToDict(
-            issue_comment_request.signal.metadata
-        )
+        issue_metadata = _plain(issue_comment_request.signal.metadata)
         self.assertNotIn("comment_body", issue_metadata["github"])
         self.assertNotIn("please update this workflow", json.dumps(issue_metadata))
         comment = issue_comment["agent_request"]["comment"]
@@ -7147,12 +7177,12 @@ class GitHubProviderTests(unittest.TestCase):
         )
         review = cast(
             dict[str, Any],
-            json_format.MessageToDict(review_request.signal.payload),
+            _plain(review_request.signal.payload),
         )
         self.assertEqual(review["github_event"], "pull_request_review")
         self.assertNotIn("review_body", review["summary"])
         self.assertNotIn("please update this workflow", json.dumps(review["summary"]))
-        review_metadata = json_format.MessageToDict(review_request.signal.metadata)
+        review_metadata = _plain(review_request.signal.metadata)
         self.assertNotIn("review_body", review_metadata["github"])
         self.assertNotIn("please update this workflow", json.dumps(review_metadata))
         self.assertLess(len(review["agent_request"]["review"]["body"]), 5000)
