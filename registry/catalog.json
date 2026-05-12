@@ -236,8 +236,8 @@
             "darwin/amd64",
             "darwin/arm64",
             "linux/amd64",
-            "linux/arm",
-            "linux/arm64"
+            "linux/arm64",
+            "linux/arm"
           ],
           "runtime": "executable",
           "version": "0.0.1-alpha.1"
@@ -279,8 +279,8 @@
             "darwin/amd64",
             "darwin/arm64",
             "linux/amd64",
-            "linux/arm",
-            "linux/arm64"
+            "linux/arm64",
+            "linux/arm"
           ],
           "runtime": "executable",
           "version": "0.0.1-alpha.1"
@@ -365,8 +365,8 @@
             "darwin/amd64",
             "darwin/arm64",
             "linux/amd64",
-            "linux/arm",
-            "linux/arm64"
+            "linux/arm64",
+            "linux/arm"
           ],
           "runtime": "executable",
           "version": "0.0.1-alpha.1"
@@ -494,8 +494,8 @@
             "darwin/amd64",
             "darwin/arm64",
             "linux/amd64",
-            "linux/arm",
-            "linux/arm64"
+            "linux/arm64",
+            "linux/arm"
           ],
           "runtime": "executable",
           "version": "0.0.1-alpha.1"
@@ -615,8 +615,9 @@
             "darwin/amd64",
             "darwin/arm64",
             "linux/amd64",
+            "linux/arm64",
             "linux/arm",
-            "linux/arm64"
+            "generic"
           ],
           "runtime": "executable",
           "version": "0.0.1-alpha.1"
@@ -928,9 +929,14 @@
           "kind": "plugin",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm",
             "generic"
           ],
-          "runtime": "declarative",
+          "runtime": "executable",
           "version": "0.0.1-alpha.1"
         }
       ]
@@ -1009,8 +1015,9 @@
             "darwin/amd64",
             "darwin/arm64",
             "linux/amd64",
+            "linux/arm64",
             "linux/arm",
-            "linux/arm64"
+            "generic"
           ],
           "runtime": "executable",
           "version": "0.0.1-alpha.1"
@@ -1439,9 +1446,14 @@
           "kind": "plugin",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/hex/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm",
             "generic"
           ],
-          "runtime": "declarative",
+          "runtime": "executable",
           "version": "0.0.1-alpha.1"
         }
       ]
@@ -2270,9 +2282,14 @@
           "kind": "plugin",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/vercel/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm",
             "generic"
           ],
-          "runtime": "declarative",
+          "runtime": "executable",
           "version": "0.0.1-alpha.1"
         }
       ]
@@ -2351,8 +2368,8 @@
             "darwin/amd64",
             "darwin/arm64",
             "linux/amd64",
-            "linux/arm",
-            "linux/arm64"
+            "linux/arm64",
+            "linux/arm"
           ],
           "runtime": "executable",
           "version": "0.0.1-alpha.1"
@@ -2437,8 +2454,8 @@
             "darwin/amd64",
             "darwin/arm64",
             "linux/amd64",
-            "linux/arm",
-            "linux/arm64"
+            "linux/arm64",
+            "linux/arm"
           ],
           "runtime": "executable",
           "version": "0.0.1-alpha.1"
@@ -2480,8 +2497,8 @@
             "darwin/amd64",
             "darwin/arm64",
             "linux/amd64",
-            "linux/arm",
-            "linux/arm64"
+            "linux/arm64",
+            "linux/arm"
           ],
           "runtime": "executable",
           "version": "0.0.1-alpha.1"
@@ -2523,8 +2540,8 @@
             "darwin/amd64",
             "darwin/arm64",
             "linux/amd64",
-            "linux/arm",
-            "linux/arm64"
+            "linux/arm64",
+            "linux/arm"
           ],
           "runtime": "executable",
           "version": "0.0.1-alpha.1"
@@ -2652,8 +2669,8 @@
             "darwin/amd64",
             "darwin/arm64",
             "linux/amd64",
-            "linux/arm",
-            "linux/arm64"
+            "linux/arm64",
+            "linux/arm"
           ],
           "runtime": "executable",
           "version": "0.0.1-alpha.1"
@@ -2908,8 +2925,8 @@
             "darwin/amd64",
             "darwin/arm64",
             "linux/amd64",
-            "linux/arm",
-            "linux/arm64"
+            "linux/arm64",
+            "linux/arm"
           ],
           "runtime": "executable",
           "version": "0.0.1-alpha.1"
