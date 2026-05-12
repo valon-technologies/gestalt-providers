@@ -558,8 +558,9 @@ packages:
           - "darwin/amd64"
           - "darwin/arm64"
           - "linux/amd64"
-          - "linux/arm"
           - "linux/arm64"
+          - "linux/arm"
+          - "generic"
   github.com/valon-technologies/gestalt-providers/plugins/teams:
     displayName: "Microsoft Teams"
     description: "Browse Microsoft Teams teams, channels, chats, members, and messages through Microsoft Graph."
