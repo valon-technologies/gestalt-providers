@@ -1,6 +1,6 @@
 # Default External Credentials
 
-This provider implements the `external_credentials` primitive using the host
+This provider implements the `externalcredentials` primitive using the host
 IndexedDB service exposed through `gestalt.IndexedDB(...)`.
 
 It persists credentials in the `external_credentials` object store and keeps the
@@ -22,7 +22,7 @@ providers:
   externalCredentials:
     default:
       source:
-        ref: github.com/valon-technologies/gestalt-providers/external_credentials/default
+        ref: github.com/valon-technologies/gestalt-providers/externalcredentials/default
         version: 0.0.1-alpha.5
       config:
         encryptionKey: ${GESTALT_ENCRYPTION_KEY}
