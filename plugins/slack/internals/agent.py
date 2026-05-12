@@ -336,6 +336,30 @@ def _field_value(source: Any, *names: str) -> Any:
     return None
 
 
+def _workflow_handoff_log_context(
+    workflow_request: Any | None,
+    err: BaseException | None = None,
+) -> str:
+    idempotency_key = str(
+        _field_value(workflow_request, "idempotency_key", "idempotencyKey") or ""
+    ).strip()
+    return _log_context(
+        workflow_provider=_field_value(
+            workflow_request, "provider_name", "providerName"
+        ),
+        idempotency_key_sha256=_sha256_log_value(idempotency_key),
+        error_type=type(err).__name__ if err else "",
+        error=_log_body(str(err), max_bytes=512) if err else "",
+    )
+
+
+def _sha256_log_value(value: str) -> str:
+    value = str(value or "").strip()
+    if not value:
+        return ""
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
 def _bool_field_value(value: Any) -> bool:
     if isinstance(value, bool):
         return value
@@ -456,6 +480,7 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
     acknowledgement_reaction_error = ""
     assistant_status_error = ""
     workflow_provider = _workflow_provider_name(route)
+    workflow_request: Any | None = None
     try:
         reply_ref = _sign_reply_ref(event, subject_id, route)
         if not workflow_provider:
@@ -479,9 +504,16 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             workflow_request = _build_workflow_signal_or_start_request(
                 event, route, reply_ref
             )
+            logger.info(
+                f"attempting Slack event workflow signal {log_context} "
+                f"{_workflow_handoff_log_context(workflow_request)}"
+            )
             workflow_response = workflow_manager.signal_or_start_run(workflow_request)
     except Exception as err:
-        logger.exception("failed to signal Slack event workflow %s", log_context)
+        logger.exception(
+            f"failed to signal Slack event workflow {log_context} "
+            f"{_workflow_handoff_log_context(workflow_request, err)}"
+        )
         return _server_error(f"failed to signal workflow run: {err}")
 
     try:
@@ -673,14 +705,22 @@ def handle_slack_interaction(
         logger.error("%s %s", message, log_context)
         return _server_error(message)
 
+    workflow_request: Any | None = None
     try:
         workflow_request = _build_workflow_interaction_signal_or_start_request(
             payload, selected_action, verified_ref, route
         )
         with workflow_manager_factory() as workflow_manager:
+            logger.info(
+                f"attempting Slack interaction workflow signal {log_context} "
+                f"{_workflow_handoff_log_context(workflow_request)}"
+            )
             workflow_response = workflow_manager.signal_or_start_run(workflow_request)
     except Exception as err:
-        logger.exception("failed to signal Slack interaction workflow %s", log_context)
+        logger.exception(
+            f"failed to signal Slack interaction workflow {log_context} "
+            f"{_workflow_handoff_log_context(workflow_request, err)}"
+        )
         return _server_error(f"failed to signal workflow run: {err}")
 
     try:
@@ -1978,8 +2018,8 @@ def _build_workflow_publish_event_request(
     route: SlackEventPublishRoute,
     raw_payload: dict[str, Any],
 ) -> Any:
-    workflow_request = gestalt.WorkflowManagerPublishEventRequest(
-        event=gestalt.WorkflowEvent(
+    workflow_request = gestalt.WorkflowManagerPublishEventInput(
+        event=gestalt.WorkflowEventInput(
             id=_workflow_event_id(event, route),
             source=route.source or "slack",
             spec_version="1.0",
@@ -2309,13 +2349,14 @@ def _resolve_slack_subject(
         SLACK_EXTERNAL_IDENTITY_TYPE, identity_id
     )
     response = authorization.search_subjects(
-        gestalt.SubjectSearchRequest(
-            resource=gestalt.AuthorizationResource(
-                type=EXTERNAL_IDENTITY_RESOURCE_TYPE, id=resource_id
-            ),
-            action=gestalt.AuthorizationAction(name=EXTERNAL_IDENTITY_ASSUME_ACTION),
-            page_size=10,
-        )
+        {
+            "resource": {
+                "type": EXTERNAL_IDENTITY_RESOURCE_TYPE,
+                "id": resource_id,
+            },
+            "action": {"name": EXTERNAL_IDENTITY_ASSUME_ACTION},
+            "page_size": 10,
+        }
     )
     subjects = _dedupe_resolved_subjects(response.subjects)
     if len(subjects) > 1:
@@ -2399,10 +2440,9 @@ def _subject_kind_from_id(subject_id: str) -> str:
 
 def _subject_display_name(subject: Any) -> str:
     properties = getattr(subject, "properties", None)
-    if properties is not None and getattr(properties, "fields", None):
-        data = gestalt.struct_to_dict(properties)
+    if isinstance(properties, dict):
         for key in ("displayName", "display_name", "email", "name"):
-            value = data.get(key)
+            value = properties.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
     return str(getattr(subject, "id", "") or "").strip()
@@ -2715,12 +2755,12 @@ def _build_workflow_signal_or_start_request(
 ) -> Any:
     workflow_key = _agent_session_ref(event)
     thread_context = _prefetch_thread_context(event, route)
-    request = gestalt.WorkflowManagerSignalOrStartRunRequest(
+    request = gestalt.WorkflowManagerSignalOrStartRunInput(
         provider_name=_workflow_provider_name(route),
         workflow_key=workflow_key,
         idempotency_key=_agent_turn_idempotency_key(event),
         target=_build_workflow_agent_target(event, route),
-        signal=gestalt.WorkflowSignal(
+        signal=gestalt.WorkflowSignalInput(
             name=SLACK_EVENT_WORKFLOW_SIGNAL,
             idempotency_key=_agent_turn_idempotency_key(event),
             payload=_slack_workflow_signal_payload(event, reply_ref, thread_context),
@@ -2738,7 +2778,9 @@ def _build_workflow_agent_target(
         "provider_name": _agent_provider(route),
         "model": _agent_model(route),
         "prompt": _workflow_agent_prompt(),
-        "messages": [{"role": "system", "text": _agent_system_prompt(route)}],
+        "messages": [
+            gestalt.AgentMessageInput(role="system", text=_agent_system_prompt(route))
+        ],
         "tool_refs": _agent_event_tool_refs(route),
         "session_ready_delivery": _workflow_session_ready_delivery(),
         "output_delivery": _workflow_output_delivery(),
@@ -2747,18 +2789,11 @@ def _build_workflow_agent_target(
     timeout_seconds = _agent_timeout_seconds(route)
     if timeout_seconds > 0:
         target_kwargs["timeout_seconds"] = timeout_seconds
-    agent = gestalt.BoundWorkflowAgentTarget(**target_kwargs)
     model_options = _agent_model_options(route)
     if model_options:
-        _agent_options_struct(agent).update(model_options)
-    return gestalt.BoundWorkflowTarget(agent=agent)
-
-
-def _agent_options_struct(agent: Any) -> Any:
-    options = getattr(agent, "provider_options", None)
-    if options is not None:
-        return options
-    return agent.model_options
+        target_kwargs["model_options"] = model_options
+    agent = gestalt.BoundWorkflowAgentTargetInput(**target_kwargs)
+    return gestalt.BoundWorkflowTargetInput(agent=agent)
 
 
 def _workflow_agent_prompt() -> str:
@@ -2776,40 +2811,44 @@ def _workflow_agent_prompt() -> str:
 
 
 def _workflow_output_delivery() -> Any:
-    return gestalt.WorkflowOutputDelivery(
-        target=gestalt.BoundWorkflowPluginTarget(
+    return gestalt.WorkflowOutputDeliveryInput(
+        target=gestalt.BoundWorkflowPluginTargetInput(
             plugin_name=_agent_config.plugin_name,
             operation=SLACK_REPLY_OPERATION,
         ),
         credential_mode="none",
         input_bindings=[
-            gestalt.WorkflowOutputBinding(
+            gestalt.WorkflowOutputBindingInput(
                 input_field="text",
-                value=gestalt.WorkflowOutputValueSource(agent_output="text"),
+                value=gestalt.WorkflowOutputValueSourceInput(agent_output="text"),
             ),
-            gestalt.WorkflowOutputBinding(
+            gestalt.WorkflowOutputBindingInput(
                 input_field="reply_ref",
-                value=gestalt.WorkflowOutputValueSource(signal_payload="reply_ref"),
+                value=gestalt.WorkflowOutputValueSourceInput(
+                    signal_payload="reply_ref"
+                ),
             ),
         ],
     )
 
 
 def _workflow_session_ready_delivery() -> Any:
-    return gestalt.WorkflowOutputDelivery(
-        target=gestalt.BoundWorkflowPluginTarget(
+    return gestalt.WorkflowOutputDeliveryInput(
+        target=gestalt.BoundWorkflowPluginTargetInput(
             plugin_name=_agent_config.plugin_name,
             operation=SLACK_SESSION_STARTED_REPLY_OPERATION,
         ),
         credential_mode="none",
         input_bindings=[
-            gestalt.WorkflowOutputBinding(
+            gestalt.WorkflowOutputBindingInput(
                 input_field="session_id",
-                value=gestalt.WorkflowOutputValueSource(agent_session="id"),
+                value=gestalt.WorkflowOutputValueSourceInput(agent_session="id"),
             ),
-            gestalt.WorkflowOutputBinding(
+            gestalt.WorkflowOutputBindingInput(
                 input_field="reply_ref",
-                value=gestalt.WorkflowOutputValueSource(signal_payload="reply_ref"),
+                value=gestalt.WorkflowOutputValueSourceInput(
+                    signal_payload="reply_ref"
+                ),
             ),
         ],
     )
@@ -2947,7 +2986,7 @@ def _build_workflow_interaction_signal_or_start_request(
     route: SlackAgentRoute | None,
 ) -> Any:
     event = _interaction_event(payload, interaction_ref)
-    signal = gestalt.WorkflowSignal(
+    signal = gestalt.WorkflowSignalInput(
         name=SLACK_INTERACTION_WORKFLOW_SIGNAL,
         idempotency_key=_interaction_idempotency_key(payload, selected_action),
         payload=_slack_interaction_signal_payload(
@@ -2955,7 +2994,7 @@ def _build_workflow_interaction_signal_or_start_request(
         ),
         metadata=_agent_metadata(event, route),
     )
-    return gestalt.WorkflowManagerSignalOrStartRunRequest(
+    return gestalt.WorkflowManagerSignalOrStartRunInput(
         provider_name=_workflow_provider_name(route),
         workflow_key=interaction_ref.workflow_key,
         idempotency_key=signal.idempotency_key,
@@ -3053,15 +3092,15 @@ def _agent_tool_ref(
     title: str = "",
     description: str = "",
 ) -> Any:
-    return {
-        "system": system,
-        "plugin": plugin,
-        "operation": operation,
-        "connection": connection,
-        "instance": instance,
-        "title": title,
-        "description": description,
-    }
+    return gestalt.AgentToolRefInput(
+        system=system,
+        plugin=plugin,
+        operation=operation,
+        connection=connection,
+        instance=instance,
+        title=title,
+        description=description,
+    )
 
 
 def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
@@ -3393,7 +3432,7 @@ def _workflow_run_status_name(status: Any) -> str:
         return status
     try:
         return gestalt.workflow_run_status_name(int(status))
-    except TypeError, ValueError, AttributeError:
+    except (TypeError, ValueError, AttributeError):
         return str(status)
 
 
@@ -3401,30 +3440,31 @@ def _workflow_manager_contract_available() -> bool:
     if not all(
         getattr(gestalt, name, None) is not None
         for name in (
-            "BoundWorkflowAgentTarget",
-            "BoundWorkflowPluginTarget",
-            "BoundWorkflowTarget",
-            "WorkflowOutputBinding",
-            "WorkflowOutputDelivery",
-            "WorkflowOutputValueSource",
-            "WorkflowManagerSignalOrStartRunRequest",
-            "WorkflowSignal",
+            "BoundWorkflowAgentTargetInput",
+            "BoundWorkflowPluginTargetInput",
+            "BoundWorkflowTargetInput",
+            "WorkflowOutputBindingInput",
+            "WorkflowOutputDeliveryInput",
+            "WorkflowOutputValueSourceInput",
+            "WorkflowManagerSignalOrStartRunInput",
+            "WorkflowSignalInput",
         )
     ):
         return False
     try:
-        agent = gestalt.BoundWorkflowAgentTarget()
-        source = gestalt.WorkflowOutputValueSource(agent_session="id")
+        agent = gestalt.BoundWorkflowAgentTargetInput()
+        source = gestalt.WorkflowOutputValueSourceInput(agent_session="id")
+        gestalt.WorkflowManagerSignalOrStartRunInput()
     except Exception:
         return False
     return (
         hasattr(agent, "session_ready_delivery")
-        and source.WhichOneof("kind") == "agent_session"
+        and getattr(source, "agent_session", "") == "id"
     )
 
 
 def _workflow_publish_contract_available() -> bool:
-    request_type = getattr(gestalt, "WorkflowManagerPublishEventRequest", None)
+    request_type = getattr(gestalt, "WorkflowManagerPublishEventInput", None)
     if request_type is None:
         return False
     try:
@@ -3443,7 +3483,7 @@ def _workflow_publish_provider_selection_required(
 
 
 def _workflow_publish_provider_selection_available() -> bool:
-    request_type = getattr(gestalt, "WorkflowManagerPublishEventRequest", None)
+    request_type = getattr(gestalt, "WorkflowManagerPublishEventInput", None)
     if request_type is None:
         return False
     try:
