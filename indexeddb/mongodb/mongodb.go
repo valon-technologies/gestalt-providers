@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
-	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -518,7 +517,7 @@ func (s *Store) indexFilter(ctx context.Context, store, index string, values []*
 	}
 
 	filter := bson.M{}
-	goValues, err := sdkcompat.AnyFromTypedValues(values)
+	goValues, err := AnyFromTypedValues(values)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid index values: %v", err)
 	}
@@ -536,7 +535,7 @@ func keyRangeFilter(r *proto.KeyRange) (bson.M, error) {
 	}
 	idFilter := bson.M{}
 	if r.GetLower() != nil {
-		lower, err := sdkcompat.AnyFromTypedValue(r.GetLower())
+		lower, err := AnyFromTypedValue(r.GetLower())
 		if err != nil {
 			return nil, err
 		}
@@ -547,7 +546,7 @@ func keyRangeFilter(r *proto.KeyRange) (bson.M, error) {
 		}
 	}
 	if r.GetUpper() != nil {
-		upper, err := sdkcompat.AnyFromTypedValue(r.GetUpper())
+		upper, err := AnyFromTypedValue(r.GetUpper())
 		if err != nil {
 			return nil, err
 		}
@@ -567,7 +566,7 @@ func protoToDoc(record *proto.Record) (bson.M, error) {
 	if record == nil {
 		return bson.M{}, nil
 	}
-	m, err := sdkcompat.RecordFromProto(record)
+	m, err := RecordFromProto(record)
 	if err != nil {
 		return nil, err
 	}
@@ -591,7 +590,7 @@ func docToProto(doc bson.M) (*proto.Record, error) {
 			m[k] = toGestaltCompatible(v)
 		}
 	}
-	return sdkcompat.RecordToProto(m)
+	return RecordToProto(m)
 }
 
 func cursorToProtos(ctx context.Context, cursor *mongo.Cursor) ([]*proto.Record, error) {

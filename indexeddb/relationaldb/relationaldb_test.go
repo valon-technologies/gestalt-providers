@@ -4,15 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 func testStore(t *testing.T) *Store {
@@ -260,7 +258,7 @@ func intPrimaryKeySchema() *proto.ObjectStoreSchema {
 }
 
 func makeWidget(id, code, title string) *proto.Record {
-	record, _ := sdkcompat.RecordToProto(map[string]any{
+	record, _ := RecordToProto(map[string]any{
 		"id":         id,
 		"code":       code,
 		"title":      title,
@@ -271,7 +269,7 @@ func makeWidget(id, code, title string) *proto.Record {
 }
 
 func makeSampleRecord(id string) *proto.Record {
-	record, _ := sdkcompat.RecordToProto(map[string]any{
+	record, _ := RecordToProto(map[string]any{
 		"id":             id,
 		"owner_id":       "owner-1",
 		"category":       "alpha",
@@ -287,7 +285,7 @@ func makeSampleRecord(id string) *proto.Record {
 }
 
 func makeIntPrimaryKeyRecord(id int64, title string) *proto.Record {
-	record, _ := sdkcompat.RecordToProto(map[string]any{
+	record, _ := RecordToProto(map[string]any{
 		"id":    id,
 		"title": title,
 	})
@@ -330,7 +328,7 @@ func TestFullLifecycle(t *testing.T) {
 	if got := resp.Record.Fields["code"].GetStringValue(); got != "W-001" {
 		t.Fatalf("Get code: got %q, want W-001", got)
 	}
-	createdAt, err := sdkcompat.AnyFromTypedValue(resp.Record.Fields["created_at"])
+	createdAt, err := AnyFromTypedValue(resp.Record.Fields["created_at"])
 	if err != nil {
 		t.Fatalf("AnyFromTypedValue(created_at): %v", err)
 	}
@@ -360,7 +358,7 @@ func TestFullLifecycle(t *testing.T) {
 	}
 
 	// Index query.
-	vals, _ := sdkcompat.TypedValuesFromAny([]any{"W-001"})
+	vals, _ := TypedValuesFromAny([]any{"W-001"})
 	idxResp, err := s.IndexGet(ctx, &proto.IndexQueryRequest{
 		Store: "widgets", Index: "by_code", Values: vals,
 	})
@@ -459,7 +457,7 @@ func TestGenericStoreSupportsTypedPrimaryKeyLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get typed primary key: %v", err)
 	}
-	id, err := sdkcompat.AnyFromTypedValue(resp.Record.Fields["id"])
+	id, err := AnyFromTypedValue(resp.Record.Fields["id"])
 	if err != nil {
 		t.Fatalf("AnyFromTypedValue(id): %v", err)
 	}
@@ -602,7 +600,7 @@ func TestCreateObjectStoreRejectsSchemaChanges(t *testing.T) {
 	if got := count.GetCount(); got != 1 {
 		t.Fatalf("Count after rejected schema change = %d, want 1", got)
 	}
-	vals, _ := sdkcompat.TypedValuesFromAny([]any{"W-001"})
+	vals, _ := TypedValuesFromAny([]any{"W-001"})
 	if _, err := s.IndexGet(ctx, &proto.IndexQueryRequest{
 		Store: "widgets", Index: "by_code", Values: vals,
 	}); status.Code(err) != codes.NotFound {
@@ -904,7 +902,7 @@ func TestCreateGenericIndexEntriesTableSQLMySQLUsesLongBlobPayloads(t *testing.T
 
 func mustTypedValue(t *testing.T, value any) *proto.TypedValue {
 	t.Helper()
-	pbValue, err := sdkcompat.TypedValueFromAny(value)
+	pbValue, err := TypedValueFromAny(value)
 	if err != nil {
 		t.Fatalf("TypedValueFromAny(%#v): %v", value, err)
 	}

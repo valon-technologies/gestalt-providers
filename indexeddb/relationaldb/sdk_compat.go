@@ -1,4 +1,4 @@
-package sdkcompat
+package relationaldb
 
 import (
 	"context"
