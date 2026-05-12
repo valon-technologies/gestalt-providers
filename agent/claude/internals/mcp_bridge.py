@@ -312,9 +312,9 @@ def _tool_error_message(exc: Exception) -> str:
     return message
 
 
-def _tool_entry(tool_proto: Any) -> ToolEntry:
-    tool_id = str(tool_proto.id or "").strip()
-    mcp_name = str(tool_proto.mcp_name or "").strip()
+def _tool_entry(tool: Any) -> ToolEntry:
+    tool_id = str(tool.id or "").strip()
+    mcp_name = str(tool.mcp_name or "").strip()
     if not tool_id:
         raise ValueError("ListTools returned a tool without an id")
     if not mcp_name:
@@ -324,12 +324,12 @@ def _tool_entry(tool_proto: Any) -> ToolEntry:
     return ToolEntry(
         tool_id=tool_id,
         mcp_name=mcp_name,
-        title=str(tool_proto.title or "").strip(),
-        description=str(tool_proto.description or "").strip(),
-        tags=_string_list(getattr(tool_proto, "tags", [])),
-        search_text=str(getattr(tool_proto, "search_text", "") or "").strip(),
-        input_schema=_schema_from_json(str(tool_proto.input_schema or "")),
-        annotations=_annotations(tool_proto.annotations, title=str(tool_proto.title or "").strip()),
+        title=str(tool.title or "").strip(),
+        description=str(tool.description or "").strip(),
+        tags=_string_list(getattr(tool, "tags", [])),
+        search_text=str(getattr(tool, "search_text", "") or "").strip(),
+        input_schema=_schema_from_json(str(tool.input_schema or "")),
+        annotations=_annotations(tool.annotations, title=str(tool.title or "").strip()),
     )
 
 
@@ -484,13 +484,13 @@ def _annotations(value: Any, *, title: str) -> ToolAnnotations | None:
     if value is None:
         return ToolAnnotations(title=title) if title else None
     payload: dict[str, str | bool | None] = {"title": title or str(getattr(value, "title", "") or "").strip() or None}
-    for proto_name, sdk_name in (
+    for source_attr, sdk_name in (
         ("read_only_hint", "readOnlyHint"),
         ("destructive_hint", "destructiveHint"),
         ("idempotent_hint", "idempotentHint"),
         ("open_world_hint", "openWorldHint"),
     ):
-        current = getattr(value, proto_name, None)
+        current = getattr(value, source_attr, None)
         if current is not None:
             payload[sdk_name] = bool(current)
     return ToolAnnotations.model_validate({k: v for k, v in payload.items() if v is not None})

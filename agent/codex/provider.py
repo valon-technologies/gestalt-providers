@@ -75,10 +75,10 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             validate_session_start_user_metadata(metadata)
         except ValueError as exc:
             raise gestalt.Error(400, str(exc)) from exc
-        try:
-            prepared_workspace = _prepared_workspace_to_dict(request.prepared_workspace)
-        except ValueError as exc:
-            raise gestalt.Error(400, str(exc)) from exc
+        prepared_workspace = gestalt.prepared_workspace_to_dict(request.prepared_workspace)
+        if prepared_workspace and (not prepared_workspace.get("root") or not prepared_workspace.get("cwd")):
+            raise gestalt.Error(400, "prepared_workspace root and cwd are required")
+        prepared_workspace = prepared_workspace or None
         idempotency_key = str(request.idempotency_key or "").strip()
         session_start = request.session_start
         if session_start is not None and len(list(getattr(session_start, "hooks", []) or [])) > 0:
@@ -440,18 +440,6 @@ def _validate_tool_refs(tool_refs: list[Any]) -> None:
             raise gestalt.Error(400, f"tool_refs[{index}] must set exactly one of plugin or system")
         if system and system != "workflow":
             raise gestalt.Error(400, f"tool_refs[{index}].system {system!r} is not supported")
-
-
-def _prepared_workspace_to_dict(value: Any | None) -> dict[str, str] | None:
-    if value is None:
-        return None
-    root = _text(getattr(value, "root", ""))
-    cwd = _text(getattr(value, "cwd", ""))
-    if not root and not cwd:
-        return None
-    if not root or not cwd:
-        raise ValueError("prepared_workspace root and cwd are required")
-    return {"root": root, "cwd": cwd}
 
 
 def _prepared_workspace_cwd(value: dict[str, str] | None) -> str:
