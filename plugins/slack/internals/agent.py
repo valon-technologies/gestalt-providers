@@ -59,7 +59,7 @@ from .operations import (
     update_message,
 )
 
-ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
+ErrorResponse: TypeAlias = gestalt.Response[dict[str, Any]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
 
 logger = logging.getLogger(__name__)
@@ -827,13 +827,23 @@ def reply_slack_event_session_started(
             status=HTTPStatus.PRECONDITION_FAILED,
             body={"error": "authorization provider is required to share agent session"},
         )
-    except Exception:
+    except Exception as err:
+        diagnostic = {
+            "type": type(err).__name__,
+            "message": str(err),
+        }
         logger.warning(
-            "slack: failed to share agent session before posting link", exc_info=True
+            f"slack: failed to share agent session before posting link "
+            f"authorization_error_type={diagnostic['type']} "
+            f"authorization_error_message={diagnostic['message']}",
+            exc_info=True,
         )
         return gestalt.Response(
             status=HTTPStatus.BAD_GATEWAY,
-            body={"error": "failed to share agent session"},
+            body={
+                "error": "failed to share agent session",
+                "authorization_error": diagnostic,
+            },
         )
 
     session_url = agent_session_url(base_url, normalized_session_id)
@@ -900,18 +910,11 @@ def _grant_agent_session_editor(
     if not normalized_subject_id or not normalized_session_id:
         raise RuntimeError("agent session share requires subject and session")
     grant_agent_session_editor = getattr(authorization, "grant_agent_session_editor", None)
-    if callable(grant_agent_session_editor):
-        grant_agent_session_editor(normalized_subject_id, normalized_session_id)
-        return
-    write_relationships = getattr(authorization, "write_relationships", None)
-    if callable(write_relationships):
-        write_relationships(
-            gestalt.agent_session_editor_write_request(
-                normalized_subject_id, normalized_session_id
-            )
+    if not callable(grant_agent_session_editor):
+        raise RuntimeError(
+            "authorization client does not support grant_agent_session_editor"
         )
-        return
-    raise RuntimeError("authorization client does not support write_relationships")
+    grant_agent_session_editor(normalized_subject_id, normalized_session_id)
 
 
 def set_slack_event_status(

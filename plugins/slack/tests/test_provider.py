@@ -3877,9 +3877,18 @@ class SlackProviderTests(unittest.TestCase):
             )
 
         self.assertIsInstance(result, gestalt.Response)
-        response = cast(gestalt.Response[dict[str, str]], result)
+        response = cast(gestalt.Response[dict[str, Any]], result)
         self.assertEqual(response.status, HTTPStatus.BAD_GATEWAY)
-        self.assertEqual(response.body, {"error": "failed to share agent session"})
+        self.assertEqual(
+            response.body,
+            {
+                "error": "failed to share agent session",
+                "authorization_error": {
+                    "type": "ValueError",
+                    "message": "write failed",
+                },
+            },
+        )
         self.assertEqual(len(authorization.write_requests), 1)
 
     def test_slack_events_reply_session_started_skips_thread_replies(self) -> None:
