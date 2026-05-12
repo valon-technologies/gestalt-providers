@@ -4871,7 +4871,7 @@ func signalJSON(signal *proto.WorkflowSignal) string {
 	if signal == nil {
 		return ""
 	}
-	data, err := (protojson.MarshalOptions{UseProtoNames: true}).Marshal(signal)
+	data, err := json.Marshal(gestalt.WorkflowSignalInputFromSignal(signal))
 	if err != nil {
 		return ""
 	}
@@ -4883,11 +4883,15 @@ func signalFromRecordValue(raw any) *proto.WorkflowSignal {
 	if value == "" {
 		return nil
 	}
-	signal := &proto.WorkflowSignal{}
-	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal([]byte(value), signal); err != nil {
+	var input gestalt.WorkflowSignalInput
+	if err := json.Unmarshal([]byte(value), &input); err != nil {
 		return nil
 	}
-	return cloneSignal(signal)
+	signal, err := gestalt.NewWorkflowSignal(input)
+	if err != nil {
+		return nil
+	}
+	return signal
 }
 
 func targetFromRecordValue(recordKind, id string, raw any) (*proto.BoundWorkflowTarget, error) {
@@ -5598,16 +5602,16 @@ func executionReferenceRunAsJSON(value *proto.WorkflowRunAsSubject) (string, err
 	if value == nil {
 		return "", nil
 	}
-	normalized := &proto.WorkflowRunAsSubject{
-		SubjectId:   strings.TrimSpace(value.GetSubjectId()),
+	subjectID := strings.TrimSpace(value.GetSubjectId())
+	if subjectID == "" {
+		return "", nil
+	}
+	data, err := json.Marshal(gestalt.WorkflowRunAsSubjectInput{
+		SubjectID:   subjectID,
 		SubjectKind: strings.TrimSpace(value.GetSubjectKind()),
 		DisplayName: strings.TrimSpace(value.GetDisplayName()),
 		AuthSource:  strings.TrimSpace(value.GetAuthSource()),
-	}
-	if normalized.GetSubjectId() == "" {
-		return "", nil
-	}
-	data, err := protojson.Marshal(normalized)
+	})
 	if err != nil {
 		return "", err
 	}
@@ -5619,11 +5623,17 @@ func executionReferenceRunAsFromJSON(raw string) (*proto.WorkflowRunAsSubject, e
 	if raw == "" {
 		return nil, nil
 	}
-	out := &proto.WorkflowRunAsSubject{}
-	if err := protojson.Unmarshal([]byte(raw), out); err != nil {
+	var input gestalt.WorkflowRunAsSubjectInput
+	if err := json.Unmarshal([]byte(raw), &input); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(out.GetSubjectId()) == "" {
+	out := &proto.WorkflowRunAsSubject{
+		SubjectId:   strings.TrimSpace(input.SubjectID),
+		SubjectKind: strings.TrimSpace(input.SubjectKind),
+		DisplayName: strings.TrimSpace(input.DisplayName),
+		AuthSource:  strings.TrimSpace(input.AuthSource),
+	}
+	if out.GetSubjectId() == "" {
 		return nil, nil
 	}
 	return out, nil
