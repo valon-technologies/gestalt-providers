@@ -148,7 +148,7 @@ func credentialRefreshTargetFromResolvedConnection(index int, conn resolvedConne
 	switch conn.Mode {
 	case "subject", "user":
 	default:
-		return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].credentialRefresh requires mode subject", index)
+		return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].credentialRefresh requires mode subject or user", index)
 	}
 	refresh := conn.CredentialRefresh
 	interval, err := parsePositiveDuration(refresh.RefreshInterval)
