@@ -231,7 +231,7 @@ class FakeWorkflowManagerPublishEvent:
         provider_name: str = "",
         **_kwargs: Any,
     ) -> None:
-        self.event = event or FakeWorkflowEvent()
+        self.event = event
         self.provider_name = provider_name
 
 
