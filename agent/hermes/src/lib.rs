@@ -16,6 +16,8 @@ use store::{
 };
 use tokio::sync::{Mutex, RwLock};
 
+pub use mcp_bridge::AgentHostClient;
+
 const PROVIDER_DISPLAY_NAME: &str = "Hermes ACP Agent";
 const PROVIDER_DESCRIPTION: &str = "Runs Hermes through the Agent Client Protocol.";
 const PROVIDER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -33,6 +35,18 @@ struct ProviderInner {
     store: Mutex<Store>,
     processes: Mutex<HashMap<String, Arc<AcpProcess>>>,
     mcp_bridges: Mutex<HashMap<String, McpBridgeHandle>>,
+    agent_host: RwLock<Option<Arc<dyn AgentHostClient>>>,
+}
+
+impl HermesAgentProvider {
+    pub fn with_agent_host_for_tests(agent_host: Arc<dyn AgentHostClient>) -> Self {
+        Self {
+            inner: Arc::new(ProviderInner {
+                agent_host: RwLock::new(Some(agent_host)),
+                ..Default::default()
+            }),
+        }
+    }
 }
 
 #[gestalt::async_trait]
@@ -554,12 +568,23 @@ impl HermesAgentProvider {
             }
             let _initialize_result = process.initialize(config.timeout).await?;
             let mcp_servers = if mcp_catalog_enabled && !tool_refs.is_empty() {
-                let bridge = mcp_bridge::start_bridge(
-                    session_id.clone(),
-                    turn_id.to_string(),
-                    run_grant.clone(),
-                )
-                .await?;
+                let test_host = self.inner.agent_host.read().await.clone();
+                let bridge = if let Some(host) = test_host {
+                    mcp_bridge::start_bridge_with_host(
+                        session_id.clone(),
+                        turn_id.to_string(),
+                        run_grant.clone(),
+                        host,
+                    )
+                    .await?
+                } else {
+                    mcp_bridge::start_bridge(
+                        session_id.clone(),
+                        turn_id.to_string(),
+                        run_grant.clone(),
+                    )
+                    .await?
+                };
                 let mcp_server = bridge.acp_server_config();
                 self.inner
                     .mcp_bridges

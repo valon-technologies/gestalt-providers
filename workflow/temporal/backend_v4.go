@@ -367,9 +367,6 @@ func (b *temporalBackend) pendingRunFromWorkflowRun(run client.WorkflowRun, inpu
 		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
 		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
 	}
-	if _, err := gestalt.NewBoundWorkflowRun(*out); err != nil {
-		panic("build pending workflow run: " + err.Error())
-	}
 	return out
 }
 

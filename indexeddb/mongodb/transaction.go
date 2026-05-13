@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/txstream"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	proto "github.com/valon-technologies/gestalt-providers/indexeddb/internal/proto"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
