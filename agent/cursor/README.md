@@ -12,3 +12,21 @@ Configuration:
 - `workingDirectory`: local workspace directory for Cursor. Defaults to the provider process working directory.
 - `cursorApiKey`: optional Cursor API key. If omitted, the Cursor SDK reads `CURSOR_API_KEY`.
 - `sandboxEnabled`: optional Cursor local sandbox flag.
+
+`CURSOR_API_KEY` may also be supplied through provider-level `env`, including
+as a Gestalt structured secret ref. Gestalt resolves that ref before launching
+the provider process:
+
+```yaml
+providers:
+  agent:
+    cursor:
+      source: /absolute/path/to/gestalt-providers/agent/cursor/manifest.yaml
+      env:
+        CURSOR_API_KEY:
+          secret:
+            provider: secrets
+            name: cursor-api-key
+      config:
+        defaultModel: composer-2
+```

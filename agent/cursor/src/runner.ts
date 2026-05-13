@@ -193,6 +193,7 @@ export class CursorSDKRunner {
         ? { sandboxOptions: { enabled: this.config.sandboxEnabled } }
         : {}),
     };
+    const cursorApiKey = this.cursorApiKey();
     const options: AgentOptions = {
       name: `Gestalt ${input.turnId}`,
       model: { id: input.model },
@@ -209,9 +210,13 @@ export class CursorSDKRunner {
         ...createCursorPlatformOptions(workingDirectory),
         stateRoot,
       } as AgentOptions["platform"],
-      ...(this.config.cursorApiKey ? { apiKey: this.config.cursorApiKey } : {}),
+      ...(cursorApiKey ? { apiKey: cursorApiKey } : {}),
     };
     return await (await this.createAgentFactory()).create(options);
+  }
+
+  private cursorApiKey(): string | undefined {
+    return this.config.cursorApiKey || process.env.CURSOR_API_KEY || undefined;
   }
 
   private async createAgentFactory(): Promise<CursorAgentFactory> {

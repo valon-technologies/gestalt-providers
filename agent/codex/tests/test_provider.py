@@ -315,6 +315,27 @@ class CodexProviderTests(unittest.TestCase):
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
         self.assertEqual(host.list_requests[0]["run_grant"], "grant-codex")
 
+    def test_provider_passes_host_injected_openai_env_to_codex_mcp(self) -> None:
+        previous = os.environ.get("OPENAI_API_KEY")
+        os.environ["OPENAI_API_KEY"] = "env-openai-key"
+        try:
+            _, provider_client = _configure_provider(openai_api_key="")
+            provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-env-key"))
+            provider_client.CreateTurn(
+                _turn_request(
+                    turn_id="turn-env-key",
+                    session_id="session-env-key",
+                    messages=[agent_pb2.AgentMessage(role="user", text="hello")],
+                    execution_ref="exec-env-key",
+                )
+            )
+            _wait_for_turn(provider_client, "turn-env-key", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        finally:
+            _restore_env("OPENAI_API_KEY", previous)
+
+        fake_server = _FakeCodexMCPServer.instances[-1]
+        self.assertEqual(fake_server.params["env"]["OPENAI_API_KEY"], "env-openai-key")
+
     def test_provider_launches_codex_from_prepared_workspace(self) -> None:
         if not hasattr(agent_pb2.CreateAgentProviderSessionRequest(), "prepared_workspace"):
             self.skipTest("installed gestalt-sdk does not expose prepared workspaces yet")
@@ -620,7 +641,9 @@ def tearDownModule() -> None:
     _restore_env("OPENAI_API_KEY", _previous_openai_api_key)
 
 
-def _configure_provider(*, timeout_seconds: float = 5, default_model: str = "") -> tuple[Any, Any]:
+def _configure_provider(
+    *, timeout_seconds: float = 5, default_model: str = "", openai_api_key: str = "test-openai-key"
+) -> tuple[Any, Any]:
     channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
     lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
     provider_client = agent_pb2_grpc.AgentProviderStub(channel)
@@ -630,7 +653,7 @@ def _configure_provider(*, timeout_seconds: float = 5, default_model: str = "") 
             "timeoutSeconds": timeout_seconds,
             "approvalPolicy": "never",
             "sandbox": "read-only",
-            "openaiApiKey": "test-openai-key",
+            "openaiApiKey": openai_api_key,
         }
     )
     if default_model:

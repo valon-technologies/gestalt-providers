@@ -34,6 +34,11 @@ providers:
       indexeddb:
         provider: main
         db: claude_agent
+      env:
+        ANTHROPIC_API_KEY:
+          secret:
+            provider: secrets
+            name: anthropic-api-key
       config:
         defaultModel: claude-sonnet-4-5-20250929
         workingDirectory: /path/to/trusted/workspace
@@ -41,9 +46,14 @@ providers:
         permissionMode: dontAsk
         settingSources: []
         disableAutoMemory: true
-        anthropicApiKey:
-          secret: ANTHROPIC_API_KEY
 ```
+
+`env` is the provider-level Gestalt environment block, not a field inside
+`config`. Gestalt resolves structured secret refs there before launching the
+provider process. For backwards compatibility, `env.ANTHROPIC_API_KEY` may also
+be a literal or environment-interpolated string such as `${ANTHROPIC_API_KEY:-}`.
+When `config.anthropicApiKey` is omitted, the provider uses the host-injected
+`ANTHROPIC_API_KEY` environment variable for Claude SDK authentication.
 
 Normal runtime usage requires an agent `indexeddb` binding. The provider gets
 the host socket through the Gestalt Python SDK `IndexedDB()` binding
