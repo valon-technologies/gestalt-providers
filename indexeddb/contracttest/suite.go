@@ -753,7 +753,7 @@ func runUniqueIndexConflictOnCursorUpdate(t *testing.T, harness Harness) {
 	})
 	t.Cleanup(func() { _ = cursor.Close() })
 
-	if !cursor.Advance(1) {
+	if !cursor.Advance(2) {
 		t.Fatalf("cursor exhausted before conflict update: %v", cursor.Err())
 	}
 

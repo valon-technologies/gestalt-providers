@@ -3,6 +3,7 @@ package dynamodb
 import (
 	"context"
 	"errors"
+	"reflect"
 	"sort"
 	"sync"
 
@@ -10,22 +11,18 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
-	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
-	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/txstream"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	gproto "google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const maxDynamoTransactWriteItems = 100
 
-func (p *providerCore) Transaction(stream proto.IndexedDB_TransactionServer) error {
-	return txstream.Serve(stream, p.beginTransaction)
+func (p *providerCore) BeginTransaction(ctx context.Context, req gestalt.IndexedDBBeginTransactionRequest) (gestalt.IndexedDBTransaction, error) {
+	return p.beginTransaction(ctx, req)
 }
 
-func (p *providerCore) beginTransaction(ctx context.Context, req *proto.BeginTransactionRequest) (txstream.Transaction, error) {
+func (p *providerCore) beginTransaction(ctx context.Context, req gestalt.IndexedDBBeginTransactionRequest) (*dynamoTransaction, error) {
 	if p.store == nil {
 		return nil, status.Error(codes.FailedPrecondition, "dynamodb: not configured")
 	}
@@ -33,9 +30,9 @@ func (p *providerCore) beginTransaction(ctx context.Context, req *proto.BeginTra
 	st := p.store
 	st.mu.RLock()
 
-	stores := make(map[string]*dynamoTransactionStore, len(req.GetStores()))
-	schemas := make(map[string]*storedSchema, len(req.GetStores()))
-	for _, storeName := range req.GetStores() {
+	stores := make(map[string]*dynamoTransactionStore, len(req.Stores))
+	schemas := make(map[string]*storedSchema, len(req.Stores))
+	for _, storeName := range req.Stores {
 		schema, ok := st.schemas[storeName]
 		if !ok {
 			st.mu.RUnlock()
@@ -86,17 +83,17 @@ type dynamoTransaction struct {
 
 type dynamoTransactionStore struct {
 	original map[string]*dynamoTransactionRecord
-	records  map[string]*proto.Record
+	records  map[string]gestalt.Record
 }
 
 type dynamoTransactionRecord struct {
-	record *proto.Record
+	record gestalt.Record
 	data   ddbtypes.AttributeValue
 }
 
 func (s *store) loadTransactionStore(ctx context.Context, storeName string) (*dynamoTransactionStore, error) {
 	original := map[string]*dynamoTransactionRecord{}
-	records := map[string]*proto.Record{}
+	records := map[string]gestalt.Record{}
 	var startKey map[string]ddbtypes.AttributeValue
 	for {
 		resp, err := s.client.Query(ctx, &dynamodb.QueryInput{
@@ -183,103 +180,103 @@ func (t *dynamoTransaction) transactionStore(name string) (*dynamoTransactionSto
 	return txStore, nil
 }
 
-func (t *dynamoTransaction) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.RecordResponse, error) {
-	txStore, err := t.transactionStore(req.GetStore())
+func (t *dynamoTransaction) Get(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (gestalt.Record, error) {
+	txStore, err := t.transactionStore(req.Store)
 	if err != nil {
 		return nil, err
 	}
-	record := txStore.records[req.GetId()]
+	record := txStore.records[req.ID]
 	if record == nil {
 		return nil, status.Error(codes.NotFound, "record not found")
 	}
-	return &proto.RecordResponse{Record: cloneDynamoRecord(record)}, nil
+	return cloneDynamoRecord(record), nil
 }
 
-func (t *dynamoTransaction) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.KeyResponse, error) {
-	txStore, err := t.transactionStore(req.GetStore())
+func (t *dynamoTransaction) GetKey(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (string, error) {
+	txStore, err := t.transactionStore(req.Store)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	if txStore.records[req.GetId()] == nil {
-		return nil, status.Error(codes.NotFound, "record not found")
+	if txStore.records[req.ID] == nil {
+		return "", status.Error(codes.NotFound, "record not found")
 	}
-	return &proto.KeyResponse{Key: req.GetId()}, nil
+	return req.ID, nil
 }
 
-func (t *dynamoTransaction) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
-	txStore, err := t.transactionStore(req.GetStore())
+func (t *dynamoTransaction) Add(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
+	txStore, err := t.transactionStore(req.Store)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	id, err := extractID(req.GetRecord())
+	id, err := extractID(req.Record)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if txStore.records[id] != nil {
-		return nil, status.Errorf(codes.AlreadyExists, "record %s already exists", id)
+		return status.Errorf(codes.AlreadyExists, "record %s already exists", id)
 	}
-	txStore.records[id] = cloneDynamoRecord(req.GetRecord())
-	if err := t.validateUniqueIndexes(req.GetStore()); err != nil {
+	txStore.records[id] = cloneDynamoRecord(req.Record)
+	if err := t.validateUniqueIndexes(req.Store); err != nil {
 		delete(txStore.records, id)
-		return nil, err
+		return err
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func (t *dynamoTransaction) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
-	txStore, err := t.transactionStore(req.GetStore())
+func (t *dynamoTransaction) Put(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
+	txStore, err := t.transactionStore(req.Store)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	id, err := extractID(req.GetRecord())
+	id, err := extractID(req.Record)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	previous := txStore.records[id]
-	txStore.records[id] = cloneDynamoRecord(req.GetRecord())
-	if err := t.validateUniqueIndexes(req.GetStore()); err != nil {
+	txStore.records[id] = cloneDynamoRecord(req.Record)
+	if err := t.validateUniqueIndexes(req.Store); err != nil {
 		if previous == nil {
 			delete(txStore.records, id)
 		} else {
 			txStore.records[id] = previous
 		}
-		return nil, err
+		return err
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func (t *dynamoTransaction) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
-	txStore, err := t.transactionStore(req.GetStore())
+func (t *dynamoTransaction) Delete(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) error {
+	txStore, err := t.transactionStore(req.Store)
+	if err != nil {
+		return err
+	}
+	delete(txStore.records, req.ID)
+	return nil
+}
+
+func (t *dynamoTransaction) Clear(ctx context.Context, storeName string) error {
+	txStore, err := t.transactionStore(storeName)
+	if err != nil {
+		return err
+	}
+	txStore.records = map[string]gestalt.Record{}
+	return nil
+}
+
+func (t *dynamoTransaction) GetAll(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]gestalt.Record, error) {
+	entries, err := t.objectStoreEntries(req.Store, req.Range, false)
 	if err != nil {
 		return nil, err
 	}
-	delete(txStore.records, req.GetId())
-	return &emptypb.Empty{}, nil
-}
-
-func (t *dynamoTransaction) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {
-	txStore, err := t.transactionStore(req.GetStore())
-	if err != nil {
-		return nil, err
-	}
-	txStore.records = map[string]*proto.Record{}
-	return &emptypb.Empty{}, nil
-}
-
-func (t *dynamoTransaction) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {
-	entries, err := t.objectStoreEntries(req.GetStore(), req.GetRange(), false)
-	if err != nil {
-		return nil, err
-	}
-	records := make([]*proto.Record, 0, len(entries))
+	records := make([]gestalt.Record, 0, len(entries))
 	for _, entry := range entries {
 		records = append(records, cloneDynamoRecord(entry.Record))
 	}
-	return &proto.RecordsResponse{Records: records}, nil
+	return records, nil
 }
 
-func (t *dynamoTransaction) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.KeysResponse, error) {
-	entries, err := t.objectStoreEntries(req.GetStore(), req.GetRange(), true)
+func (t *dynamoTransaction) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]string, error) {
+	entries, err := t.objectStoreEntries(req.Store, req.Range, true)
 	if err != nil {
 		return nil, err
 	}
@@ -287,33 +284,33 @@ func (t *dynamoTransaction) GetAllKeys(ctx context.Context, req *proto.ObjectSto
 	for _, entry := range entries {
 		keys = append(keys, entry.PrimaryKey)
 	}
-	return &proto.KeysResponse{Keys: keys}, nil
+	return keys, nil
 }
 
-func (t *dynamoTransaction) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.CountResponse, error) {
-	entries, err := t.objectStoreEntries(req.GetStore(), req.GetRange(), true)
+func (t *dynamoTransaction) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
+	entries, err := t.objectStoreEntries(req.Store, req.Range, true)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	return &proto.CountResponse{Count: int64(len(entries))}, nil
+	return int64(len(entries)), nil
 }
 
-func (t *dynamoTransaction) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.DeleteResponse, error) {
-	txStore, err := t.transactionStore(req.GetStore())
+func (t *dynamoTransaction) DeleteRange(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
+	txStore, err := t.transactionStore(req.Store)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	entries, err := t.objectStoreEntries(req.GetStore(), req.GetRange(), true)
+	entries, err := t.objectStoreEntries(req.Store, req.Range, true)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	for _, entry := range entries {
 		delete(txStore.records, entry.PrimaryKey)
 	}
-	return &proto.DeleteResponse{Deleted: int64(len(entries))}, nil
+	return int64(len(entries)), nil
 }
 
-func (t *dynamoTransaction) IndexGet(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordResponse, error) {
+func (t *dynamoTransaction) IndexGet(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (gestalt.Record, error) {
 	entries, err := t.indexEntries(req, false)
 	if err != nil {
 		return nil, err
@@ -321,33 +318,33 @@ func (t *dynamoTransaction) IndexGet(ctx context.Context, req *proto.IndexQueryR
 	if len(entries) == 0 {
 		return nil, status.Error(codes.NotFound, "record not found")
 	}
-	return &proto.RecordResponse{Record: cloneDynamoRecord(entries[0].Record)}, nil
+	return cloneDynamoRecord(entries[0].Record), nil
 }
 
-func (t *dynamoTransaction) IndexGetKey(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeyResponse, error) {
+func (t *dynamoTransaction) IndexGetKey(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (string, error) {
 	entries, err := t.indexEntries(req, true)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if len(entries) == 0 {
-		return nil, status.Error(codes.NotFound, "record not found")
+		return "", status.Error(codes.NotFound, "record not found")
 	}
-	return &proto.KeyResponse{Key: entries[0].PrimaryKey}, nil
+	return entries[0].PrimaryKey, nil
 }
 
-func (t *dynamoTransaction) IndexGetAll(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordsResponse, error) {
+func (t *dynamoTransaction) IndexGetAll(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]gestalt.Record, error) {
 	entries, err := t.indexEntries(req, false)
 	if err != nil {
 		return nil, err
 	}
-	records := make([]*proto.Record, 0, len(entries))
+	records := make([]gestalt.Record, 0, len(entries))
 	for _, entry := range entries {
 		records = append(records, cloneDynamoRecord(entry.Record))
 	}
-	return &proto.RecordsResponse{Records: records}, nil
+	return records, nil
 }
 
-func (t *dynamoTransaction) IndexGetAllKeys(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeysResponse, error) {
+func (t *dynamoTransaction) IndexGetAllKeys(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]string, error) {
 	entries, err := t.indexEntries(req, true)
 	if err != nil {
 		return nil, err
@@ -356,33 +353,33 @@ func (t *dynamoTransaction) IndexGetAllKeys(ctx context.Context, req *proto.Inde
 	for _, entry := range entries {
 		keys = append(keys, entry.PrimaryKey)
 	}
-	return &proto.KeysResponse{Keys: keys}, nil
+	return keys, nil
 }
 
-func (t *dynamoTransaction) IndexCount(ctx context.Context, req *proto.IndexQueryRequest) (*proto.CountResponse, error) {
+func (t *dynamoTransaction) IndexCount(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (int64, error) {
 	entries, err := t.indexEntries(req, true)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	return &proto.CountResponse{Count: int64(len(entries))}, nil
+	return int64(len(entries)), nil
 }
 
-func (t *dynamoTransaction) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest) (*proto.DeleteResponse, error) {
-	txStore, err := t.transactionStore(req.GetStore())
+func (t *dynamoTransaction) IndexDelete(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (int64, error) {
+	txStore, err := t.transactionStore(req.Store)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	entries, err := t.indexEntries(req, true)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	for _, entry := range entries {
 		delete(txStore.records, entry.PrimaryKey)
 	}
-	return &proto.DeleteResponse{Deleted: int64(len(entries))}, nil
+	return int64(len(entries)), nil
 }
 
-func (t *dynamoTransaction) objectStoreEntries(storeName string, keyRange *proto.KeyRange, keysOnly bool) ([]cursorutil.Entry, error) {
+func (t *dynamoTransaction) objectStoreEntries(storeName string, keyRange *gestalt.KeyRange, keysOnly bool) ([]cursorutil.Entry, error) {
 	txStore, err := t.transactionStore(storeName)
 	if err != nil {
 		return nil, err
@@ -405,17 +402,17 @@ func (t *dynamoTransaction) objectStoreEntries(storeName string, keyRange *proto
 	return (&cursorutil.Snapshot{}).ApplyRange(entries, keyRange)
 }
 
-func (t *dynamoTransaction) indexEntries(req *proto.IndexQueryRequest, keysOnly bool) ([]cursorutil.Entry, error) {
-	txStore, err := t.transactionStore(req.GetStore())
+func (t *dynamoTransaction) indexEntries(req gestalt.IndexedDBIndexQueryRequest, keysOnly bool) ([]cursorutil.Entry, error) {
+	txStore, err := t.transactionStore(req.Store)
 	if err != nil {
 		return nil, err
 	}
-	index, err := t.indexDef(req.GetStore(), req.GetIndex())
+	index, err := t.indexDef(req.Store, req.Index)
 	if err != nil {
 		return nil, err
 	}
 	rangeCursor := &dynamoCursor{
-		Snapshot: cursorutil.Snapshot{IndexCursor: true},
+		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}},
 		index:    index,
 	}
 	entries := make([]cursorutil.Entry, 0, len(txStore.records))
@@ -427,11 +424,7 @@ func (t *dynamoTransaction) indexEntries(req *proto.IndexQueryRequest, keysOnly 
 			}
 			return nil, err
 		}
-		matches, err := indexEntryMatchesValues(entry, req.GetValues())
-		if err != nil {
-			return nil, err
-		}
-		if !matches {
+		if !indexEntryMatchesValues(entry, req.Values) {
 			continue
 		}
 		if keysOnly {
@@ -441,7 +434,7 @@ func (t *dynamoTransaction) indexEntries(req *proto.IndexQueryRequest, keysOnly 
 		}
 		entries = append(entries, entry)
 	}
-	entries, err = rangeCursor.ApplyRange(entries, req.GetRange())
+	entries, err = rangeCursor.ApplyRange(entries, req.Range)
 	if err != nil {
 		return nil, err
 	}
@@ -449,13 +442,9 @@ func (t *dynamoTransaction) indexEntries(req *proto.IndexQueryRequest, keysOnly 
 	return entries, nil
 }
 
-func indexEntryMatchesValues(entry cursorutil.Entry, values []*proto.TypedValue) (bool, error) {
-	if len(values) == 0 {
-		return true, nil
-	}
-	expected, err := sdkcompat.AnyFromTypedValues(values)
-	if err != nil {
-		return false, status.Errorf(codes.InvalidArgument, "invalid index values: %v", err)
+func indexEntryMatchesValues(entry cursorutil.Entry, expected []any) bool {
+	if len(expected) == 0 {
+		return true
 	}
 	var actual []any
 	switch key := entry.Key.(type) {
@@ -465,14 +454,14 @@ func indexEntryMatchesValues(entry cursorutil.Entry, values []*proto.TypedValue)
 		actual = []any{key}
 	}
 	if len(expected) > len(actual) {
-		return false, nil
+		return false
 	}
 	for i := range expected {
 		if cursorutil.CompareValues(actual[i], expected[i]) != 0 {
-			return false, nil
+			return false
 		}
 	}
-	return true, nil
+	return true
 }
 
 func (t *dynamoTransaction) validateUniqueIndexes(storeName string) error {
@@ -515,7 +504,7 @@ func (t *dynamoTransaction) commitItems() ([]ddbtypes.TransactWriteItem, []index
 		for _, id := range ids {
 			original := txStore.original[id]
 			current := txStore.records[id]
-			if original != nil && current != nil && gproto.Equal(original.record, current) {
+			if original != nil && current != nil && reflect.DeepEqual(original.record, current) {
 				continue
 			}
 
@@ -586,7 +575,7 @@ func transactionRecordIDs(txStore *dynamoTransactionStore) []string {
 	return ids
 }
 
-func originalRecord(record *dynamoTransactionRecord) *proto.Record {
+func originalRecord(record *dynamoTransactionRecord) gestalt.Record {
 	if record == nil {
 		return nil
 	}
@@ -640,11 +629,21 @@ func deleteIndexItem(table string, idx indexItem) ddbtypes.TransactWriteItem {
 	}
 }
 
-func cloneDynamoRecord(record *proto.Record) *proto.Record {
+func cloneDynamoRecord(record gestalt.Record) gestalt.Record {
 	if record == nil {
 		return nil
 	}
-	return gproto.Clone(record).(*proto.Record)
+	data, err := gestalt.EncodeIndexedDBRecord(record)
+	if err == nil {
+		if cloned, err := gestalt.DecodeIndexedDBRecord(data); err == nil {
+			return cloned
+		}
+	}
+	cloned := make(gestalt.Record, len(record))
+	for key, value := range record {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func cloneDynamoAttribute(value ddbtypes.AttributeValue) ddbtypes.AttributeValue {

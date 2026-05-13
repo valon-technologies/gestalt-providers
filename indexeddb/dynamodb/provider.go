@@ -9,7 +9,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,7 +26,6 @@ type Provider struct {
 }
 
 type providerCore struct {
-	proto.UnimplementedIndexedDBServer
 	store *store
 }
 
