@@ -697,6 +697,19 @@ func TestExternalCredentialProviderCredentialMaintenanceRejectsConflictingResolv
 	}
 }
 
+func TestExternalCredentialProviderCredentialMaintenanceAcceptsSubjectMode(t *testing.T) {
+	startTestIndexedDBBackend(t)
+	lifecycle, providerConn := startTestProviderServer(t)
+	defer func() { _ = providerConn.Close() }()
+
+	cfg := credentialRefreshProviderConfig("maintenance-subject-mode-key", "https://token.example.test")
+	connections := cfg["resolvedConnections"].([]any)
+	target := connections[0].(map[string]any)
+	target["mode"] = "subject"
+
+	configureProvider(t, lifecycle, cfg)
+}
+
 func TestExternalCredentialProviderCredentialMaintenanceRejectsUnsupportedAuthConfig(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	lifecycle, providerConn := startTestProviderServer(t)
