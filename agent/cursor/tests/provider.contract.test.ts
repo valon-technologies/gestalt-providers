@@ -9,6 +9,7 @@ import {
   connectNodeAdapter,
   createGrpcTransport,
 } from "@connectrpc/connect-node";
+import { create as createMessage } from "@bufbuild/protobuf";
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -20,10 +21,19 @@ import {
   type ListedAgentTool,
 } from "@valon-technologies/gestalt";
 import {
-  agentContractSchemas,
-  agentContractServices,
-  createAgentContractMessage,
-} from "@valon-technologies/gestalt/test/agent-contract";
+  AgentHost as AgentHostService,
+  AgentProvider as VendoredAgentProviderService,
+  CancelAgentProviderTurnRequestSchema,
+  CreateAgentProviderSessionRequestSchema,
+  CreateAgentProviderTurnRequestSchema,
+  ExecuteAgentToolResponseSchema,
+  GetAgentProviderCapabilitiesRequestSchema,
+  GetAgentProviderSessionRequestSchema,
+  GetAgentProviderTurnRequestSchema,
+  ListAgentProviderTurnEventsRequestSchema,
+  ListAgentToolsResponseSchema,
+  ListedAgentToolSchema,
+} from "../node_modules/@valon-technologies/gestalt/src/internal/gen/v1/agent_pb.ts";
 
 import {
   AGENT_HOST_RELAY_TOKEN_HEADER,
@@ -43,27 +53,10 @@ import {
 import { CursorSDKRunner, type CursorAgentFactory } from "../src/runner.ts";
 import { schemaFromJson, type ToolEntry } from "../src/tools.ts";
 
-const {
-  AgentHost: AgentHostService,
-  AgentProvider: VendoredAgentProviderService,
-} = agentContractServices as Record<string, any>;
-const {
-  CancelAgentProviderTurnRequestSchema,
-  CreateAgentProviderSessionRequestSchema,
-  CreateAgentProviderTurnRequestSchema,
-  ExecuteAgentToolResponseSchema,
-  GetAgentProviderCapabilitiesRequestSchema,
-  GetAgentProviderSessionRequestSchema,
-  GetAgentProviderTurnRequestSchema,
-  ListAgentProviderTurnEventsRequestSchema,
-  ListAgentToolsResponseSchema,
-  ListedAgentToolSchema,
-} = agentContractSchemas as Record<string, any>;
-
 const activeHosts: FakeAgentHost[] = [];
 
 function create<T = any>(schema: any, input: Record<string, unknown>): T {
-  return createAgentContractMessage<T>(schema, input);
+  return createMessage(schema, input) as T;
 }
 
 afterEach(async () => {

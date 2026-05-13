@@ -38,14 +38,24 @@ providers:
     codex:
       source: /absolute/path/to/gestalt-providers/agent/codex/manifest.yaml
       default: true
+      env:
+        OPENAI_API_KEY:
+          secret:
+            provider: secrets
+            name: openai-api-key
       config:
         workingDirectory: /path/to/trusted/workspace
         timeoutSeconds: 300
         approvalPolicy: never
         sandbox: read-only
-        openaiApiKey:
-          secret: OPENAI_API_KEY
 ```
+
+`env` is the provider-level Gestalt environment block, not a field inside
+`config`. Gestalt resolves structured secret refs there before launching the
+provider process. For backwards compatibility, `env.OPENAI_API_KEY` may also be
+a literal or environment-interpolated string such as `${OPENAI_API_KEY:-}`. When
+`config.openaiApiKey` is omitted, the provider uses the host-injected
+`OPENAI_API_KEY` environment variable for Codex authentication.
 
 Use exact tool refs with the MCP catalog source:
 

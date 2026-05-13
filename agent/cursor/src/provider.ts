@@ -6,6 +6,7 @@ import {
   AgentToolSourceMode,
   slugName,
   type AgentInteraction,
+  type AgentMessage,
   type AgentProviderCapabilities,
   type AgentProviderOptions,
   type AgentSession,
@@ -409,7 +410,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     turnId: string;
     sessionId: string;
     model: string;
-    messages: CreateAgentProviderTurnRequest["messages"];
+    messages: AgentMessage[];
     runGrant: string;
     cwd: string;
   }): Promise<void> {

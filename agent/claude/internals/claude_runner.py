@@ -4,6 +4,7 @@ import asyncio
 import concurrent.futures
 import json
 import logging
+import os
 import tempfile
 import threading
 from dataclasses import dataclass, field
@@ -195,8 +196,9 @@ class ClaudeSDKRunner:
         cwd: str = "",
     ) -> Any:
         env: dict[str, str] = {"ENABLE_TOOL_SEARCH": "auto:5"}
-        if self._config.anthropic_api_key:
-            env["ANTHROPIC_API_KEY"] = self._config.anthropic_api_key
+        anthropic_api_key = self._config.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        if anthropic_api_key:
+            env["ANTHROPIC_API_KEY"] = anthropic_api_key
         if claude_code_options is None:
             claude_code_options = self._config.claude_code.resolve_turn_options({})
         if claude_code_options.disable_auto_memory:
