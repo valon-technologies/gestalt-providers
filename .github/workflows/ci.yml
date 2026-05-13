@@ -47,7 +47,7 @@ permissions:
 
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
-  GESTALT_REF: main
+  GESTALT_REF: codex/native-unsuffixed-python-sdk-20260512
   VALIDATION_VERSION: 0.0.1-alpha.1
 
 jobs:

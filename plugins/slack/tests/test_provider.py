@@ -86,29 +86,6 @@ class FakeWorkflowSignal:
         self.metadata = new_struct()
 
 
-class FakeBoundWorkflowRun:
-    def __init__(self, id: str = "", status: int = 0, workflow_key: str = "") -> None:
-        self.id = id
-        self.status = status
-        self.workflow_key = workflow_key
-
-
-class FakeManagedWorkflowRunSignal:
-    def __init__(
-        self,
-        provider_name: str = "",
-        run: Any = None,
-        signal: Any = None,
-        started_run: bool = False,
-        workflow_key: str = "",
-    ) -> None:
-        self.provider_name = provider_name
-        self.run = run
-        self.signal = signal
-        self.started_run = started_run
-        self.workflow_key = workflow_key
-
-
 class FakeBoundWorkflowAgentTarget:
     def __init__(
         self,
@@ -263,8 +240,6 @@ class FakeWorkflowPb2:
     WorkflowRunStatus = FakeWorkflowRunStatus
     WorkflowEvent = FakeWorkflowEvent
     WorkflowSignal = FakeWorkflowSignal
-    BoundWorkflowRun = FakeBoundWorkflowRun
-    ManagedWorkflowRunSignal = FakeManagedWorkflowRunSignal
     BoundWorkflowAgentTarget = FakeBoundWorkflowAgentTarget
     BoundWorkflowPluginTarget = FakeBoundWorkflowPluginTarget
     BoundWorkflowTarget = FakeBoundWorkflowTarget

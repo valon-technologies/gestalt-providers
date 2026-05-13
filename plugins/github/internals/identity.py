@@ -5,8 +5,6 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-import gestalt
-
 from .client import DEFAULT_GITHUB_CLIENT
 from .config import (
     GitHubWebhookPolicy,
