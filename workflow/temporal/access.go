@@ -1,6 +1,7 @@
 package temporal
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -40,9 +41,6 @@ func validateExecutionReferenceInput(ref *gestalt.WorkflowExecutionReference) (*
 	if out.RevokedAt != nil && out.RevokedAt.IsZero() {
 		out.RevokedAt = nil
 	}
-	if _, err := gestalt.NewWorkflowExecutionReference(out); err != nil {
-		return nil, err
-	}
 	return &out, nil
 }
 
@@ -66,9 +64,6 @@ func publishedEventExecutionReference(providerName, referenceKey string, trigger
 		SubjectKind:         strings.TrimSpace(actor.SubjectKind),
 		DisplayName:         strings.TrimSpace(actor.DisplayName),
 		AuthSource:          strings.TrimSpace(actor.AuthSource),
-	}
-	if _, err := gestalt.NewWorkflowExecutionReference(*ref); err != nil {
-		return nil, err
 	}
 	return ref, nil
 }
@@ -180,11 +175,15 @@ func pluginTargetInput(target *gestalt.BoundWorkflowTarget) map[string]any {
 	if value, ok := target.Plugin.Input.(map[string]any); ok {
 		return value
 	}
-	value, err := gestalt.StructFromAny(target.Plugin.Input)
+	raw, err := json.Marshal(target.Plugin.Input)
 	if err != nil {
 		return nil
 	}
-	return gestalt.MapFromStruct(value)
+	var out map[string]any
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil
+	}
+	return out
 }
 
 func stringAny(value any) string {

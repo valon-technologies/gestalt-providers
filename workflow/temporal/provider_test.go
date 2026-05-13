@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	relationaldb "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -30,6 +29,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+const providerSocketEnv = "GESTALT_PLUGIN_SOCKET"
 
 func newTestWorkflowEnvironment(suite *testsuite.WorkflowTestSuite) *testsuite.TestWorkflowEnvironment {
 	env := suite.NewTestWorkflowEnvironment()
@@ -57,23 +58,23 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	var run proto.BoundWorkflowRun
+	var run gestalt.BoundWorkflowRun
 	if err := env.GetWorkflowResult(&run); err != nil {
 		t.Fatalf("workflow result: %v", err)
 	}
-	projected, found, err := state.getRun(ctx, run.GetId())
+	projected, found, err := state.getRun(ctx, run.ID)
 	if err != nil || !found {
 		t.Fatalf("projected run found=%v err=%v", found, err)
 	}
-	if projected.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED || projected.ResultBody != "ok" {
+	if projected.Status != gestalt.WorkflowRunStatusValueSucceeded || projected.ResultBody != "ok" {
 		t.Fatalf("projected run = %#v, want succeeded with body", projected)
 	}
 	listed, err := state.listRuns(ctx)
 	if err != nil {
 		t.Fatalf("listRuns: %v", err)
 	}
-	if len(listed) != 1 || listed[0].ID != run.GetId() {
-		t.Fatalf("listed runs = %#v, want %q", listed, run.GetId())
+	if len(listed) != 1 || listed[0].ID != run.ID {
+		t.Fatalf("listed runs = %#v, want %q", listed, run.ID)
 	}
 }
 
@@ -126,7 +127,7 @@ func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
 	env.RegisterActivity(activities)
 
 	var mu sync.Mutex
-	var projectedStatuses []proto.WorkflowRunStatus
+	var projectedStatuses []gestalt.WorkflowRunStatus
 	env.OnActivity(activities.ProjectRun, mock.Anything, mock.Anything).Return(func(_ context.Context, run gestalt.BoundWorkflowRun) error {
 		mu.Lock()
 		defer mu.Unlock()
@@ -157,9 +158,9 @@ func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	if len(projectedStatuses) != 3 ||
-		projectedStatuses[0] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING ||
-		projectedStatuses[1] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING ||
-		projectedStatuses[2] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
+		projectedStatuses[0] != gestalt.WorkflowRunStatusValuePending ||
+		projectedStatuses[1] != gestalt.WorkflowRunStatusValueRunning ||
+		projectedStatuses[2] != gestalt.WorkflowRunStatusValueSucceeded {
 		t.Fatalf("projected statuses = %v, want pending/running/succeeded", projectedStatuses)
 	}
 }
@@ -173,7 +174,7 @@ func TestGestaltRunWorkflowV4AddSignalUpdateDoesNotWaitForProjection(t *testing.
 	env.RegisterActivity(activities)
 
 	var mu sync.Mutex
-	var projectedStatuses []proto.WorkflowRunStatus
+	var projectedStatuses []gestalt.WorkflowRunStatus
 	env.OnActivity(activities.ProjectRun, mock.Anything, mock.Anything).Return(func(_ context.Context, run gestalt.BoundWorkflowRun) error {
 		mu.Lock()
 		defer mu.Unlock()
@@ -202,9 +203,9 @@ func TestGestaltRunWorkflowV4AddSignalUpdateDoesNotWaitForProjection(t *testing.
 	mu.Lock()
 	defer mu.Unlock()
 	if len(projectedStatuses) != 3 ||
-		projectedStatuses[0] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING ||
-		projectedStatuses[1] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING ||
-		projectedStatuses[2] != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
+		projectedStatuses[0] != gestalt.WorkflowRunStatusValuePending ||
+		projectedStatuses[1] != gestalt.WorkflowRunStatusValueRunning ||
+		projectedStatuses[2] != gestalt.WorkflowRunStatusValueSucceeded {
 		t.Fatalf("projected statuses = %v, want pending/running/succeeded", projectedStatuses)
 	}
 }
@@ -236,7 +237,7 @@ func TestGestaltRunWorkflowV4ContinuesWhenProjectionFails(t *testing.T) {
 	if err := env.GetWorkflowResult(&run); err != nil {
 		t.Fatalf("workflow result: %v", err)
 	}
-	if run.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED || run.ResultBody != "ok" {
+	if run.Status != gestalt.WorkflowRunStatusValueSucceeded || run.ResultBody != "ok" {
 		t.Fatalf("run = %#v, want succeeded with body", &run)
 	}
 	if len(host.calls) != 1 {
@@ -493,7 +494,7 @@ func TestStartRunUsesV4WorkflowAndStoresRunProjection(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("projected run found=%v err=%v", found, err)
 	}
-	if projected.ID != run.ID || projected.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING {
+	if projected.ID != run.ID || projected.Status != gestalt.WorkflowRunStatusValuePending {
 		t.Fatalf("projected run = %#v, want pending %q", projected, run.ID)
 	}
 }
@@ -627,7 +628,7 @@ func TestStartRunWithWorkflowKeyCompletesReservedIndexedDBIdempotency(t *testing
 			WorkflowKey:      workflowKey,
 			OwnerKey:         "slack",
 		}),
-		Status:      proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Status:      gestalt.WorkflowRunStatusValuePending,
 		Target:      target,
 		WorkflowKey: workflowKey,
 		CreatedAt:   time.Unix(100, 0).UTC(),
@@ -773,7 +774,7 @@ func TestCompleteRunIdempotencyReadsThroughCompletedRecord(t *testing.T) {
 	ownerKey := "slack"
 	key := "start-1"
 	fingerprint := "same-request"
-	run := &gestalt.BoundWorkflowRun{ID: "run-1", Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING}
+	run := &gestalt.BoundWorkflowRun{ID: "run-1", Status: gestalt.WorkflowRunStatusValuePending}
 	if _, _, err := state.reserveRunIdempotency(ctx, ownerKey, key, fingerprint, time.Hour, time.Unix(100, 0).UTC()); err != nil {
 		t.Fatalf("reserveRunIdempotency: %v", err)
 	}
@@ -1006,7 +1007,7 @@ func TestSignalOrStartRunReplacesTerminalWorkflowKeyOwner(t *testing.T) {
 		t.Fatalf("get first run found=%v err=%v", found, err)
 	}
 	terminal := *storedFirst
-	terminal.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED
+	terminal.Status = gestalt.WorkflowRunStatusValueSucceeded
 	if err := state.putRun(ctx, &terminal); err != nil {
 		t.Fatalf("put terminal run: %v", err)
 	}
@@ -1035,7 +1036,7 @@ func TestSignalOrStartRunReplacesTerminalWorkflowKeyOwner(t *testing.T) {
 func TestSignalOrStartRunReplacesMissingWorkflowKeyOwner(t *testing.T) {
 	ctx, state := newTestWorkflowStateStore(t)
 
-	stale := workflowKeyClaimRun("stale", "thread-1", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	stale := workflowKeyClaimRun("stale", "thread-1", gestalt.WorkflowRunStatusValuePending)
 	if _, claimed, err := state.claimWorkflowKeyRun(ctx, "thread-1", stale, time.Unix(100, 0).UTC()); err != nil || !claimed {
 		t.Fatalf("claim stale run claimed=%v err=%v", claimed, err)
 	}
@@ -1065,7 +1066,7 @@ func TestSignalOrStartRunReplacesMissingWorkflowKeyOwner(t *testing.T) {
 func TestSignalRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 	ctx, state := newTestWorkflowStateStore(t)
 
-	run := workflowKeyClaimRun("signal-idem", "thread-1", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	run := workflowKeyClaimRun("signal-idem", "thread-1", gestalt.WorkflowRunStatusValuePending)
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
 	req := &gestalt.SignalWorkflowProviderRunRequest{
@@ -1105,7 +1106,7 @@ func TestSignalRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 func TestSignalRunRejectsExplicitSignalIDPayloadMismatchWithOwnerKey(t *testing.T) {
 	ctx, state := newTestWorkflowStateStore(t)
 
-	run := workflowKeyClaimRun("strict-signal-id", "thread-1", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	run := workflowKeyClaimRun("strict-signal-id", "thread-1", gestalt.WorkflowRunStatusValuePending)
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
 	if _, err := backend.SignalRun(ctx, &gestalt.SignalWorkflowProviderRunRequest{
@@ -1132,7 +1133,7 @@ func TestWorkflowStateStoreClaimsWorkflowKeyRun(t *testing.T) {
 
 	workflowKey := "slack:T:C:1778164397.804829"
 	now := time.Unix(200, 0).UTC()
-	run := workflowKeyClaimRun("first", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	run := workflowKeyClaimRun("first", workflowKey, gestalt.WorkflowRunStatusValuePending)
 	owner, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, run, now)
 	if err != nil {
 		t.Fatalf("claimWorkflowKeyRun: %v", err)
@@ -1159,7 +1160,7 @@ func TestWorkflowStateStoreClaimsWorkflowKeyRun(t *testing.T) {
 		recordString(record, "run_id") != run.ID ||
 		recordString(record, "temporal_workflow_id") != handle.RunWorkflowID ||
 		recordString(record, "temporal_run_id") != handle.RunTemporalRunID ||
-		recordInt64(record, "status") != int64(proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING) {
+		recordInt64(record, "status") != int64(gestalt.WorkflowRunStatusValuePending) {
 		t.Fatalf("workflow key record = %#v, want routing metadata for first run", record)
 	}
 	if createdAt, updatedAt := recordTime(record, "created_at"), recordTime(record, "updated_at"); createdAt == nil || updatedAt == nil || !createdAt.Equal(now) || !updatedAt.Equal(now) {
@@ -1167,15 +1168,15 @@ func TestWorkflowStateStoreClaimsWorkflowKeyRun(t *testing.T) {
 	}
 
 	running := *run
-	running.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
+	running.Status = gestalt.WorkflowRunStatusValueRunning
 	owner, claimed, err = state.claimWorkflowKeyRun(ctx, workflowKey, &running, now.Add(time.Minute))
 	if err != nil {
 		t.Fatalf("claimWorkflowKeyRun(same run): %v", err)
 	}
-	if !claimed || owner.ID != run.ID || owner.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING {
+	if !claimed || owner.ID != run.ID || owner.Status != gestalt.WorkflowRunStatusValueRunning {
 		t.Fatalf("same-run claim owner=%#v claimed=%v, want running caller", owner, claimed)
 	}
-	other := workflowKeyClaimRun("other", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	other := workflowKeyClaimRun("other", workflowKey, gestalt.WorkflowRunStatusValuePending)
 	owner, claimed, err = state.claimWorkflowKeyRun(ctx, workflowKey, other, now.Add(2*time.Minute))
 	if err != nil {
 		t.Fatalf("claimWorkflowKeyRun(conflict): %v", err)
@@ -1207,24 +1208,24 @@ func TestWorkflowStateStoreWorkflowKeyClaimReplacesTerminalOrMissingProjection(t
 	ctx, state := newTestWorkflowStateStore(t)
 
 	workflowKey := "thread-terminal"
-	terminal := workflowKeyClaimRun("terminal", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED)
+	terminal := workflowKeyClaimRun("terminal", workflowKey, gestalt.WorkflowRunStatusValueSucceeded)
 	if _, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, terminal, time.Unix(100, 0).UTC()); err != nil || !claimed {
 		t.Fatalf("claim terminal claimed=%v err=%v", claimed, err)
 	}
 	got, found, err := state.getWorkflowKeyRun(ctx, workflowKey)
-	if err != nil || !found || got.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
+	if err != nil || !found || got.Status != gestalt.WorkflowRunStatusValueSucceeded {
 		t.Fatalf("get terminal found=%v run=%#v err=%v, want terminal owner", found, got, err)
 	}
 	stale := *terminal
-	stale.Status = proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING
+	stale.Status = gestalt.WorkflowRunStatusValuePending
 	owner, claimed, err := state.claimWorkflowKeyRun(ctx, workflowKey, &stale, time.Unix(150, 0).UTC())
 	if err != nil {
 		t.Fatalf("claim stale terminal owner: %v", err)
 	}
-	if !claimed || owner.ID != terminal.ID || owner.Status != proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED {
+	if !claimed || owner.ID != terminal.ID || owner.Status != gestalt.WorkflowRunStatusValueSucceeded {
 		t.Fatalf("stale terminal owner=%#v claimed=%v, want terminal projection", owner, claimed)
 	}
-	replacement := workflowKeyClaimRun("replacement", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	replacement := workflowKeyClaimRun("replacement", workflowKey, gestalt.WorkflowRunStatusValuePending)
 	owner, claimed, err = state.claimWorkflowKeyRun(ctx, workflowKey, replacement, time.Unix(200, 0).UTC())
 	if err != nil {
 		t.Fatalf("claim replacement: %v", err)
@@ -1234,7 +1235,7 @@ func TestWorkflowStateStoreWorkflowKeyClaimReplacesTerminalOrMissingProjection(t
 	}
 
 	missingKey := "thread-missing"
-	missingRun := workflowKeyClaimRun("missing", missingKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	missingRun := workflowKeyClaimRun("missing", missingKey, gestalt.WorkflowRunStatusValuePending)
 	missingHandle, err := decodeTemporalRunHandle(missingRun.ID)
 	if err != nil {
 		t.Fatalf("decode missing run handle: %v", err)
@@ -1246,13 +1247,13 @@ func TestWorkflowStateStoreWorkflowKeyClaimReplacesTerminalOrMissingProjection(t
 		RunID:              missingRun.ID,
 		TemporalWorkflowID: missingHandle.RunWorkflowID,
 		TemporalRunID:      missingHandle.RunTemporalRunID,
-		Status:             proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Status:             gestalt.WorkflowRunStatusValuePending,
 		CreatedAt:          time.Unix(300, 0).UTC(),
 		UpdatedAt:          time.Unix(300, 0).UTC(),
 	})); err != nil {
 		t.Fatalf("seed missing workflow key: %v", err)
 	}
-	missingReplacement := workflowKeyClaimRun("missing-replacement", missingKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	missingReplacement := workflowKeyClaimRun("missing-replacement", missingKey, gestalt.WorkflowRunStatusValuePending)
 	owner, claimed, err = state.claimWorkflowKeyRun(ctx, missingKey, missingReplacement, time.Unix(400, 0).UTC())
 	if err != nil {
 		t.Fatalf("claim missing replacement: %v", err)
@@ -1276,7 +1277,7 @@ func TestWorkflowStateStoreWorkflowKeyClaimValidationAndScopeIsolation(t *testin
 	}
 	t.Cleanup(func() { _ = scopeB.Close() })
 
-	valid := workflowKeyClaimRun("valid", "thread", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	valid := workflowKeyClaimRun("valid", "thread", gestalt.WorkflowRunStatusValuePending)
 	for name, tc := range map[string]struct {
 		workflowKey string
 		run         *gestalt.BoundWorkflowRun
@@ -1299,8 +1300,8 @@ func TestWorkflowStateStoreWorkflowKeyClaimValidationAndScopeIsolation(t *testin
 		}
 	}
 
-	runA := workflowKeyClaimRun("scope-a", "shared-thread", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
-	runB := workflowKeyClaimRun("scope-b", "shared-thread", proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING)
+	runA := workflowKeyClaimRun("scope-a", "shared-thread", gestalt.WorkflowRunStatusValuePending)
+	runB := workflowKeyClaimRun("scope-b", "shared-thread", gestalt.WorkflowRunStatusValuePending)
 	if _, claimed, err := scopeA.claimWorkflowKeyRun(ctx, "shared-thread", runA, time.Unix(200, 0).UTC()); err != nil || !claimed {
 		t.Fatalf("scopeA claim claimed=%v err=%v", claimed, err)
 	}
@@ -1322,8 +1323,8 @@ func TestWorkflowStateStoreWorkflowKeyConcurrentClaim(t *testing.T) {
 
 	workflowKey := "thread-race"
 	runs := []*gestalt.BoundWorkflowRun{
-		workflowKeyClaimRun("race-a", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING),
-		workflowKeyClaimRun("race-b", workflowKey, proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING),
+		workflowKeyClaimRun("race-a", workflowKey, gestalt.WorkflowRunStatusValuePending),
+		workflowKeyClaimRun("race-b", workflowKey, gestalt.WorkflowRunStatusValuePending),
 	}
 	type claimResult struct {
 		owner   *gestalt.BoundWorkflowRun
@@ -1382,8 +1383,8 @@ func TestWorkflowStateStoreIgnoresUnsupportedRunHandleRecords(t *testing.T) {
 		WorkflowKey:      "current-thread",
 		OwnerKey:         "slack",
 	})
-	legacyRun := &gestalt.BoundWorkflowRun{ID: legacyID, Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING, Target: nativePluginTargetInput("slack", "postMessage"), WorkflowKey: "legacy-thread"}
-	currentRun := &gestalt.BoundWorkflowRun{ID: currentID, Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING, Target: nativePluginTargetInput("slack", "postMessage"), WorkflowKey: "current-thread"}
+	legacyRun := &gestalt.BoundWorkflowRun{ID: legacyID, Status: gestalt.WorkflowRunStatusValuePending, Target: nativePluginTargetInput("slack", "postMessage"), WorkflowKey: "legacy-thread"}
+	currentRun := &gestalt.BoundWorkflowRun{ID: currentID, Status: gestalt.WorkflowRunStatusValuePending, Target: nativePluginTargetInput("slack", "postMessage"), WorkflowKey: "current-thread"}
 	if err := state.runProjections.Put(ctx, state.runRecord(legacyRun)); err != nil {
 		t.Fatalf("put legacy run projection: %v", err)
 	}
@@ -1397,7 +1398,7 @@ func TestWorkflowStateStoreIgnoresUnsupportedRunHandleRecords(t *testing.T) {
 		RunID:              legacyID,
 		TemporalWorkflowID: "legacy-workflow",
 		TemporalRunID:      "legacy-run",
-		Status:             proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Status:             gestalt.WorkflowRunStatusValuePending,
 		CreatedAt:          time.Unix(100, 0).UTC(),
 		UpdatedAt:          time.Unix(100, 0).UTC(),
 	})); err != nil {
@@ -1410,7 +1411,7 @@ func TestWorkflowStateStoreIgnoresUnsupportedRunHandleRecords(t *testing.T) {
 		RunID:              currentID,
 		TemporalWorkflowID: "current-workflow",
 		TemporalRunID:      "current-run",
-		Status:             proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Status:             gestalt.WorkflowRunStatusValuePending,
 		CreatedAt:          time.Unix(100, 0).UTC(),
 		UpdatedAt:          time.Unix(100, 0).UTC(),
 	})); err != nil {
@@ -1435,7 +1436,7 @@ func TestWorkflowStateStoreIgnoresUnsupportedRunHandleRecords(t *testing.T) {
 		WorkflowKey:      "legacy-thread",
 		OwnerKey:         "slack",
 	})
-	replacementRun := &gestalt.BoundWorkflowRun{ID: replacementID, Status: proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING, Target: nativePluginTargetInput("slack", "postMessage"), WorkflowKey: "legacy-thread"}
+	replacementRun := &gestalt.BoundWorkflowRun{ID: replacementID, Status: gestalt.WorkflowRunStatusValuePending, Target: nativePluginTargetInput("slack", "postMessage"), WorkflowKey: "legacy-thread"}
 	owner, claimed, err := state.claimWorkflowKeyRun(ctx, "legacy-thread", replacementRun, time.Unix(200, 0).UTC())
 	if err != nil {
 		t.Fatalf("claim replacement over unsupported owner: %v", err)
@@ -1481,7 +1482,7 @@ func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 			RunTemporalRunID: "run-projected-temporal-run",
 			OwnerKey:         "slack",
 		}),
-		Status:    proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED,
+		Status:    gestalt.WorkflowRunStatusValueSucceeded,
 		Target:    nativePluginTargetInput("slack", "postMessage"),
 		Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
 		CreatedAt: time.Unix(100, 0).UTC(),
@@ -1513,7 +1514,7 @@ func TestWorkflowStateStoreWritesNativeRunPayloads(t *testing.T) {
 	})
 	nativeRun := &gestalt.BoundWorkflowRun{
 		ID:        nativeID,
-		Status:    proto.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING,
+		Status:    gestalt.WorkflowRunStatusValuePending,
 		Target:    nativePluginTargetInput("slack", "postMessage"),
 		Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
 		CreatedAt: time.Unix(200, 0).UTC(),
@@ -1733,7 +1734,7 @@ func (h *capturingHost) InvokeOperation(_ context.Context, req gestalt.InvokeWor
 
 func (h *capturingHost) Close() error { return nil }
 
-func workflowKeyClaimRun(suffix, workflowKey string, status proto.WorkflowRunStatus) *gestalt.BoundWorkflowRun {
+func workflowKeyClaimRun(suffix, workflowKey string, status gestalt.WorkflowRunStatus) *gestalt.BoundWorkflowRun {
 	return &gestalt.BoundWorkflowRun{
 		ID: encodeTemporalRunHandle(temporalRunHandle{
 			RunWorkflowID:    "temporal-workflow-" + strings.TrimSpace(suffix),
@@ -2212,54 +2213,8 @@ func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) erro
 			switch run := h.update.Args[len(h.update.Args)-1].(type) {
 			case *gestalt.BoundWorkflowRun:
 				*out = *cloneRunInput(run)
-			case *proto.BoundWorkflowRun:
-				input, err := gestalt.BoundWorkflowRunFromRun(run)
-				if err == nil {
-					*out = input
-				}
-			}
-		}
-	case *proto.BoundWorkflowRun:
-		if len(h.update.Args) > 0 {
-			if run, ok := h.update.Args[len(h.update.Args)-1].(*proto.BoundWorkflowRun); ok {
-				*out = *run
-			}
-		}
-	case *proto.BoundWorkflowEventTrigger:
-		if len(h.update.Args) > 0 {
-			if trigger, ok := h.update.Args[len(h.update.Args)-1].(*proto.BoundWorkflowEventTrigger); ok {
-				*out = *trigger
-			}
-		}
-	case *proto.WorkflowExecutionReference:
-		if len(h.update.Args) > 0 {
-			if ref, ok := h.update.Args[len(h.update.Args)-1].(*proto.WorkflowExecutionReference); ok {
-				*out = *ref
-			}
-		}
-	case *proto.SignalWorkflowRunResponse:
-		if len(h.update.Args) > 0 {
-			if resp, ok := h.update.Args[len(h.update.Args)-1].(*proto.SignalWorkflowRunResponse); ok {
-				*out = *resp
-				return nil
-			}
-			if signal, ok := h.update.Args[len(h.update.Args)-1].(*proto.WorkflowSignal); ok && h.update.Name == updateAddSignal {
-				input := gestalt.WorkflowSignalFromSignal(signal)
-				out.Signal, _ = gestalt.NewWorkflowSignal(input)
-				if out.Signal.Sequence == 0 {
-					out.Signal.Sequence = 1
-				}
-				if out.Signal.Id == "" {
-					out.Signal.Id = "signal:" + hashID(h.update.WorkflowID, out.Signal.GetName(), fmt.Sprintf("%d", out.Signal.GetSequence()), out.Signal.GetIdempotencyKey())
-				}
-				out.StartedRun = true
-			}
-			if signal, ok := h.update.Args[len(h.update.Args)-1].(gestalt.WorkflowSignal); ok && h.update.Name == updateAddSignal {
-				signalPtr := signalInputForStartedRun(&gestalt.BoundWorkflowRun{ID: h.update.WorkflowID}, &signal)
-				if signalPtr != nil {
-					out.Signal, _ = gestalt.NewWorkflowSignal(*signalPtr)
-				}
-				out.StartedRun = true
+			case gestalt.BoundWorkflowRun:
+				*out = run
 			}
 		}
 	case *gestalt.SignalWorkflowRunResponse:
@@ -2269,23 +2224,6 @@ func (h recordingUpdateHandle) Get(_ context.Context, valuePtr interface{}) erro
 		switch resp := h.update.Args[len(h.update.Args)-1].(type) {
 		case *gestalt.SignalWorkflowRunResponse:
 			*out = *cloneSignalResponseInput(resp)
-		case *proto.SignalWorkflowRunResponse:
-			out.StartedRun = resp.GetStartedRun()
-			out.WorkflowKey = resp.GetWorkflowKey()
-			if resp.GetRun() != nil {
-				input, err := gestalt.BoundWorkflowRunFromRun(resp.GetRun())
-				if err == nil {
-					out.Run = &input
-				}
-			}
-			if resp.GetSignal() != nil {
-				input := gestalt.WorkflowSignalFromSignal(resp.GetSignal())
-				out.Signal = &input
-			}
-		case *proto.WorkflowSignal:
-			input := gestalt.WorkflowSignalFromSignal(resp)
-			out.Signal = signalInputForStartedRun(&gestalt.BoundWorkflowRun{ID: h.update.WorkflowID}, &input)
-			out.StartedRun = true
 		case gestalt.WorkflowSignal:
 			out.Signal = signalInputForStartedRun(&gestalt.BoundWorkflowRun{ID: h.update.WorkflowID}, &resp)
 			out.StartedRun = true
@@ -2484,7 +2422,7 @@ func startTestIndexedDBBackend(t *testing.T) {
 		t.Fatalf("relationaldb.Configure: %v", err)
 	}
 
-	t.Setenv(proto.EnvProviderSocket, socketPath)
+	t.Setenv(providerSocketEnv, socketPath)
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {

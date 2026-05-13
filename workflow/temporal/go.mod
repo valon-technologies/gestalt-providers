@@ -44,7 +44,6 @@ require (
 	github.com/robfig/cron v1.2.0 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/valon-technologies/gestalt v0.0.0-00010101000000-000000000000 // indirect
 	github.com/valon-technologies/gestalt-providers/indexeddb/internal v0.0.0-00010101000000-000000000000 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.43.0 // indirect
@@ -70,8 +69,6 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.48.2 // indirect
 )
-
-replace github.com/valon-technologies/gestalt => ../../../gestalt
 
 replace github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb => ../../indexeddb/relationaldb
 

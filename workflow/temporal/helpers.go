@@ -146,9 +146,6 @@ func normalizeTarget(target *gestalt.BoundWorkflowTarget) (scopedTarget, error) 
 			return scopedTarget{}, err
 		}
 		normalized := &gestalt.BoundWorkflowTarget{Agent: &agent}
-		if _, err := gestalt.NewBoundWorkflowTarget(*normalized); err != nil {
-			return scopedTarget{}, fmt.Errorf("target.agent: %w", err)
-		}
 		return scopedTarget{
 			OwnerKey: "agent:" + agent.ProviderName,
 			Target:   normalized,
@@ -178,9 +175,6 @@ func normalizeTarget(target *gestalt.BoundWorkflowTarget) (scopedTarget, error) 
 	plugin.Instance = strings.TrimSpace(plugin.Instance)
 	plugin.CredentialMode = credentialMode
 	normalized := &gestalt.BoundWorkflowTarget{Plugin: &plugin}
-	if _, err := gestalt.NewBoundWorkflowTarget(*normalized); err != nil {
-		return scopedTarget{}, fmt.Errorf("target.plugin.input: %w", err)
-	}
 	return scopedTarget{
 		OwnerKey: pluginName,
 		Target:   normalized,
@@ -269,9 +263,6 @@ func normalizeAgentDelivery(delivery *gestalt.WorkflowOutputDelivery, fieldName 
 			return fmt.Errorf("target.agent.%s.input_bindings.value must set exactly one source", fieldName)
 		}
 	}
-	if _, err := gestalt.NewWorkflowOutputDelivery(*delivery); err != nil {
-		return fmt.Errorf("target.agent.%s: %w", fieldName, err)
-	}
 	return nil
 }
 
@@ -322,9 +313,6 @@ func normalizeWorkflowEvent(event *gestalt.WorkflowEvent, now func() time.Time) 
 		Data:            event.Data,
 		Extensions:      event.Extensions,
 	}
-	if _, err := gestalt.NewWorkflowEvent(*normalized); err != nil {
-		return nil, err
-	}
 	return normalized, nil
 }
 
@@ -346,9 +334,6 @@ func normalizeWorkflowSignalInput(signal *gestalt.WorkflowSignal, now time.Time)
 	out.Name = name
 	out.CreatedBy = cloneActorInput(out.CreatedBy)
 	out.IdempotencyKey = strings.TrimSpace(out.IdempotencyKey)
-	if _, err := gestalt.NewWorkflowSignal(out); err != nil {
-		return nil, err
-	}
 	return &out, nil
 }
 
