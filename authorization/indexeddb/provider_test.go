@@ -403,7 +403,7 @@ func TestAuthorizationProviderZanzibarTargetsAndEffectiveAccess(t *testing.T) {
 	_, err = sess.client.WriteRelationships(sess.ctx, &proto.WriteRelationshipsRequest{
 		Writes: []*proto.Relationship{
 			{
-				Target:   gestalt.NewAuthorizationSubjectSetTarget(&proto.Resource{Type: "everyone", Id: "global"}, "member"),
+				Target:   protoSubjectSetTarget(&proto.Resource{Type: "everyone", Id: "global"}, "member"),
 				Relation: "viewer",
 				Resource: &proto.Resource{Type: "agent_session", Id: "session-public"},
 			},
@@ -418,12 +418,12 @@ func TestAuthorizationProviderZanzibarTargetsAndEffectiveAccess(t *testing.T) {
 				Resource: &proto.Resource{Type: "slack_channel", Id: "C123"},
 			},
 			{
-				Target:   gestalt.NewAuthorizationSubjectSetTarget(&proto.Resource{Type: "team", Id: "team-ml", Properties: mustStruct(t, map[string]any{"name": "ML"})}, "member"),
+				Target:   protoSubjectSetTarget(&proto.Resource{Type: "team", Id: "team-ml", Properties: mustStruct(t, map[string]any{"name": "ML"})}, "member"),
 				Relation: "viewer",
 				Resource: &proto.Resource{Type: "agent_session", Id: "session-team"},
 			},
 			{
-				Target:   gestalt.NewAuthorizationSubjectSetTarget(&proto.Resource{Type: "slack_channel", Id: "C123"}, "member"),
+				Target:   protoSubjectSetTarget(&proto.Resource{Type: "slack_channel", Id: "C123"}, "member"),
 				Relation: "editor",
 				Resource: &proto.Resource{Type: "agent_session", Id: "session-slack"},
 			},
@@ -433,7 +433,7 @@ func TestAuthorizationProviderZanzibarTargetsAndEffectiveAccess(t *testing.T) {
 				Resource: &proto.Resource{Type: "agent_session", Id: "session-parent"},
 			},
 			{
-				Target:   gestalt.NewAuthorizationResourceTarget(&proto.Resource{Type: "agent_session", Id: "session-parent", Properties: mustStruct(t, map[string]any{"title": "Parent"})}),
+				Target:   protoResourceTarget(&proto.Resource{Type: "agent_session", Id: "session-parent", Properties: mustStruct(t, map[string]any{"title": "Parent"})}),
 				Relation: "parent",
 				Resource: &proto.Resource{Type: "agent_session", Id: "session-child"},
 			},
@@ -501,7 +501,7 @@ func TestAuthorizationProviderZanzibarTargetsAndEffectiveAccess(t *testing.T) {
 	}
 
 	readResp, err := sess.client.ReadRelationships(sess.ctx, &proto.ReadRelationshipsRequest{
-		Target:   gestalt.NewAuthorizationSubjectSetTarget(&proto.Resource{Type: "team", Id: "team-ml"}, "member"),
+		Target:   protoSubjectSetTarget(&proto.Resource{Type: "team", Id: "team-ml"}, "member"),
 		Resource: &proto.Resource{Type: "agent_session", Id: "session-team"},
 	})
 	if err != nil {
@@ -518,7 +518,7 @@ func TestAuthorizationProviderZanzibarTargetsAndEffectiveAccess(t *testing.T) {
 	}
 
 	parentReadResp, err := sess.client.ReadRelationships(sess.ctx, &proto.ReadRelationshipsRequest{
-		Target:   gestalt.NewAuthorizationResourceTarget(&proto.Resource{Type: "agent_session", Id: "session-parent"}),
+		Target:   protoResourceTarget(&proto.Resource{Type: "agent_session", Id: "session-parent"}),
 		Resource: &proto.Resource{Type: "agent_session", Id: "session-child"},
 	})
 	if err != nil {
@@ -545,7 +545,7 @@ func TestAuthorizationProviderZanzibarTargetsAndEffectiveAccess(t *testing.T) {
 
 	_, err = sess.client.WriteRelationships(sess.ctx, &proto.WriteRelationshipsRequest{
 		Deletes: []*proto.RelationshipKey{{
-			Target:   gestalt.NewAuthorizationSubjectSetTarget(&proto.Resource{Type: "team", Id: "team-ml"}, "member"),
+			Target:   protoSubjectSetTarget(&proto.Resource{Type: "team", Id: "team-ml"}, "member"),
 			Relation: "viewer",
 			Resource: &proto.Resource{Type: "agent_session", Id: "session-team"},
 		}},
@@ -568,7 +568,7 @@ func TestAuthorizationProviderRejectsMismatchedRelationshipTargets(t *testing.T)
 	_, err := sess.client.WriteRelationships(sess.ctx, &proto.WriteRelationshipsRequest{
 		Writes: []*proto.Relationship{{
 			Subject:  &proto.Subject{Type: "subject", Id: "user:alice"},
-			Target:   gestalt.NewAuthorizationSubjectTarget(&proto.Subject{Type: "subject", Id: "user:bob"}),
+			Target:   protoSubjectTarget(&proto.Subject{Type: "subject", Id: "user:bob"}),
 			Relation: "viewer",
 			Resource: &proto.Resource{Type: "agent_session", Id: "session-1"},
 		}},
@@ -580,7 +580,7 @@ func TestAuthorizationProviderRejectsMismatchedRelationshipTargets(t *testing.T)
 	_, err = sess.client.WriteRelationships(sess.ctx, &proto.WriteRelationshipsRequest{
 		Writes: []*proto.Relationship{{
 			Subject:  &proto.Subject{Type: "subject", Id: "user:alice"},
-			Target:   gestalt.NewAuthorizationSubjectSetTarget(&proto.Resource{Type: "team", Id: "team-ml"}, "member"),
+			Target:   protoSubjectSetTarget(&proto.Resource{Type: "team", Id: "team-ml"}, "member"),
 			Relation: "viewer",
 			Resource: &proto.Resource{Type: "agent_session", Id: "session-1"},
 		}},
@@ -601,12 +601,12 @@ func TestAuthorizationProviderExpandDetectsCyclesAndMaxDepth(t *testing.T) {
 	_, err := sess.client.WriteRelationships(sess.ctx, &proto.WriteRelationshipsRequest{
 		Writes: []*proto.Relationship{
 			{
-				Target:   gestalt.NewAuthorizationResourceTarget(&proto.Resource{Type: "agent_session", Id: "session-b"}),
+				Target:   protoResourceTarget(&proto.Resource{Type: "agent_session", Id: "session-b"}),
 				Relation: "parent",
 				Resource: &proto.Resource{Type: "agent_session", Id: "session-a"},
 			},
 			{
-				Target:   gestalt.NewAuthorizationResourceTarget(&proto.Resource{Type: "agent_session", Id: "session-a"}),
+				Target:   protoResourceTarget(&proto.Resource{Type: "agent_session", Id: "session-a"}),
 				Relation: "parent",
 				Resource: &proto.Resource{Type: "agent_session", Id: "session-b"},
 			},
@@ -797,6 +797,79 @@ func mustStruct(t *testing.T, fields map[string]any) *structpb.Struct {
 	return value
 }
 
+func protoSubjectTarget(subject *proto.Subject) *proto.RelationshipTarget {
+	return &proto.RelationshipTarget{
+		Kind: &proto.RelationshipTarget_Subject{Subject: subject},
+	}
+}
+
+func protoResourceTarget(resource *proto.Resource) *proto.RelationshipTarget {
+	return &proto.RelationshipTarget{
+		Kind: &proto.RelationshipTarget_Resource{Resource: resource},
+	}
+}
+
+func protoSubjectSetTarget(resource *proto.Resource, relation string) *proto.RelationshipTarget {
+	return &proto.RelationshipTarget{
+		Kind: &proto.RelationshipTarget_SubjectSet{
+			SubjectSet: &proto.SubjectSet{Resource: resource, Relation: relation},
+		},
+	}
+}
+
+func protoModelSubjectTypeTarget(subjectType string) *proto.AuthorizationModelAllowedTarget {
+	return &proto.AuthorizationModelAllowedTarget{
+		Kind: &proto.AuthorizationModelAllowedTarget_SubjectType{SubjectType: subjectType},
+	}
+}
+
+func protoModelResourceTypeTarget(resourceType string) *proto.AuthorizationModelAllowedTarget {
+	return &proto.AuthorizationModelAllowedTarget{
+		Kind: &proto.AuthorizationModelAllowedTarget_ResourceType{ResourceType: resourceType},
+	}
+}
+
+func protoModelSubjectSetTarget(resourceType, relation string) *proto.AuthorizationModelAllowedTarget {
+	return &proto.AuthorizationModelAllowedTarget{
+		Kind: &proto.AuthorizationModelAllowedTarget_SubjectSet{
+			SubjectSet: &proto.AuthorizationModelSubjectSetTarget{ResourceType: resourceType, Relation: relation},
+		},
+	}
+}
+
+func protoModelThisRewrite() *proto.AuthorizationModelRewrite {
+	return &proto.AuthorizationModelRewrite{
+		Kind: &proto.AuthorizationModelRewrite_This{This: &proto.AuthorizationModelRewriteThis{}},
+	}
+}
+
+func protoModelComputedUsersetRewrite(relation string) *proto.AuthorizationModelRewrite {
+	return &proto.AuthorizationModelRewrite{
+		Kind: &proto.AuthorizationModelRewrite_ComputedUserset{
+			ComputedUserset: &proto.AuthorizationModelComputedUserset{Relation: relation},
+		},
+	}
+}
+
+func protoModelTupleToUsersetRewrite(tuplesetRelation, computedRelation string) *proto.AuthorizationModelRewrite {
+	return &proto.AuthorizationModelRewrite{
+		Kind: &proto.AuthorizationModelRewrite_TupleToUserset{
+			TupleToUserset: &proto.AuthorizationModelTupleToUserset{
+				TuplesetRelation: tuplesetRelation,
+				ComputedRelation: computedRelation,
+			},
+		},
+	}
+}
+
+func protoModelUnionRewrite(children ...*proto.AuthorizationModelRewrite) *proto.AuthorizationModelRewrite {
+	return &proto.AuthorizationModelRewrite{
+		Kind: &proto.AuthorizationModelRewrite_Union{
+			Union: &proto.AuthorizationModelRewriteUnion{Children: children},
+		},
+	}
+}
+
 func resourceIDs(resources []*proto.Resource) []string {
 	out := make([]string, len(resources))
 	for i, resource := range resources {
@@ -945,22 +1018,22 @@ func zanzibarSessionModel() *proto.AuthorizationModel {
 					{
 						Name:           "parent",
 						SubjectTypes:   []string{"subject"},
-						AllowedTargets: []*proto.AuthorizationModelAllowedTarget{gestalt.NewAuthorizationModelResourceTypeTarget("agent_session")},
+						AllowedTargets: []*proto.AuthorizationModelAllowedTarget{protoModelResourceTypeTarget("agent_session")},
 					},
 				},
 				Actions: []*proto.AuthorizationModelAction{
 					{
 						Name:      "view",
 						Relations: []string{"viewer", "editor"},
-						Rewrite: gestalt.NewAuthorizationModelUnionRewrite(
-							gestalt.NewAuthorizationModelComputedUsersetRewrite("viewer"),
-							gestalt.NewAuthorizationModelComputedUsersetRewrite("editor"),
+						Rewrite: protoModelUnionRewrite(
+							protoModelComputedUsersetRewrite("viewer"),
+							protoModelComputedUsersetRewrite("editor"),
 						),
 					},
 					{
 						Name:      "edit",
 						Relations: []string{"editor"},
-						Rewrite:   gestalt.NewAuthorizationModelComputedUsersetRewrite("editor"),
+						Rewrite:   protoModelComputedUsersetRewrite("editor"),
 					},
 				},
 			},
@@ -972,21 +1045,21 @@ func zanzibarSessionModel() *proto.AuthorizationModel {
 }
 
 func zanzibarSessionAccessRelation(name string) *proto.AuthorizationModelRelation {
-	children := []*proto.AuthorizationModelRewrite{gestalt.NewAuthorizationModelThisRewrite()}
+	children := []*proto.AuthorizationModelRewrite{protoModelThisRewrite()}
 	if name == "viewer" {
-		children = append(children, gestalt.NewAuthorizationModelComputedUsersetRewrite("editor"))
+		children = append(children, protoModelComputedUsersetRewrite("editor"))
 	}
-	children = append(children, gestalt.NewAuthorizationModelTupleToUsersetRewrite("parent", name))
+	children = append(children, protoModelTupleToUsersetRewrite("parent", name))
 	return &proto.AuthorizationModelRelation{
 		Name:         name,
 		SubjectTypes: []string{"subject"},
 		AllowedTargets: []*proto.AuthorizationModelAllowedTarget{
-			gestalt.NewAuthorizationModelSubjectTypeTarget("subject"),
-			gestalt.NewAuthorizationModelSubjectSetAllowedTarget("everyone", "member"),
-			gestalt.NewAuthorizationModelSubjectSetAllowedTarget("team", "member"),
-			gestalt.NewAuthorizationModelSubjectSetAllowedTarget("slack_channel", "member"),
+			protoModelSubjectTypeTarget("subject"),
+			protoModelSubjectSetTarget("everyone", "member"),
+			protoModelSubjectSetTarget("team", "member"),
+			protoModelSubjectSetTarget("slack_channel", "member"),
 		},
-		Rewrite: gestalt.NewAuthorizationModelUnionRewrite(children...),
+		Rewrite: protoModelUnionRewrite(children...),
 	}
 }
 
@@ -997,14 +1070,14 @@ func membershipResourceType(name string) *proto.AuthorizationModelResourceType {
 			Name:         "member",
 			SubjectTypes: []string{"subject"},
 			AllowedTargets: []*proto.AuthorizationModelAllowedTarget{
-				gestalt.NewAuthorizationModelSubjectTypeTarget("subject"),
+				protoModelSubjectTypeTarget("subject"),
 			},
-			Rewrite: gestalt.NewAuthorizationModelThisRewrite(),
+			Rewrite: protoModelThisRewrite(),
 		}},
 		Actions: []*proto.AuthorizationModelAction{{
 			Name:      "member",
 			Relations: []string{"member"},
-			Rewrite:   gestalt.NewAuthorizationModelComputedUsersetRewrite("member"),
+			Rewrite:   protoModelComputedUsersetRewrite("member"),
 		}},
 	}
 }
