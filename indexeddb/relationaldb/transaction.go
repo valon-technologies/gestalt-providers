@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/txstream"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	proto "github.com/valon-technologies/gestalt-providers/indexeddb/internal/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"

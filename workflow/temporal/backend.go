@@ -450,9 +450,6 @@ func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *gestalt.Upser
 		CreatedBy:    createdBy,
 		ExecutionRef: strings.TrimSpace(req.ExecutionRef),
 	}
-	if _, err := gestalt.NewBoundWorkflowSchedule(*schedule); err != nil {
-		return nil, status.Errorf(codes.Internal, "build workflow schedule: %v", err)
-	}
 	if err := b.upsertTemporalSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
@@ -617,9 +614,6 @@ func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *gestalt.U
 		CreatedBy:    createdBy,
 		ExecutionRef: strings.TrimSpace(req.ExecutionRef),
 	}
-	if _, err := gestalt.NewBoundWorkflowEventTrigger(*trigger); err != nil {
-		return nil, status.Errorf(codes.Internal, "build workflow event trigger: %v", err)
-	}
 	if err := b.state.putTrigger(ctx, trigger); err != nil {
 		return nil, err
 	}
@@ -706,9 +700,6 @@ func (b *temporalBackend) PutExecutionReference(ctx context.Context, req *gestal
 	}
 	if refInput.CreatedAt.IsZero() {
 		refInput.CreatedAt = time.Now().UTC()
-	}
-	if _, err := gestalt.NewWorkflowExecutionReference(*refInput); err != nil {
-		return nil, status.Errorf(codes.Internal, "build workflow execution reference: %v", err)
 	}
 	if err := b.state.putExecutionRef(ctx, refInput); err != nil {
 		return nil, err
@@ -875,9 +866,6 @@ func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, pause
 	}
 	trigger.Paused = paused
 	trigger.UpdatedAt = time.Now().UTC()
-	if _, err := gestalt.NewBoundWorkflowEventTrigger(*trigger); err != nil {
-		return nil, status.Errorf(codes.Internal, "build workflow event trigger: %v", err)
-	}
 	if err := b.state.putTrigger(ctx, trigger); err != nil {
 		return nil, err
 	}
@@ -988,6 +976,23 @@ func workflowRunTerminal(status gestalt.WorkflowRunStatus) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func workflowRunStatusString(status gestalt.WorkflowRunStatus) string {
+	switch status {
+	case gestalt.WorkflowRunStatusValuePending:
+		return "pending"
+	case gestalt.WorkflowRunStatusValueRunning:
+		return "running"
+	case gestalt.WorkflowRunStatusValueSucceeded:
+		return "succeeded"
+	case gestalt.WorkflowRunStatusValueFailed:
+		return "failed"
+	case gestalt.WorkflowRunStatusValueCanceled:
+		return "canceled"
+	default:
+		return "unspecified"
 	}
 }
 

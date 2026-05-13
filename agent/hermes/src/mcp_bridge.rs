@@ -11,7 +11,7 @@ use axum::middleware::{self, Next};
 use axum::response::Response;
 use gestalt::{
     AgentHost, AgentHostExecuteToolInput, AgentHostListToolsInput, AgentToolAnnotations,
-    AgentToolRef, ListedAgentTool,
+    AgentToolRef, ExecuteAgentToolResponse, ListAgentToolsResponse, ListedAgentTool,
 };
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
@@ -74,7 +74,7 @@ struct GestaltMcpBridge {
     session_id: String,
     turn_id: String,
     run_grant: String,
-    host: Arc<Mutex<AgentHost>>,
+    host: Arc<dyn AgentHostClient>,
     tools_by_name: Arc<Mutex<HashMap<String, ListedAgentTool>>>,
     next_tool_call_id: Arc<AtomicU64>,
 }
@@ -97,6 +97,50 @@ struct ScoredTool {
     order: usize,
 }
 
+#[gestalt::async_trait]
+pub trait AgentHostClient: Send + Sync {
+    async fn list_tools_for_turn(
+        &self,
+        input: AgentHostListToolsInput,
+    ) -> Result<ListAgentToolsResponse, String>;
+
+    async fn execute_tool_for_turn(
+        &self,
+        input: AgentHostExecuteToolInput,
+    ) -> Result<ExecuteAgentToolResponse, String>;
+}
+
+struct SdkAgentHostClient {
+    host: Mutex<AgentHost>,
+}
+
+#[gestalt::async_trait]
+impl AgentHostClient for SdkAgentHostClient {
+    async fn list_tools_for_turn(
+        &self,
+        input: AgentHostListToolsInput,
+    ) -> Result<ListAgentToolsResponse, String> {
+        self.host
+            .lock()
+            .await
+            .list_tools_for_turn(input)
+            .await
+            .map_err(|err| err.to_string())
+    }
+
+    async fn execute_tool_for_turn(
+        &self,
+        input: AgentHostExecuteToolInput,
+    ) -> Result<ExecuteAgentToolResponse, String> {
+        self.host
+            .lock()
+            .await
+            .execute_tool_for_turn(input)
+            .await
+            .map_err(|err| err.to_string())
+    }
+}
+
 pub async fn start_bridge(
     session_id: String,
     turn_id: String,
@@ -105,11 +149,28 @@ pub async fn start_bridge(
     let host = AgentHost::connect()
         .await
         .map_err(|err| format!("connect Gestalt agent host for MCP bridge: {err}"))?;
+    start_bridge_with_host(
+        session_id,
+        turn_id,
+        run_grant,
+        Arc::new(SdkAgentHostClient {
+            host: Mutex::new(host),
+        }),
+    )
+    .await
+}
+
+pub async fn start_bridge_with_host(
+    session_id: String,
+    turn_id: String,
+    run_grant: String,
+    host: Arc<dyn AgentHostClient>,
+) -> Result<McpBridgeHandle, String> {
     let bridge = GestaltMcpBridge {
         session_id,
         turn_id: turn_id.clone(),
         run_grant,
-        host: Arc::new(Mutex::new(host)),
+        host,
         tools_by_name: Arc::new(Mutex::new(HashMap::new())),
         next_tool_call_id: Arc::new(AtomicU64::new(1)),
     };
@@ -299,8 +360,6 @@ impl GestaltMcpBridge {
         let tool_call_id = format!("mcp-{seq}");
         let response = self
             .host
-            .lock()
-            .await
             .execute_tool_for_turn(AgentHostExecuteToolInput {
                 session_id: self.session_id.clone(),
                 turn_id: self.turn_id.clone(),
@@ -469,8 +528,6 @@ impl GestaltMcpBridge {
     ) -> Result<(Vec<ListedAgentTool>, String), ProxyError> {
         let response = self
             .host
-            .lock()
-            .await
             .list_tools_for_turn(AgentHostListToolsInput {
                 session_id: self.session_id.clone(),
                 turn_id: self.turn_id.clone(),

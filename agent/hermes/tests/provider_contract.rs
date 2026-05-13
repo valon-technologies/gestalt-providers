@@ -4,18 +4,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
-use gestalt::proto::v1::agent_host_server::{
-    AgentHost as AgentHostRpc, AgentHostServer as AgentHostGrpcServer,
-};
-use gestalt::{AgentProvider as _, proto::v1 as proto};
+use gestalt::AgentProvider as _;
 use serde_json::{Map as JsonMap, Value as JsonValue, json};
 use tempfile::TempDir;
-use tokio::net::UnixListener;
-use tokio_stream::wrappers::UnixListenerStream;
-use tonic::Request;
-use tonic::transport::Server;
 
-use gestalt_agent_hermes::HermesAgentProvider;
+use gestalt_agent_hermes::{AgentHostClient, HermesAgentProvider};
 
 static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -160,11 +153,9 @@ async fn mcp_catalog_turn_bridges_gestalt_tools_to_hermes() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-call");
     let host = TestAgentHostService::default();
-    let socket_path = fixture.tmp.path().join("agent-host.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
-    let provider = fixture.configure_provider().await;
+    let provider = fixture
+        .configure_provider_with_agent_host(host.clone())
+        .await;
 
     create_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp").await;
@@ -253,9 +244,6 @@ async fn mcp_catalog_turn_bridges_gestalt_tools_to_hermes() {
         mcp_result["result"]["call"]["result"]["content"][0]["text"].as_str(),
         Some("linear tickets")
     );
-
-    host_task.abort();
-    let _ = host_task.await;
 }
 
 #[tokio::test]
@@ -263,11 +251,9 @@ async fn mcp_catalog_turn_does_not_prefetch_tools_before_mcp_use() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-list-only");
     let host = TestAgentHostService::default();
-    let socket_path = fixture.tmp.path().join("agent-host.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
-    let provider = fixture.configure_provider().await;
+    let provider = fixture
+        .configure_provider_with_agent_host(host.clone())
+        .await;
 
     create_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-no-prefetch").await;
@@ -306,9 +292,6 @@ async fn mcp_catalog_turn_does_not_prefetch_tools_before_mcp_use() {
             "gestalt_call_tool".to_string(),
         ]
     );
-
-    host_task.abort();
-    let _ = host_task.await;
 }
 
 #[tokio::test]
@@ -321,11 +304,9 @@ async fn mcp_catalog_turn_marks_unavailable_sentinel_call_as_error() {
         execute_body: Some(r#"{"error":{"code":"reconnect_required","plugin":"linear"}}"#),
         ..Default::default()
     };
-    let socket_path = fixture.tmp.path().join("agent-host.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
-    let provider = fixture.configure_provider().await;
+    let provider = fixture
+        .configure_provider_with_agent_host(host.clone())
+        .await;
 
     create_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-sentinel").await;
@@ -364,9 +345,6 @@ async fn mcp_catalog_turn_marks_unavailable_sentinel_call_as_error() {
         payload["error"]["body"].as_str(),
         Some(r#"{"error":{"code":"reconnect_required","plugin":"linear"}}"#)
     );
-
-    host_task.abort();
-    let _ = host_task.await;
 }
 
 #[tokio::test]
@@ -378,11 +356,9 @@ async fn mcp_catalog_turn_preserves_empty_target_error_body() {
         execute_body: Some(""),
         ..Default::default()
     };
-    let socket_path = fixture.tmp.path().join("agent-host-empty-error.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
-    let provider = fixture.configure_provider().await;
+    let provider = fixture
+        .configure_provider_with_agent_host(host.clone())
+        .await;
 
     create_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-empty-error").await;
@@ -405,9 +381,6 @@ async fn mcp_catalog_turn_preserves_empty_target_error_body() {
     );
     assert_eq!(payload["error"]["status"].as_i64(), Some(500));
     assert_eq!(payload["error"]["body"].as_str(), Some(""));
-
-    host_task.abort();
-    let _ = host_task.await;
 }
 
 #[tokio::test]
@@ -415,11 +388,9 @@ async fn mcp_catalog_proxy_gets_schema_by_returned_mcp_name() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-schema");
     let host = TestAgentHostService::default();
-    let socket_path = fixture.tmp.path().join("agent-host-schema.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
-    let provider = fixture.configure_provider().await;
+    let provider = fixture
+        .configure_provider_with_agent_host(host.clone())
+        .await;
 
     create_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-schema").await;
@@ -447,9 +418,6 @@ async fn mcp_catalog_proxy_gets_schema_by_returned_mcp_name() {
             .expect("execute requests")
             .is_empty()
     );
-
-    host_task.abort();
-    let _ = host_task.await;
 }
 
 #[tokio::test]
@@ -460,11 +428,9 @@ async fn mcp_catalog_proxy_rejects_ambiguous_ref_selectors() {
         ambiguous_refs: true,
         ..Default::default()
     };
-    let socket_path = fixture.tmp.path().join("agent-host-ambiguous.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
-    let provider = fixture.configure_provider().await;
+    let provider = fixture
+        .configure_provider_with_agent_host(host.clone())
+        .await;
 
     create_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-ambiguous").await;
@@ -488,9 +454,6 @@ async fn mcp_catalog_proxy_rejects_ambiguous_ref_selectors() {
             .contains("mcp_name"),
         "{payload}"
     );
-
-    host_task.abort();
-    let _ = host_task.await;
 }
 
 #[tokio::test]
@@ -498,11 +461,9 @@ async fn mcp_catalog_proxy_rejects_invalid_selectors_before_lookup() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-invalid-selector");
     let host = TestAgentHostService::default();
-    let socket_path = fixture.tmp.path().join("agent-host-invalid-selector.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
-    let provider = fixture.configure_provider().await;
+    let provider = fixture
+        .configure_provider_with_agent_host(host.clone())
+        .await;
 
     create_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-invalid-selector").await;
@@ -519,9 +480,6 @@ async fn mcp_catalog_proxy_rejects_invalid_selectors_before_lookup() {
         .find(|event| event["event"] == "mcp_result")
         .expect("mcp result logged");
     assert_proxy_error(&mcp_result["result"]["schema"], "invalid_selector");
-
-    host_task.abort();
-    let _ = host_task.await;
 }
 
 #[tokio::test]
@@ -532,11 +490,9 @@ async fn mcp_catalog_proxy_searches_only_catalog_metadata() {
         schema_only_tool: true,
         ..Default::default()
     };
-    let socket_path = fixture.tmp.path().join("agent-host-schema-only.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
-    let provider = fixture.configure_provider().await;
+    let provider = fixture
+        .configure_provider_with_agent_host(host.clone())
+        .await;
 
     create_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-schema-only").await;
@@ -555,9 +511,6 @@ async fn mcp_catalog_proxy_searches_only_catalog_metadata() {
     let search_payload = tool_call_payload(&mcp_result["result"]["search"]);
     assert_eq!(search_payload["tools"].as_array().map(Vec::len), Some(0));
     assert_eq!(search_payload["candidates"].as_array().map(Vec::len), None);
-
-    host_task.abort();
-    let _ = host_task.await;
 }
 
 #[tokio::test]
@@ -568,11 +521,9 @@ async fn mcp_catalog_proxy_ranks_matches_across_pages() {
         ranked_pages: true,
         ..Default::default()
     };
-    let socket_path = fixture.tmp.path().join("agent-host-ranked-pages.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
-    let provider = fixture.configure_provider().await;
+    let provider = fixture
+        .configure_provider_with_agent_host(host.clone())
+        .await;
 
     create_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-ranked-pages").await;
@@ -595,9 +546,6 @@ async fn mcp_catalog_proxy_ranks_matches_across_pages() {
         "{search_payload}"
     );
     assert_eq!(search_payload["has_more"], JsonValue::Bool(true));
-
-    host_task.abort();
-    let _ = host_task.await;
 }
 
 #[tokio::test]
@@ -622,11 +570,9 @@ async fn mcp_catalog_proxy_reports_cursor_and_page_errors_as_tool_errors() {
         ),
     ] {
         let fixture = Fixture::new("mcp-search-only");
-        let socket_path = fixture.tmp.path().join(format!("agent-host-{name}.sock"));
-        let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-        let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
-        let host_task = serve_agent_host(socket_path, host.clone()).await;
-        let provider = fixture.configure_provider().await;
+        let provider = fixture
+            .configure_provider_with_agent_host(host.clone())
+            .await;
 
         create_session(&provider).await;
         create_mcp_turn(&provider, &format!("turn-mcp-{name}")).await;
@@ -643,9 +589,6 @@ async fn mcp_catalog_proxy_reports_cursor_and_page_errors_as_tool_errors() {
             .find(|event| event["event"] == "mcp_result")
             .expect("mcp result logged");
         assert_proxy_error(&mcp_result["result"]["search"], code);
-
-        host_task.abort();
-        let _ = host_task.await;
     }
 }
 
@@ -657,11 +600,9 @@ async fn mcp_catalog_proxy_reports_list_rpc_errors_as_tool_errors() {
         list_error: Some("catalog unavailable"),
         ..Default::default()
     };
-    let socket_path = fixture.tmp.path().join("agent-host-list-error.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
-    let provider = fixture.configure_provider().await;
+    let provider = fixture
+        .configure_provider_with_agent_host(host.clone())
+        .await;
 
     create_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-list-error").await;
@@ -685,9 +626,6 @@ async fn mcp_catalog_proxy_reports_list_rpc_errors_as_tool_errors() {
             .contains("catalog unavailable"),
         "{payload}"
     );
-
-    host_task.abort();
-    let _ = host_task.await;
 }
 
 #[tokio::test]
@@ -717,11 +655,9 @@ async fn mcp_catalog_proxy_reports_invalid_catalog_tools_as_tool_errors() {
         ),
     ] {
         let fixture = Fixture::new("mcp-search-only");
-        let socket_path = fixture.tmp.path().join(format!("agent-host-{name}.sock"));
-        let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-        let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
-        let host_task = serve_agent_host(socket_path, host.clone()).await;
-        let provider = fixture.configure_provider().await;
+        let provider = fixture
+            .configure_provider_with_agent_host(host.clone())
+            .await;
 
         create_session(&provider).await;
         create_mcp_turn(&provider, &format!("turn-mcp-{name}")).await;
@@ -738,9 +674,6 @@ async fn mcp_catalog_proxy_reports_invalid_catalog_tools_as_tool_errors() {
             .find(|event| event["event"] == "mcp_result")
             .expect("mcp result logged");
         assert_proxy_error(&mcp_result["result"]["search"], "invalid_catalog_tool");
-
-        host_task.abort();
-        let _ = host_task.await;
     }
 }
 
@@ -749,11 +682,9 @@ async fn mcp_catalog_proxy_reports_input_cap_errors_without_listing_tools() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-input-caps");
     let host = TestAgentHostService::default();
-    let socket_path = fixture.tmp.path().join("agent-host-input-caps.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
-    let provider = fixture.configure_provider().await;
+    let provider = fixture
+        .configure_provider_with_agent_host(host.clone())
+        .await;
 
     create_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-input-caps").await;
@@ -771,9 +702,6 @@ async fn mcp_catalog_proxy_reports_input_cap_errors_without_listing_tools() {
         .expect("mcp result logged");
     assert_proxy_error(&mcp_result["result"]["search"], "invalid_arguments");
     assert!(host.list_requests.lock().expect("list requests").is_empty());
-
-    host_task.abort();
-    let _ = host_task.await;
 }
 
 #[tokio::test]
@@ -784,11 +712,9 @@ async fn mcp_catalog_proxy_reports_execute_rpc_errors_as_tool_errors() {
         execute_error: Some("agent host execute failed"),
         ..Default::default()
     };
-    let socket_path = fixture.tmp.path().join("agent-host-execute-error.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
-    let provider = fixture.configure_provider().await;
+    let provider = fixture
+        .configure_provider_with_agent_host(host.clone())
+        .await;
 
     create_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-execute-error").await;
@@ -812,9 +738,6 @@ async fn mcp_catalog_proxy_reports_execute_rpc_errors_as_tool_errors() {
             .contains("agent host execute failed"),
         "{payload}"
     );
-
-    host_task.abort();
-    let _ = host_task.await;
 }
 
 #[tokio::test]
@@ -822,11 +745,9 @@ async fn mcp_catalog_does_not_require_advertised_acp_http_mcp_support() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-call-no-cap");
     let host = TestAgentHostService::default();
-    let socket_path = fixture.tmp.path().join("agent-host-no-cap.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
-    let provider = fixture.configure_provider().await;
+    let provider = fixture
+        .configure_provider_with_agent_host(host.clone())
+        .await;
 
     create_session(&provider).await;
     create_mcp_turn(&provider, "turn-no-cap").await;
@@ -839,9 +760,6 @@ async fn mcp_catalog_does_not_require_advertised_acp_http_mcp_support() {
     assert_eq!(turn.output_text, "Hermes used Gestalt MCP");
     let log = fixture.log_events();
     assert!(log.iter().any(|event| event["event"] == "mcp_result"));
-
-    host_task.abort();
-    let _ = host_task.await;
 }
 
 #[tokio::test]
@@ -1091,8 +1009,8 @@ struct Fixture {
 
 #[derive(Clone, Default)]
 struct TestAgentHostService {
-    list_requests: Arc<StdMutex<Vec<proto::ListAgentToolsRequest>>>,
-    execute_requests: Arc<StdMutex<Vec<proto::ExecuteAgentToolRequest>>>,
+    list_requests: Arc<StdMutex<Vec<gestalt::AgentHostListToolsInput>>>,
+    execute_requests: Arc<StdMutex<Vec<gestalt::AgentHostExecuteToolInput>>>,
     list_reconnect_sentinel: bool,
     list_error: Option<&'static str>,
     repeated_cursor: bool,
@@ -1108,37 +1026,36 @@ struct TestAgentHostService {
     execute_error: Option<&'static str>,
 }
 
-#[tonic::async_trait]
-impl AgentHostRpc for TestAgentHostService {
-    async fn list_tools(
+#[gestalt::async_trait]
+impl AgentHostClient for TestAgentHostService {
+    async fn list_tools_for_turn(
         &self,
-        request: Request<proto::ListAgentToolsRequest>,
-    ) -> Result<tonic::Response<proto::ListAgentToolsResponse>, tonic::Status> {
-        let request = request.into_inner();
+        request: gestalt::AgentHostListToolsInput,
+    ) -> Result<gestalt::ListAgentToolsResponse, String> {
         self.list_requests
             .lock()
             .expect("list requests")
             .push(request.clone());
         if let Some(message) = self.list_error {
-            return Err(tonic::Status::internal(message));
+            return Err(message.to_string());
         }
         if self.repeated_cursor {
-            return Ok(tonic::Response::new(proto::ListAgentToolsResponse {
+            return Ok(gestalt::ListAgentToolsResponse {
                 tools: Vec::new(),
                 next_page_token: "same-cursor".to_string(),
-            }));
+            });
         }
         if self.endless_pages {
             let count = self.list_requests.lock().expect("list requests").len();
-            return Ok(tonic::Response::new(proto::ListAgentToolsResponse {
+            return Ok(gestalt::ListAgentToolsResponse {
                 tools: Vec::new(),
                 next_page_token: format!("page-{count}"),
-            }));
+            });
         }
         if self.ranked_pages {
             if request.page_token.trim().is_empty() {
                 let tools = (0..20)
-                    .map(|index| proto::ListedAgentTool {
+                    .map(|index| gestalt::ListedAgentTool {
                         id: format!("linear-partial-{index}"),
                         mcp_name: format!("linear.partial.{index}"),
                         title: "Linear catalog entry".to_string(),
@@ -1146,7 +1063,7 @@ impl AgentHostRpc for TestAgentHostService {
                         input_schema:
                             r#"{"type":"object","properties":{"query":{"type":"string"}}}"#
                                 .to_string(),
-                        r#ref: Some(proto::AgentToolRef {
+                        r#ref: Some(gestalt::AgentToolRef {
                             plugin: "linear".to_string(),
                             operation: format!("partial-{index}"),
                             ..Default::default()
@@ -1154,24 +1071,24 @@ impl AgentHostRpc for TestAgentHostService {
                         ..Default::default()
                     })
                     .collect();
-                return Ok(tonic::Response::new(proto::ListAgentToolsResponse {
+                return Ok(gestalt::ListAgentToolsResponse {
                     tools,
                     next_page_token: "page-2".to_string(),
-                }));
+                });
             }
-            return Ok(tonic::Response::new(proto::ListAgentToolsResponse {
+            return Ok(gestalt::ListAgentToolsResponse {
                 tools: vec![listed_tool(
                     "linear-best",
                     "linear.issues.best",
                     "Linear issues",
                 )],
                 next_page_token: String::new(),
-            }));
+            });
         }
-        Ok(tonic::Response::new(proto::ListAgentToolsResponse {
+        Ok(gestalt::ListAgentToolsResponse {
             tools: if request.page_token.trim().is_empty() {
                 if self.list_reconnect_sentinel {
-                    vec![proto::ListedAgentTool {
+                    vec![gestalt::ListedAgentTool {
                         id: "linear-reconnect".to_string(),
                         mcp_name: "linear__reconnect_required".to_string(),
                         title: "linear reconnect required".to_string(),
@@ -1179,12 +1096,12 @@ impl AgentHostRpc for TestAgentHostService {
                         input_schema:
                             r#"{"type":"object","properties":{},"additionalProperties":false}"#
                                 .to_string(),
-                        annotations: Some(proto::OperationAnnotations {
+                        annotations: Some(gestalt::AgentToolAnnotations {
                             read_only_hint: Some(true),
                             open_world_hint: Some(false),
                             ..Default::default()
                         }),
-                        r#ref: Some(proto::AgentToolRef {
+                        r#ref: Some(gestalt::AgentToolRef {
                             plugin: "linear".to_string(),
                             ..Default::default()
                         }),
@@ -1200,13 +1117,13 @@ impl AgentHostRpc for TestAgentHostService {
                         ),
                     ]
                 } else if self.unsafe_mcp_name {
-                    vec![proto::ListedAgentTool {
+                    vec![gestalt::ListedAgentTool {
                         id: "unsafe".to_string(),
                         mcp_name: "unsafe tool".to_string(),
                         title: "Unsafe tool".to_string(),
                         description: "Unsafe MCP name".to_string(),
                         input_schema: r#"{"type":"object"}"#.to_string(),
-                        r#ref: Some(proto::AgentToolRef {
+                        r#ref: Some(gestalt::AgentToolRef {
                             plugin: "linear".to_string(),
                             operation: "issues".to_string(),
                             ..Default::default()
@@ -1223,7 +1140,7 @@ impl AgentHostRpc for TestAgentHostService {
                         listed_tool("linear-list-b", "linear.issues", "Linear issues B"),
                     ]
                 } else if self.schema_only_tool {
-                    vec![proto::ListedAgentTool {
+                    vec![gestalt::ListedAgentTool {
                         id: "schema-only".to_string(),
                         mcp_name: "neutral.tool".to_string(),
                         title: "Neutral tool".to_string(),
@@ -1231,7 +1148,7 @@ impl AgentHostRpc for TestAgentHostService {
                         input_schema:
                             r#"{"type":"object","properties":{"schemaOnlySecret":{"type":"string"}}}"#
                                 .to_string(),
-                        r#ref: Some(proto::AgentToolRef {
+                        r#ref: Some(gestalt::AgentToolRef {
                             plugin: "neutral".to_string(),
                             operation: "lookup".to_string(),
                             ..Default::default()
@@ -1239,7 +1156,7 @@ impl AgentHostRpc for TestAgentHostService {
                         ..Default::default()
                     }]
                 } else {
-                    vec![proto::ListedAgentTool {
+                    vec![gestalt::ListedAgentTool {
                         id: "linear-list".to_string(),
                         mcp_name: "linear.issues".to_string(),
                         title: "Linear issues".to_string(),
@@ -1247,12 +1164,12 @@ impl AgentHostRpc for TestAgentHostService {
                         input_schema:
                             r#"{"type":"object","properties":{"query":{"type":"string"}}}"#
                                 .to_string(),
-                        annotations: Some(proto::OperationAnnotations {
+                        annotations: Some(gestalt::AgentToolAnnotations {
                             read_only_hint: Some(true),
                             open_world_hint: Some(false),
                             ..Default::default()
                         }),
-                        r#ref: Some(proto::AgentToolRef {
+                        r#ref: Some(gestalt::AgentToolRef {
                             plugin: "linear".to_string(),
                             operation: "issues".to_string(),
                             ..Default::default()
@@ -1264,54 +1181,44 @@ impl AgentHostRpc for TestAgentHostService {
                 Vec::new()
             },
             next_page_token: String::new(),
-        }))
+        })
     }
 
-    async fn execute_tool(
+    async fn execute_tool_for_turn(
         &self,
-        request: Request<proto::ExecuteAgentToolRequest>,
-    ) -> Result<tonic::Response<proto::ExecuteAgentToolResponse>, tonic::Status> {
-        let request = request.into_inner();
+        request: gestalt::AgentHostExecuteToolInput,
+    ) -> Result<gestalt::ExecuteAgentToolResponse, String> {
         self.execute_requests
             .lock()
             .expect("execute requests")
             .push(request);
         if let Some(message) = self.execute_error {
-            return Err(tonic::Status::internal(message));
+            return Err(message.to_string());
         }
-        Ok(tonic::Response::new(proto::ExecuteAgentToolResponse {
+        Ok(gestalt::ExecuteAgentToolResponse {
             status: if self.execute_status == 0 {
                 200
             } else {
                 self.execute_status
             },
             body: self.execute_body.unwrap_or("linear tickets").to_string(),
-        }))
-    }
-
-    async fn resolve_connection(
-        &self,
-        _request: Request<proto::ResolveAgentConnectionRequest>,
-    ) -> Result<tonic::Response<proto::ResolvedAgentConnection>, tonic::Status> {
-        Err(tonic::Status::unimplemented(
-            "connection resolution is not used by this test",
-        ))
+        })
     }
 }
 
-fn listed_tool(id: &str, mcp_name: &str, title: &str) -> proto::ListedAgentTool {
-    proto::ListedAgentTool {
+fn listed_tool(id: &str, mcp_name: &str, title: &str) -> gestalt::ListedAgentTool {
+    gestalt::ListedAgentTool {
         id: id.to_string(),
         mcp_name: mcp_name.to_string(),
         title: title.to_string(),
         description: "List Linear issues visible to the user".to_string(),
         input_schema: r#"{"type":"object","properties":{"query":{"type":"string"}}}"#.to_string(),
-        annotations: Some(proto::OperationAnnotations {
+        annotations: Some(gestalt::AgentToolAnnotations {
             read_only_hint: Some(true),
             open_world_hint: Some(false),
             ..Default::default()
         }),
-        r#ref: Some(proto::AgentToolRef {
+        r#ref: Some(gestalt::AgentToolRef {
             plugin: "linear".to_string(),
             operation: "issues".to_string(),
             ..Default::default()
@@ -1363,36 +1270,6 @@ fn assert_proxy_error(call_result: &JsonValue, code: &str) -> JsonValue {
     payload
 }
 
-struct EnvGuard {
-    key: String,
-    previous: Option<std::ffi::OsString>,
-}
-
-impl EnvGuard {
-    fn set(key: &str, value: impl AsRef<std::ffi::OsStr>) -> Self {
-        let previous = std::env::var_os(key);
-        unsafe {
-            std::env::set_var(key, value);
-        }
-        Self {
-            key: key.to_string(),
-            previous,
-        }
-    }
-}
-
-impl Drop for EnvGuard {
-    fn drop(&mut self) {
-        unsafe {
-            if let Some(previous) = &self.previous {
-                std::env::set_var(&self.key, previous);
-            } else {
-                std::env::remove_var(&self.key);
-            }
-        }
-    }
-}
-
 impl Fixture {
     fn new(mode: &str) -> Self {
         Self::new_internal(mode, false, false)
@@ -1431,11 +1308,31 @@ impl Fixture {
         self.configure_provider_with_model_switching(true).await
     }
 
+    async fn configure_provider_with_agent_host(
+        &self,
+        host: TestAgentHostService,
+    ) -> HermesAgentProvider {
+        self.configure_provider_inner(true, Some(Arc::new(host)))
+            .await
+    }
+
     async fn configure_provider_with_model_switching(
         &self,
         model_switching_enabled: bool,
     ) -> HermesAgentProvider {
-        let provider = HermesAgentProvider::default();
+        self.configure_provider_inner(model_switching_enabled, None)
+            .await
+    }
+
+    async fn configure_provider_inner(
+        &self,
+        model_switching_enabled: bool,
+        host: Option<Arc<dyn AgentHostClient>>,
+    ) -> HermesAgentProvider {
+        let provider = match host {
+            Some(host) => HermesAgentProvider::with_agent_host_for_tests(host),
+            None => HermesAgentProvider::default(),
+        };
         let mut extra_env = serde_json::Map::new();
         extra_env.insert(
             "FAKE_ACP_LOG".to_string(),
@@ -1527,22 +1424,6 @@ async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> gesta
         })
         .await
         .unwrap()
-}
-
-async fn serve_agent_host(
-    socket_path: PathBuf,
-    host: TestAgentHostService,
-) -> tokio::task::JoinHandle<()> {
-    let listener = UnixListener::bind(&socket_path).expect("bind agent host socket");
-    let handle = tokio::spawn(async move {
-        Server::builder()
-            .add_service(AgentHostGrpcServer::new(host))
-            .serve_with_incoming(UnixListenerStream::new(listener))
-            .await
-            .expect("serve agent host");
-    });
-    tokio::time::sleep(Duration::from_millis(25)).await;
-    handle
 }
 
 async fn wait_for_turn(

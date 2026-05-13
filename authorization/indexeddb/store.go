@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -452,11 +453,15 @@ func propertiesFromRecord(value any) (map[string]any, error) {
 	if typed, ok := value.(map[string]any); ok {
 		return nilIfEmptyMap(typed), nil
 	}
-	properties, err := gestalt.StructFromAny(value)
+	data, err := json.Marshal(value)
 	if err != nil {
 		return nil, err
 	}
-	return nilIfEmptyMap(gestalt.MapFromStruct(properties)), nil
+	var properties map[string]any
+	if err := json.Unmarshal(data, &properties); err != nil {
+		return nil, err
+	}
+	return nilIfEmptyMap(properties), nil
 }
 
 func nilIfEmptyRecordMap(value any) any {
