@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func (b *temporalBackend) startKeyedRunV4(ctx context.Context, target scopedTarget, req *gestalt.StartWorkflowProviderRunRequest, key, fingerprint string) (*gestalt.BoundWorkflowRunInput, error) {
+func (b *temporalBackend) startKeyedRunV4(ctx context.Context, target scopedTarget, req *gestalt.StartWorkflowProviderRunRequest, key, fingerprint string) (*gestalt.BoundWorkflowRun, error) {
 	now := time.Now().UTC()
 	key = strings.TrimSpace(key)
 	workflowKey := strings.TrimSpace(req.WorkflowKey)
@@ -89,7 +89,7 @@ func (b *temporalBackend) startKeyedRunV4(ctx context.Context, target scopedTarg
 	return owner, nil
 }
 
-func (b *temporalBackend) startUnkeyedRunV4(ctx context.Context, target scopedTarget, req *gestalt.StartWorkflowProviderRunRequest, key, fingerprint string) (*gestalt.BoundWorkflowRunInput, error) {
+func (b *temporalBackend) startUnkeyedRunV4(ctx context.Context, target scopedTarget, req *gestalt.StartWorkflowProviderRunRequest, key, fingerprint string) (*gestalt.BoundWorkflowRun, error) {
 	now := time.Now().UTC()
 	entry, existing, err := b.state.reserveRunIdempotency(ctx, target.OwnerKey, key, fingerprint, defaultIdempotencyRetention, now)
 	if err != nil {
@@ -122,7 +122,7 @@ func (b *temporalBackend) startUnkeyedRunV4(ctx context.Context, target scopedTa
 	return run, nil
 }
 
-func (b *temporalBackend) signalOrStartRunV4(ctx context.Context, target scopedTarget, req *gestalt.SignalOrStartWorkflowProviderRunRequest, workflowKey string, signal *gestalt.WorkflowSignalInput, updateID string) (*gestalt.SignalWorkflowRunResponse, error) {
+func (b *temporalBackend) signalOrStartRunV4(ctx context.Context, target scopedTarget, req *gestalt.SignalOrStartWorkflowProviderRunRequest, workflowKey string, signal *gestalt.WorkflowSignal, updateID string) (*gestalt.SignalWorkflowRunResponse, error) {
 	workflowKey = strings.TrimSpace(workflowKey)
 	if workflowKey == "" {
 		return nil, status.Error(codes.InvalidArgument, "workflow_key is required")
@@ -157,7 +157,7 @@ func (b *temporalBackend) signalOrStartRunV4(ctx context.Context, target scopedT
 	return b.startSignalWorkflowRunV4(ctx, target, req, workflowKey, signal, updateID)
 }
 
-func (b *temporalBackend) signalExistingWorkflowKeyRunV4(ctx context.Context, workflowKey string, run *gestalt.BoundWorkflowRunInput, signal *gestalt.WorkflowSignalInput, updateID string) (*gestalt.SignalWorkflowRunResponse, error) {
+func (b *temporalBackend) signalExistingWorkflowKeyRunV4(ctx context.Context, workflowKey string, run *gestalt.BoundWorkflowRun, signal *gestalt.WorkflowSignal, updateID string) (*gestalt.SignalWorkflowRunResponse, error) {
 	handle, err := decodeTemporalRunHandle(run.ID)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -192,7 +192,7 @@ func (b *temporalBackend) signalExistingWorkflowKeyRunV4(ctx context.Context, wo
 	return cloneSignalResponseInput(&out), nil
 }
 
-func (b *temporalBackend) releaseClaimedRunV4(ctx context.Context, run *gestalt.BoundWorkflowRunInput) error {
+func (b *temporalBackend) releaseClaimedRunV4(ctx context.Context, run *gestalt.BoundWorkflowRun) error {
 	handle, err := decodeTemporalRunHandle(run.ID)
 	if err != nil {
 		return status.Error(codes.InvalidArgument, err.Error())
@@ -213,7 +213,7 @@ func (b *temporalBackend) releaseClaimedRunV4(ctx context.Context, run *gestalt.
 	return nil
 }
 
-func (b *temporalBackend) terminateUnclaimedRunV4(ctx context.Context, run *gestalt.BoundWorkflowRunInput) {
+func (b *temporalBackend) terminateUnclaimedRunV4(ctx context.Context, run *gestalt.BoundWorkflowRun) {
 	handle, err := decodeTemporalRunHandle(run.ID)
 	if err != nil {
 		return
@@ -221,7 +221,7 @@ func (b *temporalBackend) terminateUnclaimedRunV4(ctx context.Context, run *gest
 	_ = b.client.TerminateWorkflow(ctx, handle.RunWorkflowID, handle.RunTemporalRunID, "workflow key claim lost")
 }
 
-func (b *temporalBackend) startSignalWorkflowRunV4(ctx context.Context, target scopedTarget, req *gestalt.SignalOrStartWorkflowProviderRunRequest, workflowKey string, signal *gestalt.WorkflowSignalInput, updateID string) (*gestalt.SignalWorkflowRunResponse, error) {
+func (b *temporalBackend) startSignalWorkflowRunV4(ctx context.Context, target scopedTarget, req *gestalt.SignalOrStartWorkflowProviderRunRequest, workflowKey string, signal *gestalt.WorkflowSignal, updateID string) (*gestalt.SignalWorkflowRunResponse, error) {
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "signal-keyed-v4", target.OwnerKey, hashID(workflowKey), uuid.NewString())
 	conflictPolicy := enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL
 	if signalKey := strings.TrimSpace(signal.IdempotencyKey); signalKey != "" {
@@ -289,7 +289,7 @@ func (b *temporalBackend) startSignalWorkflowRunV4(ctx context.Context, target s
 	return cloneSignalResponseInput(&out), nil
 }
 
-func runHasTemporalWorkflowID(run *gestalt.BoundWorkflowRunInput, workflowID string) bool {
+func runHasTemporalWorkflowID(run *gestalt.BoundWorkflowRun, workflowID string) bool {
 	handle, err := decodeTemporalRunHandle(run.ID)
 	if err != nil {
 		return false
@@ -324,7 +324,7 @@ func mapWorkflowKeyLoadError(err error) error {
 	return status.Errorf(codes.Internal, "load workflow key: %v", err)
 }
 
-func (b *temporalBackend) runV4Input(ownerKey, executionRef, workflowKey string, target *gestalt.BoundWorkflowTargetInput, trigger *gestalt.WorkflowRunTriggerInput, createdBy *gestalt.WorkflowActorInput, requireSignal bool) runWorkflowV4Input {
+func (b *temporalBackend) runV4Input(ownerKey, executionRef, workflowKey string, target *gestalt.BoundWorkflowTarget, trigger *gestalt.WorkflowRunTrigger, createdBy *gestalt.WorkflowActor, requireSignal bool) runWorkflowV4Input {
 	return runWorkflowV4Input{
 		ActivityStartToCloseTimeoutNS: b.cfg.ActivityStartToCloseTimeout,
 		ExecutionRef:                  strings.TrimSpace(executionRef),
@@ -337,7 +337,7 @@ func (b *temporalBackend) runV4Input(ownerKey, executionRef, workflowKey string,
 	}
 }
 
-func (b *temporalBackend) executeRunV4(ctx context.Context, workflowID string, input runWorkflowV4Input, conflict enumspb.WorkflowIdConflictPolicy, reuse enumspb.WorkflowIdReusePolicy) (*gestalt.BoundWorkflowRunInput, error) {
+func (b *temporalBackend) executeRunV4(ctx context.Context, workflowID string, input runWorkflowV4Input, conflict enumspb.WorkflowIdConflictPolicy, reuse enumspb.WorkflowIdReusePolicy) (*gestalt.BoundWorkflowRun, error) {
 	run, err := b.client.ExecuteWorkflow(ctx, b.startWorkflowOptions(workflowID, conflict, reuse), gestaltRunWorkflowV4, input)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "start temporal v4 workflow: %v", err)
@@ -349,7 +349,7 @@ func (b *temporalBackend) executeRunV4(ctx context.Context, workflowID string, i
 	return out, nil
 }
 
-func (b *temporalBackend) pendingRunFromWorkflowRun(run client.WorkflowRun, input runWorkflowV4Input) *gestalt.BoundWorkflowRunInput {
+func (b *temporalBackend) pendingRunFromWorkflowRun(run client.WorkflowRun, input runWorkflowV4Input) *gestalt.BoundWorkflowRun {
 	now := time.Now().UTC()
 	publicID := encodeTemporalRunHandle(temporalRunHandle{
 		RunWorkflowID:    run.GetID(),
@@ -357,7 +357,7 @@ func (b *temporalBackend) pendingRunFromWorkflowRun(run client.WorkflowRun, inpu
 		WorkflowKey:      input.WorkflowKey,
 		OwnerKey:         input.OwnerKey,
 	})
-	out := &gestalt.BoundWorkflowRunInput{
+	out := &gestalt.BoundWorkflowRun{
 		ID:           publicID,
 		Status:       gestalt.WorkflowRunStatusValuePending,
 		Target:       input.targetInput(),

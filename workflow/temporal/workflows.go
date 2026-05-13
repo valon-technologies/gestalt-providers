@@ -23,7 +23,7 @@ func (a *workflowActivities) InvokeOperation(ctx context.Context, req gestalt.In
 	return a.host.InvokeOperation(ctx, req)
 }
 
-func (a *workflowActivities) ProjectRun(ctx context.Context, run gestalt.BoundWorkflowRunInput) error {
+func (a *workflowActivities) ProjectRun(ctx context.Context, run gestalt.BoundWorkflowRun) error {
 	if a.state == nil {
 		return nil
 	}

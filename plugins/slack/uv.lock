@@ -64,7 +64,7 @@ wheels = [
 [[package]]
 name = "gestalt-sdk"
 version = "0.0.1a1"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#07576c19af0946015dac3ffd19cfcc871fa05c17" }
+source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=codex%2Fnative-unsuffixed-python-sdk-20260512#c4b67b9958e4f5d7e2b71d42efec38d7bba9b37d" }
 dependencies = [
     { name = "googleapis-common-protos" },
     { name = "grpcio" },
@@ -94,7 +94,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main" }]
+requires-dist = [{ name = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=codex%2Fnative-unsuffixed-python-sdk-20260512" }]
 
 [package.metadata.requires-dev]
 dev = [

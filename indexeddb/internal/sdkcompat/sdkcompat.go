@@ -11,6 +11,7 @@ import (
 	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 type statusSentinelError struct {
@@ -74,13 +75,13 @@ const (
 )
 
 func RecordToProto(record gestalt.Record) (*proto.Record, error) {
-	out := &proto.Record{Fields: make(map[string]*proto.TypedValue, len(record))}
-	for key, value := range record {
-		typed, err := gestalt.TypedValueFromAny(value)
-		if err != nil {
-			return nil, fmt.Errorf("field %q: %w", key, err)
-		}
-		out.Fields[key] = typed
+	data, err := gestalt.EncodeIndexedDBRecord(record)
+	if err != nil {
+		return nil, err
+	}
+	out := &proto.Record{}
+	if err := gproto.Unmarshal(data, out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -89,15 +90,11 @@ func RecordFromProto(record *proto.Record) (gestalt.Record, error) {
 	if record == nil {
 		return nil, nil
 	}
-	out := make(gestalt.Record, len(record.GetFields()))
-	for key, typed := range record.GetFields() {
-		value, err := gestalt.AnyFromTypedValue(typed)
-		if err != nil {
-			return nil, fmt.Errorf("field %q: %w", key, err)
-		}
-		out[key] = value
+	data, err := gproto.Marshal(record)
+	if err != nil {
+		return nil, err
 	}
-	return out, nil
+	return gestalt.DecodeIndexedDBRecord(data)
 }
 
 func RecordsFromProto(records []*proto.Record) ([]gestalt.Record, error) {
@@ -220,14 +217,14 @@ func KeyRange(r *gestalt.KeyRange) (*proto.KeyRange, error) {
 	}
 	out := &proto.KeyRange{LowerOpen: r.LowerOpen, UpperOpen: r.UpperOpen}
 	if r.Lower != nil {
-		lower, err := gestalt.TypedValueFromAny(r.Lower)
+		lower, err := TypedValueFromAny(r.Lower)
 		if err != nil {
 			return nil, fmt.Errorf("lower bound: %w", err)
 		}
 		out.Lower = lower
 	}
 	if r.Upper != nil {
-		upper, err := gestalt.TypedValueFromAny(r.Upper)
+		upper, err := TypedValueFromAny(r.Upper)
 		if err != nil {
 			return nil, fmt.Errorf("upper bound: %w", err)
 		}
@@ -239,7 +236,7 @@ func KeyRange(r *gestalt.KeyRange) (*proto.KeyRange, error) {
 func TypedValues(values []any) ([]*proto.TypedValue, error) {
 	out := make([]*proto.TypedValue, len(values))
 	for i, value := range values {
-		typed, err := gestalt.TypedValueFromAny(value)
+		typed, err := TypedValueFromAny(value)
 		if err != nil {
 			return nil, fmt.Errorf("value %d: %w", i, err)
 		}
@@ -314,7 +311,7 @@ func cursorEntry(entry *proto.CursorEntry, ok bool, err error) (*gestalt.Indexed
 }
 
 func cursorKey(values []*proto.KeyValue, indexCursor bool) (any, error) {
-	parts, err := gestalt.KeyValuesToAny(values)
+	parts, err := KeyValuesToAny(values)
 	if err != nil {
 		return nil, err
 	}
@@ -325,6 +322,87 @@ func cursorKey(values []*proto.KeyValue, indexCursor bool) (any, error) {
 		return parts[0], nil
 	}
 	return parts, nil
+}
+
+func TypedValueFromAny(value any) (*proto.TypedValue, error) {
+	data, err := gestalt.EncodeIndexedDBRecord(gestalt.Record{"value": value})
+	if err != nil {
+		return nil, err
+	}
+	record := &proto.Record{}
+	if err := gproto.Unmarshal(data, record); err != nil {
+		return nil, err
+	}
+	return record.GetFields()["value"], nil
+}
+
+func AnyFromTypedValue(value *proto.TypedValue) (any, error) {
+	record := &proto.Record{Fields: map[string]*proto.TypedValue{"value": value}}
+	data, err := gproto.Marshal(record)
+	if err != nil {
+		return nil, err
+	}
+	decoded, err := gestalt.DecodeIndexedDBRecord(data)
+	if err != nil {
+		return nil, err
+	}
+	return decoded["value"], nil
+}
+
+func TypedValuesFromAny(values []any) ([]*proto.TypedValue, error) {
+	out := make([]*proto.TypedValue, len(values))
+	for i, value := range values {
+		typed, err := TypedValueFromAny(value)
+		if err != nil {
+			return nil, fmt.Errorf("value %d: %w", i, err)
+		}
+		out[i] = typed
+	}
+	return out, nil
+}
+
+func AnyFromTypedValues(values []*proto.TypedValue) ([]any, error) {
+	out := make([]any, len(values))
+	for i, value := range values {
+		decoded, err := AnyFromTypedValue(value)
+		if err != nil {
+			return nil, fmt.Errorf("value %d: %w", i, err)
+		}
+		out[i] = decoded
+	}
+	return out, nil
+}
+
+func AnyToKeyValue(value any) (*proto.KeyValue, error) {
+	data, err := gestalt.EncodeIndexedDBKey(value)
+	if err != nil {
+		return nil, err
+	}
+	kv := &proto.KeyValue{}
+	if err := gproto.Unmarshal(data, kv); err != nil {
+		return nil, err
+	}
+	return kv, nil
+}
+
+func KeyValueToAny(value *proto.KeyValue) (any, error) {
+	data, err := gproto.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	return gestalt.DecodeIndexedDBKey(data)
+}
+
+func KeyValuesToAny(values []*proto.KeyValue) ([]any, error) {
+	out := make([]any, len(values))
+	for i, value := range values {
+		decoded, err := KeyValueToAny(value)
+		if err != nil {
+			return nil, fmt.Errorf("key %d: %w", i, err)
+		}
+		out[i] = decoded
+	}
+	return out, nil
 }
 
 type Transaction struct {

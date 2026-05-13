@@ -12,17 +12,17 @@ import (
 )
 
 type runWorkflowV4Input struct {
-	ActivityStartToCloseTimeoutNS time.Duration                     `json:"activity_start_to_close_timeout_ns"`
-	ScheduleID                    string                            `json:"schedule_id,omitempty"`
-	ExecutionRef                  string                            `json:"execution_ref,omitempty"`
-	WorkflowKey                   string                            `json:"workflow_key,omitempty"`
-	OwnerKey                      string                            `json:"owner_key,omitempty"`
-	Target                        *gestalt.BoundWorkflowTargetInput `json:"target,omitempty"`
-	Trigger                       *gestalt.WorkflowRunTriggerInput  `json:"trigger,omitempty"`
-	CreatedBy                     *gestalt.WorkflowActorInput       `json:"created_by,omitempty"`
-	InitialSignal                 *gestalt.WorkflowSignalInput      `json:"initial_signal,omitempty"`
-	RequireSignal                 bool                              `json:"require_signal,omitempty"`
-	RequireClaim                  bool                              `json:"require_claim,omitempty"`
+	ActivityStartToCloseTimeoutNS time.Duration                `json:"activity_start_to_close_timeout_ns"`
+	ScheduleID                    string                       `json:"schedule_id,omitempty"`
+	ExecutionRef                  string                       `json:"execution_ref,omitempty"`
+	WorkflowKey                   string                       `json:"workflow_key,omitempty"`
+	OwnerKey                      string                       `json:"owner_key,omitempty"`
+	Target                        *gestalt.BoundWorkflowTarget `json:"target,omitempty"`
+	Trigger                       *gestalt.WorkflowRunTrigger  `json:"trigger,omitempty"`
+	CreatedBy                     *gestalt.WorkflowActor       `json:"created_by,omitempty"`
+	InitialSignal                 *gestalt.WorkflowSignal      `json:"initial_signal,omitempty"`
+	RequireSignal                 bool                         `json:"require_signal,omitempty"`
+	RequireClaim                  bool                         `json:"require_claim,omitempty"`
 }
 
 const (
@@ -30,7 +30,7 @@ const (
 	changeV4ClaimProjectionAfterUpdate     = "v4-claim-projection-after-update"
 )
 
-func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gestalt.BoundWorkflowRunInput, error) {
+func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gestalt.BoundWorkflowRun, error) {
 	info := workflow.GetInfo(ctx)
 	now := workflow.Now(ctx).UTC()
 	handleKind := runHandleKindV4
@@ -46,7 +46,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		WorkflowKey:      input.WorkflowKey,
 		OwnerKey:         input.OwnerKey,
 	})
-	state := &gestalt.BoundWorkflowRunInput{
+	state := &gestalt.BoundWorkflowRun{
 		ID:           publicID,
 		Status:       gestalt.WorkflowRunStatusValuePending,
 		Target:       input.targetInput(),
@@ -59,7 +59,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 	if _, err := gestalt.NewBoundWorkflowRun(*state); err != nil {
 		return nil, err
 	}
-	pendingSignals := make([]gestalt.WorkflowSignalInput, 0)
+	pendingSignals := make([]gestalt.WorkflowSignal, 0)
 	nextSignalSequence := int64(1)
 	signalCount := 0
 	runMutex := workflow.NewMutex(ctx)
@@ -72,7 +72,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		})
 		_ = workflow.ExecuteActivity(activityCtx, (*workflowActivities).ProjectRun, *state).Get(activityCtx, nil)
 	}
-	rebuildRun := func(mutate func(*gestalt.BoundWorkflowRunInput)) error {
+	rebuildRun := func(mutate func(*gestalt.BoundWorkflowRun)) error {
 		next := *state
 		mutate(&next)
 		if _, err := gestalt.NewBoundWorkflowRun(next); err != nil {
@@ -81,7 +81,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		state = &next
 		return nil
 	}
-	appendSignalInput := func(signalInput gestalt.WorkflowSignalInput) (*gestalt.WorkflowSignalInput, error) {
+	appendSignalInput := func(signalInput gestalt.WorkflowSignal) (*gestalt.WorkflowSignal, error) {
 		if signalInput.CreatedAt.IsZero() {
 			signalInput.CreatedAt = workflow.Now(ctx).UTC()
 		}
@@ -106,7 +106,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 			return nil, err
 		}
 	}
-	if err := workflow.SetUpdateHandler(ctx, updateAddSignal, func(ctx workflow.Context, signal gestalt.WorkflowSignalInput) (*gestalt.SignalWorkflowRunResponse, error) {
+	if err := workflow.SetUpdateHandler(ctx, updateAddSignal, func(ctx workflow.Context, signal gestalt.WorkflowSignal) (*gestalt.SignalWorkflowRunResponse, error) {
 		if err := runMutex.Lock(ctx); err != nil {
 			return nil, err
 		}
@@ -130,7 +130,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 	}); err != nil {
 		return nil, err
 	}
-	if err := workflow.SetUpdateHandler(ctx, updateClaimRun, func(ctx workflow.Context) (*gestalt.BoundWorkflowRunInput, error) {
+	if err := workflow.SetUpdateHandler(ctx, updateClaimRun, func(ctx workflow.Context) (*gestalt.BoundWorkflowRun, error) {
 		if err := runMutex.Lock(ctx); err != nil {
 			return nil, err
 		}
@@ -143,7 +143,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 	}); err != nil {
 		return nil, err
 	}
-	if err := workflow.SetUpdateHandler(ctx, updateCancelRun, func(ctx workflow.Context, reason string) (*gestalt.BoundWorkflowRunInput, error) {
+	if err := workflow.SetUpdateHandler(ctx, updateCancelRun, func(ctx workflow.Context, reason string) (*gestalt.BoundWorkflowRun, error) {
 		if err := runMutex.Lock(ctx); err != nil {
 			return nil, err
 		}
@@ -156,7 +156,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		if statusMessage == "" {
 			statusMessage = "canceled"
 		}
-		if err := rebuildRun(func(input *gestalt.BoundWorkflowRunInput) {
+		if err := rebuildRun(func(input *gestalt.BoundWorkflowRun) {
 			input.Status = gestalt.WorkflowRunStatusValueCanceled
 			input.CompletedAt = &completedAt
 			input.StatusMessage = statusMessage
@@ -193,7 +193,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 			return nil, err
 		}
 		startedAt := workflow.Now(ctx).UTC()
-		if err := rebuildRun(func(input *gestalt.BoundWorkflowRunInput) {
+		if err := rebuildRun(func(input *gestalt.BoundWorkflowRun) {
 			input.Status = gestalt.WorkflowRunStatusValueRunning
 			input.StartedAt = &startedAt
 			input.CompletedAt = nil
@@ -266,11 +266,11 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 	return cloneRunInput(state), nil
 }
 
-func (input runWorkflowV4Input) targetInput() *gestalt.BoundWorkflowTargetInput {
+func (input runWorkflowV4Input) targetInput() *gestalt.BoundWorkflowTarget {
 	return input.Target
 }
 
-func (input runWorkflowV4Input) triggerInput(now time.Time) *gestalt.WorkflowRunTriggerInput {
+func (input runWorkflowV4Input) triggerInput(now time.Time) *gestalt.WorkflowRunTrigger {
 	if input.ScheduleID != "" {
 		return scheduleTriggerInput(input.ScheduleID, now)
 	}
@@ -280,10 +280,10 @@ func (input runWorkflowV4Input) triggerInput(now time.Time) *gestalt.WorkflowRun
 	return nil
 }
 
-func (input runWorkflowV4Input) createdByInput() *gestalt.WorkflowActorInput {
+func (input runWorkflowV4Input) createdByInput() *gestalt.WorkflowActor {
 	return input.CreatedBy
 }
 
-func (input runWorkflowV4Input) initialSignalInput() *gestalt.WorkflowSignalInput {
+func (input runWorkflowV4Input) initialSignalInput() *gestalt.WorkflowSignal {
 	return input.InitialSignal
 }

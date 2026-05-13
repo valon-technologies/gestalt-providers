@@ -18,7 +18,7 @@ func ownerIdempotencyLedgerKey(ownerKey, key string) string {
 	return "owner-idem:" + hashID(ownerKey, key)
 }
 
-func explicitSignalLedgerKey(signal *gestalt.WorkflowSignalInput) string {
+func explicitSignalLedgerKey(signal *gestalt.WorkflowSignal) string {
 	if signal == nil {
 		return ""
 	}
@@ -29,7 +29,7 @@ func explicitSignalLedgerKey(signal *gestalt.WorkflowSignalInput) string {
 	return "signal-id:" + hashID(id)
 }
 
-func signalFingerprint(ownerKey, workflowKey string, signal *gestalt.WorkflowSignalInput) string {
+func signalFingerprint(ownerKey, workflowKey string, signal *gestalt.WorkflowSignal) string {
 	stableSignal := cloneSignalInput(signal)
 	if stableSignal != nil {
 		stableSignal.CreatedAt = time.Time{}
@@ -38,11 +38,11 @@ func signalFingerprint(ownerKey, workflowKey string, signal *gestalt.WorkflowSig
 	return hashID("signal", ownerKey, workflowKey, valueHashID(stableSignal))
 }
 
-func startFingerprint(ownerKey, key, workflowKey, executionRef string, target *gestalt.BoundWorkflowTargetInput, createdBy *gestalt.WorkflowActorInput) string {
+func startFingerprint(ownerKey, key, workflowKey, executionRef string, target *gestalt.BoundWorkflowTarget, createdBy *gestalt.WorkflowActor) string {
 	return hashID("start", ownerKey, key, workflowKey, executionRef, valueHashID(target), valueHashID(createdBy))
 }
 
-func eventRunWorkflowID(scopeID, triggerID string, event *gestalt.WorkflowEventInput) string {
+func eventRunWorkflowID(scopeID, triggerID string, event *gestalt.WorkflowEvent) string {
 	// The event-v3 family is a persisted idempotency namespace for published event
 	// IDs. Keep it stable even though the provider runtime is now V4-only.
 	if event != nil && strings.TrimSpace(event.ID) != "" {
@@ -55,7 +55,7 @@ func eventRunWorkflowID(scopeID, triggerID string, event *gestalt.WorkflowEventI
 	return workflowID(scopeID, "event-v3", triggerID, source, uuid.NewString())
 }
 
-func signalInputForStartedRun(run *gestalt.BoundWorkflowRunInput, signal *gestalt.WorkflowSignalInput) *gestalt.WorkflowSignalInput {
+func signalInputForStartedRun(run *gestalt.BoundWorkflowRun, signal *gestalt.WorkflowSignal) *gestalt.WorkflowSignal {
 	if signal == nil {
 		return nil
 	}

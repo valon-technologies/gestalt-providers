@@ -1040,9 +1040,6 @@ func TestProviderSignalOrStartRunRecoversStaleRunningWorkflowKey(t *testing.T) {
 		t.Fatalf("Configure: %v", err)
 	}
 	t.Cleanup(func() { _ = provider.Close() })
-	if err := provider.Start(ctx); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
 
 	workflowKey := "slack:T123:C123:1700000000.000001"
 	staleStartedAt := base.Add(-time.Minute)

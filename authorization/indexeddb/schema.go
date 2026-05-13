@@ -3,14 +3,13 @@ package indexeddb
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 )
 
 type compiledModel struct {
@@ -271,12 +270,29 @@ func cloneRewrite(rewrite *gestalt.AuthorizationModelRewrite) *gestalt.Authoriza
 	if rewrite == nil {
 		return nil
 	}
-	cloned, _ := proto.Clone(rewrite).(*gestalt.AuthorizationModelRewrite)
-	return cloned
+	switch {
+	case rewrite.GetThis() != nil:
+		return gestalt.NewAuthorizationModelThisRewrite()
+	case rewrite.GetComputedUserset() != nil:
+		return gestalt.NewAuthorizationModelComputedUsersetRewrite(rewrite.GetComputedUserset().GetRelation())
+	case rewrite.GetTupleToUserset() != nil:
+		tuple := rewrite.GetTupleToUserset()
+		return gestalt.NewAuthorizationModelTupleToUsersetRewrite(tuple.GetTuplesetRelation(), tuple.GetComputedRelation())
+	case rewrite.GetUnion() != nil:
+		children := make([]*gestalt.AuthorizationModelRewrite, 0, len(rewrite.GetUnion().GetChildren()))
+		for _, child := range rewrite.GetUnion().GetChildren() {
+			if cloned := cloneRewrite(child); cloned != nil {
+				children = append(children, cloned)
+			}
+		}
+		return gestalt.NewAuthorizationModelUnionRewrite(children...)
+	default:
+		return &gestalt.AuthorizationModelRewrite{}
+	}
 }
 
 func modelIDForDefinition(model *gestalt.AuthorizationModel) (string, error) {
-	bytes, err := proto.MarshalOptions{Deterministic: true}.Marshal(model)
+	bytes, err := json.Marshal(authorizationModelJSONFromNative(model))
 	if err != nil {
 		return "", fmt.Errorf("marshal model: %w", err)
 	}
@@ -285,7 +301,7 @@ func modelIDForDefinition(model *gestalt.AuthorizationModel) (string, error) {
 }
 
 func marshalStoredModel(model *gestalt.AuthorizationModel) (string, error) {
-	bytes, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(model)
+	bytes, err := json.Marshal(authorizationModelJSONFromNative(model))
 	if err != nil {
 		return "", fmt.Errorf("marshal stored model: %w", err)
 	}
@@ -296,11 +312,262 @@ func unmarshalStoredModel(raw string) (*gestalt.AuthorizationModel, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, fmt.Errorf("stored model is empty")
 	}
-	var model gestalt.AuthorizationModel
-	if err := (protojson.UnmarshalOptions{DiscardUnknown: false}).Unmarshal([]byte(raw), &model); err != nil {
+	var model authorizationModelJSON
+	if err := json.Unmarshal([]byte(raw), &model); err != nil {
 		return nil, fmt.Errorf("parse stored model: %w", err)
 	}
-	return &model, nil
+	return authorizationModelFromJSON(model), nil
+}
+
+type authorizationModelJSON struct {
+	Version       int32                                `json:"version,omitempty"`
+	ResourceTypes []authorizationModelResourceTypeJSON `json:"resource_types,omitempty"`
+}
+
+type authorizationModelResourceTypeJSON struct {
+	Name      string                           `json:"name,omitempty"`
+	Relations []authorizationModelRelationJSON `json:"relations,omitempty"`
+	Actions   []authorizationModelActionJSON   `json:"actions,omitempty"`
+}
+
+type authorizationModelRelationJSON struct {
+	Name           string                                `json:"name,omitempty"`
+	SubjectTypes   []string                              `json:"subject_types,omitempty"`
+	AllowedTargets []authorizationModelAllowedTargetJSON `json:"allowed_targets,omitempty"`
+	Rewrite        *authorizationModelRewriteJSON        `json:"rewrite,omitempty"`
+}
+
+type authorizationModelActionJSON struct {
+	Name      string                         `json:"name,omitempty"`
+	Relations []string                       `json:"relations,omitempty"`
+	Rewrite   *authorizationModelRewriteJSON `json:"rewrite,omitempty"`
+}
+
+type authorizationModelAllowedTargetJSON struct {
+	SubjectType  string                                  `json:"subject_type,omitempty"`
+	ResourceType string                                  `json:"resource_type,omitempty"`
+	SubjectSet   *authorizationModelSubjectSetTargetJSON `json:"subject_set,omitempty"`
+}
+
+type authorizationModelSubjectSetTargetJSON struct {
+	ResourceType string `json:"resource_type,omitempty"`
+	Relation     string `json:"relation,omitempty"`
+}
+
+type authorizationModelRewriteJSON struct {
+	This            *struct{}                              `json:"this,omitempty"`
+	ComputedUserset *authorizationModelComputedUsersetJSON `json:"computed_userset,omitempty"`
+	TupleToUserset  *authorizationModelTupleToUsersetJSON  `json:"tuple_to_userset,omitempty"`
+	Union           *authorizationModelRewriteUnionJSON    `json:"union,omitempty"`
+}
+
+type authorizationModelComputedUsersetJSON struct {
+	Relation string `json:"relation,omitempty"`
+}
+
+type authorizationModelTupleToUsersetJSON struct {
+	TuplesetRelation string `json:"tupleset_relation,omitempty"`
+	ComputedRelation string `json:"computed_relation,omitempty"`
+}
+
+type authorizationModelRewriteUnionJSON struct {
+	Children []*authorizationModelRewriteJSON `json:"children,omitempty"`
+}
+
+func authorizationModelJSONFromNative(model *gestalt.AuthorizationModel) authorizationModelJSON {
+	if model == nil {
+		return authorizationModelJSON{}
+	}
+	out := authorizationModelJSON{
+		Version:       model.GetVersion(),
+		ResourceTypes: make([]authorizationModelResourceTypeJSON, 0, len(model.GetResourceTypes())),
+	}
+	for _, resourceType := range model.GetResourceTypes() {
+		out.ResourceTypes = append(out.ResourceTypes, authorizationModelResourceTypeJSONFromNative(resourceType))
+	}
+	return out
+}
+
+func authorizationModelResourceTypeJSONFromNative(resourceType *gestalt.AuthorizationModelResourceType) authorizationModelResourceTypeJSON {
+	if resourceType == nil {
+		return authorizationModelResourceTypeJSON{}
+	}
+	out := authorizationModelResourceTypeJSON{
+		Name:      resourceType.GetName(),
+		Relations: make([]authorizationModelRelationJSON, 0, len(resourceType.GetRelations())),
+		Actions:   make([]authorizationModelActionJSON, 0, len(resourceType.GetActions())),
+	}
+	for _, relation := range resourceType.GetRelations() {
+		out.Relations = append(out.Relations, authorizationModelRelationJSONFromNative(relation))
+	}
+	for _, action := range resourceType.GetActions() {
+		out.Actions = append(out.Actions, authorizationModelActionJSONFromNative(action))
+	}
+	return out
+}
+
+func authorizationModelRelationJSONFromNative(relation *gestalt.AuthorizationModelRelation) authorizationModelRelationJSON {
+	if relation == nil {
+		return authorizationModelRelationJSON{}
+	}
+	out := authorizationModelRelationJSON{
+		Name:           relation.GetName(),
+		SubjectTypes:   append([]string(nil), relation.GetSubjectTypes()...),
+		AllowedTargets: make([]authorizationModelAllowedTargetJSON, 0, len(relation.GetAllowedTargets())),
+		Rewrite:        authorizationModelRewriteJSONFromNative(relation.GetRewrite()),
+	}
+	for _, target := range relation.GetAllowedTargets() {
+		out.AllowedTargets = append(out.AllowedTargets, authorizationModelAllowedTargetJSONFromNative(target))
+	}
+	return out
+}
+
+func authorizationModelActionJSONFromNative(action *gestalt.AuthorizationModelAction) authorizationModelActionJSON {
+	if action == nil {
+		return authorizationModelActionJSON{}
+	}
+	return authorizationModelActionJSON{
+		Name:      action.GetName(),
+		Relations: append([]string(nil), action.GetRelations()...),
+		Rewrite:   authorizationModelRewriteJSONFromNative(action.GetRewrite()),
+	}
+}
+
+func authorizationModelAllowedTargetJSONFromNative(target *gestalt.AuthorizationModelAllowedTarget) authorizationModelAllowedTargetJSON {
+	if target == nil {
+		return authorizationModelAllowedTargetJSON{}
+	}
+	switch {
+	case target.GetSubjectType() != "":
+		return authorizationModelAllowedTargetJSON{SubjectType: target.GetSubjectType()}
+	case target.GetResourceType() != "":
+		return authorizationModelAllowedTargetJSON{ResourceType: target.GetResourceType()}
+	case target.GetSubjectSet() != nil:
+		return authorizationModelAllowedTargetJSON{
+			SubjectSet: &authorizationModelSubjectSetTargetJSON{
+				ResourceType: target.GetSubjectSet().GetResourceType(),
+				Relation:     target.GetSubjectSet().GetRelation(),
+			},
+		}
+	default:
+		return authorizationModelAllowedTargetJSON{}
+	}
+}
+
+func authorizationModelRewriteJSONFromNative(rewrite *gestalt.AuthorizationModelRewrite) *authorizationModelRewriteJSON {
+	if rewrite == nil {
+		return nil
+	}
+	switch {
+	case rewrite.GetThis() != nil:
+		return &authorizationModelRewriteJSON{This: &struct{}{}}
+	case rewrite.GetComputedUserset() != nil:
+		return &authorizationModelRewriteJSON{
+			ComputedUserset: &authorizationModelComputedUsersetJSON{Relation: rewrite.GetComputedUserset().GetRelation()},
+		}
+	case rewrite.GetTupleToUserset() != nil:
+		tuple := rewrite.GetTupleToUserset()
+		return &authorizationModelRewriteJSON{
+			TupleToUserset: &authorizationModelTupleToUsersetJSON{
+				TuplesetRelation: tuple.GetTuplesetRelation(),
+				ComputedRelation: tuple.GetComputedRelation(),
+			},
+		}
+	case rewrite.GetUnion() != nil:
+		children := make([]*authorizationModelRewriteJSON, 0, len(rewrite.GetUnion().GetChildren()))
+		for _, child := range rewrite.GetUnion().GetChildren() {
+			if out := authorizationModelRewriteJSONFromNative(child); out != nil {
+				children = append(children, out)
+			}
+		}
+		return &authorizationModelRewriteJSON{Union: &authorizationModelRewriteUnionJSON{Children: children}}
+	default:
+		return &authorizationModelRewriteJSON{}
+	}
+}
+
+func authorizationModelFromJSON(model authorizationModelJSON) *gestalt.AuthorizationModel {
+	out := &gestalt.AuthorizationModel{
+		Version:       model.Version,
+		ResourceTypes: make([]*gestalt.AuthorizationModelResourceType, 0, len(model.ResourceTypes)),
+	}
+	for _, resourceType := range model.ResourceTypes {
+		out.ResourceTypes = append(out.ResourceTypes, authorizationModelResourceTypeFromJSON(resourceType))
+	}
+	return out
+}
+
+func authorizationModelResourceTypeFromJSON(resourceType authorizationModelResourceTypeJSON) *gestalt.AuthorizationModelResourceType {
+	out := &gestalt.AuthorizationModelResourceType{
+		Name:      resourceType.Name,
+		Relations: make([]*gestalt.AuthorizationModelRelation, 0, len(resourceType.Relations)),
+		Actions:   make([]*gestalt.AuthorizationModelAction, 0, len(resourceType.Actions)),
+	}
+	for _, relation := range resourceType.Relations {
+		out.Relations = append(out.Relations, authorizationModelRelationFromJSON(relation))
+	}
+	for _, action := range resourceType.Actions {
+		out.Actions = append(out.Actions, authorizationModelActionFromJSON(action))
+	}
+	return out
+}
+
+func authorizationModelRelationFromJSON(relation authorizationModelRelationJSON) *gestalt.AuthorizationModelRelation {
+	out := &gestalt.AuthorizationModelRelation{
+		Name:           relation.Name,
+		SubjectTypes:   append([]string(nil), relation.SubjectTypes...),
+		AllowedTargets: make([]*gestalt.AuthorizationModelAllowedTarget, 0, len(relation.AllowedTargets)),
+		Rewrite:        authorizationModelRewriteFromJSON(relation.Rewrite),
+	}
+	for _, target := range relation.AllowedTargets {
+		out.AllowedTargets = append(out.AllowedTargets, authorizationModelAllowedTargetFromJSON(target))
+	}
+	return out
+}
+
+func authorizationModelActionFromJSON(action authorizationModelActionJSON) *gestalt.AuthorizationModelAction {
+	return &gestalt.AuthorizationModelAction{
+		Name:      action.Name,
+		Relations: append([]string(nil), action.Relations...),
+		Rewrite:   authorizationModelRewriteFromJSON(action.Rewrite),
+	}
+}
+
+func authorizationModelAllowedTargetFromJSON(target authorizationModelAllowedTargetJSON) *gestalt.AuthorizationModelAllowedTarget {
+	switch {
+	case target.SubjectType != "":
+		return gestalt.NewAuthorizationModelSubjectTypeTarget(target.SubjectType)
+	case target.ResourceType != "":
+		return gestalt.NewAuthorizationModelResourceTypeTarget(target.ResourceType)
+	case target.SubjectSet != nil:
+		return gestalt.NewAuthorizationModelSubjectSetAllowedTarget(target.SubjectSet.ResourceType, target.SubjectSet.Relation)
+	default:
+		return &gestalt.AuthorizationModelAllowedTarget{}
+	}
+}
+
+func authorizationModelRewriteFromJSON(rewrite *authorizationModelRewriteJSON) *gestalt.AuthorizationModelRewrite {
+	if rewrite == nil {
+		return nil
+	}
+	switch {
+	case rewrite.This != nil:
+		return gestalt.NewAuthorizationModelThisRewrite()
+	case rewrite.ComputedUserset != nil:
+		return gestalt.NewAuthorizationModelComputedUsersetRewrite(rewrite.ComputedUserset.Relation)
+	case rewrite.TupleToUserset != nil:
+		return gestalt.NewAuthorizationModelTupleToUsersetRewrite(rewrite.TupleToUserset.TuplesetRelation, rewrite.TupleToUserset.ComputedRelation)
+	case rewrite.Union != nil:
+		children := make([]*gestalt.AuthorizationModelRewrite, 0, len(rewrite.Union.Children))
+		for _, child := range rewrite.Union.Children {
+			if out := authorizationModelRewriteFromJSON(child); out != nil {
+				children = append(children, out)
+			}
+		}
+		return gestalt.NewAuthorizationModelUnionRewrite(children...)
+	default:
+		return &gestalt.AuthorizationModelRewrite{}
+	}
 }
 
 func modelVersionString(model *gestalt.AuthorizationModel) string {

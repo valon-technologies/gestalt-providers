@@ -102,7 +102,7 @@ func (s *store) writeModel(ctx context.Context, ref *gestalt.AuthorizationModelR
 	record := gestalt.Record{
 		"id":         ref.GetId(),
 		"version":    ref.GetVersion(),
-		"created_at": ref.GetCreatedAt().AsTime().UTC(),
+		"created_at": ref.GetCreatedAt().UTC(),
 		"model_json": modelJSON,
 	}
 	if err := s.models.Put(ctx, record); err != nil {
@@ -136,8 +136,8 @@ func (s *store) listModels(ctx context.Context) ([]*gestalt.AuthorizationModelRe
 		refs = append(refs, model.ref)
 	}
 	sort.Slice(refs, func(i, j int) bool {
-		left := refs[i].GetCreatedAt().AsTime()
-		right := refs[j].GetCreatedAt().AsTime()
+		left := refs[i].GetCreatedAt()
+		right := refs[j].GetCreatedAt()
 		if !left.Equal(right) {
 			return left.After(right)
 		}
@@ -283,13 +283,13 @@ func relationshipRecord(relationship *gestalt.Relationship) (gestalt.Record, err
 		"relation":            relation,
 		"resource_type":       resource.GetType(),
 		"resource_id":         resource.GetId(),
-		"resource_properties": nilIfEmptyMap(gestalt.MapFromStruct(resource.GetProperties())),
-		"properties":          nilIfEmptyMap(gestalt.MapFromStruct(relationship.GetProperties())),
+		"resource_properties": nilIfEmptyMap(resource.GetProperties()),
+		"properties":          nilIfEmptyMap(relationship.GetProperties()),
 	}
 	if subject != nil {
 		record["subject_type"] = subject.GetType()
 		record["subject_id"] = subject.GetId()
-		record["subject_properties"] = nilIfEmptyMap(gestalt.MapFromStruct(subject.GetProperties()))
+		record["subject_properties"] = nilIfEmptyMap(subject.GetProperties())
 	}
 	switch target.Kind {
 	case "subject":
@@ -298,22 +298,22 @@ func relationshipRecord(relationship *gestalt.Relationship) (gestalt.Record, err
 	case "resource":
 		record["target_resource_type"] = target.ResourceType
 		record["target_resource_id"] = target.ResourceID
-		record["target_resource_properties"] = nilIfEmptyMap(gestalt.MapFromStruct(relationship.GetTarget().GetResource().GetProperties()))
+		record["target_resource_properties"] = nilIfEmptyMap(relationship.GetTarget().GetResource().GetProperties())
 	case "subject_set":
 		record["target_subject_set_resource_type"] = target.SubjectSetResourceType
 		record["target_subject_set_resource_id"] = target.SubjectSetResourceID
 		record["target_subject_set_relation"] = target.SubjectSetRelation
-		record["target_subject_set_resource_properties"] = nilIfEmptyMap(gestalt.MapFromStruct(relationship.GetTarget().GetSubjectSet().GetResource().GetProperties()))
+		record["target_subject_set_resource_properties"] = nilIfEmptyMap(relationship.GetTarget().GetSubjectSet().GetResource().GetProperties())
 	}
 	return record, nil
 }
 
 func relationshipFromRecord(record gestalt.Record) (*gestalt.Relationship, error) {
-	resourceProperties, err := gestalt.StructFromAny(nilIfEmptyRecordMap(record["resource_properties"]))
+	resourceProperties, err := propertiesFromRecord(record["resource_properties"])
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "decode resource properties: %v", err)
 	}
-	relationshipProperties, err := gestalt.StructFromAny(nilIfEmptyRecordMap(record["properties"]))
+	relationshipProperties, err := propertiesFromRecord(record["properties"])
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "decode relationship properties: %v", err)
 	}
@@ -386,7 +386,7 @@ func relationshipTargetFromRecord(record gestalt.Record) (compiledRelationshipTa
 	if kind == "" {
 		kind = "subject"
 	}
-	subjectProperties, err := gestalt.StructFromAny(nilIfEmptyRecordMap(record["subject_properties"]))
+	subjectProperties, err := propertiesFromRecord(record["subject_properties"])
 	if err != nil {
 		return compiledRelationshipTarget{}, nil, nil, status.Errorf(codes.Internal, "decode subject properties: %v", err)
 	}
@@ -413,7 +413,7 @@ func relationshipTargetFromRecord(record gestalt.Record) (compiledRelationshipTa
 		if resourceType == "" || resourceID == "" {
 			return compiledRelationshipTarget{}, nil, nil, status.Error(codes.Internal, "stored relationship resource target is incomplete")
 		}
-		properties, err := gestalt.StructFromAny(nilIfEmptyRecordMap(record["target_resource_properties"]))
+		properties, err := propertiesFromRecord(record["target_resource_properties"])
 		if err != nil {
 			return compiledRelationshipTarget{}, nil, nil, status.Errorf(codes.Internal, "decode target resource properties: %v", err)
 		}
@@ -426,7 +426,7 @@ func relationshipTargetFromRecord(record gestalt.Record) (compiledRelationshipTa
 		if resourceType == "" || resourceID == "" || relation == "" {
 			return compiledRelationshipTarget{}, nil, nil, status.Error(codes.Internal, "stored relationship subject-set target is incomplete")
 		}
-		properties, err := gestalt.StructFromAny(nilIfEmptyRecordMap(record["target_subject_set_resource_properties"]))
+		properties, err := propertiesFromRecord(record["target_subject_set_resource_properties"])
 		if err != nil {
 			return compiledRelationshipTarget{}, nil, nil, status.Errorf(codes.Internal, "decode target subject-set resource properties: %v", err)
 		}
@@ -442,6 +442,21 @@ func nilIfEmptyMap(value map[string]any) map[string]any {
 		return nil
 	}
 	return value
+}
+
+func propertiesFromRecord(value any) (map[string]any, error) {
+	value = nilIfEmptyRecordMap(value)
+	if value == nil {
+		return nil, nil
+	}
+	if typed, ok := value.(map[string]any); ok {
+		return nilIfEmptyMap(typed), nil
+	}
+	properties, err := gestalt.StructFromAny(value)
+	if err != nil {
+		return nil, err
+	}
+	return nilIfEmptyMap(gestalt.MapFromStruct(properties)), nil
 }
 
 func nilIfEmptyRecordMap(value any) any {

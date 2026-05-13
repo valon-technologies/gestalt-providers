@@ -199,14 +199,14 @@ func (s *Snapshot) CurrentEntry() (*proto.CursorEntry, error) {
 	case []any:
 		out.Key = make([]*proto.KeyValue, len(key))
 		for i, part := range key {
-			kv, err := gestalt.AnyToKeyValue(part)
+			kv, err := anyToKeyValue(part)
 			if err != nil {
 				return nil, status.Errorf(codes.InvalidArgument, "marshal cursor key[%d]: %v", i, err)
 			}
 			out.Key[i] = kv
 		}
 	default:
-		kv, err := gestalt.AnyToKeyValue(key)
+		kv, err := anyToKeyValue(key)
 		if err != nil {
 			return nil, status.Errorf(codes.InvalidArgument, "marshal cursor key: %v", err)
 		}
@@ -317,7 +317,7 @@ func CloneRecordWithField(record *proto.Record, field string, value any) (*proto
 	if cloned.Fields == nil {
 		cloned.Fields = map[string]*proto.TypedValue{}
 	}
-	keyValue, err := gestalt.TypedValueFromAny(value)
+	keyValue, err := typedValueFromAny(value)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "marshal primary key: %v", err)
 	}
@@ -333,14 +333,14 @@ func DirectRecordField(record *proto.Record, field string) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("field %q not found", field)
 	}
-	return gestalt.AnyFromTypedValue(value)
+	return anyFromTypedValue(value)
 }
 
 func TargetToAny(kvs []*proto.KeyValue, indexCursor bool) (any, error) {
 	if len(kvs) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "continue key is required")
 	}
-	parts, err := gestalt.KeyValuesToAny(kvs)
+	parts, err := keyValuesToAny(kvs)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "unmarshal continue key: %v", err)
 	}
@@ -356,7 +356,7 @@ func TargetToAny(kvs []*proto.KeyValue, indexCursor bool) (any, error) {
 func RangeBounds(kr *proto.KeyRange, indexCursor bool) (any, any, error) {
 	var lower any
 	if kr.GetLower() != nil {
-		value, err := gestalt.AnyFromTypedValue(kr.GetLower())
+		value, err := anyFromTypedValue(kr.GetLower())
 		if err != nil {
 			return nil, nil, status.Errorf(codes.InvalidArgument, "key range lower: %v", err)
 		}
@@ -367,7 +367,7 @@ func RangeBounds(kr *proto.KeyRange, indexCursor bool) (any, any, error) {
 
 	var upper any
 	if kr.GetUpper() != nil {
-		value, err := gestalt.AnyFromTypedValue(kr.GetUpper())
+		value, err := anyFromTypedValue(kr.GetUpper())
 		if err != nil {
 			return nil, nil, status.Errorf(codes.InvalidArgument, "key range upper: %v", err)
 		}
@@ -497,4 +497,61 @@ func cursorFloatRat(v float64) (*big.Rat, bool) {
 		return nil, false
 	}
 	return r, true
+}
+
+func typedValueFromAny(value any) (*proto.TypedValue, error) {
+	data, err := gestalt.EncodeIndexedDBRecord(gestalt.Record{"value": value})
+	if err != nil {
+		return nil, err
+	}
+	record := &proto.Record{}
+	if err := gproto.Unmarshal(data, record); err != nil {
+		return nil, err
+	}
+	return record.GetFields()["value"], nil
+}
+
+func anyFromTypedValue(value *proto.TypedValue) (any, error) {
+	record := &proto.Record{Fields: map[string]*proto.TypedValue{"value": value}}
+	data, err := gproto.Marshal(record)
+	if err != nil {
+		return nil, err
+	}
+	decoded, err := gestalt.DecodeIndexedDBRecord(data)
+	if err != nil {
+		return nil, err
+	}
+	return decoded["value"], nil
+}
+
+func anyToKeyValue(value any) (*proto.KeyValue, error) {
+	data, err := gestalt.EncodeIndexedDBKey(value)
+	if err != nil {
+		return nil, err
+	}
+	kv := &proto.KeyValue{}
+	if err := gproto.Unmarshal(data, kv); err != nil {
+		return nil, err
+	}
+	return kv, nil
+}
+
+func keyValueToAny(value *proto.KeyValue) (any, error) {
+	data, err := gproto.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	return gestalt.DecodeIndexedDBKey(data)
+}
+
+func keyValuesToAny(values []*proto.KeyValue) ([]any, error) {
+	out := make([]any, len(values))
+	for i, value := range values {
+		decoded, err := keyValueToAny(value)
+		if err != nil {
+			return nil, fmt.Errorf("key %d: %w", i, err)
+		}
+		out[i] = decoded
+	}
+	return out, nil
 }

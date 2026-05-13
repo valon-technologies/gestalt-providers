@@ -5,8 +5,6 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-import gestalt
-
 from .client import DEFAULT_GITHUB_CLIENT
 from .config import (
     GitHubWebhookPolicy,
@@ -204,16 +202,14 @@ def resolve_subject_id_for_external_identity(
         return ""
     try:
         response = authorization.search_subjects(
-            gestalt.SubjectSearchRequest(
-                resource=gestalt.AuthorizationResource(
-                    type=EXTERNAL_IDENTITY_RESOURCE_TYPE,
-                    id=external_identity_resource_id(identity_type, identity_id),
-                ),
-                action=gestalt.AuthorizationAction(
-                    name=EXTERNAL_IDENTITY_ASSUME_ACTION
-                ),
-                page_size=10,
-            )
+            {
+                "resource": {
+                    "type": EXTERNAL_IDENTITY_RESOURCE_TYPE,
+                    "id": external_identity_resource_id(identity_type, identity_id),
+                },
+                "action": {"name": EXTERNAL_IDENTITY_ASSUME_ACTION},
+                "page_size": 10,
+            }
         )
     except Exception as err:
         logger.warning("GitHub action preference subject lookup failed: %s", err)

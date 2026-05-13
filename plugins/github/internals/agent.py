@@ -60,7 +60,7 @@ def build_workflow_signal_or_start_request(
     pull_request_context: Any | None = None,
 ) -> Any:
     idempotency_key = agent_turn_idempotency_key(payload, summary, policy)
-    request = gestalt.WorkflowManagerSignalOrStartRunRequest(
+    request = gestalt.WorkflowManagerSignalOrStartRun(
         provider_name=workflow_provider(policy),
         workflow_key=agent_session_ref(summary, policy),
         idempotency_key=idempotency_key,
@@ -116,15 +116,13 @@ def workflow_agent_target(
         provider_name=agent_provider(policy),
         model=agent_model(policy),
         prompt=workflow_agent_prompt(),
-        messages=[{"role": "system", "text": agent_system_prompt(policy)}],
+        messages=[
+            gestalt.AgentMessage(role="system", text=agent_system_prompt(policy))
+        ],
         tool_refs=agent_tool_refs(policy),
         metadata=agent_session_metadata(summary, policy),
+        model_options=model_options or None,
     )
-    if model_options:
-        target_options = getattr(agent, "model_options", None)
-        if target_options is None:
-            target_options = agent.provider_options
-        target_options.update(model_options)
     return gestalt.BoundWorkflowTarget(agent=agent)
 
 
@@ -166,7 +164,7 @@ def workflow_agent_prompt() -> str:
 
 def agent_tool_refs(policy: GitHubWebhookPolicy | None = None) -> list[Any]:
     return [
-        {"plugin": "github", "operation": operation}
+        gestalt.AgentToolRef(plugin="github", operation=operation)
         for operation in agent_operations(policy)
     ]
 
