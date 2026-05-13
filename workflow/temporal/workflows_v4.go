@@ -56,9 +56,6 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
 		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
 	}
-	if _, err := gestalt.NewBoundWorkflowRun(*state); err != nil {
-		return nil, err
-	}
 	pendingSignals := make([]gestalt.WorkflowSignal, 0)
 	nextSignalSequence := int64(1)
 	signalCount := 0
@@ -75,9 +72,6 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 	rebuildRun := func(mutate func(*gestalt.BoundWorkflowRun)) error {
 		next := *state
 		mutate(&next)
-		if _, err := gestalt.NewBoundWorkflowRun(next); err != nil {
-			return err
-		}
 		state = &next
 		return nil
 	}
@@ -94,9 +88,6 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		if strings.TrimSpace(signalInput.ID) == "" {
 			signalInput.ID = "signal:" + hashID(state.ID, signalInput.Name, fmt.Sprintf("%d", signalInput.Sequence), signalInput.IdempotencyKey)
 		}
-		if _, err := gestalt.NewWorkflowSignal(signalInput); err != nil {
-			return nil, err
-		}
 		pendingSignals = append(pendingSignals, signalInput)
 		signalCount++
 		return &signalInput, nil
@@ -112,7 +103,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		}
 		defer runMutex.Unlock()
 		if workflowRunTerminal(state.Status) {
-			return nil, fmt.Errorf("failed_precondition: workflow run %q is %s", state.ID, state.Status.String())
+			return nil, fmt.Errorf("failed_precondition: workflow run %q is %s", state.ID, workflowRunStatusName(state.Status))
 		}
 		appended, err := appendSignalInput(signal)
 		if err != nil {
@@ -149,7 +140,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		}
 		defer runMutex.Unlock()
 		if state.Status != gestalt.WorkflowRunStatusValuePending {
-			return nil, fmt.Errorf("failed_precondition: workflow run %q is %s; only pending runs can be canceled", state.ID, state.Status.String())
+			return nil, fmt.Errorf("failed_precondition: workflow run %q is %s; only pending runs can be canceled", state.ID, workflowRunStatusName(state.Status))
 		}
 		completedAt := workflow.Now(ctx).UTC()
 		statusMessage := strings.TrimSpace(reason)
@@ -241,10 +232,6 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 			if len(pendingSignals) > 0 {
 				runInput.Status = gestalt.WorkflowRunStatusValuePending
 				runInput.CompletedAt = nil
-				if _, err := gestalt.NewBoundWorkflowRun(runInput); err != nil {
-					runMutex.Unlock()
-					return nil, err
-				}
 				state = &runInput
 				project(ctx)
 				runMutex.Unlock()
@@ -252,10 +239,6 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 			}
 			runInput.Status = gestalt.WorkflowRunStatusValueSucceeded
 			runInput.StatusMessage = ""
-		}
-		if _, err := gestalt.NewBoundWorkflowRun(runInput); err != nil {
-			runMutex.Unlock()
-			return nil, err
 		}
 		state = &runInput
 		runMutex.Unlock()
