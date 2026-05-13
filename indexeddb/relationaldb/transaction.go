@@ -5,23 +5,21 @@ import (
 	"database/sql"
 	"sync"
 
-	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/txstream"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-func (s *Store) Transaction(stream proto.IndexedDB_TransactionServer) error {
-	return txstream.Serve(stream, s.beginTransaction)
+func (s *Store) BeginTransaction(ctx context.Context, req gestalt.IndexedDBBeginTransactionRequest) (gestalt.IndexedDBTransaction, error) {
+	return s.beginTransaction(ctx, req)
 }
 
-func (s *Store) beginTransaction(ctx context.Context, req *proto.BeginTransactionRequest) (txstream.Transaction, error) {
+func (s *Store) beginTransaction(ctx context.Context, req gestalt.IndexedDBBeginTransactionRequest) (*relationalTransaction, error) {
 	s.mu.RLock()
 
-	scope := make(map[string]struct{}, len(req.GetStores()))
-	meta := make(map[string]*storeMeta, len(req.GetStores()))
-	for _, store := range req.GetStores() {
+	scope := make(map[string]struct{}, len(req.Stores))
+	meta := make(map[string]*storeMeta, len(req.Stores))
+	for _, store := range req.Stores {
 		if _, ok := scope[store]; !ok {
 			storeMeta, found, err := s.loadStoreMetadata(ctx, store)
 			if err != nil {
@@ -103,114 +101,114 @@ func (t *relationalTransaction) requireStore(name string) error {
 	return nil
 }
 
-func (t *relationalTransaction) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.RecordResponse, error) {
-	if err := t.requireStore(req.GetStore()); err != nil {
+func (t *relationalTransaction) Get(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (gestalt.Record, error) {
+	if err := t.requireStore(req.Store); err != nil {
 		return nil, err
 	}
 	return t.store.Get(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.KeyResponse, error) {
-	if err := t.requireStore(req.GetStore()); err != nil {
-		return nil, err
+func (t *relationalTransaction) GetKey(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (string, error) {
+	if err := t.requireStore(req.Store); err != nil {
+		return "", err
 	}
 	return t.store.GetKey(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
-	if err := t.requireStore(req.GetStore()); err != nil {
-		return nil, err
+func (t *relationalTransaction) Add(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
+	if err := t.requireStore(req.Store); err != nil {
+		return err
 	}
 	return t.store.Add(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
-	if err := t.requireStore(req.GetStore()); err != nil {
-		return nil, err
+func (t *relationalTransaction) Put(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
+	if err := t.requireStore(req.Store); err != nil {
+		return err
 	}
 	return t.store.Put(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
-	if err := t.requireStore(req.GetStore()); err != nil {
-		return nil, err
+func (t *relationalTransaction) Delete(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) error {
+	if err := t.requireStore(req.Store); err != nil {
+		return err
 	}
 	return t.store.Delete(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {
-	if err := t.requireStore(req.GetStore()); err != nil {
-		return nil, err
+func (t *relationalTransaction) Clear(ctx context.Context, store string) error {
+	if err := t.requireStore(store); err != nil {
+		return err
 	}
-	return t.store.Clear(t.txContext(ctx), req)
+	return t.store.Clear(t.txContext(ctx), store)
 }
 
-func (t *relationalTransaction) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {
-	if err := t.requireStore(req.GetStore()); err != nil {
+func (t *relationalTransaction) GetAll(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]gestalt.Record, error) {
+	if err := t.requireStore(req.Store); err != nil {
 		return nil, err
 	}
 	return t.store.GetAll(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.KeysResponse, error) {
-	if err := t.requireStore(req.GetStore()); err != nil {
+func (t *relationalTransaction) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]string, error) {
+	if err := t.requireStore(req.Store); err != nil {
 		return nil, err
 	}
 	return t.store.GetAllKeys(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.CountResponse, error) {
-	if err := t.requireStore(req.GetStore()); err != nil {
-		return nil, err
+func (t *relationalTransaction) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
+	if err := t.requireStore(req.Store); err != nil {
+		return 0, err
 	}
 	return t.store.Count(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.DeleteResponse, error) {
-	if err := t.requireStore(req.GetStore()); err != nil {
-		return nil, err
+func (t *relationalTransaction) DeleteRange(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
+	if err := t.requireStore(req.Store); err != nil {
+		return 0, err
 	}
 	return t.store.DeleteRange(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) IndexGet(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordResponse, error) {
-	if err := t.requireStore(req.GetStore()); err != nil {
+func (t *relationalTransaction) IndexGet(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (gestalt.Record, error) {
+	if err := t.requireStore(req.Store); err != nil {
 		return nil, err
 	}
 	return t.store.IndexGet(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) IndexGetKey(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeyResponse, error) {
-	if err := t.requireStore(req.GetStore()); err != nil {
-		return nil, err
+func (t *relationalTransaction) IndexGetKey(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (string, error) {
+	if err := t.requireStore(req.Store); err != nil {
+		return "", err
 	}
 	return t.store.IndexGetKey(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) IndexGetAll(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordsResponse, error) {
-	if err := t.requireStore(req.GetStore()); err != nil {
+func (t *relationalTransaction) IndexGetAll(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]gestalt.Record, error) {
+	if err := t.requireStore(req.Store); err != nil {
 		return nil, err
 	}
 	return t.store.IndexGetAll(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) IndexGetAllKeys(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeysResponse, error) {
-	if err := t.requireStore(req.GetStore()); err != nil {
+func (t *relationalTransaction) IndexGetAllKeys(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]string, error) {
+	if err := t.requireStore(req.Store); err != nil {
 		return nil, err
 	}
 	return t.store.IndexGetAllKeys(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) IndexCount(ctx context.Context, req *proto.IndexQueryRequest) (*proto.CountResponse, error) {
-	if err := t.requireStore(req.GetStore()); err != nil {
-		return nil, err
+func (t *relationalTransaction) IndexCount(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (int64, error) {
+	if err := t.requireStore(req.Store); err != nil {
+		return 0, err
 	}
 	return t.store.IndexCount(t.txContext(ctx), req)
 }
 
-func (t *relationalTransaction) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest) (*proto.DeleteResponse, error) {
-	if err := t.requireStore(req.GetStore()); err != nil {
-		return nil, err
+func (t *relationalTransaction) IndexDelete(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (int64, error) {
+	if err := t.requireStore(req.Store); err != nil {
+		return 0, err
 	}
 	return t.store.IndexDelete(t.txContext(ctx), req)
 }

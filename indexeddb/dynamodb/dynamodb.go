@@ -15,12 +15,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
-	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	gproto "google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 const (
@@ -155,20 +152,18 @@ func (s *store) getIndexDef(storeName, indexName string) (*indexDef, error) {
 	return nil, status.Errorf(codes.NotFound, "index %q not found on store %q", indexName, storeName)
 }
 
-func (p *providerCore) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*emptypb.Empty, error) {
+func (p *providerCore) CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreSchema) error {
 	st := p.store
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
 	sc := &storedSchema{}
-	if req.Schema != nil {
-		for _, idx := range req.Schema.Indexes {
-			sc.Indexes = append(sc.Indexes, indexDef{
-				Name:    idx.Name,
-				KeyPath: idx.KeyPath,
-				Unique:  idx.Unique,
-			})
-		}
+	for _, idx := range schema.Indexes {
+		sc.Indexes = append(sc.Indexes, indexDef{
+			Name:    idx.Name,
+			KeyPath: append([]string(nil), idx.KeyPath...),
+			Unique:  idx.Unique,
+		})
 	}
 
 	raw, _ := json.Marshal(sc)
@@ -176,89 +171,89 @@ func (p *providerCore) CreateObjectStore(ctx context.Context, req *proto.CreateO
 		TableName: &st.table,
 		Item: map[string]ddbtypes.AttributeValue{
 			attrPK:     &ddbtypes.AttributeValueMemberS{Value: metaPK},
-			attrSK:     &ddbtypes.AttributeValueMemberS{Value: req.Name},
+			attrSK:     &ddbtypes.AttributeValueMemberS{Value: name},
 			attrSchema: &ddbtypes.AttributeValueMemberS{Value: string(raw)},
 		},
 		ConditionExpression: aws.String("attribute_not_exists(PK)"),
 	})
 	if err != nil {
 		if isConditionFailed(err) {
-			return nil, status.Errorf(codes.AlreadyExists, "object store %s already exists", req.Name)
+			return status.Errorf(codes.AlreadyExists, "object store %s already exists", name)
 		}
-		return nil, wrapErr(err)
+		return wrapErr(err)
 	}
 
-	st.schemas[req.Name] = sc
-	return &emptypb.Empty{}, nil
+	st.schemas[name] = sc
+	return nil
 }
 
-func (p *providerCore) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectStoreRequest) (*emptypb.Empty, error) {
+func (p *providerCore) DeleteObjectStore(ctx context.Context, name string) error {
 	st := p.store
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
-	sc := st.schemas[req.Name]
-	delete(st.schemas, req.Name)
+	sc := st.schemas[name]
+	delete(st.schemas, name)
 
 	_, _ = st.client.DeleteItem(ctx, &dynamodb.DeleteItemInput{
 		TableName: &st.table,
 		Key: map[string]ddbtypes.AttributeValue{
 			attrPK: &ddbtypes.AttributeValueMemberS{Value: metaPK},
-			attrSK: &ddbtypes.AttributeValueMemberS{Value: req.Name},
+			attrSK: &ddbtypes.AttributeValueMemberS{Value: name},
 		},
 	})
 
-	prefixes := []string{req.Name}
+	prefixes := []string{name}
 	if sc != nil {
 		for _, idx := range sc.Indexes {
-			prefixes = append(prefixes, indexPK(req.Name, idx.Name))
+			prefixes = append(prefixes, indexPK(name, idx.Name))
 		}
 	}
 	for _, prefix := range prefixes {
 		if err := st.deleteAllInPartition(ctx, prefix); err != nil {
-			return nil, wrapErr(err)
+			return wrapErr(err)
 		}
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func (p *providerCore) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.RecordResponse, error) {
-	record, err := p.store.getRecord(ctx, req.Store, req.Id)
+func (p *providerCore) Get(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (gestalt.Record, error) {
+	record, err := p.store.getRecord(ctx, req.Store, req.ID)
 	if err != nil {
 		return nil, err
 	}
 	if record == nil {
 		return nil, status.Error(codes.NotFound, "record not found")
 	}
-	return &proto.RecordResponse{Record: record}, nil
+	return record, nil
 }
 
-func (p *providerCore) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.KeyResponse, error) {
-	record, err := p.store.getRecord(ctx, req.Store, req.Id)
+func (p *providerCore) GetKey(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (string, error) {
+	record, err := p.store.getRecord(ctx, req.Store, req.ID)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if record == nil {
-		return nil, status.Error(codes.NotFound, "record not found")
+		return "", status.Error(codes.NotFound, "record not found")
 	}
-	return &proto.KeyResponse{Key: req.Id}, nil
+	return req.ID, nil
 }
 
-func (p *providerCore) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Add(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
 	st := p.store
 	id, err := extractID(req.Record)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	data, err := marshalRecord(req.Record)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "marshal record: %v", err)
+		return status.Errorf(codes.InvalidArgument, "marshal record: %v", err)
 	}
 	idxItems := st.buildIndexItems(req.Store, id, req.Record)
 	if conflict, err := st.hasUniqueIndexConflict(ctx, idxItems); err != nil {
-		return nil, err
+		return err
 	} else if conflict {
-		return nil, status.Errorf(codes.AlreadyExists, "record %s violates a unique index", id)
+		return status.Errorf(codes.AlreadyExists, "record %s violates a unique index", id)
 	}
 
 	items := []ddbtypes.TransactWriteItem{
@@ -279,33 +274,33 @@ func (p *providerCore) Add(ctx context.Context, req *proto.RecordRequest) (*empt
 	_, err = st.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
 	if err != nil {
 		if isConditionFailed(err) {
-			return nil, status.Errorf(codes.AlreadyExists, "record %s already exists", id)
+			return status.Errorf(codes.AlreadyExists, "record %s already exists", id)
 		}
-		return nil, wrapErr(err)
+		return wrapErr(err)
 	}
 	if err := st.deleteLegacyUniqueIndexItems(ctx, idxItems); err != nil {
-		return nil, err
+		return err
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func (p *providerCore) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Put(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
 	st := p.store
 	id, err := extractID(req.Record)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	data, err := marshalRecord(req.Record)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "marshal record: %v", err)
+		return status.Errorf(codes.InvalidArgument, "marshal record: %v", err)
 	}
 	old, _ := st.getRecord(ctx, req.Store, id)
 	oldIdxItems := st.buildIndexItems(req.Store, id, old)
 	idxItems := st.buildIndexItems(req.Store, id, req.Record)
 	if conflict, err := st.hasUniqueIndexConflict(ctx, idxItems); err != nil {
-		return nil, err
+		return err
 	} else if conflict {
-		return nil, status.Errorf(codes.AlreadyExists, "record %s violates a unique index", id)
+		return status.Errorf(codes.AlreadyExists, "record %s violates a unique index", id)
 	}
 
 	items := []ddbtypes.TransactWriteItem{
@@ -342,80 +337,80 @@ func (p *providerCore) Put(ctx context.Context, req *proto.RecordRequest) (*empt
 	_, err = st.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
 	if err != nil {
 		if isConditionFailed(err) {
-			return nil, status.Errorf(codes.AlreadyExists, "record %s violates a unique index", id)
+			return status.Errorf(codes.AlreadyExists, "record %s violates a unique index", id)
 		}
-		return nil, wrapErr(err)
+		return wrapErr(err)
 	}
 	if err := st.deleteLegacyUniqueIndexItems(ctx, append(oldIdxItems, idxItems...)); err != nil {
-		return nil, err
+		return err
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func (p *providerCore) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
-	if err := p.store.deleteRecordByID(ctx, req.Store, req.Id); err != nil {
-		return nil, err
+func (p *providerCore) Delete(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) error {
+	if err := p.store.deleteRecordByID(ctx, req.Store, req.ID); err != nil {
+		return err
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func (p *providerCore) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Clear(ctx context.Context, storeName string) error {
 	st := p.store
-	prefixes := []string{req.Store}
-	if sc, ok := st.getSchema(req.Store); ok {
+	prefixes := []string{storeName}
+	if sc, ok := st.getSchema(storeName); ok {
 		for _, idx := range sc.Indexes {
-			prefixes = append(prefixes, indexPK(req.Store, idx.Name))
+			prefixes = append(prefixes, indexPK(storeName, idx.Name))
 		}
 	}
 	for _, prefix := range prefixes {
 		if err := st.deleteAllInPartition(ctx, prefix); err != nil {
-			return nil, wrapErr(err)
+			return wrapErr(err)
 		}
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func (p *providerCore) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {
+func (p *providerCore) GetAll(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]gestalt.Record, error) {
 	records, err := p.store.queryRecords(ctx, req.Store, req.Range)
 	if err != nil {
 		return nil, wrapErr(err)
 	}
-	return &proto.RecordsResponse{Records: records}, nil
+	return records, nil
 }
 
-func (p *providerCore) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.KeysResponse, error) {
+func (p *providerCore) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]string, error) {
 	keys, err := p.store.queryKeys(ctx, req.Store, req.Range)
 	if err != nil {
 		return nil, wrapErr(err)
 	}
-	return &proto.KeysResponse{Keys: keys}, nil
+	return keys, nil
 }
 
-func (p *providerCore) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.CountResponse, error) {
+func (p *providerCore) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
 	count, err := p.store.queryCount(ctx, req.Store, req.Range)
 	if err != nil {
-		return nil, wrapErr(err)
+		return 0, wrapErr(err)
 	}
-	return &proto.CountResponse{Count: count}, nil
+	return count, nil
 }
 
-func (p *providerCore) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.DeleteResponse, error) {
+func (p *providerCore) DeleteRange(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
 	st := p.store
 	keys, err := st.queryKeys(ctx, req.Store, req.Range)
 	if err != nil {
-		return nil, wrapErr(err)
+		return 0, wrapErr(err)
 	}
 	var deleted int64
 	for _, id := range keys {
 		if err := st.deleteRecordByID(ctx, req.Store, id); err != nil {
-			return nil, err
+			return 0, err
 		}
 		deleted++
 	}
-	return &proto.DeleteResponse{Deleted: deleted}, nil
+	return deleted, nil
 }
 
-func (p *providerCore) IndexGet(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordResponse, error) {
+func (p *providerCore) IndexGet(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (gestalt.Record, error) {
 	entries, err := p.queryIndexEntries(ctx, req)
 	if err != nil {
 		return nil, err
@@ -423,33 +418,33 @@ func (p *providerCore) IndexGet(ctx context.Context, req *proto.IndexQueryReques
 	if len(entries) == 0 {
 		return nil, status.Error(codes.NotFound, "record not found")
 	}
-	return &proto.RecordResponse{Record: entries[0].Record}, nil
+	return entries[0].Record, nil
 }
 
-func (p *providerCore) IndexGetKey(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeyResponse, error) {
+func (p *providerCore) IndexGetKey(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (string, error) {
 	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if len(entries) == 0 {
-		return nil, status.Error(codes.NotFound, "record not found")
+		return "", status.Error(codes.NotFound, "record not found")
 	}
-	return &proto.KeyResponse{Key: entries[0].PrimaryKey}, nil
+	return entries[0].PrimaryKey, nil
 }
 
-func (p *providerCore) IndexGetAll(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordsResponse, error) {
+func (p *providerCore) IndexGetAll(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]gestalt.Record, error) {
 	entries, err := p.queryIndexEntries(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	records := make([]*proto.Record, 0, len(entries))
+	records := make([]gestalt.Record, 0, len(entries))
 	for _, entry := range entries {
 		records = append(records, entry.Record)
 	}
-	return &proto.RecordsResponse{Records: records}, nil
+	return records, nil
 }
 
-func (p *providerCore) IndexGetAllKeys(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeysResponse, error) {
+func (p *providerCore) IndexGetAllKeys(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]string, error) {
 	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
 		return nil, err
@@ -458,34 +453,34 @@ func (p *providerCore) IndexGetAllKeys(ctx context.Context, req *proto.IndexQuer
 	for _, entry := range entries {
 		keys = append(keys, entry.PrimaryKey)
 	}
-	return &proto.KeysResponse{Keys: keys}, nil
+	return keys, nil
 }
 
-func (p *providerCore) IndexCount(ctx context.Context, req *proto.IndexQueryRequest) (*proto.CountResponse, error) {
+func (p *providerCore) IndexCount(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (int64, error) {
 	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	return &proto.CountResponse{Count: int64(len(entries))}, nil
+	return int64(len(entries)), nil
 }
 
-func (p *providerCore) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest) (*proto.DeleteResponse, error) {
+func (p *providerCore) IndexDelete(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (int64, error) {
 	st := p.store
 	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	var deleted int64
 	for _, entry := range entries {
 		if err := st.deleteRecordByID(ctx, req.Store, entry.PrimaryKey); err != nil {
-			return nil, err
+			return 0, err
 		}
 		deleted++
 	}
-	return &proto.DeleteResponse{Deleted: deleted}, nil
+	return deleted, nil
 }
 
-func (p *providerCore) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]cursorutil.Entry, error) {
+func (p *providerCore) queryIndexEntries(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]cursorutil.Entry, error) {
 	st := p.store
 	index, err := st.getIndexDef(req.Store, req.Index)
 	if err != nil {
@@ -498,7 +493,7 @@ func (p *providerCore) queryIndexEntries(ctx context.Context, req *proto.IndexQu
 	}
 
 	rangeCursor := &dynamoCursor{
-		Snapshot: cursorutil.Snapshot{IndexCursor: true},
+		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}},
 		index:    index,
 	}
 	entries := make([]cursorutil.Entry, 0, len(records))
@@ -513,7 +508,7 @@ func (p *providerCore) queryIndexEntries(ctx context.Context, req *proto.IndexQu
 		entries = append(entries, entry)
 	}
 
-	entries, err = rangeCursor.ApplyRange(entries, req.GetRange())
+	entries, err = rangeCursor.ApplyRange(entries, req.Range)
 	if err != nil {
 		return nil, err
 	}
@@ -521,7 +516,7 @@ func (p *providerCore) queryIndexEntries(ctx context.Context, req *proto.IndexQu
 	return entries, nil
 }
 
-func (p *providerCore) queryIndexKeyEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]cursorutil.Entry, error) {
+func (p *providerCore) queryIndexKeyEntries(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]cursorutil.Entry, error) {
 	st := p.store
 	index, err := st.getIndexDef(req.Store, req.Index)
 	if err != nil {
@@ -534,10 +529,10 @@ func (p *providerCore) queryIndexKeyEntries(ctx context.Context, req *proto.Inde
 	}
 
 	rangeCursor := &dynamoCursor{
-		Snapshot: cursorutil.Snapshot{IndexCursor: true},
+		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}},
 		index:    index,
 	}
-	entries, err = rangeCursor.ApplyRange(entries, req.GetRange())
+	entries, err = rangeCursor.ApplyRange(entries, req.Range)
 	if err != nil {
 		return nil, err
 	}
@@ -590,12 +585,12 @@ func (s *store) indexPutItem(idx indexItem, data []byte, allowSameRefID bool) *d
 	return put
 }
 
-func (s *store) getRecord(ctx context.Context, storeName, id string) (*proto.Record, error) {
+func (s *store) getRecord(ctx context.Context, storeName, id string) (gestalt.Record, error) {
 	_, record, err := s.getRecordItem(ctx, storeName, id)
 	return record, err
 }
 
-func (s *store) getRecordItem(ctx context.Context, storeName, id string) (map[string]ddbtypes.AttributeValue, *proto.Record, error) {
+func (s *store) getRecordItem(ctx context.Context, storeName, id string) (map[string]ddbtypes.AttributeValue, gestalt.Record, error) {
 	resp, err := s.client.GetItem(ctx, &dynamodb.GetItemInput{
 		TableName: &s.table,
 		Key: map[string]ddbtypes.AttributeValue{
@@ -691,7 +686,7 @@ func (s *store) deleteIndexItems(ctx context.Context, items []indexItem) {
 	s.batchDelete(ctx, ddbItems)
 }
 
-func (s *store) buildIndexItems(storeName, id string, record *proto.Record) []indexItem {
+func (s *store) buildIndexItems(storeName, id string, record gestalt.Record) []indexItem {
 	if record == nil {
 		return nil
 	}
@@ -702,22 +697,22 @@ func (s *store) buildIndexItems(storeName, id string, record *proto.Record) []in
 	return buildIndexItemsForSchema(storeName, id, record, sc)
 }
 
-func buildIndexItemsForSchema(storeName, id string, record *proto.Record, sc *storedSchema) []indexItem {
+func buildIndexItemsForSchema(storeName, id string, record gestalt.Record, sc *storedSchema) []indexItem {
 	if record == nil || sc == nil {
 		return nil
 	}
 	var items []indexItem
 	for _, idx := range sc.Indexes {
 		vals := make([]string, len(idx.KeyPath))
-		keyValues := make([]*proto.TypedValue, len(idx.KeyPath))
+		keyValues := make([]any, len(idx.KeyPath))
 		missingField := false
 		for i, field := range idx.KeyPath {
-			value, ok := record.GetFields()[field]
+			value, ok := record[field]
 			if !ok || value == nil {
 				missingField = true
 				break
 			}
-			vals[i] = typedValueKeyString(value)
+			vals[i] = keyStringFromAny(value)
 			keyValues[i] = value
 		}
 		if missingField {
@@ -742,9 +737,9 @@ func buildIndexItemsForSchema(storeName, id string, record *proto.Record, sc *st
 	return items
 }
 
-func (s *store) queryRecords(ctx context.Context, storeName string, kr *proto.KeyRange) ([]*proto.Record, error) {
+func (s *store) queryRecords(ctx context.Context, storeName string, kr *gestalt.KeyRange) ([]gestalt.Record, error) {
 	cond, vals := buildKeyCondition(storeName, kr)
-	var records []*proto.Record
+	var records []gestalt.Record
 	var startKey map[string]ddbtypes.AttributeValue
 	for {
 		resp, err := s.client.Query(ctx, &dynamodb.QueryInput{
@@ -769,7 +764,7 @@ func (s *store) queryRecords(ctx context.Context, storeName string, kr *proto.Ke
 	return records, nil
 }
 
-func (s *store) queryKeys(ctx context.Context, storeName string, kr *proto.KeyRange) ([]string, error) {
+func (s *store) queryKeys(ctx context.Context, storeName string, kr *gestalt.KeyRange) ([]string, error) {
 	cond, vals := buildKeyCondition(storeName, kr)
 	var keys []string
 	var startKey map[string]ddbtypes.AttributeValue
@@ -795,7 +790,7 @@ func (s *store) queryKeys(ctx context.Context, storeName string, kr *proto.KeyRa
 	return keys, nil
 }
 
-func (s *store) queryCount(ctx context.Context, storeName string, kr *proto.KeyRange) (int64, error) {
+func (s *store) queryCount(ctx context.Context, storeName string, kr *gestalt.KeyRange) (int64, error) {
 	cond, vals := buildKeyCondition(storeName, kr)
 	var total int64
 	var startKey map[string]ddbtypes.AttributeValue
@@ -819,9 +814,9 @@ func (s *store) queryCount(ctx context.Context, storeName string, kr *proto.KeyR
 	return total, nil
 }
 
-func (s *store) queryIndex(ctx context.Context, storeName, indexName string, values []*proto.TypedValue) ([]*proto.Record, error) {
+func (s *store) queryIndex(ctx context.Context, storeName, indexName string, values []any) ([]gestalt.Record, error) {
 	cond, exprVals := buildIndexCondition(storeName, indexName, values)
-	var records []*proto.Record
+	var records []gestalt.Record
 	var startKey map[string]ddbtypes.AttributeValue
 	for {
 		resp, err := s.client.Query(ctx, &dynamodb.QueryInput{
@@ -846,7 +841,7 @@ func (s *store) queryIndex(ctx context.Context, storeName, indexName string, val
 	return records, nil
 }
 
-func (s *store) queryIndexKeyEntries(ctx context.Context, storeName, indexName string, values []*proto.TypedValue, index *indexDef) ([]cursorutil.Entry, error) {
+func (s *store) queryIndexKeyEntries(ctx context.Context, storeName, indexName string, values []any, index *indexDef) ([]cursorutil.Entry, error) {
 	cond, exprVals := buildIndexCondition(storeName, indexName, values)
 	var entries []cursorutil.Entry
 	var startKey map[string]ddbtypes.AttributeValue
@@ -884,7 +879,7 @@ func (s *store) queryIndexKeyEntries(ctx context.Context, storeName, indexName s
 	return entries, nil
 }
 
-func (s *store) queryIndexKeys(ctx context.Context, storeName, indexName string, values []*proto.TypedValue) ([]string, error) {
+func (s *store) queryIndexKeys(ctx context.Context, storeName, indexName string, values []any) ([]string, error) {
 	cond, exprVals := buildIndexCondition(storeName, indexName, values)
 	var keys []string
 	var startKey map[string]ddbtypes.AttributeValue
@@ -910,7 +905,7 @@ func (s *store) queryIndexKeys(ctx context.Context, storeName, indexName string,
 	return keys, nil
 }
 
-func (s *store) queryIndexCount(ctx context.Context, storeName, indexName string, values []*proto.TypedValue) (int64, error) {
+func (s *store) queryIndexCount(ctx context.Context, storeName, indexName string, values []any) (int64, error) {
 	cond, exprVals := buildIndexCondition(storeName, indexName, values)
 	var total int64
 	var startKey map[string]ddbtypes.AttributeValue
@@ -948,7 +943,7 @@ func (s *store) deleteRecordByID(ctx context.Context, storeName, id string) erro
 	return s.deleteRecordByRefID(ctx, storeName, id)
 }
 
-func shouldFallbackDeleteByRefID(item map[string]ddbtypes.AttributeValue, record *proto.Record) bool {
+func shouldFallbackDeleteByRefID(item map[string]ddbtypes.AttributeValue, record gestalt.Record) bool {
 	if item == nil || record == nil {
 		return true
 	}
@@ -1167,55 +1162,34 @@ func (s *store) deleteLegacyUniqueIndexItems(ctx context.Context, items []indexI
 	return s.batchDelete(ctx, toDelete)
 }
 
-func marshalIndexKey(values []*proto.TypedValue) ([]byte, error) {
-	record := &proto.Record{Fields: make(map[string]*proto.TypedValue, len(values))}
-	for i, value := range values {
-		record.Fields[fmt.Sprintf("%d", i)] = gproto.Clone(value).(*proto.TypedValue)
-	}
-	return gproto.Marshal(record)
+func marshalIndexKey(values []any) ([]byte, error) {
+	return gestalt.EncodeIndexedDBIndexValues(values)
 }
 
 func unmarshalIndexKey(raw []byte, keyParts int) ([]any, error) {
-	record := &proto.Record{}
-	if err := gproto.Unmarshal(raw, record); err != nil {
-		return nil, err
-	}
-
-	key := make([]any, keyParts)
-	for i := 0; i < keyParts; i++ {
-		value, ok := record.Fields[fmt.Sprintf("%d", i)]
-		if !ok || value == nil {
-			return nil, fmt.Errorf("missing index key part %d", i)
-		}
-		decoded, err := sdkcompat.AnyFromTypedValue(value)
-		if err != nil {
-			return nil, err
-		}
-		key[i] = decoded
-	}
-	return key, nil
+	return gestalt.DecodeIndexedDBIndexValues(raw, keyParts)
 }
 
-func buildIndexCondition(storeName, indexName string, values []*proto.TypedValue) (string, map[string]ddbtypes.AttributeValue) {
+func buildIndexCondition(storeName, indexName string, values []any) (string, map[string]ddbtypes.AttributeValue) {
 	exprVals := map[string]ddbtypes.AttributeValue{
 		":pk": &ddbtypes.AttributeValueMemberS{Value: indexPK(storeName, indexName)},
 	}
 	if len(values) == 0 {
 		return "PK = :pk", exprVals
 	}
-	exprVals[":skp"] = &ddbtypes.AttributeValueMemberS{Value: indexSKPrefix(protoValuesToStrings(values))}
+	exprVals[":skp"] = &ddbtypes.AttributeValueMemberS{Value: indexSKPrefix(valuesToStrings(values))}
 	return "PK = :pk AND begins_with(SK, :skp)", exprVals
 }
 
-func buildKeyCondition(storeName string, kr *proto.KeyRange) (string, map[string]ddbtypes.AttributeValue) {
+func buildKeyCondition(storeName string, kr *gestalt.KeyRange) (string, map[string]ddbtypes.AttributeValue) {
 	vals := map[string]ddbtypes.AttributeValue{
 		":pk": &ddbtypes.AttributeValueMemberS{Value: storeName},
 	}
 	if kr == nil || (kr.Lower == nil && kr.Upper == nil) {
 		return "PK = :pk", vals
 	}
-	lower := protoValueToString(kr.Lower)
-	upper := protoValueToString(kr.Upper)
+	lower := valueToString(kr.Lower)
+	upper := valueToString(kr.Upper)
 
 	switch {
 	case lower != "" && upper != "" && lower == upper && !kr.LowerOpen && !kr.UpperOpen:
@@ -1249,13 +1223,9 @@ func getS(item map[string]ddbtypes.AttributeValue, key string) string {
 	return ""
 }
 
-func parseData(item map[string]ddbtypes.AttributeValue) (*proto.Record, error) {
+func parseData(item map[string]ddbtypes.AttributeValue) (gestalt.Record, error) {
 	if raw, ok := item[attrData].(*ddbtypes.AttributeValueMemberB); ok {
-		record := &proto.Record{}
-		if err := gproto.Unmarshal(raw.Value, record); err != nil {
-			return nil, err
-		}
-		return record, nil
+		return gestalt.DecodeIndexedDBRecord(raw.Value)
 	}
 	raw := getS(item, attrData)
 	if raw == "" {
@@ -1265,39 +1235,35 @@ func parseData(item map[string]ddbtypes.AttributeValue) (*proto.Record, error) {
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
 		return nil, err
 	}
-	return sdkcompat.RecordToProto(m)
+	return gestalt.Record(m), nil
 }
 
-func extractID(record *proto.Record) (string, error) {
+func extractID(record gestalt.Record) (string, error) {
 	if record == nil {
 		return "", status.Error(codes.InvalidArgument, "record is required")
 	}
-	v, ok := record.Fields["id"]
+	value, ok := record["id"]
 	if !ok {
 		return "", status.Error(codes.InvalidArgument, "record must contain an \"id\" field")
 	}
-	value, err := sdkcompat.AnyFromTypedValue(v)
-	if err != nil {
-		return "", status.Errorf(codes.InvalidArgument, "record id: %v", err)
-	}
 	id, ok := value.(string)
-	if id == "" {
+	if !ok || id == "" {
 		return "", status.Error(codes.InvalidArgument, "record \"id\" must be a non-empty string")
 	}
 	return id, nil
 }
 
-func protoValueToString(v *proto.TypedValue) string {
+func valueToString(v any) string {
 	if v == nil {
 		return ""
 	}
-	return typedValueKeyString(v)
+	return keyStringFromAny(v)
 }
 
-func protoValuesToStrings(values []*proto.TypedValue) []string {
+func valuesToStrings(values []any) []string {
 	out := make([]string, len(values))
 	for i, v := range values {
-		out[i] = protoValueToString(v)
+		out[i] = valueToString(v)
 	}
 	return out
 }
@@ -1311,19 +1277,11 @@ func isConditionFailed(err error) bool {
 	return strings.Contains(msg, "ConditionalCheckFailed") || strings.Contains(msg, "conditional request failed")
 }
 
-func marshalRecord(record *proto.Record) ([]byte, error) {
+func marshalRecord(record gestalt.Record) ([]byte, error) {
 	if record == nil {
 		return nil, status.Error(codes.InvalidArgument, "record is required")
 	}
-	return gproto.Marshal(record)
-}
-
-func typedValueKeyString(value *proto.TypedValue) string {
-	goValue, err := sdkcompat.AnyFromTypedValue(value)
-	if err != nil {
-		return ""
-	}
-	return keyStringFromAny(goValue)
+	return gestalt.EncodeIndexedDBRecord(record)
 }
 
 func keyStringFromAny(value any) string {

@@ -10,8 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
-	"google.golang.org/grpc"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -29,24 +28,21 @@ func (c *dynamoCursor) SnapshotState() *cursorutil.Snapshot {
 	return &c.Snapshot
 }
 
-func (p *providerCore) OpenCursor(stream grpc.BidiStreamingServer[proto.CursorClientMessage, proto.CursorResponse]) error {
+func (p *providerCore) OpenCursor(ctx context.Context, req gestalt.IndexedDBOpenCursorRequest) (gestalt.IndexedDBCursor, error) {
 	if p.store == nil {
-		return status.Error(codes.FailedPrecondition, "dynamodb: not configured")
+		return nil, status.Error(codes.FailedPrecondition, "dynamodb: not configured")
 	}
-
-	return cursorutil.Serve(stream, func(ctx context.Context, req *proto.OpenCursorRequest) (cursorutil.Runtime, error) {
-		return p.openCursorSnapshot(ctx, req)
-	})
+	return p.openCursorSnapshot(ctx, req)
 }
 
-func (p *providerCore) openCursorSnapshot(ctx context.Context, req *proto.OpenCursorRequest) (*dynamoCursor, error) {
+func (p *providerCore) openCursorSnapshot(ctx context.Context, req gestalt.IndexedDBOpenCursorRequest) (*dynamoCursor, error) {
 	cursor := &dynamoCursor{
 		Snapshot:  cursorutil.NewSnapshot(req),
 		provider:  p,
-		storeName: req.GetStore(),
+		storeName: req.Store,
 	}
 	if cursor.IndexCursor {
-		meta, err := p.lookupIndexMeta(req.GetStore(), req.GetIndex())
+		meta, err := p.lookupIndexMeta(req.Store, req.Index)
 		if err != nil {
 			return nil, err
 		}
@@ -71,21 +67,21 @@ func (p *providerCore) openCursorSnapshot(ctx context.Context, req *proto.OpenCu
 	if err != nil {
 		return nil, err
 	}
-	if err := cursor.Load(entries, req.GetRange()); err != nil {
+	if err := cursor.Load(entries, req.Range); err != nil {
 		return nil, err
 	}
 	return cursor, nil
 }
 
-func (p *providerCore) cursorKeys(ctx context.Context, cursor *dynamoCursor, req *proto.OpenCursorRequest) ([]cursorutil.Entry, error) {
+func (p *providerCore) cursorKeys(ctx context.Context, cursor *dynamoCursor, req gestalt.IndexedDBOpenCursorRequest) ([]cursorutil.Entry, error) {
 	if cursor.IndexCursor {
 		return p.cursorIndexKeys(ctx, cursor, req)
 	}
 	return p.cursorObjectStoreKeys(ctx, req)
 }
 
-func (p *providerCore) cursorObjectStoreKeys(ctx context.Context, req *proto.OpenCursorRequest) ([]cursorutil.Entry, error) {
-	cond, vals := buildKeyCondition(req.GetStore(), req.GetRange())
+func (p *providerCore) cursorObjectStoreKeys(ctx context.Context, req gestalt.IndexedDBOpenCursorRequest) ([]cursorutil.Entry, error) {
+	cond, vals := buildKeyCondition(req.Store, req.Range)
 	var entries []cursorutil.Entry
 	var startKey map[string]ddbtypes.AttributeValue
 	for {
@@ -115,8 +111,8 @@ func (p *providerCore) cursorObjectStoreKeys(ctx context.Context, req *proto.Ope
 	return entries, nil
 }
 
-func (p *providerCore) cursorIndexKeys(ctx context.Context, cursor *dynamoCursor, req *proto.OpenCursorRequest) ([]cursorutil.Entry, error) {
-	cond, exprVals := buildIndexCondition(req.GetStore(), req.GetIndex(), req.GetValues())
+func (p *providerCore) cursorIndexKeys(ctx context.Context, cursor *dynamoCursor, req gestalt.IndexedDBOpenCursorRequest) ([]cursorutil.Entry, error) {
+	cond, exprVals := buildIndexCondition(req.Store, req.Index, req.Values)
 	var entries []cursorutil.Entry
 	var startKey map[string]ddbtypes.AttributeValue
 	for {
@@ -188,27 +184,19 @@ func (p *providerCore) lookupIndexMeta(storeName, indexName string) (*indexDef, 
 	return nil, status.Errorf(codes.NotFound, "index %q not found on store %q", indexName, storeName)
 }
 
-func (p *providerCore) cursorRecords(ctx context.Context, req *proto.OpenCursorRequest) ([]*proto.Record, error) {
-	if req.GetIndex() == "" {
-		resp, err := p.GetAll(ctx, &proto.ObjectStoreRangeRequest{Store: req.GetStore()})
-		if err != nil {
-			return nil, err
-		}
-		return resp.GetRecords(), nil
+func (p *providerCore) cursorRecords(ctx context.Context, req gestalt.IndexedDBOpenCursorRequest) ([]gestalt.Record, error) {
+	if req.Index == "" {
+		return p.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: req.Store})
 	}
 
-	resp, err := p.IndexGetAll(ctx, &proto.IndexQueryRequest{
-		Store:  req.GetStore(),
-		Index:  req.GetIndex(),
-		Values: req.GetValues(),
+	return p.IndexGetAll(ctx, gestalt.IndexedDBIndexQueryRequest{
+		Store:  req.Store,
+		Index:  req.Index,
+		Values: req.Values,
 	})
-	if err != nil {
-		return nil, err
-	}
-	return resp.GetRecords(), nil
 }
 
-func (c *dynamoCursor) entryFromRecord(record *proto.Record) (cursorutil.Entry, error) {
+func (c *dynamoCursor) entryFromRecord(record gestalt.Record) (cursorutil.Entry, error) {
 	primaryKey, err := extractID(record)
 	if err != nil {
 		return cursorutil.Entry{}, status.Errorf(codes.InvalidArgument, "record primary key: %v", err)
@@ -238,19 +226,45 @@ func (c *dynamoCursor) entryFromRecord(record *proto.Record) (cursorutil.Entry, 
 	}, nil
 }
 
+func (c *dynamoCursor) Next(ctx context.Context) (*gestalt.IndexedDBCursorEntry, error) {
+	entry, _, err := c.ContinueNext()
+	return entry, err
+}
+
+func (c *dynamoCursor) ContinueToKey(ctx context.Context, key any) (*gestalt.IndexedDBCursorEntry, error) {
+	entry, _, err := c.Snapshot.ContinueToKey(key)
+	return entry, err
+}
+
+func (c *dynamoCursor) Advance(ctx context.Context, count int) (*gestalt.IndexedDBCursorEntry, error) {
+	entry, _, err := c.Snapshot.Advance(count)
+	return entry, err
+}
+
+func (c *dynamoCursor) Delete(ctx context.Context) error {
+	return c.DeleteCurrent(ctx)
+}
+
+func (c *dynamoCursor) Update(ctx context.Context, record gestalt.Record) (*gestalt.IndexedDBCursorEntry, error) {
+	return c.UpdateCurrent(ctx, record)
+}
+
+func (c *dynamoCursor) Close() error {
+	return nil
+}
+
 func (c *dynamoCursor) DeleteCurrent(ctx context.Context) error {
 	entry, err := c.Current()
 	if err != nil {
 		return err
 	}
-	_, err = c.provider.Delete(ctx, &proto.ObjectStoreRequest{
+	return c.provider.Delete(ctx, gestalt.IndexedDBObjectStoreRequest{
 		Store: c.storeName,
-		Id:    entry.PrimaryKey,
+		ID:    entry.PrimaryKey,
 	})
-	return err
 }
 
-func (c *dynamoCursor) UpdateCurrent(ctx context.Context, record *proto.Record) (*proto.CursorEntry, error) {
+func (c *dynamoCursor) UpdateCurrent(ctx context.Context, record gestalt.Record) (*gestalt.IndexedDBCursorEntry, error) {
 	entry, err := c.Current()
 	if err != nil {
 		return nil, err
@@ -260,23 +274,22 @@ func (c *dynamoCursor) UpdateCurrent(ctx context.Context, record *proto.Record) 
 		return nil, err
 	}
 
-	if _, err := c.provider.Put(ctx, &proto.RecordRequest{
+	if err := c.provider.Put(ctx, gestalt.IndexedDBRecordRequest{
 		Store:  c.storeName,
 		Record: cloned,
 	}); err != nil {
 		return nil, err
 	}
 
-	// Preserve the cursor's existing key/range ordering after in-place updates.
 	c.Entries[c.Pos].Record = cloned
 	return c.CurrentEntry()
 }
 
-func dynamoRecordFieldAny(record *proto.Record, field string) (any, error) {
+func dynamoRecordFieldAny(record gestalt.Record, field string) (any, error) {
 	if record == nil {
 		return nil, fmt.Errorf("record is required")
 	}
-	if _, ok := record.Fields[field]; !ok {
+	if _, ok := record[field]; !ok {
 		return nil, fmt.Errorf("%w: field %q", errDynamoCursorFieldMissing, field)
 	}
 	return cursorutil.DirectRecordField(record, field)

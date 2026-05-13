@@ -8,14 +8,12 @@ import (
 	"sync"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
-	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type indexMeta struct {
@@ -90,147 +88,145 @@ func (s *Store) Close() error {
 // IndexedDBServer implementation
 // ---------------------------------------------------------------------------
 
-func (p *providerCore) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*emptypb.Empty, error) {
+func (p *providerCore) CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreSchema) error {
 	s, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return status.Error(codes.FailedPrecondition, err.Error())
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	name := req.GetName()
 	if err := s.db.CreateCollection(ctx, name); err != nil {
 		if !mongo.IsDuplicateKeyError(err) && !isNamespaceExistsError(err) {
-			return nil, status.Errorf(codes.Internal, "create collection %s: %v", name, err)
+			return status.Errorf(codes.Internal, "create collection %s: %v", name, err)
 		}
 	}
 
 	coll := s.db.Collection(name)
 	indexes := make(map[string]indexMeta)
-	for _, idx := range req.GetSchema().GetIndexes() {
+	for _, idx := range schema.Indexes {
 		keys := bson.D{}
-		for _, field := range idx.GetKeyPath() {
+		for _, field := range idx.KeyPath {
 			keys = append(keys, bson.E{Key: field, Value: 1})
 		}
 		model := mongo.IndexModel{
 			Keys:    keys,
-			Options: options.Index().SetName(idx.GetName()).SetUnique(idx.GetUnique()),
+			Options: options.Index().SetName(idx.Name).SetUnique(idx.Unique),
 		}
 		if _, err := coll.Indexes().CreateOne(ctx, model); err != nil {
-			return nil, status.Errorf(codes.Internal, "create index %s: %v", idx.GetName(), err)
+			return status.Errorf(codes.Internal, "create index %s: %v", idx.Name, err)
 		}
-		indexes[idx.GetName()] = indexMeta{
-			keyPath: idx.GetKeyPath(),
-			unique:  idx.GetUnique(),
+		indexes[idx.Name] = indexMeta{
+			keyPath: append([]string(nil), idx.KeyPath...),
+			unique:  idx.Unique,
 		}
 	}
 
 	s.schemas[name] = indexes
 
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func (p *providerCore) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectStoreRequest) (*emptypb.Empty, error) {
+func (p *providerCore) DeleteObjectStore(ctx context.Context, name string) error {
 	s, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return status.Error(codes.FailedPrecondition, err.Error())
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	name := req.GetName()
 	if err := s.db.Collection(name).Drop(ctx); err != nil {
-		return nil, status.Errorf(codes.Internal, "drop collection %s: %v", name, err)
+		return status.Errorf(codes.Internal, "drop collection %s: %v", name, err)
 	}
 	delete(s.schemas, name)
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func (p *providerCore) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.RecordResponse, error) {
+func (p *providerCore) Get(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (gestalt.Record, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	var doc bson.M
-	err = s.db.Collection(req.GetStore()).FindOne(ctx, idFilter(req.GetId())).Decode(&doc)
+	err = s.db.Collection(req.Store).FindOne(ctx, idFilter(req.ID)).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil, status.Error(codes.NotFound, "record not found")
 		}
 		return nil, status.Errorf(codes.Internal, "get: %v", err)
 	}
-	rec, err := docToProto(doc)
+	rec, err := docToRecord(doc)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "marshal record: %v", err)
 	}
-	return &proto.RecordResponse{Record: rec}, nil
+	return rec, nil
 }
 
-func (p *providerCore) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.KeyResponse, error) {
+func (p *providerCore) GetKey(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (string, error) {
 	s, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return "", status.Error(codes.FailedPrecondition, err.Error())
 	}
 	opts := options.FindOne().SetProjection(bson.M{"_id": 1})
 	var doc bson.M
-	err = s.db.Collection(req.GetStore()).FindOne(ctx, idFilter(req.GetId()), opts).Decode(&doc)
+	err = s.db.Collection(req.Store).FindOne(ctx, idFilter(req.ID), opts).Decode(&doc)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			return nil, status.Error(codes.NotFound, "key not found")
+			return "", status.Error(codes.NotFound, "key not found")
 		}
-		return nil, status.Errorf(codes.Internal, "get key: %v", err)
+		return "", status.Errorf(codes.Internal, "get key: %v", err)
 	}
-	return &proto.KeyResponse{Key: fmt.Sprint(doc["_id"])}, nil
+	return fmt.Sprint(doc["_id"]), nil
 }
 
-func (p *providerCore) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Add(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
 	s, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return status.Error(codes.FailedPrecondition, err.Error())
 	}
-	doc, err := protoToDoc(req.GetRecord())
+	doc, err := recordToDoc(req.Record)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "decode record: %v", err)
+		return status.Errorf(codes.InvalidArgument, "decode record: %v", err)
 	}
-	_, err = s.db.Collection(req.GetStore()).InsertOne(ctx, doc)
+	_, err = s.db.Collection(req.Store).InsertOne(ctx, doc)
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
-			return nil, status.Error(codes.AlreadyExists, "record already exists")
+			return status.Error(codes.AlreadyExists, "record already exists")
 		}
-		return nil, status.Errorf(codes.Internal, "add: %v", err)
+		return status.Errorf(codes.Internal, "add: %v", err)
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func (p *providerCore) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Put(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
 	s, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return status.Error(codes.FailedPrecondition, err.Error())
 	}
-	doc, err := protoToDoc(req.GetRecord())
+	doc, err := recordToDoc(req.Record)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "decode record: %v", err)
+		return status.Errorf(codes.InvalidArgument, "decode record: %v", err)
 	}
 	id, ok := doc["_id"]
 	if !ok {
-		return nil, status.Error(codes.InvalidArgument, "record must have an id field")
+		return status.Error(codes.InvalidArgument, "record must have an id field")
 	}
 	opts := options.Replace().SetUpsert(true)
-	_, err = s.db.Collection(req.GetStore()).ReplaceOne(ctx, bson.M{"_id": id}, doc, opts)
+	_, err = s.db.Collection(req.Store).ReplaceOne(ctx, bson.M{"_id": id}, doc, opts)
 	if err != nil {
 		if mongo.IsDuplicateKeyError(err) {
-			return nil, status.Error(codes.AlreadyExists, "record already exists")
+			return status.Error(codes.AlreadyExists, "record already exists")
 		}
-		return nil, status.Errorf(codes.Internal, "put: %v", err)
+		return status.Errorf(codes.Internal, "put: %v", err)
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func (p *providerCore) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
-	if err := p.deleteByIDValue(ctx, req.GetStore(), req.GetId()); err != nil {
-		return nil, err
+func (p *providerCore) Delete(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) error {
+	if err := p.deleteByIDValue(ctx, req.Store, req.ID); err != nil {
+		return err
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
 func (p *providerCore) deleteByIDValue(ctx context.Context, storeName string, id any) error {
@@ -245,50 +241,50 @@ func (p *providerCore) deleteByIDValue(ctx context.Context, storeName string, id
 	return nil
 }
 
-func (p *providerCore) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {
+func (p *providerCore) Clear(ctx context.Context, storeName string) error {
 	s, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return status.Error(codes.FailedPrecondition, err.Error())
 	}
-	_, err = s.db.Collection(req.GetStore()).DeleteMany(ctx, bson.M{})
+	_, err = s.db.Collection(storeName).DeleteMany(ctx, bson.M{})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "clear: %v", err)
+		return status.Errorf(codes.Internal, "clear: %v", err)
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func (p *providerCore) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {
+func (p *providerCore) GetAll(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]gestalt.Record, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	filter, err := keyRangeFilter(req.GetRange())
+	filter, err := keyRangeFilter(req.Range)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid key range: %v", err)
 	}
-	cursor, err := s.db.Collection(req.GetStore()).Find(ctx, filter)
+	cursor, err := s.db.Collection(req.Store).Find(ctx, filter)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get all: %v", err)
 	}
 	defer cursor.Close(ctx)
-	records, err := cursorToProtos(ctx, cursor)
+	records, err := cursorToRecords(ctx, cursor)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get all cursor: %v", err)
 	}
-	return &proto.RecordsResponse{Records: records}, nil
+	return records, nil
 }
 
-func (p *providerCore) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.KeysResponse, error) {
+func (p *providerCore) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]string, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	filter, err := keyRangeFilter(req.GetRange())
+	filter, err := keyRangeFilter(req.Range)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid key range: %v", err)
 	}
 	opts := options.Find().SetProjection(bson.M{"_id": 1})
-	cursor, err := s.db.Collection(req.GetStore()).Find(ctx, filter, opts)
+	cursor, err := s.db.Collection(req.Store).Find(ctx, filter, opts)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get all keys: %v", err)
 	}
@@ -301,42 +297,42 @@ func (p *providerCore) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRan
 		}
 		keys = append(keys, fmt.Sprint(doc["_id"]))
 	}
-	return &proto.KeysResponse{Keys: keys}, nil
+	return keys, nil
 }
 
-func (p *providerCore) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.CountResponse, error) {
+func (p *providerCore) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
 	s, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return 0, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	filter, err := keyRangeFilter(req.GetRange())
+	filter, err := keyRangeFilter(req.Range)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid key range: %v", err)
+		return 0, status.Errorf(codes.InvalidArgument, "invalid key range: %v", err)
 	}
-	count, err := s.db.Collection(req.GetStore()).CountDocuments(ctx, filter)
+	count, err := s.db.Collection(req.Store).CountDocuments(ctx, filter)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "count: %v", err)
+		return 0, status.Errorf(codes.Internal, "count: %v", err)
 	}
-	return &proto.CountResponse{Count: count}, nil
+	return count, nil
 }
 
-func (p *providerCore) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.DeleteResponse, error) {
+func (p *providerCore) DeleteRange(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
 	s, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return 0, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	filter, err := keyRangeFilter(req.GetRange())
+	filter, err := keyRangeFilter(req.Range)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid key range: %v", err)
+		return 0, status.Errorf(codes.InvalidArgument, "invalid key range: %v", err)
 	}
-	result, err := s.db.Collection(req.GetStore()).DeleteMany(ctx, filter)
+	result, err := s.db.Collection(req.Store).DeleteMany(ctx, filter)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "delete range: %v", err)
+		return 0, status.Errorf(codes.Internal, "delete range: %v", err)
 	}
-	return &proto.DeleteResponse{Deleted: result.DeletedCount}, nil
+	return result.DeletedCount, nil
 }
 
-func (p *providerCore) IndexGet(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordResponse, error) {
+func (p *providerCore) IndexGet(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (gestalt.Record, error) {
 	entries, err := p.queryIndexEntries(ctx, req)
 	if err != nil {
 		return nil, err
@@ -344,33 +340,33 @@ func (p *providerCore) IndexGet(ctx context.Context, req *proto.IndexQueryReques
 	if len(entries) == 0 {
 		return nil, status.Error(codes.NotFound, "record not found")
 	}
-	return &proto.RecordResponse{Record: entries[0].Record}, nil
+	return entries[0].Record, nil
 }
 
-func (p *providerCore) IndexGetKey(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeyResponse, error) {
+func (p *providerCore) IndexGetKey(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (string, error) {
 	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if len(entries) == 0 {
-		return nil, status.Error(codes.NotFound, "key not found")
+		return "", status.Error(codes.NotFound, "key not found")
 	}
-	return &proto.KeyResponse{Key: entries[0].PrimaryKey}, nil
+	return entries[0].PrimaryKey, nil
 }
 
-func (p *providerCore) IndexGetAll(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordsResponse, error) {
+func (p *providerCore) IndexGetAll(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]gestalt.Record, error) {
 	entries, err := p.queryIndexEntries(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	records := make([]*proto.Record, 0, len(entries))
+	records := make([]gestalt.Record, 0, len(entries))
 	for _, entry := range entries {
 		records = append(records, entry.Record)
 	}
-	return &proto.RecordsResponse{Records: records}, nil
+	return records, nil
 }
 
-func (p *providerCore) IndexGetAllKeys(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeysResponse, error) {
+func (p *providerCore) IndexGetAllKeys(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]string, error) {
 	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
 		return nil, err
@@ -379,64 +375,64 @@ func (p *providerCore) IndexGetAllKeys(ctx context.Context, req *proto.IndexQuer
 	for _, entry := range entries {
 		keys = append(keys, entry.PrimaryKey)
 	}
-	return &proto.KeysResponse{Keys: keys}, nil
+	return keys, nil
 }
 
-func (p *providerCore) IndexCount(ctx context.Context, req *proto.IndexQueryRequest) (*proto.CountResponse, error) {
+func (p *providerCore) IndexCount(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (int64, error) {
 	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	return &proto.CountResponse{Count: int64(len(entries))}, nil
+	return int64(len(entries)), nil
 }
 
-func (p *providerCore) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest) (*proto.DeleteResponse, error) {
+func (p *providerCore) IndexDelete(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (int64, error) {
 	entries, err := p.queryIndexKeyEntries(ctx, req)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	var deleted int64
 	for _, entry := range entries {
-		if err := p.deleteByIDValue(ctx, req.GetStore(), entry.PrimaryKeyValue); err != nil {
-			return nil, mongoMapCursorWriteErr("index_delete", err)
+		if err := p.deleteByIDValue(ctx, req.Store, entry.PrimaryKeyValue); err != nil {
+			return 0, mongoMapCursorWriteErr("index_delete", err)
 		}
 		deleted++
 	}
-	return &proto.DeleteResponse{Deleted: deleted}, nil
+	return deleted, nil
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-func (p *providerCore) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]cursorutil.Entry, error) {
+func (p *providerCore) queryIndexEntries(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]cursorutil.Entry, error) {
 	return p.queryIndexEntriesWithProjection(ctx, req, nil)
 }
 
-func (p *providerCore) queryIndexKeyEntries(ctx context.Context, req *proto.IndexQueryRequest) ([]cursorutil.Entry, error) {
+func (p *providerCore) queryIndexKeyEntries(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]cursorutil.Entry, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	meta, err := getMongoIndexMetaForContext(ctx, s, req.GetStore(), req.GetIndex())
+	meta, err := getMongoIndexMetaForContext(ctx, s, req.Store, req.Index)
 	if err != nil {
 		return nil, err
 	}
 	return p.queryIndexEntriesWithProjection(ctx, req, indexProjection(meta.keyPath))
 }
 
-func (p *providerCore) queryIndexEntriesWithProjection(ctx context.Context, req *proto.IndexQueryRequest, projection bson.M) ([]cursorutil.Entry, error) {
+func (p *providerCore) queryIndexEntriesWithProjection(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest, projection bson.M) ([]cursorutil.Entry, error) {
 	s, err := p.configured()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 
-	meta, err := getMongoIndexMetaForContext(ctx, s, req.GetStore(), req.GetIndex())
+	meta, err := getMongoIndexMetaForContext(ctx, s, req.Store, req.Index)
 	if err != nil {
 		return nil, err
 	}
 
-	filter, err := s.indexFilter(ctx, req.GetStore(), req.GetIndex(), req.GetValues())
+	filter, err := s.indexFilter(ctx, req.Store, req.Index, req.Values)
 	if err != nil {
 		return nil, err
 	}
@@ -444,19 +440,19 @@ func (p *providerCore) queryIndexEntriesWithProjection(ctx context.Context, req 
 	if len(projection) > 0 {
 		findOpts.SetProjection(projection)
 	}
-	cursor, err := s.db.Collection(req.GetStore()).Find(ctx, filter, findOpts)
+	cursor, err := s.db.Collection(req.Store).Find(ctx, filter, findOpts)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "index query: %v", err)
 	}
 	defer cursor.Close(ctx)
 
-	records, err := cursorToProtos(ctx, cursor)
+	records, err := cursorToRecords(ctx, cursor)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "index query cursor: %v", err)
 	}
 
 	rangeCursor := &mongoCursor{
-		Snapshot: cursorutil.Snapshot{IndexCursor: true},
+		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}},
 		index:    &meta,
 	}
 	entries := make([]cursorutil.Entry, 0, len(records))
@@ -471,7 +467,7 @@ func (p *providerCore) queryIndexEntriesWithProjection(ctx context.Context, req 
 		entries = append(entries, entry)
 	}
 
-	entries, err = rangeCursor.ApplyRange(entries, req.GetRange())
+	entries, err = rangeCursor.ApplyRange(entries, req.Range)
 	if err != nil {
 		return nil, err
 	}
@@ -511,50 +507,38 @@ func (s *Store) getIndexMeta(store, index string) (indexMeta, error) {
 	return meta, nil
 }
 
-func (s *Store) indexFilter(ctx context.Context, store, index string, values []*proto.TypedValue) (bson.M, error) {
+func (s *Store) indexFilter(ctx context.Context, store, index string, values []any) (bson.M, error) {
 	meta, err := getMongoIndexMetaForContext(ctx, s, store, index)
 	if err != nil {
 		return nil, err
 	}
 
 	filter := bson.M{}
-	goValues, err := sdkcompat.AnyFromTypedValues(values)
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid index values: %v", err)
-	}
 	for i, field := range meta.keyPath {
-		if i < len(goValues) {
-			filter[field] = goValues[i]
+		if i < len(values) {
+			filter[field] = values[i]
 		}
 	}
 	return filter, nil
 }
 
-func keyRangeFilter(r *proto.KeyRange) (bson.M, error) {
+func keyRangeFilter(r *gestalt.KeyRange) (bson.M, error) {
 	if r == nil {
 		return bson.M{}, nil
 	}
 	idFilter := bson.M{}
-	if r.GetLower() != nil {
-		lower, err := sdkcompat.AnyFromTypedValue(r.GetLower())
-		if err != nil {
-			return nil, err
-		}
-		if r.GetLowerOpen() {
-			idFilter["$gt"] = lower
+	if r.Lower != nil {
+		if r.LowerOpen {
+			idFilter["$gt"] = r.Lower
 		} else {
-			idFilter["$gte"] = lower
+			idFilter["$gte"] = r.Lower
 		}
 	}
-	if r.GetUpper() != nil {
-		upper, err := sdkcompat.AnyFromTypedValue(r.GetUpper())
-		if err != nil {
-			return nil, err
-		}
-		if r.GetUpperOpen() {
-			idFilter["$lt"] = upper
+	if r.Upper != nil {
+		if r.UpperOpen {
+			idFilter["$lt"] = r.Upper
 		} else {
-			idFilter["$lte"] = upper
+			idFilter["$lte"] = r.Upper
 		}
 	}
 	if len(idFilter) == 0 {
@@ -563,16 +547,12 @@ func keyRangeFilter(r *proto.KeyRange) (bson.M, error) {
 	return bson.M{"_id": idFilter}, nil
 }
 
-func protoToDoc(record *proto.Record) (bson.M, error) {
+func recordToDoc(record gestalt.Record) (bson.M, error) {
 	if record == nil {
 		return bson.M{}, nil
 	}
-	m, err := sdkcompat.RecordFromProto(record)
-	if err != nil {
-		return nil, err
-	}
 	doc := bson.M{}
-	for k, v := range m {
+	for k, v := range record {
 		if k == "id" {
 			doc["_id"] = v
 		} else {
@@ -582,8 +562,8 @@ func protoToDoc(record *proto.Record) (bson.M, error) {
 	return doc, nil
 }
 
-func docToProto(doc bson.M) (*proto.Record, error) {
-	m := make(map[string]any, len(doc))
+func docToRecord(doc bson.M) (gestalt.Record, error) {
+	m := make(gestalt.Record, len(doc))
 	for k, v := range doc {
 		if k == "_id" {
 			m["id"] = toGestaltCompatible(v)
@@ -591,17 +571,17 @@ func docToProto(doc bson.M) (*proto.Record, error) {
 			m[k] = toGestaltCompatible(v)
 		}
 	}
-	return sdkcompat.RecordToProto(m)
+	return m, nil
 }
 
-func cursorToProtos(ctx context.Context, cursor *mongo.Cursor) ([]*proto.Record, error) {
-	var records []*proto.Record
+func cursorToRecords(ctx context.Context, cursor *mongo.Cursor) ([]gestalt.Record, error) {
+	var records []gestalt.Record
 	for cursor.Next(ctx) {
 		var doc bson.M
 		if err := cursor.Decode(&doc); err != nil {
 			return nil, err
 		}
-		rec, err := docToProto(doc)
+		rec, err := docToRecord(doc)
 		if err != nil {
 			return nil, err
 		}

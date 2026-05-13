@@ -12,7 +12,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	contracttest "github.com/valon-technologies/gestalt-providers/indexeddb/contracttest"
-	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
@@ -65,13 +64,10 @@ func TestLegacyUniqueIndexCompatibility(t *testing.T) {
 		t.Fatalf("CreateObjectStore: %v", err)
 	}
 
-	alice, err := sdkcompat.RecordToProto(gestalt.Record{
+	alice := gestalt.Record{
 		"id":    "a",
 		"name":  "Alice",
 		"email": "alice@test.com",
-	})
-	if err != nil {
-		t.Fatalf("RecordToProto(alice): %v", err)
 	}
 	rawAlice, err := marshalRecord(alice)
 	if err != nil {

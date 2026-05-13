@@ -9,8 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -214,12 +213,12 @@ func TestNewStoreWithSchemaRejectsSQLite(t *testing.T) {
 	}
 }
 
-func widgetsSchema() *proto.ObjectStoreSchema {
-	return &proto.ObjectStoreSchema{
-		Indexes: []*proto.IndexSchema{
+func widgetsSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
 			{Name: "by_code", KeyPath: []string{"code"}, Unique: true},
 		},
-		Columns: []*proto.ColumnDef{
+		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: 0, PrimaryKey: true, NotNull: true},
 			{Name: "code", Type: 0, NotNull: true, Unique: true},
 			{Name: "title", Type: 0},
@@ -229,13 +228,13 @@ func widgetsSchema() *proto.ObjectStoreSchema {
 	}
 }
 
-func sampleRecordsSchema() *proto.ObjectStoreSchema {
-	return &proto.ObjectStoreSchema{
-		Indexes: []*proto.IndexSchema{
+func sampleRecordsSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
 			{Name: "by_owner", KeyPath: []string{"owner_id"}},
 			{Name: "by_lookup", KeyPath: []string{"owner_id", "category", "region", "variant"}},
 		},
-		Columns: []*proto.ColumnDef{
+		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: 0, PrimaryKey: true, NotNull: true},
 			{Name: "owner_id", Type: 0, NotNull: true},
 			{Name: "category", Type: 0, NotNull: true},
@@ -250,28 +249,28 @@ func sampleRecordsSchema() *proto.ObjectStoreSchema {
 	}
 }
 
-func intPrimaryKeySchema() *proto.ObjectStoreSchema {
-	return &proto.ObjectStoreSchema{
-		Columns: []*proto.ColumnDef{
+func intPrimaryKeySchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: 1, PrimaryKey: true, NotNull: true},
 			{Name: "title", Type: 0},
 		},
 	}
 }
 
-func makeWidget(id, code, title string) *proto.Record {
-	record, _ := sdkcompat.RecordToProto(map[string]any{
+func makeWidget(id, code, title string) gestalt.Record {
+	record := gestalt.Record{
 		"id":         id,
 		"code":       code,
 		"title":      title,
 		"created_at": time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC),
 		"updated_at": time.Date(2024, time.January, 1, 0, 0, 0, 0, time.UTC),
-	})
+	}
 	return record
 }
 
-func makeSampleRecord(id string) *proto.Record {
-	record, _ := sdkcompat.RecordToProto(map[string]any{
+func makeSampleRecord(id string) gestalt.Record {
+	record := gestalt.Record{
 		"id":             id,
 		"owner_id":       "owner-1",
 		"category":       "alpha",
@@ -282,15 +281,15 @@ func makeSampleRecord(id string) *proto.Record {
 		"last_seen_at":   time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
 		"created_at":     time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
 		"updated_at":     time.Date(2026, time.April, 12, 2, 29, 44, 0, time.UTC),
-	})
+	}
 	return record
 }
 
-func makeIntPrimaryKeyRecord(id int64, title string) *proto.Record {
-	record, _ := sdkcompat.RecordToProto(map[string]any{
+func makeIntPrimaryKeyRecord(id int64, title string) gestalt.Record {
+	record := gestalt.Record{
 		"id":    id,
 		"title": title,
-	})
+	}
 	return record
 }
 
@@ -299,23 +298,19 @@ func TestFullLifecycle(t *testing.T) {
 	ctx := context.Background()
 
 	// Create object store.
-	_, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: widgetsSchema(),
-	})
+	err := s.CreateObjectStore(ctx, "widgets", widgetsSchema())
 	if err != nil {
 		t.Fatalf("CreateObjectStore: %v", err)
 	}
 
 	// Idempotent create.
-	_, err = s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: widgetsSchema(),
-	})
+	err = s.CreateObjectStore(ctx, "widgets", widgetsSchema())
 	if err != nil {
 		t.Fatalf("CreateObjectStore idempotent: %v", err)
 	}
 
 	// Add a row.
-	_, err = s.Add(ctx, &proto.RecordRequest{
+	err = s.Add(ctx, gestalt.IndexedDBRecordRequest{
 		Store: "widgets", Record: makeWidget("w1", "W-001", "Alpha Widget"),
 	})
 	if err != nil {
@@ -323,66 +318,62 @@ func TestFullLifecycle(t *testing.T) {
 	}
 
 	// Get by primary key.
-	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
+	resp, err := s.Get(ctx, gestalt.IndexedDBObjectStoreRequest{Store: "widgets", ID: "w1"})
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got := resp.Record.Fields["code"].GetStringValue(); got != "W-001" {
+	if got := resp["code"]; got != "W-001" {
 		t.Fatalf("Get code: got %q, want W-001", got)
 	}
-	createdAt, err := sdkcompat.AnyFromTypedValue(resp.Record.Fields["created_at"])
-	if err != nil {
-		t.Fatalf("AnyFromTypedValue(created_at): %v", err)
-	}
+	createdAt := resp["created_at"]
 	if _, ok := createdAt.(time.Time); !ok {
 		t.Fatalf("created_at type = %T, want time.Time", createdAt)
 	}
 
 	// Count.
-	countResp, err := s.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "widgets"})
+	countResp, err := s.Count(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: "widgets"})
 	if err != nil {
 		t.Fatalf("Count: %v", err)
 	}
-	if countResp.Count != 1 {
-		t.Fatalf("Count: got %d, want 1", countResp.Count)
+	if countResp != 1 {
+		t.Fatalf("Count: got %d, want 1", countResp)
 	}
 
 	// Put (upsert) — update the title.
-	_, err = s.Put(ctx, &proto.RecordRequest{
+	err = s.Put(ctx, gestalt.IndexedDBRecordRequest{
 		Store: "widgets", Record: makeWidget("w1", "W-001", "Updated Widget"),
 	})
 	if err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	resp, _ = s.Get(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
-	if got := resp.Record.Fields["title"].GetStringValue(); got != "Updated Widget" {
+	resp, _ = s.Get(ctx, gestalt.IndexedDBObjectStoreRequest{Store: "widgets", ID: "w1"})
+	if got := resp["title"]; got != "Updated Widget" {
 		t.Fatalf("Put title: got %q, want 'Updated Widget'", got)
 	}
 
 	// Index query.
-	vals, _ := sdkcompat.TypedValuesFromAny([]any{"W-001"})
-	idxResp, err := s.IndexGet(ctx, &proto.IndexQueryRequest{
-		Store: "widgets", Index: "by_code", Values: vals,
+	idxResp, err := s.IndexGet(ctx, gestalt.IndexedDBIndexQueryRequest{
+		Store: "widgets", Index: "by_code", Values: []any{"W-001"},
 	})
 	if err != nil {
 		t.Fatalf("IndexGet: %v", err)
 	}
-	if got := idxResp.Record.Fields["id"].GetStringValue(); got != "w1" {
+	if got := idxResp["id"]; got != "w1" {
 		t.Fatalf("IndexGet id: got %q, want w1", got)
 	}
 
 	// Delete.
-	_, err = s.Delete(ctx, &proto.ObjectStoreRequest{Store: "widgets", Id: "w1"})
+	err = s.Delete(ctx, gestalt.IndexedDBObjectStoreRequest{Store: "widgets", ID: "w1"})
 	if err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	countResp, _ = s.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "widgets"})
-	if countResp.Count != 0 {
-		t.Fatalf("Count after delete: got %d, want 0", countResp.Count)
+	countResp, _ = s.Count(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: "widgets"})
+	if countResp != 0 {
+		t.Fatalf("Count after delete: got %d, want 0", countResp)
 	}
 
 	// Delete object store.
-	_, err = s.DeleteObjectStore(ctx, &proto.DeleteObjectStoreRequest{Name: "widgets"})
+	err = s.DeleteObjectStore(ctx, "widgets")
 	if err != nil {
 		t.Fatalf("DeleteObjectStore: %v", err)
 	}
@@ -396,9 +387,7 @@ func TestCreateObjectStoreUsesGenericTables(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 
-	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: widgetsSchema(),
-	}); err != nil {
+	if err := s.CreateObjectStore(ctx, "widgets", widgetsSchema()); err != nil {
 		t.Fatalf("CreateObjectStore: %v", err)
 	}
 
@@ -420,22 +409,20 @@ func TestCreateObjectStoreUsesGenericTables(t *testing.T) {
 func TestCreateObjectStorePersistsGenericRows(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)
-	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "sample_records", Schema: sampleRecordsSchema(),
-	}); err != nil {
+	if err := s.CreateObjectStore(ctx, "sample_records", sampleRecordsSchema()); err != nil {
 		t.Fatalf("CreateObjectStore: %v", err)
 	}
-	if _, err := s.Add(ctx, &proto.RecordRequest{
+	if err := s.Add(ctx, gestalt.IndexedDBRecordRequest{
 		Store: "sample_records", Record: makeSampleRecord("row-1"),
 	}); err != nil {
 		t.Fatalf("Add record: %v", err)
 	}
 
-	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "sample_records", Id: "row-1"})
+	resp, err := s.Get(ctx, gestalt.IndexedDBObjectStoreRequest{Store: "sample_records", ID: "row-1"})
 	if err != nil {
 		t.Fatalf("Get record: %v", err)
 	}
-	if got := resp.Record.Fields["payload"].GetStringValue(); got != "payload-a" {
+	if got := resp["payload"]; got != "payload-a" {
 		t.Fatalf("payload = %q, want payload-a", got)
 	}
 }
@@ -444,50 +431,43 @@ func TestGenericStoreSupportsTypedPrimaryKeyLookup(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)
 
-	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "int_keys", Schema: intPrimaryKeySchema(),
-	}); err != nil {
+	if err := s.CreateObjectStore(ctx, "int_keys", intPrimaryKeySchema()); err != nil {
 		t.Fatalf("CreateObjectStore: %v", err)
 	}
-	if _, err := s.Add(ctx, &proto.RecordRequest{
+	if err := s.Add(ctx, gestalt.IndexedDBRecordRequest{
 		Store: "int_keys", Record: makeIntPrimaryKeyRecord(42, "The Answer"),
 	}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
-	resp, err := s.Get(ctx, &proto.ObjectStoreRequest{Store: "int_keys", Id: "42"})
+	resp, err := s.Get(ctx, gestalt.IndexedDBObjectStoreRequest{Store: "int_keys", ID: "42"})
 	if err != nil {
 		t.Fatalf("Get typed primary key: %v", err)
 	}
-	id, err := sdkcompat.AnyFromTypedValue(resp.Record.Fields["id"])
-	if err != nil {
-		t.Fatalf("AnyFromTypedValue(id): %v", err)
-	}
+	id := resp["id"]
 	if got, ok := id.(int64); !ok || got != 42 {
 		t.Fatalf("id = %#v (%T), want int64(42)", id, id)
 	}
 
-	if _, err := s.Delete(ctx, &proto.ObjectStoreRequest{Store: "int_keys", Id: "42"}); err != nil {
+	if err := s.Delete(ctx, gestalt.IndexedDBObjectStoreRequest{Store: "int_keys", ID: "42"}); err != nil {
 		t.Fatalf("Delete typed primary key: %v", err)
 	}
-	count, err := s.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "int_keys"})
+	count, err := s.Count(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: "int_keys"})
 	if err != nil {
 		t.Fatalf("Count: %v", err)
 	}
-	if got := count.GetCount(); got != 0 {
-		t.Fatalf("Count after delete = %d, want 0", got)
+	if count != 0 {
+		t.Fatalf("Count after delete = %d, want 0", count)
 	}
 }
 
 func TestCreateObjectStoreKeepsGenericRowsWhenSchemaUnchanged(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)
-	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: widgetsSchema(),
-	}); err != nil {
+	if err := s.CreateObjectStore(ctx, "widgets", widgetsSchema()); err != nil {
 		t.Fatalf("CreateObjectStore: %v", err)
 	}
-	if _, err := s.Add(ctx, &proto.RecordRequest{
+	if err := s.Add(ctx, gestalt.IndexedDBRecordRequest{
 		Store: "widgets", Record: makeWidget("w1", "W-001", "Alpha Widget"),
 	}); err != nil {
 		t.Fatalf("Add record: %v", err)
@@ -513,9 +493,7 @@ func TestCreateObjectStoreKeepsGenericRowsWhenSchemaUnchanged(t *testing.T) {
 		t.Fatalf("insert sentinel index row: %v", err)
 	}
 
-	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: widgetsSchema(),
-	}); err != nil {
+	if err := s.CreateObjectStore(ctx, "widgets", widgetsSchema()); err != nil {
 		t.Fatalf("CreateObjectStore unchanged: %v", err)
 	}
 
@@ -531,12 +509,10 @@ func TestCreateObjectStoreKeepsGenericRowsWhenSchemaUnchanged(t *testing.T) {
 func TestCountWithoutRangeDoesNotMaterializeRows(t *testing.T) {
 	ctx := context.Background()
 	s := testStore(t)
-	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: widgetsSchema(),
-	}); err != nil {
+	if err := s.CreateObjectStore(ctx, "widgets", widgetsSchema()); err != nil {
 		t.Fatalf("CreateObjectStore: %v", err)
 	}
-	if _, err := s.Add(ctx, &proto.RecordRequest{
+	if err := s.Add(ctx, gestalt.IndexedDBRecordRequest{
 		Store: "widgets", Record: makeWidget("w1", "W-001", "Alpha Widget"),
 	}); err != nil {
 		t.Fatalf("Add record: %v", err)
@@ -554,11 +530,11 @@ func TestCountWithoutRangeDoesNotMaterializeRows(t *testing.T) {
 		t.Fatalf("corrupt primary key bytes: %v", err)
 	}
 
-	count, err := s.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "widgets"})
+	count, err := s.Count(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: "widgets"})
 	if err != nil {
 		t.Fatalf("Count: %v", err)
 	}
-	if got := count.GetCount(); got != 1 {
+	if got := count; got != 1 {
 		t.Fatalf("Count = %d, want 1", got)
 	}
 }
@@ -569,12 +545,10 @@ func TestCreateObjectStoreRejectsSchemaChanges(t *testing.T) {
 
 	initialSchema := widgetsSchema()
 	initialSchema.Indexes = nil
-	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: initialSchema,
-	}); err != nil {
+	if err := s.CreateObjectStore(ctx, "widgets", initialSchema); err != nil {
 		t.Fatalf("CreateObjectStore: %v", err)
 	}
-	if _, err := s.Add(ctx, &proto.RecordRequest{
+	if err := s.Add(ctx, gestalt.IndexedDBRecordRequest{
 		Store: "widgets", Record: makeWidget("w1", "W-001", "Alpha Widget"),
 	}); err != nil {
 		t.Fatalf("Add record: %v", err)
@@ -589,22 +563,19 @@ func TestCreateObjectStoreRejectsSchemaChanges(t *testing.T) {
 		t.Fatalf("create delete guard trigger: %v", err)
 	}
 
-	if _, err := s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: widgetsSchema(),
-	}); status.Code(err) != codes.FailedPrecondition {
+	if err := s.CreateObjectStore(ctx, "widgets", widgetsSchema()); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("CreateObjectStore schema change error = %v, want FailedPrecondition", err)
 	}
 
-	count, err := s.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "widgets"})
+	count, err := s.Count(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: "widgets"})
 	if err != nil {
 		t.Fatalf("Count: %v", err)
 	}
-	if got := count.GetCount(); got != 1 {
+	if got := count; got != 1 {
 		t.Fatalf("Count after rejected schema change = %d, want 1", got)
 	}
-	vals, _ := sdkcompat.TypedValuesFromAny([]any{"W-001"})
-	if _, err := s.IndexGet(ctx, &proto.IndexQueryRequest{
-		Store: "widgets", Index: "by_code", Values: vals,
+	if _, err := s.IndexGet(ctx, gestalt.IndexedDBIndexQueryRequest{
+		Store: "widgets", Index: "by_code", Values: []any{"W-001"},
 	}); status.Code(err) != codes.NotFound {
 		t.Fatalf("IndexGet after rejected schema change error = %v, want NotFound", err)
 	}
@@ -617,21 +588,17 @@ func TestCreateObjectStoreRefreshesExternalMetadataBeforeSchemaCheck(t *testing.
 
 	initialSchema := widgetsSchema()
 	initialSchema.Indexes = nil
-	if _, err := first.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: initialSchema,
-	}); err != nil {
+	if err := first.CreateObjectStore(ctx, "widgets", initialSchema); err != nil {
 		t.Fatalf("CreateObjectStore initial: %v", err)
 	}
-	if _, err := first.Add(ctx, &proto.RecordRequest{
+	if err := first.Add(ctx, gestalt.IndexedDBRecordRequest{
 		Store: "widgets", Record: makeWidget("w1", "W-001", "Alpha Widget"),
 	}); err != nil {
 		t.Fatalf("Add record: %v", err)
 	}
 
 	second := testStoreWithDSN(t, dsn)
-	if _, err := first.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: widgetsSchema(),
-	}); status.Code(err) != codes.FailedPrecondition {
+	if err := first.CreateObjectStore(ctx, "widgets", widgetsSchema()); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("CreateObjectStore schema change error = %v, want FailedPrecondition", err)
 	}
 
@@ -653,17 +620,15 @@ func TestCreateObjectStoreRefreshesExternalMetadataBeforeSchemaCheck(t *testing.
 		}
 	}
 
-	if _, err := second.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: widgetsSchema(),
-	}); status.Code(err) != codes.FailedPrecondition {
+	if err := second.CreateObjectStore(ctx, "widgets", widgetsSchema()); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("CreateObjectStore refreshed external metadata error = %v, want FailedPrecondition", err)
 	}
 
-	count, err := second.Count(ctx, &proto.ObjectStoreRangeRequest{Store: "widgets"})
+	count, err := second.Count(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: "widgets"})
 	if err != nil {
 		t.Fatalf("Count: %v", err)
 	}
-	if got := count.GetCount(); got != 1 {
+	if got := count; got != 1 {
 		t.Fatalf("Count after rejected external schema change = %d, want 1", got)
 	}
 }
@@ -707,12 +672,10 @@ func TestSQLiteTablePrefixNamespacesMetadataAndTables(t *testing.T) {
 		{store: alpha, id: "a1", code: "A-001", title: "Alpha Task", prefix: "alpha_"},
 		{store: beta, id: "b1", code: "B-001", title: "Beta Task", prefix: "beta_"},
 	} {
-		if _, err := tc.store.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-			Name: "tasks", Schema: widgetsSchema(),
-		}); err != nil {
+		if err := tc.store.CreateObjectStore(ctx, "tasks", widgetsSchema()); err != nil {
 			t.Fatalf("CreateObjectStore(%s): %v", tc.prefix, err)
 		}
-		if _, err := tc.store.Add(ctx, &proto.RecordRequest{
+		if err := tc.store.Add(ctx, gestalt.IndexedDBRecordRequest{
 			Store: "tasks", Record: makeWidget(tc.id, tc.code, tc.title),
 		}); err != nil {
 			t.Fatalf("Add(%s): %v", tc.prefix, err)
@@ -751,25 +714,25 @@ func TestSQLiteTablePrefixNamespacesMetadataAndTables(t *testing.T) {
 	alphaReloaded := testStoreWithOptions(t, dsn, storeOptions{TablePrefix: "alpha_"})
 	betaReloaded := testStoreWithOptions(t, dsn, storeOptions{TablePrefix: "beta_"})
 
-	alphaResp, err := alphaReloaded.Get(ctx, &proto.ObjectStoreRequest{Store: "tasks", Id: "a1"})
+	alphaResp, err := alphaReloaded.Get(ctx, gestalt.IndexedDBObjectStoreRequest{Store: "tasks", ID: "a1"})
 	if err != nil {
 		t.Fatalf("Get(alpha reload): %v", err)
 	}
-	if got := alphaResp.Record.Fields["title"].GetStringValue(); got != "Alpha Task" {
+	if got := alphaResp["title"]; got != "Alpha Task" {
 		t.Fatalf("alpha reloaded title = %q, want %q", got, "Alpha Task")
 	}
-	if _, err := alphaReloaded.Get(ctx, &proto.ObjectStoreRequest{Store: "beta_tasks", Id: "b1"}); status.Code(err) != codes.NotFound {
+	if _, err := alphaReloaded.Get(ctx, gestalt.IndexedDBObjectStoreRequest{Store: "beta_tasks", ID: "b1"}); status.Code(err) != codes.NotFound {
 		t.Fatalf("Get(alpha reload foreign store) error = %v, want NotFound", err)
 	}
 
-	betaResp, err := betaReloaded.Get(ctx, &proto.ObjectStoreRequest{Store: "tasks", Id: "b1"})
+	betaResp, err := betaReloaded.Get(ctx, gestalt.IndexedDBObjectStoreRequest{Store: "tasks", ID: "b1"})
 	if err != nil {
 		t.Fatalf("Get(beta reload): %v", err)
 	}
-	if got := betaResp.Record.Fields["title"].GetStringValue(); got != "Beta Task" {
+	if got := betaResp["title"]; got != "Beta Task" {
 		t.Fatalf("beta reloaded title = %q, want %q", got, "Beta Task")
 	}
-	if _, err := betaReloaded.Get(ctx, &proto.ObjectStoreRequest{Store: "alpha_tasks", Id: "a1"}); status.Code(err) != codes.NotFound {
+	if _, err := betaReloaded.Get(ctx, gestalt.IndexedDBObjectStoreRequest{Store: "alpha_tasks", ID: "a1"}); status.Code(err) != codes.NotFound {
 		t.Fatalf("Get(beta reload foreign store) error = %v, want NotFound", err)
 	}
 }
@@ -778,14 +741,12 @@ func TestAddDuplicateReturnsAlreadyExists(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 
-	s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: widgetsSchema(),
-	})
-	s.Add(ctx, &proto.RecordRequest{
+	s.CreateObjectStore(ctx, "widgets", widgetsSchema())
+	s.Add(ctx, gestalt.IndexedDBRecordRequest{
 		Store: "widgets", Record: makeWidget("w1", "W-001", "Alpha Widget"),
 	})
 
-	_, err := s.Add(ctx, &proto.RecordRequest{
+	err := s.Add(ctx, gestalt.IndexedDBRecordRequest{
 		Store: "widgets", Record: makeWidget("w1", "W-002", "Beta Widget"),
 	})
 	if err == nil {
@@ -828,26 +789,24 @@ func TestGetAllWithRange(t *testing.T) {
 	s := testStore(t)
 	ctx := context.Background()
 
-	s.CreateObjectStore(ctx, &proto.CreateObjectStoreRequest{
-		Name: "widgets", Schema: widgetsSchema(),
-	})
-	s.Add(ctx, &proto.RecordRequest{Store: "widgets", Record: makeWidget("a", "W-001", "Widget A")})
-	s.Add(ctx, &proto.RecordRequest{Store: "widgets", Record: makeWidget("b", "W-002", "Widget B")})
-	s.Add(ctx, &proto.RecordRequest{Store: "widgets", Record: makeWidget("c", "W-003", "Widget C")})
+	s.CreateObjectStore(ctx, "widgets", widgetsSchema())
+	s.Add(ctx, gestalt.IndexedDBRecordRequest{Store: "widgets", Record: makeWidget("a", "W-001", "Widget A")})
+	s.Add(ctx, gestalt.IndexedDBRecordRequest{Store: "widgets", Record: makeWidget("b", "W-002", "Widget B")})
+	s.Add(ctx, gestalt.IndexedDBRecordRequest{Store: "widgets", Record: makeWidget("c", "W-003", "Widget C")})
 
-	resp, err := s.GetAll(ctx, &proto.ObjectStoreRangeRequest{
+	resp, err := s.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{
 		Store: "widgets",
-		Range: &proto.KeyRange{
-			Lower:     mustTypedValue(t, "a"),
-			Upper:     mustTypedValue(t, "c"),
+		Range: &gestalt.KeyRange{
+			Lower:     "a",
+			Upper:     "c",
 			UpperOpen: true,
 		},
 	})
 	if err != nil {
 		t.Fatalf("GetAll: %v", err)
 	}
-	if len(resp.Records) != 2 {
-		t.Fatalf("GetAll: got %d records, want 2", len(resp.Records))
+	if len(resp) != 2 {
+		t.Fatalf("GetAll: got %d records, want 2", len(resp))
 	}
 }
 
@@ -900,15 +859,6 @@ func TestCreateGenericIndexEntriesTableSQLMySQLUsesLongBlobPayloads(t *testing.T
 	if !strings.Contains(got, "`pk_bytes` LONGBLOB NOT NULL") {
 		t.Fatalf("createGenericIndexEntriesTableSQL(mysql) missing longblob primary key bytes: %s", got)
 	}
-}
-
-func mustTypedValue(t *testing.T, value any) *proto.TypedValue {
-	t.Helper()
-	pbValue, err := sdkcompat.TypedValueFromAny(value)
-	if err != nil {
-		t.Fatalf("TypedValueFromAny(%#v): %v", value, err)
-	}
-	return pbValue
 }
 
 func mustEncodedKey(t *testing.T, value any) encodedKey {

@@ -8,14 +8,10 @@ import (
 	"fmt"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
-	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	gproto "google.golang.org/protobuf/proto"
 )
-
-var deterministicProtoMarshal = gproto.MarshalOptions{Deterministic: true}
 
 type genericRecordRow struct {
 	pkHash     []byte
@@ -38,13 +34,9 @@ type encodedKey struct {
 }
 
 func encodeKeyValue(value any) (encodedKey, error) {
-	kv, err := sdkcompat.AnyToKeyValue(value)
+	raw, err := gestalt.EncodeIndexedDBKey(value)
 	if err != nil {
 		return encodedKey{}, status.Errorf(codes.InvalidArgument, "encode key: %v", err)
-	}
-	raw, err := deterministicProtoMarshal.Marshal(kv)
-	if err != nil {
-		return encodedKey{}, status.Errorf(codes.Internal, "marshal key: %v", err)
 	}
 	sum := sha256.Sum256(raw)
 	return encodedKey{
@@ -55,11 +47,7 @@ func encodeKeyValue(value any) (encodedKey, error) {
 }
 
 func decodeKeyValue(raw []byte) (any, error) {
-	kv := &proto.KeyValue{}
-	if err := gproto.Unmarshal(raw, kv); err != nil {
-		return nil, status.Errorf(codes.Internal, "decode key: %v", err)
-	}
-	value, err := sdkcompat.KeyValueToAny(kv)
+	value, err := gestalt.DecodeIndexedDBKey(raw)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "decode key value: %v", err)
 	}
@@ -70,7 +58,7 @@ func cloneBytes(raw []byte) []byte {
 	return append([]byte(nil), raw...)
 }
 
-func extractGenericPrimaryKey(record *proto.Record, m *storeMeta) (encodedKey, error) {
+func extractGenericPrimaryKey(record gestalt.Record, m *storeMeta) (encodedKey, error) {
 	if len(m.columns) == 0 {
 		id, err := extractStringID(record)
 		if err != nil {
@@ -116,10 +104,11 @@ func coerceStoredValue(value any, colType int32) (any, error) {
 	}
 }
 
-func buildGenericIndexRows(record *proto.Record, m *storeMeta, primary encodedKey) ([]genericIndexRow, []genericIndexRow, error) {
+func buildGenericIndexRows(record gestalt.Record, m *storeMeta, primary encodedKey) ([]genericIndexRow, []genericIndexRow, error) {
 	uniqueRows := make([]genericIndexRow, 0, len(m.indexes))
 	nonUniqueRows := make([]genericIndexRow, 0, len(m.indexes))
-	for _, idx := range m.indexes {
+	for i := range m.indexes {
+		idx := &m.indexes[i]
 		key, ok, err := indexKeyFromRecord(record, idx)
 		if err != nil {
 			return nil, nil, status.Errorf(codes.InvalidArgument, "record index key: %v", err)
@@ -132,13 +121,13 @@ func buildGenericIndexRows(record *proto.Record, m *storeMeta, primary encodedKe
 			return nil, nil, err
 		}
 		row := genericIndexRow{
-			indexName:     idx.GetName(),
+			indexName:     idx.Name,
 			indexKeyHash:  cloneBytes(encoded.hash),
 			indexKeyBytes: cloneBytes(encoded.raw),
 			pkHash:        cloneBytes(primary.hash),
 			pkBytes:       cloneBytes(primary.raw),
 		}
-		if idx.GetUnique() {
+		if idx.Unique {
 			uniqueRows = append(uniqueRows, row)
 		} else {
 			nonUniqueRows = append(nonUniqueRows, row)
@@ -546,7 +535,7 @@ func (s *Store) upsertGenericRecord(ctx context.Context, tx *sql.Tx, store strin
 	return s.insertGenericRecord(ctx, tx, store, primary, payload)
 }
 
-func (s *Store) addGeneric(ctx context.Context, store string, m *storeMeta, record *proto.Record) error {
+func (s *Store) addGeneric(ctx context.Context, store string, m *storeMeta, record gestalt.Record) error {
 	primary, err := extractGenericPrimaryKey(record, m)
 	if err != nil {
 		return err
@@ -572,7 +561,7 @@ func (s *Store) addGeneric(ctx context.Context, store string, m *storeMeta, reco
 	})
 }
 
-func (s *Store) putGeneric(ctx context.Context, store string, m *storeMeta, record *proto.Record) error {
+func (s *Store) putGeneric(ctx context.Context, store string, m *storeMeta, record gestalt.Record) error {
 	primary, err := extractGenericPrimaryKey(record, m)
 	if err != nil {
 		return err
@@ -695,7 +684,7 @@ func (s *Store) deleteGenericEntries(ctx context.Context, store string, entries 
 	return deleted, nil
 }
 
-func (s *Store) genericGet(ctx context.Context, store string, m *storeMeta, rawKey string) (*proto.Record, error) {
+func (s *Store) genericGet(ctx context.Context, store string, m *storeMeta, rawKey string) (gestalt.Record, error) {
 	value, err := coerceStringPrimaryKey(rawKey, m)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "lookup key: %v", err)
@@ -717,7 +706,7 @@ func (s *Store) genericGet(ctx context.Context, store string, m *storeMeta, rawK
 	return unmarshalRecordBlob(row.recordBlob)
 }
 
-func (s *Store) genericObjectStoreEntries(ctx context.Context, store string, m *storeMeta, keyRange *proto.KeyRange, keysOnly bool) ([]cursorutil.Entry, error) {
+func (s *Store) genericObjectStoreEntries(ctx context.Context, store string, m *storeMeta, keyRange *gestalt.KeyRange, keysOnly bool) ([]cursorutil.Entry, error) {
 	rows, err := s.loadAllGenericRecords(ctx, store)
 	if err != nil {
 		return nil, err
@@ -729,7 +718,7 @@ func (s *Store) genericObjectStoreEntries(ctx context.Context, store string, m *
 		if err != nil {
 			return nil, err
 		}
-		var record *proto.Record
+		var record gestalt.Record
 		if !keysOnly {
 			record, err = unmarshalRecordBlob(row.recordBlob)
 			if err != nil {
@@ -751,46 +740,42 @@ func (s *Store) genericObjectStoreEntries(ctx context.Context, store string, m *
 	return entries, nil
 }
 
-func (s *Store) genericIndexEntries(ctx context.Context, store string, m *storeMeta, idx *proto.IndexSchema, values []*proto.TypedValue, keyRange *proto.KeyRange, keysOnly bool) ([]cursorutil.Entry, error) {
+func (s *Store) genericIndexEntries(ctx context.Context, store string, m *storeMeta, idx *gestalt.IndexSchema, values []any, keyRange *gestalt.KeyRange, keysOnly bool) ([]cursorutil.Entry, error) {
 	var nonUniqueRows []genericIndexRow
 	var uniqueRows []genericIndexRow
 	var err error
-	if len(values) == len(idx.GetKeyPath()) && len(values) > 0 {
-		keyParts, err := sdkcompat.AnyFromTypedValues(values)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "index values: %v", err)
-		}
-		var lookupValue any = keyParts
-		if len(keyParts) == 1 {
-			lookupValue = keyParts[0]
+	if len(values) == len(idx.KeyPath) && len(values) > 0 {
+		var lookupValue any = values
+		if len(values) == 1 {
+			lookupValue = values[0]
 		}
 		encoded, err := encodeKeyValue(lookupValue)
 		if err != nil {
 			return nil, err
 		}
-		nonUniqueRows, err = s.loadGenericIndexRowsByKey(ctx, s.genericIndexTable(), store, idx.GetName(), encoded.hash, encoded.raw)
+		nonUniqueRows, err = s.loadGenericIndexRowsByKey(ctx, s.genericIndexTable(), store, idx.Name, encoded.hash, encoded.raw)
 		if err != nil {
 			return nil, err
 		}
-		uniqueRows, err = s.loadGenericIndexRowsByKey(ctx, s.genericUniqueIndexTable(), store, idx.GetName(), encoded.hash, encoded.raw)
+		uniqueRows, err = s.loadGenericIndexRowsByKey(ctx, s.genericUniqueIndexTable(), store, idx.Name, encoded.hash, encoded.raw)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		nonUniqueRows, err = s.loadGenericIndexRows(ctx, s.genericIndexTable(), store, idx.GetName())
+		nonUniqueRows, err = s.loadGenericIndexRows(ctx, s.genericIndexTable(), store, idx.Name)
 		if err != nil {
 			return nil, err
 		}
-		uniqueRows, err = s.loadGenericIndexRows(ctx, s.genericUniqueIndexTable(), store, idx.GetName())
+		uniqueRows, err = s.loadGenericIndexRows(ctx, s.genericUniqueIndexTable(), store, idx.Name)
 		if err != nil {
 			return nil, err
 		}
 	}
 	allRows := append(nonUniqueRows, uniqueRows...)
 
-	recordByPrimary := map[string]*proto.Record{}
+	recordByPrimary := map[string]gestalt.Record{}
 	if !keysOnly {
-		if len(values) == len(idx.GetKeyPath()) && len(values) > 0 {
+		if len(values) == len(idx.KeyPath) && len(values) > 0 {
 			for _, row := range allRows {
 				key := genericRecordLookupKey(row.pkHash, row.pkBytes)
 				if _, ok := recordByPrimary[key]; ok {

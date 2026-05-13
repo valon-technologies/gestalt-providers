@@ -1,99 +1,84 @@
 package dynamodb
 
 import (
+	"context"
 	"testing"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
-	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
-func dynamoTestRecord(t *testing.T, id string, fields map[string]any) *proto.Record {
-	t.Helper()
-	record := map[string]any{"id": id}
+func dynamoTestRecord(id string, fields map[string]any) gestalt.Record {
+	record := gestalt.Record{"id": id}
 	for key, value := range fields {
 		record[key] = value
 	}
-	pb, err := sdkcompat.RecordToProto(record)
-	if err != nil {
-		t.Fatalf("RecordToProto: %v", err)
-	}
-	return pb
-}
-
-func dynamoMustTypedValue(t *testing.T, value any) *proto.TypedValue {
-	t.Helper()
-	pb, err := sdkcompat.TypedValueFromAny(value)
-	if err != nil {
-		t.Fatalf("TypedValueFromAny(%#v): %v", value, err)
-	}
-	return pb
+	return record
 }
 
 func TestDynamoCursorAdvanceSkipsRequestedCount(t *testing.T) {
 	cursor := &dynamoCursor{
-		Snapshot: cursorutil.Snapshot{
+		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{
 			Entries: []cursorutil.Entry{
-				{PrimaryKey: "a", PrimaryKeyValue: "a", Key: "a", Record: dynamoTestRecord(t, "a", nil)},
-				{PrimaryKey: "b", PrimaryKeyValue: "b", Key: "b", Record: dynamoTestRecord(t, "b", nil)},
-				{PrimaryKey: "c", PrimaryKeyValue: "c", Key: "c", Record: dynamoTestRecord(t, "c", nil)},
-				{PrimaryKey: "d", PrimaryKeyValue: "d", Key: "d", Record: dynamoTestRecord(t, "d", nil)},
+				{PrimaryKey: "a", PrimaryKeyValue: "a", Key: "a", Record: dynamoTestRecord("a", nil)},
+				{PrimaryKey: "b", PrimaryKeyValue: "b", Key: "b", Record: dynamoTestRecord("b", nil)},
+				{PrimaryKey: "c", PrimaryKeyValue: "c", Key: "c", Record: dynamoTestRecord("c", nil)},
+				{PrimaryKey: "d", PrimaryKeyValue: "d", Key: "d", Record: dynamoTestRecord("d", nil)},
 			},
-			Pos: -1,
-		},
+			Pos: 0,
+		}},
 	}
 
-	entry, ok, err := cursor.Advance(2)
+	entry, err := cursor.Advance(context.Background(), 2)
 	if err != nil {
 		t.Fatalf("advance: %v", err)
 	}
-	if !ok {
+	if entry == nil {
 		t.Fatal("advance returned exhausted cursor")
 	}
-	if got := entry.GetPrimaryKey(); got != "c" {
+	if got := entry.PrimaryKey; got != "c" {
 		t.Fatalf("Advance(2) primary key = %q, want %q", got, "c")
 	}
 }
 
 func TestDynamoCursorKeysOnlyEntryOmitsRecord(t *testing.T) {
 	cursor := &dynamoCursor{
-		Snapshot: cursorutil.Snapshot{
+		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{
 			KeysOnly: true,
 			Entries: []cursorutil.Entry{
 				{
 					PrimaryKey:      "a",
 					PrimaryKeyValue: "a",
 					Key:             "a",
-					Record:          dynamoTestRecord(t, "a", map[string]any{"status": "active"}),
 				},
 			},
 			Pos: 0,
-		},
+		}},
 	}
 
 	entry, err := cursor.CurrentEntry()
 	if err != nil {
 		t.Fatalf("currentEntry: %v", err)
 	}
-	if entry.GetRecord() != nil {
-		t.Fatalf("keys-only cursor returned record: %+v", entry.GetRecord())
+	if entry.Record != nil {
+		t.Fatalf("keys-only cursor returned record: %+v", entry.Record)
 	}
 }
 
 func TestDynamoCursorIndexRangeUsesIndexKeys(t *testing.T) {
 	cursor := &dynamoCursor{
-		Snapshot: cursorutil.Snapshot{IndexCursor: true},
+		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}},
 		index:    &indexDef{KeyPath: []string{"status"}},
 	}
 	entries := []cursorutil.Entry{
-		{PrimaryKey: "a", PrimaryKeyValue: "a", Key: []any{"active"}, Record: dynamoTestRecord(t, "a", map[string]any{"status": "active"})},
-		{PrimaryKey: "b", PrimaryKeyValue: "b", Key: []any{"inactive"}, Record: dynamoTestRecord(t, "b", map[string]any{"status": "inactive"})},
-		{PrimaryKey: "c", PrimaryKeyValue: "c", Key: []any{"active"}, Record: dynamoTestRecord(t, "c", map[string]any{"status": "active"})},
+		{PrimaryKey: "a", PrimaryKeyValue: "a", Key: []any{"active"}, Record: dynamoTestRecord("a", map[string]any{"status": "active"})},
+		{PrimaryKey: "b", PrimaryKeyValue: "b", Key: []any{"inactive"}, Record: dynamoTestRecord("b", map[string]any{"status": "inactive"})},
+		{PrimaryKey: "c", PrimaryKeyValue: "c", Key: []any{"active"}, Record: dynamoTestRecord("c", map[string]any{"status": "active"})},
 	}
 
-	filtered, err := cursor.ApplyRange(entries, &proto.KeyRange{
-		Lower: dynamoMustTypedValue(t, "active"),
-		Upper: dynamoMustTypedValue(t, "active"),
+	filtered, err := cursor.ApplyRange(entries, &gestalt.KeyRange{
+		Lower: "active",
+		Upper: "active",
 	})
 	if err != nil {
 		t.Fatalf("applyRange: %v", err)
@@ -111,26 +96,26 @@ func TestDynamoCursorIndexRangeUsesIndexKeys(t *testing.T) {
 
 func TestDynamoCursorReverseContinueToKey(t *testing.T) {
 	cursor := &dynamoCursor{
-		Snapshot: cursorutil.Snapshot{
+		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{
 			Reverse: true,
 			Entries: []cursorutil.Entry{
-				{PrimaryKey: "d", PrimaryKeyValue: "d", Key: "d", Record: dynamoTestRecord(t, "d", nil)},
-				{PrimaryKey: "c", PrimaryKeyValue: "c", Key: "c", Record: dynamoTestRecord(t, "c", nil)},
-				{PrimaryKey: "b", PrimaryKeyValue: "b", Key: "b", Record: dynamoTestRecord(t, "b", nil)},
-				{PrimaryKey: "a", PrimaryKeyValue: "a", Key: "a", Record: dynamoTestRecord(t, "a", nil)},
+				{PrimaryKey: "d", PrimaryKeyValue: "d", Key: "d", Record: dynamoTestRecord("d", nil)},
+				{PrimaryKey: "c", PrimaryKeyValue: "c", Key: "c", Record: dynamoTestRecord("c", nil)},
+				{PrimaryKey: "b", PrimaryKeyValue: "b", Key: "b", Record: dynamoTestRecord("b", nil)},
+				{PrimaryKey: "a", PrimaryKeyValue: "a", Key: "a", Record: dynamoTestRecord("a", nil)},
 			},
 			Pos: -1,
-		},
+		}},
 	}
 
-	entry, ok, err := cursor.ContinueToKey("c")
+	entry, err := cursor.ContinueToKey(context.Background(), "c")
 	if err != nil {
 		t.Fatalf("continueToKey: %v", err)
 	}
-	if !ok {
+	if entry == nil {
 		t.Fatal("continueToKey returned exhausted cursor")
 	}
-	if got := entry.GetPrimaryKey(); got != "c" {
+	if got := entry.PrimaryKey; got != "c" {
 		t.Fatalf("ContinueToKey(\"c\") primary key = %q, want %q", got, "c")
 	}
 }
@@ -150,18 +135,18 @@ func TestBuildIndexConditionWithoutValuesScansWholeIndexPartition(t *testing.T) 
 
 func TestDynamoCursorCompoundIndexRangeUsesDecodedArrayKey(t *testing.T) {
 	cursor := &dynamoCursor{
-		Snapshot: cursorutil.Snapshot{IndexCursor: true},
+		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}},
 		index:    &indexDef{KeyPath: []string{"status", "rank"}},
 	}
 	entries := []cursorutil.Entry{
-		{PrimaryKey: "a", PrimaryKeyValue: "a", Key: []any{"active", int64(1)}, Record: dynamoTestRecord(t, "a", map[string]any{"status": "active", "rank": int64(1)})},
-		{PrimaryKey: "b", PrimaryKeyValue: "b", Key: []any{"active", int64(2)}, Record: dynamoTestRecord(t, "b", map[string]any{"status": "active", "rank": int64(2)})},
-		{PrimaryKey: "c", PrimaryKeyValue: "c", Key: []any{"inactive", int64(1)}, Record: dynamoTestRecord(t, "c", map[string]any{"status": "inactive", "rank": int64(1)})},
+		{PrimaryKey: "a", PrimaryKeyValue: "a", Key: []any{"active", int64(1)}, Record: dynamoTestRecord("a", map[string]any{"status": "active", "rank": int64(1)})},
+		{PrimaryKey: "b", PrimaryKeyValue: "b", Key: []any{"active", int64(2)}, Record: dynamoTestRecord("b", map[string]any{"status": "active", "rank": int64(2)})},
+		{PrimaryKey: "c", PrimaryKeyValue: "c", Key: []any{"inactive", int64(1)}, Record: dynamoTestRecord("c", map[string]any{"status": "inactive", "rank": int64(1)})},
 	}
 
-	filtered, err := cursor.ApplyRange(entries, &proto.KeyRange{
-		Lower: dynamoMustTypedValue(t, []any{"active", int64(2)}),
-		Upper: dynamoMustTypedValue(t, []any{"active", int64(2)}),
+	filtered, err := cursor.ApplyRange(entries, &gestalt.KeyRange{
+		Lower: []any{"active", int64(2)},
+		Upper: []any{"active", int64(2)},
 	})
 	if err != nil {
 		t.Fatalf("applyRange: %v", err)
@@ -175,26 +160,17 @@ func TestDynamoCursorCompoundIndexRangeUsesDecodedArrayKey(t *testing.T) {
 }
 
 func TestDynamoPrepareUpdatedRecordAllowsClearingIndexedField(t *testing.T) {
-	updateRecord, err := sdkcompat.RecordToProto(map[string]any{
+	record, err := cursorutil.CloneRecordWithField(gestalt.Record{
 		"name": "Alice Missing Status",
-	})
-	if err != nil {
-		t.Fatalf("RecordToProto: %v", err)
-	}
-
-	record, err := cursorutil.CloneRecordWithField(updateRecord, "id", "a")
+	}, "id", "a")
 	if err != nil {
 		t.Fatalf("CloneRecordWithField: %v", err)
 	}
 
-	decoded, err := sdkcompat.RecordFromProto(record)
-	if err != nil {
-		t.Fatalf("RecordFromProto: %v", err)
-	}
-	if got := decoded["id"]; got != "a" {
+	if got := record["id"]; got != "a" {
 		t.Fatalf("decoded id = %#v, want %q", got, "a")
 	}
-	if got, ok := decoded["status"]; ok && got != nil {
+	if got, ok := record["status"]; ok && got != nil {
 		t.Fatalf("decoded status = %#v, want nil", got)
 	}
 }

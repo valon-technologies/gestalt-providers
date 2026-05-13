@@ -1,94 +1,76 @@
 package mongodb
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
-	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
+	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
-func mongoTestRecord(t *testing.T, id string, fields map[string]any) *proto.Record {
-	t.Helper()
-	record := map[string]any{"id": id}
+func mongoTestRecord(id any, fields map[string]any) gestalt.Record {
+	record := gestalt.Record{"id": id}
 	for key, value := range fields {
 		record[key] = value
 	}
-	pb, err := sdkcompat.RecordToProto(record)
-	if err != nil {
-		t.Fatalf("RecordToProto: %v", err)
-	}
-	return pb
-}
-
-func mongoMustTypedValue(t *testing.T, value any) *proto.TypedValue {
-	t.Helper()
-	pb, err := sdkcompat.TypedValueFromAny(value)
-	if err != nil {
-		t.Fatalf("TypedValueFromAny(%#v): %v", value, err)
-	}
-	return pb
+	return record
 }
 
 func TestMongoCursorAdvanceSkipsRequestedCount(t *testing.T) {
 	cursor := &mongoCursor{
-		Snapshot: cursorutil.Snapshot{
+		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{
 			Entries: []cursorutil.Entry{
-				{PrimaryKey: "a", PrimaryKeyValue: "a", Key: "a", Record: mongoTestRecord(t, "a", nil)},
-				{PrimaryKey: "b", PrimaryKeyValue: "b", Key: "b", Record: mongoTestRecord(t, "b", nil)},
-				{PrimaryKey: "c", PrimaryKeyValue: "c", Key: "c", Record: mongoTestRecord(t, "c", nil)},
-				{PrimaryKey: "d", PrimaryKeyValue: "d", Key: "d", Record: mongoTestRecord(t, "d", nil)},
+				{PrimaryKey: "a", PrimaryKeyValue: "a", Key: "a", Record: mongoTestRecord("a", nil)},
+				{PrimaryKey: "b", PrimaryKeyValue: "b", Key: "b", Record: mongoTestRecord("b", nil)},
+				{PrimaryKey: "c", PrimaryKeyValue: "c", Key: "c", Record: mongoTestRecord("c", nil)},
+				{PrimaryKey: "d", PrimaryKeyValue: "d", Key: "d", Record: mongoTestRecord("d", nil)},
 			},
-			Pos: -1,
-		},
+			Pos: 0,
+		}},
 	}
 
-	entry, ok, err := cursor.Advance(2)
+	entry, err := cursor.Advance(context.Background(), 2)
 	if err != nil {
 		t.Fatalf("advance: %v", err)
 	}
-	if !ok {
+	if entry == nil {
 		t.Fatal("advance returned exhausted cursor")
 	}
-	if got := entry.GetPrimaryKey(); got != "c" {
+	if got := entry.PrimaryKey; got != "c" {
 		t.Fatalf("Advance(2) primary key = %q, want %q", got, "c")
 	}
 }
 
 func TestMongoCursorKeysOnlyEntryOmitsRecord(t *testing.T) {
 	cursor := &mongoCursor{
-		Snapshot: cursorutil.Snapshot{
+		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{
 			KeysOnly: true,
 			Entries: []cursorutil.Entry{
 				{
 					PrimaryKey:      "a",
 					PrimaryKeyValue: "a",
 					Key:             "a",
-					Record:          mongoTestRecord(t, "a", map[string]any{"status": "active"}),
 				},
 			},
 			Pos: 0,
-		},
+		}},
 	}
 
 	entry, err := cursor.CurrentEntry()
 	if err != nil {
 		t.Fatalf("currentEntry: %v", err)
 	}
-	if entry.GetRecord() != nil {
-		t.Fatalf("keys-only cursor returned record: %+v", entry.GetRecord())
+	if entry.Record != nil {
+		t.Fatalf("keys-only cursor returned record: %+v", entry.Record)
 	}
 }
 
 func TestMongoEntryFromRecordPreservesNativeObjectStorePrimaryKey(t *testing.T) {
-	record, err := sdkcompat.RecordToProto(map[string]any{
+	record := gestalt.Record{
 		"id":   int64(10),
 		"name": "ten",
-	})
-	if err != nil {
-		t.Fatalf("RecordToProto: %v", err)
 	}
 
 	cursor := &mongoCursor{}
@@ -109,18 +91,18 @@ func TestMongoEntryFromRecordPreservesNativeObjectStorePrimaryKey(t *testing.T) 
 
 func TestMongoCursorIndexRangeUsesIndexKeys(t *testing.T) {
 	cursor := &mongoCursor{
-		Snapshot: cursorutil.Snapshot{IndexCursor: true},
+		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}},
 		index:    &indexMeta{keyPath: []string{"status"}},
 	}
 	entries := []cursorutil.Entry{
-		{PrimaryKey: "a", PrimaryKeyValue: "a", Key: []any{"active"}, Record: mongoTestRecord(t, "a", map[string]any{"status": "active"})},
-		{PrimaryKey: "b", PrimaryKeyValue: "b", Key: []any{"inactive"}, Record: mongoTestRecord(t, "b", map[string]any{"status": "inactive"})},
-		{PrimaryKey: "c", PrimaryKeyValue: "c", Key: []any{"active"}, Record: mongoTestRecord(t, "c", map[string]any{"status": "active"})},
+		{PrimaryKey: "a", PrimaryKeyValue: "a", Key: []any{"active"}, Record: mongoTestRecord("a", map[string]any{"status": "active"})},
+		{PrimaryKey: "b", PrimaryKeyValue: "b", Key: []any{"inactive"}, Record: mongoTestRecord("b", map[string]any{"status": "inactive"})},
+		{PrimaryKey: "c", PrimaryKeyValue: "c", Key: []any{"active"}, Record: mongoTestRecord("c", map[string]any{"status": "active"})},
 	}
 
-	filtered, err := cursor.ApplyRange(entries, &proto.KeyRange{
-		Lower: mongoMustTypedValue(t, "active"),
-		Upper: mongoMustTypedValue(t, "active"),
+	filtered, err := cursor.ApplyRange(entries, &gestalt.KeyRange{
+		Lower: "active",
+		Upper: "active",
 	})
 	if err != nil {
 		t.Fatalf("applyRange: %v", err)
@@ -138,26 +120,26 @@ func TestMongoCursorIndexRangeUsesIndexKeys(t *testing.T) {
 
 func TestMongoCursorReverseContinueToKey(t *testing.T) {
 	cursor := &mongoCursor{
-		Snapshot: cursorutil.Snapshot{
+		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{
 			Reverse: true,
 			Entries: []cursorutil.Entry{
-				{PrimaryKey: "d", PrimaryKeyValue: "d", Key: "d", Record: mongoTestRecord(t, "d", nil)},
-				{PrimaryKey: "c", PrimaryKeyValue: "c", Key: "c", Record: mongoTestRecord(t, "c", nil)},
-				{PrimaryKey: "b", PrimaryKeyValue: "b", Key: "b", Record: mongoTestRecord(t, "b", nil)},
-				{PrimaryKey: "a", PrimaryKeyValue: "a", Key: "a", Record: mongoTestRecord(t, "a", nil)},
+				{PrimaryKey: "d", PrimaryKeyValue: "d", Key: "d", Record: mongoTestRecord("d", nil)},
+				{PrimaryKey: "c", PrimaryKeyValue: "c", Key: "c", Record: mongoTestRecord("c", nil)},
+				{PrimaryKey: "b", PrimaryKeyValue: "b", Key: "b", Record: mongoTestRecord("b", nil)},
+				{PrimaryKey: "a", PrimaryKeyValue: "a", Key: "a", Record: mongoTestRecord("a", nil)},
 			},
 			Pos: -1,
-		},
+		}},
 	}
 
-	entry, ok, err := cursor.ContinueToKey("c")
+	entry, err := cursor.ContinueToKey(context.Background(), "c")
 	if err != nil {
 		t.Fatalf("continueToKey: %v", err)
 	}
-	if !ok {
+	if entry == nil {
 		t.Fatal("continueToKey returned exhausted cursor")
 	}
-	if got := entry.GetPrimaryKey(); got != "c" {
+	if got := entry.PrimaryKey; got != "c" {
 		t.Fatalf("ContinueToKey(\"c\") primary key = %q, want %q", got, "c")
 	}
 }
@@ -165,14 +147,14 @@ func TestMongoCursorReverseContinueToKey(t *testing.T) {
 func TestMongoCursorObjectStoreRangeUsesNativePrimaryKeys(t *testing.T) {
 	cursor := &mongoCursor{}
 	entries := []cursorutil.Entry{
-		{PrimaryKey: "1", PrimaryKeyValue: int64(1), Key: int64(1), Record: mongoTestRecord(t, "1", nil)},
-		{PrimaryKey: "2", PrimaryKeyValue: int64(2), Key: int64(2), Record: mongoTestRecord(t, "2", nil)},
-		{PrimaryKey: "10", PrimaryKeyValue: int64(10), Key: int64(10), Record: mongoTestRecord(t, "10", nil)},
+		{PrimaryKey: "1", PrimaryKeyValue: int64(1), Key: int64(1), Record: mongoTestRecord("1", nil)},
+		{PrimaryKey: "2", PrimaryKeyValue: int64(2), Key: int64(2), Record: mongoTestRecord("2", nil)},
+		{PrimaryKey: "10", PrimaryKeyValue: int64(10), Key: int64(10), Record: mongoTestRecord("10", nil)},
 	}
 
-	filtered, err := cursor.ApplyRange(entries, &proto.KeyRange{
-		Lower: mongoMustTypedValue(t, int64(2)),
-		Upper: mongoMustTypedValue(t, int64(10)),
+	filtered, err := cursor.ApplyRange(entries, &gestalt.KeyRange{
+		Lower: int64(2),
+		Upper: int64(10),
 	})
 	if err != nil {
 		t.Fatalf("applyRange: %v", err)
@@ -190,18 +172,18 @@ func TestMongoCursorObjectStoreRangeUsesNativePrimaryKeys(t *testing.T) {
 
 func TestMongoCursorCompoundIndexRangeUsesDecodedArrayKey(t *testing.T) {
 	cursor := &mongoCursor{
-		Snapshot: cursorutil.Snapshot{IndexCursor: true},
+		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}},
 		index:    &indexMeta{keyPath: []string{"status", "rank"}},
 	}
 	entries := []cursorutil.Entry{
-		{PrimaryKey: "a", PrimaryKeyValue: "a", Key: []any{"active", int64(1)}, Record: mongoTestRecord(t, "a", map[string]any{"status": "active", "rank": int64(1)})},
-		{PrimaryKey: "b", PrimaryKeyValue: "b", Key: []any{"active", int64(2)}, Record: mongoTestRecord(t, "b", map[string]any{"status": "active", "rank": int64(2)})},
-		{PrimaryKey: "c", PrimaryKeyValue: "c", Key: []any{"inactive", int64(1)}, Record: mongoTestRecord(t, "c", map[string]any{"status": "inactive", "rank": int64(1)})},
+		{PrimaryKey: "a", PrimaryKeyValue: "a", Key: []any{"active", int64(1)}, Record: mongoTestRecord("a", map[string]any{"status": "active", "rank": int64(1)})},
+		{PrimaryKey: "b", PrimaryKeyValue: "b", Key: []any{"active", int64(2)}, Record: mongoTestRecord("b", map[string]any{"status": "active", "rank": int64(2)})},
+		{PrimaryKey: "c", PrimaryKeyValue: "c", Key: []any{"inactive", int64(1)}, Record: mongoTestRecord("c", map[string]any{"status": "inactive", "rank": int64(1)})},
 	}
 
-	filtered, err := cursor.ApplyRange(entries, &proto.KeyRange{
-		Lower: mongoMustTypedValue(t, []any{"active", int64(2)}),
-		Upper: mongoMustTypedValue(t, []any{"active", int64(2)}),
+	filtered, err := cursor.ApplyRange(entries, &gestalt.KeyRange{
+		Lower: []any{"active", int64(2)},
+		Upper: []any{"active", int64(2)},
 	})
 	if err != nil {
 		t.Fatalf("applyRange: %v", err)
@@ -215,52 +197,34 @@ func TestMongoCursorCompoundIndexRangeUsesDecodedArrayKey(t *testing.T) {
 }
 
 func TestMongoPrepareUpdatedRecordAllowsClearingIndexedField(t *testing.T) {
-	updateRecord, err := sdkcompat.RecordToProto(map[string]any{
+	record, err := cursorutil.CloneRecordWithField(gestalt.Record{
 		"name": "Alice Missing Status",
-	})
-	if err != nil {
-		t.Fatalf("RecordToProto: %v", err)
-	}
-
-	record, err := cursorutil.CloneRecordWithField(updateRecord, "id", "a")
+	}, "id", "a")
 	if err != nil {
 		t.Fatalf("CloneRecordWithField: %v", err)
 	}
 
-	decoded, err := sdkcompat.RecordFromProto(record)
-	if err != nil {
-		t.Fatalf("RecordFromProto: %v", err)
-	}
-	if got := decoded["id"]; got != "a" {
+	if got := record["id"]; got != "a" {
 		t.Fatalf("decoded id = %#v, want %q", got, "a")
 	}
-	if got, ok := decoded["status"]; ok && got != nil {
+	if got, ok := record["status"]; ok && got != nil {
 		t.Fatalf("decoded status = %#v, want nil", got)
 	}
 }
 
 func TestMongoPrepareUpdatedRecordPreservesNativePrimaryKeyType(t *testing.T) {
-	updateRecord, err := sdkcompat.RecordToProto(map[string]any{
+	want := time.Unix(1700000000, 0).UTC()
+	record, err := cursorutil.CloneRecordWithField(gestalt.Record{
 		"name": "updated",
-	})
-	if err != nil {
-		t.Fatalf("RecordToProto: %v", err)
-	}
-
-	record, err := cursorutil.CloneRecordWithField(updateRecord, "id", time.Unix(1700000000, 0).UTC())
+	}, "id", want)
 	if err != nil {
 		t.Fatalf("CloneRecordWithField: %v", err)
 	}
 
-	decoded, err := sdkcompat.RecordFromProto(record)
-	if err != nil {
-		t.Fatalf("RecordFromProto: %v", err)
-	}
-	got, ok := decoded["id"].(time.Time)
+	got, ok := record["id"].(time.Time)
 	if !ok {
-		t.Fatalf("decoded id type = %T, want time.Time", decoded["id"])
+		t.Fatalf("decoded id type = %T, want time.Time", record["id"])
 	}
-	want := time.Unix(1700000000, 0).UTC()
 	if !got.Equal(want) {
 		t.Fatalf("decoded id = %s, want %s", got.Format(time.RFC3339Nano), want.Format(time.RFC3339Nano))
 	}
@@ -268,7 +232,7 @@ func TestMongoPrepareUpdatedRecordPreservesNativePrimaryKeyType(t *testing.T) {
 
 func TestMongoCursorProjectionForKeyOnlyObjectStore(t *testing.T) {
 	projection := mongoCursorProjection(&mongoCursor{
-		Snapshot: cursorutil.Snapshot{KeysOnly: true},
+		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{KeysOnly: true}},
 	})
 	if len(projection) != 1 {
 		t.Fatalf("projection = %#v, want only _id", projection)
@@ -280,10 +244,10 @@ func TestMongoCursorProjectionForKeyOnlyObjectStore(t *testing.T) {
 
 func TestMongoCursorProjectionForKeyOnlyIndexCursor(t *testing.T) {
 	projection := mongoCursorProjection(&mongoCursor{
-		Snapshot: cursorutil.Snapshot{
+		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{
 			KeysOnly:    true,
 			IndexCursor: true,
-		},
+		}},
 		index: &indexMeta{keyPath: []string{"status", "rank"}},
 	})
 	if got, ok := projection["_id"]; !ok || got != 1 {
@@ -297,20 +261,16 @@ func TestMongoCursorProjectionForKeyOnlyIndexCursor(t *testing.T) {
 	}
 }
 
-func TestMongoCursorDocToProtoPreservesNativeIDType(t *testing.T) {
-	record, err := docToProto(bson.M{
+func TestMongoCursorDocToRecordPreservesNativeIDType(t *testing.T) {
+	record, err := docToRecord(bson.M{
 		"_id":  int64(10),
 		"name": "ten",
 	})
 	if err != nil {
-		t.Fatalf("docToProto: %v", err)
+		t.Fatalf("docToRecord: %v", err)
 	}
 
-	decoded, err := sdkcompat.RecordFromProto(record)
-	if err != nil {
-		t.Fatalf("RecordFromProto: %v", err)
-	}
-	if got, ok := decoded["id"].(int64); !ok || got != 10 {
-		t.Fatalf("decoded id = %#v, want int64(10)", decoded["id"])
+	if got, ok := record["id"].(int64); !ok || got != 10 {
+		t.Fatalf("decoded id = %#v, want int64(10)", record["id"])
 	}
 }

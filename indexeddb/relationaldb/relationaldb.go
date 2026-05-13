@@ -22,19 +22,16 @@ import (
 	_ "modernc.org/sqlite"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
-	"github.com/valon-technologies/gestalt-providers/indexeddb/internal/sdkcompat"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	proto "github.com/valon-technologies/gestalt/sdk/go/gen/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type storeMeta struct {
 	name    string
 	pkCol   string
-	columns []*proto.ColumnDef
-	indexes []*proto.IndexSchema
+	columns []gestalt.ColumnDef
+	indexes []gestalt.IndexSchema
 }
 
 const (
@@ -52,7 +49,6 @@ type storeOptions struct {
 }
 
 type Store struct {
-	proto.UnimplementedIndexedDBServer
 	db          *sql.DB
 	bind        bindStyle
 	dialect     dialect
@@ -397,7 +393,7 @@ func (s *Store) tableColumns(ctx context.Context, table string) (map[string]stru
 	return cols, nil
 }
 
-func (s *Store) persistStoreMetadata(ctx context.Context, storeName string, schema *proto.ObjectStoreSchema) error {
+func (s *Store) persistStoreMetadata(ctx context.Context, storeName string, schema gestalt.ObjectStoreSchema) error {
 	schemaJSON, err := json.Marshal(newStoredSchema(schema))
 	if err != nil {
 		return status.Errorf(codes.Internal, "marshal schema: %v", err)
@@ -426,32 +422,31 @@ func (s *Store) persistStoreMetadata(ctx context.Context, storeName string, sche
 
 // ---- Lifecycle ----
 
-func (s *Store) CreateObjectStore(ctx context.Context, req *proto.CreateObjectStoreRequest) (*emptypb.Empty, error) {
+func (s *Store) CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreSchema) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	schema := req.GetSchema()
-	existing, ok, err := s.loadStoreMetadata(ctx, req.Name)
+	existing, ok, err := s.loadStoreMetadata(ctx, name)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "load metadata: %v", err)
+		return status.Errorf(codes.Internal, "load metadata: %v", err)
 	}
 	if ok {
 		if genericStoreSchemaMatches(existing, schema) {
-			return &emptypb.Empty{}, nil
+			return nil
 		}
-		return nil, status.Errorf(codes.FailedPrecondition, "object store %q schema does not match; automatic schema upgrades are disabled, run an explicit migration before deploying this provider version", req.Name)
+		return status.Errorf(codes.FailedPrecondition, "object store %q schema does not match; automatic schema upgrades are disabled, run an explicit migration before deploying this provider version", name)
 	}
 
 	if err := s.ensureGenericTables(ctx); err != nil {
-		return nil, status.Errorf(codes.Internal, "create generic tables: %v", err)
+		return status.Errorf(codes.Internal, "create generic tables: %v", err)
 	}
-	if err := s.persistStoreMetadata(ctx, req.Name, schema); err != nil {
-		return nil, err
+	if err := s.persistStoreMetadata(ctx, name, schema); err != nil {
+		return err
 	}
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
-func genericStoreSchemaMatches(existing *storeMeta, schema *proto.ObjectStoreSchema) bool {
+func genericStoreSchemaMatches(existing *storeMeta, schema gestalt.ObjectStoreSchema) bool {
 	if existing == nil {
 		return false
 	}
@@ -459,21 +454,15 @@ func genericStoreSchemaMatches(existing *storeMeta, schema *proto.ObjectStoreSch
 	return columnsMatch(existing.columns, next.columns) && indexesMatch(existing.indexes, next.indexes)
 }
 
-func columnsMatch(left, right []*proto.ColumnDef) bool {
+func columnsMatch(left, right []gestalt.ColumnDef) bool {
 	if len(left) != len(right) {
 		return false
 	}
-	byName := make(map[string]*proto.ColumnDef, len(left))
+	byName := make(map[string]gestalt.ColumnDef, len(left))
 	for _, col := range left {
-		if col == nil {
-			return false
-		}
 		byName[col.Name] = col
 	}
 	for _, col := range right {
-		if col == nil {
-			return false
-		}
 		existing, ok := byName[col.Name]
 		if !ok {
 			return false
@@ -488,21 +477,15 @@ func columnsMatch(left, right []*proto.ColumnDef) bool {
 	return true
 }
 
-func indexesMatch(left, right []*proto.IndexSchema) bool {
+func indexesMatch(left, right []gestalt.IndexSchema) bool {
 	if len(left) != len(right) {
 		return false
 	}
-	byName := make(map[string]*proto.IndexSchema, len(left))
+	byName := make(map[string]gestalt.IndexSchema, len(left))
 	for _, idx := range left {
-		if idx == nil {
-			return false
-		}
 		byName[idx.Name] = idx
 	}
 	for _, idx := range right {
-		if idx == nil {
-			return false
-		}
 		existing, ok := byName[idx.Name]
 		if !ok || existing.Unique != idx.Unique || len(existing.KeyPath) != len(idx.KeyPath) {
 			return false
@@ -516,100 +499,84 @@ func indexesMatch(left, right []*proto.IndexSchema) bool {
 	return true
 }
 
-func (s *Store) DeleteObjectStore(ctx context.Context, req *proto.DeleteObjectStoreRequest) (*emptypb.Empty, error) {
+func (s *Store) DeleteObjectStore(ctx context.Context, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok, err := s.loadStoreMetadata(ctx, req.Name); err != nil {
-		return nil, status.Errorf(codes.Internal, "load metadata: %v", err)
+	if _, ok, err := s.loadStoreMetadata(ctx, name); err != nil {
+		return status.Errorf(codes.Internal, "load metadata: %v", err)
 	} else if ok {
-		if err := s.clearGeneric(ctx, req.Name); err != nil {
-			return nil, err
+		if err := s.clearGeneric(ctx, name); err != nil {
+			return err
 		}
 	}
 	_, _ = s.exec(ctx,
 		"DELETE FROM "+quoteTableName(s.dialect, s.metadataTable())+" WHERE "+quoteIdent(s.dialect, "name")+" = ?",
-		s.metadataStoreKey(req.Name),
+		s.metadataStoreKey(name),
 	)
-	return &emptypb.Empty{}, nil
+	return nil
 }
 
 // ---- Primary key CRUD ----
 
-func (s *Store) Get(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.RecordResponse, error) {
+func (s *Store) Get(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (gestalt.Record, error) {
 	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, err
 	}
-	record, err := s.genericGet(ctx, req.Store, m, req.Id)
-	if err != nil {
-		return nil, err
-	}
-	return &proto.RecordResponse{Record: record}, nil
+	return s.genericGet(ctx, req.Store, m, req.ID)
 }
 
-func (s *Store) GetKey(ctx context.Context, req *proto.ObjectStoreRequest) (*proto.KeyResponse, error) {
+func (s *Store) GetKey(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (string, error) {
 	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	record, err := s.genericGet(ctx, req.Store, m, req.Id)
+	record, err := s.genericGet(ctx, req.Store, m, req.ID)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	value, err := extractGenericPrimaryKey(record, m)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return &proto.KeyResponse{Key: fmt.Sprint(value.value)}, nil
+	return fmt.Sprint(value.value), nil
 }
 
-func (s *Store) Add(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
+func (s *Store) Add(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
 	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if err := s.addGeneric(ctx, req.Store, m, req.GetRecord()); err != nil {
-		return nil, err
-	}
-	return &emptypb.Empty{}, nil
+	return s.addGeneric(ctx, req.Store, m, req.Record)
 }
 
-func (s *Store) Put(ctx context.Context, req *proto.RecordRequest) (*emptypb.Empty, error) {
+func (s *Store) Put(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
 	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if err := s.putGeneric(ctx, req.Store, m, req.GetRecord()); err != nil {
-		return nil, err
-	}
-	return &emptypb.Empty{}, nil
+	return s.putGeneric(ctx, req.Store, m, req.Record)
 }
 
-func (s *Store) Delete(ctx context.Context, req *proto.ObjectStoreRequest) (*emptypb.Empty, error) {
+func (s *Store) Delete(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) error {
 	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if err := s.deleteGeneric(ctx, req.Store, m, req.Id); err != nil {
-		return nil, err
-	}
-	return &emptypb.Empty{}, nil
+	return s.deleteGeneric(ctx, req.Store, m, req.ID)
 }
 
 // ---- Bulk operations ----
 
-func (s *Store) Clear(ctx context.Context, req *proto.ObjectStoreNameRequest) (*emptypb.Empty, error) {
-	if _, err := s.getMetaForContext(ctx, req.Store); err != nil {
-		return nil, err
+func (s *Store) Clear(ctx context.Context, store string) error {
+	if _, err := s.getMetaForContext(ctx, store); err != nil {
+		return err
 	}
-	if err := s.clearGeneric(ctx, req.Store); err != nil {
-		return nil, err
-	}
-	return &emptypb.Empty{}, nil
+	return s.clearGeneric(ctx, store)
 }
 
-func (s *Store) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.RecordsResponse, error) {
+func (s *Store) GetAll(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]gestalt.Record, error) {
 	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, err
@@ -618,14 +585,14 @@ func (s *Store) GetAll(ctx context.Context, req *proto.ObjectStoreRangeRequest) 
 	if err != nil {
 		return nil, err
 	}
-	records := make([]*proto.Record, 0, len(entries))
+	records := make([]gestalt.Record, 0, len(entries))
 	for _, entry := range entries {
 		records = append(records, entry.Record)
 	}
-	return &proto.RecordsResponse{Records: records}, nil
+	return records, nil
 }
 
-func (s *Store) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.KeysResponse, error) {
+func (s *Store) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]string, error) {
 	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, err
@@ -638,47 +605,43 @@ func (s *Store) GetAllKeys(ctx context.Context, req *proto.ObjectStoreRangeReque
 	for _, entry := range entries {
 		keys = append(keys, entry.PrimaryKey)
 	}
-	return &proto.KeysResponse{Keys: keys}, nil
+	return keys, nil
 }
 
-func (s *Store) Count(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.CountResponse, error) {
+func (s *Store) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
 	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	if req.Range == nil {
 		count, err := s.countGenericRecords(ctx, req.Store)
 		if err != nil {
-			return nil, err
+			return 0, err
 		}
-		return &proto.CountResponse{Count: count}, nil
+		return count, nil
 	}
 	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Range, true)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	return &proto.CountResponse{Count: int64(len(entries))}, nil
+	return int64(len(entries)), nil
 }
 
-func (s *Store) DeleteRange(ctx context.Context, req *proto.ObjectStoreRangeRequest) (*proto.DeleteResponse, error) {
+func (s *Store) DeleteRange(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
 	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Range, true)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	deleted, err := s.deleteGenericEntries(ctx, req.Store, entries)
-	if err != nil {
-		return nil, err
-	}
-	return &proto.DeleteResponse{Deleted: deleted}, nil
+	return s.deleteGenericEntries(ctx, req.Store, entries)
 }
 
 // ---- Index queries ----
 
-func (s *Store) IndexGet(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordResponse, error) {
+func (s *Store) IndexGet(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (gestalt.Record, error) {
 	_, entries, err := s.queryIndexEntries(ctx, req, false)
 	if err != nil {
 		return nil, err
@@ -686,33 +649,33 @@ func (s *Store) IndexGet(ctx context.Context, req *proto.IndexQueryRequest) (*pr
 	if len(entries) == 0 {
 		return nil, status.Error(codes.NotFound, "record not found")
 	}
-	return &proto.RecordResponse{Record: entries[0].Record}, nil
+	return entries[0].Record, nil
 }
 
-func (s *Store) IndexGetKey(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeyResponse, error) {
+func (s *Store) IndexGetKey(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (string, error) {
 	_, entries, err := s.queryIndexEntries(ctx, req, true)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	if len(entries) == 0 {
-		return nil, status.Error(codes.NotFound, "key not found")
+		return "", status.Error(codes.NotFound, "key not found")
 	}
-	return &proto.KeyResponse{Key: entries[0].PrimaryKey}, nil
+	return entries[0].PrimaryKey, nil
 }
 
-func (s *Store) IndexGetAll(ctx context.Context, req *proto.IndexQueryRequest) (*proto.RecordsResponse, error) {
+func (s *Store) IndexGetAll(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]gestalt.Record, error) {
 	_, entries, err := s.queryIndexEntries(ctx, req, false)
 	if err != nil {
 		return nil, err
 	}
-	records := make([]*proto.Record, 0, len(entries))
+	records := make([]gestalt.Record, 0, len(entries))
 	for _, entry := range entries {
 		records = append(records, entry.Record)
 	}
-	return &proto.RecordsResponse{Records: records}, nil
+	return records, nil
 }
 
-func (s *Store) IndexGetAllKeys(ctx context.Context, req *proto.IndexQueryRequest) (*proto.KeysResponse, error) {
+func (s *Store) IndexGetAllKeys(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]string, error) {
 	_, entries, err := s.queryIndexEntries(ctx, req, true)
 	if err != nil {
 		return nil, err
@@ -721,32 +684,28 @@ func (s *Store) IndexGetAllKeys(ctx context.Context, req *proto.IndexQueryReques
 	for _, entry := range entries {
 		keys = append(keys, entry.PrimaryKey)
 	}
-	return &proto.KeysResponse{Keys: keys}, nil
+	return keys, nil
 }
 
-func (s *Store) IndexCount(ctx context.Context, req *proto.IndexQueryRequest) (*proto.CountResponse, error) {
+func (s *Store) IndexCount(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (int64, error) {
 	_, entries, err := s.queryIndexEntries(ctx, req, true)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	return &proto.CountResponse{Count: int64(len(entries))}, nil
+	return int64(len(entries)), nil
 }
 
-func (s *Store) IndexDelete(ctx context.Context, req *proto.IndexQueryRequest) (*proto.DeleteResponse, error) {
+func (s *Store) IndexDelete(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (int64, error) {
 	_, entries, err := s.queryIndexEntries(ctx, req, true)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
-	deleted, err := s.deleteGenericEntries(ctx, req.Store, entries)
-	if err != nil {
-		return nil, err
-	}
-	return &proto.DeleteResponse{Deleted: deleted}, nil
+	return s.deleteGenericEntries(ctx, req.Store, entries)
 }
 
 // ---- Query builders for range and index operations ----
 
-func (s *Store) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequest, keyOnly bool) (*storeMeta, []cursorutil.Entry, error) {
+func (s *Store) queryIndexEntries(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest, keyOnly bool) (*storeMeta, []cursorutil.Entry, error) {
 	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, nil, err
@@ -755,7 +714,7 @@ func (s *Store) queryIndexEntries(ctx context.Context, req *proto.IndexQueryRequ
 	if idx == nil {
 		return nil, nil, status.Errorf(codes.NotFound, "index not found: %s", req.Index)
 	}
-	entries, err := s.genericIndexEntries(ctx, req.Store, m, idx, req.GetValues(), req.GetRange(), keyOnly)
+	entries, err := s.genericIndexEntries(ctx, req.Store, m, idx, req.Values, req.Range, keyOnly)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -771,8 +730,9 @@ func sortCursorEntries(entries []cursorutil.Entry) {
 	})
 }
 
-func findIndex(m *storeMeta, name string) *proto.IndexSchema {
-	for _, idx := range m.indexes {
+func findIndex(m *storeMeta, name string) *gestalt.IndexSchema {
+	for i := range m.indexes {
+		idx := &m.indexes[i]
 		if idx.Name == name {
 			return idx
 		}
@@ -780,17 +740,13 @@ func findIndex(m *storeMeta, name string) *proto.IndexSchema {
 	return nil
 }
 
-func extractPrimaryKeyValue(record *proto.Record, pkCol string) (any, error) {
+func extractPrimaryKeyValue(record gestalt.Record, pkCol string) (any, error) {
 	if record == nil {
 		return nil, status.Error(codes.InvalidArgument, "record is required")
 	}
-	v, ok := record.Fields[pkCol]
-	if !ok || v == nil {
+	value, ok := record[pkCol]
+	if !ok || value == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "record missing primary key %q", pkCol)
-	}
-	value, err := sdkcompat.AnyFromTypedValue(v)
-	if err != nil {
-		return nil, err
 	}
 	return value, nil
 }
@@ -798,7 +754,7 @@ func extractPrimaryKeyValue(record *proto.Record, pkCol string) (any, error) {
 func columnType(m *storeMeta, name string) int32 {
 	for _, col := range m.columns {
 		if col.Name == name {
-			return col.Type
+			return int32(col.Type)
 		}
 	}
 	return 0
@@ -1006,14 +962,14 @@ type storedIndex struct {
 	Unique  bool     `json:"unique"`
 }
 
-func newStoredSchema(schema *proto.ObjectStoreSchema) storedSchema {
+func newStoredSchema(schema gestalt.ObjectStoreSchema) storedSchema {
 	s := storedSchema{}
-	for _, c := range schema.GetColumns() {
+	for _, c := range schema.Columns {
 		s.Columns = append(s.Columns, storedColumn{
-			Name: c.Name, Type: c.Type, PrimaryKey: c.PrimaryKey, NotNull: c.NotNull, Unique: c.Unique,
+			Name: c.Name, Type: int32(c.Type), PrimaryKey: c.PrimaryKey, NotNull: c.NotNull, Unique: c.Unique,
 		})
 	}
-	for _, i := range schema.GetIndexes() {
+	for _, i := range schema.Indexes {
 		s.Indexes = append(s.Indexes, storedIndex{
 			Name: i.Name, KeyPath: i.KeyPath, Unique: i.Unique,
 		})
@@ -1024,14 +980,14 @@ func newStoredSchema(schema *proto.ObjectStoreSchema) storedSchema {
 func (s storedSchema) toMeta(name string) *storeMeta {
 	m := &storeMeta{name: name, pkCol: "id"}
 	for _, c := range s.Columns {
-		col := &proto.ColumnDef{Name: c.Name, Type: c.Type, PrimaryKey: c.PrimaryKey, NotNull: c.NotNull, Unique: c.Unique}
+		col := gestalt.ColumnDef{Name: c.Name, Type: gestalt.ColumnType(c.Type), PrimaryKey: c.PrimaryKey, NotNull: c.NotNull, Unique: c.Unique}
 		m.columns = append(m.columns, col)
 		if c.PrimaryKey {
 			m.pkCol = c.Name
 		}
 	}
 	for _, i := range s.Indexes {
-		m.indexes = append(m.indexes, &proto.IndexSchema{Name: i.Name, KeyPath: i.KeyPath, Unique: i.Unique})
+		m.indexes = append(m.indexes, gestalt.IndexSchema{Name: i.Name, KeyPath: i.KeyPath, Unique: i.Unique})
 	}
 	return m
 }
