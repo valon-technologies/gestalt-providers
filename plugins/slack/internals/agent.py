@@ -1889,14 +1889,14 @@ def _publish_matching_workflow_events(
     log_context = _slack_publish_log_context(event, routes)
     if not _workflow_publish_contract_available():
         message = "Slack event publishing requires a Gestalt SDK/runtime with workflow event publishing support"
-        logger.error("%s %s", message, log_context)
+        logger.error(f"{message} {log_context}")
         return _server_error(message)
     if (
         _workflow_publish_provider_selection_required(routes)
         and not _workflow_publish_provider_selection_available()
     ):
         message = "Slack event publishing requires a Gestalt SDK/runtime with workflow provider selection support"
-        logger.error("%s %s", message, log_context)
+        logger.error(f"{message} {log_context}")
         return _server_error(message)
 
     workflow_manager_factory = cast(
@@ -1904,7 +1904,7 @@ def _publish_matching_workflow_events(
     )
     if workflow_manager_factory is None:
         message = "Slack event publishing requires a Gestalt SDK/runtime with workflow manager support"
-        logger.error("%s %s", message, log_context)
+        logger.error(f"{message} {log_context}")
         return _server_error(message)
 
     try:
@@ -1919,10 +1919,10 @@ def _publish_matching_workflow_events(
                 workflow_event_ids.append(str(workflow_request.event.id))
                 route_ids.append(route.id)
     except Exception as err:
-        logger.exception("failed to publish Slack workflow event %s", log_context)
+        logger.exception(f"failed to publish Slack workflow event {log_context}")
         return _server_error(f"failed to publish workflow event: {err}")
 
-    logger.info("published Slack workflow event %s", log_context)
+    logger.info(f"published Slack workflow event {log_context}")
     return {
         "ok": True,
         "published": True,
@@ -3487,7 +3487,7 @@ def _workflow_publish_contract_available() -> bool:
         request = request_type()
     except Exception:
         return False
-    return getattr(request, "event", None) is not None
+    return hasattr(request, "event")
 
 
 def _workflow_publish_provider_selection_required(
