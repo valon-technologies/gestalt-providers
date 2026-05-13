@@ -448,6 +448,7 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             return publish_response
         if publish_response is not None:
             return publish_response
+        _log_ignored_slack_event(event, req, ignored_reason)
         return {"ok": True, "ignored": ignored_reason}
     if not _agent_dispatch_configured(route):
         publish_response = _publish_matching_workflow_events(input, req)
@@ -586,6 +587,15 @@ def _agent_dispatch_configured(route: SlackAgentRoute | None) -> bool:
         or _agent_config.agent_tool_set_refs
         or _agent_config.agent_tools
     )
+
+
+def _log_ignored_slack_event(
+    event: SlackAgentEvent, req: gestalt.Request, ignored_reason: str
+) -> None:
+    if not (_agent_config.routes or _agent_config.events.publish.routes):
+        return
+    log_context = _slack_event_log_context(event, req, None)
+    logger.info(f"ignored Slack event {log_context} ignored_reason={ignored_reason}")
 
 
 def _publish_matching_workflow_events_after_agent_handoff(

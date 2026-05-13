@@ -6704,14 +6704,21 @@ class SlackProviderTests(unittest.TestCase):
             },
         }
 
-        response = provider_module.slack_events_handle(
-            payload,
-            gestalt.Request(
-                subject=gestalt.Subject(id="user:gestalt-123", kind="user")
-            ),
-        )
+        with self.assertLogs(provider_module._agent.logger, level="INFO") as logs:
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
 
         self.assertEqual(response, {"ok": True, "ignored": "no_matching_agent_route"})
+        log_text = "\n".join(logs.output)
+        self.assertIn("ignored Slack event", log_text)
+        self.assertIn("ignored_reason=no_matching_agent_route", log_text)
+        self.assertIn("slack_channel_id=C_OTHER", log_text)
+        self.assertIn("subject_id=user:gestalt-123", log_text)
+        self.assertNotIn("hello", log_text)
 
     def test_default_routing_still_ignores_plain_channel_messages(self) -> None:
         provider_module.configure("slack", {})
