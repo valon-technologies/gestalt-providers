@@ -40,6 +40,7 @@ class StoredTurn:
     status: int
     messages: list[dict[str, Any]]
     output_text: str
+    structured_output: dict[str, Any] | None
     status_message: str
     created_by: dict[str, str]
     created_at: datetime
@@ -106,6 +107,7 @@ def _turn_to_record(turn: StoredTurn) -> dict[str, Any]:
         "status": turn.status,
         "messages": copy.deepcopy(turn.messages),
         "output_text": turn.output_text,
+        "structured_output": copy.deepcopy(turn.structured_output),
         "status_message": turn.status_message,
         "created_by": dict(turn.created_by),
         "created_at": turn.created_at,
@@ -127,6 +129,7 @@ def _record_to_turn(record: dict[str, Any] | None) -> StoredTurn | None:
         status=int(record.get("status") or gestalt.AGENT_EXECUTION_STATUS_UNSPECIFIED),
         messages=_coerce_messages(record.get("messages")),
         output_text=str(record.get("output_text") or ""),
+        structured_output=_coerce_optional_dict(record.get("structured_output")),
         status_message=str(record.get("status_message") or ""),
         created_by=_coerce_string_dict(record.get("created_by")),
         created_at=_coerce_required_datetime(record.get("created_at")),

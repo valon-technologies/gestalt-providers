@@ -7,8 +7,7 @@ from typing import Any
 
 import gestalt
 
-from internals import ClaudeAgentConfig, ClaudeSDKRunner, IndexedDBRunStore
-from internals.claude_code_config import ClaudeCodeTurnOptions
+from internals import ClaudeAgentConfig, ClaudeSDKRunner, ClaudeTurnProfile, IndexedDBRunStore
 from internals.claude_runner import ClaudeExecutionCanceled, ClaudeExecutionError
 from internals.session_start import (
     prepend_session_start_context,
@@ -18,6 +17,17 @@ from internals.session_start import (
 from internals.store import StoreConflictError, StoreUnavailableError, StoredSession, StoredTurn, StoredTurnEvent
 
 logger = logging.getLogger(__name__)
+
+
+def _agent_tool_source_mode_none() -> int:
+    value = getattr(gestalt, "AGENT_TOOL_SOURCE_MODE_NONE", None)
+    if value is not None:
+        return int(value)
+    return int(gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG) + 1
+
+
+AGENT_TOOL_SOURCE_MODE_NONE = _agent_tool_source_mode_none()
+AGENT_TOOL_SOURCE_MODE_MCP_CATALOG = int(gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG)
 
 
 class ClaudeCodeAgentProvider(
@@ -203,11 +213,20 @@ class ClaudeCodeAgentProvider(
             raise gestalt.Error(400, str(exc)) from exc
 
         messages = prepend_session_start_context(gestalt.agent_messages_to_dicts(request.messages), session.metadata)
-        cwd = _prepared_workspace_cwd(session.prepared_workspace)
-        try:
-            claude_code_options = config.claude_code.resolve_turn_options(session.metadata)
-        except ValueError as exc:
-            raise gestalt.Error(400, str(exc)) from exc
+        response_schema = _response_schema_from_request(request)
+        tool_source = int(getattr(request, "tool_source", 0) or 0)
+        if tool_source == AGENT_TOOL_SOURCE_MODE_NONE:
+            assert response_schema is not None
+            turn_profile = ClaudeTurnProfile.structured_output(response_schema=response_schema)
+        else:
+            cwd = _prepared_workspace_cwd(session.prepared_workspace)
+            try:
+                claude_code_options = config.claude_code.resolve_turn_options(session.metadata)
+            except ValueError as exc:
+                raise gestalt.Error(400, str(exc)) from exc
+            turn_profile = ClaudeTurnProfile.catalog(
+                run_grant=str(request.run_grant or "").strip(), claude_code_options=claude_code_options, cwd=cwd
+            )
         try:
             turn, created = self._store_call(
                 lambda: store.begin_turn(
@@ -235,9 +254,7 @@ class ClaudeCodeAgentProvider(
                     "session_id": turn.session_id,
                     "model": model,
                     "messages": list(turn.messages),
-                    "run_grant": str(request.run_grant or "").strip(),
-                    "claude_code_options": claude_code_options,
-                    "cwd": cwd,
+                    "turn_profile": turn_profile,
                 },
                 daemon=True,
             ).start()
@@ -324,12 +341,12 @@ class ClaudeCodeAgentProvider(
             streaming_text=False,
             tool_calls=True,
             parallel_tool_calls=False,
-            structured_output=False,
+            structured_output=True,
             interactions=False,
             resumable_turns=False,
             reasoning_summaries=False,
             bounded_list_hydration=True,
-            supported_tool_sources=[gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG],
+            supported_tool_sources=[AGENT_TOOL_SOURCE_MODE_NONE, AGENT_TOOL_SOURCE_MODE_MCP_CATALOG],
         )
         if hasattr(caps, "supports_session_start"):
             caps.supports_session_start = True
@@ -357,12 +374,11 @@ class ClaudeCodeAgentProvider(
         session_id: str,
         model: str,
         messages: list[dict[str, Any]],
-        run_grant: str,
-        claude_code_options: ClaudeCodeTurnOptions,
-        cwd: str,
+        turn_profile: ClaudeTurnProfile,
     ) -> None:
         try:
-            if claude_code_options.plugins:
+            claude_code_options = turn_profile.claude_code_options
+            if claude_code_options is not None and claude_code_options.plugins:
                 logger.info(
                     "starting Claude Agent SDK turn with configured Claude Code plugins",
                     extra={
@@ -371,13 +387,7 @@ class ClaudeCodeAgentProvider(
                     },
                 )
             output = runner.run_turn(
-                session_id=session_id,
-                turn_id=turn_id,
-                model=model,
-                messages=messages,
-                run_grant=run_grant,
-                claude_code_options=claude_code_options,
-                cwd=cwd,
+                session_id=session_id, turn_id=turn_id, model=model, messages=messages, turn_profile=turn_profile
             )
         except ClaudeExecutionCanceled as exc:
             store.cancel_turn(turn_id=turn_id, reason=str(exc))
@@ -387,7 +397,9 @@ class ClaudeCodeAgentProvider(
             logger.exception("Claude Agent SDK turn failed")
             store.fail_turn(turn_id=turn_id, message=str(exc))
         else:
-            store.complete_turn(turn_id=turn_id, output_text=output)
+            store.complete_turn(
+                turn_id=turn_id, output_text=output.output_text, structured_output=output.structured_output
+            )
 
     def _build_warnings(self, config: ClaudeAgentConfig) -> list[str]:
         warnings: list[str] = []
@@ -422,6 +434,7 @@ def _agent_turn(turn: StoredTurn, *, summary_only: bool = False) -> gestalt.Agen
         status=turn.status,
         messages=[] if summary_only else turn.messages,
         output_text="" if summary_only else turn.output_text,
+        structured_output=None if summary_only else turn.structured_output,
         status_message=turn.status_message,
         execution_ref=turn.execution_ref,
         created_by=turn.created_by or None,
@@ -449,17 +462,49 @@ def _has_session_start_hooks(session_start: Any | None) -> bool:
 
 
 def _validate_create_turn_request(request: gestalt.CreateAgentProviderTurnRequest) -> None:
-    if int(getattr(request, "tool_source", 0) or 0) != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
-        raise gestalt.Error(400, "agent/claude requires toolSource mcp_catalog")
-    if not str(request.run_grant or "").strip():
+    tool_source = int(getattr(request, "tool_source", 0) or 0)
+    if tool_source not in {AGENT_TOOL_SOURCE_MODE_MCP_CATALOG, AGENT_TOOL_SOURCE_MODE_NONE}:
+        raise gestalt.Error(400, "agent/claude requires toolSource none or mcp_catalog")
+    if tool_source == AGENT_TOOL_SOURCE_MODE_MCP_CATALOG and not str(request.run_grant or "").strip():
         raise gestalt.Error(400, "run_grant is required")
     if request.tools:
-        raise gestalt.Error(400, "resolved tools are not supported; use tool_refs with mcp_catalog")
-    if dict(request.response_schema or {}):
-        raise gestalt.Error(400, "response_schema is not supported by agent/claude")
+        raise gestalt.Error(400, "resolved tools are not supported by agent/claude")
+    if tool_source == AGENT_TOOL_SOURCE_MODE_NONE and list(request.tool_refs):
+        raise gestalt.Error(400, "tool_refs are not supported with toolSource none")
+    if tool_source == AGENT_TOOL_SOURCE_MODE_NONE and not _has_response_schema(request):
+        raise gestalt.Error(400, "response_schema is required with toolSource none")
+    if tool_source == AGENT_TOOL_SOURCE_MODE_MCP_CATALOG and _has_response_schema(request):
+        raise gestalt.Error(400, "response_schema is not supported with toolSource mcp_catalog")
+    _validate_response_schema(_response_schema_from_request(request))
     if dict(request.model_options or {}):
         raise gestalt.Error(400, "model_options are not supported by agent/claude")
-    _validate_tool_refs(list(request.tool_refs))
+    if tool_source == AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
+        _validate_tool_refs(list(request.tool_refs))
+
+
+def _response_schema_from_request(request: Any) -> dict[str, Any] | None:
+    value = getattr(request, "response_schema", None)
+    if value is None:
+        return None
+    return dict(value)
+
+
+def _has_response_schema(request: Any) -> bool:
+    has_field = getattr(request, "HasField", None)
+    return (
+        bool(has_field("response_schema"))
+        if callable(has_field)
+        else _response_schema_from_request(request) is not None
+    )
+
+
+def _validate_response_schema(schema: dict[str, Any] | None) -> None:
+    if schema is None:
+        return
+    if not schema:
+        raise gestalt.Error(400, "response_schema must be a non-empty JSON schema object with type 'object'")
+    if str(schema.get("type") or "").strip() != "object":
+        raise gestalt.Error(400, "response_schema.type must be 'object'")
 
 
 def _validate_tool_refs(tool_refs: list[Any]) -> None:
