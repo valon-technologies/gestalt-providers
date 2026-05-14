@@ -72,6 +72,37 @@ class _ClaudeResponse:
         return ""
 
 
+@dataclass(frozen=True, slots=True)
+class ClaudeTurnResult:
+    output_text: str
+    structured_output: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ClaudeTurnProfile:
+    kind: Literal["catalog", "structured_output"]
+    run_grant: str = ""
+    response_schema: dict[str, Any] | None = None
+    claude_code_options: ClaudeCodeTurnOptions | None = None
+    cwd: str | None = None
+
+    @classmethod
+    def catalog(cls, *, run_grant: str, claude_code_options: ClaudeCodeTurnOptions, cwd: str) -> "ClaudeTurnProfile":
+        return cls(kind="catalog", run_grant=run_grant, claude_code_options=claude_code_options, cwd=cwd)
+
+    @classmethod
+    def structured_output(cls, *, response_schema: dict[str, Any]) -> "ClaudeTurnProfile":
+        return cls(kind="structured_output", response_schema=response_schema)
+
+    @property
+    def uses_catalog_tools(self) -> bool:
+        return self.kind == "catalog"
+
+    @property
+    def requires_structured_output(self) -> bool:
+        return self.kind == "structured_output"
+
+
 class ClaudeSDKRunner:
     def __init__(self, config: ClaudeAgentConfig, *, client_factory: ClientFactory | None = None) -> None:
         self._config = config
@@ -87,10 +118,8 @@ class ClaudeSDKRunner:
         turn_id: str,
         model: str,
         messages: list[dict[str, Any]],
-        run_grant: str,
-        claude_code_options: ClaudeCodeTurnOptions | None = None,
-        cwd: str = "",
-    ) -> str:
+        turn_profile: ClaudeTurnProfile,
+    ) -> ClaudeTurnResult:
         try:
             return asyncio.run(
                 asyncio.wait_for(
@@ -99,9 +128,7 @@ class ClaudeSDKRunner:
                         turn_id=turn_id,
                         model=model,
                         messages=messages,
-                        run_grant=run_grant,
-                        claude_code_options=claude_code_options,
-                        cwd=cwd,
+                        turn_profile=turn_profile,
                     ),
                     timeout=self._config.timeout_seconds,
                 )
@@ -136,10 +163,8 @@ class ClaudeSDKRunner:
         turn_id: str,
         model: str,
         messages: list[dict[str, Any]],
-        run_grant: str,
-        claude_code_options: ClaudeCodeTurnOptions | None,
-        cwd: str,
-    ) -> str:
+        turn_profile: ClaudeTurnProfile,
+    ) -> ClaudeTurnResult:
         loop = asyncio.get_running_loop()
         self._register_active_turn(turn_id, _ActiveTurn(loop=loop))
         try:
@@ -149,21 +174,14 @@ class ClaudeSDKRunner:
                 raise ClaudeExecutionError("turn prompt is empty")
 
             with tempfile.TemporaryDirectory(prefix="gestalt-claude-sdk-") as config_dir:
-                options = self._options(
-                    model=model,
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    run_grant=run_grant,
-                    claude_code_options=claude_code_options,
-                    cwd=cwd,
-                )
+                options = self._options(model=model, session_id=session_id, turn_id=turn_id, turn_profile=turn_profile)
                 _set_config_dir(options, config_dir)
                 client = self._client_factory(options=options)
                 self._register_active_client(turn_id, client)
                 self._raise_if_canceled(turn_id)
                 await client.connect()
                 await client.query(prompt, session_id=turn_id)
-                output = await self._receive_result(client, turn_id=turn_id)
+                output = await self._receive_result(client, turn_id=turn_id, turn_profile=turn_profile)
                 self._raise_if_canceled(turn_id)
                 return output
         finally:
@@ -174,7 +192,7 @@ class ClaudeSDKRunner:
                 except Exception:
                     logger.exception("failed to disconnect Claude SDK client")
 
-    async def _receive_result(self, client: Any, *, turn_id: str) -> str:
+    async def _receive_result(self, client: Any, *, turn_id: str, turn_profile: ClaudeTurnProfile) -> ClaudeTurnResult:
         response = _ClaudeResponse()
         result_message: Any | None = None
         async for message in client.receive_response():
@@ -183,7 +201,12 @@ class ClaudeSDKRunner:
             if result_message is not None:
                 break
 
-        return _result_output(response, result_message, canceled=self._is_canceled(turn_id))
+        return _result_output(
+            response,
+            result_message,
+            requires_structured_output=turn_profile.requires_structured_output,
+            canceled=self._is_canceled(turn_id),
+        )
 
     def _options(
         self,
@@ -191,40 +214,87 @@ class ClaudeSDKRunner:
         model: str,
         session_id: str,
         turn_id: str,
-        run_grant: str,
+        turn_profile: ClaudeTurnProfile | None = None,
+        run_grant: str = "",
+        response_schema: dict[str, Any] | None = None,
         claude_code_options: ClaudeCodeTurnOptions | None = None,
         cwd: str = "",
     ) -> Any:
+        if turn_profile is None:
+            if response_schema is not None and not str(run_grant or "").strip():
+                turn_profile = ClaudeTurnProfile.structured_output(response_schema=response_schema)
+            else:
+                if claude_code_options is None:
+                    claude_code_options = self._config.claude_code.resolve_turn_options({})
+                turn_profile = ClaudeTurnProfile.catalog(
+                    run_grant=str(run_grant or "").strip(), claude_code_options=claude_code_options, cwd=cwd
+                )
+        if turn_profile.uses_catalog_tools:
+            return self._catalog_options(model=model, session_id=session_id, turn_id=turn_id, turn_profile=turn_profile)
+        return self._structured_output_options(model=model, turn_profile=turn_profile)
+
+    def _base_options_kwargs(
+        self, *, model: str, env: dict[str, str], cwd: str | None, system_prompt: str | None
+    ) -> dict[str, Any]:
+        return {
+            "model": model,
+            "cwd": cwd,
+            "system_prompt": system_prompt,
+            "permission_mode": cast(PermissionMode, self._config.permission_mode),
+            "cli_path": self._config.cli_path or None,
+            "env": env,
+            "agents": None,
+            "stderr": _log_claude_stderr,
+        }
+
+    def _catalog_options(
+        self, *, model: str, session_id: str, turn_id: str, turn_profile: ClaudeTurnProfile
+    ) -> ClaudeAgentOptions:
+        claude_code_options = turn_profile.claude_code_options
+        assert claude_code_options is not None
         env: dict[str, str] = {"ENABLE_TOOL_SEARCH": "auto:5"}
         anthropic_api_key = self._config.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         if anthropic_api_key:
             env["ANTHROPIC_API_KEY"] = anthropic_api_key
-        if claude_code_options is None:
-            claude_code_options = self._config.claude_code.resolve_turn_options({})
         if claude_code_options.disable_auto_memory:
             env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
-        tools = allowed_gestalt_mcp_tools() + claude_code_options.base_tools
-        allowed_tools = allowed_gestalt_mcp_tools() + claude_code_options.allowed_tools
         return ClaudeAgentOptions(
-            tools=tools,
-            allowed_tools=allowed_tools,
+            **self._base_options_kwargs(
+                model=model,
+                env=env,
+                cwd=turn_profile.cwd or self._config.working_directory or None,
+                system_prompt=_system_prompt(self._config.system_prompt),
+            ),
+            tools=allowed_gestalt_mcp_tools() + claude_code_options.base_tools,
+            allowed_tools=allowed_gestalt_mcp_tools() + claude_code_options.allowed_tools,
             mcp_servers={
                 MCP_SERVER_NAME: create_gestalt_sdk_mcp_server(
-                    session_id=session_id, turn_id=turn_id, run_grant=run_grant
+                    session_id=session_id, turn_id=turn_id, run_grant=turn_profile.run_grant
                 )
             },
-            model=model,
-            cwd=cwd or self._config.working_directory or None,
-            system_prompt=_system_prompt(self._config.system_prompt),
-            permission_mode=cast(PermissionMode, self._config.permission_mode),
-            cli_path=self._config.cli_path or None,
-            env=env,
             setting_sources=list(claude_code_options.setting_sources),
             skills=claude_code_options.sdk_skills,
             plugins=claude_code_options.sdk_plugins,
-            agents=None,
             can_use_tool=create_tool_permission_callback(claude_code_options.tool_permissions),
-            stderr=_log_claude_stderr,
+        )
+
+    def _structured_output_options(self, *, model: str, turn_profile: ClaudeTurnProfile) -> ClaudeAgentOptions:
+        anthropic_api_key = self._config.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        env: dict[str, str] = {}
+        if anthropic_api_key:
+            env["ANTHROPIC_API_KEY"] = anthropic_api_key
+        system_prompt = _configured_system_prompt(self._config.system_prompt)
+        schema = turn_profile.response_schema
+        assert schema is not None
+        return ClaudeAgentOptions(
+            **self._base_options_kwargs(model=model, env=env, cwd=None, system_prompt=system_prompt),
+            tools=[],
+            allowed_tools=[],
+            mcp_servers={},
+            setting_sources=[],
+            skills=[],
+            plugins=[],
+            output_format={"type": "json_schema", "schema": schema},
         )
 
     def _register_active_turn(self, turn_id: str, active: _ActiveTurn) -> None:
@@ -279,9 +349,7 @@ def _capture_assistant_message(response: _ClaudeResponse, message: AssistantMess
 
 def _tool_use_json(block: ToolUseBlock) -> str:
     return json.dumps(
-        {"tool_use": {"id": block.id, "name": block.name, "input": block.input}},
-        sort_keys=True,
-        separators=(",", ":"),
+        {"tool_use": {"id": block.id, "name": block.name, "input": block.input}}, sort_keys=True, separators=(",", ":")
     )
 
 
@@ -299,7 +367,9 @@ def _tool_result_json(block: ToolResultBlock) -> str:
     )
 
 
-def _result_output(response: _ClaudeResponse, result_message: Any | None, *, canceled: bool) -> str:
+def _result_output(
+    response: _ClaudeResponse, result_message: Any | None, *, requires_structured_output: bool, canceled: bool
+) -> ClaudeTurnResult:
     if result_message is None:
         raise ClaudeExecutionError("Claude Agent SDK response ended without a result")
     subtype = _result_subtype(result_message)
@@ -307,7 +377,8 @@ def _result_output(response: _ClaudeResponse, result_message: Any | None, *, can
         _raise_result_error(result_message, subtype=subtype, canceled=canceled)
 
     result_text = str(getattr(result_message, "result", "") or "").strip()
-    return result_text or response.output_fallback()
+    structured_output = _structured_output(result_message, required=requires_structured_output)
+    return ClaudeTurnResult(output_text=result_text or response.output_fallback(), structured_output=structured_output)
 
 
 def _raise_result_error(result_message: Any, *, subtype: str, canceled: bool) -> None:
@@ -333,10 +404,27 @@ def _messages_to_prompt(messages: list[dict[str, Any]]) -> str:
 
 
 def _system_prompt(configured: str) -> str:
-    configured = str(configured or "").strip()
+    configured = _configured_system_prompt(configured) or ""
     if not configured:
         return GESTALT_MCP_CATALOG_PROMPT
     return f"{configured}\n\n{GESTALT_MCP_CATALOG_PROMPT}"
+
+
+def _configured_system_prompt(configured: str) -> str | None:
+    configured = str(configured or "").strip()
+    return configured or None
+
+
+def _structured_output(result_message: Any, *, required: bool) -> dict[str, Any] | None:
+    value = getattr(result_message, "structured_output", None)
+    if value is None:
+        if required:
+            raise ClaudeExecutionError("Claude Agent SDK response did not include structured output")
+        return None
+    value = _jsonable(value)
+    if not isinstance(value, dict):
+        raise ClaudeExecutionError("Claude Agent SDK structured output must be a JSON object")
+    return value
 
 
 def _message_content(message: dict[str, Any]) -> str:

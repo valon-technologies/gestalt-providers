@@ -37,6 +37,7 @@ empty_pb2: Any = _empty_pb2
 runtime_pb2: Any = _runtime_pb2
 runtime_pb2_grpc: Any = _runtime_pb2_grpc
 struct_pb2: Any = _struct_pb2
+AGENT_TOOL_SOURCE_MODE_NONE = provider_module.AGENT_TOOL_SOURCE_MODE_NONE
 
 _runtime_server: grpc.Server | None = None
 _host_server: grpc.Server | None = None
@@ -258,6 +259,44 @@ class _FakeClaudeSDKClient:
                 num_turns=1,
                 session_id=self.session_id,
                 result="",
+            )
+            return
+        if self.mode == "structured_success":
+            assert self.options.tools == []
+            assert self.options.allowed_tools == []
+            assert self.options.mcp_servers == {}
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id=self.session_id,
+                result="graded",
+                structured_output={"score": 1, "reasoning": "correct"},
+            )
+            return
+        if self.mode == "structured_missing":
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id=self.session_id,
+                result="missing",
+            )
+            return
+        if self.mode == "structured_list":
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id=self.session_id,
+                result="list",
+                structured_output=[{"score": 1}],
             )
             return
 
@@ -584,7 +623,10 @@ class ClaudeProviderTests(unittest.TestCase):
         assert host is not None
         lifecycle, provider_client = _configure_provider()
         capabilities = provider_client.GetCapabilities(agent_pb2.GetAgentProviderCapabilitiesRequest())
-        self.assertEqual(list(capabilities.supported_tool_sources), [agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG])
+        self.assertEqual(
+            list(capabilities.supported_tool_sources),
+            [AGENT_TOOL_SOURCE_MODE_NONE, agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG],
+        )
         if hasattr(capabilities, "supports_prepared_workspace"):
             self.assertTrue(capabilities.supports_prepared_workspace)
         self.assertEqual(lifecycle.GetProviderIdentity(empty_pb2.Empty()).name, "claude")
@@ -613,6 +655,8 @@ class ClaudeProviderTests(unittest.TestCase):
             [event.type for event in events.events], ["turn.started", "assistant.message", "turn.completed"]
         )
         self.assertEqual([event.visibility for event in events.events], ["external", "external", "external"])
+        message_events = [event for event in events.events if event.type == "assistant.message"]
+        self.assertNotIn("structured_output", message_events[0].data.fields)
 
         self.assertEqual(len(_FakeClaudeSDKClient.instances), 1)
         fake_client = _FakeClaudeSDKClient.instances[0]
@@ -655,6 +699,95 @@ class ClaudeProviderTests(unittest.TestCase):
         tool_result = cast(Any, fake_client.tool_result)
         self.assertEqual(tool_result.content[0].text, '{"ok":true}')
         self.assertFalse(tool_result.isError)
+
+    def test_provider_completes_structured_none_turn_without_tools(self) -> None:
+        _FakeClaudeSDKClient.mode = "structured_success"
+        _, provider_client = _configure_provider()
+        session_req = agent_pb2.CreateAgentProviderSessionRequest(
+            session_id="session-structured",
+            model="sonnet-session",
+            created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
+        )
+        if hasattr(session_req, "prepared_workspace"):
+            session_req.prepared_workspace.root = "/sandbox/runtime/workspaces/session-structured"
+            session_req.prepared_workspace.cwd = "/sandbox/runtime/workspaces/session-structured/repo"
+        provider_client.CreateSession(session_req)
+        schema = struct_pb2.Struct()
+        schema.update(
+            {
+                "type": "object",
+                "properties": {"score": {"type": "number"}, "reasoning": {"type": "string"}},
+                "required": ["score", "reasoning"],
+            }
+        )
+        started = provider_client.CreateTurn(
+            _turn_request(
+                turn_id="turn-structured",
+                session_id="session-structured",
+                messages=[agent_pb2.AgentMessage(role="user", text="Grade the answer")],
+                run_grant="",
+                tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
+                response_schema=schema,
+                include_tool_refs=False,
+            )
+        )
+        self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
+
+        fetched = _wait_for_turn(provider_client, "turn-structured", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        self.assertEqual(fetched.output_text, "graded")
+        self.assertEqual(fetched.structured_output.fields["score"].number_value, 1)
+        self.assertEqual(fetched.structured_output.fields["reasoning"].string_value, "correct")
+        summary = provider_client.ListTurns(
+            agent_pb2.ListAgentProviderTurnsRequest(
+                session_id="session-structured", turn_ids=["turn-structured"], summary_only=True
+            )
+        )
+        self.assertEqual(summary.turns[0].output_text, "")
+        self.assertFalse(summary.turns[0].HasField("structured_output"))
+
+        fake_client = _FakeClaudeSDKClient.instances[0]
+        self.assertEqual(fake_client.options.tools, [])
+        self.assertEqual(fake_client.options.allowed_tools, [])
+        self.assertEqual(fake_client.options.mcp_servers, {})
+        self.assertIsNone(fake_client.options.can_use_tool)
+        self.assertEqual(fake_client.options.setting_sources, [])
+        self.assertEqual(fake_client.options.skills, [])
+        self.assertEqual(fake_client.options.plugins, [])
+        self.assertNotIn("ENABLE_TOOL_SEARCH", fake_client.options.env)
+        self.assertIsNone(fake_client.options.cwd)
+        self.assertEqual(fake_client.options.output_format["type"], "json_schema")
+        self.assertEqual(fake_client.options.output_format["schema"]["type"], "object")
+        self.assertIsNone(fake_client.options.system_prompt)
+
+        events = provider_client.ListTurnEvents(agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-structured"))
+        message_events = [event for event in events.events if event.type == "assistant.message"]
+        self.assertEqual(
+            message_events[0].data.fields["structured_output"].struct_value.fields["score"].number_value, 1
+        )
+
+    def test_provider_fails_structured_turn_without_object_output(self) -> None:
+        for mode, message in [
+            ("structured_missing", "did not include structured output"),
+            ("structured_list", "structured output must be a JSON object"),
+        ]:
+            with self.subTest(mode=mode):
+                _FakeClaudeSDKClient.mode = mode
+                _, provider_client = _configure_provider()
+                provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id=f"session-{mode}"))
+                schema = struct_pb2.Struct()
+                schema.update({"type": "object"})
+                provider_client.CreateTurn(
+                    _turn_request(
+                        turn_id=f"turn-{mode}",
+                        session_id=f"session-{mode}",
+                        run_grant="",
+                        tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
+                        response_schema=schema,
+                        include_tool_refs=False,
+                    )
+                )
+                failed = _wait_for_turn(provider_client, f"turn-{mode}", agent_pb2.AGENT_EXECUTION_STATUS_FAILED)
+                self.assertIn(message, failed.status_message)
 
     def test_provider_passes_host_injected_anthropic_env_to_agent_sdk(self) -> None:
         previous = os.environ.get("ANTHROPIC_API_KEY")
@@ -1275,7 +1408,7 @@ class ClaudeProviderTests(unittest.TestCase):
 
         bad_source = _turn_request(turn_id="turn-bad-source", session_id="session-validation")
         bad_source.tool_source = 999
-        _assert_invalid(provider_client, bad_source, "requires toolSource mcp_catalog")
+        _assert_invalid(provider_client, bad_source, "requires toolSource none or mcp_catalog")
 
         missing_grant = _turn_request(turn_id="turn-missing-grant", session_id="session-validation", run_grant="")
         _assert_invalid(provider_client, missing_grant, "run_grant is required")
@@ -1284,12 +1417,30 @@ class ClaudeProviderTests(unittest.TestCase):
         wildcard_ref.tool_refs[0].operation = "*"
         _assert_invalid(provider_client, wildcard_ref, "wildcard tool_refs are not supported")
 
-        response_schema = struct_pb2.Struct()
-        response_schema.update({"type": "object"})
-        bad_schema = _turn_request(
-            turn_id="turn-response-schema", session_id="session-validation", response_schema=response_schema
+        empty_schema = _turn_request(
+            turn_id="turn-empty-response-schema",
+            session_id="session-validation",
+            tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
+            include_tool_refs=False,
+            response_schema=struct_pb2.Struct(),
         )
-        _assert_invalid(provider_client, bad_schema, "response_schema is not supported")
+        _assert_invalid(provider_client, empty_schema, "response_schema must be a non-empty")
+
+        scalar_schema = struct_pb2.Struct()
+        scalar_schema.update({"type": "array"})
+        bad_schema = _turn_request(
+            turn_id="turn-response-schema",
+            session_id="session-validation",
+            tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
+            include_tool_refs=False,
+            response_schema=scalar_schema,
+        )
+        _assert_invalid(provider_client, bad_schema, "response_schema.type must be")
+
+        catalog_schema = _turn_request(
+            turn_id="turn-catalog-response-schema", session_id="session-validation", response_schema=scalar_schema
+        )
+        _assert_invalid(provider_client, catalog_schema, "response_schema is not supported with toolSource mcp_catalog")
 
         model_options = struct_pb2.Struct()
         model_options.update({"temperature": 0.2})
@@ -1301,6 +1452,22 @@ class ClaudeProviderTests(unittest.TestCase):
         resolved_tools = _turn_request(turn_id="turn-resolved-tools", session_id="session-validation")
         resolved_tools.tools.add(id="resolved-tool", name="legacy", description="legacy")
         _assert_invalid(provider_client, resolved_tools, "resolved tools are not supported")
+
+        none_with_refs = _turn_request(
+            turn_id="turn-none-with-refs",
+            session_id="session-validation",
+            run_grant="",
+            tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
+        )
+        _assert_invalid(provider_client, none_with_refs, "tool_refs are not supported with toolSource none")
+
+        none_without_schema = _turn_request(
+            turn_id="turn-none-without-schema",
+            session_id="session-validation",
+            tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
+            include_tool_refs=False,
+        )
+        _assert_invalid(provider_client, none_without_schema, "response_schema is required with toolSource none")
 
     def test_create_turn_accepts_broad_catalog_tool_refs(self) -> None:
         _, provider_client = _configure_provider()
@@ -1571,23 +1738,26 @@ def _turn_request(
     idempotency_key: str = "",
     response_schema: Any | None = None,
     model_options: Any | None = None,
+    tool_source: int | None = None,
+    include_tool_refs: bool = True,
 ) -> Any:
     request = agent_pb2.CreateAgentProviderTurnRequest(
         turn_id=turn_id,
         session_id=session_id,
         messages=messages or [agent_pb2.AgentMessage(role="user", text="List my Linear issues")],
-        tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
+        tool_source=tool_source if tool_source is not None else agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
         run_grant=run_grant,
         execution_ref=execution_ref,
         idempotency_key=idempotency_key,
         created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
     )
-    linear = request.tool_refs.add()
-    linear.plugin = "linear"
-    linear.operation = "searchIssues"
-    github = request.tool_refs.add()
-    github.plugin = "github"
-    github.operation = "pulls/list"
+    if include_tool_refs:
+        linear = request.tool_refs.add()
+        linear.plugin = "linear"
+        linear.operation = "searchIssues"
+        github = request.tool_refs.add()
+        github.plugin = "github"
+        github.operation = "pulls/list"
     if response_schema is not None:
         request.response_schema.CopyFrom(response_schema)
     if model_options is not None:

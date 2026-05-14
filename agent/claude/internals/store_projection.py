@@ -7,13 +7,7 @@ from typing import Any
 
 import gestalt
 
-from .store_records import (
-    StoredSession,
-    StoredTurn,
-    _coerce_datetime,
-    _coerce_required_datetime,
-    _coerce_string_dict,
-)
+from .store_records import StoredSession, StoredTurn, _coerce_datetime, _coerce_required_datetime, _coerce_string_dict
 
 PROJECTION_SCHEMA_VERSION = 1
 PROJECTION_SEP = "\x1f"
@@ -114,6 +108,7 @@ def _record_to_turn_projection(record: dict[str, Any] | None) -> StoredTurn | No
         status=int(record.get("status") or gestalt.AGENT_EXECUTION_STATUS_UNSPECIFIED),
         messages=[],
         output_text="",
+        structured_output=None,
         status_message=str(record.get("status_message") or ""),
         created_by=_coerce_string_dict(record.get("created_by")),
         created_at=_coerce_required_datetime(record.get("created_at")),
@@ -152,7 +147,9 @@ def _turn_projection_keys(turn: StoredTurn) -> list[str]:
     if subject_id:
         subject = _projection_value(subject_id)
         keys.append(_projection_key("turn", "session", session, "subject", subject, "all", sort_key, turn_id))
-        keys.append(_projection_key("turn", "session", session, "subject", subject, "status", status, sort_key, turn_id))
+        keys.append(
+            _projection_key("turn", "session", session, "subject", subject, "status", status, sort_key, turn_id)
+        )
     return keys
 
 
@@ -171,7 +168,9 @@ def _turn_projection_prefix(*, session_id: str, subject_id: str = "", status: in
     session = _projection_value(session_id.strip())
     subject_id = subject_id.strip()
     if subject_id and status:
-        return _projection_prefix("turn", "session", session, "subject", _projection_value(subject_id), "status", str(status))
+        return _projection_prefix(
+            "turn", "session", session, "subject", _projection_value(subject_id), "status", str(status)
+        )
     if subject_id:
         return _projection_prefix("turn", "session", session, "subject", _projection_value(subject_id), "all")
     if status:

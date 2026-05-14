@@ -370,7 +370,9 @@ class IndexedDBRunStore:
             filtered = filtered[:limit]
         return copy.deepcopy(filtered)
 
-    def complete_turn(self, *, turn_id: str, output_text: str) -> StoredTurn | None:
+    def complete_turn(
+        self, *, turn_id: str, output_text: str, structured_output: dict[str, Any] | None = None
+    ) -> StoredTurn | None:
         def complete(stores: dict[str, Any]) -> StoredTurn | None:
             turns = stores[self._run_store_name]
             turn_projections = stores[self._turn_projection_store_name]
@@ -383,6 +385,7 @@ class IndexedDBRunStore:
             previous = replace(turn)
             turn.status = gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED
             turn.output_text = output_text
+            turn.structured_output = copy.deepcopy(structured_output)
             turn.status_message = ""
             turn.completed_at = _utcnow()
             turns.put(_turn_to_record(turn))
@@ -391,7 +394,7 @@ class IndexedDBRunStore:
                 turn_id=turn.turn_id,
                 event_type="assistant.message",
                 source=turn.provider_name,
-                data={"text": output_text},
+                data=_assistant_message_event_data(output_text, structured_output),
                 events_store=events,
             )
             self._append_turn_event_locked(
@@ -511,9 +514,7 @@ class IndexedDBRunStore:
 
         return _call_with_busy_retry(run_transaction)
 
-    def _list_session_projections(
-        self, *, subject_id: str = "", state: int = 0, limit: int = 0
-    ) -> list[StoredSession]:
+    def _list_session_projections(self, *, subject_id: str = "", state: int = 0, limit: int = 0) -> list[StoredSession]:
         prefix = _session_projection_prefix(subject_id=subject_id, state=state)
         records = self._session_projections.iter_records(_prefix_key_range(prefix), limit=limit, require_cursor=True)
         return [
@@ -733,12 +734,7 @@ def _turn_for_idempotency_key_from_stores(
 
 
 def _existing_turn_for_begin(
-    turn_store: Any,
-    idempotency_store: Any,
-    *,
-    turn_id: str,
-    session_id: str,
-    idempotency_key: str,
+    turn_store: Any, idempotency_store: Any, *, turn_id: str, session_id: str, idempotency_key: str
 ) -> StoredTurn | None:
     existing = _record_to_turn(_get_optional_record(turn_store, turn_id))
     if existing is not None:
@@ -783,6 +779,7 @@ def _new_running_turn(
         status=gestalt.AGENT_EXECUTION_STATUS_RUNNING,
         messages=copy.deepcopy(messages),
         output_text="",
+        structured_output=None,
         status_message="",
         created_by=_coerce_string_dict(created_by),
         created_at=now,
@@ -790,6 +787,13 @@ def _new_running_turn(
         completed_at=None,
         execution_ref=execution_ref,
     )
+
+
+def _assistant_message_event_data(output_text: str, structured_output: dict[str, Any] | None) -> dict[str, Any]:
+    data: dict[str, Any] = {"text": output_text}
+    if structured_output is not None:
+        data["structured_output"] = copy.deepcopy(structured_output)
+    return data
 
 
 def _add_turn_idempotency_record(idempotency_store: Any, turn: StoredTurn) -> None:
