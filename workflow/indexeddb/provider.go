@@ -5243,7 +5243,7 @@ func runRecordFromRecord(record gestalt.Record) (workflowRunRecord, error) {
 func (r workflowRunRecord) toProto() (*proto.BoundWorkflowRun, error) {
 	return gestalt.NewBoundWorkflowRun(gestalt.BoundWorkflowRun{
 		ID:            r.ID,
-		Status:        r.Status,
+		Status:        gestalt.WorkflowRunStatus(r.Status),
 		Target:        workflowTargetInput(r.Target),
 		Trigger:       r.triggerInput(),
 		CreatedAt:     r.CreatedAt,
