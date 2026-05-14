@@ -3,6 +3,7 @@ package relationaldb
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -65,10 +66,7 @@ func ensureMySQLDatabase(connStr string, options connectionOptions) error {
 	if err := pingDatabase(context.Background(), db, options); err != nil {
 		return fmt.Errorf("relationaldb: ping mysql admin connection: %w", err)
 	}
-	if _, err := execWithRetry(context.Background(), db, options, "CREATE DATABASE IF NOT EXISTS "+quoteIdent(dialectMySQL, target)); err != nil {
-		return fmt.Errorf("relationaldb: create mysql database %q: %w", target, err)
-	}
-	return nil
+	return ensureMySQLSchemaExists(context.Background(), db, target, options)
 }
 
 func ensurePostgresDatabase(connStr string, options connectionOptions) error {
@@ -166,7 +164,7 @@ func ensureRelationalNamespace(ctx context.Context, db *sql.DB, d dialect, schem
 	var query string
 	switch d {
 	case dialectMySQL:
-		query = "CREATE DATABASE IF NOT EXISTS " + quoteIdent(dialectMySQL, schema)
+		return ensureMySQLSchemaExists(ctx, db, schema, options)
 	case dialectPostgres:
 		query = "CREATE SCHEMA IF NOT EXISTS " + quoteIdent(dialectPostgres, schema)
 	case dialectSQLServer:
@@ -183,6 +181,46 @@ func ensureRelationalNamespace(ctx context.Context, db *sql.DB, d dialect, schem
 		return fmt.Errorf("relationaldb: ensure namespace %q: %w", schema, err)
 	}
 	return nil
+}
+
+func ensureMySQLSchemaExists(ctx context.Context, db *sql.DB, schema string, options connectionOptions) error {
+	var exists bool
+	if err := queryRowScanWithRetry(
+		ctx,
+		db,
+		options,
+		"SELECT EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?)",
+		[]any{schema},
+		&exists,
+	); err != nil {
+		return fmt.Errorf("relationaldb: check mysql schema %q: %w", schema, err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := execWithRetry(ctx, db, options, "CREATE DATABASE IF NOT EXISTS "+quoteIdent(dialectMySQL, schema)); err != nil {
+		if isVitessCreateDatabaseUnsupported(err) {
+			return fmt.Errorf("relationaldb: mysql schema %q does not exist and CREATE DATABASE is not supported; create the database out of band before configuring relationaldb to use it (PlanetScale/Vitess does not allow CREATE DATABASE through normal SQL connections): %w", schema, err)
+		}
+		return fmt.Errorf("relationaldb: create mysql schema %q: %w", schema, err)
+	}
+	return nil
+}
+
+func isVitessCreateDatabaseUnsupported(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var myErr *mysqlcfg.MySQLError
+	if errors.As(err, &myErr) {
+		if strings.Contains(myErr.Message, "VT12001") && strings.Contains(myErr.Message, "failDBDDL") {
+			return true
+		}
+	}
+
+	message := err.Error()
+	return strings.Contains(message, "VT12001") && strings.Contains(message, "failDBDDL")
 }
 
 func sqlStringLiteral(value string) string {
