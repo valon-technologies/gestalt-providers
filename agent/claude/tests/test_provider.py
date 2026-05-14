@@ -874,6 +874,34 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(fetched_turn.id, "turn-durable")
         _wait_for_turn(client_b, "turn-durable", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
+    def test_indexeddb_initializes_required_object_stores_without_backfill(self) -> None:
+        indexeddb = _indexeddb_servicer
+        assert indexeddb is not None
+        _configure_provider()
+        store = provider_module.provider._store
+        assert store is not None
+
+        store.initialize()
+
+        self.assertEqual(
+            indexeddb.created_stores(),
+            [
+                store._run_store_name,
+                store._event_store_name,
+                store._session_store_name,
+                store._session_projection_store_name,
+                store._turn_projection_store_name,
+                store._session_idempotency_store_name,
+                store._turn_idempotency_store_name,
+            ],
+        )
+        self.assertEqual(indexeddb.operation_count(store=store._session_store_name, operation="get_all"), 0)
+        self.assertEqual(indexeddb.operation_count(store=store._run_store_name, operation="get_all"), 0)
+        self.assertEqual(
+            indexeddb.operation_count(store=store._session_projection_store_name, operation="open_cursor"), 0
+        )
+        self.assertEqual(indexeddb.operation_count(store=store._turn_projection_store_name, operation="open_cursor"), 0)
+
     def test_provider_hydrates_existing_indexeddb_records(self) -> None:
         indexeddb = _indexeddb_servicer
         assert indexeddb is not None

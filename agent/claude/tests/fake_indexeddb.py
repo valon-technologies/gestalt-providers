@@ -27,6 +27,7 @@ class FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
         self._before_transaction_add: Any | None = None
         self._operation_counts: dict[tuple[str, str], int] = {}
         self._cursor_commands: dict[str, list[list[str]]] = {}
+        self._created_stores: list[str] = []
 
     def reset(self) -> None:
         with self._lock:
@@ -34,6 +35,7 @@ class FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
             self._before_transaction_add = None
             self._operation_counts.clear()
             self._cursor_commands.clear()
+            self._created_stores.clear()
 
     def operation_count(self, *, store: str, operation: str) -> int:
         with self._lock:
@@ -42,6 +44,10 @@ class FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
     def cursor_commands(self, *, store: str) -> list[list[str]]:
         with self._lock:
             return [list(commands) for commands in self._cursor_commands.get(store, [])]
+
+    def created_stores(self) -> list[str]:
+        with self._lock:
+            return list(self._created_stores)
 
     def put_record(
         self, store: str, record: dict[str, Any], *, transaction_stores: dict[str, dict[str, Any]] | None = None
@@ -70,9 +76,11 @@ class FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
             commands.append(command)
 
     def CreateObjectStore(self, request: Any, context: grpc.ServicerContext) -> Any:
-        del context
         with self._lock:
+            if request.name in self._stores:
+                context.abort(grpc.StatusCode.ALREADY_EXISTS, "object store already exists")
             self._stores.setdefault(request.name, {})
+            self._created_stores.append(request.name)
         return empty_pb2.Empty()
 
     def Get(self, request: Any, context: grpc.ServicerContext) -> Any:
