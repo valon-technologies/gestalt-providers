@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'agent/*/v*'
+      - 'model/*/v*'
       - 'runtime/*/v*'
       - 'plugins/*/v*'
       - 'auth/*/v*'
@@ -63,7 +64,7 @@ jobs:
           fi
 
           case "$PLUGIN_ROOT" in
-            agent|runtime|plugins|auth|authorization|externalcredentials|s3|indexeddb|workflow|cache|secrets|ui)
+            agent|model|runtime|plugins|auth|authorization|externalcredentials|s3|indexeddb|workflow|cache|secrets|ui)
               GESTALT_REF="main"
               ;;
             *)

@@ -39,6 +39,7 @@ python3 .github/scripts/generate_provider_index.py
 ```
 plugins/<name>/       Integration plugin packages (Go, Python)
 agent/<name>/         Agent providers (Python, Go)
+model/<name>/         Model providers (Python, Go)
 runtime/<name>/       Hosted runtime backend packages (Go)
 auth/<name>/          Authentication providers (Go)
 authorization/<name>/ Authorization providers (Go)

@@ -504,6 +504,35 @@
     },
     {
       "configTarget": {
+        "entryKind": "model",
+        "section": "providers.model"
+      },
+      "description": "Stateless model provider backed by the Anthropic Messages API.",
+      "displayName": "Anthropic",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/model/anthropic/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/model/anthropic/README.md",
+          "sourcePath": "model/anthropic/README.md",
+          "title": "Anthropic Model Provider"
+        }
+      ],
+      "iconUrl": null,
+      "kind": "model",
+      "latestInstallableVersion": null,
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/model/anthropic/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "anthropic",
+      "package": "github.com/valon-technologies/gestalt-providers/model/anthropic",
+      "packagePath": "model/anthropic",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/model/anthropic/README.md",
+      "registryPath": "/providers/model/anthropic/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/model/anthropic",
+      "versions": []
+    },
+    {
+      "configTarget": {
         "entryKind": "plugin",
         "section": "plugins"
       },

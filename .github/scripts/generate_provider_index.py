@@ -28,6 +28,7 @@ REPOSITORY = "valon-technologies/gestalt-providers"
 SOURCE_PREFIX = f"github.com/{REPOSITORY}/"
 PACKAGE_ROOTS = (
     "agent",
+    "model",
     "runtime",
     "plugins",
     "auth",
