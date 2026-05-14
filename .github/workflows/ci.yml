@@ -49,7 +49,7 @@ permissions:
 
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
-  GESTALT_REF: main
+  GESTALT_REF: ${{ github.event_name == 'pull_request' && github.head_ref == 'hugh/model-anthropic' && 'hugh/model-provider' || 'main' }}
   VALIDATION_VERSION: 0.0.1-alpha.1
 
 jobs:

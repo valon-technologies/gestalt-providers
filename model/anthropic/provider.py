@@ -119,7 +119,11 @@ class AnthropicModelProvider(gestalt.ModelProvider, gestalt.MetadataProvider, ge
                     "input_schema": response_schema,
                 }
             ]
-            kwargs["tool_choice"] = {"type": "tool", "name": STRUCTURED_OUTPUT_TOOL_NAME}
+            kwargs["tool_choice"] = {
+                "type": "tool",
+                "name": STRUCTURED_OUTPUT_TOOL_NAME,
+                "disable_parallel_tool_use": True,
+            }
 
         try:
             response = _anthropic_client(api_key, config).messages.create(**kwargs)
@@ -128,11 +132,7 @@ class AnthropicModelProvider(gestalt.ModelProvider, gestalt.MetadataProvider, ge
 
         output_text = _response_text(response)
         structured_output = _structured_output(response) if response_schema is not None else None
-        message = gestalt.ModelMessage(
-            role="assistant",
-            text=output_text,
-            parts=([gestalt.ModelMessagePart(type="text", text=output_text)] if output_text else []),
-        )
+        message = gestalt.ModelMessage(role="assistant", text=output_text) if output_text else None
         return gestalt.GenerateModelResponse(
             output_text=output_text,
             structured_output=structured_output,
@@ -201,16 +201,21 @@ def _response_text(response: Any) -> str:
 
 
 def _structured_output(response: Any) -> dict[str, Any]:
+    matching_blocks: list[Any] = []
     for block in getattr(response, "content", []) or []:
         if str(getattr(block, "type", "") or "") != "tool_use":
             continue
         if str(getattr(block, "name", "") or "") != STRUCTURED_OUTPUT_TOOL_NAME:
             continue
-        value = getattr(block, "input", None)
-        if isinstance(value, dict):
-            return dict(value)
-        raise gestalt.Error(HTTPStatus.BAD_GATEWAY, "Anthropic structured output tool input was not an object")
-    raise gestalt.Error(HTTPStatus.BAD_GATEWAY, "Anthropic response did not include structured output tool use")
+        matching_blocks.append(block)
+    if not matching_blocks:
+        raise gestalt.Error(HTTPStatus.BAD_GATEWAY, "Anthropic response did not include structured output tool use")
+    if len(matching_blocks) > 1:
+        raise gestalt.Error(HTTPStatus.BAD_GATEWAY, "Anthropic response included multiple structured output tool uses")
+    value = getattr(matching_blocks[0], "input", None)
+    if isinstance(value, dict):
+        return dict(value)
+    raise gestalt.Error(HTTPStatus.BAD_GATEWAY, "Anthropic structured output tool input was not an object")
 
 
 def _usage(response: Any) -> gestalt.ModelUsage | None:
@@ -225,7 +230,15 @@ def _usage(response: Any) -> gestalt.ModelUsage | None:
 
 
 def _request_max_tokens(model_options: dict[str, Any], default: int) -> int:
-    raw_value = _first_present(model_options, "max_tokens", "maxTokens")
+    raw_value = _first_present(
+        model_options,
+        "max_tokens",
+        "maxTokens",
+        "max_output_tokens",
+        "maxOutputTokens",
+        "max_completion_tokens",
+        "maxCompletionTokens",
+    )
     if raw_value is None or str(raw_value).strip() == "":
         return default
     return _positive_int(raw_value, field_name="model_options.max_tokens")

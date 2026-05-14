@@ -84,6 +84,7 @@ class AnthropicModelProviderTests(unittest.TestCase):
         )
         self.assertEqual(result.output_text, "Hello world")
         self.assertEqual(result.message.text, "Hello world")
+        self.assertEqual(result.message.parts, [])
         self.assertEqual(result.finish_reason, "end_turn")
         self.assertEqual(result.usage.input_tokens, 4)
         self.assertEqual(result.usage.output_tokens, 2)
@@ -127,9 +128,57 @@ class AnthropicModelProviderTests(unittest.TestCase):
                 }
             ],
         )
-        self.assertEqual(call["tool_choice"], {"type": "tool", "name": provider_module.STRUCTURED_OUTPUT_TOOL_NAME})
+        self.assertEqual(
+            call["tool_choice"],
+            {
+                "type": "tool",
+                "name": provider_module.STRUCTURED_OUTPUT_TOOL_NAME,
+                "disable_parallel_tool_use": True,
+            },
+        )
         self.assertEqual(result.structured_output, {"answer": 42})
+        self.assertIsNone(result.message)
         self.assertEqual(result.finish_reason, "tool_use")
+
+    def test_generate_accepts_common_max_token_aliases(self) -> None:
+        FakeAnthropic.response = _message_response(
+            content=[SimpleNamespace(type="text", text="Hello")],
+            stop_reason="end_turn",
+            input_tokens=4,
+            output_tokens=2,
+        )
+        provider = _provider()
+
+        provider.generate(
+            gestalt.GenerateModelRequest(
+                messages=[gestalt.ModelMessage(role="user", text="Say hello.")],
+                model_options={"max_output_tokens": 96},
+            )
+        )
+
+        self.assertEqual(FakeAnthropic.instances[-1].messages.calls[0]["max_tokens"], 96)
+
+    def test_structured_output_rejects_multiple_matching_tool_uses(self) -> None:
+        FakeAnthropic.response = _message_response(
+            content=[
+                SimpleNamespace(type="tool_use", name=provider_module.STRUCTURED_OUTPUT_TOOL_NAME, input={"answer": 42}),
+                SimpleNamespace(type="tool_use", name=provider_module.STRUCTURED_OUTPUT_TOOL_NAME, input={"answer": 43}),
+            ],
+            stop_reason="tool_use",
+            input_tokens=10,
+            output_tokens=5,
+        )
+        provider = _provider()
+
+        with self.assertRaises(gestalt.Error) as raised:
+            provider.generate(
+                gestalt.GenerateModelRequest(
+                    messages=[gestalt.ModelMessage(role="user", text="Return the answer.")],
+                    response_schema={"type": "object", "properties": {"answer": {"type": "integer"}}},
+                )
+            )
+
+        self.assertEqual(raised.exception.status, 502)
 
     def test_missing_api_key_fails_before_calling_anthropic(self) -> None:
         os.environ.pop("TEST_ANTHROPIC_API_KEY", None)
