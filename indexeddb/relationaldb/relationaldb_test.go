@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	mysqlcfg "github.com/go-sql-driver/mysql"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -210,6 +212,76 @@ func TestNewStoreWithSchemaRejectsSQLite(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "schema is not supported for sqlite") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestEnsureRelationalNamespaceMySQLSkipsCreateDatabaseWhenSchemaExists(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery("SELECT EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?)").
+		WithArgs("main").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	if err := ensureRelationalNamespace(context.Background(), db, dialectMySQL, "main", connectionOptions{}); err != nil {
+		t.Fatalf("ensureRelationalNamespace: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestEnsureRelationalNamespaceMySQLCreatesDatabaseWhenSchemaMissing(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery("SELECT EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?)").
+		WithArgs("main").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectExec("CREATE DATABASE IF NOT EXISTS `main`").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	if err := ensureRelationalNamespace(context.Background(), db, dialectMySQL, "main", connectionOptions{}); err != nil {
+		t.Fatalf("ensureRelationalNamespace: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
+	}
+}
+
+func TestEnsureRelationalNamespaceMySQLFailsClearlyForVitessUnsupportedCreateDatabase(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	mock.ExpectQuery("SELECT EXISTS(SELECT 1 FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?)").
+		WithArgs("main").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectExec("CREATE DATABASE IF NOT EXISTS `main`").
+		WillReturnError(&mysqlcfg.MySQLError{
+			Number:  1105,
+			Message: "VT12001: unsupported: create database by failDBDDL",
+		})
+
+	err = ensureRelationalNamespace(context.Background(), db, dialectMySQL, "main", connectionOptions{})
+	if err == nil {
+		t.Fatal("expected unsupported Vitess create database to fail")
+	}
+	for _, want := range []string{"CREATE DATABASE is not supported", "out of band", "PlanetScale/Vitess", "VT12001"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %q, want substring %q", err.Error(), want)
+		}
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet sql expectations: %v", err)
 	}
 }
 
