@@ -232,6 +232,25 @@ func TestAuthorizationProviderRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAuthorizationProviderInitializesObjectStores(t *testing.T) {
+	sess := newProviderSessionWithSeed(t, false)
+
+	sess.configure(t, map[string]any{
+		"indexeddb": "test",
+	})
+
+	if got, want := sess.idb.createdStoreNames(), []string{stateStoreName, modelsStoreName, relationsStoreName}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("created stores = %v, want %v", got, want)
+	}
+	schema, ok := sess.idb.storeSchema(relationsStoreName)
+	if !ok {
+		t.Fatalf("relationships store was not created")
+	}
+	if want := authorizationRelationshipsSchema(); !reflect.DeepEqual(schema.Indexes, want.Indexes) {
+		t.Fatalf("relationships indexes = %+v, want %+v", schema.Indexes, want.Indexes)
+	}
+}
+
 func TestAuthorizationProviderValidationAndPagination(t *testing.T) {
 	sess := newProviderSession(t)
 	sess.configure(t, map[string]any{
@@ -637,17 +656,25 @@ type providerSession struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	provider *Provider
+	idb      *testIndexedDBProvider
 	idbErrCh chan error
 }
 
 func newProviderSession(t *testing.T) *providerSession {
+	t.Helper()
+	return newProviderSessionWithSeed(t, true)
+}
+
+func newProviderSessionWithSeed(t *testing.T, seedStores bool) *providerSession {
 	t.Helper()
 
 	idbSocket := newSocketPath(t, "indexeddb.sock")
 
 	t.Setenv("GESTALT_PLUGIN_SOCKET", idbSocket)
 	idbProvider := newTestIndexedDBProvider()
-	seedAuthorizationStores(t, idbProvider)
+	if seedStores {
+		seedAuthorizationStores(t, idbProvider)
+	}
 	idbCtx, idbCancel := context.WithCancel(context.Background())
 	idbErrCh := make(chan error, 1)
 	go func() {
@@ -663,6 +690,7 @@ func newProviderSession(t *testing.T) *providerSession {
 		ctx:      ctx,
 		cancel:   cancel,
 		provider: authzProvider,
+		idb:      idbProvider,
 		idbErrCh: idbErrCh,
 	}
 	t.Cleanup(func() {
@@ -694,16 +722,6 @@ func seedAuthorizationStores(t *testing.T, provider *testIndexedDBProvider) {
 		if err := provider.CreateObjectStore(context.Background(), def.name, def.schema); err != nil {
 			t.Fatalf("CreateObjectStore(%s): %v", def.name, err)
 		}
-	}
-}
-
-func authorizationRelationshipsSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
-		Indexes: []gestalt.IndexSchema{
-			{Name: relationshipsBySubj, KeyPath: []string{"subject_type", "subject_id"}},
-			{Name: relationshipsByRes, KeyPath: []string{"resource_type", "resource_id"}},
-			{Name: relationshipsByPair, KeyPath: []string{"subject_type", "subject_id", "resource_type", "resource_id"}},
-		},
 	}
 }
 

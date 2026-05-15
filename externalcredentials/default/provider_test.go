@@ -160,6 +160,37 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 	}
 }
 
+func TestExternalCredentialProviderInitializesObjectStore(t *testing.T) {
+	startTestIndexedDBBackendWithoutSeed(t)
+	provider, providerConn := startTestProviderServer(t)
+	defer func() { _ = providerConn.Close() }()
+
+	configureProvider(t, provider, map[string]any{
+		"encryptionKey": "provider-initialize-store-key",
+	})
+
+	if err := provider.HealthCheck(context.Background()); err != nil {
+		t.Fatalf("HealthCheck: %v", err)
+	}
+	client, err := gestalt.ExternalCredentials()
+	if err != nil {
+		t.Fatalf("ExternalCredentials: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.UpsertCredential(context.Background(), &gestalt.UpsertExternalCredentialRequest{
+		Credential: &gestalt.ExternalCredential{
+			SubjectID:    "user:user-123",
+			ConnectionID: "gmail:default",
+			Instance:     "primary",
+			AccessToken:  "access-token",
+			RefreshToken: "refresh-token",
+		},
+	}); err != nil {
+		t.Fatalf("UpsertCredential: %v", err)
+	}
+}
+
 func TestExternalCredentialProviderManualTokenExchange(t *testing.T) {
 	startTestIndexedDBBackend(t)
 	provider, providerConn := startTestProviderServer(t)
@@ -1252,7 +1283,17 @@ func startTestIndexedDBBackend(t *testing.T) {
 	startTestIndexedDBBackendAtEnv(t, gestalt.EnvIndexedDBSocket, "external_credentials.sqlite")
 }
 
+func startTestIndexedDBBackendWithoutSeed(t *testing.T) {
+	t.Helper()
+	startTestIndexedDBBackendAtEnvWithSeed(t, gestalt.EnvIndexedDBSocket, "external_credentials.sqlite", false)
+}
+
 func startTestIndexedDBBackendAtEnv(t *testing.T, envName, sqliteName string) {
+	t.Helper()
+	startTestIndexedDBBackendAtEnvWithSeed(t, envName, sqliteName, true)
+}
+
+func startTestIndexedDBBackendAtEnvWithSeed(t *testing.T, envName, sqliteName string, seedStore bool) {
 	t.Helper()
 
 	socketPath := newSocketPath(t, "indexeddb.sock")
@@ -1262,7 +1303,9 @@ func startTestIndexedDBBackendAtEnv(t *testing.T, envName, sqliteName string) {
 	}); err != nil {
 		t.Fatalf("relationaldb.Configure: %v", err)
 	}
-	seedExternalCredentialStore(t, store)
+	if seedStore {
+		seedExternalCredentialStore(t, store)
+	}
 
 	t.Setenv(providerSocketEnv, socketPath)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1283,33 +1326,8 @@ func startTestIndexedDBBackendAtEnv(t *testing.T, envName, sqliteName string) {
 
 func seedExternalCredentialStore(t *testing.T, store *relationaldb.Provider) {
 	t.Helper()
-	if err := store.CreateObjectStore(context.Background(), storeName, externalCredentialTestSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if err := store.CreateObjectStore(context.Background(), storeName, externalCredentialSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		t.Fatalf("CreateObjectStore(%s): %v", storeName, err)
-	}
-}
-
-func externalCredentialTestSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
-		Indexes: []gestalt.IndexSchema{
-			{Name: indexBySubject, KeyPath: []string{"subject_id"}},
-			{Name: indexBySubjectConnection, KeyPath: []string{"subject_id", "connection_id"}},
-			{Name: indexByLookup, KeyPath: []string{"subject_id", "connection_id", "instance"}, Unique: true},
-		},
-		Columns: []gestalt.ColumnDef{
-			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
-			{Name: "subject_id", Type: gestalt.TypeString, NotNull: true},
-			{Name: "connection_id", Type: gestalt.TypeString, NotNull: true},
-			{Name: "instance", Type: gestalt.TypeString},
-			{Name: "access_token_encrypted", Type: gestalt.TypeString},
-			{Name: "refresh_token_encrypted", Type: gestalt.TypeString},
-			{Name: "scopes", Type: gestalt.TypeString},
-			{Name: "expires_at", Type: gestalt.TypeTime},
-			{Name: "last_refreshed_at", Type: gestalt.TypeTime},
-			{Name: "refresh_error_count", Type: gestalt.TypeInt},
-			{Name: "metadata_json", Type: gestalt.TypeString},
-			{Name: "created_at", Type: gestalt.TypeTime},
-			{Name: "updated_at", Type: gestalt.TypeTime},
-		},
 	}
 }
 
