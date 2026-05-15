@@ -3,6 +3,7 @@ package gkeagentsandbox
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"slices"
@@ -181,8 +182,8 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 func TestRuntimeProviderContractStartPluginRejectsStaleSessionBeforeLease(t *testing.T) {
 	t.Parallel()
 
-	fake := &fakeSandboxRuntime{verifyErr: errors.New("template image mismatch")}
-	client := startRuntimeProviderServer(t, &Provider{
+	fake := &fakeSandboxRuntime{verifyErr: errors.Join(errStaleRuntimeSession, errors.New("template image mismatch"))}
+	provider := &Provider{
 		name: "gkeAgentSandbox",
 		cfg: Config{
 			Namespace:           "runtime-system",
@@ -194,7 +195,8 @@ func TestRuntimeProviderContractStartPluginRejectsStaleSessionBeforeLease(t *tes
 		},
 		runtime:  fake,
 		sessions: map[string]*localSession{},
-	})
+	}
+	client := startRuntimeProviderServer(t, provider)
 
 	ctx := context.Background()
 	session, err := client.StartSession(ctx, gestalt.StartPluginRuntimeSessionRequest{
@@ -204,6 +206,8 @@ func TestRuntimeProviderContractStartPluginRejectsStaleSessionBeforeLease(t *tes
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
+	tunnel := &fakeTunnel{dialTarget: "tcp://127.0.0.1:1"}
+	provider.setLocalTunnel(session.ID, tunnel)
 	_, err = client.StartPlugin(ctx, gestalt.StartHostedPluginRequest{
 		SessionID:  session.ID,
 		PluginName: "github",
@@ -217,6 +221,58 @@ func TestRuntimeProviderContractStartPluginRejectsStaleSessionBeforeLease(t *tes
 	fake.mu.Unlock()
 	if leases != 0 {
 		t.Fatalf("leases = %d, want no lease acquired for stale session", leases)
+	}
+	if !tunnel.Closed() {
+		t.Fatal("stale compatibility error did not close the local tunnel")
+	}
+	if got := provider.localTunnel(session.ID); got != nil {
+		t.Fatalf("local tunnel after stale compatibility error = %#v, want nil", got)
+	}
+}
+
+func TestRuntimeProviderContractKeepsLocalTunnelOnTransientCompatibilityError(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeSandboxRuntime{verifyErr: status.Error(codes.Unavailable, "kube api temporarily unavailable")}
+	provider := &Provider{
+		name: "gkeAgentSandbox",
+		cfg: Config{
+			Namespace:           "runtime-system",
+			PluginPort:          50051,
+			SandboxReadyTimeout: 2 * time.Second,
+			PluginReadyTimeout:  2 * time.Second,
+			ExecTimeout:         2 * time.Second,
+			CleanupTimeout:      2 * time.Second,
+		},
+		runtime:  fake,
+		sessions: map[string]*localSession{},
+	}
+	client := startRuntimeProviderServer(t, provider)
+
+	ctx := context.Background()
+	session, err := client.StartSession(ctx, gestalt.StartPluginRuntimeSessionRequest{
+		PluginName: "github",
+		Template:   "python-runtime",
+	})
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	tunnel := &fakeTunnel{dialTarget: "tcp://127.0.0.1:1"}
+	provider.setLocalTunnel(session.ID, tunnel)
+
+	_, err = client.StartPlugin(ctx, gestalt.StartHostedPluginRequest{
+		SessionID:  session.ID,
+		PluginName: "github",
+		Command:    "./plugin",
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("StartPlugin code = %v, want FailedPrecondition: %v", status.Code(err), err)
+	}
+	if tunnel.Closed() {
+		t.Fatal("transient compatibility error closed the local tunnel")
+	}
+	if got := provider.localTunnel(session.ID); got == nil {
+		t.Fatal("local tunnel after transient compatibility error = nil, want retained tunnel")
 	}
 }
 
@@ -550,6 +606,55 @@ func TestRuntimeProviderContractSupportsPodIPConnectionMode(t *testing.T) {
 	}
 }
 
+func TestRuntimeProviderContractInvalidatesLocalTunnelAfterPodIPOpenUnavailable(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeSandboxRuntime{
+		podIPDialErr: status.Error(codes.Unavailable, "sandbox pod disappeared"),
+	}
+	provider := &Provider{
+		name: "gkeAgentSandbox",
+		cfg: Config{
+			Namespace:           "runtime-system",
+			PluginPort:          50051,
+			ConnectionMode:      connectionModePodIP,
+			SandboxReadyTimeout: 2 * time.Second,
+			PluginReadyTimeout:  2 * time.Second,
+			ExecTimeout:         2 * time.Second,
+			CleanupTimeout:      2 * time.Second,
+		},
+		runtime:  fake,
+		sessions: map[string]*localSession{},
+	}
+	client := startRuntimeProviderServer(t, provider)
+
+	ctx := context.Background()
+	session, err := client.StartSession(ctx, gestalt.StartPluginRuntimeSessionRequest{
+		PluginName: "simple-agent",
+		Template:   "agent-runtime",
+	})
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+
+	oldTunnel := &fakeTunnel{dialTarget: "tcp://127.0.0.1:1"}
+	provider.setLocalTunnel(session.ID, oldTunnel)
+	_, err = client.StartPlugin(ctx, gestalt.StartHostedPluginRequest{
+		SessionID:  session.ID,
+		PluginName: "simple-agent",
+		Command:    "./plugin",
+	})
+	if status.Code(err) != codes.Unavailable {
+		t.Fatalf("StartPlugin code = %v, want Unavailable: %v", status.Code(err), err)
+	}
+	if !oldTunnel.Closed() {
+		t.Fatalf("old local tunnel was not closed")
+	}
+	if tunnel := provider.localTunnel(session.ID); tunnel != nil {
+		t.Fatalf("local tunnel after unavailable podIP open = %#v, want nil", tunnel)
+	}
+}
+
 func TestRuntimeProviderContractSupportsServiceDNSConnectionMode(t *testing.T) {
 	t.Parallel()
 
@@ -755,8 +860,8 @@ func TestRuntimeProviderContractKeepsHostnamePolicyWhenLaunchCleanupFails(t *tes
 			"HTTPS_PROXY": "https://proxy.gestalt.example:9443",
 		},
 	})
-	if status.Code(err) != codes.Internal {
-		t.Fatalf("StartPlugin code = %v, want Internal: %v", status.Code(err), err)
+	if status.Code(err) != codes.Unavailable {
+		t.Fatalf("StartPlugin code = %v, want Unavailable: %v", status.Code(err), err)
 	}
 
 	fake.mu.Lock()
@@ -891,11 +996,12 @@ func TestRuntimeProviderContractReportsFailedStateAfterPluginDeath(t *testing.T)
 	t.Parallel()
 
 	pluginTarget := startPluginLifecycleServer(t)
+	providerTunnel := &fakeTunnel{dialTarget: pluginTarget}
 	fake := &fakeSandboxRuntime{
-		tunnel:           &fakeTunnel{dialTarget: pluginTarget},
+		tunnel:           providerTunnel,
 		failHealthChecks: true,
 	}
-	client := startRuntimeProviderServer(t, &Provider{
+	provider := &Provider{
 		name: "gkeAgentSandbox",
 		cfg: Config{
 			Namespace:           "runtime-system",
@@ -907,7 +1013,8 @@ func TestRuntimeProviderContractReportsFailedStateAfterPluginDeath(t *testing.T)
 		},
 		runtime:  fake,
 		sessions: map[string]*localSession{},
-	})
+	}
+	client := startRuntimeProviderServer(t, provider)
 
 	ctx := context.Background()
 	session, err := client.StartSession(ctx, gestalt.StartPluginRuntimeSessionRequest{PluginName: "github", Template: "python-runtime"})
@@ -929,12 +1036,167 @@ func TestRuntimeProviderContractReportsFailedStateAfterPluginDeath(t *testing.T)
 	if got, want := failed.State, sessionStateFailed; got != want {
 		t.Fatalf("GetSession state after health failure = %q, want %q", got, want)
 	}
+	if providerTunnel.Closed() {
+		t.Fatal("GetSession health failure closed the local tunnel")
+	}
+	if tunnel := provider.localTunnel(session.ID); tunnel == nil {
+		t.Fatal("local tunnel after health failure = nil, want retained tunnel")
+	}
 	stillFailed, err := client.GetSession(ctx, session.ID)
 	if err != nil {
 		t.Fatalf("GetSession after sticky failure: %v", err)
 	}
 	if got, want := stillFailed.State, sessionStateFailed; got != want {
 		t.Fatalf("GetSession state after second refresh = %q, want %q", got, want)
+	}
+}
+
+func TestRuntimeProviderContractKeepsLocalTunnelOnTransientResolveSessionError(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{
+		name: "gkeAgentSandbox",
+		cfg: Config{
+			Namespace:           "runtime-system",
+			PluginPort:          50051,
+			SandboxReadyTimeout: 2 * time.Second,
+			PluginReadyTimeout:  2 * time.Second,
+			ExecTimeout:         2 * time.Second,
+			CleanupTimeout:      2 * time.Second,
+		},
+		runtime: &fakeSandboxRuntime{
+			resolveErr: status.Error(codes.Unavailable, "kube api temporarily unavailable"),
+		},
+		sessions: map[string]*localSession{},
+	}
+	client := startRuntimeProviderServer(t, provider)
+	tunnel := &fakeTunnel{dialTarget: "tcp://127.0.0.1:1"}
+	provider.setLocalTunnel("session-1", tunnel)
+
+	_, err := client.GetSession(context.Background(), "session-1")
+	if status.Code(err) != codes.Unavailable {
+		t.Fatalf("GetSession code = %v, want Unavailable: %v", status.Code(err), err)
+	}
+	if tunnel.Closed() {
+		t.Fatal("transient ResolveSession error closed the local tunnel")
+	}
+	if got := provider.localTunnel("session-1"); got == nil {
+		t.Fatal("local tunnel after transient ResolveSession error = nil, want retained tunnel")
+	}
+}
+
+func TestRuntimeProviderContractDoesNotTreatStructuralNotFoundAsMissingSession(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{
+		name: "gkeAgentSandbox",
+		cfg: Config{
+			Namespace:           "runtime-system",
+			PluginPort:          50051,
+			SandboxReadyTimeout: 2 * time.Second,
+			PluginReadyTimeout:  2 * time.Second,
+			ExecTimeout:         2 * time.Second,
+			CleanupTimeout:      2 * time.Second,
+		},
+		runtime: &fakeSandboxRuntime{
+			resolveErr: status.Error(codes.NotFound, `namespaces "runtime-system" not found`),
+		},
+		sessions: map[string]*localSession{},
+	}
+	client := startRuntimeProviderServer(t, provider)
+	tunnel := &fakeTunnel{dialTarget: "tcp://127.0.0.1:1"}
+	provider.setLocalTunnel("session-1", tunnel)
+
+	_, err := client.GetSession(context.Background(), "session-1")
+	if status.Code(err) != codes.Internal {
+		t.Fatalf("GetSession code = %v, want Internal for structural NotFound: %v", status.Code(err), err)
+	}
+	if tunnel.Closed() {
+		t.Fatal("structural NotFound closed the local tunnel")
+	}
+	if got := provider.localTunnel("session-1"); got == nil {
+		t.Fatal("local tunnel after structural NotFound = nil, want retained tunnel")
+	}
+}
+
+func TestRuntimeProviderContractDropsLocalTunnelWhenSessionGone(t *testing.T) {
+	t.Parallel()
+
+	provider := &Provider{
+		name: "gkeAgentSandbox",
+		cfg: Config{
+			Namespace:           "runtime-system",
+			PluginPort:          50051,
+			SandboxReadyTimeout: 2 * time.Second,
+			PluginReadyTimeout:  2 * time.Second,
+			ExecTimeout:         2 * time.Second,
+			CleanupTimeout:      2 * time.Second,
+		},
+		runtime: &fakeSandboxRuntime{
+			resolveErr: errors.New(`plugin runtime session "session-1" not found`),
+		},
+		sessions: map[string]*localSession{},
+	}
+	client := startRuntimeProviderServer(t, provider)
+	tunnel := &fakeTunnel{dialTarget: "tcp://127.0.0.1:1"}
+	provider.setLocalTunnel("session-1", tunnel)
+
+	_, err := client.GetSession(context.Background(), "session-1")
+	if status.Code(err) != codes.NotFound {
+		t.Fatalf("GetSession code = %v, want NotFound: %v", status.Code(err), err)
+	}
+	if !tunnel.Closed() {
+		t.Fatal("missing session did not close the local tunnel")
+	}
+	if got := provider.localTunnel("session-1"); got != nil {
+		t.Fatalf("local tunnel after missing session = %#v, want nil", got)
+	}
+}
+
+func TestRuntimeProviderContractListSessionsReturnsUnavailableOnTransientRuntimeError(t *testing.T) {
+	t.Parallel()
+
+	client := startRuntimeProviderServer(t, &Provider{
+		name: "gkeAgentSandbox",
+		cfg: Config{
+			Namespace: "runtime-system",
+		},
+		runtime: &fakeSandboxRuntime{
+			listErr: context.DeadlineExceeded,
+		},
+	})
+
+	_, err := client.ListSessions(context.Background())
+	if status.Code(err) != codes.Unavailable {
+		t.Fatalf("ListSessions code = %v, want Unavailable: %v", status.Code(err), err)
+	}
+}
+
+func TestRuntimeProviderContractStartPluginResolveSessionUnavailable(t *testing.T) {
+	t.Parallel()
+
+	client := startRuntimeProviderServer(t, &Provider{
+		name: "gkeAgentSandbox",
+		cfg: Config{
+			Namespace:           "runtime-system",
+			PluginPort:          50051,
+			SandboxReadyTimeout: 2 * time.Second,
+			PluginReadyTimeout:  2 * time.Second,
+			ExecTimeout:         2 * time.Second,
+			CleanupTimeout:      2 * time.Second,
+		},
+		runtime: &fakeSandboxRuntime{
+			resolveErr: status.Error(codes.Unavailable, "kube api temporarily unavailable"),
+		},
+	})
+
+	_, err := client.StartPlugin(context.Background(), gestalt.StartHostedPluginRequest{
+		SessionID:  "session-1",
+		PluginName: "github",
+		Command:    "./plugin",
+	})
+	if status.Code(err) != codes.Unavailable {
+		t.Fatalf("StartPlugin code = %v, want Unavailable: %v", status.Code(err), err)
 	}
 }
 
@@ -1113,6 +1375,8 @@ type fakeSandboxRuntime struct {
 	forwardPortErr    error
 	podIPDialErr      error
 	serviceDNSDialErr error
+	resolveErr        error
+	listErr           error
 	verifyErr         error
 }
 
@@ -1150,7 +1414,6 @@ func (f *fakeSandboxRuntime) Start(_ context.Context, req startSandboxRequest) (
 		ClaimName:   claimName,
 		SandboxName: req.Name + "-sandbox",
 		PodName:     req.Name + "-pod",
-		PodIP:       "10.20.0.10",
 		Ready:       true,
 	}
 	session := sandboxSession{
@@ -1172,9 +1435,12 @@ func (f *fakeSandboxRuntime) ResolveSession(_ context.Context, _, sessionID stri
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.ensureLocked()
+	if f.resolveErr != nil {
+		return sandboxSession{}, f.resolveErr
+	}
 	session, ok := f.sessions[sessionID]
 	if !ok {
-		return sandboxSession{}, status.Error(codes.NotFound, "sandbox stopped")
+		return sandboxSession{}, fmt.Errorf("plugin runtime session %q not found", sessionID)
 	}
 	session.Handle.Ready = true
 	if !session.PluginStarted && f.leases[pluginStartLeaseName(session.Handle)] != "" {
@@ -1187,6 +1453,9 @@ func (f *fakeSandboxRuntime) ListSessions(context.Context, string) ([]sandboxSes
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.ensureLocked()
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	out := make([]sandboxSession, 0, len(f.sessions))
 	for _, session := range f.sessions {
 		session.Handle.Ready = true
