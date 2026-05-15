@@ -642,8 +642,6 @@ def _agent_tool_refs_from_config(
             for name in (
                 "credentialMode",
                 "credential_mode",
-                "runAs",
-                "run_as",
                 "input",
                 "inputBindings",
                 "input_bindings",
@@ -663,6 +661,9 @@ def _agent_tool_refs_from_config(
         instance = _config_string(tool, "instance", "instanceName")
         title = _config_string(tool, "title")
         description = _config_string(tool, "description")
+        run_as_subject_id = _agent_tool_ref_run_as_subject_id_from_config(
+            tool, ref_path
+        )
         if system:
             if plugin:
                 raise ValueError(f"{ref_path} must set exactly one of plugin or system")
@@ -672,9 +673,15 @@ def _agent_tool_refs_from_config(
                 raise ValueError(
                     f"{ref_path}.operation must be an exact operation name"
                 )
-            if connection or instance or title or description:
+            if (
+                connection
+                or instance
+                or title
+                or description
+                or run_as_subject_id
+            ):
                 raise ValueError(
-                    f"{ref_path} system refs cannot include connection, instance, title, or description"
+                    f"{ref_path} system refs cannot include connection, instance, title, description, or runAs"
                 )
             refs.append(SlackAgentToolRef(system=system, operation=operation))
             continue
@@ -692,10 +699,39 @@ def _agent_tool_refs_from_config(
                 instance=instance,
                 title=title,
                 description=description,
+                run_as_subject_id=run_as_subject_id,
             )
         )
     return tuple(refs)
 
+
+def _agent_tool_ref_run_as_subject_id_from_config(
+    config: dict[str, Any], path: str
+) -> str:
+    run_as = _config_object(config, path, "runAs", "run_as")
+    if run_as is None:
+        return ""
+    if "externalIdentity" in run_as or "external_identity" in run_as:
+        raise ValueError(f"{path}.runAs.externalIdentity is not supported")
+    subject = _config_object(run_as, f"{path}.runAs", "subject")
+    if subject is None:
+        raise ValueError(f"{path}.runAs.subject is required")
+    subject_id = _config_string(subject, "id")
+    if not subject_id:
+        raise ValueError(f"{path}.runAs.subject.id is required")
+    return subject_id
+
+
+def _config_object(
+    config: dict[str, Any], path: str, *keys: str
+) -> dict[str, Any] | None:
+    for key in keys:
+        if key in config:
+            value = config.get(key)
+            if not isinstance(value, dict):
+                raise ValueError(f"{path}.{key} must be an object")
+            return dict(value)
+    return None
 
 def _agent_route_match_from_config(config: dict[str, Any]) -> SlackAgentRouteMatch:
     return SlackAgentRouteMatch(

@@ -724,6 +724,22 @@ class SlackProviderTests(unittest.TestCase):
             {"system": "workflow", "operation": "schedules.create", "plugin": "linear"},
             {"plugin": "linear", "operation": "searchIssues", "credentialMode": "none"},
             {"plugin": "linear", "operation": "searchIssues", "runAs": "user"},
+            {"plugin": "linear", "operation": "searchIssues", "runAs": {}},
+            {
+                "plugin": "linear",
+                "operation": "searchIssues",
+                "runAs": {
+                    "subject": {"id": "service_account:linear"},
+                    "externalIdentity": {"type": "linear_workspace"},
+                },
+            },
+            {
+                "system": "workflow",
+                "operation": "schedules.create",
+                "runAs": {
+                    "subject": {"id": "service_account:workflow-tools"},
+                },
+            },
             {
                 "plugin": "linear",
                 "operation": "searchIssues",
@@ -5463,7 +5479,15 @@ class SlackProviderTests(unittest.TestCase):
                                         "plugin": "pagerduty",
                                         "operation": "createIncident",
                                     },
-                                    {"plugin": "linear", "operation": "searchIssues"},
+                                    {
+                                        "plugin": "linear",
+                                        "operation": "searchIssues",
+                                        "runAs": {
+                                            "subject": {
+                                                "id": "service_account:slack-linear",
+                                            },
+                                        },
+                                    },
                                 ],
                             },
                         }
@@ -5517,6 +5541,15 @@ class SlackProviderTests(unittest.TestCase):
                 *BASE_EVENT_TOOL_REFS,
                 *WORKFLOW_EVENT_TOOL_REFS,
             ],
+        )
+        linear_ref = next(
+            ref
+            for ref in agent_target.tool_refs
+            if ref.plugin == "linear" and ref.operation == "searchIssues"
+        )
+        self.assertEqual(
+            linear_ref.run_as.subject_id,
+            "service_account:slack-linear",
         )
 
         with self.assertRaisesRegex(ValueError, "unknown tool set"):

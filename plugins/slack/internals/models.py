@@ -202,6 +202,7 @@ class SlackAgentToolRef:
     instance: str = ""
     title: str = ""
     description: str = ""
+    run_as_subject_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)

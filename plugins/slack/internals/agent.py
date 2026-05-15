@@ -3107,6 +3107,7 @@ def _agent_tool_ref(
     instance: str = "",
     title: str = "",
     description: str = "",
+    run_as_subject_id: str = "",
 ) -> Any:
     return gestalt.AgentToolRef(
         system=system,
@@ -3116,7 +3117,17 @@ def _agent_tool_ref(
         instance=instance,
         title=title,
         description=description,
+        run_as=_agent_tool_ref_run_as_subject(run_as_subject_id),
     )
+
+
+def _agent_tool_ref_run_as_subject(
+    subject_id: str,
+) -> Any | None:
+    subject_id = subject_id.strip()
+    if not subject_id:
+        return None
+    return gestalt.AgentSubjectContext(subject_id=subject_id)
 
 
 def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
@@ -3153,6 +3164,7 @@ def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
             instance=ref.instance,
             title=ref.title,
             description=ref.description,
+            run_as_subject_id=ref.run_as_subject_id,
         )
         for ref in _dedupe_agent_tool_refs(
             [
