@@ -239,6 +239,20 @@ def github_request(
     )
 
 
+class RequestWithToolRefs:
+    def __init__(self, request: gestalt.Request, refs: Sequence[Any]) -> None:
+        self._request = request
+        self.tool_refs_set = True
+        self.tool_refs = list(refs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._request, name)
+
+
+def request_with_tool_refs(request: gestalt.Request, refs: Sequence[Any]) -> Any:
+    return RequestWithToolRefs(request, refs)
+
+
 def github_agent_request(
     installation_id: int = 99,
     repo: str = "acme/widgets",
@@ -4270,7 +4284,13 @@ class GitHubProviderTests(unittest.TestCase):
                 "user": {"login": "example-app[bot]"},
             }
 
-        request = github_request()
+        request = request_with_tool_refs(
+            github_request(),
+            [
+                gestalt.AgentToolRef(plugin="linear", operation="issue.get"),
+                gestalt.AgentToolRef(plugin="github", operation="bot.getPullRequest"),
+            ],
+        )
         request.workflow = {
             "signals": [
                 {
@@ -4286,6 +4306,13 @@ class GitHubProviderTests(unittest.TestCase):
                                 "number": 7,
                                 "head_sha": "abc123",
                             }
+                        },
+                        "webhook_policy": {
+                            "tool_refs": [
+                                "bot.getPullRequest",
+                                "bot.listPullRequestFiles",
+                                "bot.commitFiles",
+                            ],
                         },
                     }
                 }
@@ -4365,6 +4392,17 @@ class GitHubProviderTests(unittest.TestCase):
             prompt_data["output_contract"]["line_policy"],
         )
         self.assertFalse(getattr(agent_manager.turns[0], "response_schema", None))
+        self.assertEqual(
+            [(ref.plugin, ref.operation) for ref in agent_manager.turns[0].tool_refs],
+            [
+                ("linear", "issue.get"),
+                ("github", "bot.getPullRequest"),
+            ],
+        )
+        self.assertEqual(
+            agent_manager.turns[0].tool_source,
+            gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
+        )
 
         self.assertEqual(len(created_reviews), 1)
         review_request, review_subject = created_reviews[0]
@@ -4440,7 +4478,11 @@ class GitHubProviderTests(unittest.TestCase):
                             "head_sha": "abc123",
                         },
                         "webhook_policy": {
-                            "tool_refs": ["bot.commitFiles"],
+                            "tool_refs": [
+                                "bot.getPullRequest",
+                                "bot.listPullRequestFiles",
+                                "bot.commitFiles",
+                            ],
                             "action": {
                                 "allow_self_fix": True,
                                 "self_fix_mode": "branch_commit",
@@ -4561,6 +4603,27 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(data["selfFix"]["commit"]["sha"], "new-commit")
         self.assertEqual(data["checkRun"]["head_sha"], "new-commit")
         self.assertEqual(len(agent_manager.turns), 2)
+        expected_tool_refs = [
+            ("github", "bot.getPullRequest"),
+            ("github", "bot.listPullRequestFiles"),
+            ("github", "bot.commitFiles"),
+        ]
+        self.assertEqual(
+            [(ref.plugin, ref.operation) for ref in agent_manager.turns[0].tool_refs],
+            expected_tool_refs,
+        )
+        self.assertEqual(
+            [(ref.plugin, ref.operation) for ref in agent_manager.turns[1].tool_refs],
+            expected_tool_refs,
+        )
+        self.assertEqual(
+            agent_manager.turns[0].tool_source,
+            gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
+        )
+        self.assertEqual(
+            agent_manager.turns[1].tool_source,
+            gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
+        )
         self.assertIn("Fix concrete", agent_manager.turns[1].messages[0].text)
         self.assertNotIn("findings array", agent_manager.turns[1].messages[0].text)
         fix_prompt = json.loads(agent_manager.turns[1].messages[1].text)
@@ -4596,7 +4659,7 @@ class GitHubProviderTests(unittest.TestCase):
             require_no_response_schema=True,
         )
         created_reviews: list[Any] = []
-        request = github_request()
+        request = request_with_tool_refs(github_request(), [])
         request.workflow = {
             "signals": [
                 {
@@ -4608,7 +4671,7 @@ class GitHubProviderTests(unittest.TestCase):
                         "repository": {"full_name": "acme/widgets"},
                         "summary": {"repository": "acme/widgets", "number": 7},
                         "webhook_policy": {
-                            "tool_refs": [],
+                            "tool_refs": [provider_module.BOT_COMMIT_FILES_OPERATION],
                             "action": {
                                 "allow_self_fix": True,
                                 "self_fix_mode": "branch_commit",
@@ -4678,6 +4741,11 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(data["posted"], True)
         self.assertNotIn("selfFix", data)
         self.assertEqual(len(agent_manager.turns), 1)
+        self.assertEqual(agent_manager.turns[0].tool_refs, [])
+        self.assertEqual(
+            agent_manager.turns[0].tool_source,
+            gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
+        )
         self.assertEqual(len(created_reviews), 1)
 
     def test_review_pull_request_self_fix_falls_back_when_head_is_stale(self) -> None:
