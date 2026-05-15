@@ -43,19 +43,27 @@ const (
 )
 
 type storeOptions struct {
-	TablePrefix string
-	Schema      string
-	Connection  connectionOptions
+	TablePrefix       string
+	Schema            string
+	Connection        connectionOptions
+	MetadataKeyPrefix bool
 }
 
 type Store struct {
-	db          *sql.DB
-	bind        bindStyle
-	dialect     dialect
-	schemaName  string
-	tablePrefix string
-	conn        connectionOptions
-	mu          sync.RWMutex
+	db                *sql.DB
+	ownsDB            bool
+	bind              bindStyle
+	dialect           dialect
+	schemaName        string
+	tablePrefix       string
+	metadataKeyPrefix bool
+	conn              connectionOptions
+	lifecycle         *storeLifecycle
+	mu                sync.RWMutex
+}
+
+type storeLifecycle struct {
+	check func(context.Context) error
 }
 
 func NewStore(dsn string) (*Store, error) {
@@ -79,20 +87,8 @@ func newStoreWithOptions(dsn string, options storeOptions) (*Store, error) {
 		return nil, fmt.Errorf("relationaldb: ping: %w", err)
 	}
 
-	s := &Store{
-		db:          db,
-		bind:        style,
-		dialect:     d,
-		schemaName:  options.Schema,
-		tablePrefix: options.TablePrefix,
-		conn:        options.Connection,
-	}
-
-	if _, err := execWithRetry(context.Background(), db, options.Connection, s.q(metadataTableSQL(d, s.metadataTable()))); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("relationaldb: create metadata table: %w", err)
-	}
-	if err := s.ensureGenericTables(context.Background()); err != nil {
+	s, err := newStoreWithDB(db, style, d, options, true)
+	if err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -100,8 +96,29 @@ func newStoreWithOptions(dsn string, options storeOptions) (*Store, error) {
 	return s, nil
 }
 
+func newStoreWithDB(db *sql.DB, style bindStyle, d dialect, options storeOptions, ownsDB bool) (*Store, error) {
+	s := &Store{
+		db:                db,
+		ownsDB:            ownsDB,
+		bind:              style,
+		dialect:           d,
+		schemaName:        options.Schema,
+		tablePrefix:       options.TablePrefix,
+		metadataKeyPrefix: options.MetadataKeyPrefix,
+		conn:              options.Connection,
+	}
+	if _, err := execWithRetry(context.Background(), db, options.Connection, s.q(metadataTableSQL(d, s.metadataTable()))); err != nil {
+		return nil, fmt.Errorf("relationaldb: create metadata table: %w", err)
+	}
+	if err := s.ensureGenericTables(context.Background()); err != nil {
+		return nil, err
+	}
+
+	return s, nil
+}
+
 func (s *Store) Close() error {
-	if s.db != nil {
+	if s.db != nil && s.ownsDB {
 		return s.db.Close()
 	}
 	return nil
@@ -124,7 +141,7 @@ func (s *Store) genericUniqueIndexTable() string {
 }
 
 func (s *Store) usesNamespacedMetadata() bool {
-	return s.dialect == dialectSQLite && s.schemaName == "" && s.tablePrefix != ""
+	return s.metadataKeyPrefix || (s.dialect == dialectSQLite && s.schemaName == "" && s.tablePrefix != "")
 }
 
 func (s *Store) metadataStoreKey(storeName string) string {
@@ -182,7 +199,31 @@ func txFromContext(ctx context.Context) (*sql.Tx, bool) {
 	return state.tx, ok && state.tx != nil
 }
 
+type lifecycleBypassContextKey struct{}
+
+func contextWithLifecycleBypass(ctx context.Context) context.Context {
+	return context.WithValue(ctx, lifecycleBypassContextKey{}, true)
+}
+
+func lifecycleBypassFromContext(ctx context.Context) bool {
+	ok, _ := ctx.Value(lifecycleBypassContextKey{}).(bool)
+	return ok
+}
+
+func (s *Store) checkLifecycle(ctx context.Context) error {
+	if s.lifecycle == nil || lifecycleBypassFromContext(ctx) {
+		return nil
+	}
+	if _, ok := txFromContext(ctx); ok {
+		return nil
+	}
+	return s.lifecycle.check(ctx)
+}
+
 func (s *Store) exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if err := s.checkLifecycle(ctx); err != nil {
+		return nil, err
+	}
 	if tx, ok := txFromContext(ctx); ok {
 		return tx.ExecContext(ctx, s.q(query), args...)
 	}
@@ -190,6 +231,9 @@ func (s *Store) exec(ctx context.Context, query string, args ...any) (sql.Result
 }
 
 func (s *Store) query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if err := s.checkLifecycle(ctx); err != nil {
+		return nil, err
+	}
 	if tx, ok := txFromContext(ctx); ok {
 		return tx.QueryContext(ctx, s.q(query), args...)
 	}
@@ -197,6 +241,9 @@ func (s *Store) query(ctx context.Context, query string, args ...any) (*sql.Rows
 }
 
 func (s *Store) scanOne(ctx context.Context, query string, args []any, scanDest ...any) error {
+	if err := s.checkLifecycle(ctx); err != nil {
+		return err
+	}
 	if tx, ok := txFromContext(ctx); ok {
 		return tx.QueryRowContext(ctx, s.q(query), args...).Scan(scanDest...)
 	}
@@ -204,6 +251,9 @@ func (s *Store) scanOne(ctx context.Context, query string, args []any, scanDest 
 }
 
 func (s *Store) withTx(ctx context.Context, fn func(context.Context, *sql.Tx) error) error {
+	if err := s.checkLifecycle(ctx); err != nil {
+		return err
+	}
 	if tx, ok := txFromContext(ctx); ok {
 		return fn(ctx, tx)
 	}
@@ -233,7 +283,7 @@ func (s *Store) withTx(ctx context.Context, fn func(context.Context, *sql.Tx) er
 func (s *Store) getMeta(ctx context.Context, name string) (*storeMeta, error) {
 	m, ok, err := s.loadStoreMetadata(ctx, name)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "load metadata for %q: %v", name, err)
+		return nil, preserveStatusOrInternal("load metadata for %q: %v", name, err)
 	}
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "object store not found: %s", name)
@@ -428,7 +478,7 @@ func (s *Store) CreateObjectStore(ctx context.Context, name string, schema gesta
 
 	existing, ok, err := s.loadStoreMetadata(ctx, name)
 	if err != nil {
-		return status.Errorf(codes.Internal, "load metadata: %v", err)
+		return preserveStatusOrInternal("load metadata: %v", err)
 	}
 	if ok {
 		if genericStoreSchemaMatches(existing, schema) {
@@ -504,7 +554,7 @@ func (s *Store) DeleteObjectStore(ctx context.Context, name string) error {
 	defer s.mu.Unlock()
 
 	if _, ok, err := s.loadStoreMetadata(ctx, name); err != nil {
-		return status.Errorf(codes.Internal, "load metadata: %v", err)
+		return preserveStatusOrInternal("load metadata: %v", err)
 	} else if ok {
 		if err := s.clearGeneric(ctx, name); err != nil {
 			return err
@@ -895,6 +945,15 @@ func mapSQLErr(op string, err error) error {
 		return status.Errorf(codes.AlreadyExists, "already exists")
 	}
 	return status.Errorf(codes.Internal, "%s: %v", op, err)
+}
+
+func preserveStatusOrInternal(format string, args ...any) error {
+	if len(args) > 0 {
+		if err, ok := args[len(args)-1].(error); ok && status.Code(err) != codes.Unknown {
+			return err
+		}
+	}
+	return status.Errorf(codes.Internal, format, args...)
 }
 
 func isDuplicateErr(err error) bool {

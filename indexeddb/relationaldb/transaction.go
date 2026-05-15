@@ -24,7 +24,7 @@ func (s *Store) beginTransaction(ctx context.Context, req gestalt.IndexedDBBegin
 			storeMeta, found, err := s.loadStoreMetadata(ctx, store)
 			if err != nil {
 				s.mu.RUnlock()
-				return nil, status.Errorf(codes.Internal, "load metadata for %q: %v", store, err)
+				return nil, preserveStatusOrInternal("load metadata for %q: %v", store, err)
 			}
 			if !found {
 				s.mu.RUnlock()

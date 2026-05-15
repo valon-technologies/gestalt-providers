@@ -1,6 +1,8 @@
 package relationaldb
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 )
@@ -22,6 +24,8 @@ const (
 	dialectMySQL
 	dialectSQLServer
 )
+
+const maxPortableIdentifierLength = 63
 
 // rebind replaces ? placeholders with the style expected by the driver.
 func rebind(style bindStyle, query string) string {
@@ -156,6 +160,38 @@ func metadataTableSQL(d dialect, table string) string {
 	)
 }
 
+func databaseTableSQL(d dialect, table string) string {
+	defs := []string{
+		quoteIdent(d, "name") + " " + sqlType(d, 0, true) + " NOT NULL PRIMARY KEY",
+		quoteIdent(d, "version") + " " + sqlType(d, 1, false) + " NOT NULL",
+		quoteIdent(d, "namespace") + " " + sqlType(d, 0, true) + " NOT NULL",
+	}
+	if d == dialectSQLServer {
+		return fmt.Sprintf("IF OBJECT_ID(N'%s', N'U') IS NULL CREATE TABLE %s (%s)",
+			table, quoteTableName(d, table), strings.Join(defs, ", "))
+	}
+	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s)",
+		quoteTableName(d, table), strings.Join(defs, ", "))
+}
+
+func databaseConnectionsTableSQL(d dialect, table string) string {
+	defs := []string{
+		quoteIdent(d, "name") + " " + sqlType(d, 0, true) + " NOT NULL",
+		quoteIdent(d, "factory_id") + " " + sqlType(d, 0, true) + " NOT NULL",
+		quoteIdent(d, "handle_id") + " " + sqlType(d, 1, false) + " NOT NULL",
+		quoteIdent(d, "closed") + " " + sqlType(d, 1, false) + " NOT NULL",
+		quoteIdent(d, "active_transactions") + " " + sqlType(d, 1, false) + " NOT NULL",
+		quoteIdent(d, "expires_at") + " " + sqlType(d, 1, false) + " NOT NULL",
+		"PRIMARY KEY (" + quoteIdent(d, "factory_id") + ", " + quoteIdent(d, "handle_id") + ")",
+	}
+	if d == dialectSQLServer {
+		return fmt.Sprintf("IF OBJECT_ID(N'%s', N'U') IS NULL CREATE TABLE %s (%s)",
+			table, quoteTableName(d, table), strings.Join(defs, ", "))
+	}
+	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s)",
+		quoteTableName(d, table), strings.Join(defs, ", "))
+}
+
 func createGenericRecordsTableSQL(d dialect, table string) string {
 	defs := []string{
 		quoteIdent(d, "store_name") + " " + sqlType(d, 0, true) + " NOT NULL",
@@ -189,28 +225,49 @@ func createGenericIndexEntriesTableSQL(d dialect, table string) string {
 }
 
 func createGenericRecordsLookupIndexSQL(d dialect, table string) string {
-	indexName := fmt.Sprintf("idx_%s_record_lookup", baseTableName(table))
+	indexName := portableIndexName(table, "record_lookup")
 	return createColumnsIndexSQL(d, table, indexName, []string{"store_name", "pk_hash"}, true)
 }
 
 func createGenericRecordsStoreIndexSQL(d dialect, table string) string {
-	indexName := fmt.Sprintf("idx_%s_store", baseTableName(table))
+	indexName := portableIndexName(table, "store")
 	return createColumnsIndexSQL(d, table, indexName, []string{"store_name"}, false)
 }
 
 func createGenericIndexLookupIndexSQL(d dialect, table string, unique bool) string {
-	indexName := fmt.Sprintf("idx_%s_lookup", baseTableName(table))
+	indexName := portableIndexName(table, "lookup")
 	return createColumnsIndexSQL(d, table, indexName, []string{"store_name", "index_name", "index_key_hash"}, unique)
 }
 
 func createGenericIndexRecordIndexSQL(d dialect, table string) string {
-	indexName := fmt.Sprintf("idx_%s_record", baseTableName(table))
+	indexName := portableIndexName(table, "record")
 	return createColumnsIndexSQL(d, table, indexName, []string{"store_name", "pk_hash"}, false)
 }
 
 func createGenericIndexScanIndexSQL(d dialect, table string) string {
-	indexName := fmt.Sprintf("idx_%s_scan", baseTableName(table))
+	indexName := portableIndexName(table, "scan")
 	return createColumnsIndexSQL(d, table, indexName, []string{"store_name", "index_name"}, false)
+}
+
+func portableIndexName(table, suffix string) string {
+	return compactIdentifier("idx_"+baseTableName(table)+"_"+suffix, maxPortableIdentifierLength)
+}
+
+func compactIdentifier(name string, maxLen int) string {
+	if len(name) <= maxLen {
+		return name
+	}
+	sum := sha256.Sum256([]byte(name))
+	hash := hex.EncodeToString(sum[:6])
+	if maxLen <= len(hash) {
+		return hash[:maxLen]
+	}
+	prefixLen := maxLen - len(hash) - 1
+	prefix := strings.TrimRight(name[:prefixLen], "_")
+	if prefix == "" {
+		return hash[:maxLen]
+	}
+	return prefix + "_" + hash
 }
 
 func createColumnsIndexSQL(d dialect, table, indexName string, columns []string, unique bool) string {
