@@ -178,7 +178,7 @@ func (p *providerCore) CreateObjectStore(ctx context.Context, name string, schem
 	})
 	if err != nil {
 		if isConditionFailed(err) {
-			return status.Errorf(codes.AlreadyExists, "object store %s already exists", name)
+			return dynamoAlreadyExistsf("object store %s already exists", name)
 		}
 		return wrapErr(err)
 	}
@@ -253,7 +253,7 @@ func (p *providerCore) Add(ctx context.Context, req gestalt.IndexedDBRecordReque
 	if conflict, err := st.hasUniqueIndexConflict(ctx, idxItems); err != nil {
 		return err
 	} else if conflict {
-		return status.Errorf(codes.AlreadyExists, "record %s violates a unique index", id)
+		return dynamoAlreadyExistsf("record %s violates a unique index", id)
 	}
 
 	items := []ddbtypes.TransactWriteItem{
@@ -274,7 +274,7 @@ func (p *providerCore) Add(ctx context.Context, req gestalt.IndexedDBRecordReque
 	_, err = st.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
 	if err != nil {
 		if isConditionFailed(err) {
-			return status.Errorf(codes.AlreadyExists, "record %s already exists", id)
+			return dynamoAlreadyExistsf("record %s already exists", id)
 		}
 		return wrapErr(err)
 	}
@@ -300,7 +300,7 @@ func (p *providerCore) Put(ctx context.Context, req gestalt.IndexedDBRecordReque
 	if conflict, err := st.hasUniqueIndexConflict(ctx, idxItems); err != nil {
 		return err
 	} else if conflict {
-		return status.Errorf(codes.AlreadyExists, "record %s violates a unique index", id)
+		return dynamoAlreadyExistsf("record %s violates a unique index", id)
 	}
 
 	items := []ddbtypes.TransactWriteItem{
@@ -337,7 +337,7 @@ func (p *providerCore) Put(ctx context.Context, req gestalt.IndexedDBRecordReque
 	_, err = st.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
 	if err != nil {
 		if isConditionFailed(err) {
-			return status.Errorf(codes.AlreadyExists, "record %s violates a unique index", id)
+			return dynamoAlreadyExistsf("record %s violates a unique index", id)
 		}
 		return wrapErr(err)
 	}
@@ -1270,6 +1270,10 @@ func valuesToStrings(values []any) []string {
 
 func wrapErr(err error) error {
 	return status.Errorf(codes.Internal, "dynamodb: %v", err)
+}
+
+func dynamoAlreadyExistsf(format string, args ...any) error {
+	return fmt.Errorf("%w: %s", gestalt.ErrAlreadyExists, fmt.Sprintf(format, args...))
 }
 
 func isConditionFailed(err error) bool {

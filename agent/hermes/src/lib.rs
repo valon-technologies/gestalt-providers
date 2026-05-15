@@ -826,7 +826,7 @@ fn validate_turn_request(req: &gestalt::CreateAgentProviderTurnRequest) -> gesta
     }
     validate_mcp_catalog_tool_refs(&req.tool_refs)?;
     match req.tool_source {
-        gestalt::AgentToolSourceMode::Unspecified => {
+        gestalt::AgentToolSourceMode::Unspecified | gestalt::AgentToolSourceMode::None => {
             if !req.tool_refs.is_empty() {
                 return Err(gestalt::Error::bad_request(
                     "tool_source=MCP_CATALOG is required when tool_refs are provided",

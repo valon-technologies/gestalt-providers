@@ -4,10 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
-use gestalt::proto::v1::agent_host_server::{
-    AgentHost as AgentHostRpc, AgentHostServer as AgentHostGrpcServer,
-};
-use gestalt::{AgentProvider as _, proto::v1 as proto};
+use gestalt::AgentProvider as _;
+use proto::agent_host_server::{AgentHost as AgentHostRpc, AgentHostServer as AgentHostGrpcServer};
 use serde_json::{Map as JsonMap, Value as JsonValue, json};
 use tempfile::TempDir;
 use tokio::net::UnixListener;
@@ -16,6 +14,295 @@ use tonic::Request;
 use tonic::transport::Server;
 
 use gestalt_agent_hermes::HermesAgentProvider;
+
+mod proto {
+    #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct OperationAnnotations {
+        #[prost(bool, optional, tag = "1")]
+        pub read_only_hint: Option<bool>,
+        #[prost(bool, optional, tag = "2")]
+        pub idempotent_hint: Option<bool>,
+        #[prost(bool, optional, tag = "3")]
+        pub destructive_hint: Option<bool>,
+        #[prost(bool, optional, tag = "4")]
+        pub open_world_hint: Option<bool>,
+    }
+
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct AgentToolRef {
+        #[prost(string, tag = "1")]
+        pub plugin: String,
+        #[prost(string, tag = "2")]
+        pub operation: String,
+        #[prost(string, tag = "3")]
+        pub connection: String,
+        #[prost(string, tag = "4")]
+        pub instance: String,
+        #[prost(string, tag = "5")]
+        pub title: String,
+        #[prost(string, tag = "6")]
+        pub description: String,
+        #[prost(string, tag = "8")]
+        pub system: String,
+    }
+
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct ExecuteAgentToolRequest {
+        #[prost(string, tag = "1")]
+        pub session_id: String,
+        #[prost(string, tag = "2")]
+        pub turn_id: String,
+        #[prost(string, tag = "3")]
+        pub tool_call_id: String,
+        #[prost(string, tag = "4")]
+        pub tool_id: String,
+        #[prost(string, tag = "7")]
+        pub idempotency_key: String,
+        #[prost(string, tag = "8")]
+        pub run_grant: String,
+    }
+
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct ExecuteAgentToolResponse {
+        #[prost(int32, tag = "1")]
+        pub status: i32,
+        #[prost(string, tag = "2")]
+        pub body: String,
+    }
+
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct ListedAgentTool {
+        #[prost(string, tag = "1")]
+        pub id: String,
+        #[prost(string, tag = "2")]
+        pub mcp_name: String,
+        #[prost(string, tag = "3")]
+        pub title: String,
+        #[prost(string, tag = "4")]
+        pub description: String,
+        #[prost(string, tag = "5")]
+        pub input_schema: String,
+        #[prost(string, tag = "6")]
+        pub output_schema: String,
+        #[prost(message, optional, tag = "7")]
+        pub annotations: Option<OperationAnnotations>,
+        #[prost(message, optional, tag = "8")]
+        pub r#ref: Option<AgentToolRef>,
+        #[prost(string, repeated, tag = "9")]
+        pub tags: Vec<String>,
+        #[prost(string, tag = "10")]
+        pub search_text: String,
+    }
+
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct ListAgentToolsRequest {
+        #[prost(string, tag = "1")]
+        pub session_id: String,
+        #[prost(string, tag = "2")]
+        pub turn_id: String,
+        #[prost(int32, tag = "3")]
+        pub page_size: i32,
+        #[prost(string, tag = "4")]
+        pub page_token: String,
+        #[prost(string, tag = "6")]
+        pub run_grant: String,
+        #[prost(string, tag = "7")]
+        pub query: String,
+    }
+
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct ListAgentToolsResponse {
+        #[prost(message, repeated, tag = "1")]
+        pub tools: Vec<ListedAgentTool>,
+        #[prost(string, tag = "2")]
+        pub next_page_token: String,
+    }
+
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct ResolveAgentConnectionRequest {
+        #[prost(string, tag = "1")]
+        pub session_id: String,
+        #[prost(string, tag = "2")]
+        pub turn_id: String,
+        #[prost(string, tag = "3")]
+        pub connection: String,
+        #[prost(string, tag = "4")]
+        pub instance: String,
+        #[prost(string, tag = "5")]
+        pub run_grant: String,
+    }
+
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+    pub struct ResolvedAgentConnection {}
+
+    pub mod agent_host_server {
+        use std::sync::Arc;
+
+        use tonic::codegen::*;
+
+        #[tonic::async_trait]
+        pub trait AgentHost: Send + Sync + 'static {
+            async fn list_tools(
+                &self,
+                request: tonic::Request<super::ListAgentToolsRequest>,
+            ) -> Result<tonic::Response<super::ListAgentToolsResponse>, tonic::Status>;
+
+            async fn execute_tool(
+                &self,
+                request: tonic::Request<super::ExecuteAgentToolRequest>,
+            ) -> Result<tonic::Response<super::ExecuteAgentToolResponse>, tonic::Status>;
+
+            async fn resolve_connection(
+                &self,
+                request: tonic::Request<super::ResolveAgentConnectionRequest>,
+            ) -> Result<tonic::Response<super::ResolvedAgentConnection>, tonic::Status>;
+        }
+
+        #[derive(Debug)]
+        pub struct AgentHostServer<T> {
+            inner: Arc<T>,
+        }
+
+        impl<T> AgentHostServer<T> {
+            pub fn new(inner: T) -> Self {
+                Self {
+                    inner: Arc::new(inner),
+                }
+            }
+        }
+
+        impl<T, B> tonic::codegen::Service<http::Request<B>> for AgentHostServer<T>
+        where
+            T: AgentHost,
+            B: Body + Send + 'static,
+            B::Error: Into<StdError> + Send + 'static,
+        {
+            type Response = http::Response<tonic::body::Body>;
+            type Error = std::convert::Infallible;
+            type Future = BoxFuture<Self::Response, Self::Error>;
+
+            fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+                Poll::Ready(Ok(()))
+            }
+
+            fn call(&mut self, req: http::Request<B>) -> Self::Future {
+                match req.uri().path() {
+                    "/gestalt.provider.v1.AgentHost/ListTools" => {
+                        #[allow(non_camel_case_types)]
+                        struct ListToolsSvc<T: AgentHost>(Arc<T>);
+
+                        impl<T: AgentHost> tonic::server::UnaryService<super::ListAgentToolsRequest> for ListToolsSvc<T> {
+                            type Response = super::ListAgentToolsResponse;
+                            type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+
+                            fn call(
+                                &mut self,
+                                request: tonic::Request<super::ListAgentToolsRequest>,
+                            ) -> Self::Future {
+                                let inner = Arc::clone(&self.0);
+                                Box::pin(async move {
+                                    <T as AgentHost>::list_tools(&inner, request).await
+                                })
+                            }
+                        }
+
+                        let inner = self.inner.clone();
+                        let fut = async move {
+                            let method = ListToolsSvc(inner);
+                            let codec = tonic_prost::ProstCodec::default();
+                            Ok(tonic::server::Grpc::new(codec).unary(method, req).await)
+                        };
+                        Box::pin(fut)
+                    }
+                    "/gestalt.provider.v1.AgentHost/ExecuteTool" => {
+                        #[allow(non_camel_case_types)]
+                        struct ExecuteToolSvc<T: AgentHost>(Arc<T>);
+
+                        impl<T: AgentHost>
+                            tonic::server::UnaryService<super::ExecuteAgentToolRequest>
+                            for ExecuteToolSvc<T>
+                        {
+                            type Response = super::ExecuteAgentToolResponse;
+                            type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+
+                            fn call(
+                                &mut self,
+                                request: tonic::Request<super::ExecuteAgentToolRequest>,
+                            ) -> Self::Future {
+                                let inner = Arc::clone(&self.0);
+                                Box::pin(async move {
+                                    <T as AgentHost>::execute_tool(&inner, request).await
+                                })
+                            }
+                        }
+
+                        let inner = self.inner.clone();
+                        let fut = async move {
+                            let method = ExecuteToolSvc(inner);
+                            let codec = tonic_prost::ProstCodec::default();
+                            Ok(tonic::server::Grpc::new(codec).unary(method, req).await)
+                        };
+                        Box::pin(fut)
+                    }
+                    "/gestalt.provider.v1.AgentHost/ResolveConnection" => {
+                        #[allow(non_camel_case_types)]
+                        struct ResolveConnectionSvc<T: AgentHost>(Arc<T>);
+
+                        impl<T: AgentHost>
+                            tonic::server::UnaryService<super::ResolveAgentConnectionRequest>
+                            for ResolveConnectionSvc<T>
+                        {
+                            type Response = super::ResolvedAgentConnection;
+                            type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+
+                            fn call(
+                                &mut self,
+                                request: tonic::Request<super::ResolveAgentConnectionRequest>,
+                            ) -> Self::Future {
+                                let inner = Arc::clone(&self.0);
+                                Box::pin(async move {
+                                    <T as AgentHost>::resolve_connection(&inner, request).await
+                                })
+                            }
+                        }
+
+                        let inner = self.inner.clone();
+                        let fut = async move {
+                            let method = ResolveConnectionSvc(inner);
+                            let codec = tonic_prost::ProstCodec::default();
+                            Ok(tonic::server::Grpc::new(codec).unary(method, req).await)
+                        };
+                        Box::pin(fut)
+                    }
+                    _ => Box::pin(async move {
+                        let mut response = http::Response::new(tonic::body::Body::default());
+                        response.headers_mut().insert(
+                            tonic::Status::GRPC_STATUS,
+                            (tonic::Code::Unimplemented as i32).into(),
+                        );
+                        response.headers_mut().insert(
+                            http::header::CONTENT_TYPE,
+                            tonic::metadata::GRPC_CONTENT_TYPE,
+                        );
+                        Ok(response)
+                    }),
+                }
+            }
+        }
+
+        impl<T> Clone for AgentHostServer<T> {
+            fn clone(&self) -> Self {
+                Self {
+                    inner: self.inner.clone(),
+                }
+            }
+        }
+
+        impl<T> tonic::server::NamedService for AgentHostServer<T> {
+            const NAME: &'static str = "gestalt.provider.v1.AgentHost";
+        }
+    }
+}
 
 static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
