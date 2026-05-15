@@ -72,6 +72,11 @@ bot user ID by the Slack `team_id` embedded in the event or signed reply
 reference. Unknown teams are ignored or rejected safely and never fall back to
 another workspace's bot token.
 
+Signed Slack reply and interaction references use `SLACK_REPLY_REF_SIGNING_SECRET`
+when set, then `SLACK_SIGNING_SECRET`. The singleton bot token remains a legacy
+fallback for single-workspace configs only; per-workspace bot tokens are used
+only for Slack API calls.
+
 Because Gestalt does not perform Slack bot OAuth for this connection, the Slack
 app that issues `slack-bot-token` must be granted the bot scopes needed by the
 enabled behaviors. Provision the bot token credential onto the service account

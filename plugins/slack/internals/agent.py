@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import time
 import urllib.parse
 import uuid
@@ -374,6 +375,9 @@ def _bool_field_value(value: Any) -> bool:
 
 _agent_config = SlackAgentConfig()
 
+SLACK_REPLY_REF_SIGNING_SECRET_ENV = "SLACK_REPLY_REF_SIGNING_SECRET"
+SLACK_SIGNING_SECRET_ENV = "SLACK_SIGNING_SECRET"
+
 
 def configure_agent(name: str, config: dict[str, Any]) -> None:
     global _agent_config
@@ -396,6 +400,41 @@ def _bot_token_for_team_id(team_id: str) -> str:
 
 def _bot_token_for_reply_ref(ref: SlackReplyRef) -> str:
     return _bot_token_for_team_id(ref.team_id)
+
+
+def _reply_ref_signing_secrets() -> tuple[str, ...]:
+    secrets: list[str] = []
+    seen: set[str] = set()
+    for value in (
+        os.environ.get(SLACK_REPLY_REF_SIGNING_SECRET_ENV, ""),
+        os.environ.get(SLACK_SIGNING_SECRET_ENV, ""),
+        _agent_config.bot.token,
+    ):
+        secret = value.strip()
+        if secret and secret not in seen:
+            secrets.append(secret)
+            seen.add(secret)
+    return tuple(secrets)
+
+
+def _reply_ref_signing_key() -> bytes:
+    secrets = _reply_ref_signing_secrets()
+    if secrets:
+        return secrets[0].encode("utf-8")
+    raise SlackClientError("Slack reply_ref signing secret is not configured")
+
+
+def _reply_ref_signature_valid(encoded_payload: bytes, signature: bytes) -> bool:
+    secrets = _reply_ref_signing_secrets()
+    if not secrets:
+        raise SlackClientError("Slack reply_ref signing secret is not configured")
+    for secret in secrets:
+        expected = hmac.new(
+            secret.encode("utf-8"), encoded_payload, hashlib.sha256
+        ).digest()
+        if hmac.compare_digest(signature, expected):
+            return True
+    return False
 
 
 def _bot_user_id_for_team_id(team_id: str) -> str:
@@ -546,6 +585,13 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
                 f"{_workflow_handoff_log_context(workflow_request)}"
             )
             workflow_response = workflow_manager.signal_or_start_run(workflow_request)
+    except SlackClientError as err:
+        logger.error(
+            "Slack event reply_ref signing is not configured %s error=%s",
+            log_context,
+            err,
+        )
+        return _event_client_error(err)
     except Exception as err:
         logger.exception(
             f"failed to signal Slack event workflow {log_context} "
@@ -1364,6 +1410,7 @@ def _event_client_error(err: SlackClientError) -> ErrorResponse:
     if message in {
         "Slack bot token is not configured",
         "Slack bot token is not configured for team_id",
+        "Slack reply_ref signing secret is not configured",
     }:
         return gestalt.Response(
             status=HTTPStatus.PRECONDITION_FAILED,
@@ -2551,7 +2598,7 @@ def _sign_reply_ref(
         "utf-8"
     )
     signature = hmac.new(
-        _reply_ref_signing_key(event.team_id), encoded_payload, hashlib.sha256
+        _reply_ref_signing_key(), encoded_payload, hashlib.sha256
     ).digest()
     return f"{_base64url_encode(encoded_payload)}.{_base64url_encode(signature)}"
 
@@ -2567,19 +2614,14 @@ def _verify_reply_ref(reply_ref: str, subject_id: str) -> SlackReplyRef:
     except (binascii.Error, ValueError) as err:
         raise ValueError("invalid reply_ref") from err
 
+    if not _reply_ref_signature_valid(encoded_payload, signature):
+        raise ValueError("invalid reply_ref")
+
     try:
         payload = json.loads(encoded_payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as err:
         raise ValueError("invalid reply_ref") from err
     if not isinstance(payload, dict):
-        raise ValueError("invalid reply_ref")
-
-    expected_signature = hmac.new(
-        _reply_ref_signing_key(str(payload.get("team_id") or "")),
-        encoded_payload,
-        hashlib.sha256,
-    ).digest()
-    if not hmac.compare_digest(signature, expected_signature):
         raise ValueError("invalid reply_ref")
 
     ref = _reply_ref_from_payload(payload)
@@ -2651,7 +2693,7 @@ def _sign_interaction_ref(
         "utf-8"
     )
     signature = hmac.new(
-        _reply_ref_signing_key(ref.team_id), encoded_payload, hashlib.sha256
+        _reply_ref_signing_key(), encoded_payload, hashlib.sha256
     ).digest()
     return f"{_base64url_encode(encoded_payload)}.{_base64url_encode(signature)}"
 
@@ -2675,7 +2717,7 @@ def _resign_reply_ref(ref: SlackReplyRef, *, expires_at: int) -> str:
         "utf-8"
     )
     signature = hmac.new(
-        _reply_ref_signing_key(ref.team_id), encoded_payload, hashlib.sha256
+        _reply_ref_signing_key(), encoded_payload, hashlib.sha256
     ).digest()
     return f"{_base64url_encode(encoded_payload)}.{_base64url_encode(signature)}"
 
@@ -2699,18 +2741,14 @@ def _decode_interaction_ref(interaction_ref: str) -> SlackInteractionRef:
     except (binascii.Error, ValueError) as err:
         raise ValueError("invalid interaction_ref") from err
 
+    if not _reply_ref_signature_valid(encoded_payload, signature):
+        raise ValueError("invalid interaction_ref")
+
     try:
         payload = json.loads(encoded_payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as err:
         raise ValueError("invalid interaction_ref") from err
     if not isinstance(payload, dict) or payload.get("v") != 1:
-        raise ValueError("invalid interaction_ref")
-    expected_signature = hmac.new(
-        _reply_ref_signing_key(str(payload.get("team_id") or "")),
-        encoded_payload,
-        hashlib.sha256,
-    ).digest()
-    if not hmac.compare_digest(signature, expected_signature):
         raise ValueError("invalid interaction_ref")
     try:
         expires_at = int(payload.get("expires_at") or 0)
@@ -2743,6 +2781,7 @@ def _decode_interaction_ref(interaction_ref: str) -> SlackInteractionRef:
     if ref.expires_at < int(time.time()):
         raise ValueError("interaction_ref expired")
     _verify_reply_ref(ref.reply_ref, ref.subject_id)
+    _bot_token_for_team_id(ref.team_id)
     return ref
 
 
@@ -2755,11 +2794,6 @@ def _base64url_decode(value: str) -> bytes:
         raise ValueError("empty base64url value")
     padding = "=" * (-len(value) % 4)
     return base64.urlsafe_b64decode(value + padding)
-
-
-def _reply_ref_signing_key(team_id: str) -> bytes:
-    token = _bot_token_for_team_id(team_id)
-    return token.encode("utf-8")
 
 
 def _select_agent_route(event: SlackAgentEvent) -> tuple[SlackAgentRoute | None, str]:

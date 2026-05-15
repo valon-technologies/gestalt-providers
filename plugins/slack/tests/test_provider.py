@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import pathlib
 import types
 import unittest
@@ -612,6 +613,12 @@ def slack_replies_response(
 
 
 class SlackProviderTests(unittest.TestCase):
+    def setUp(self) -> None:
+        env = {"SLACK_SIGNING_SECRET": "test-slack-signing-secret"}
+        self._env_patcher = mock.patch.dict(os.environ, env)
+        self._env_patcher.start()
+        self.addCleanup(self._env_patcher.stop)
+
     def test_agent_session_url_preserves_public_base_path(self) -> None:
         url = agent_session_url(
             "https://gestalt.example.test/team-a/",
@@ -803,6 +810,30 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(bot.workspaces, ())
         self.assertEqual(bot.token_for_team_id("T123"), "xoxb-single")
         self.assertEqual(bot.user_id_for_team_id("T123"), "UBOT_SINGLE")
+
+    def test_reply_refs_accept_legacy_singleton_bot_token_signature(self) -> None:
+        provider_module.configure("slack", {"bot": {"token": "xoxb-single"}})
+        self.addCleanup(provider_module.configure, "slack", {})
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="Ev123",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C789",
+            channel_type="channel",
+            text="<@UBOT> hello",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts="1712161829.000300",
+        )
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            legacy_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
+        verified = provider_module._verify_reply_ref(legacy_ref, "user:gestalt-123")
+
+        self.assertEqual(verified.team_id, "T123")
+        self.assertEqual(verified.subject_id, "user:gestalt-123")
 
     def test_agent_tools_reject_non_exact_or_runtime_policy_fields(self) -> None:
         invalid_tools = [
@@ -3444,6 +3475,80 @@ class SlackProviderTests(unittest.TestCase):
 
         self.assertEqual(response, {"ok": True, "ignored": "unknown_bot_workspace"})
         self.assertEqual(workflow_manager.signal_or_start_requests, [])
+
+    def test_multi_workspace_reply_refs_do_not_depend_on_bot_token(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {
+                    "workspaces": [
+                        {
+                            "teamId": "T123",
+                            "token": "xoxb-old-team-123",
+                            "userId": "UBOT123",
+                        }
+                    ]
+                }
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="Ev123",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C789",
+            channel_type="channel",
+            text="<@UBOT123> hello",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts="1712161829.000300",
+        )
+        reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {
+                    "workspaces": [
+                        {
+                            "teamId": "T123",
+                            "token": "xoxb-new-team-123",
+                            "userId": "UBOT123",
+                        }
+                    ]
+                }
+            },
+        )
+        captured: dict[str, Any] = {}
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            captured["authorization"] = authorization_header(request)
+            captured["payload"] = request_json(request)
+            return FakeHTTPResponse(
+                '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            response = provider_module.slack_events_reply(
+                provider_module.SlackEventReplyInput(
+                    reply_ref=reply_ref, text="uses current token"
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(captured["authorization"], "Bearer xoxb-new-team-123")
+        self.assertEqual(captured["payload"]["text"], "uses current token")
 
     def test_multi_workspace_unknown_reply_ref_team_does_not_use_other_token(
         self,
