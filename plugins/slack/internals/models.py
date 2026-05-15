@@ -202,6 +202,23 @@ class SlackAgentToolRef:
     instance: str = ""
     title: str = ""
     description: str = ""
+    run_as_subject: SlackAgentRunAsSubject | None = None
+    run_as_external_identity: SlackAgentRunAsExternalIdentity | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SlackAgentRunAsSubject:
+    subject_id: str = ""
+    subject_kind: str = ""
+    credential_subject_id: str = ""
+    display_name: str = ""
+    auth_source: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SlackAgentRunAsExternalIdentity:
+    type: str = ""
+    id: str = ""
 
 
 @dataclass(frozen=True, slots=True)

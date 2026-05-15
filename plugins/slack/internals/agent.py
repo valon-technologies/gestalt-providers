@@ -39,6 +39,8 @@ from .models import (
 )
 from .models import SlackAcknowledgementConfig as SlackAcknowledgementConfig  # noqa: F401
 from .models import SlackAgentRouteMatch as SlackAgentRouteMatch  # noqa: F401
+from .models import SlackAgentRunAsExternalIdentity as SlackAgentRunAsExternalIdentity  # noqa: F401
+from .models import SlackAgentRunAsSubject as SlackAgentRunAsSubject  # noqa: F401
 from .models import SlackAssistantConfig as SlackAssistantConfig  # noqa: F401
 from .models import SlackBotConfig as SlackBotConfig  # noqa: F401
 from .models import SlackThreadContextConfig as SlackThreadContextConfig  # noqa: F401
@@ -265,7 +267,9 @@ def _slack_delivery_log_context(
     return _log_context(
         operation=operation,
         subject_id=_request_subject_id(req),
-        credential_subject_id=getattr(getattr(req, "credential", None), "subject_id", ""),
+        credential_subject_id=getattr(
+            getattr(req, "credential", None), "subject_id", ""
+        ),
         agent_subject_id=getattr(getattr(req, "agent_subject", None), "id", ""),
         slack_team_id=verified_ref.team_id if verified_ref else "",
         slack_channel_id=verified_ref.channel_id if verified_ref else "",
@@ -278,9 +282,7 @@ def _slack_delivery_log_context(
         workflow_context=_workflow_log_context(req),
         reply_ref_sha256=_reply_ref_hash(reply_ref),
         text_bytes=len(text.encode("utf-8")) if text else "",
-        text_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest()
-        if text
-        else "",
+        text_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest() if text else "",
         session_id=session_id,
     )
 
@@ -760,7 +762,9 @@ def reply_to_slack_event(
         req, SLACK_REPLY_OPERATION, reply_ref=reply_ref, text=normalized_text
     )
     if not normalized_text:
-        logger.warning("rejected Slack event reply delivery %s error=text is required", log_context)
+        logger.warning(
+            "rejected Slack event reply delivery %s error=text is required", log_context
+        )
         return _bad_request("text is required")
 
     verified_ref: SlackReplyRef | None = None
@@ -782,7 +786,9 @@ def reply_to_slack_event(
             client_msg_id=_slack_client_msg_id(getattr(req, "idempotency_key", "")),
         )
     except ValueError as err:
-        logger.warning("failed Slack event reply delivery %s error=%s", log_context, err)
+        logger.warning(
+            "failed Slack event reply delivery %s error=%s", log_context, err
+        )
         return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
     except SlackAPIError as err:
         logger.warning(
@@ -793,7 +799,9 @@ def reply_to_slack_event(
         )
         return gestalt.Response(status=err.status, body=err.body)
     except SlackClientError as err:
-        logger.warning("failed Slack event reply delivery %s error=%s", log_context, err)
+        logger.warning(
+            "failed Slack event reply delivery %s error=%s", log_context, err
+        )
         return _event_client_error(err)
 
     logger.info(
@@ -837,7 +845,9 @@ def reply_slack_event_session_started(
             session_id=normalized_session_id,
         )
     except ValueError as err:
-        logger.warning("failed Slack session-started delivery %s error=%s", log_context, err)
+        logger.warning(
+            "failed Slack session-started delivery %s error=%s", log_context, err
+        )
         return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
 
     if _reply_ref_is_thread_reply(verified_ref):
@@ -919,7 +929,9 @@ def reply_slack_event_session_started(
             client_msg_id=_slack_client_msg_id(getattr(req, "idempotency_key", "")),
         )
     except ValueError as err:
-        logger.warning("failed Slack session-started delivery %s error=%s", log_context, err)
+        logger.warning(
+            "failed Slack session-started delivery %s error=%s", log_context, err
+        )
         return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
     except SlackAPIError as err:
         logger.warning(
@@ -930,7 +942,9 @@ def reply_slack_event_session_started(
         )
         return gestalt.Response(status=err.status, body=err.body)
     except SlackClientError as err:
-        logger.warning("failed Slack session-started delivery %s error=%s", log_context, err)
+        logger.warning(
+            "failed Slack session-started delivery %s error=%s", log_context, err
+        )
         return _event_client_error(err)
 
     logger.info(
@@ -959,7 +973,9 @@ def _grant_agent_session_editor(
     normalized_session_id = session_id.strip()
     if not normalized_subject_id or not normalized_session_id:
         raise RuntimeError("agent session share requires subject and session")
-    grant_agent_session_editor = getattr(authorization, "grant_agent_session_editor", None)
+    grant_agent_session_editor = getattr(
+        authorization, "grant_agent_session_editor", None
+    )
     if not callable(grant_agent_session_editor):
         raise RuntimeError(
             "authorization client does not support grant_agent_session_editor"
@@ -2840,9 +2856,7 @@ def _workflow_output_delivery() -> Any:
             ),
             gestalt.WorkflowOutputBinding(
                 input_field="reply_ref",
-                value=gestalt.WorkflowOutputValueSource(
-                    signal_payload="reply_ref"
-                ),
+                value=gestalt.WorkflowOutputValueSource(signal_payload="reply_ref"),
             ),
         ],
     )
@@ -2862,9 +2876,7 @@ def _workflow_session_ready_delivery() -> Any:
             ),
             gestalt.WorkflowOutputBinding(
                 input_field="reply_ref",
-                value=gestalt.WorkflowOutputValueSource(
-                    signal_payload="reply_ref"
-                ),
+                value=gestalt.WorkflowOutputValueSource(signal_payload="reply_ref"),
             ),
         ],
     )
@@ -3107,6 +3119,8 @@ def _agent_tool_ref(
     instance: str = "",
     title: str = "",
     description: str = "",
+    run_as_subject: SlackAgentRunAsSubject | None = None,
+    run_as_external_identity: SlackAgentRunAsExternalIdentity | None = None,
 ) -> Any:
     return gestalt.AgentToolRef(
         system=system,
@@ -3116,7 +3130,33 @@ def _agent_tool_ref(
         instance=instance,
         title=title,
         description=description,
+        run_as=_agent_tool_ref_run_as_subject(run_as_subject),
+        run_as_external_identity=_agent_tool_ref_external_identity(
+            run_as_external_identity
+        ),
     )
+
+
+def _agent_tool_ref_run_as_subject(
+    subject: SlackAgentRunAsSubject | None,
+) -> Any | None:
+    if subject is None:
+        return None
+    return gestalt.AgentRunAsSubject(
+        subject_id=subject.subject_id,
+        subject_kind=subject.subject_kind,
+        credential_subject_id=subject.credential_subject_id,
+        display_name=subject.display_name,
+        auth_source=subject.auth_source,
+    )
+
+
+def _agent_tool_ref_external_identity(
+    identity: SlackAgentRunAsExternalIdentity | None,
+) -> Any | None:
+    if identity is None:
+        return None
+    return gestalt.ExternalIdentity(type=identity.type, id=identity.id)
 
 
 def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
@@ -3153,6 +3193,8 @@ def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
             instance=ref.instance,
             title=ref.title,
             description=ref.description,
+            run_as_subject=ref.run_as_subject,
+            run_as_external_identity=ref.run_as_external_identity,
         )
         for ref in _dedupe_agent_tool_refs(
             [
@@ -3180,14 +3222,21 @@ def _dedupe_agent_tool_refs(
     refs: Iterable[SlackAgentToolRef],
 ) -> list[SlackAgentToolRef]:
     deduped: list[SlackAgentToolRef] = []
-    seen: set[tuple[str, str, str, str, str]] = set()
+    seen: dict[tuple[str, str, str, str, str], int] = {}
     for ref in refs:
         key = (ref.system, ref.plugin, ref.operation, ref.connection, ref.instance)
-        if key in seen:
+        existing_index = seen.get(key)
+        if existing_index is not None:
+            if _agent_tool_ref_has_runtime_policy(ref):
+                deduped[existing_index] = ref
             continue
-        seen.add(key)
+        seen[key] = len(deduped)
         deduped.append(ref)
     return deduped
+
+
+def _agent_tool_ref_has_runtime_policy(ref: SlackAgentToolRef) -> bool:
+    return ref.run_as_subject is not None or ref.run_as_external_identity is not None
 
 
 def _agent_session_metadata(event: SlackAgentEvent) -> dict[str, Any]:

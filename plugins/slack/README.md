@@ -470,6 +470,11 @@ plugins:
         tools:
           - plugin: tickets
             operation: search
+          - plugin: notion
+            operation: search
+            runAs:
+              subject:
+                id: service_account:gestalt-support-notion
         routes:
           - id: team-help-new-messages
             match:
@@ -537,10 +542,14 @@ instead of requiring the Slack bot user to have a linked external identity. This
 is only allowed for trusted bot-originated routes selected with `botIds`. Signed
 Slack interaction callbacks generated from that route use `runAs.subject` only
 when the signed ref subject ID already equals the configured runAs subject.
+Prefer tool-reference `runAs` when only a specific downstream tool should use a
+service-account delegation; route `runAs` changes the Slack invocation subject.
 
 Tool sets are named groups under `agent.toolSets`. The workflow agent target
 expands tool references in this order and deduplicates by exact
-plugin/operation/connection/instance with first reference winning:
+plugin/operation/connection/instance. Earlier references win unless a later
+duplicate declares runtime policy such as `runAs`, in which case the later
+reference replaces the earlier one:
 
 1. top-level `agent.toolSetRefs`
 2. top-level `agent.tools`
@@ -549,9 +558,15 @@ plugin/operation/connection/instance with first reference winning:
 5. Slack helper operations
 
 Tool references must name exact plugin and operation IDs. Wildcards and
-runtime policy fields such as `credentialMode`, `runAs`, and host-invoke input
-bindings are rejected in provider configuration; configure runtime policy in the
-deployment's invoke policy instead.
+host-invoke input bindings are rejected in provider configuration. A tool
+reference may include `runAs.subject.id` to request one of the caller plugin's
+declared invoke delegations for that exact tool. `runAs.subject.kind` is
+optional when the subject ID is prefixed, and display/auth labels are optional
+metadata. The deployment's invoke policy must still declare the matching
+delegation; Slack configuration only selects it for that tool. Use
+`runAs.applyByDefault: false` on the deployment invoke declaration when the
+delegation should be available only to tool references that explicitly request
+it.
 
 When a route uses `match.eventTypes`, include
 `assistant_thread_started` and `assistant_thread_context_changed` on routes that
