@@ -36,13 +36,13 @@ _UNSAFE_TOOL_NAME = re.compile(r"[*?,\s\x00-\x1f\x7f]")
 _GESTALT_MCP_TOOL_PREFIX = f"mcp__{MCP_SERVER_NAME}__"
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class ToolEntry:
     tool_id: str
     mcp_name: str
     title: str
     description: str
-    tags: list[str]
+    tags: tuple[str, ...]
     search_text: str
     input_schema: dict[str, Any]
     annotations: ToolAnnotations | None
@@ -292,7 +292,7 @@ def _tool_error_entry(exc: Exception) -> ToolEntry:
             "Gestalt tool discovery failed. Use this diagnostic tool, then tell the user the "
             f"integration needs attention before retrying. Error: {message}"
         ),
-        tags=[],
+        tags=(),
         search_text="",
         input_schema={"type": "object", "additionalProperties": False},
         annotations=ToolAnnotations(title="Gestalt tools unavailable", readOnlyHint=True),
@@ -368,13 +368,13 @@ def _metadata_parts(value: str) -> list[str]:
     return [raw]
 
 
-def _string_list(value: Any) -> list[str]:
+def _string_list(value: Any) -> tuple[str, ...]:
     out: list[str] = []
     for item in value or []:
         text = str(item or "").strip()
         if text:
             out.append(text)
-    return out
+    return tuple(out)
 
 
 def _execute_tool(

@@ -14,7 +14,7 @@ TERMINAL_STATUSES = {
 }
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class StoredSession:
     session_id: str
     idempotency_key: str
@@ -30,7 +30,7 @@ class StoredSession:
     last_turn_at: datetime | None = None
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class StoredTurn:
     turn_id: str
     session_id: str
@@ -49,7 +49,7 @@ class StoredTurn:
     execution_ref: str
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class StoredTurnEvent:
     event_id: str
     turn_id: str
