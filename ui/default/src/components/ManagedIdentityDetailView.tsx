@@ -629,7 +629,7 @@ export default function ManagedIdentityDetailView({
                   <IntegrationCard
                     key={integration.name}
                     integration={integration}
-                    startOAuth={async (plugin, scopes, connectionParams, instance, connection, returnPath) => {
+                    startOAuth={async (plugin, scopes, connectionParams, instance, connection, returnPath, preset) => {
                       rememberConnectionReturnPath();
                       try {
                         return await startManagedIdentityIntegrationOAuth(
@@ -640,6 +640,7 @@ export default function ManagedIdentityDetailView({
                           instance,
                           connection,
                           returnPath,
+                          preset,
                         );
                       } catch (err) {
                         forgetConnectionReturnPath();

@@ -18,6 +18,15 @@ export interface InstanceInfo {
   connection?: string;
 }
 
+export interface ConnectionPresetInfo {
+  id: string;
+  displayName: string;
+  instance?: string;
+  status?: IntegrationStatus;
+  credentialState?: CredentialState;
+  healthState?: HealthState;
+}
+
 export type AuthType = "oauth" | "manual";
 export type IntegrationStatus =
   | "ready"
@@ -70,6 +79,7 @@ export interface ConnectionDefInfo {
   credentialMode?: CredentialMode;
   ownerKind?: OwnerKind;
   instances?: InstanceInfo[];
+  presets?: ConnectionPresetInfo[];
   mcpPassthrough?: boolean;
 }
 
@@ -712,6 +722,7 @@ export async function startIntegrationOAuth(
   instance?: string,
   connection?: string,
   returnPath?: string,
+  preset?: string,
 ): Promise<{ url: string; state: string }> {
   return fetchAPI("/api/v1/auth/start-oauth", {
     method: "POST",
@@ -719,6 +730,7 @@ export async function startIntegrationOAuth(
       integration,
       instance,
       connection,
+      preset,
       scopes: scopes || [],
       connectionParams,
       returnPath,
@@ -1323,6 +1335,7 @@ export async function startManagedIdentityIntegrationOAuth(
   instance?: string,
   connection?: string,
   returnPath?: string,
+  preset?: string,
 ): Promise<{ url: string; state: string }> {
   return fetchAPI(`${managedSubjectPath(id)}/auth/start-oauth`, {
     method: "POST",
@@ -1330,6 +1343,7 @@ export async function startManagedIdentityIntegrationOAuth(
       integration,
       instance,
       connection,
+      preset,
       scopes: scopes || [],
       connectionParams,
       returnPath,

@@ -191,6 +191,56 @@ const USER_CONNECTION_ACTIONS_INTEGRATION: Integration = {
   ],
 };
 
+const SLACK_PRESETS_INTEGRATION: Integration = {
+  name: "slack",
+  displayName: "Slack",
+  status: "ready",
+  credentialState: "connected",
+  connections: [
+    {
+      name: "workspace",
+      displayName: "Workspace",
+      credentialMode: "subject",
+      ownerKind: "current_user",
+      credentialState: "connected",
+      healthState: "healthy",
+      status: "ready",
+      actions: ["add_instance"],
+      authTypes: ["oauth"],
+      presets: [
+        {
+          id: "valon-technologies",
+          displayName: "Valon Technologies",
+          instance: "valon-technologies",
+          status: "ready",
+          credentialState: "connected",
+        },
+        {
+          id: "valon-mortgage",
+          displayName: "Valon Mortgage",
+          instance: "valon-mortgage",
+          status: "needs_user_connection",
+          credentialState: "missing",
+        },
+      ],
+    },
+  ],
+};
+
+const SLACK_CONNECTED_PRESETS_INTEGRATION: Integration = {
+  ...SLACK_PRESETS_INTEGRATION,
+  connections: [
+    {
+      ...SLACK_PRESETS_INTEGRATION.connections![0],
+      presets: SLACK_PRESETS_INTEGRATION.connections![0].presets?.map((preset) => ({
+        ...preset,
+        status: "ready",
+        credentialState: "connected",
+      })),
+    },
+  ],
+};
+
 const SELECT_INSTANCE_INTEGRATION: Integration = {
   name: "select-instance-svc",
   displayName: "Select Instance Service",
@@ -817,6 +867,111 @@ test.describe("Integrations", () => {
     await expect(dialog.getByRole("button", { name: "Add Instance" })).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Reconnect" })).toBeVisible();
     await expect(dialog.getByRole("button", { name: "Disconnect" })).toHaveCount(2);
+  });
+
+  test("preset-backed add instance uses a preset picker and posts preset", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    let requestBody:
+      | {
+          integration: string;
+          connection?: string;
+          instance?: string;
+          preset?: string;
+        }
+      | undefined;
+
+    await mockIntegrations(page, [SLACK_PRESETS_INTEGRATION]);
+    await page.route("**/api/v1/auth/start-oauth", async (route) => {
+      requestBody = route.request().postDataJSON() as {
+        integration: string;
+        connection?: string;
+        instance?: string;
+        preset?: string;
+      };
+      await route.fulfill({
+        json: { url: "about:blank", state: "state-123" },
+      });
+    });
+
+    await page.goto("/integrations");
+    await page.getByRole("button", { name: "Slack settings" }).click();
+    const dialog = page.getByRole("dialog");
+
+    const addInstance = dialog.getByRole("button", { name: "Add Instance" });
+    await addInstance.click();
+    await expect(dialog.getByText("Valon Technologies", { exact: true })).toHaveCount(0);
+    await expect(dialog.getByText("Valon Mortgage", { exact: true })).toBeVisible();
+    await expect(dialog.getByLabel("Connection name")).toHaveCount(0);
+
+    await dialog.getByRole("button", { name: /Valon Mortgage/ }).click();
+    await page.waitForURL("about:blank");
+
+    expect(requestBody).toMatchObject({
+      integration: "slack",
+      connection: "workspace",
+      preset: "valon-mortgage",
+    });
+    expect(requestBody?.instance).toBeUndefined();
+  });
+
+  test("preset-backed add instance hides the action when all presets are connected", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+
+    await mockIntegrations(page, [SLACK_CONNECTED_PRESETS_INTEGRATION]);
+
+    await page.goto("/integrations");
+    await page.getByRole("button", { name: "Slack settings" }).click();
+
+    await expect(page.getByRole("dialog").getByRole("button", { name: "Add Instance" })).toHaveCount(0);
+  });
+
+  test("no-preset oauth add instance keeps the custom instance flow", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    let requestBody:
+      | {
+          integration: string;
+          connection?: string;
+          instance?: string;
+          preset?: string;
+        }
+      | undefined;
+
+    await mockIntegrations(page, [withConnectedConnection(OAUTH_INTEGRATION)]);
+    await page.route("**/api/v1/auth/start-oauth", async (route) => {
+      requestBody = route.request().postDataJSON() as {
+        integration: string;
+        connection?: string;
+        instance?: string;
+        preset?: string;
+      };
+      await route.fulfill({
+        json: { url: "about:blank", state: "state-123" },
+      });
+    });
+
+    await page.goto("/integrations");
+    await page.getByRole("button", { name: "OAuth Service settings" }).click();
+    const dialog = page.getByRole("dialog");
+
+    await dialog.getByRole("button", { name: "Add Instance" }).click();
+    await expect(dialog.getByLabel("Connection name")).toBeVisible();
+    await expect(dialog.getByText("Valon Technologies", { exact: true })).toHaveCount(0);
+    await dialog.getByLabel("Connection name").fill("second");
+    await dialog.getByRole("button", { name: "Continue" }).click();
+    await page.waitForURL("about:blank");
+
+    expect(requestBody).toMatchObject({
+      integration: "oauth-svc",
+      connection: "plugin",
+      instance: "second",
+    });
+    expect(requestBody?.preset).toBeUndefined();
   });
 
   test("select-instance status stays in settings without starting auth", async ({

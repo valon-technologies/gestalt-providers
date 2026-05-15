@@ -223,6 +223,7 @@ function connectionForTarget(
 type ConnectionTarget = {
   instance?: string;
   connection?: string;
+  preset?: string;
 };
 
 type PendingSelection = {
@@ -237,6 +238,7 @@ type StartOAuthFn = (
   instance?: string,
   connection?: string,
   returnPath?: string,
+  preset?: string,
 ) => Promise<{ url: string; state: string }>;
 
 type ConnectManualFn = (
@@ -332,13 +334,15 @@ export default function IntegrationCard({
     setLoading(true);
     setError(null);
     try {
+      const requestInstance = target.preset ? undefined : target.instance;
       const { url } = await startOAuth(
         integration.name,
         undefined,
         connectionParams,
-        target.instance,
+        requestInstance,
         target.connection,
         returnPath,
+        target.preset,
       );
       window.location.href = url;
     } catch (err) {
@@ -347,11 +351,11 @@ export default function IntegrationCard({
     }
   }
 
-  async function handleStartOAuth(instance?: string, connection?: string) {
-    const target = { instance, connection };
+  async function handleStartOAuth(instance?: string, connection?: string, preset?: string) {
+    const target = { instance, connection, preset };
     setPendingOAuthTarget(target);
     const targetConnection = connectionForTarget(normalizedStatus.connections, target);
-    if (hasConnectionParams(targetConnection?.connectionParams) && !showParamForm) {
+    if (!target.preset && hasConnectionParams(targetConnection?.connectionParams) && !showParamForm) {
       setSettingsOpen(false);
       setShowParamForm(true);
       setError(null);

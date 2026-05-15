@@ -28,6 +28,8 @@ async function wireIdentityRoutes(
   state: IdentityState,
   opts?: {
     onCreateToken?: (body: Record<string, unknown>) => void;
+    onManagedOAuth?: (body: Record<string, unknown>) => void;
+    managedOAuthURL?: string;
     onManagedConnect?: (body: Record<string, unknown>) => void;
     onManagedDisconnect?: (integration: string) => void;
     wrapGrantResponse?: boolean;
@@ -221,10 +223,12 @@ async function wireIdentityRoutes(
 
     if (parts[5] === "auth") {
       if (parts[6] === "start-oauth" && request.method() === "POST") {
+        const body = request.postDataJSON() as Record<string, unknown>;
+        opts?.onManagedOAuth?.(body);
         await route.fulfill({
           json: {
             state: "managed-oauth-state",
-            url: "https://oauth.example.test/authorize",
+            url: opts?.managedOAuthURL || "https://oauth.example.test/authorize",
           },
         });
         return;
@@ -282,6 +286,48 @@ function createManagedIdentityIntegrations(slackConnected = false): Integration[
         actions: slackConnected ? ["disconnect"] : ["connect"],
         instances: slackConnected ? [{ name: "default", connection: "plugin" }] : [],
       }],
+    },
+  ];
+}
+
+function createManagedIdentityPresetIntegrations(): Integration[] {
+  return [
+    {
+      name: "slack",
+      displayName: "Slack",
+      description: "Workspace chat integration",
+      status: "ready",
+      credentialState: "connected",
+      healthState: "not_checked",
+      connections: [
+        {
+          name: "workspace",
+          displayName: "Workspace",
+          authTypes: ["oauth"],
+          credentialMode: "subject",
+          ownerKind: "service_account",
+          status: "ready",
+          credentialState: "connected",
+          healthState: "not_checked",
+          actions: ["add_instance"],
+          presets: [
+            {
+              id: "valon-technologies",
+              displayName: "Valon Technologies",
+              instance: "valon-technologies",
+              status: "ready",
+              credentialState: "connected",
+            },
+            {
+              id: "valon-mortgage",
+              displayName: "Valon Mortgage",
+              instance: "valon-mortgage",
+              status: "needs_user_connection",
+              credentialState: "missing",
+            },
+          ],
+        },
+      ],
     },
   ];
 }
@@ -443,6 +489,37 @@ test.describe("Managed identities", () => {
 
     await expect(page).toHaveURL(/\/identities\?id=service_account%3Aagent-1$/);
     await expect(page.getByRole("heading", { name: "Release Bot" })).toBeVisible();
+  });
+
+  test("starts managed identity OAuth with a preset", async ({ authenticatedPage: page }) => {
+    const state = createBaseState("admin");
+    state.managedIntegrationsByIdentityID["service_account:agent-1"] =
+      createManagedIdentityPresetIntegrations();
+    let managedOAuthBody: Record<string, unknown> | null = null;
+
+    await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
+    await wireIdentityRoutes(page, state, {
+      managedOAuthURL: "about:blank",
+      onManagedOAuth: (body) => {
+        managedOAuthBody = body;
+      },
+    });
+
+    await page.goto("/identities?id=agent-1");
+    await page.getByRole("button", { name: "Slack settings" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: "Add Instance" }).click();
+    await expect(dialog.getByText("Valon Technologies", { exact: true })).toHaveCount(0);
+    await dialog.getByRole("button", { name: /Valon Mortgage/ }).click();
+    await page.waitForURL("about:blank");
+
+    await expect.poll(() => managedOAuthBody).toMatchObject({
+      integration: "slack",
+      connection: "workspace",
+      preset: "valon-mortgage",
+      returnPath: "/identities?id=service_account%3Aagent-1",
+    });
+    expect(managedOAuthBody?.instance).toBeUndefined();
   });
 
   test("renders a viewer detail page as read-only", async ({ authenticatedPage: page }) => {

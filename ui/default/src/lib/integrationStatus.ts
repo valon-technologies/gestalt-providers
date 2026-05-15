@@ -3,6 +3,7 @@ import type {
   ConnectionDefInfo,
   ConnectionMode,
   ConnectionParamDef,
+  ConnectionPresetInfo,
   CredentialFieldDef,
   CredentialMode,
   CredentialState,
@@ -25,6 +26,7 @@ export type NormalizedConnection = {
   connectionParams?: Record<string, ConnectionParamDef>;
   credentialFields?: CredentialFieldDef[];
   instances: InstanceInfo[];
+  presets: ConnectionPresetInfo[];
   status: IntegrationStatus;
   credentialState: CredentialState;
   healthState: HealthState;
@@ -129,6 +131,7 @@ type RawConnection = {
   credentialMode?: CredentialMode;
   ownerKind?: OwnerKind;
   instances?: InstanceInfo[];
+  presets?: ConnectionPresetInfo[];
   mcpPassthrough?: boolean;
 };
 
@@ -375,6 +378,7 @@ function normalizeConnection(
     connectionParams: raw.connectionParams,
     credentialFields: raw.credentialFields,
     instances: raw.instances ?? [],
+    presets: raw.presets ?? [],
     status,
     credentialState,
     healthState,

@@ -5,6 +5,7 @@ import type { FormEvent, MouseEvent, ReactNode, SyntheticEvent } from "react";
 import {
   AuthType,
   ConnectionParamDef,
+  ConnectionPresetInfo,
   CredentialFieldDef,
   Integration,
 } from "@/lib/api";
@@ -24,6 +25,7 @@ type ActionKind = "connect" | "add_instance" | "reconnect" | "select_instance";
 type ConnectionTarget = {
   instance?: string;
   connection?: string;
+  preset?: string;
 };
 
 type AuthAction = {
@@ -34,17 +36,20 @@ type AuthAction = {
   connection?: string;
   label: string;
   variant?: "primary" | "secondary";
+  presets: ConnectionPresetInfo[];
   requiresInstanceName: boolean;
+  requiresPreset: boolean;
 };
 
 type PendingAuthAction = AuthAction & {
   instance?: string;
+  preset?: string;
 };
 
 interface IntegrationSettingsModalProps {
   integration: Integration;
   onClose: () => void;
-  onStartOAuth: (instance?: string, connection?: string) => void;
+  onStartOAuth: (instance?: string, connection?: string, preset?: string) => void;
   onSubmitToken: (credential: string | Record<string, string>, connectionParams?: Record<string, string>, instance?: string, connection?: string) => void;
   onDisconnect: (instance?: string, connection?: string) => void;
   reconnecting: boolean;
@@ -88,6 +93,19 @@ function normalizeActionKinds(connection: NormalizedConnection): ActionKind[] {
   if (connection.canAddInstance) kinds.push("add_instance");
   if (connection.canReconnect) kinds.push("reconnect");
   return kinds;
+}
+
+function presetIsConnected(preset: ConnectionPresetInfo): boolean {
+  return (
+    preset.credentialState === "connected" ||
+    preset.credentialState === "configured" ||
+    preset.status === "ready" ||
+    preset.status === "degraded"
+  );
+}
+
+function connectablePresets(presets: ConnectionPresetInfo[]): ConnectionPresetInfo[] {
+  return presets.filter((preset) => !presetIsConnected(preset));
 }
 
 function buildAuthActionLabel(
@@ -143,6 +161,16 @@ function buildAuthActions(connections: NormalizedConnection[]): AuthAction[] {
   for (const connection of actionableConnections) {
     for (const kind of normalizeActionKinds(connection)) {
       for (const authType of connection.authTypes) {
+        const hasPresetPicker =
+          authType === "oauth" &&
+          connection.presets.length > 0 &&
+          (kind === "connect" || kind === "add_instance");
+        const presets = hasPresetPicker
+          ? connectablePresets(connection.presets)
+          : connection.presets;
+        if (hasPresetPicker && presets.length === 0) {
+          continue;
+        }
         actions.push({
           key: `${connection.key}:${kind}:${authType}`,
           kind,
@@ -159,7 +187,11 @@ function buildAuthActions(connections: NormalizedConnection[]): AuthAction[] {
             authType === "manual" && connection.authTypes.includes("oauth")
               ? "secondary"
               : "primary",
-          requiresInstanceName: kind === "add_instance",
+          presets,
+          requiresInstanceName:
+            kind === "add_instance" &&
+            !(authType === "oauth" && connection.presets.length > 0),
+          requiresPreset: hasPresetPicker,
         });
       }
     }
@@ -215,6 +247,7 @@ export default function IntegrationSettingsModal({
   const [view, setView] = useState<ModalView>("default");
   const [disconnectTarget, setDisconnectTarget] = useState<ConnectionTarget>({});
   const [pendingAction, setPendingAction] = useState<PendingAuthAction | undefined>();
+  const [presetChoices, setPresetChoices] = useState<ConnectionPresetInfo[]>([]);
 
   useEffect(() => {
     dialogRef.current?.showModal();
@@ -233,6 +266,13 @@ export default function IntegrationSettingsModal({
       )
     : undefined;
   const pendingConnectionParams = pendingConnection?.connectionParams;
+  const pendingActionPresets = pendingAction?.presets ?? [];
+  const pendingConnectionPresets = pendingConnection?.presets ?? [];
+  const pendingPresets = presetChoices.length
+    ? presetChoices
+    : pendingActionPresets.length
+      ? pendingActionPresets
+      : pendingConnectionPresets;
 
   function handleCancel(e: SyntheticEvent<HTMLDialogElement>) {
     if (disconnecting || submitting) {
@@ -252,7 +292,14 @@ export default function IntegrationSettingsModal({
 
   function startAuthAction(action: AuthAction) {
     setPendingAction(action);
-    if (action.requiresInstanceName) {
+    const connectionPresets =
+      normalizedStatus.connections.find(
+        (connection) => connection.key === action.connectionKey,
+      )?.presets ?? [];
+    setPresetChoices(
+      connectionPresets.length ? connectablePresets(connectionPresets) : action.presets,
+    );
+    if (action.requiresPreset || action.requiresInstanceName) {
       setView("instance");
     } else if (action.authType === "manual") {
       setView("token");
@@ -272,6 +319,17 @@ export default function IntegrationSettingsModal({
     } else {
       onStartOAuth(action.instance, action.connection);
     }
+  }
+
+  function handlePresetSelect(preset: ConnectionPresetInfo) {
+    if (!pendingAction) return;
+    const action = {
+      ...pendingAction,
+      instance: preset.instance,
+      preset: preset.id,
+    };
+    setPendingAction(action);
+    onStartOAuth(action.instance, action.connection, action.preset);
   }
 
   function resolveCredentialFields(): CredentialFieldDef[] | undefined {
@@ -480,6 +538,7 @@ export default function IntegrationSettingsModal({
                 onClick={() => {
                   setView("default");
                   setDisconnectTarget({});
+                  setPresetChoices([]);
                 }}
                 disabled={disconnecting}
               >
@@ -492,6 +551,50 @@ export default function IntegrationSettingsModal({
                 disabled={disconnecting}
               >
                 {disconnecting ? "Disconnecting..." : "Disconnect"}
+              </Button>
+            </div>
+          </>
+        ) : view === "instance" && pendingPresets.length ? (
+          <>
+            <h2
+              id={headingId}
+              className="text-lg font-heading font-semibold text-primary"
+            >
+              Add Connection
+            </h2>
+            {error && <p className="mt-3 text-sm text-ember-500">{error}</p>}
+            <div className="mt-5 space-y-2">
+              {pendingPresets.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  onClick={() => handlePresetSelect(preset)}
+                  disabled={reconnecting || submitting}
+                  className="w-full rounded-md border border-alpha px-4 py-3 text-left transition-colors duration-150 hover:border-alpha-strong hover:bg-alpha-5 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span className="block text-sm font-medium text-primary">
+                    {preset.displayName}
+                  </span>
+                  {preset.instance ? (
+                    <span className="mt-1 block text-xs text-faint">
+                      {preset.instance}
+                    </span>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+            <div className="mt-6 flex gap-3">
+              <Button
+                type="button"
+                variant="secondary"
+                className="flex-1"
+                onClick={() => {
+                  setView("default");
+                  setPresetChoices([]);
+                }}
+                disabled={reconnecting || submitting}
+              >
+                Cancel
               </Button>
             </div>
           </>
@@ -524,7 +627,10 @@ export default function IntegrationSettingsModal({
                 type="button"
                 variant="secondary"
                 className="flex-1"
-                onClick={() => setView("default")}
+                onClick={() => {
+                  setView("default");
+                  setPresetChoices([]);
+                }}
               >
                 Cancel
               </Button>
@@ -543,7 +649,11 @@ export default function IntegrationSettingsModal({
             submitting={submitting}
             onSubmit={handleTokenSubmit}
             onCancel={() =>
-              setView(pendingAction?.requiresInstanceName ? "instance" : "default")
+              setView(
+                pendingAction?.requiresInstanceName || pendingAction?.requiresPreset
+                  ? "instance"
+                  : "default",
+              )
             }
           />
         ) : (
