@@ -19,8 +19,12 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 ## Capabilities
 
 Declarative provider with both a GraphQL surface and an
-[MCP](https://modelcontextprotocol.io/) surface. Exposes Linear's full API for
-managing issues, projects, teams, cycles, and more.
+[MCP](https://modelcontextprotocol.io/) surface. The GraphQL surface exposes an
+audited allowlist of Linear operations with explicit response selections for
+issues, projects, teams, cycles, comments, labels, and related workflow data.
+Those generated GraphQL operations avoid Linear team-access fields that require
+private/tented team support. Raw GraphQL passthrough remains a separate surface
+permission for callers that need custom queries.
 
 ## Configuration Reference
 
@@ -44,6 +48,10 @@ Operation surfaces: GraphQL, MCP.
 
 Representative operations include:
 
+- `searchIssues`
+- `issues`
+- `teams`
+- `viewer`
 - `issueCreate`
 
 - GraphQL and hosted MCP surfaces both use the Linear OAuth connection with `read` and `write` scopes.

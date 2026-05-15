@@ -1,3 +1,4 @@
+---
 source: github.com/valon-technologies/gestalt-providers/plugins/linear
 version: 0.0.1-alpha.1
 displayName: Linear
@@ -10,7 +11,461 @@ spec:
       connection: OAuth
       url: https://api.linear.app/graphql
       operationSelections:
-        issueCreate: "success lastSyncId issue { id identifier title url createdAt updatedAt }"
+        issue: |
+          id
+          identifier
+          title
+          url
+          createdAt
+          updatedAt
+          description
+          priority
+          priorityLabel
+          estimate
+          state { id name type color }
+          team { id name key displayName }
+          assignee { id name displayName email url }
+          creator { id name displayName email url }
+          project { id name url slugId icon color }
+        searchIssues: |
+          nodes { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+          pageInfo { hasNextPage endCursor }
+          totalCount
+        issueLabels: |
+          nodes { id name description color isGroup team { id name key displayName } }
+          pageInfo { hasNextPage endCursor }
+        issues: |
+          nodes { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+          pageInfo { hasNextPage endCursor }
+        projects: |
+          nodes { id name description url slugId icon color createdAt updatedAt startDate targetDate progress priority priorityLabel status { id name type color } lead { id name displayName email url } creator { id name displayName email url } }
+          pageInfo { hasNextPage endCursor }
+        viewer: |
+          id
+          name
+          displayName
+          email
+          url
+          active
+          isMe
+        issueCreate: |
+          success
+          lastSyncId
+          issue { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+        teams: |
+          nodes { id name key displayName description icon color createdAt updatedAt }
+          pageInfo { hasNextPage endCursor }
+        commentCreate: |
+          success
+          lastSyncId
+          comment { id body url createdAt updatedAt editedAt issue { id identifier title url } user { id name displayName email url } }
+        project: |
+          id
+          name
+          description
+          url
+          slugId
+          icon
+          color
+          createdAt
+          updatedAt
+          startDate
+          targetDate
+          progress
+          priority
+          priorityLabel
+          status { id name type color }
+          lead { id name displayName email url }
+          creator { id name displayName email url }
+        comments: |
+          nodes { id body url createdAt updatedAt editedAt issue { id identifier title url } user { id name displayName email url } }
+          pageInfo { hasNextPage endCursor }
+        issueUpdate: |
+          success
+          lastSyncId
+          issue { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+        initiatives: |
+          nodes { id name description url slugId color icon createdAt updatedAt targetDate health startedAt completedAt owner { id name displayName email url } creator { id name displayName email url } }
+          pageInfo { hasNextPage endCursor }
+        semanticSearch: 'results { id type issue { id identifier title url } project
+          { id name url slugId icon color } initiative { id name url slugId color
+          icon } document { id title url } }
+
+'
+        workflowStates: |
+          nodes { id name type color description team { id name key displayName } }
+          pageInfo { hasNextPage endCursor }
+        fetchData: |
+          success
+          query
+          filters
+          data
+        initiativeToProjects: |
+          nodes { id sortOrder createdAt updatedAt project { id name url slugId icon color } initiative { id name url slugId color icon } }
+          pageInfo { hasNextPage endCursor }
+        team: |
+          id
+          name
+          key
+          displayName
+          description
+          icon
+          color
+          createdAt
+          updatedAt
+        searchProjects: |
+          nodes { id name description url slugId icon color createdAt updatedAt startDate targetDate progress priority priorityLabel status { id name type color } lead { id name displayName email url } creator { id name displayName email url } }
+          pageInfo { hasNextPage endCursor }
+          totalCount
+        attachments: |
+          nodes { id title subtitle url sourceType metadata createdAt updatedAt issue { id identifier title url } creator { id name displayName email url } }
+          pageInfo { hasNextPage endCursor }
+        issueSearch: |
+          nodes { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+          pageInfo { hasNextPage endCursor }
+        administrableTeams: |
+          nodes { id name key displayName description icon color createdAt updatedAt }
+          pageInfo { hasNextPage endCursor }
+        customerNeeds: |
+          nodes { id body url priority createdAt updatedAt issue { id identifier title url } project { id name url slugId icon color } creator { id name displayName email url } }
+          pageInfo { hasNextPage endCursor }
+        issueVcsBranchSearch: |
+          id
+          identifier
+          title
+          url
+          createdAt
+          updatedAt
+          description
+          priority
+          priorityLabel
+          estimate
+          state { id name type color }
+          team { id name key displayName }
+          assignee { id name displayName email url }
+          creator { id name displayName email url }
+          project { id name url slugId icon color }
+        users: |
+          nodes { id name displayName email url active isMe }
+          pageInfo { hasNextPage endCursor }
+        cycles: |
+          nodes { id number name description startsAt endsAt completedAt isActive isFuture isPast progress team { id name key displayName } }
+          pageInfo { hasNextPage endCursor }
+        documents: |
+          nodes { id title summary icon color url createdAt updatedAt team { id name key displayName } project { id name url slugId icon color } issue { id identifier title url } creator { id name displayName email url } }
+          pageInfo { hasNextPage endCursor }
+        issueBatchUpdate: |
+          success
+          lastSyncId
+          issues { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+        projectUpdate: |
+          success
+          lastSyncId
+          project { id name description url slugId icon color createdAt updatedAt startDate targetDate progress priority priorityLabel status { id name type color } lead { id name displayName email url } creator { id name displayName email url } }
+        attachmentsForURL: |
+          nodes { id title subtitle url sourceType metadata createdAt updatedAt issue { id identifier title url } creator { id name displayName email url } }
+          pageInfo { hasNextPage endCursor }
+        template: |
+          id
+          type
+          name
+          description
+          icon
+          color
+          createdAt
+          updatedAt
+          team { id name key displayName }
+          creator { id name displayName email url }
+        teamMemberships: |
+          nodes { id owner sortOrder createdAt updatedAt user { id name displayName email url } team { id name key displayName } }
+          pageInfo { hasNextPage endCursor }
+        notifications: |
+          nodes { id type title subtitle url createdAt updatedAt readAt }
+          pageInfo { hasNextPage endCursor }
+        issueLabel: |
+          id
+          name
+          description
+          color
+          isGroup
+          team { id name key displayName }
+        templates: |
+          id
+          type
+          name
+          description
+          icon
+          color
+          createdAt
+          updatedAt
+          team { id name key displayName }
+          creator { id name displayName email url }
+        issueRelations: |
+          nodes { id type createdAt updatedAt issue { id identifier title url } relatedIssue { id identifier title url } }
+          pageInfo { hasNextPage endCursor }
+        customViews: |
+          nodes { id name description icon color shared slugId modelName createdAt updatedAt team { id name key displayName } creator { id name displayName email url } }
+          pageInfo { hasNextPage endCursor }
+        customView: |
+          id
+          name
+          description
+          icon
+          color
+          shared
+          slugId
+          modelName
+          createdAt
+          updatedAt
+          team { id name key displayName }
+          creator { id name displayName email url }
+        user: |
+          id
+          name
+          displayName
+          email
+          url
+          active
+          isMe
+        projectMilestones: |
+          nodes { id name description targetDate progress createdAt updatedAt project { id name url slugId icon color } }
+          pageInfo { hasNextPage endCursor }
+        issueDelete: |
+          success
+          lastSyncId
+          entity { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+        fileUpload: |
+          success
+          lastSyncId
+          uploadFile { filename contentType size uploadUrl assetUrl }
+        favorites: |
+          nodes { id type title detail url folderName color icon createdAt updatedAt owner { id name displayName email url } }
+          pageInfo { hasNextPage endCursor }
+        commentDelete: |
+          success
+          lastSyncId
+          entityId
+        searchDocuments: |
+          nodes { id title summary icon color url createdAt updatedAt team { id name key displayName } project { id name url slugId icon color } issue { id identifier title url } creator { id name displayName email url } }
+          pageInfo { hasNextPage endCursor }
+          totalCount
+        projectMilestone: |
+          id
+          name
+          description
+          targetDate
+          progress
+          createdAt
+          updatedAt
+          project { id name url slugId icon color }
+        organization: |
+          id
+          name
+          urlKey
+          logoUrl
+          gitBranchFormat
+          roadmapEnabled
+          customersEnabled
+          releasesEnabled
+          createdAt
+          updatedAt
+          userCount
+          teams { pageInfo { hasNextPage endCursor } }
+        issueRelationCreate: |
+          success
+          lastSyncId
+          issueRelation { id type createdAt updatedAt issue { id identifier title url } relatedIssue { id identifier title url } }
+        attachmentCreate: |
+          success
+          lastSyncId
+          attachment { id title subtitle url sourceType metadata createdAt updatedAt issue { id identifier title url } creator { id name displayName email url } }
+        projectUpdates: |
+          nodes { id body url createdAt updatedAt editedAt health project { id name url slugId icon color } user { id name displayName email url } }
+          pageInfo { hasNextPage endCursor }
+        issueArchive: |
+          success
+          lastSyncId
+          entity { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+        projectLabels: |
+          nodes { id name description color isGroup createdAt updatedAt }
+          pageInfo { hasNextPage endCursor }
+        issuePriorityValues: |
+          priority
+          label
+        issueLabelUpdate: |
+          success
+          lastSyncId
+          issueLabel { id name description color isGroup team { id name key displayName } }
+        issueLabelCreate: |
+          success
+          lastSyncId
+          issueLabel { id name description color isGroup team { id name key displayName } }
+        attachmentDelete: |
+          success
+          lastSyncId
+          entityId
+        archivedTeams: |
+          id
+          name
+          key
+          displayName
+          description
+          icon
+          color
+          createdAt
+          updatedAt
+        agentSessions: |
+          nodes { id slugId status summary url createdAt updatedAt startedAt endedAt creator { id name displayName email url } issue { id identifier title url } }
+          pageInfo { hasNextPage endCursor }
+        userSettings: |
+          id
+          createdAt
+          updatedAt
+          theme { preset }
+          autoAssignToSelf
+          showFullUserNames
+          user { id name displayName email url }
+        projectStatuses: |
+          nodes { id name color description position type indefinite }
+          pageInfo { hasNextPage endCursor }
+        initiativeToProjectCreate: |
+          success
+          lastSyncId
+          initiativeToProject { id sortOrder createdAt updatedAt project { id name url slugId icon color } initiative { id name url slugId color icon } }
+        initiative: |
+          id
+          name
+          description
+          url
+          slugId
+          color
+          icon
+          createdAt
+          updatedAt
+          targetDate
+          health
+          startedAt
+          completedAt
+          owner { id name displayName email url }
+          creator { id name displayName email url }
+        customViewCreate: |
+          success
+          lastSyncId
+          customView { id name description icon color shared slugId modelName createdAt updatedAt team { id name key displayName } creator { id name displayName email url } }
+        commentUpdate: |
+          success
+          lastSyncId
+          comment { id body url createdAt updatedAt editedAt issue { id identifier title url } user { id name displayName email url } }
+        availableUsers: |
+          id
+          email
+          allowDomainAccess
+          service
+          lastUsedOrganizationId
+          users { id name displayName email active }
+          lockedUsers { id name displayName email active }
+          availableOrganizations { id name urlKey enabled }
+          lockedOrganizations { id name urlKey enabled }
+        attachmentLinkGitHubPR: |
+          success
+          lastSyncId
+          attachment { id title subtitle url sourceType metadata createdAt updatedAt issue { id identifier title url } creator { id name displayName email url } }
+        attachment: |
+          id
+          title
+          subtitle
+          url
+          sourceType
+          metadata
+          createdAt
+          updatedAt
+          issue { id identifier title url }
+          creator { id name displayName email url }
+        workflowState: |
+          id
+          name
+          type
+          color
+          description
+          team { id name key displayName }
+        viewPreferencesCreate: |
+          success
+          lastSyncId
+          viewPreferences { id type viewType createdAt updatedAt }
+        templatesForIntegration: |
+          id
+          type
+          name
+          description
+          icon
+          color
+          createdAt
+          updatedAt
+          team { id name key displayName }
+          creator { id name displayName email url }
+        releaseSearch: |
+          id
+          name
+          description
+          version
+          commitSha
+          slugId
+          url
+          startDate
+          targetDate
+          startedAt
+          completedAt
+          canceledAt
+          createdAt
+          updatedAt
+          issueCount
+          creator { id name displayName email url }
+        projectRelations: |
+          nodes { id type anchorType relatedAnchorType createdAt updatedAt project { id name url slugId icon color } relatedProject { id name url slugId icon color } user { id name displayName email url } }
+          pageInfo { hasNextPage endCursor }
+        projectDelete: |
+          success
+          lastSyncId
+          entity { id name description url slugId icon color createdAt updatedAt startDate targetDate progress priority priorityLabel status { id name type color } lead { id name displayName email url } creator { id name displayName email url } }
+        issueFigmaFileKeySearch: |
+          nodes { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+          pageInfo { hasNextPage endCursor }
+        issueDescriptionUpdateFromFront: |
+          success
+          lastSyncId
+          issue { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+        cycle: |
+          id
+          number
+          name
+          description
+          startsAt
+          endsAt
+          completedAt
+          isActive
+          isFuture
+          isPast
+          progress
+          team { id name key displayName }
+        customers: |
+          nodes { id name logoUrl domains externalIds status { id name color displayName } revenue size tier { id name color displayName } slugId url createdAt updatedAt owner { id name displayName email url } }
+          pageInfo { hasNextPage endCursor }
+        comment: |
+          id
+          body
+          url
+          createdAt
+          updatedAt
+          editedAt
+          issue { id identifier title url }
+          user { id name displayName email url }
+        attachmentSources: 'sources
+
+'
+        attachmentLinkURL: |
+          success
+          lastSyncId
+          attachment { id title subtitle url sourceType metadata createdAt updatedAt issue { id identifier title url } creator { id name displayName email url } }
     mcp:
       connection: OAuth
       url: https://mcp.linear.app/mcp
@@ -23,5 +478,5 @@ spec:
         tokenUrl: https://api.linear.app/oauth/token
         acceptHeader: application/json
         scopes:
-          - read
-          - write
+        - read
+        - write
