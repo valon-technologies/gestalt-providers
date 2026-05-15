@@ -166,8 +166,6 @@ def _bot_workspaces_from_config(bot: dict[str, Any]) -> tuple[SlackBotWorkspaceC
             raise ValueError(f"{path}.teamId is required")
         if not token:
             raise ValueError(f"{path}.token is required")
-        if not user_id:
-            raise ValueError(f"{path}.userId is required")
         if team_id in seen_team_ids:
             raise ValueError(f"bot.workspaces has duplicate teamId {team_id!r}")
         seen_team_ids.add(team_id)

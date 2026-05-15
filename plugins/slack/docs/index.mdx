@@ -61,23 +61,22 @@ plugins:
       bot:
         workspaces:
           - teamId: T0123456789
-            userId: U0123456789
             token:
               secret:
                 provider: secrets
                 name: slack-bot-token-team-a
           - teamId: T9876543210
-            userId: U9876543210
             token:
               secret:
                 provider: secrets
                 name: slack-bot-token-team-b
 ```
 
-In multi-workspace mode, Slack event helper operations select the bot token and
-bot user ID by the Slack `team_id` embedded in the event or signed reply
-reference. Unknown teams are ignored or rejected safely and never fall back to
-another workspace's bot token.
+In multi-workspace mode, Slack event helper operations select the bot token by
+the Slack `team_id` embedded in the event or signed reply reference. Unknown
+teams are ignored or rejected safely and never fall back to another workspace's
+bot token. Each workspace may also include `userId` as a bot identity fallback
+for Slack events that omit bot `authorizations`.
 
 Signed Slack reply and interaction references use `SLACK_REPLY_REF_SIGNING_SECRET`
 when set, then `SLACK_SIGNING_SECRET`. The singleton bot token remains a legacy

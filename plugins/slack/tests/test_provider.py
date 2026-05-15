@@ -735,7 +735,6 @@ class SlackProviderTests(unittest.TestCase):
                         {
                             "team_id": "T999",
                             "bot_token": "xoxb-team-999",
-                            "bot_user_id": "UBOT999",
                         },
                     ]
                 }
@@ -747,7 +746,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(bot.token_for_team_id("T123"), "xoxb-team-123")
         self.assertEqual(bot.user_id_for_team_id("T123"), "UBOT123")
         self.assertEqual(bot.token_for_team_id("T999"), "xoxb-team-999")
-        self.assertEqual(bot.user_id_for_team_id("T999"), "UBOT999")
+        self.assertEqual(bot.user_id_for_team_id("T999"), "")
         self.assertEqual(bot.token_for_team_id("T404"), "")
 
         provider_module.configure(
@@ -786,11 +785,10 @@ class SlackProviderTests(unittest.TestCase):
                 },
             )
 
-    def test_bot_workspaces_require_team_token_and_user(self) -> None:
+    def test_bot_workspaces_require_team_and_token(self) -> None:
         invalid_configs = [
             ({"token": "xoxb-team-123", "userId": "UBOT123"}, "teamId is required"),
             ({"teamId": "T123", "userId": "UBOT123"}, "token is required"),
-            ({"teamId": "T123", "token": "xoxb-team-123"}, "userId is required"),
         ]
 
         for workspace, error in invalid_configs:
@@ -3303,7 +3301,6 @@ class SlackProviderTests(unittest.TestCase):
                         {
                             "teamId": "T999",
                             "token": "xoxb-team-999",
-                            "userId": "UBOT999",
                         },
                     ]
                 },
@@ -3320,6 +3317,13 @@ class SlackProviderTests(unittest.TestCase):
                 "type": "event_callback",
                 "event_id": f"Ev{team_id}",
                 "team_id": team_id,
+                "authorizations": [
+                    {
+                        "is_bot": True,
+                        "team_id": team_id,
+                        "user_id": bot_user_id,
+                    }
+                ],
                 "event": {
                     "type": "app_mention",
                     "user": "U456",

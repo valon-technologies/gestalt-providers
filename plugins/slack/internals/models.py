@@ -308,7 +308,7 @@ class SlackEventsConfig:
 class SlackBotWorkspaceConfig:
     team_id: str
     token: str
-    user_id: str
+    user_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
