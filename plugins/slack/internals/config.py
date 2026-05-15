@@ -132,7 +132,9 @@ def _bot_workspaces_from_config(bot: dict[str, Any]) -> tuple[SlackBotWorkspaceC
         for index, raw_workspace in enumerate(raw_workspaces, start=1):
             if not isinstance(raw_workspace, dict):
                 raise ValueError(f"bot.workspaces[{index}] must be an object")
-            workspace_configs.append((f"bot.workspaces[{index}]", raw_workspace))
+            workspace_configs.append(
+                (f"bot.workspaces[{index}]", cast(dict[str, Any], raw_workspace))
+            )
     elif isinstance(raw_workspaces, dict):
         for raw_team_id, raw_workspace in raw_workspaces.items():
             if not isinstance(raw_workspace, dict):
