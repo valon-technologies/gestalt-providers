@@ -550,6 +550,14 @@ spec:
     comment: {}
     attachmentSources: {}
     attachmentLinkURL: {}
+    get_issue: {}
+    get_project: {}
+    list_comments: {}
+    list_issues: {}
+    list_projects: {}
+    list_teams: {}
+    save_comment: {}
+    save_issue: {}
   connections:
     OAuth:
       mode: user
