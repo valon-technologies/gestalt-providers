@@ -44,7 +44,7 @@ properties:
       - portForward
       - podIP
       - serviceDNS
-    description: How gestaltd connects back to the hosted plugin. Use serviceDNS when gestaltd runs inside the same cluster/network as the sandbox service.
+    description: How gestaltd connects back to the hosted plugin. Use serviceDNS when gestaltd runs inside the same cluster/network as the sandbox service. podIP is a transient Cloud Run transport option, not durable route or session state.
   sandboxReadyTimeout:
     type: string
     description: Go duration to wait for Sandbox readiness.

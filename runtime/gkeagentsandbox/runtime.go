@@ -68,6 +68,8 @@ type tunnel interface {
 	Close() error
 }
 
+var errStaleRuntimeSession = errors.New("stale gke agent sandbox runtime session")
+
 type startSandboxRequest struct {
 	Name       string
 	PluginName string
@@ -97,7 +99,6 @@ type sandboxHandle struct {
 	ClaimName   string
 	SandboxName string
 	PodName     string
-	PodIP       string
 	Ready       bool
 }
 
@@ -594,7 +595,7 @@ const listSessionsStragglerCap = 10
 // listSessionsCache holds the namespace-wide objects fetched by
 // buildListSessionsCache so that per-session enrichment can serve from memory
 // instead of re-Getting per-session. Pods carrying a non-nil DeletionTimestamp
-// are excluded to match refreshSandbox's PodIP filter at runtime.go ~1086.
+// are excluded to match transport refresh and metadata enrichment.
 type listSessionsCache struct {
 	sandboxesByName     map[string]*sandboxv1alpha1.Sandbox
 	podsByName          map[string]*corev1.Pod
@@ -784,12 +785,6 @@ func (r *kubernetesSandboxRuntime) sessionFromSandbox(ctx context.Context, sandb
 		}
 		handle.PodName = podName
 	}
-	if handle.PodName != "" {
-		pod, err := r.core.CoreV1().Pods(sandbox.Namespace).Get(ctx, handle.PodName, metav1.GetOptions{})
-		if err == nil && pod.DeletionTimestamp == nil {
-			handle.PodIP = strings.TrimSpace(pod.Status.PodIP)
-		}
-	}
 	session := sandboxSessionFromRuntimeObject(
 		sandbox.Name,
 		pluginNameFromObject(sandbox.ObjectMeta),
@@ -856,11 +851,6 @@ func (r *kubernetesSandboxRuntime) refreshSandboxFromCache(ctx context.Context, 
 					return sandboxHandle{}, err
 				}
 				handle.PodName = podName
-			}
-			if handle.PodName != "" {
-				if pod, ok := cache.podsByName[handle.PodName]; ok {
-					handle.PodIP = strings.TrimSpace(pod.Status.PodIP)
-				}
 			}
 			return handle, nil
 		}
@@ -952,13 +942,6 @@ func (r *kubernetesSandboxRuntime) sessionFromSandboxWithCache(ctx context.Conte
 			return sandboxSession{}, err
 		}
 		handle.PodName = podName
-	}
-	if handle.PodName != "" {
-		if cache != nil {
-			if pod, ok := cache.podsByName[handle.PodName]; ok {
-				handle.PodIP = strings.TrimSpace(pod.Status.PodIP)
-			}
-		}
 	}
 	session := sandboxSessionFromRuntimeObject(
 		sandbox.Name,
@@ -1138,9 +1121,17 @@ func (r *kubernetesSandboxRuntime) execOutput(ctx context.Context, handle sandbo
 	if len(command) == 0 {
 		return "", fmt.Errorf("exec command is required")
 	}
+	var err error
+	handle, err = r.currentTransportHandle(ctx, handle)
+	if err != nil {
+		return "", err
+	}
 	podName := strings.TrimSpace(handle.PodName)
 	if podName == "" {
 		return "", fmt.Errorf("sandbox pod name is not available")
+	}
+	if _, err := r.activeTransportPod(ctx, handle); err != nil {
+		return "", err
 	}
 	req := r.core.CoreV1().RESTClient().Post().
 		Resource("pods").
@@ -1170,8 +1161,16 @@ func (r *kubernetesSandboxRuntime) execOutput(ctx context.Context, handle sandbo
 }
 
 func (r *kubernetesSandboxRuntime) ForwardPort(ctx context.Context, handle sandboxHandle, remotePort int) (tunnel, error) {
+	var err error
+	handle, err = r.currentTransportHandle(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
 	if handle.PodName == "" {
 		return nil, fmt.Errorf("sandbox pod name is not available")
+	}
+	if _, err := r.activeTransportPod(ctx, handle); err != nil {
+		return nil, err
 	}
 	req := r.core.CoreV1().RESTClient().Post().
 		Resource("pods").
@@ -1229,13 +1228,18 @@ func (r *kubernetesSandboxRuntime) ForwardPort(ctx context.Context, handle sandb
 }
 
 func (r *kubernetesSandboxRuntime) PodIPDialTarget(ctx context.Context, handle sandboxHandle, remotePort int) (tunnel, error) {
+	var err error
+	handle, err = r.currentTransportHandle(ctx, handle)
+	if err != nil {
+		return nil, err
+	}
 	podName := strings.TrimSpace(handle.PodName)
 	if podName == "" {
 		return nil, fmt.Errorf("sandbox pod name is not available")
 	}
-	pod, err := r.core.CoreV1().Pods(handle.Namespace).Get(ctx, podName, metav1.GetOptions{})
+	pod, err := r.activeTransportPod(ctx, handle)
 	if err != nil {
-		return nil, fmt.Errorf("get sandbox pod %s/%s: %w", handle.Namespace, podName, err)
+		return nil, err
 	}
 	podIP := strings.TrimSpace(pod.Status.PodIP)
 	if podIP == "" {
@@ -1245,7 +1249,9 @@ func (r *kubernetesSandboxRuntime) PodIPDialTarget(ctx context.Context, handle s
 }
 
 func (r *kubernetesSandboxRuntime) ServiceDNSDialTarget(ctx context.Context, handle sandboxHandle, remotePort int) (tunnel, error) {
-	if err := ctx.Err(); err != nil {
+	var err error
+	handle, err = r.currentTransportHandle(ctx, handle)
+	if err != nil {
 		return nil, err
 	}
 	serviceName := strings.TrimSpace(handle.SandboxName)
@@ -1254,6 +1260,48 @@ func (r *kubernetesSandboxRuntime) ServiceDNSDialTarget(ctx context.Context, han
 	}
 	host := serviceName + "." + handle.Namespace + ".svc.cluster.local"
 	return staticTunnel{target: tcpDialTarget(host, remotePort)}, nil
+}
+
+func (r *kubernetesSandboxRuntime) currentTransportHandle(ctx context.Context, handle sandboxHandle) (sandboxHandle, error) {
+	if err := ctx.Err(); err != nil {
+		return sandboxHandle{}, err
+	}
+	if strings.TrimSpace(handle.Namespace) == "" {
+		return sandboxHandle{}, fmt.Errorf("sandbox namespace is not available")
+	}
+	if claimName := strings.TrimSpace(handle.ClaimName); claimName != "" {
+		claim, err := r.extensions.ExtensionsV1alpha1().SandboxClaims(handle.Namespace).Get(ctx, claimName, metav1.GetOptions{})
+		if err != nil {
+			return sandboxHandle{}, fmt.Errorf("get SandboxClaim %s/%s: %w", handle.Namespace, claimName, err)
+		}
+		sandboxName, err := r.sandboxNameForClaim(ctx, handle, claim)
+		if err != nil {
+			return sandboxHandle{}, err
+		}
+		if sandboxName == "" {
+			return sandboxHandle{}, fmt.Errorf("SandboxClaim %s/%s does not reference a Sandbox", handle.Namespace, claimName)
+		}
+		handle.SandboxName = sandboxName
+	}
+	if strings.TrimSpace(handle.SandboxName) == "" {
+		return handle, nil
+	}
+	return r.refreshSandbox(ctx, handle)
+}
+
+func (r *kubernetesSandboxRuntime) activeTransportPod(ctx context.Context, handle sandboxHandle) (*corev1.Pod, error) {
+	podName := strings.TrimSpace(handle.PodName)
+	if podName == "" {
+		return nil, fmt.Errorf("sandbox pod name is not available")
+	}
+	pod, err := r.core.CoreV1().Pods(handle.Namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("get sandbox pod %s/%s: %w", handle.Namespace, podName, err)
+	}
+	if pod.DeletionTimestamp != nil || pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
+		return nil, fmt.Errorf("sandbox pod %s/%s is not active", handle.Namespace, podName)
+	}
+	return pod, nil
 }
 
 func (r *kubernetesSandboxRuntime) Close() error {
@@ -1360,12 +1408,6 @@ func (r *kubernetesSandboxRuntime) refreshSandbox(ctx context.Context, handle sa
 			return sandboxHandle{}, err
 		}
 		handle.PodName = podName
-	}
-	if handle.PodName != "" {
-		pod, err := r.core.CoreV1().Pods(handle.Namespace).Get(ctx, handle.PodName, metav1.GetOptions{})
-		if err == nil && pod.DeletionTimestamp == nil {
-			handle.PodIP = strings.TrimSpace(pod.Status.PodIP)
-		}
 	}
 	return handle, nil
 }
@@ -1490,7 +1532,7 @@ func (r *kubernetesSandboxRuntime) VerifySessionCompatible(ctx context.Context, 
 		return err
 	}
 	if actualImage != expected.ExpectedImage {
-		return fmt.Errorf("stale gke agent sandbox runtime session %q: SandboxTemplate %s expects image %q, pod %s runs image %q (imageID %q)", session.ID, session.Template, expected.ExpectedImage, session.Handle.PodName, actualImage, actualImageID)
+		return fmt.Errorf("%w %q: SandboxTemplate %s expects image %q, pod %s runs image %q (imageID %q)", errStaleRuntimeSession, session.ID, session.Template, expected.ExpectedImage, session.Handle.PodName, actualImage, actualImageID)
 	}
 	return nil
 }

@@ -17,6 +17,7 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 const (
@@ -166,9 +167,13 @@ func (p *Provider) GetSession(ctx context.Context, sessionID string) (gestalt.Pl
 	}
 	session, err := runtime.ResolveSession(ctx, cfg.Namespace, sessionID)
 	if err != nil {
-		return gestalt.PluginRuntimeSession{}, status.Error(codes.NotFound, err.Error())
+		if runtimeSessionMissingError(err) {
+			p.invalidateLocalTunnel(sessionID)
+		}
+		return gestalt.PluginRuntimeSession{}, runtimeSessionStatus(err)
 	}
-	return pluginRuntimeSession(session, sessionStateForSandbox(ctx, runtime, session)), nil
+	state := sessionStateForSandbox(ctx, runtime, session)
+	return pluginRuntimeSession(session, state), nil
 }
 
 func (p *Provider) ListSessions(ctx context.Context) ([]gestalt.PluginRuntimeSession, error) {
@@ -178,7 +183,7 @@ func (p *Provider) ListSessions(ctx context.Context) ([]gestalt.PluginRuntimeSes
 	}
 	sessions, err := runtime.ListSessions(ctx, cfg.Namespace)
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return nil, runtimeSessionStatus(err)
 	}
 	sort.Slice(sessions, func(i, j int) bool {
 		return sessions[i].ID < sessions[j].ID
@@ -197,7 +202,7 @@ func (p *Provider) StopSession(ctx context.Context, sessionID string) error {
 	}
 	session, err := runtime.ResolveSession(ctx, cfg.Namespace, sessionID)
 	if err != nil {
-		return status.Error(codes.NotFound, err.Error())
+		return runtimeSessionStatus(err)
 	}
 
 	if tunnel := p.localTunnel(session.ID); tunnel != nil {
@@ -228,9 +233,15 @@ func (p *Provider) StartPlugin(ctx context.Context, req gestalt.StartHostedPlugi
 
 	session, err := runtime.ResolveSession(ctx, cfg.Namespace, req.SessionID)
 	if err != nil {
-		return gestalt.HostedPlugin{}, status.Error(codes.NotFound, err.Error())
+		if runtimeSessionMissingError(err) {
+			p.invalidateLocalTunnel(req.SessionID)
+		}
+		return gestalt.HostedPlugin{}, runtimeSessionStatus(err)
 	}
 	if err := runtime.VerifySessionCompatible(ctx, session); err != nil {
+		if errors.Is(err, errStaleRuntimeSession) {
+			p.invalidateLocalTunnel(session.ID)
+		}
 		return gestalt.HostedPlugin{}, status.Errorf(codes.FailedPrecondition, "gke agent sandbox session is stale: %v", err)
 	}
 	if state := sessionStateForSandbox(ctx, runtime, session); state == sessionStateRunning || state == sessionStateStarting {
@@ -258,12 +269,18 @@ func (p *Provider) StartPlugin(ctx context.Context, req gestalt.StartHostedPlugi
 
 	lockedSession, err := runtime.ResolveSession(ctx, cfg.Namespace, session.ID)
 	if err != nil {
-		return gestalt.HostedPlugin{}, status.Error(codes.NotFound, err.Error())
+		if runtimeSessionMissingError(err) {
+			p.invalidateLocalTunnel(session.ID)
+		}
+		return gestalt.HostedPlugin{}, runtimeSessionStatus(err)
 	}
 	if state := sessionStateForSandbox(ctx, runtime, lockedSession); state == sessionStateRunning {
 		return gestalt.HostedPlugin{}, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.SessionID)
 	}
 	if err := runtime.VerifySessionCompatible(ctx, lockedSession); err != nil {
+		if errors.Is(err, errStaleRuntimeSession) {
+			p.invalidateLocalTunnel(lockedSession.ID)
+		}
 		return gestalt.HostedPlugin{}, status.Errorf(codes.FailedPrecondition, "gke agent sandbox session is stale: %v", err)
 	}
 	session = lockedSession
@@ -315,26 +332,44 @@ func (p *Provider) StartPlugin(ctx context.Context, req gestalt.StartHostedPlugi
 	})
 	execCleanupNeeded = true
 	if err := runtime.Exec(execCtx, handle, []string{"sh", "-c", launchScript}, nil); err != nil {
+		if staleTransportError(err) {
+			p.invalidateLocalTunnel(session.ID)
+			return gestalt.HostedPlugin{}, status.Errorf(codes.Unavailable, "start plugin process in gke agent sandbox: %v", err)
+		}
 		return gestalt.HostedPlugin{}, status.Errorf(codes.Internal, "start plugin process in gke agent sandbox: %v", err)
 	}
 	if err := waitForSocketProxyReady(execCtx, runtime, handle, cfg.PluginPort, env[envProviderSocket]); err != nil {
+		if staleTransportError(err) {
+			p.invalidateLocalTunnel(session.ID)
+		}
 		return gestalt.HostedPlugin{}, status.Errorf(codes.DeadlineExceeded, "wait for in-sandbox plugin socket proxy: %v", err)
 	}
 
 	tunnel, err := openPluginTunnel(ctx, runtime, handle, cfg)
 	if err != nil {
+		if staleTransportError(err) {
+			p.invalidateLocalTunnel(session.ID)
+			return gestalt.HostedPlugin{}, status.Errorf(codes.Unavailable, "open plugin gRPC connection: %v", err)
+		}
 		return gestalt.HostedPlugin{}, status.Errorf(codes.Internal, "open plugin gRPC connection: %v", err)
 	}
 	readyCtx, readyCancel := context.WithTimeout(ctx, cfg.PluginReadyTimeout)
 	defer readyCancel()
 	if err := waitForPluginReady(readyCtx, tunnel.DialTarget()); err != nil {
 		_ = tunnel.Close()
+		if staleTransportError(err) {
+			p.invalidateLocalTunnel(session.ID)
+		}
 		return gestalt.HostedPlugin{}, status.Errorf(codes.DeadlineExceeded, "wait for gke agent sandbox plugin gRPC endpoint: %v", err)
 	}
 	if err := runtime.MarkPluginStarted(ctx, handle, holder, req.PluginName); err != nil {
 		_ = tunnel.Close()
 		if errors.Is(err, errPluginAlreadyStarted) {
 			return gestalt.HostedPlugin{}, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.SessionID)
+		}
+		if staleTransportError(err) {
+			p.invalidateLocalTunnel(session.ID)
+			return gestalt.HostedPlugin{}, status.Errorf(codes.Unavailable, "mark gke agent sandbox plugin started: %v", err)
 		}
 		return gestalt.HostedPlugin{}, status.Errorf(codes.Internal, "mark gke agent sandbox plugin started: %v", err)
 	}
@@ -418,9 +453,9 @@ func (p *Provider) configured() (sandboxRuntime, Config, error) {
 	return p.runtime, p.cfg, nil
 }
 
-func (p *Provider) setLocalTunnel(sessionID string, tunnel tunnel) {
+func (p *Provider) setLocalTunnel(sessionID string, next tunnel) {
+	var previous tunnel
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if p.sessions == nil {
 		p.sessions = make(map[string]*localSession)
 	}
@@ -429,7 +464,12 @@ func (p *Provider) setLocalTunnel(sessionID string, tunnel tunnel) {
 		local = &localSession{}
 		p.sessions[sessionID] = local
 	}
-	local.pluginTunnel = tunnel
+	previous = local.pluginTunnel
+	local.pluginTunnel = next
+	p.mu.Unlock()
+	if previous != nil {
+		_ = previous.Close()
+	}
 }
 
 func (p *Provider) localTunnel(sessionID string) tunnel {
@@ -445,6 +485,19 @@ func (p *Provider) clearLocalSession(sessionID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	delete(p.sessions, sessionID)
+}
+
+func (p *Provider) invalidateLocalTunnel(sessionID string) {
+	var tunnel tunnel
+	p.mu.Lock()
+	if local := p.sessions[sessionID]; local != nil {
+		tunnel = local.pluginTunnel
+		local.pluginTunnel = nil
+	}
+	p.mu.Unlock()
+	if tunnel != nil {
+		_ = tunnel.Close()
+	}
 }
 
 func (p *Provider) newID(prefix string) string {
@@ -529,6 +582,85 @@ func pluginStartLeaseDuration(cfg Config) time.Duration {
 		return time.Minute
 	}
 	return duration
+}
+
+func staleTransportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if k8serrors.IsNotFound(err) || k8serrors.IsServiceUnavailable(err) || k8serrors.IsTimeout(err) || k8serrors.IsServerTimeout(err) {
+		return true
+	}
+	switch status.Code(err) {
+	case codes.Unavailable, codes.DeadlineExceeded:
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"connection refused",
+		"i/o timeout",
+		"lost connection to pod",
+		"no route to host",
+		"sandbox pod",
+		"stale",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeSessionStatus(err error) error {
+	if err == nil {
+		return nil
+	}
+	if runtimeSessionMissingError(err) {
+		return status.Error(codes.NotFound, err.Error())
+	}
+	if runtimeSessionUnavailableError(err) {
+		return status.Error(codes.Unavailable, err.Error())
+	}
+	return status.Error(codes.Internal, err.Error())
+}
+
+func runtimeSessionUnavailableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || k8serrors.IsServiceUnavailable(err) || k8serrors.IsTimeout(err) || k8serrors.IsServerTimeout(err) {
+		return true
+	}
+	switch status.Code(err) {
+	case codes.Unavailable, codes.DeadlineExceeded, codes.ResourceExhausted:
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"connection error",
+		"connection refused",
+		"connection reset",
+		"dial tcp",
+		"i/o timeout",
+		"no route to host",
+		"transport is closing",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeSessionMissingError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "plugin runtime session ") && strings.Contains(message, " not found")
 }
 
 func hostnameEgressPolicyName(handle sandboxHandle) string {

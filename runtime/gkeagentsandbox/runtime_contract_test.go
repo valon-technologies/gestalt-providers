@@ -753,10 +753,118 @@ func TestRuntimeContractPodIPDialTargetUsesSandboxPodIP(t *testing.T) {
 	}
 }
 
+func TestRuntimeContractPodIPDialTargetRefetchesCurrentClaimPod(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	runtime := &kubernetesSandboxRuntime{
+		core: k8sfake.NewSimpleClientset(
+			&corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "stale-pod",
+					Namespace: "runtime-system",
+				},
+				Status: corev1.PodStatus{
+					PodIP: "10.20.0.10",
+				},
+			},
+			&corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "current-pod",
+					Namespace: "runtime-system",
+				},
+				Status: corev1.PodStatus{
+					PodIP: "10.20.0.44",
+				},
+			},
+		),
+		agents:     agentfake.NewSimpleClientset(),
+		extensions: extfake.NewSimpleClientset(),
+	}
+	if _, err := runtime.agents.AgentsV1alpha1().Sandboxes("runtime-system").Create(ctx, &sandboxv1alpha1.Sandbox{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "current-sandbox",
+			Namespace: "runtime-system",
+			Annotations: map[string]string{
+				sandboxv1alpha1.SandboxPodNameAnnotation: "current-pod",
+			},
+		},
+		Status: sandboxv1alpha1.SandboxStatus{
+			Conditions: []metav1.Condition{{
+				Type:   string(sandboxv1alpha1.SandboxConditionReady),
+				Status: metav1.ConditionTrue,
+			}},
+		},
+	}, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("Create Sandbox: %v", err)
+	}
+	if _, err := runtime.extensions.ExtensionsV1alpha1().SandboxClaims("runtime-system").Create(ctx, &extv1alpha1.SandboxClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "session-1",
+			Namespace: "runtime-system",
+			UID:       "claim-uid",
+		},
+		Status: extv1alpha1.SandboxClaimStatus{
+			SandboxStatus: extv1alpha1.SandboxStatus{Name: "current-sandbox"},
+		},
+	}, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("Create SandboxClaim: %v", err)
+	}
+
+	tunnel, err := runtime.PodIPDialTarget(ctx, sandboxHandle{
+		Name:        "session-1",
+		Namespace:   "runtime-system",
+		Mode:        "claim",
+		ClaimName:   "session-1",
+		SandboxName: "stale-sandbox",
+		PodName:     "stale-pod",
+	}, 50051)
+	if err != nil {
+		t.Fatalf("PodIPDialTarget: %v", err)
+	}
+	if got, want := tunnel.DialTarget(), "tcp://10.20.0.44:50051"; got != want {
+		t.Fatalf("DialTarget = %q, want %q", got, want)
+	}
+}
+
+func TestRuntimeContractExecRejectsCompletedSandboxPodBeforeTransport(t *testing.T) {
+	t.Parallel()
+
+	runtime := &kubernetesSandboxRuntime{
+		core: k8sfake.NewSimpleClientset(&corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "sandbox-pod",
+				Namespace: "runtime-system",
+			},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodSucceeded,
+			},
+		}),
+	}
+	err := runtime.Exec(context.Background(), sandboxHandle{
+		Namespace: "runtime-system",
+		PodName:   "sandbox-pod",
+	}, []string{"true"}, nil)
+	if err == nil || !strings.Contains(err.Error(), "is not active") {
+		t.Fatalf("Exec error = %v, want inactive pod error", err)
+	}
+}
+
 func TestRuntimeContractServiceDNSDialTargetUsesSandboxService(t *testing.T) {
 	t.Parallel()
 
-	runtime := &kubernetesSandboxRuntime{}
+	runtime := &kubernetesSandboxRuntime{
+		core:   k8sfake.NewSimpleClientset(),
+		agents: agentfake.NewSimpleClientset(),
+	}
+	if _, err := runtime.agents.AgentsV1alpha1().Sandboxes("runtime-system").Create(context.Background(), &sandboxv1alpha1.Sandbox{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sandbox-service",
+			Namespace: "runtime-system",
+		},
+	}, metav1.CreateOptions{}); err != nil {
+		t.Fatalf("Create Sandbox: %v", err)
+	}
 
 	tunnel, err := runtime.ServiceDNSDialTarget(context.Background(), sandboxHandle{
 		Namespace:   "runtime-system",
@@ -885,15 +993,15 @@ func TestRuntimeContractListSessionsBulkPathIsBounded(t *testing.T) {
 	if !ok {
 		t.Fatalf("ListSessions missing session %q", deletionMarkerID)
 	}
-	if deleted.Handle.PodIP != "" {
-		t.Fatalf("session %q PodIP = %q, want empty when pod has DeletionTimestamp", deletionMarkerID, deleted.Handle.PodIP)
+	if deleted.Handle.PodName == "" {
+		t.Fatalf("session %q PodName = empty, want pod name from Sandbox status", deletionMarkerID)
 	}
 	live, ok := byID["session-0"]
 	if !ok {
 		t.Fatalf("ListSessions missing session-0")
 	}
-	if live.Handle.PodIP == "" {
-		t.Fatalf("session-0 PodIP = empty, want a pod IP from cache")
+	if live.Handle.PodName == "" {
+		t.Fatalf("session-0 PodName = empty, want pod name from Sandbox status")
 	}
 }
 

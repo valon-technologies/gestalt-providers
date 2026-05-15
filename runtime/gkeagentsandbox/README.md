@@ -167,8 +167,11 @@ Use this when `gestaltd` runs inside the same cluster or otherwise has routed
 access to Kubernetes service DNS. This avoids Kubernetes port-forward behavior
 on GKE Agent Sandbox pods without pinning the connection to one pod IP.
 
-`connectionMode: podIP` returns the sandbox pod IP directly. It is mainly a
-diagnostic fallback for clusters where service DNS is not available.
+`connectionMode: podIP` returns the current sandbox pod IP as a transient
+transport target. The provider re-reads the SandboxClaim/Sandbox/Pod before
+opening this target; do not treat pod IPs as durable route or session identity.
+It is mainly a Cloud Run or diagnostic fallback for networks where service DNS
+is not available.
 
 ## Egress
 
