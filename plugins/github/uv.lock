@@ -166,7 +166,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", specifier = "==46.0.7" },
-    { name = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=codex%2Frequest-tool-refs" },
+    { name = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main" },
 ]
 
 [package.metadata.requires-dev]
@@ -179,7 +179,7 @@ dev = [
 [[package]]
 name = "gestalt-sdk"
 version = "0.0.1a1"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=codex%2Frequest-tool-refs#22494ab158824df3b14de251d6eddd0d36de22cb" }
+source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#3db3ed1132a64c1c48e78e3f770bc24bf6be5c4d" }
 dependencies = [
     { name = "googleapis-common-protos" },
     { name = "grpcio" },

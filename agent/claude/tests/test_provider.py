@@ -25,6 +25,7 @@ import provider as provider_module
 from gestalt import ENV_AGENT_HOST_SOCKET, ENV_AGENT_HOST_SOCKET_TOKEN, ProviderKind, _runtime, indexeddb_socket_env
 from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
+from gestalt._gen.v1 import plugin_pb2 as _plugin_pb2
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.mcp_bridge import GestaltMCPBridge, _schema_from_json
@@ -34,6 +35,7 @@ from tests.fake_indexeddb import FakeIndexedDB, datastore_pb2_grpc
 agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
 empty_pb2: Any = _empty_pb2
+plugin_pb2: Any = cast(Any, _plugin_pb2)
 runtime_pb2: Any = _runtime_pb2
 runtime_pb2_grpc: Any = _runtime_pb2_grpc
 struct_pb2: Any = _struct_pb2
@@ -1022,31 +1024,31 @@ class ClaudeProviderTests(unittest.TestCase):
 
         summary_sessions = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"), limit=1, summary_only=True
+                subject=plugin_pb2.AgentSubjectContext(subject_id="user-123"), limit=1, summary_only=True
             )
         )
         full_sessions = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"), limit=1
+                subject=plugin_pb2.AgentSubjectContext(subject_id="user-123"), limit=1
             )
         )
         summary_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
                 session_id="session-stream-a",
-                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                subject=plugin_pb2.AgentSubjectContext(subject_id="user-123"),
                 limit=1,
                 summary_only=True,
             )
         )
         full_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
-                session_id="session-stream-a", subject=agent_pb2.AgentSubjectContext(subject_id="user-123"), limit=1
+                session_id="session-stream-a", subject=plugin_pb2.AgentSubjectContext(subject_id="user-123"), limit=1
             )
         )
         running_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
                 session_id="session-stream-a",
-                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                subject=plugin_pb2.AgentSubjectContext(subject_id="user-123"),
                 status=agent_pb2.AGENT_EXECUTION_STATUS_RUNNING,
                 limit=10,
                 summary_only=True,
@@ -1055,7 +1057,7 @@ class ClaudeProviderTests(unittest.TestCase):
         succeeded_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
                 session_id="session-stream-a",
-                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                subject=plugin_pb2.AgentSubjectContext(subject_id="user-123"),
                 status=agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
                 limit=10,
                 summary_only=True,
@@ -1066,7 +1068,7 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         subject_mismatch_exact_session = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=agent_pb2.AgentSubjectContext(subject_id="user-456"),
+                subject=plugin_pb2.AgentSubjectContext(subject_id="user-456"),
                 session_ids=["session-stream-b"],
                 limit=10,
                 summary_only=True,
@@ -1090,7 +1092,7 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         active_sessions = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                subject=plugin_pb2.AgentSubjectContext(subject_id="user-123"),
                 state=agent_pb2.AGENT_SESSION_STATE_ACTIVE,
                 limit=10,
                 summary_only=True,
@@ -1098,7 +1100,7 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         archived_sessions = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                subject=plugin_pb2.AgentSubjectContext(subject_id="user-123"),
                 state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED,
                 limit=10,
                 summary_only=True,
