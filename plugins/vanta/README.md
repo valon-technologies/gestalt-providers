@@ -30,6 +30,11 @@ for managing security and compliance data including:
 
 Supports cursor-based pagination.
 
+The OpenAPI document is vendored in this package so provider packaging and
+lockfile validation do not depend on Vanta's hosted raw OpenAPI URL. The
+vendored file was generated from the official Postman collection linked from
+Vanta's Postman setup documentation.
+
 ## Documentation
 
 - [Provider Development](https://gestaltd.ai/providers)
