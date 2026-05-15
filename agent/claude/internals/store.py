@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 import os
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
@@ -224,17 +224,16 @@ class IndexedDBRunStore:
             session = _record_to_session(_get_optional_record(sessions, session_id))
             if session is None:
                 return None
-            previous = replace(session)
-            if client_ref:
-                session.client_ref = client_ref
-            if state:
-                session.state = state
-            if metadata is not None:
-                session.metadata = copy.deepcopy(metadata)
-            session.updated_at = _utcnow()
-            sessions.put(_session_to_record(session))
-            _replace_session_projections(session_projections, previous, session)
-            return session
+            updated = replace(
+                session,
+                client_ref=client_ref or session.client_ref,
+                state=state or session.state,
+                metadata=copy.deepcopy(metadata) if metadata is not None else copy.deepcopy(session.metadata),
+                updated_at=_utcnow(),
+            )
+            sessions.put(_session_to_record(updated))
+            _replace_session_projections(session_projections, session, updated)
+            return updated
 
         with self._mutation_lock:
             session = self._with_transaction([self._session_store_name, self._session_projection_store_name], update)
@@ -395,29 +394,31 @@ class IndexedDBRunStore:
                 return None
             if turn.status in TERMINAL_STATUSES:
                 return turn
-            previous = replace(turn)
-            turn.status = gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED
-            turn.output_text = output_text
-            turn.structured_output = copy.deepcopy(structured_output)
-            turn.status_message = ""
-            turn.completed_at = _utcnow()
-            turns.put(_turn_to_record(turn))
-            _replace_turn_projections(turn_projections, previous, turn)
+            completed = replace(
+                turn,
+                status=gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED,
+                output_text=output_text,
+                structured_output=copy.deepcopy(structured_output),
+                status_message="",
+                completed_at=_utcnow(),
+            )
+            turns.put(_turn_to_record(completed))
+            _replace_turn_projections(turn_projections, turn, completed)
             self._append_turn_event_locked(
-                turn_id=turn.turn_id,
+                turn_id=completed.turn_id,
                 event_type="assistant.message",
-                source=turn.provider_name,
+                source=completed.provider_name,
                 data=_assistant_message_event_data(output_text, structured_output),
                 events_store=events,
             )
             self._append_turn_event_locked(
-                turn_id=turn.turn_id,
+                turn_id=completed.turn_id,
                 event_type="turn.completed",
-                source=turn.provider_name,
+                source=completed.provider_name,
                 data={"status": "succeeded"},
                 events_store=events,
             )
-            return turn
+            return completed
 
         with self._mutation_lock:
             turn = self._with_transaction(
@@ -435,20 +436,19 @@ class IndexedDBRunStore:
                 return None
             if turn.status in TERMINAL_STATUSES:
                 return turn
-            previous = replace(turn)
-            turn.status = gestalt.AGENT_EXECUTION_STATUS_FAILED
-            turn.status_message = message
-            turn.completed_at = _utcnow()
-            turns.put(_turn_to_record(turn))
-            _replace_turn_projections(turn_projections, previous, turn)
+            failed = replace(
+                turn, status=gestalt.AGENT_EXECUTION_STATUS_FAILED, status_message=message, completed_at=_utcnow()
+            )
+            turns.put(_turn_to_record(failed))
+            _replace_turn_projections(turn_projections, turn, failed)
             self._append_turn_event_locked(
-                turn_id=turn.turn_id,
+                turn_id=failed.turn_id,
                 event_type="turn.failed",
-                source=turn.provider_name,
+                source=failed.provider_name,
                 data={"error": message},
                 events_store=events,
             )
-            return turn
+            return failed
 
         with self._mutation_lock:
             turn = self._with_transaction(
@@ -465,19 +465,19 @@ class IndexedDBRunStore:
             if turn is None:
                 return None
             if turn.status not in TERMINAL_STATUSES:
-                previous = replace(turn)
-                turn.status = gestalt.AGENT_EXECUTION_STATUS_CANCELED
-                turn.status_message = reason
-                turn.completed_at = _utcnow()
-                turns.put(_turn_to_record(turn))
-                _replace_turn_projections(turn_projections, previous, turn)
+                canceled = replace(
+                    turn, status=gestalt.AGENT_EXECUTION_STATUS_CANCELED, status_message=reason, completed_at=_utcnow()
+                )
+                turns.put(_turn_to_record(canceled))
+                _replace_turn_projections(turn_projections, turn, canceled)
                 self._append_turn_event_locked(
-                    turn_id=turn.turn_id,
+                    turn_id=canceled.turn_id,
                     event_type="turn.canceled",
-                    source=turn.provider_name,
+                    source=canceled.provider_name,
                     data={"reason": reason},
                     events_store=events,
                 )
+                return canceled
             return turn
 
         with self._mutation_lock:
@@ -516,7 +516,7 @@ class IndexedDBRunStore:
         client = self._ensure_client()
         return _RetryingObjectStore(client.object_store(name))
 
-    def _with_transaction(self, store_names: list[str], operation: Any) -> Any:
+    def _with_transaction(self, store_names: list[str], operation: Callable[[dict[str, Any]], Any]) -> Any:
         self.initialize()
         client = self._ensure_client()
 
@@ -830,12 +830,10 @@ def _touch_session_for_turn_in_store(
     session = _record_to_session(_get_optional_record(store, session_id))
     if session is None:
         return
-    previous = replace(session)
-    session.last_turn_at = now
-    session.updated_at = now
-    store.put(_session_to_record(session))
+    updated = replace(session, last_turn_at=now, updated_at=now)
+    store.put(_session_to_record(updated))
     if projection_store is not None:
-        _replace_session_projections(projection_store, previous, session)
+        _replace_session_projections(projection_store, session, updated)
 
 
 def _next_turn_event_seq_from_store(store: Any, turn_id: str) -> int:

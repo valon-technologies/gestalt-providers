@@ -12,7 +12,9 @@ SkillDiscovery = Literal["none", "all"]
 SUPPORTED_SETTING_SOURCES = frozenset({"user", "project", "local"})
 SUPPORTED_SKILL_DISCOVERY = frozenset({"none", "all"})
 SUPPORTED_TOOL_BASES = frozenset({"Skill", "Read", "Write", "Bash"})
-UNSUPPORTED_LEGACY_FIELDS = frozenset({"claudeCode", "pluginRegistry", "pluginSources", "toolPermissions", "activation"})
+UNSUPPORTED_LEGACY_FIELDS = frozenset(
+    {"claudeCode", "pluginRegistry", "pluginSources", "toolPermissions", "activation"}
+)
 PASSIVE_PLUGIN_MANIFEST_KEYS = frozenset(
     {"name", "description", "skills", "version", "author", "homepage", "repository", "license"}
 )
@@ -196,9 +198,7 @@ def _parse_setting_sources(raw_value: Any) -> tuple[SettingSource, ...]:
     for raw_item in raw_value:
         item = str(raw_item or "").strip()
         if item not in SUPPORTED_SETTING_SOURCES:
-            raise ValueError(
-                f"settingSources entries must be one of {', '.join(sorted(SUPPORTED_SETTING_SOURCES))}"
-            )
+            raise ValueError(f"settingSources entries must be one of {', '.join(sorted(SUPPORTED_SETTING_SOURCES))}")
         values.append(cast(SettingSource, item))
     return tuple(values)
 
@@ -253,11 +253,10 @@ def _parse_local_plugin_path(index: int, raw_path: str) -> LocalClaudeCodePlugin
     manifest_name = str(manifest.get("name") or "").strip()
     if not manifest_name:
         raise ValueError(f"plugins[{index}] manifest name is required")
-    _validate_manifest_components(index, manifest_name, canonical_path, manifest)
-    return LocalClaudeCodePlugin(
-        manifest_name=manifest_name,
-        path=canonical_path,
+    _validate_manifest_components(
+        index=index, manifest_name=manifest_name, plugin_path=canonical_path, manifest=manifest
     )
+    return LocalClaudeCodePlugin(manifest_name=manifest_name, path=canonical_path)
 
 
 def _read_manifest(index: int, manifest_path: str) -> dict[str, Any]:
@@ -273,7 +272,9 @@ def _read_manifest(index: int, manifest_path: str) -> dict[str, Any]:
     return value
 
 
-def _validate_manifest_components(index: int, manifest_name: str, plugin_path: str, manifest: dict[str, Any]) -> None:
+def _validate_manifest_components(
+    *, index: int, manifest_name: str, plugin_path: str, manifest: dict[str, Any]
+) -> None:
     executable_manifest_keys = sorted(set(manifest) & EXECUTABLE_PLUGIN_MANIFEST_KEYS)
     if executable_manifest_keys:
         raise ValueError(

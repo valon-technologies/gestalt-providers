@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from typing import Any
 
 import gestalt
@@ -14,7 +15,7 @@ class StoreUnavailableError(RuntimeError):
     pass
 
 
-def _call_with_busy_retry(operation: Any) -> Any:
+def _call_with_busy_retry(operation: Callable[[], Any]) -> Any:
     delay = BUSY_RETRY_INITIAL_DELAY_SECONDS
     while True:
         try:

@@ -14,7 +14,7 @@ DEFAULT_PERMISSION_MODE = "dontAsk"
 SUPPORTED_PERMISSION_MODES = frozenset({"default", "acceptEdits", "bypassPermissions", "dontAsk", "plan"})
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class ClaudeAgentConfig:
     name: str
     run_store: str
