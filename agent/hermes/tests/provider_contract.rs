@@ -870,6 +870,27 @@ async fn explicit_no_tool_turn_allows_run_grant_without_mcp_servers() {
         gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
+    provider
+        .create_turn(gestalt::CreateAgentProviderTurnRequest {
+            turn_id: "turn-explicit-no-tools-with-grant".to_string(),
+            session_id: "session-1".to_string(),
+            tool_source: gestalt::AgentToolSourceMode::None,
+            run_grant: "grant-explicit-no-tools".to_string(),
+            messages: vec![gestalt::AgentMessage {
+                role: "user".to_string(),
+                text: "say hi again".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    wait_for_turn(
+        &provider,
+        "turn-explicit-no-tools-with-grant",
+        gestalt::AgentExecutionStatus::Succeeded,
+    )
+    .await;
 
     let log = fixture.log_events();
     let load = log
