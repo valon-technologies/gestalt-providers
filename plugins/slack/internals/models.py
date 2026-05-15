@@ -305,9 +305,41 @@ class SlackEventsConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class SlackBotWorkspaceConfig:
+    team_id: str
+    token: str
+    user_id: str
+
+
+@dataclass(frozen=True, slots=True)
 class SlackBotConfig:
     token: str = ""
     user_id: str = ""
+    workspaces: tuple[SlackBotWorkspaceConfig, ...] = ()
+
+    def workspace_for_team_id(self, team_id: str) -> SlackBotWorkspaceConfig | None:
+        normalized_team_id = team_id.strip()
+        if not normalized_team_id:
+            return None
+        for workspace in self.workspaces:
+            if workspace.team_id == normalized_team_id:
+                return workspace
+        return None
+
+    def token_for_team_id(self, team_id: str) -> str:
+        if self.workspaces:
+            workspace = self.workspace_for_team_id(team_id)
+            return workspace.token if workspace is not None else ""
+        return self.token
+
+    def user_id_for_team_id(self, team_id: str) -> str:
+        if self.workspaces:
+            workspace = self.workspace_for_team_id(team_id)
+            return workspace.user_id if workspace is not None else ""
+        return self.user_id
+
+    def has_token(self) -> bool:
+        return bool(self.token or any(workspace.token for workspace in self.workspaces))
 
 
 @dataclass(frozen=True, slots=True)

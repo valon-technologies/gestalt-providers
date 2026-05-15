@@ -120,7 +120,9 @@ call succeeds. Emoji names may be written with or without colons, and Slack's
 
 For workflow-dispatched `message` and `app_mention` events that include
 `thread_ts`, `events.handle` fetches one bounded page of thread replies with the
-configured bot token before signaling the workflow. On success, the signal
+configured bot token before signaling the workflow. In multi-workspace bot
+configurations, this token is selected by the Slack `team_id` on the event and
+unknown teams do not fall back to another workspace token. On success, the signal
 payload includes `slack.thread_context` and the generated `user_prompt` includes
 a prefetched thread context section. If Slack returns an API/client error, the
 workflow still receives the event with `slack.thread_context_error` and the

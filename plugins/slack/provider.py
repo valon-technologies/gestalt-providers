@@ -908,8 +908,12 @@ def _chat_post_message_token(req: gestalt.Request) -> str | ErrorResponse:
     return req.token
 
 
-def _chat_post_message_gestalt_label() -> str:
-    bot_user_id = _agent._agent_config.bot.user_id.strip()
+def _chat_post_message_gestalt_label(req: gestalt.Request) -> str:
+    bot_user_id = _agent._agent_config.bot.user_id_for_team_id(
+        _slack_team_id_from_external_identity(
+            getattr(req, "agent_external_identity", None)
+        )
+    ).strip()
     if bot_user_id:
         return f"<@{bot_user_id}>"
     return SLACK_POST_MESSAGE_FOOTER_APP_NAME
@@ -924,22 +928,36 @@ def _external_identity_field(identity: Any, field: str) -> str:
 
 
 def _slack_user_id_from_external_identity(identity: Any) -> str:
+    parts = _slack_external_identity_parts(identity)
+    return parts[1] if parts is not None else ""
+
+
+def _slack_team_id_from_external_identity(identity: Any) -> str:
+    parts = _slack_external_identity_parts(identity)
+    return parts[0] if parts is not None else ""
+
+
+def _slack_external_identity_parts(identity: Any) -> tuple[str, str] | None:
     if identity is None:
-        return ""
+        return None
     if (
         _external_identity_field(identity, "type")
         != _agent.SLACK_EXTERNAL_IDENTITY_TYPE
     ):
-        return ""
+        return None
     identity_id = _external_identity_field(identity, "id")
     parts = identity_id.split(":")
     if len(parts) != 4 or parts[0] != "team" or parts[2] != "user":
-        return ""
-    return parts[3].strip()
+        return None
+    team_id = parts[1].strip()
+    user_id = parts[3].strip()
+    if not team_id or not user_id:
+        return None
+    return team_id, user_id
 
 
 def _chat_post_message_footer_text(req: gestalt.Request) -> str:
-    gestalt_label = _chat_post_message_gestalt_label()
+    gestalt_label = _chat_post_message_gestalt_label(req)
     user_id = _slack_user_id_from_external_identity(
         getattr(req, "agent_external_identity", None)
     )

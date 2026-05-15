@@ -43,6 +43,35 @@ plugins:
         ref: slack-bot
 ```
 
+For a single Slack app installed into multiple workspaces, configure workspace
+specific bot credentials under `bot.workspaces`. `workspaces` may be a list or a
+map keyed by Slack team ID:
+
+```yaml
+plugins:
+  slack:
+    config:
+      bot:
+        workspaces:
+          - teamId: T0123456789
+            userId: U0123456789
+            token:
+              secret:
+                provider: secrets
+                name: slack-bot-token-team-a
+          - teamId: T9876543210
+            userId: U9876543210
+            token:
+              secret:
+                provider: secrets
+                name: slack-bot-token-team-b
+```
+
+In multi-workspace mode, Slack event helper operations select the bot token and
+bot user ID by the Slack `team_id` embedded in the event or signed reply
+reference. Unknown teams are ignored or rejected safely and never fall back to
+another workspace's bot token.
+
 Because Gestalt does not perform Slack bot OAuth for this connection, the Slack
 app that issues `slack-bot-token` must be granted the bot scopes needed by the
 enabled behaviors. Provision the bot token credential onto the service account
@@ -197,7 +226,9 @@ provider.
 
 For workflow-dispatched `message` and `app_mention` events that include
 `thread_ts`, `events.handle` fetches one bounded page of thread replies with the
-configured bot token before signaling the workflow. On success, the signal
+configured bot token before signaling the workflow. In multi-workspace bot
+configurations, this token is selected by the Slack `team_id` on the event and
+unknown teams do not fall back to another workspace token. On success, the signal
 payload includes `slack.thread_context` and the generated `user_prompt` includes
 a prefetched thread context section. If Slack returns an API/client error, the
 workflow still receives the event with `slack.thread_context_error` and the
