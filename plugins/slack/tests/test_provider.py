@@ -701,8 +701,6 @@ class SlackProviderTests(unittest.TestCase):
             "SlackAgentEvent",
             "SlackAgentRoute",
             "SlackAgentRouteMatch",
-            "SlackAgentRunAsExternalIdentity",
-            "SlackAgentRunAsSubject",
             "SlackAgentToolRef",
             "SlackAssistantConfig",
             "SlackBotConfig",
@@ -727,16 +725,6 @@ class SlackProviderTests(unittest.TestCase):
             {"plugin": "linear", "operation": "searchIssues", "credentialMode": "none"},
             {"plugin": "linear", "operation": "searchIssues", "runAs": "user"},
             {"plugin": "linear", "operation": "searchIssues", "runAs": {}},
-            {
-                "plugin": "linear",
-                "operation": "searchIssues",
-                "runAs": {
-                    "subject": {
-                        "id": "service_account:linear",
-                        "kind": "user",
-                    }
-                },
-            },
             {
                 "plugin": "linear",
                 "operation": "searchIssues",
@@ -5454,7 +5442,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertNotIn("thread_context", signal_payload["slack"])
         self.assertNotIn("thread_context_error", signal_payload["slack"])
 
-    def test_agent_tool_sets_expand_before_tools_and_replace_with_runtime_policy(
+    def test_agent_tool_sets_expand_before_tools_and_dedupe_first_ref(
         self,
     ) -> None:
         provider_module.configure(
@@ -5471,16 +5459,7 @@ class SlackProviderTests(unittest.TestCase):
                             {"plugin": "github", "operation": "search"},
                         ],
                         "route": [
-                            {
-                                "plugin": "notion",
-                                "operation": "search",
-                                "runAs": {
-                                    "subject": {
-                                        "id": "service_account:slack-notion",
-                                        "displayName": "Slack Notion",
-                                    },
-                                },
-                            },
+                            {"plugin": "notion", "operation": "search"},
                             {"plugin": "pagerduty", "operation": "createIncident"},
                         ],
                     },
@@ -5506,11 +5485,6 @@ class SlackProviderTests(unittest.TestCase):
                                         "runAs": {
                                             "subject": {
                                                 "id": "service_account:slack-linear",
-                                                "displayName": "Slack Linear",
-                                            },
-                                            "externalIdentity": {
-                                                "type": "linear_workspace",
-                                                "id": "valon",
                                             },
                                         },
                                     },
@@ -5568,17 +5542,6 @@ class SlackProviderTests(unittest.TestCase):
                 *WORKFLOW_EVENT_TOOL_REFS,
             ],
         )
-        notion_ref = next(
-            ref
-            for ref in agent_target.tool_refs
-            if ref.plugin == "notion" and ref.operation == "search"
-        )
-        self.assertEqual(
-            notion_ref.run_as.subject_id,
-            "service_account:slack-notion",
-        )
-        self.assertEqual(notion_ref.run_as.subject_kind, "service_account")
-        self.assertEqual(notion_ref.run_as.display_name, "Slack Notion")
         linear_ref = next(
             ref
             for ref in agent_target.tool_refs
@@ -5588,10 +5551,6 @@ class SlackProviderTests(unittest.TestCase):
             linear_ref.run_as.subject_id,
             "service_account:slack-linear",
         )
-        self.assertEqual(linear_ref.run_as.subject_kind, "service_account")
-        self.assertEqual(linear_ref.run_as.display_name, "Slack Linear")
-        self.assertEqual(linear_ref.run_as_external_identity.type, "linear_workspace")
-        self.assertEqual(linear_ref.run_as_external_identity.id, "valon")
 
         with self.assertRaisesRegex(ValueError, "unknown tool set"):
             provider_module.configure(
@@ -6219,7 +6178,9 @@ class SlackProviderTests(unittest.TestCase):
                 if event_type == "message.app_home":
                     workflow_request = workflow_manager.signal_or_start_requests[0]
                     self.assertEqual(workflow_request.workflow_key, "slack:T123:D_HOME")
-                    signal_payload = sdk_value_to_dict(workflow_request.signal.payload)
+                    signal_payload = sdk_value_to_dict(
+                        workflow_request.signal.payload
+                    )
                     self.assertEqual(signal_payload["slack"]["reply_thread_ts"], "")
                     self.assertEqual(signal_payload["slack"]["addressed_to_bot"], True)
 
@@ -6723,7 +6684,9 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(requests[0].workflow_key, "slack:T123:C789:1712161829.000300")
         for workflow_request in requests:
-            target_metadata = sdk_value_to_dict(workflow_request.target.agent.metadata)
+            target_metadata = sdk_value_to_dict(
+                workflow_request.target.agent.metadata
+            )
             self.assertEqual(
                 target_metadata["slack"]["root_message_ts"], "1712161829.000300"
             )

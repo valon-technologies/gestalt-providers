@@ -547,9 +547,7 @@ service-account delegation; route `runAs` changes the Slack invocation subject.
 
 Tool sets are named groups under `agent.toolSets`. The workflow agent target
 expands tool references in this order and deduplicates by exact
-plugin/operation/connection/instance. Earlier references win unless a later
-duplicate declares runtime policy such as `runAs`, in which case the later
-reference replaces the earlier one:
+plugin/operation/connection/instance with first reference winning:
 
 1. top-level `agent.toolSetRefs`
 2. top-level `agent.tools`
@@ -560,13 +558,8 @@ reference replaces the earlier one:
 Tool references must name exact plugin and operation IDs. Wildcards and
 host-invoke input bindings are rejected in provider configuration. A tool
 reference may include `runAs.subject.id` to request one of the caller plugin's
-declared invoke delegations for that exact tool. `runAs.subject.kind` is
-optional when the subject ID is prefixed, and display/auth labels are optional
-metadata. The deployment's invoke policy must still declare the matching
-delegation; Slack configuration only selects it for that tool. Use
-`runAs.applyByDefault: false` on the deployment invoke declaration when the
-delegation should be available only to tool references that explicitly request
-it.
+declared invoke delegations for that exact tool. The deployment's invoke policy
+must still declare the matching delegation; Slack configuration only selects it.
 
 When a route uses `match.eventTypes`, include
 `assistant_thread_started` and `assistant_thread_context_changed` on routes that
