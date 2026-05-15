@@ -582,7 +582,7 @@ def attempt_review_self_fix(
     pull_request: Mapping[str, Any],
     findings: Sequence[ValidatedFinding],
 ) -> dict[str, Any]:
-    if not review_self_fix_enabled(signal):
+    if not review_self_fix_enabled(req, signal):
         return {}
     if settings.dry_run:
         return self_fix_result("dry_run")
@@ -663,13 +663,12 @@ def attempt_review_self_fix(
     return result
 
 
-def review_self_fix_enabled(signal: Mapping[str, Any]) -> bool:
-    tool_refs = {
-        str(item)
-        for item in nested_value(signal, "webhook_policy", "tool_refs") or []
-        if str(item)
-    }
-    if BOT_COMMIT_FILES_OPERATION not in tool_refs:
+def review_self_fix_enabled(req: gestalt.Request, signal: Mapping[str, Any]) -> bool:
+    if not review_tool_refs_allow_operation(
+        review_agent_tool_refs(req, signal),
+        plugin="github",
+        operation=BOT_COMMIT_FILES_OPERATION,
+    ):
         return False
     action = object_value(nested_value(signal, "webhook_policy", "action")) or {}
     preferences = (
@@ -681,6 +680,50 @@ def review_self_fix_enabled(signal: Mapping[str, Any]) -> bool:
         effective.get("self_fix_mode", action.get("self_fix_mode"))
     )
     return bool(allow_self_fix) and self_fix_mode == SELF_FIX_BRANCH_COMMIT
+
+
+def review_policy_tool_ref_operations(signal: Mapping[str, Any]) -> list[str]:
+    operations: list[str] = []
+    seen: set[str] = set()
+    for item in nested_value(signal, "webhook_policy", "tool_refs") or []:
+        operation = str(item).strip()
+        if not operation or operation in seen:
+            continue
+        seen.add(operation)
+        operations.append(operation)
+    return operations
+
+
+def review_policy_tool_refs(signal: Mapping[str, Any]) -> list[Any]:
+    return [
+        gestalt.AgentToolRef(plugin="github", operation=operation)
+        for operation in review_policy_tool_ref_operations(signal)
+    ]
+
+
+def review_agent_tool_refs(
+    req: gestalt.Request,
+    signal: Mapping[str, Any],
+) -> list[Any]:
+    if bool(getattr(req, "tool_refs_set", False)):
+        return list(getattr(req, "tool_refs", ()) or ())
+    return review_policy_tool_refs(signal)
+
+
+def review_tool_refs_allow_operation(
+    tool_refs: Sequence[Any],
+    *,
+    plugin: str,
+    operation: str,
+) -> bool:
+    for ref in tool_refs:
+        if str(getattr(ref, "system", "") or "").strip():
+            continue
+        ref_plugin = str(getattr(ref, "plugin", "") or "").strip()
+        ref_operation = str(getattr(ref, "operation", "") or "").strip()
+        if ref_plugin in (plugin, "*") and ref_operation in (operation, ""):
+            return True
+    return False
 
 
 def review_self_fix_unsafe_reason(
@@ -944,6 +987,8 @@ def ask_agent_for_findings(
                 role="user", text=review_prompt(subject, pull_request, files, settings)
             ),
         ],
+        tool_refs=review_agent_tool_refs(req, signal),
+        tool_source=gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
         metadata=metadata,
         idempotency_key=f"{idempotency_base}:turn",
     )
@@ -1017,6 +1062,8 @@ def ask_agent_for_fix(
                 ),
             ),
         ],
+        tool_refs=review_agent_tool_refs(req, signal),
+        tool_source=gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
         metadata=metadata,
         idempotency_key=f"{idempotency_base}:turn",
     )
