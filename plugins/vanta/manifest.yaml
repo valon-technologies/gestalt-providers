@@ -7,7 +7,8 @@ kind: plugin
 spec:
   surfaces:
     openapi:
-      document: https://developer.vanta.com/openapi/662bbd70a5a5d7007f0a6c64.yaml
+      document: openapi.yaml
+      baseUrl: https://api.vanta.com/v1
   connections:
     default:
       mode: user
