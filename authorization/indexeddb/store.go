@@ -56,6 +56,10 @@ func openStore(ctx context.Context, cfg config) (*store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect indexeddb: %w", err)
 	}
+	if err := ensureAuthorizationStores(ctx, client); err != nil {
+		_ = client.Close()
+		return nil, err
+	}
 
 	st := &store{
 		client:        client,
@@ -67,6 +71,32 @@ func openStore(ctx context.Context, cfg config) (*store, error) {
 	st.models = client.ObjectStore(st.modelsName)
 	st.relationships = client.ObjectStore(st.relationsName)
 	return st, nil
+}
+
+func ensureAuthorizationStores(ctx context.Context, client *gestalt.IndexedDBClient) error {
+	if client == nil {
+		return nil
+	}
+	if err := client.CreateObjectStore(ctx, stateStoreName, gestalt.ObjectStoreSchema{}); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+		return fmt.Errorf("create authorization state store: %w", err)
+	}
+	if err := client.CreateObjectStore(ctx, modelsStoreName, gestalt.ObjectStoreSchema{}); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+		return fmt.Errorf("create authorization models store: %w", err)
+	}
+	if err := client.CreateObjectStore(ctx, relationsStoreName, authorizationRelationshipsSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+		return fmt.Errorf("create authorization relationships store: %w", err)
+	}
+	return nil
+}
+
+func authorizationRelationshipsSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
+			{Name: relationshipsBySubj, KeyPath: []string{"subject_type", "subject_id"}},
+			{Name: relationshipsByRes, KeyPath: []string{"resource_type", "resource_id"}},
+			{Name: relationshipsByPair, KeyPath: []string{"subject_type", "subject_id", "resource_type", "resource_id"}},
+		},
+	}
 }
 
 func (s *store) Close() error {
@@ -452,11 +482,14 @@ func propertiesFromRecord(value any) (map[string]any, error) {
 	if typed, ok := value.(map[string]any); ok {
 		return nilIfEmptyMap(typed), nil
 	}
-	properties, err := gestalt.StructFromAny(value)
-	if err != nil {
-		return nil, err
+	if typed, ok := value.(map[string]string); ok {
+		out := make(map[string]any, len(typed))
+		for key, raw := range typed {
+			out[key] = raw
+		}
+		return nilIfEmptyMap(out), nil
 	}
-	return nilIfEmptyMap(gestalt.MapFromStruct(properties)), nil
+	return nil, fmt.Errorf("expected properties map, got %T", value)
 }
 
 func nilIfEmptyRecordMap(value any) any {

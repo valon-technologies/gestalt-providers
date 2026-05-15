@@ -9,8 +9,9 @@ import (
 )
 
 type testIndexedDBProvider struct {
-	mu     sync.Mutex
-	stores map[string]*testObjectStore
+	mu            sync.Mutex
+	stores        map[string]*testObjectStore
+	createdStores []string
 }
 
 type testObjectStore struct {
@@ -29,8 +30,12 @@ func (p *testIndexedDBProvider) Configure(context.Context, string, map[string]an
 func (p *testIndexedDBProvider) CreateObjectStore(_ context.Context, name string, schema gestalt.ObjectStoreSchema) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if _, ok := p.stores[name]; ok {
+		return gestalt.AlreadyExists("already exists")
+	}
 	store := p.storeLocked(name)
 	store.schema = schema
+	p.createdStores = append(p.createdStores, name)
 	return nil
 }
 
@@ -201,6 +206,22 @@ func (p *testIndexedDBProvider) OpenCursor(context.Context, gestalt.IndexedDBOpe
 
 func (p *testIndexedDBProvider) BeginTransaction(context.Context, gestalt.IndexedDBBeginTransactionRequest) (gestalt.IndexedDBTransaction, error) {
 	return nil, gestalt.Unimplemented("transaction not implemented")
+}
+
+func (p *testIndexedDBProvider) createdStoreNames() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.createdStores...)
+}
+
+func (p *testIndexedDBProvider) storeSchema(name string) (gestalt.ObjectStoreSchema, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	store, ok := p.stores[name]
+	if !ok {
+		return gestalt.ObjectStoreSchema{}, false
+	}
+	return store.schema, true
 }
 
 func (p *testIndexedDBProvider) storeLocked(name string) *testObjectStore {

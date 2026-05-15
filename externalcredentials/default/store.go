@@ -38,6 +38,10 @@ func openStore(ctx context.Context, cfg config) (*store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect indexeddb: %w", err)
 	}
+	if err := ensureExternalCredentialStore(ctx, client); err != nil {
+		_ = client.Close()
+		return nil, err
+	}
 
 	encryptor, err := newEncryptorFromConfig(cfg.EncryptionKey)
 	if err != nil {
@@ -51,6 +55,41 @@ func openStore(ctx context.Context, cfg config) (*store, error) {
 		encryptor:   encryptor,
 	}
 	return st, nil
+}
+
+func ensureExternalCredentialStore(ctx context.Context, client *gestalt.IndexedDBClient) error {
+	if client == nil {
+		return nil
+	}
+	if err := client.CreateObjectStore(ctx, storeName, externalCredentialSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+		return fmt.Errorf("create external credential store: %w", err)
+	}
+	return nil
+}
+
+func externalCredentialSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Indexes: []gestalt.IndexSchema{
+			{Name: indexBySubject, KeyPath: []string{"subject_id"}},
+			{Name: indexBySubjectConnection, KeyPath: []string{"subject_id", "connection_id"}},
+			{Name: indexByLookup, KeyPath: []string{"subject_id", "connection_id", "instance"}, Unique: true},
+		},
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "subject_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "connection_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "instance", Type: gestalt.TypeString},
+			{Name: "access_token_encrypted", Type: gestalt.TypeString},
+			{Name: "refresh_token_encrypted", Type: gestalt.TypeString},
+			{Name: "scopes", Type: gestalt.TypeString},
+			{Name: "expires_at", Type: gestalt.TypeTime},
+			{Name: "last_refreshed_at", Type: gestalt.TypeTime},
+			{Name: "refresh_error_count", Type: gestalt.TypeInt},
+			{Name: "metadata_json", Type: gestalt.TypeString},
+			{Name: "created_at", Type: gestalt.TypeTime},
+			{Name: "updated_at", Type: gestalt.TypeTime},
+		},
+	}
 }
 
 func (s *store) Close() error {
