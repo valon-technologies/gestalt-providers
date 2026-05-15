@@ -3142,7 +3142,7 @@ def _agent_tool_ref_run_as_subject(
 ) -> Any | None:
     if subject is None:
         return None
-    return gestalt.AgentRunAsSubject(
+    return gestalt.AgentSubjectContext(
         subject_id=subject.subject_id,
         subject_kind=subject.subject_kind,
         credential_subject_id=subject.credential_subject_id,
