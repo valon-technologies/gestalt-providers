@@ -1,0 +1,68 @@
+name: retool
+operations:
+- id: apps.exportApp
+  method: POST
+  description: Export a Retool app JSON with the official Retool CLI
+  parameters:
+  - name: stdin
+    type: string
+    description: Optional stdin to pass to interactive Retool CLI prompts
+    default: ''
+  - name: timeout_seconds
+    type: integer
+    description: Maximum seconds to wait for the Retool CLI command
+    default: 120
+  - name: app_name
+    type: string
+    description: Exact Retool app name to export
+    required: true
+    default: ''
+- id: customComponentLibraries.cloneRepository
+  method: POST
+  description: Clone Retool's custom component repository
+  parameters:
+  - name: stdin
+    type: string
+    description: Optional stdin to pass to interactive Retool CLI prompts
+    default: ''
+  - name: timeout_seconds
+    type: integer
+    description: Maximum seconds to wait for the Retool CLI command
+    default: 120
+- id: terraform.generateConfiguration
+  method: POST
+  description: Generate Terraform configuration for a Retool organization
+  parameters:
+  - name: stdin
+    type: string
+    description: Optional stdin to pass to interactive Retool CLI prompts
+    default: ''
+  - name: timeout_seconds
+    type: integer
+    description: Maximum seconds to wait for the Retool CLI command
+    default: 120
+  - name: generate_imports
+    type: boolean
+    description: Generate Terraform import blocks
+    default: true
+  - name: generate_config
+    type: boolean
+    description: Generate Terraform resource configuration
+    default: true
+  - name: imports_filename
+    type: string
+    description: Output filename for Terraform import blocks
+    default: retool-imports.tf
+  - name: config_filename
+    type: string
+    description: Output filename for Terraform resource configuration
+    default: retool-config.tf
+  - name: host
+    type: string
+    description: Retool host domain, for example example.retool.com
+    required: true
+    default: ''
+  - name: scheme
+    type: string
+    description: 'Retool URL scheme: https or http'
+    default: https
