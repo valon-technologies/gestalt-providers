@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -14,6 +15,7 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 const (
@@ -452,11 +454,21 @@ func propertiesFromRecord(value any) (map[string]any, error) {
 	if typed, ok := value.(map[string]any); ok {
 		return nilIfEmptyMap(typed), nil
 	}
-	properties, err := gestalt.StructFromAny(value)
+	switch typed := value.(type) {
+	case *structpb.Struct:
+		return nilIfEmptyMap(typed.AsMap()), nil
+	case structpb.Struct:
+		return nilIfEmptyMap(typed.AsMap()), nil
+	}
+	raw, err := json.Marshal(value)
 	if err != nil {
 		return nil, err
 	}
-	return nilIfEmptyMap(gestalt.MapFromStruct(properties)), nil
+	var properties map[string]any
+	if err := json.Unmarshal(raw, &properties); err != nil {
+		return nil, err
+	}
+	return nilIfEmptyMap(properties), nil
 }
 
 func nilIfEmptyRecordMap(value any) any {
