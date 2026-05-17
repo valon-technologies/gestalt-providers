@@ -49,6 +49,7 @@ from .operations import (
     delete_message,
     find_message_urls,
     get_thread_context,
+    list_channel_member_ids,
     post_message,
     remove_reaction,
     set_assistant_thread_status,
@@ -91,6 +92,10 @@ SLACK_REPLY_REF_TTL_SECONDS = 60 * 60
 SLACK_INTERACTION_REF_TTL_SECONDS = 24 * 60 * 60
 EXTERNAL_IDENTITY_RESOURCE_TYPE = "external_identity"
 EXTERNAL_IDENTITY_ASSUME_ACTION = "assume"
+AUTHORIZATION_SUBJECT_TYPE = "subject"
+SLACK_CHANNEL_RESOURCE_TYPE = "slack_channel"
+SLACK_CHANNEL_MEMBER_RELATION = "member"
+AUTHORIZATION_PAGE_SIZE = 1000
 DEFAULT_AGENT_SYSTEM_PROMPT_TEMPLATE = """
 You are a Slack bot running inside Gestalt.
 Use the available Gestalt tools under the Slack user's authorization.
@@ -864,9 +869,28 @@ def reply_slack_event_session_started(
             status=HTTPStatus.PRECONDITION_FAILED,
             body={"error": "host.public_base_url is required"},
         )
+    if not _agent_config.bot.token:
+        logger.error(
+            "failed Slack session-started delivery %s "
+            "error=Slack bot token is not configured",
+            log_context,
+        )
+        return gestalt.Response(
+            status=HTTPStatus.PRECONDITION_FAILED,
+            body={"error": "Slack bot token is not configured"},
+        )
     try:
+        authorization = req.authorization()
+        _sync_slack_channel_members(
+            authorization,
+            _agent_config.bot.token,
+            verified_ref.team_id,
+            verified_ref.channel_id,
+            verified_ref.channel_type,
+            verified_ref.subject_id,
+        )
         _grant_agent_session_viewer_to_slack_channel(
-            req.authorization(),
+            authorization,
             verified_ref.team_id,
             verified_ref.channel_id,
             normalized_session_id,
@@ -955,6 +979,154 @@ def _reply_ref_is_thread_reply(ref: SlackReplyRef) -> bool:
     return bool(ref.reply_thread_ts and ref.reply_thread_ts != ref.message_ts)
 
 
+def _sync_slack_channel_members(
+    authorization: Any,
+    token: str,
+    team_id: str,
+    channel_id: str,
+    channel_type: str,
+    initial_subject_id: str,
+) -> None:
+    normalized_team_id = team_id.strip()
+    normalized_channel_id = channel_id.strip()
+    if not normalized_team_id or not normalized_channel_id:
+        raise RuntimeError("Slack channel membership sync requires team and channel")
+    initial_subject_id = initial_subject_id.strip()
+    desired_subject_ids = {initial_subject_id} if initial_subject_id else set()
+    if channel_type.strip() not in {"im", "app_home"}:
+        desired_subject_ids.update(
+            _slack_channel_member_subject_ids(
+                authorization,
+                normalized_team_id,
+                list_channel_member_ids(token, normalized_channel_id),
+            )
+        )
+    _write_slack_channel_member_relationships(
+        authorization,
+        normalized_team_id,
+        normalized_channel_id,
+        desired_subject_ids,
+    )
+
+
+def _slack_channel_member_subject_ids(
+    authorization: Any,
+    team_id: str,
+    member_user_ids: list[str],
+) -> set[str]:
+    subject_ids: set[str] = set()
+    for user_id in sorted(set(member_user_ids)):
+        subject = _resolve_slack_subject(
+            authorization,
+            team_id=team_id,
+            user_id=user_id,
+        )
+        if subject is None:
+            continue
+        subject_id = str(subject.id or "").strip()
+        if subject_id:
+            subject_ids.add(subject_id)
+    return subject_ids
+
+
+def _write_slack_channel_member_relationships(
+    authorization: Any,
+    team_id: str,
+    channel_id: str,
+    desired_subject_ids: set[str],
+) -> None:
+    write_relationships = getattr(authorization, "write_relationships", None)
+    if not callable(write_relationships):
+        raise RuntimeError("authorization client does not support relationship writes")
+    existing_subject_ids = _read_slack_channel_member_subject_ids(
+        authorization,
+        team_id,
+        channel_id,
+    )
+    writes = [
+        _slack_channel_member_relationship(team_id, channel_id, subject_id)
+        for subject_id in sorted(desired_subject_ids - existing_subject_ids)
+    ]
+    deletes = [
+        _slack_channel_member_relationship(team_id, channel_id, subject_id)
+        for subject_id in sorted(existing_subject_ids - desired_subject_ids)
+    ]
+    if writes or deletes:
+        write_relationships({"writes": writes, "deletes": deletes})
+
+
+def _read_slack_channel_member_subject_ids(
+    authorization: Any,
+    team_id: str,
+    channel_id: str,
+) -> set[str]:
+    read_relationships = getattr(authorization, "read_relationships", None)
+    if not callable(read_relationships):
+        return set()
+
+    subject_ids: set[str] = set()
+    page_token = ""
+    while True:
+        request: dict[str, Any] = {
+            "resource": _slack_channel_resource(team_id, channel_id),
+            "relation": SLACK_CHANNEL_MEMBER_RELATION,
+            "page_size": AUTHORIZATION_PAGE_SIZE,
+        }
+        if page_token:
+            request["page_token"] = page_token
+        response = read_relationships(request)
+        for relationship in _authorization_items(response, "relationships"):
+            subject = _authorization_field(relationship, "subject")
+            subject_type = _authorization_string_field(subject, "type")
+            subject_id = _authorization_string_field(subject, "id")
+            if subject_type == AUTHORIZATION_SUBJECT_TYPE and subject_id:
+                subject_ids.add(subject_id)
+        page_token = _authorization_string_field(response, "next_page_token")
+        if not page_token:
+            return subject_ids
+
+
+def _slack_channel_member_relationship(
+    team_id: str,
+    channel_id: str,
+    subject_id: str,
+) -> dict[str, Any]:
+    return {
+        "subject": {
+            "type": AUTHORIZATION_SUBJECT_TYPE,
+            "id": subject_id,
+        },
+        "relation": SLACK_CHANNEL_MEMBER_RELATION,
+        "resource": _slack_channel_resource(team_id, channel_id),
+    }
+
+
+def _slack_channel_resource(team_id: str, channel_id: str) -> dict[str, str]:
+    return {
+        "type": SLACK_CHANNEL_RESOURCE_TYPE,
+        "id": f"{team_id}:{channel_id}",
+    }
+
+
+def _authorization_items(value: Any, field: str) -> list[Any]:
+    if isinstance(value, dict):
+        items = value.get(field)
+    else:
+        items = getattr(value, field, None)
+    return list(items) if isinstance(items, list | tuple) else []
+
+
+def _authorization_field(value: Any, field: str) -> Any:
+    if isinstance(value, dict):
+        return value.get(field)
+    return getattr(value, field, None)
+
+
+def _authorization_string_field(value: Any, field: str) -> str:
+    raw = _authorization_field(value, field)
+    return raw.strip() if isinstance(raw, str) else ""
+
+
 def _grant_agent_session_viewer_to_slack_channel(
     authorization: Any, team_id: str, channel_id: str, session_id: str
 ) -> None:
@@ -1006,11 +1178,8 @@ def _agent_session_slack_channel_viewer_write_request(
             {
                 "target": {
                     "subject_set": {
-                        "resource": {
-                            "type": "slack_channel",
-                            "id": f"{team_id}:{channel_id}",
-                        },
-                        "relation": "member",
+                        "resource": _slack_channel_resource(team_id, channel_id),
+                        "relation": SLACK_CHANNEL_MEMBER_RELATION,
                     },
                 },
                 "relation": "viewer",

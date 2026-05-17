@@ -468,10 +468,21 @@ def _manifest_parameter_types(operation: dict[str, Any], name: str) -> list[str]
 
 class FakeAuthorization:
     def __init__(
-        self, subjects: list[Any], *, write_error: Exception | None = None
+        self,
+        subjects: list[Any],
+        *,
+        subjects_by_resource_id: dict[str, list[Any]] | None = None,
+        relationships: list[Any] | None = None,
+        write_error: Exception | None = None,
     ) -> None:
         self.subjects = [_native_subject(subject) for subject in subjects]
+        self.subjects_by_resource_id = {
+            resource_id: [_native_subject(subject) for subject in subjects]
+            for resource_id, subjects in (subjects_by_resource_id or {}).items()
+        }
+        self.relationships = relationships or []
         self.requests: list[Any] = []
+        self.read_requests: list[Any] = []
         self.write_requests: list[Any] = []
         self.write_error = write_error
 
@@ -479,14 +490,23 @@ class FakeAuthorization:
         self.requests.append(request)
         if isinstance(request, dict):
             subject_type = str(request.get("subject_type", "") or "").strip()
+            resource = request.get("resource") or {}
+            resource_id = str(resource.get("id", "") or "").strip()
         else:
             subject_type = str(getattr(request, "subject_type", "") or "").strip()
+            resource = getattr(request, "resource", None)
+            resource_id = str(getattr(resource, "id", "") or "").strip()
+        candidates = self.subjects_by_resource_id.get(resource_id, self.subjects)
         subjects = [
             subject
-            for subject in self.subjects
+            for subject in candidates
             if not subject_type or str(subject.type or "").strip() == subject_type
         ]
         return types.SimpleNamespace(subjects=subjects)
+
+    def read_relationships(self, request: Any) -> Any:
+        self.read_requests.append(request)
+        return {"relationships": self.relationships}
 
     def write_relationships(self, request: Any) -> None:
         self.write_requests.append(request)
@@ -3776,22 +3796,45 @@ class SlackProviderTests(unittest.TestCase):
         )
         reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
         captured: dict[str, Any] = {}
-        authorization = FakeAuthorization([])
+        linked_member = authorization_subject(type="subject", id="user:gestalt-999")
+        authorization = FakeAuthorization(
+            [],
+            subjects_by_resource_id={
+                provider_module.external_identity_resource_id(
+                    "slack_identity",
+                    "team:T123:user:U999",
+                ): [linked_member],
+            },
+        )
         idempotency_key = "workflow:local:run-123:session-ready:signal-batch-abc"
         expected_client_msg_id = str(
             uuid.UUID(
                 hex=hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()[:32]
             )
         )
+        seen_urls: list[str] = []
 
         def fake_urlopen(
             request: urllib.request.Request, timeout: float = 30
         ) -> FakeHTTPResponse:
             self.assertEqual(timeout, 30)
+            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
+            seen_urls.append(request.full_url)
+            if request.full_url.startswith(
+                "https://slack.com/api/conversations.members?"
+            ):
+                self.assertEqual(request.get_method(), "GET")
+                parsed = urllib.parse.urlparse(request.full_url)
+                params = urllib.parse.parse_qs(parsed.query)
+                self.assertEqual(params.get("channel"), ["C789"])
+                self.assertEqual(params.get("limit"), ["1000"])
+                return FakeHTTPResponse(
+                    '{"ok": true, "members": ["U456", "U999"], '
+                    '"response_metadata": {"next_cursor": ""}}'
+                )
             self.assertEqual(request.get_method(), "POST")
             self.assertEqual(request.full_url, "https://slack.com/api/chat.postMessage")
-            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
-            self.assertEqual(len(authorization.write_requests), 1)
+            self.assertEqual(len(authorization.write_requests), 2)
             captured["payload"] = json.loads(cast(bytes, request.data).decode("utf-8"))
             return FakeHTTPResponse(
                 '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
@@ -3827,8 +3870,31 @@ class SlackProviderTests(unittest.TestCase):
             "https://gestalt.example.test/",
             "agent session/123",
         )
-        self.assertEqual(len(authorization.write_requests), 1)
-        grant = sdk_value_to_dict(authorization.write_requests[0])["writes"][0]
+        self.assertEqual(
+            seen_urls,
+            [
+                "https://slack.com/api/conversations.members?channel=C789&limit=1000",
+                "https://slack.com/api/chat.postMessage",
+            ],
+        )
+        self.assertEqual(len(authorization.write_requests), 2)
+        membership_writes = sdk_value_to_dict(authorization.write_requests[0])["writes"]
+        self.assertEqual(
+            membership_writes,
+            [
+                {
+                    "subject": {"type": "subject", "id": "user:gestalt-123"},
+                    "relation": "member",
+                    "resource": {"type": "slack_channel", "id": "T123:C789"},
+                },
+                {
+                    "subject": {"type": "subject", "id": "user:gestalt-999"},
+                    "relation": "member",
+                    "resource": {"type": "slack_channel", "id": "T123:C789"},
+                },
+            ],
+        )
+        grant = sdk_value_to_dict(authorization.write_requests[1])["writes"][0]
         subject_set = grant["target"]["subject_set"]
         self.assertEqual(subject_set["resource"]["type"], "slack_channel")
         self.assertEqual(subject_set["resource"]["id"], "T123:C789")
@@ -3899,9 +3965,23 @@ class SlackProviderTests(unittest.TestCase):
         reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
         authorization = FakeAuthorization([], write_error=ValueError("write failed"))
 
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertTrue(
+                request.full_url.startswith(
+                    "https://slack.com/api/conversations.members?"
+                )
+            )
+            return FakeHTTPResponse(
+                '{"ok": true, "members": ["U456"], '
+                '"response_metadata": {"next_cursor": ""}}'
+            )
+
         with mock.patch(
             "internals.client.urllib.request.urlopen",
-            side_effect=AssertionError("session links should not post before grants"),
+            side_effect=fake_urlopen,
         ):
             result = provider_module.slack_events_reply_session_started(
                 provider_module.SlackEventSessionStartedInput(
@@ -3965,6 +4045,65 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(grant["relation"], "viewer")
         self.assertEqual(grant["resource"]["type"], "agent_session")
         self.assertEqual(grant["resource"]["id"], "agent-session-123")
+
+    def test_slack_channel_member_sync_reconciles_existing_relationships(
+        self,
+    ) -> None:
+        authorization = FakeAuthorization(
+            [],
+            relationships=[
+                {
+                    "subject": {"type": "subject", "id": "user:existing"},
+                    "relation": "member",
+                    "resource": {"type": "slack_channel", "id": "T123:C789"},
+                },
+                {
+                    "subject": {"type": "subject", "id": "user:stale"},
+                    "relation": "member",
+                    "resource": {"type": "slack_channel", "id": "T123:C789"},
+                },
+            ],
+        )
+
+        provider_module._agent._write_slack_channel_member_relationships(
+            authorization,
+            "T123",
+            "C789",
+            {"user:existing", "user:new"},
+        )
+
+        self.assertEqual(
+            authorization.read_requests,
+            [
+                {
+                    "resource": {"type": "slack_channel", "id": "T123:C789"},
+                    "relation": "member",
+                    "page_size": 1000,
+                }
+            ],
+        )
+        self.assertEqual(len(authorization.write_requests), 1)
+        write_request = sdk_value_to_dict(authorization.write_requests[0])
+        self.assertEqual(
+            write_request["writes"],
+            [
+                {
+                    "subject": {"type": "subject", "id": "user:new"},
+                    "relation": "member",
+                    "resource": {"type": "slack_channel", "id": "T123:C789"},
+                }
+            ],
+        )
+        self.assertEqual(
+            write_request["deletes"],
+            [
+                {
+                    "subject": {"type": "subject", "id": "user:stale"},
+                    "relation": "member",
+                    "resource": {"type": "slack_channel", "id": "T123:C789"},
+                }
+            ],
+        )
 
     def test_slack_events_reply_session_started_skips_thread_replies(self) -> None:
         provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})

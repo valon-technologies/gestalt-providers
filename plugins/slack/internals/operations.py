@@ -432,6 +432,22 @@ def get_thread_participants(
     }
 
 
+def list_channel_member_ids(token: str, channel: str) -> list[str]:
+    member_ids: list[str] = []
+    cursor = ""
+    while True:
+        query = {"channel": channel, "limit": "1000"}
+        if cursor:
+            query["cursor"] = cursor
+        data = slack_get("conversations.members", query, token)
+        for member_id in data.get("members") or []:
+            if isinstance(member_id, str) and member_id.strip():
+                member_ids.append(member_id.strip())
+        cursor = string_field(map_field(data, "response_metadata"), "next_cursor")
+        if not cursor:
+            return member_ids
+
+
 def get_file(
     token: str,
     *,
