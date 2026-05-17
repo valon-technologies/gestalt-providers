@@ -166,6 +166,7 @@ jobs:
           else
             (cd "$PROVIDER_DIR" && gestaltd provider release --version "$SNAPSHOT_VERSION" --platform linux/amd64)
           fi
+          sudo chown -R "$(id -u):$(id -g)" "${PROVIDER_DIR}/dist"
           python3 .github/scripts/write_provider_release_metadata.py \
             --manifest "${PROVIDER_DIR}/manifest.yaml" \
             --output-dir "${PROVIDER_DIR}/dist" \
