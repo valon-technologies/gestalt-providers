@@ -64,7 +64,7 @@ wheels = [
 [[package]]
 name = "gestalt-sdk"
 version = "0.0.1a1"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#7a1ca9d21a4762a5e9082e99f750b9c936621813" }
+source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=codex%2Fworkflow-agent-steps-20260517#fbcddb70dfc623c92199970a3cb920cd805a693a" }
 dependencies = [
     { name = "googleapis-common-protos" },
     { name = "grpcio" },

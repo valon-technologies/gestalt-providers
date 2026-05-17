@@ -8,6 +8,7 @@ from .models import (
     SlackAgentConfig,
     SlackAgentRoute,
     SlackAgentRouteMatch,
+    SlackAgentStep,
     SlackAgentToolRef,
     SlackAssistantConfig,
     SlackBotConfig,
@@ -56,6 +57,7 @@ def agent_config_from_provider_config(
         thread_context=thread_context,
     )
     _validate_agent_route_ids(routes)
+    _validate_agent_steps(routes)
     _validate_agent_tool_set_refs(agent_tool_sets, agent_tool_set_refs, routes)
 
     return SlackAgentConfig(
@@ -357,6 +359,7 @@ def _agent_route_from_config(
             agent, f"agent.routes[{index}].agent.tools"
         )
         or _agent_tool_refs_from_config(config, f"agent.routes[{index}].tools"),
+        agent_steps=_agent_steps_from_config(agent, index),
     )
 
 
@@ -566,6 +569,98 @@ def _route_thread_context_config_from_config(
     )
 
 
+def _agent_steps_from_config(
+    agent: dict[str, Any], route_index: int
+) -> tuple[SlackAgentStep, ...]:
+    raw_steps = _config_list(agent, "steps")
+    if not raw_steps:
+        return ()
+    steps: list[SlackAgentStep] = []
+    for step_index, raw_step in enumerate(raw_steps, start=1):
+        path = f"agent.routes[{route_index}].agent.steps[{step_index}]"
+        if not isinstance(raw_step, dict):
+            raise ValueError(f"{path} must be an object")
+        step = cast(dict[str, Any], raw_step)
+        slack_reply = _config_dict_or_none(step, "slackReply", "slack_reply")
+        steps.append(
+            SlackAgentStep(
+                id=_config_string(step, "id", "name"),
+                prompt=_config_string(step, "prompt"),
+                messages=tuple(_agent_step_messages_from_config(step, path)),
+                tool_set_refs=_config_string_tuple(
+                    step, "toolSetRefs", "tool_set_refs"
+                ),
+                tools=_agent_tool_refs_from_config(step, f"{path}.tools"),
+                response_schema=_config_json_object(
+                    step, path, "responseSchema", "response_schema"
+                ),
+                model_options=_config_json_object(
+                    step, path, "modelOptions", "model_options"
+                ),
+                metadata=_config_json_object(step, path, "metadata"),
+                timeout_seconds=_config_timeout_seconds(
+                    step, "timeoutSeconds", "timeout_seconds"
+                ),
+                when=_agent_step_when_from_config(step, path),
+                slack_reply_agent_output=_config_string(
+                    slack_reply or {}, "agentOutput", "agent_output"
+                ),
+            )
+        )
+    return tuple(steps)
+
+
+def _agent_step_messages_from_config(
+    config: dict[str, Any], path: str
+) -> list[dict[str, Any]]:
+    raw_messages = _config_list(config, "messages")
+    messages: list[dict[str, Any]] = []
+    for index, raw_message in enumerate(raw_messages, start=1):
+        message_path = f"{path}.messages[{index}]"
+        if not isinstance(raw_message, dict):
+            raise ValueError(f"{message_path} must be an object")
+        message = cast(dict[str, Any], raw_message)
+        role = _config_string(message, "role") or "user"
+        text = _config_string(message, "text", "content")
+        metadata = _config_json_object(message, message_path, "metadata")
+        item: dict[str, Any] = {"role": role, "text": text}
+        if metadata:
+            item["metadata"] = metadata
+        messages.append(item)
+    return messages
+
+
+def _agent_step_when_from_config(config: dict[str, Any], path: str) -> dict[str, Any]:
+    if "when" not in config:
+        return {}
+    value = config.get("when")
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{path}.when must be an object")
+    raw = cast(dict[str, Any], value)
+    allowed = {"stepId", "step_id", "outputPath", "output_path", "equals"}
+    unknown = sorted(str(key) for key in raw if str(key) not in allowed)
+    if unknown:
+        raise ValueError(f"{path}.when has unknown keys: {', '.join(unknown)}")
+    step_id = _config_string(raw, "stepId", "step_id")
+    output_path = _config_string(raw, "outputPath", "output_path")
+    if not step_id:
+        raise ValueError(f"{path}.when.stepId is required")
+    if not output_path:
+        raise ValueError(f"{path}.when.outputPath is required")
+    if "equals" not in raw:
+        raise ValueError(f"{path}.when.equals is required")
+    equals = raw.get("equals")
+    if not _config_scalar(equals):
+        raise ValueError(f"{path}.when.equals must be a scalar JSON value")
+    return {"step_id": step_id, "output_path": output_path, "equals": equals}
+
+
+def _config_scalar(value: Any) -> bool:
+    return value is None or isinstance(value, (str, bool, int, float))
+
+
 def _agent_tool_sets_from_config(
     agent: dict[str, Any],
 ) -> dict[str, tuple[SlackAgentToolRef, ...]]:
@@ -601,6 +696,12 @@ def _validate_agent_tool_set_refs(
             route.agent_tool_set_refs,
             f"agent.routes[{index}].agent.toolSetRefs",
         )
+        for step_index, step in enumerate(route.agent_steps, start=1):
+            _validate_tool_set_refs(
+                tool_sets,
+                step.tool_set_refs,
+                f"agent.routes[{index}].agent.steps[{step_index}].toolSetRefs",
+            )
 
 
 def _validate_agent_route_ids(routes: tuple[SlackAgentRoute, ...]) -> None:
@@ -611,6 +712,26 @@ def _validate_agent_route_ids(routes: tuple[SlackAgentRoute, ...]) -> None:
                 f"agent.routes[{index}].id duplicates another agent route: {route.id}"
             )
         seen.add(route.id)
+
+
+def _validate_agent_steps(routes: tuple[SlackAgentRoute, ...]) -> None:
+    for route_index, route in enumerate(routes, start=1):
+        seen: set[str] = set()
+        for step_index, step in enumerate(route.agent_steps, start=1):
+            path = f"agent.routes[{route_index}].agent.steps[{step_index}]"
+            if not step.id:
+                raise ValueError(f"{path}.id is required")
+            if step.id in seen:
+                raise ValueError(f"{path}.id duplicates another step: {step.id}")
+            if not step.prompt and not step.messages:
+                raise ValueError(f"{path}.prompt or messages is required")
+            if step.when:
+                step_id = str(step.when.get("step_id") or "").strip()
+                if step_id not in seen:
+                    raise ValueError(
+                        f"{path}.when.stepId {step_id!r} must reference an earlier step"
+                    )
+            seen.add(step.id)
 
 
 def _validate_tool_set_refs(
@@ -899,6 +1020,21 @@ def _config_dict_or_none(config: dict[str, Any], *keys: str) -> dict[str, Any] |
         if isinstance(value, dict):
             return dict(value)
     return None
+
+
+def _config_json_object(
+    config: dict[str, Any], path: str, *keys: str
+) -> dict[str, Any]:
+    for key in keys:
+        if key not in config:
+            continue
+        value = config.get(key)
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError(f"{path}.{key} must be an object")
+        return dict(value)
+    return {}
 
 
 def _config_mapping(config: dict[str, Any], *keys: str) -> dict[str, Any]:

@@ -206,6 +206,21 @@ class SlackAgentToolRef:
 
 
 @dataclass(frozen=True, slots=True)
+class SlackAgentStep:
+    id: str = ""
+    prompt: str = ""
+    messages: tuple[dict[str, Any], ...] = ()
+    tool_set_refs: tuple[str, ...] = ()
+    tools: tuple[SlackAgentToolRef, ...] = ()
+    response_schema: dict[str, Any] = field(default_factory=dict)
+    model_options: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    timeout_seconds: int = 0
+    when: dict[str, Any] = field(default_factory=dict)
+    slack_reply_agent_output: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class SlackAgentRoute:
     id: str = ""
     match: SlackAgentRouteMatch = field(default_factory=SlackAgentRouteMatch)
@@ -222,6 +237,7 @@ class SlackAgentRoute:
     agent_model_options: dict[str, Any] = field(default_factory=dict)
     agent_tool_set_refs: tuple[str, ...] = ()
     agent_tools: tuple[SlackAgentToolRef, ...] = ()
+    agent_steps: tuple[SlackAgentStep, ...] = ()
     agent_timeout_seconds: int = 0
 
 

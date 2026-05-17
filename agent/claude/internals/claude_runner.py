@@ -87,8 +87,21 @@ class ClaudeTurnProfile:
     cwd: str | None = None
 
     @classmethod
-    def catalog(cls, *, run_grant: str, claude_code_options: ClaudeCodeTurnOptions, cwd: str) -> "ClaudeTurnProfile":
-        return cls(kind="catalog", run_grant=run_grant, claude_code_options=claude_code_options, cwd=cwd)
+    def catalog(
+        cls,
+        *,
+        run_grant: str,
+        response_schema: dict[str, Any] | None = None,
+        claude_code_options: ClaudeCodeTurnOptions,
+        cwd: str,
+    ) -> "ClaudeTurnProfile":
+        return cls(
+            kind="catalog",
+            run_grant=run_grant,
+            response_schema=response_schema,
+            claude_code_options=claude_code_options,
+            cwd=cwd,
+        )
 
     @classmethod
     def structured_output(cls, *, response_schema: dict[str, Any]) -> "ClaudeTurnProfile":
@@ -100,7 +113,7 @@ class ClaudeTurnProfile:
 
     @property
     def requires_structured_output(self) -> bool:
-        return self.kind == "structured_output"
+        return self.response_schema is not None
 
 
 class ClaudeSDKRunner:
@@ -119,7 +132,9 @@ class ClaudeSDKRunner:
         model: str,
         messages: list[dict[str, Any]],
         turn_profile: ClaudeTurnProfile,
+        timeout_seconds: float = 0.0,
     ) -> ClaudeTurnResult:
+        effective_timeout = timeout_seconds if timeout_seconds > 0 else self._config.timeout_seconds
         try:
             return asyncio.run(
                 asyncio.wait_for(
@@ -130,12 +145,12 @@ class ClaudeSDKRunner:
                         messages=messages,
                         turn_profile=turn_profile,
                     ),
-                    timeout=self._config.timeout_seconds,
+                    timeout=effective_timeout,
                 )
             )
         except TimeoutError as exc:
             self.cancel_turn(turn_id)
-            raise ClaudeExecutionError(f"Claude Agent SDK timed out after {self._config.timeout_seconds:g}s") from exc
+            raise ClaudeExecutionError(f"Claude Agent SDK timed out after {effective_timeout:g}s") from exc
 
     def cancel_turn(self, turn_id: str) -> None:
         turn_id = turn_id.strip()
@@ -180,7 +195,7 @@ class ClaudeSDKRunner:
                 self._register_active_client(turn_id, client)
                 self._raise_if_canceled(turn_id)
                 await client.connect()
-                await client.query(prompt, session_id=turn_id)
+                await client.query(prompt, session_id=session_id)
                 output = await self._receive_result(client, turn_id=turn_id, turn_profile=turn_profile)
                 self._raise_if_canceled(turn_id)
                 return output
@@ -227,7 +242,10 @@ class ClaudeSDKRunner:
                 if claude_code_options is None:
                     claude_code_options = self._config.claude_code.resolve_turn_options({})
                 turn_profile = ClaudeTurnProfile.catalog(
-                    run_grant=str(run_grant or "").strip(), claude_code_options=claude_code_options, cwd=cwd
+                    run_grant=str(run_grant or "").strip(),
+                    response_schema=response_schema,
+                    claude_code_options=claude_code_options,
+                    cwd=cwd,
                 )
         if turn_profile.uses_catalog_tools:
             return self._catalog_options(model=model, session_id=session_id, turn_id=turn_id, turn_profile=turn_profile)
@@ -276,6 +294,7 @@ class ClaudeSDKRunner:
             skills=claude_code_options.sdk_skills,
             plugins=claude_code_options.sdk_plugins,
             can_use_tool=create_tool_permission_callback(claude_code_options.tool_permissions),
+            output_format=_output_format(turn_profile.response_schema),
         )
 
     def _structured_output_options(self, *, model: str, turn_profile: ClaudeTurnProfile) -> ClaudeAgentOptions:
@@ -425,6 +444,12 @@ def _structured_output(result_message: Any, *, required: bool) -> dict[str, Any]
     if not isinstance(value, dict):
         raise ClaudeExecutionError("Claude Agent SDK structured output must be a JSON object")
     return value
+
+
+def _output_format(response_schema: dict[str, Any] | None) -> dict[str, Any] | None:
+    if response_schema is None:
+        return None
+    return {"type": "json_schema", "schema": response_schema}
 
 
 def _message_content(message: dict[str, Any]) -> str:
