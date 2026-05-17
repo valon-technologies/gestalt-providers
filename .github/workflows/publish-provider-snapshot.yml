@@ -127,6 +127,13 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y musl-tools
           rustup target add "$(uname -m)-unknown-linux-musl"
+      - name: Install rcodesign
+        if: ${{ matrix.provider.has_go || matrix.provider.has_typescript }}
+        run: |
+          set -euo pipefail
+          version="0.29.0"
+          archive="apple-codesign-${version}-x86_64-unknown-linux-musl.tar.gz"
+          curl -fsSL "https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign/${version}/${archive}" | tar xz -C /usr/local/bin --strip-components=1 "apple-codesign-${version}-x86_64-unknown-linux-musl/rcodesign"
       - name: Install Python
         if: matrix.provider.has_python
         run: uv python install "${{ matrix.provider.python_version }}"
@@ -165,6 +172,10 @@ jobs:
             .github/scripts/package_python_docker.sh linux/amd64 "${python_image}" gestaltd GESTALT_PYTHON_LINUX_AMD64 linux/amd64 "$PROVIDER_DIR" "$SNAPSHOT_VERSION"
           else
             (cd "$PROVIDER_DIR" && gestaltd provider release --version "$SNAPSHOT_VERSION" --platform linux/amd64)
+            if [ "${{ matrix.provider.has_go }}" = "true" ] || [ "${{ matrix.provider.has_typescript }}" = "true" ]; then
+              (cd "$PROVIDER_DIR" && gestaltd provider release --version "$SNAPSHOT_VERSION" --platform darwin/arm64)
+              (cd "$PROVIDER_DIR" && gestaltd provider release --version "$SNAPSHOT_VERSION" --platform darwin/amd64)
+            fi
           fi
           python3 .github/scripts/write_provider_release_metadata.py \
             --manifest "${PROVIDER_DIR}/manifest.yaml" \
