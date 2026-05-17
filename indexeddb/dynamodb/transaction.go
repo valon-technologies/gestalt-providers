@@ -3,6 +3,7 @@ package dynamodb
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"sort"
 	"sync"
@@ -213,7 +214,7 @@ func (t *dynamoTransaction) Add(ctx context.Context, req gestalt.IndexedDBRecord
 		return err
 	}
 	if txStore.records[id] != nil {
-		return status.Errorf(codes.AlreadyExists, "record %s already exists", id)
+		return fmt.Errorf("%w: record %s already exists", gestalt.ErrAlreadyExists, id)
 	}
 	txStore.records[id] = cloneDynamoRecord(req.Record)
 	if err := t.validateUniqueIndexes(req.Store); err != nil {
@@ -481,7 +482,7 @@ func (t *dynamoTransaction) validateUniqueIndexes(storeName string) error {
 				continue
 			}
 			if prev, ok := seen[idx.key()]; ok && prev != id {
-				return status.Errorf(codes.AlreadyExists, "record %s violates a unique index", id)
+				return fmt.Errorf("%w: record %s violates a unique index", gestalt.ErrAlreadyExists, id)
 			}
 			seen[idx.key()] = id
 		}

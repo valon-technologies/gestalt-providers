@@ -1,0 +1,7 @@
+source: github.com/valon-technologies/gestalt-providers/model/anthropic
+version: 0.0.1-alpha.1
+displayName: Anthropic
+description: Stateless model provider backed by the Anthropic Messages API.
+kind: model
+spec:
+  configSchemaPath: schemas/config.schema.yaml

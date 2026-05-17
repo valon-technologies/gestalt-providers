@@ -178,7 +178,7 @@ func (p *providerCore) CreateObjectStore(ctx context.Context, name string, schem
 	})
 	if err != nil {
 		if isConditionFailed(err) {
-			return status.Errorf(codes.AlreadyExists, "object store %s already exists", name)
+			return fmt.Errorf("%w: object store %s already exists", gestalt.ErrAlreadyExists, name)
 		}
 		return wrapErr(err)
 	}
@@ -253,7 +253,7 @@ func (p *providerCore) Add(ctx context.Context, req gestalt.IndexedDBRecordReque
 	if conflict, err := st.hasUniqueIndexConflict(ctx, idxItems); err != nil {
 		return err
 	} else if conflict {
-		return status.Errorf(codes.AlreadyExists, "record %s violates a unique index", id)
+		return fmt.Errorf("%w: record %s violates a unique index", gestalt.ErrAlreadyExists, id)
 	}
 
 	items := []ddbtypes.TransactWriteItem{
@@ -274,7 +274,7 @@ func (p *providerCore) Add(ctx context.Context, req gestalt.IndexedDBRecordReque
 	_, err = st.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
 	if err != nil {
 		if isConditionFailed(err) {
-			return status.Errorf(codes.AlreadyExists, "record %s already exists", id)
+			return fmt.Errorf("%w: record %s already exists", gestalt.ErrAlreadyExists, id)
 		}
 		return wrapErr(err)
 	}
@@ -300,7 +300,7 @@ func (p *providerCore) Put(ctx context.Context, req gestalt.IndexedDBRecordReque
 	if conflict, err := st.hasUniqueIndexConflict(ctx, idxItems); err != nil {
 		return err
 	} else if conflict {
-		return status.Errorf(codes.AlreadyExists, "record %s violates a unique index", id)
+		return fmt.Errorf("%w: record %s violates a unique index", gestalt.ErrAlreadyExists, id)
 	}
 
 	items := []ddbtypes.TransactWriteItem{
@@ -337,7 +337,7 @@ func (p *providerCore) Put(ctx context.Context, req gestalt.IndexedDBRecordReque
 	_, err = st.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
 	if err != nil {
 		if isConditionFailed(err) {
-			return status.Errorf(codes.AlreadyExists, "record %s violates a unique index", id)
+			return fmt.Errorf("%w: record %s violates a unique index", gestalt.ErrAlreadyExists, id)
 		}
 		return wrapErr(err)
 	}

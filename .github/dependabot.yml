@@ -42,6 +42,7 @@ updates:
       - "/plugins/bigquery"
       - "/plugins/gmail"
       - "/plugins/slack"
+      - "/model/anthropic"
     groups:
       python-dependencies:
         patterns:

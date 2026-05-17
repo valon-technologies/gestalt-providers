@@ -1,0 +1,61 @@
+type: object
+additionalProperties: false
+properties:
+  apiKeyEnv:
+    type: string
+    default: ANTHROPIC_API_KEY
+    description: Environment variable containing the Anthropic API key.
+  api_key_env:
+    type: string
+    default: ANTHROPIC_API_KEY
+    description: Environment variable containing the Anthropic API key.
+  apiKey:
+    type: string
+    description: Inline Anthropic API key. Prefer provider env secret injection for production.
+  api_key:
+    type: string
+    description: Inline Anthropic API key. Prefer provider env secret injection for production.
+  anthropicApiKey:
+    type: string
+    description: Backwards-compatible inline Anthropic API key alias.
+  defaultModel:
+    type: string
+    description: Optional Anthropic model id used when a request omits model.
+  default_model:
+    type: string
+    description: Optional Anthropic model id used when a request omits model.
+  maxTokens:
+    type: integer
+    default: 1024
+    exclusiveMinimum: 0
+    description: Default max_tokens sent to the Anthropic Messages API.
+  max_tokens:
+    type: integer
+    default: 1024
+    exclusiveMinimum: 0
+    description: Default max_tokens sent to the Anthropic Messages API.
+  temperature:
+    type: number
+    minimum: 0
+    maximum: 1
+    description: Optional default sampling temperature.
+  timeoutSeconds:
+    type: number
+    default: 300
+    exclusiveMinimum: 0
+    description: Anthropic request timeout in seconds.
+  timeout_seconds:
+    type: number
+    default: 300
+    exclusiveMinimum: 0
+    description: Anthropic request timeout in seconds.
+  maxRetries:
+    type: integer
+    default: 0
+    minimum: 0
+    description: Anthropic SDK retry count. Defaults to 0 so callers own retry policy.
+  max_retries:
+    type: integer
+    default: 0
+    minimum: 0
+    description: Anthropic SDK retry count. Defaults to 0 so callers own retry policy.
