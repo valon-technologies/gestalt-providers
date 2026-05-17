@@ -30,9 +30,12 @@ import {
   GetAgentProviderCapabilitiesRequestSchema,
   GetAgentProviderSessionRequestSchema,
   GetAgentProviderTurnRequestSchema,
+  ListAgentProviderSessionsRequestSchema,
   ListAgentProviderTurnEventsRequestSchema,
+  ListAgentProviderTurnsRequestSchema,
   ListAgentToolsResponseSchema,
   ListedAgentToolSchema,
+  UpdateAgentProviderSessionRequestSchema,
 } from "../node_modules/@valon-technologies/gestalt/src/internal/gen/v1/agent_pb.ts";
 
 import {
@@ -54,9 +57,44 @@ import { CursorSDKRunner, type CursorAgentFactory } from "../src/runner.ts";
 import { schemaFromJson, type ToolEntry } from "../src/tools.ts";
 
 const activeHosts: FakeAgentHost[] = [];
+const OWNER_ACTOR = {
+  subjectId: "user:owner@example.com",
+  subjectKind: "user",
+  displayName: "Owner",
+  authSource: "test",
+};
+const OTHER_ACTOR = {
+  subjectId: "user:other@example.com",
+  subjectKind: "user",
+  displayName: "Other",
+  authSource: "test",
+};
+const SLACK_ACTOR = {
+  subjectId: "service_account:slack-bot",
+  subjectKind: "service_account",
+  displayName: "Slack Bot",
+  authSource: "test",
+};
 
 function create<T = any>(schema: any, input: Record<string, unknown>): T {
-  return createMessage(schema, input) as T;
+  let payload = input;
+  if (schema === CreateAgentProviderSessionRequestSchema) {
+    payload = { createdBy: OWNER_ACTOR, subject: OWNER_ACTOR, ...input };
+  } else if (
+    [
+      CancelAgentProviderTurnRequestSchema,
+      CreateAgentProviderTurnRequestSchema,
+      GetAgentProviderSessionRequestSchema,
+      GetAgentProviderTurnRequestSchema,
+      ListAgentProviderSessionsRequestSchema,
+      ListAgentProviderTurnEventsRequestSchema,
+      ListAgentProviderTurnsRequestSchema,
+      UpdateAgentProviderSessionRequestSchema,
+    ].includes(schema)
+  ) {
+    payload = { subject: OWNER_ACTOR, ...input };
+  }
+  return createMessage(schema, payload) as T;
 }
 
 afterEach(async () => {
@@ -298,6 +336,252 @@ describe("Cursor agent provider contract", () => {
     ).rejects.toThrow(ConnectError);
   });
 
+  test("owner can read and mutate a private session", async () => {
+    const provider = await configuredProvider();
+    await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "access-owner-private",
+      }),
+    );
+
+    const session = await provider.getSession(
+      create(GetAgentProviderSessionRequestSchema, {
+        sessionId: "access-owner-private",
+      }),
+    );
+    expect(session.id).toBe("access-owner-private");
+
+    const updated = await provider.updateSession(
+      create(UpdateAgentProviderSessionRequestSchema, {
+        sessionId: "access-owner-private",
+        clientRef: "owner-ref",
+      }),
+    );
+    expect(updated.clientRef).toBe("owner-ref");
+  });
+
+  test("Slack-created company sessions are readable and listed by non-owners", async () => {
+    const host = await FakeAgentHost.start({
+      pages: [{ tools: [tool({ id: "t", mcpName: "t" })] }],
+    });
+    activeHosts.push(host);
+    process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
+    const provider = await configuredProvider({
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, {
+          agentFactory: new FakeCursorAgentFactory(),
+        }),
+    });
+    await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "access-company",
+        createdBy: SLACK_ACTOR,
+        subject: SLACK_ACTOR,
+        metadata: slackSessionMetadata(),
+      }),
+    );
+    await provider.createTurn(
+      create(CreateAgentProviderTurnRequestSchema, {
+        turnId: "access-company-turn",
+        sessionId: "access-company",
+        messages: [{ role: "user", text: "hi" }],
+        toolSource: AgentToolSourceMode.MCP_CATALOG,
+        runGrant: "grant",
+        toolRefs: [{ plugin: "p", operation: "o" }],
+        createdBy: SLACK_ACTOR,
+        subject: SLACK_ACTOR,
+      }),
+    );
+
+    const otherSession = await provider.getSession(
+      create(GetAgentProviderSessionRequestSchema, {
+        sessionId: "access-company",
+        subject: OTHER_ACTOR,
+      }),
+    );
+    expect(otherSession.id).toBe("access-company");
+    await expectConnectCode(
+      provider.getSession({ sessionId: "access-company" } as never),
+      Code.NotFound,
+    );
+    const otherSessions = await provider.listSessions(
+      create(ListAgentProviderSessionsRequestSchema, {
+        subject: OTHER_ACTOR,
+      }),
+    );
+    expect(otherSessions.map((session) => session.id)).toContain(
+      "access-company",
+    );
+
+    const otherTurns = await provider.listTurns(
+      create(ListAgentProviderTurnsRequestSchema, {
+        sessionId: "access-company",
+        subject: OTHER_ACTOR,
+      }),
+    );
+    expect(otherTurns.map((turn) => turn.id)).toContain("access-company-turn");
+    const exactOtherTurns = await provider.listTurns(
+      create(ListAgentProviderTurnsRequestSchema, {
+        turnIds: ["access-company-turn"],
+        subject: OTHER_ACTOR,
+      }),
+    );
+    expect(exactOtherTurns.map((turn) => turn.id)).toEqual([
+      "access-company-turn",
+    ]);
+  });
+
+  test("private sessions are hidden from non-owners and metadata updates do not change visibility", async () => {
+    const provider = await configuredProvider();
+    await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "access-private",
+      }),
+    );
+    await provider.updateSession(
+      create(UpdateAgentProviderSessionRequestSchema, {
+        sessionId: "access-private",
+        metadata: slackSessionMetadata(),
+      }),
+    );
+
+    await expectConnectCode(
+      provider.getSession(
+        create(GetAgentProviderSessionRequestSchema, {
+          sessionId: "access-private",
+          subject: OTHER_ACTOR,
+        }),
+      ),
+      Code.NotFound,
+    );
+    await expectConnectCode(
+      provider.getSession({ sessionId: "access-private" } as never),
+      Code.NotFound,
+    );
+    const otherSessions = await provider.listSessions(
+      create(ListAgentProviderSessionsRequestSchema, {
+        subject: OTHER_ACTOR,
+      }),
+    );
+    expect(otherSessions.map((session) => session.id)).not.toContain(
+      "access-private",
+    );
+    const missingSubjectSessions = await provider.listSessions(
+      create(ListAgentProviderSessionsRequestSchema, {
+        subject: undefined,
+      }),
+    );
+    expect(missingSubjectSessions).toEqual([]);
+
+    await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "access-incomplete-slack",
+        createdBy: SLACK_ACTOR,
+        subject: SLACK_ACTOR,
+        metadata: { slack: { team_id: "T123", channel_id: "C456" } },
+      }),
+    );
+    await expectConnectCode(
+      provider.getSession(
+        create(GetAgentProviderSessionRequestSchema, {
+          sessionId: "access-incomplete-slack",
+          subject: OTHER_ACTOR,
+        }),
+      ),
+      Code.NotFound,
+    );
+  });
+
+  test("non-owner writes are denied and private turns and events stay hidden", async () => {
+    const host = await FakeAgentHost.start({
+      pages: [{ tools: [tool({ id: "t", mcpName: "t" })] }],
+    });
+    activeHosts.push(host);
+    process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
+    const provider = await configuredProvider({
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, {
+          agentFactory: new FakeCursorAgentFactory(),
+        }),
+    });
+    await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "access-private-turns",
+      }),
+    );
+    await provider.createTurn(
+      create(CreateAgentProviderTurnRequestSchema, {
+        turnId: "access-private-turn",
+        sessionId: "access-private-turns",
+        messages: [{ role: "user", text: "hi" }],
+        toolSource: AgentToolSourceMode.MCP_CATALOG,
+        runGrant: "grant",
+        toolRefs: [{ plugin: "p", operation: "o" }],
+      }),
+    );
+
+    await expectConnectCode(
+      provider.updateSession(
+        create(UpdateAgentProviderSessionRequestSchema, {
+          sessionId: "access-private-turns",
+          subject: OTHER_ACTOR,
+          clientRef: "not-owner",
+        }),
+      ),
+      Code.PermissionDenied,
+    );
+    await expectConnectCode(
+      provider.createTurn(
+        create(CreateAgentProviderTurnRequestSchema, {
+          turnId: "access-private-turn-other",
+          sessionId: "access-private-turns",
+          subject: OTHER_ACTOR,
+          messages: [{ role: "user", text: "nope" }],
+          toolSource: AgentToolSourceMode.MCP_CATALOG,
+          runGrant: "grant",
+          toolRefs: [{ plugin: "p", operation: "o" }],
+        }),
+      ),
+      Code.PermissionDenied,
+    );
+    await expectConnectCode(
+      provider.cancelTurn(
+        create(CancelAgentProviderTurnRequestSchema, {
+          turnId: "access-private-turn",
+          subject: OTHER_ACTOR,
+          reason: "nope",
+        }),
+      ),
+      Code.PermissionDenied,
+    );
+
+    await expectConnectCode(
+      provider.getTurn(
+        create(GetAgentProviderTurnRequestSchema, {
+          turnId: "access-private-turn",
+          subject: OTHER_ACTOR,
+        }),
+      ),
+      Code.NotFound,
+    );
+    expect(
+      await provider.listTurns(
+        create(ListAgentProviderTurnsRequestSchema, {
+          sessionId: "access-private-turns",
+          subject: OTHER_ACTOR,
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      await provider.listTurnEvents(
+        create(ListAgentProviderTurnEventsRequestSchema, {
+          turnId: "access-private-turn",
+          subject: OTHER_ACTOR,
+        }),
+      ),
+    ).toEqual([]);
+  });
+
   test("runs a turn through Cursor SDK options, MCP tools, and AgentHost ExecuteTool", async () => {
     const host = await FakeAgentHost.start({
       pages: [
@@ -433,6 +717,7 @@ describe("Cursor agent provider contract", () => {
       idempotencyKey: "",
       model: "",
       clientRef: "",
+      createdBy: OWNER_ACTOR,
       preparedWorkspace: { root: tmpdir(), cwd: preparedCwd },
     } as never);
     await provider.createTurn(
@@ -460,6 +745,7 @@ describe("Cursor agent provider contract", () => {
         idempotencyKey: "",
         model: "",
         clientRef: "",
+        createdBy: OWNER_ACTOR,
         preparedWorkspace: { root: tmpdir(), cwd: "" },
       } as never),
     ).rejects.toThrow("preparedWorkspace root and cwd are required");
@@ -1096,6 +1382,32 @@ function tool(input: {
     inputSchema:
       input.inputSchema ?? '{"type":"object","additionalProperties":true}',
   });
+}
+
+function slackSessionMetadata(): Record<string, unknown> {
+  return {
+    slack: {
+      team_id: "T123",
+      channel_id: "C456",
+      channel_type: "channel",
+      root_message_ts: "1712161829.000300",
+      session_ref: "slack:T123:C456:1712161829.000300",
+    },
+  };
+}
+
+async function expectConnectCode(
+  promise: Promise<unknown>,
+  code: Code,
+): Promise<void> {
+  try {
+    await promise;
+  } catch (error) {
+    expect(error).toBeInstanceOf(ConnectError);
+    expect((error as ConnectError).code).toBe(code);
+    return;
+  }
+  throw new Error(`expected ConnectError code ${code}`);
 }
 
 async function waitForTurn(

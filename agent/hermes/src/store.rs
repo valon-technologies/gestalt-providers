@@ -15,12 +15,19 @@ pub struct StoredSession {
     pub model: String,
     pub client_ref: String,
     pub state: AgentSessionState,
+    pub visibility: SessionVisibility,
     pub metadata: Option<serde_json::Value>,
     pub created_by: Option<AgentActor>,
     pub created_at: Option<SystemTime>,
     pub updated_at: Option<SystemTime>,
     pub last_turn_at: Option<SystemTime>,
     pub active_turn_id: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SessionVisibility {
+    Private,
+    Company,
 }
 
 #[derive(Clone)]
@@ -115,6 +122,7 @@ impl Store {
             model,
             client_ref: req.client_ref.trim().to_string(),
             state: AgentSessionState::Active,
+            visibility: session_visibility(req.metadata.as_ref(), req.created_by.as_ref()),
             metadata: req.metadata.clone(),
             created_by: req.created_by.clone(),
             created_at: Some(now),
@@ -151,6 +159,20 @@ impl Store {
         self.sessions.get(id.trim()).cloned()
     }
 
+    pub fn get_session_if_readable(&self, id: &str, subject_id: &str) -> Option<StoredSession> {
+        self.sessions
+            .get(id.trim())
+            .filter(|session| session_readable_by(session, subject_id))
+            .cloned()
+    }
+
+    pub fn get_session_if_owner(&self, id: &str, subject_id: &str) -> Option<StoredSession> {
+        self.sessions
+            .get(id.trim())
+            .filter(|session| session_owned_by(session, subject_id))
+            .cloned()
+    }
+
     pub fn list_sessions(
         &self,
         ids: &[String],
@@ -171,14 +193,7 @@ impl Store {
                 .filter_map(|id| self.sessions.get(*id).cloned())
                 .collect()
         };
-        if !subject_id.is_empty() {
-            sessions.retain(|session| {
-                session
-                    .created_by
-                    .as_ref()
-                    .is_some_and(|actor| actor.subject_id.trim() == subject_id)
-            });
-        }
+        sessions.retain(|session| session_readable_by(session, subject_id));
         if state != AgentSessionState::Unspecified {
             sessions.retain(|session| session.state == state);
         }
@@ -199,8 +214,12 @@ impl Store {
         client_ref: &str,
         state: AgentSessionState,
         metadata: Option<serde_json::Value>,
+        subject_id: &str,
     ) -> Option<StoredSession> {
         let session = self.sessions.get_mut(id.trim())?;
+        if !session_owned_by(session, subject_id) {
+            return None;
+        }
         if !client_ref.trim().is_empty() {
             session.client_ref = client_ref.trim().to_string();
         }
@@ -219,6 +238,7 @@ impl Store {
         req: &CreateAgentProviderTurnRequest,
         provider_name: &str,
         model: String,
+        subject_id: &str,
     ) -> Result<BeginTurnResult, String> {
         let turn_id = req.turn_id.trim();
         let session_id = req.session_id.trim();
@@ -232,6 +252,9 @@ impl Store {
             .sessions
             .get_mut(session_id)
             .ok_or_else(|| format!("agent session {session_id:?} was not found"))?;
+        if !session_owned_by(session, subject_id) {
+            return Err(format!("agent session {session_id:?} is not writable"));
+        }
 
         if let Some(existing) = self.turns.get(turn_id) {
             if existing.session_id != session_id {
@@ -299,6 +322,28 @@ impl Store {
         self.turns.get(id.trim()).cloned()
     }
 
+    pub fn get_turn_if_readable(&self, id: &str, subject_id: &str) -> Option<StoredTurn> {
+        self.turns
+            .get(id.trim())
+            .filter(|turn| {
+                self.sessions
+                    .get(&turn.session_id)
+                    .is_some_and(|session| session_readable_by(session, subject_id))
+            })
+            .cloned()
+    }
+
+    pub fn get_turn_if_owner(&self, id: &str, subject_id: &str) -> Option<StoredTurn> {
+        self.turns
+            .get(id.trim())
+            .filter(|turn| {
+                self.sessions
+                    .get(&turn.session_id)
+                    .is_some_and(|session| session_owned_by(session, subject_id))
+            })
+            .cloned()
+    }
+
     pub fn list_turns(
         &self,
         session_id: &str,
@@ -326,13 +371,11 @@ impl Store {
         } else {
             self.turns.values().cloned().collect()
         };
-        if !subject_id.is_empty() {
-            turns.retain(|turn| {
-                turn.created_by
-                    .as_ref()
-                    .is_some_and(|actor| actor.subject_id.trim() == subject_id)
-            });
-        }
+        turns.retain(|turn| {
+            self.sessions
+                .get(&turn.session_id)
+                .is_some_and(|session| session_readable_by(session, subject_id))
+        });
         if status != AgentExecutionStatus::Unspecified {
             turns.retain(|turn| turn.status == status);
         }
@@ -374,7 +417,17 @@ impl Store {
         Some(turn.clone())
     }
 
-    pub fn cancel_turn(&mut self, turn_id: &str, reason: &str) -> Option<StoredTurn> {
+    pub fn cancel_turn(
+        &mut self,
+        turn_id: &str,
+        reason: &str,
+        subject_id: &str,
+    ) -> Option<StoredTurn> {
+        let turn = self.turns.get(turn_id.trim())?;
+        let session = self.sessions.get(&turn.session_id)?;
+        if !session_owned_by(session, subject_id) {
+            return None;
+        }
         self.finish_turn(
             turn_id,
             AgentExecutionStatus::Canceled,
@@ -407,7 +460,21 @@ impl Store {
         event
     }
 
-    pub fn list_events(&self, turn_id: &str, after_seq: i64, limit: i32) -> Vec<StoredEvent> {
+    pub fn list_events(
+        &self,
+        turn_id: &str,
+        after_seq: i64,
+        limit: i32,
+        subject_id: &str,
+    ) -> Vec<StoredEvent> {
+        if !self
+            .turns
+            .get(turn_id.trim())
+            .and_then(|turn| self.sessions.get(&turn.session_id))
+            .is_some_and(|session| session_readable_by(session, subject_id))
+        {
+            return Vec::new();
+        }
         let mut events: Vec<StoredEvent> = self
             .events
             .get(turn_id.trim())
@@ -483,6 +550,57 @@ fn is_terminal(status: AgentExecutionStatus) -> bool {
     status == AgentExecutionStatus::Succeeded
         || status == AgentExecutionStatus::Failed
         || status == AgentExecutionStatus::Canceled
+}
+
+fn session_visibility(
+    metadata: Option<&serde_json::Value>,
+    created_by: Option<&AgentActor>,
+) -> SessionVisibility {
+    if is_slack_agent_session_metadata(metadata) && is_managed_actor(created_by) {
+        SessionVisibility::Company
+    } else {
+        SessionVisibility::Private
+    }
+}
+
+fn is_slack_agent_session_metadata(metadata: Option<&serde_json::Value>) -> bool {
+    let Some(slack) = metadata.and_then(|metadata| metadata.get("slack")) else {
+        return false;
+    };
+    non_empty_json_string(slack.get("team_id"))
+        && non_empty_json_string(slack.get("channel_id"))
+        && non_empty_json_string(slack.get("root_message_ts"))
+        && non_empty_json_string(slack.get("session_ref"))
+}
+
+fn non_empty_json_string(value: Option<&serde_json::Value>) -> bool {
+    value
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty())
+}
+
+fn is_managed_actor(actor: Option<&AgentActor>) -> bool {
+    actor.is_some_and(|actor| {
+        actor.subject_kind.trim() == "service_account"
+            || actor.subject_id.trim().starts_with("service_account:")
+    })
+}
+
+pub(crate) fn session_readable_by(session: &StoredSession, subject_id: &str) -> bool {
+    let subject_id = subject_id.trim();
+    if subject_id.is_empty() {
+        return false;
+    }
+    session_owned_by(session, subject_id) || session.visibility == SessionVisibility::Company
+}
+
+fn session_owned_by(session: &StoredSession, subject_id: &str) -> bool {
+    let subject_id = subject_id.trim();
+    !subject_id.is_empty()
+        && session
+            .created_by
+            .as_ref()
+            .is_some_and(|actor| actor.subject_id.trim() == subject_id)
 }
 
 fn timestamp_key(ts: Option<&SystemTime>) -> SystemTime {

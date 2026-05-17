@@ -1,3 +1,4 @@
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   AgentExecutionStatus,
   AgentSessionState,
@@ -11,7 +12,10 @@ import {
 
 type AgentSessionInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["createSession"]>>>;
 type AgentTurnInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["createTurn"]>>>;
-type AgentTurnEventInit = AgentTurnEvent;
+type AgentTurnEventListInit = Awaited<
+  ReturnType<NonNullable<AgentProviderOptions["listTurnEvents"]>>
+>;
+type AgentTurnEventInit = AgentTurnEventListInit[number];
 
 export type PreparedWorkspace = {
   root: string;
@@ -23,6 +27,13 @@ export const TERMINAL_STATUSES = new Set<AgentExecutionStatus>([
   AgentExecutionStatus.FAILED,
   AgentExecutionStatus.CANCELED,
 ]);
+
+export const SESSION_VISIBILITY_PRIVATE = "private";
+export const SESSION_VISIBILITY_COMPANY = "company";
+
+export type StoredSessionVisibility =
+  | typeof SESSION_VISIBILITY_PRIVATE
+  | typeof SESSION_VISIBILITY_COMPANY;
 
 export class StoreConflictError extends Error {
   constructor(message: string) {
@@ -39,6 +50,7 @@ export type StoredSession = {
   clientRef: string;
   state: AgentSessionState;
   metadata: Record<string, unknown>;
+  visibility: StoredSessionVisibility;
   preparedWorkspace: PreparedWorkspace | undefined;
   createdBy: AgentActor | undefined;
   createdAt: Date;
@@ -96,6 +108,7 @@ export class InMemoryRunStore {
     model: string;
     clientRef: string;
     metadata: Record<string, unknown>;
+    visibility: StoredSessionVisibility;
     preparedWorkspace: PreparedWorkspace | undefined;
     createdBy: AgentActor | undefined;
   }): { session: StoredSession; created: boolean } {
@@ -125,6 +138,7 @@ export class InMemoryRunStore {
       clientRef: input.clientRef,
       state: AgentSessionState.ACTIVE,
       metadata: cloneRecord(input.metadata),
+      visibility: input.visibility,
       preparedWorkspace: cloneMaybe(input.preparedWorkspace),
       createdBy: cloneMaybe(input.createdBy),
       createdAt: now,
@@ -166,7 +180,13 @@ export class InMemoryRunStore {
         })
       : [...this.sessions.values()];
     if (input.subjectId) {
-      sessions = sessions.filter((session) => session.createdBy?.subjectId === input.subjectId);
+      sessions = sessions.filter(
+        (session) =>
+          session.createdBy?.subjectId === input.subjectId ||
+          session.visibility === SESSION_VISIBILITY_COMPANY,
+      );
+    } else {
+      sessions = [];
     }
     if (input.state) {
       sessions = sessions.filter((session) => session.state === input.state);
@@ -286,12 +306,18 @@ export class InMemoryRunStore {
     limit: number | undefined;
   }): StoredTurn[] {
     const requested = (input.turnIds ?? []).map((value) => value.trim()).filter(Boolean);
+    const sessionId = input.sessionId.trim();
     let turns = requested.length
       ? requested.flatMap((id) => {
           const turn = this.turns.get(id);
           return turn ? [turn] : [];
         })
-      : [...this.turns.values()].filter((turn) => turn.sessionId === input.sessionId.trim());
+      : [...this.turns.values()];
+    if (sessionId) {
+      turns = turns.filter((turn) => turn.sessionId === sessionId);
+    } else if (!requested.length) {
+      turns = [];
+    }
     if (input.subjectId) {
       turns = turns.filter((turn) => turn.createdBy?.subjectId === input.subjectId);
     }
@@ -405,8 +431,8 @@ export function sessionToAgentSession(session: StoredSession, summaryOnly = fals
     model: session.model,
     clientRef: session.clientRef,
     state: session.state,
-    createdAt: new Date(session.createdAt),
-    updatedAt: new Date(session.updatedAt),
+    createdAt: timestampFromDate(session.createdAt),
+    updatedAt: timestampFromDate(session.updatedAt),
   };
   if (!summaryOnly && Object.keys(session.metadata).length > 0) {
     out.metadata = session.metadata as AgentSession["metadata"];
@@ -415,7 +441,7 @@ export function sessionToAgentSession(session: StoredSession, summaryOnly = fals
     out.createdBy = session.createdBy;
   }
   if (session.lastTurnAt) {
-    out.lastTurnAt = new Date(session.lastTurnAt);
+    out.lastTurnAt = timestampFromDate(session.lastTurnAt);
   }
   return out;
 }
@@ -430,7 +456,7 @@ export function turnToAgentTurn(turn: StoredTurn, summaryOnly = false): AgentTur
     outputText: summaryOnly ? "" : turn.outputText,
     statusMessage: turn.statusMessage,
     executionRef: turn.executionRef,
-    createdAt: new Date(turn.createdAt),
+    createdAt: timestampFromDate(turn.createdAt),
   };
   if (!summaryOnly) {
     out.messages = cloneMessages(turn.messages);
@@ -439,10 +465,10 @@ export function turnToAgentTurn(turn: StoredTurn, summaryOnly = false): AgentTur
     out.createdBy = turn.createdBy;
   }
   if (turn.startedAt) {
-    out.startedAt = new Date(turn.startedAt);
+    out.startedAt = timestampFromDate(turn.startedAt);
   }
   if (turn.completedAt) {
-    out.completedAt = new Date(turn.completedAt);
+    out.completedAt = timestampFromDate(turn.completedAt);
   }
   return out;
 }
@@ -456,7 +482,7 @@ export function turnEventToAgentTurnEvent(event: StoredTurnEvent): AgentTurnEven
     source: event.source,
     visibility: event.visibility,
     data: event.data as AgentTurnEvent["data"],
-    createdAt: new Date(event.createdAt),
+    createdAt: timestampFromDate(event.createdAt),
   };
 }
 

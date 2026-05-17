@@ -886,39 +886,6 @@ def reply_slack_event_session_started(
             status=HTTPStatus.PRECONDITION_FAILED,
             body={"error": "host.public_base_url is required"},
         )
-    try:
-        _grant_agent_session_viewer_to_everyone(
-            req.authorization(),
-            normalized_session_id,
-        )
-    except RuntimeError:
-        logger.warning(
-            "slack: missing authorization provider for agent session share",
-            exc_info=True,
-        )
-        return gestalt.Response(
-            status=HTTPStatus.PRECONDITION_FAILED,
-            body={"error": "authorization provider is required to share agent session"},
-        )
-    except Exception as err:
-        diagnostic = {
-            "type": type(err).__name__,
-            "message": str(err),
-        }
-        logger.warning(
-            f"slack: failed to share agent session before posting link "
-            f"authorization_error_type={diagnostic['type']} "
-            f"authorization_error_message={diagnostic['message']}",
-            exc_info=True,
-        )
-        return gestalt.Response(
-            status=HTTPStatus.BAD_GATEWAY,
-            body={
-                "error": "failed to share agent session",
-                "authorization_error": diagnostic,
-            },
-        )
-
     session_url = agent_session_url(base_url, normalized_session_id)
     text = f"Started a Gestalt session: <{session_url}|open session>"
     log_context = _slack_delivery_log_context(
@@ -973,41 +940,6 @@ def reply_slack_event_session_started(
 
 def _reply_ref_is_thread_reply(ref: SlackReplyRef) -> bool:
     return bool(ref.reply_thread_ts and ref.reply_thread_ts != ref.message_ts)
-
-
-def _grant_agent_session_viewer_to_everyone(authorization: Any, session_id: str) -> None:
-    normalized_session_id = session_id.strip()
-    if not normalized_session_id:
-        raise RuntimeError("agent session share requires session")
-    write_relationships = getattr(authorization, "write_relationships", None)
-    if not callable(write_relationships):
-        raise RuntimeError("authorization client does not support agent session sharing")
-    write_relationships(
-        _agent_session_everyone_viewer_write_request(normalized_session_id)
-    )
-
-
-def _agent_session_everyone_viewer_write_request(session_id: str) -> dict[str, Any]:
-    return {
-        "writes": [
-            {
-                "target": {
-                    "subject_set": {
-                        "resource": {
-                            "type": "everyone",
-                            "id": "global",
-                        },
-                        "relation": "member",
-                    },
-                },
-                "relation": "viewer",
-                "resource": {
-                    "type": "agent_session",
-                    "id": session_id,
-                },
-            }
-        ]
-    }
 
 
 def set_slack_event_status(

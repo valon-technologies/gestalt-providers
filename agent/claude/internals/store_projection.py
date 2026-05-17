@@ -7,7 +7,15 @@ from typing import Any
 
 import gestalt
 
-from .store_records import StoredSession, StoredTurn, _coerce_datetime, _coerce_required_datetime, _coerce_string_dict
+from .store_records import (
+    SESSION_VISIBILITY_COMPANY,
+    SESSION_VISIBILITY_PRIVATE,
+    StoredSession,
+    StoredTurn,
+    _coerce_datetime,
+    _coerce_required_datetime,
+    _coerce_string_dict,
+)
 
 PROJECTION_SCHEMA_VERSION = 1
 PROJECTION_SEP = "\x1f"
@@ -46,6 +54,7 @@ def _session_projection_to_record(record_id: str, session: StoredSession) -> dic
         "client_ref": session.client_ref,
         "state": session.state,
         "created_by": copy.deepcopy(session.created_by),
+        "visibility": session.visibility,
         "created_at": session.created_at,
         "updated_at": session.updated_at,
         "last_turn_at": session.last_turn_at,
@@ -68,6 +77,7 @@ def _record_to_session_projection(record: dict[str, Any] | None) -> StoredSessio
         metadata={},
         prepared_workspace=None,
         created_by=_coerce_string_dict(record.get("created_by")),
+        visibility=_projection_visibility(record.get("visibility")),
         created_at=_coerce_required_datetime(record.get("created_at")),
         updated_at=_coerce_required_datetime(record.get("updated_at")),
         last_turn_at=_coerce_datetime(record.get("last_turn_at")),
@@ -131,6 +141,11 @@ def _session_projection_keys(session: StoredSession) -> list[str]:
         subject = _projection_value(subject_id)
         keys.append(_projection_key("session", "subject", subject, "all", sort_key, session_id))
         keys.append(_projection_key("session", "subject", subject, "state", state, sort_key, session_id))
+    if session.visibility == SESSION_VISIBILITY_COMPANY:
+        keys.append(_projection_key("session", "visibility", SESSION_VISIBILITY_COMPANY, "all", sort_key, session_id))
+        keys.append(
+            _projection_key("session", "visibility", SESSION_VISIBILITY_COMPANY, "state", state, sort_key, session_id)
+        )
     return keys
 
 
@@ -153,12 +168,17 @@ def _turn_projection_keys(turn: StoredTurn) -> list[str]:
     return keys
 
 
-def _session_projection_prefix(*, subject_id: str = "", state: int = 0) -> str:
+def _session_projection_prefix(*, subject_id: str = "", state: int = 0, visibility: str = "") -> str:
     subject_id = subject_id.strip()
+    visibility = visibility.strip()
     if subject_id and state:
         return _projection_prefix("session", "subject", _projection_value(subject_id), "state", str(state))
     if subject_id:
         return _projection_prefix("session", "subject", _projection_value(subject_id), "all")
+    if visibility and state:
+        return _projection_prefix("session", "visibility", visibility, "state", str(state))
+    if visibility:
+        return _projection_prefix("session", "visibility", visibility, "all")
     if state:
         return _projection_prefix("session", "state", str(state))
     return _projection_prefix("session", "all")
@@ -221,3 +241,10 @@ def _prefix_key_range(prefix: str) -> Any:
 
 def _subject_id_from_actor(actor: dict[str, str]) -> str:
     return str(actor.get("subject_id", "") or "").strip()
+
+
+def _projection_visibility(value: Any) -> str:
+    visibility = str(value or "").strip()
+    if visibility in {SESSION_VISIBILITY_PRIVATE, SESSION_VISIBILITY_COMPANY}:
+        return visibility
+    return SESSION_VISIBILITY_PRIVATE

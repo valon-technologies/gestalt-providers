@@ -18,6 +18,9 @@ use tonic::transport::Server;
 use gestalt_agent_hermes::HermesAgentProvider;
 
 static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+const OWNER_SUBJECT_ID: &str = "user-1";
+const OTHER_SUBJECT_ID: &str = "user-2";
+const SLACK_SUBJECT_ID: &str = "service_account:slack-bot";
 
 #[tokio::test]
 async fn completes_turn_and_refreshes_adc_token_per_turn() {
@@ -59,6 +62,7 @@ async fn completes_turn_and_refreshes_adc_token_per_turn() {
     let events = provider
         .list_turn_events(gestalt::ListAgentProviderTurnEventsRequest {
             turn_id: "turn-1".to_string(),
+            subject: Some(owner_subject()),
             ..Default::default()
         })
         .await
@@ -860,6 +864,8 @@ async fn explicit_no_tool_turn_allows_run_grant_without_mcp_servers() {
                 text: "say hi".to_string(),
                 ..Default::default()
             }],
+            created_by: Some(owner_actor()),
+            subject: Some(owner_subject()),
             ..Default::default()
         })
         .await
@@ -881,6 +887,8 @@ async fn explicit_no_tool_turn_allows_run_grant_without_mcp_servers() {
                 text: "say hi again".to_string(),
                 ..Default::default()
             }],
+            created_by: Some(owner_actor()),
+            subject: Some(owner_subject()),
             ..Default::default()
         })
         .await
@@ -951,6 +959,8 @@ async fn rejects_unsupported_tool_and_model_options() {
                 name: "tool".to_string(),
                 ..Default::default()
             }],
+            created_by: Some(owner_actor()),
+            subject: Some(owner_subject()),
             ..Default::default()
         })
         .await
@@ -971,6 +981,8 @@ async fn rejects_unsupported_tool_and_model_options() {
                 plugin: "*".to_string(),
                 ..Default::default()
             }],
+            created_by: Some(owner_actor()),
+            subject: Some(owner_subject()),
             ..Default::default()
         })
         .await
@@ -987,6 +999,8 @@ async fn rejects_unsupported_tool_and_model_options() {
                 ..Default::default()
             }],
             response_schema: Some(json!({ "type": "object" })),
+            created_by: Some(owner_actor()),
+            subject: Some(owner_subject()),
             ..Default::default()
         })
         .await
@@ -1003,6 +1017,8 @@ async fn rejects_unsupported_tool_and_model_options() {
                 ..Default::default()
             }],
             model_options: Some(json!({ "type": "object" })),
+            created_by: Some(owner_actor()),
+            subject: Some(owner_subject()),
             ..Default::default()
         })
         .await
@@ -1031,6 +1047,387 @@ async fn rejects_empty_session_id_without_spawning_hermes() {
 }
 
 #[tokio::test]
+async fn owner_can_read_and_mutate_private_session() {
+    let fixture = Fixture::new("success");
+    let provider = fixture.configure_provider().await;
+    create_session_with(
+        &provider,
+        "session-owner-private",
+        OWNER_SUBJECT_ID,
+        Some(owner_subject()),
+        None,
+    )
+    .await;
+
+    let session = provider
+        .get_session(gestalt::GetAgentProviderSessionRequest {
+            session_id: "session-owner-private".to_string(),
+            subject: Some(owner_subject()),
+        })
+        .await
+        .unwrap();
+    assert_eq!(session.id, "session-owner-private");
+
+    let updated = provider
+        .update_session(gestalt::UpdateAgentProviderSessionRequest {
+            session_id: "session-owner-private".to_string(),
+            client_ref: "owner-ref".to_string(),
+            subject: Some(owner_subject()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(updated.client_ref, "owner-ref");
+
+    create_turn_in_session(&provider, "session-owner-private", "turn-owner-private").await;
+    wait_for_turn(
+        &provider,
+        "turn-owner-private",
+        gestalt::AgentExecutionStatus::Succeeded,
+    )
+    .await;
+    let turns = provider
+        .list_turns(gestalt::ListAgentProviderTurnsRequest {
+            session_id: "session-owner-private".to_string(),
+            subject: Some(owner_subject()),
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .turns;
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].id, "turn-owner-private");
+}
+
+#[tokio::test]
+async fn slack_metadata_makes_session_company_visible_at_create_only() {
+    let fixture = Fixture::new("success");
+    let provider = fixture.configure_provider().await;
+    create_session_with(
+        &provider,
+        "session-company",
+        SLACK_SUBJECT_ID,
+        Some(slack_subject()),
+        Some(json!({
+            "slack": {
+                "team_id": "T1",
+                "channel_id": "C1",
+                "channel_type": "channel",
+                "root_message_ts": "1712161829.000300",
+                "session_ref": "slack:T1:C1:1712161829.000300"
+            }
+        })),
+    )
+    .await;
+    create_session_with(
+        &provider,
+        "session-private-mixed",
+        OWNER_SUBJECT_ID,
+        Some(owner_subject()),
+        None,
+    )
+    .await;
+
+    let session = provider
+        .get_session(gestalt::GetAgentProviderSessionRequest {
+            session_id: "session-company".to_string(),
+            subject: Some(other_subject()),
+        })
+        .await
+        .unwrap();
+    assert_eq!(session.id, "session-company");
+
+    let sessions = provider
+        .list_sessions(gestalt::ListAgentProviderSessionsRequest {
+            subject: Some(other_subject()),
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .sessions;
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].id, "session-company");
+
+    let missing_subject_err = provider
+        .get_session(gestalt::GetAgentProviderSessionRequest {
+            session_id: "session-company".to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(missing_subject_err.status(), Some(404));
+
+    provider
+        .update_session(gestalt::UpdateAgentProviderSessionRequest {
+            session_id: "session-company".to_string(),
+            metadata: Some(json!({ "note": "slack metadata removed" })),
+            subject: Some(slack_subject()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    provider
+        .get_session(gestalt::GetAgentProviderSessionRequest {
+            session_id: "session-company".to_string(),
+            subject: Some(other_subject()),
+        })
+        .await
+        .unwrap();
+
+    create_turn_in_session_as(
+        &provider,
+        "session-company",
+        "turn-company",
+        slack_actor(),
+        slack_subject(),
+    )
+    .await;
+    wait_for_turn(
+        &provider,
+        "turn-company",
+        gestalt::AgentExecutionStatus::Succeeded,
+    )
+    .await;
+    provider
+        .get_turn(gestalt::GetAgentProviderTurnRequest {
+            turn_id: "turn-company".to_string(),
+            subject: Some(other_subject()),
+        })
+        .await
+        .unwrap();
+    let turns = provider
+        .list_turns(gestalt::ListAgentProviderTurnsRequest {
+            session_id: "session-company".to_string(),
+            subject: Some(other_subject()),
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .turns;
+    assert_eq!(turns.len(), 1);
+    assert_eq!(turns[0].id, "turn-company");
+    let exact_turns = provider
+        .list_turns(gestalt::ListAgentProviderTurnsRequest {
+            turn_ids: vec!["turn-company".to_string()],
+            subject: Some(other_subject()),
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .turns;
+    assert_eq!(exact_turns.len(), 1);
+    assert_eq!(exact_turns[0].id, "turn-company");
+    let events = provider
+        .list_turn_events(gestalt::ListAgentProviderTurnEventsRequest {
+            turn_id: "turn-company".to_string(),
+            subject: Some(other_subject()),
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .events;
+    assert!(!events.is_empty());
+}
+
+#[tokio::test]
+async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
+    let fixture = Fixture::new("success");
+    let provider = fixture.configure_provider().await;
+    create_session_with(
+        &provider,
+        "session-private-hidden",
+        OWNER_SUBJECT_ID,
+        Some(owner_subject()),
+        None,
+    )
+    .await;
+    create_turn_in_session(&provider, "session-private-hidden", "turn-private-hidden").await;
+    wait_for_turn(
+        &provider,
+        "turn-private-hidden",
+        gestalt::AgentExecutionStatus::Succeeded,
+    )
+    .await;
+
+    let err = provider
+        .get_session(gestalt::GetAgentProviderSessionRequest {
+            session_id: "session-private-hidden".to_string(),
+            subject: Some(other_subject()),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.status(), Some(404));
+    let err = provider
+        .get_session(gestalt::GetAgentProviderSessionRequest {
+            session_id: "session-private-hidden".to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.status(), Some(404));
+
+    let sessions = provider
+        .list_sessions(gestalt::ListAgentProviderSessionsRequest {
+            subject: Some(other_subject()),
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .sessions;
+    assert!(sessions.is_empty());
+    let sessions = provider
+        .list_sessions(gestalt::ListAgentProviderSessionsRequest::default())
+        .await
+        .unwrap()
+        .sessions;
+    assert!(sessions.is_empty());
+
+    let err = provider
+        .get_turn(gestalt::GetAgentProviderTurnRequest {
+            turn_id: "turn-private-hidden".to_string(),
+            subject: Some(other_subject()),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.status(), Some(404));
+    let turns = provider
+        .list_turns(gestalt::ListAgentProviderTurnsRequest {
+            session_id: "session-private-hidden".to_string(),
+            subject: Some(other_subject()),
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .turns;
+    assert!(turns.is_empty());
+    let events = provider
+        .list_turn_events(gestalt::ListAgentProviderTurnEventsRequest {
+            turn_id: "turn-private-hidden".to_string(),
+            subject: Some(other_subject()),
+            ..Default::default()
+        })
+        .await
+        .unwrap()
+        .events;
+    assert!(events.is_empty());
+
+    provider
+        .update_session(gestalt::UpdateAgentProviderSessionRequest {
+            session_id: "session-private-hidden".to_string(),
+            metadata: Some(json!({
+                "slack": {
+                    "team_id": "T1",
+                    "channel_id": "C1",
+                    "session_ref": "slack:T1:C1"
+                }
+            })),
+            subject: Some(owner_subject()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let err = provider
+        .get_session(gestalt::GetAgentProviderSessionRequest {
+            session_id: "session-private-hidden".to_string(),
+            subject: Some(other_subject()),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.status(), Some(404));
+
+    create_session_with(
+        &provider,
+        "session-incomplete-slack",
+        SLACK_SUBJECT_ID,
+        Some(slack_subject()),
+        Some(json!({ "slack": { "team_id": "T1", "channel_id": "C1" } })),
+    )
+    .await;
+    let err = provider
+        .get_session(gestalt::GetAgentProviderSessionRequest {
+            session_id: "session-incomplete-slack".to_string(),
+            subject: Some(other_subject()),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.status(), Some(404));
+}
+
+#[tokio::test]
+async fn non_owner_cannot_mutate_company_visible_session_or_turn() {
+    let fixture = Fixture::new("success");
+    let provider = fixture.configure_provider().await;
+    create_session_with(
+        &provider,
+        "session-company-write",
+        SLACK_SUBJECT_ID,
+        Some(slack_subject()),
+        Some(json!({
+            "slack": {
+                "team_id": "T1",
+                "channel_id": "C1",
+                "root_message_ts": "1712161829.000300",
+                "session_ref": "slack:T1:C1:1712161829.000300"
+            }
+        })),
+    )
+    .await;
+
+    let err = provider
+        .update_session(gestalt::UpdateAgentProviderSessionRequest {
+            session_id: "session-company-write".to_string(),
+            client_ref: "other-ref".to_string(),
+            subject: Some(other_subject()),
+            ..Default::default()
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.status(), Some(403));
+
+    let err = provider
+        .create_turn(gestalt::CreateAgentProviderTurnRequest {
+            turn_id: "turn-other-write".to_string(),
+            session_id: "session-company-write".to_string(),
+            messages: vec![gestalt::AgentMessage {
+                role: "user".to_string(),
+                text: "hi".to_string(),
+                ..Default::default()
+            }],
+            subject: Some(other_subject()),
+            created_by: Some(subject_actor(OTHER_SUBJECT_ID)),
+            ..Default::default()
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.status(), Some(403));
+
+    create_turn_in_session_as(
+        &provider,
+        "session-company-write",
+        "turn-company-write-owner",
+        slack_actor(),
+        slack_subject(),
+    )
+    .await;
+    let err = provider
+        .cancel_turn(gestalt::CancelAgentProviderTurnRequest {
+            turn_id: "turn-company-write-owner".to_string(),
+            reason: "other subject requested".to_string(),
+            subject: Some(other_subject()),
+            ..Default::default()
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.status(), Some(403));
+    wait_for_turn(
+        &provider,
+        "turn-company-write-owner",
+        gestalt::AgentExecutionStatus::Succeeded,
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn cancel_turn_sends_acp_cancel_and_marks_turn_canceled() {
     let fixture = Fixture::new("hang");
     let provider = fixture.configure_provider().await;
@@ -1042,6 +1439,7 @@ async fn cancel_turn_sends_acp_cancel_and_marks_turn_canceled() {
         .cancel_turn(gestalt::CancelAgentProviderTurnRequest {
             turn_id: "turn-cancel".to_string(),
             reason: "operator requested".to_string(),
+            subject: Some(owner_subject()),
             ..Default::default()
         })
         .await
@@ -1062,6 +1460,7 @@ async fn cancel_before_acp_spawn_prevents_prompt() {
         .cancel_turn(gestalt::CancelAgentProviderTurnRequest {
             turn_id: "turn-early-cancel".to_string(),
             reason: "operator requested".to_string(),
+            subject: Some(owner_subject()),
             ..Default::default()
         })
         .await
@@ -1497,15 +1896,30 @@ impl Fixture {
 }
 
 async fn create_session(provider: &HermesAgentProvider) -> gestalt::AgentSession {
+    create_session_with(
+        provider,
+        "session-1",
+        OWNER_SUBJECT_ID,
+        Some(owner_subject()),
+        None,
+    )
+    .await
+}
+
+async fn create_session_with(
+    provider: &HermesAgentProvider,
+    session_id: &str,
+    owner_subject_id: &str,
+    subject: Option<gestalt::AgentSubjectContext>,
+    metadata: Option<JsonValue>,
+) -> gestalt::AgentSession {
     provider
         .create_session(gestalt::CreateAgentProviderSessionRequest {
-            session_id: "session-1".to_string(),
+            session_id: session_id.to_string(),
             model: "kimi-k2.6".to_string(),
-            created_by: Some(gestalt::AgentActor {
-                subject_id: "user-1".to_string(),
-                subject_kind: "human".to_string(),
-                ..Default::default()
-            }),
+            metadata,
+            created_by: Some(subject_actor(owner_subject_id)),
+            subject,
             ..Default::default()
         })
         .await
@@ -1513,15 +1927,42 @@ async fn create_session(provider: &HermesAgentProvider) -> gestalt::AgentSession
 }
 
 async fn create_turn(provider: &HermesAgentProvider, turn_id: &str) -> gestalt::AgentTurn {
+    create_turn_in_session(provider, "session-1", turn_id).await
+}
+
+async fn create_turn_in_session(
+    provider: &HermesAgentProvider,
+    session_id: &str,
+    turn_id: &str,
+) -> gestalt::AgentTurn {
+    create_turn_in_session_as(
+        provider,
+        session_id,
+        turn_id,
+        owner_actor(),
+        owner_subject(),
+    )
+    .await
+}
+
+async fn create_turn_in_session_as(
+    provider: &HermesAgentProvider,
+    session_id: &str,
+    turn_id: &str,
+    created_by: gestalt::AgentActor,
+    subject: gestalt::AgentSubjectContext,
+) -> gestalt::AgentTurn {
     provider
         .create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: turn_id.to_string(),
-            session_id: "session-1".to_string(),
+            session_id: session_id.to_string(),
             messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "say hi".to_string(),
                 ..Default::default()
             }],
+            created_by: Some(created_by),
+            subject: Some(subject),
             ..Default::default()
         })
         .await
@@ -1544,10 +1985,64 @@ async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> gesta
                 ..Default::default()
             }],
             run_grant: "grant-mcp".to_string(),
+            created_by: Some(owner_actor()),
+            subject: Some(owner_subject()),
             ..Default::default()
         })
         .await
         .unwrap()
+}
+
+fn owner_actor() -> gestalt::AgentActor {
+    subject_actor(OWNER_SUBJECT_ID)
+}
+
+fn owner_subject() -> gestalt::AgentSubjectContext {
+    subject_context(OWNER_SUBJECT_ID)
+}
+
+fn slack_actor() -> gestalt::AgentActor {
+    service_account_actor(SLACK_SUBJECT_ID)
+}
+
+fn slack_subject() -> gestalt::AgentSubjectContext {
+    service_account_subject(SLACK_SUBJECT_ID)
+}
+
+fn other_subject() -> gestalt::AgentSubjectContext {
+    subject_context(OTHER_SUBJECT_ID)
+}
+
+fn subject_actor(subject_id: &str) -> gestalt::AgentActor {
+    gestalt::AgentActor {
+        subject_id: subject_id.to_string(),
+        subject_kind: "human".to_string(),
+        ..Default::default()
+    }
+}
+
+fn service_account_actor(subject_id: &str) -> gestalt::AgentActor {
+    gestalt::AgentActor {
+        subject_id: subject_id.to_string(),
+        subject_kind: "service_account".to_string(),
+        ..Default::default()
+    }
+}
+
+fn subject_context(subject_id: &str) -> gestalt::AgentSubjectContext {
+    gestalt::AgentSubjectContext {
+        subject_id: subject_id.to_string(),
+        subject_kind: "human".to_string(),
+        ..Default::default()
+    }
+}
+
+fn service_account_subject(subject_id: &str) -> gestalt::AgentSubjectContext {
+    gestalt::AgentSubjectContext {
+        subject_id: subject_id.to_string(),
+        subject_kind: "service_account".to_string(),
+        ..Default::default()
+    }
 }
 
 async fn serve_agent_host(
@@ -1576,6 +2071,7 @@ async fn wait_for_turn(
         let turn = provider
             .get_turn(gestalt::GetAgentProviderTurnRequest {
                 turn_id: turn_id.to_string(),
+                subject: Some(owner_subject()),
                 ..Default::default()
             })
             .await
@@ -1614,6 +2110,7 @@ async fn assert_turn_event(provider: &HermesAgentProvider, turn_id: &str, event_
     let events = provider
         .list_turn_events(gestalt::ListAgentProviderTurnEventsRequest {
             turn_id: turn_id.to_string(),
+            subject: Some(owner_subject()),
             ..Default::default()
         })
         .await

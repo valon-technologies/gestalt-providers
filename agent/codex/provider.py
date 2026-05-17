@@ -16,7 +16,14 @@ from internals.session_start import (
     session_start_metadata_paths,
     validate_session_start_user_metadata,
 )
-from internals.store import StoreConflictError, StoredSession, StoredTurn, StoredTurnEvent
+from internals.store import (
+    StoreConflictError,
+    StoredSession,
+    StoredTurn,
+    StoredTurnEvent,
+    session_readable_by,
+    session_writable_by,
+)
 from internals.store import InMemoryRunStore
 
 logger = logging.getLogger(__name__)
@@ -85,6 +92,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             with self._session_start_lock:
                 existing = _existing_session_for_create(store, session_id, idempotency_key)
                 if existing is not None:
+                    _require_session_readable(existing, _subject_id(getattr(request, "subject", None)))
                     return _agent_session(existing)
                 try:
                     metadata = run_session_start_hooks(session_start, metadata)
@@ -101,7 +109,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                     created_by=gestalt.agent_actor_to_dict(request.created_by),
                 )
                 return _agent_session(session)
-        session, _ = store.create_session(
+        session, created = store.create_session(
             session_id=session_id,
             idempotency_key=idempotency_key,
             provider_name=self._name,
@@ -111,6 +119,8 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             prepared_workspace=prepared_workspace,
             created_by=gestalt.agent_actor_to_dict(request.created_by),
         )
+        if not created:
+            _require_session_readable(session, _subject_id(getattr(request, "subject", None)))
         return _agent_session(session)
 
     def get_session(self, request: gestalt.GetAgentProviderSessionRequest) -> gestalt.AgentSession:
@@ -118,6 +128,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         session = store.get_session(str(request.session_id or "").strip())
         if session is None:
             raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
+        _require_session_readable(session, _subject_id(getattr(request, "subject", None)))
         return _agent_session(session)
 
     def list_sessions(
@@ -146,6 +157,10 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             validate_session_start_user_metadata(metadata)
         except ValueError as exc:
             raise gestalt.Error(400, str(exc)) from exc
+        existing = store.get_session(str(request.session_id or "").strip())
+        if existing is None:
+            raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
+        _require_session_writable(existing, _subject_id(getattr(request, "subject", None)))
         session = store.update_session(
             session_id=str(request.session_id or "").strip(),
             client_ref=str(request.client_ref or "").strip(),
@@ -162,6 +177,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         session = store.get_session(str(request.session_id or "").strip())
         if session is None:
             raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
+        _require_session_writable(session, _subject_id(getattr(request, "subject", None)))
         if len(list(request.messages)) == 0:
             raise gestalt.Error(400, "messages must contain at least one entry")
         try:
@@ -212,6 +228,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         turn = store.get_turn(str(request.turn_id or "").strip())
         if turn is None:
             raise gestalt.Error(404, f"agent turn {request.turn_id!r} was not found")
+        _require_session_readable(_session_for_turn(store, turn), _subject_id(getattr(request, "subject", None)))
         return _agent_turn(turn)
 
     def list_turns(self, request: gestalt.ListAgentProviderTurnsRequest) -> gestalt.ListAgentProviderTurnsResponse:
@@ -219,21 +236,37 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         limit = int(getattr(request, "limit", 0) or 0)
         if limit < 0:
             raise gestalt.Error(400, "limit must be non-negative")
+        request_subject_id = _subject_id(getattr(request, "subject", None))
+        session_id = str(request.session_id or "").strip()
+        turn_ids = [str(value or "").strip() for value in getattr(request, "turn_ids", [])]
+        if session_id:
+            session = store.get_session(session_id)
+            if session is None or not session_readable_by(session, request_subject_id):
+                return gestalt.ListAgentProviderTurnsResponse(turns=[])
+        store_limit = 0 if turn_ids else limit
+        turns = _readable_turns(
+            store,
+            store.list_turns(
+                session_id=session_id,
+                turn_ids=turn_ids,
+                subject_id="",
+                status=int(getattr(request, "status", 0) or 0),
+                limit=store_limit,
+            ),
+            request_subject_id,
+        )
+        if turn_ids and limit > 0:
+            turns = turns[:limit]
         return gestalt.ListAgentProviderTurnsResponse(
-            turns=[
-                _agent_turn(turn, summary_only=bool(getattr(request, "summary_only", False)))
-                for turn in store.list_turns(
-                    session_id=str(request.session_id or "").strip(),
-                    turn_ids=[str(value or "").strip() for value in getattr(request, "turn_ids", [])],
-                    subject_id=_subject_id(request.subject),
-                    status=int(getattr(request, "status", 0) or 0),
-                    limit=limit,
-                )
-            ]
+            turns=[_agent_turn(turn, summary_only=bool(getattr(request, "summary_only", False))) for turn in turns]
         )
 
     def cancel_turn(self, request: gestalt.CancelAgentProviderTurnRequest) -> gestalt.AgentTurn:
         runner, store, _ = self._require_runtime()
+        existing = store.get_turn(str(request.turn_id or "").strip())
+        if existing is None:
+            raise gestalt.Error(404, f"agent turn {request.turn_id!r} was not found")
+        _require_session_writable(_session_for_turn(store, existing), _subject_id(getattr(request, "subject", None)))
         turn = store.cancel_turn(turn_id=str(request.turn_id or "").strip(), reason=str(request.reason or "").strip())
         if turn is None:
             raise gestalt.Error(404, f"agent turn {request.turn_id!r} was not found")
@@ -245,6 +278,12 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         self, request: gestalt.ListAgentProviderTurnEventsRequest
     ) -> gestalt.ListAgentProviderTurnEventsResponse:
         _, store, _ = self._require_runtime()
+        turn = store.get_turn(str(request.turn_id or "").strip())
+        if turn is None:
+            return gestalt.ListAgentProviderTurnEventsResponse(events=[])
+        session = _session_for_turn(store, turn)
+        if not session_readable_by(session, _subject_id(getattr(request, "subject", None))):
+            return gestalt.ListAgentProviderTurnEventsResponse(events=[])
         return gestalt.ListAgentProviderTurnEventsResponse(
             events=[
                 _agent_turn_event(event)
@@ -358,6 +397,38 @@ def _agent_session(session: StoredSession, *, summary_only: bool = False) -> ges
         updated_at=session.updated_at,
         last_turn_at=session.last_turn_at,
     )
+
+
+def _session_for_turn(store: InMemoryRunStore, turn: StoredTurn) -> StoredSession:
+    session = store.get_session(turn.session_id)
+    if session is None:
+        raise gestalt.Error(404, f"agent session {turn.session_id!r} was not found")
+    return session
+
+
+def _readable_turns(store: InMemoryRunStore, turns: list[StoredTurn], request_subject_id: str) -> list[StoredTurn]:
+    if not request_subject_id:
+        return []
+    readable: list[StoredTurn] = []
+    session_cache: dict[str, StoredSession | None] = {}
+    for turn in turns:
+        session = session_cache.get(turn.session_id)
+        if turn.session_id not in session_cache:
+            session = store.get_session(turn.session_id)
+            session_cache[turn.session_id] = session
+        if session is not None and session_readable_by(session, request_subject_id):
+            readable.append(turn)
+    return readable
+
+
+def _require_session_readable(session: StoredSession, request_subject_id: str) -> None:
+    if not session_readable_by(session, request_subject_id):
+        raise gestalt.Error(404, f"agent session {session.session_id!r} was not found")
+
+
+def _require_session_writable(session: StoredSession, request_subject_id: str) -> None:
+    if not session_writable_by(session, request_subject_id):
+        raise gestalt.Error(403, f"agent session {session.session_id!r} is owned by another subject")
 
 
 def _agent_turn(turn: StoredTurn, *, summary_only: bool = False) -> gestalt.AgentTurn:

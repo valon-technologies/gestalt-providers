@@ -41,8 +41,12 @@ import {
 } from "./session_start.ts";
 import {
   InMemoryRunStore,
+  SESSION_VISIBILITY_COMPANY,
+  SESSION_VISIBILITY_PRIVATE,
   StoreConflictError,
   type PreparedWorkspace,
+  type StoredSession,
+  type StoredSessionVisibility,
   sessionToAgentSession,
   turnEventToAgentTurnEvent,
   turnToAgentTurn,
@@ -148,6 +152,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
             request.idempotencyKey,
           );
           if (existing) {
+            this.requireReadableSession(existing, request.subject);
             return sessionToAgentSession(existing);
           }
           metadata = await runSessionStartHooks(sessionStart, metadata);
@@ -158,24 +163,32 @@ export class CursorAgentProvider extends SDKAgentProvider {
             model,
             clientRef: request.clientRef,
             metadata,
+            visibility: sessionVisibilityForCreateMetadata(metadata, request.createdBy),
             preparedWorkspace,
             createdBy: request.createdBy,
           });
           return sessionToAgentSession(session);
         });
       }
-      const { session } = this.store.createSession({
+      const { session, created } = this.store.createSession({
         sessionId: request.sessionId,
         idempotencyKey: request.idempotencyKey,
         providerName: this.name,
         model,
         clientRef: request.clientRef,
         metadata,
+        visibility: sessionVisibilityForCreateMetadata(metadata, request.createdBy),
         preparedWorkspace,
         createdBy: request.createdBy,
       });
+      if (!created) {
+        this.requireReadableSession(session, request.subject);
+      }
       return sessionToAgentSession(session);
     } catch (error) {
+      if (error instanceof ConnectError) {
+        throw error;
+      }
       if (errorMessage(error).startsWith("sessionStart hook")) {
         throw new ConnectError(errorMessage(error), Code.FailedPrecondition);
       }
@@ -188,7 +201,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
   ): Promise<AgentSessionInit> {
     this.requireRuntime();
     const session = this.store.getSession(request.sessionId);
-    if (!session) {
+    if (!session || !canReadSession(session, request.subject)) {
       throw notFound(
         `agent session ${JSON.stringify(request.sessionId)} was not found`,
       );
@@ -206,7 +219,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     return this.store
       .listSessions({
         sessionIds: request.sessionIds,
-        subjectId: request.subject?.subjectId,
+        subjectId: subjectIdFrom(request.subject),
         state: request.state,
         limit: request.limit,
       })
@@ -224,6 +237,13 @@ export class CursorAgentProvider extends SDKAgentProvider {
     } catch (error) {
       throw invalidArgument(errorMessage(error));
     }
+    const existing = this.store.getSession(request.sessionId);
+    if (!existing) {
+      throw notFound(
+        `agent session ${JSON.stringify(request.sessionId)} was not found`,
+      );
+    }
+    requireOwnedSession(existing, request.subject);
     const session = this.store.updateSession({
       sessionId: request.sessionId,
       clientRef: request.clientRef,
@@ -249,6 +269,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         `agent session ${JSON.stringify(request.sessionId)} was not found`,
       );
     }
+    requireOwnedSession(session, request.subject);
     if (request.messages.length === 0) {
       throw invalidArgument("messages must contain at least one entry");
     }
@@ -298,6 +319,12 @@ export class CursorAgentProvider extends SDKAgentProvider {
         `agent turn ${JSON.stringify(request.turnId)} was not found`,
       );
     }
+    const session = this.store.getSession(turn.sessionId);
+    if (!session || !canReadSession(session, request.subject)) {
+      throw notFound(
+        `agent turn ${JSON.stringify(request.turnId)} was not found`,
+      );
+    }
     return turnToAgentTurn(turn);
   }
 
@@ -308,11 +335,20 @@ export class CursorAgentProvider extends SDKAgentProvider {
     if (request.limit < 0) {
       throw invalidArgument("limit must be non-negative");
     }
+    const sessionId = String(request.sessionId ?? "").trim();
+    if (sessionId) {
+      const session = this.store.getSession(sessionId);
+      if (!session || !canReadSession(session, request.subject)) {
+        return [];
+      }
+    } else if (request.turnIds.length === 0) {
+      return [];
+    }
     return this.store
       .listTurns({
-        sessionId: request.sessionId,
+        sessionId,
         turnIds: request.turnIds,
-        subjectId: request.subject?.subjectId,
+        subjectId: undefined,
         status: request.status,
         limit: request.limit,
       })
@@ -323,6 +359,19 @@ export class CursorAgentProvider extends SDKAgentProvider {
     request: CancelAgentProviderTurnRequest,
   ): Promise<AgentTurnInit> {
     const { runner } = this.requireRuntime();
+    const existing = this.store.getTurn(request.turnId);
+    if (!existing) {
+      throw notFound(
+        `agent turn ${JSON.stringify(request.turnId)} was not found`,
+      );
+    }
+    const session = this.store.getSession(existing.sessionId);
+    if (!session) {
+      throw notFound(
+        `agent turn ${JSON.stringify(request.turnId)} was not found`,
+      );
+    }
+    requireOwnedSession(session, request.subject);
     const turn = this.store.cancelTurn(request.turnId, request.reason);
     if (!turn) {
       throw notFound(
@@ -339,6 +388,11 @@ export class CursorAgentProvider extends SDKAgentProvider {
     request: ListAgentProviderTurnEventsRequest,
   ): Promise<AgentTurnEventListInit> {
     this.requireRuntime();
+    const turn = this.store.getTurn(request.turnId);
+    const session = turn ? this.store.getSession(turn.sessionId) : undefined;
+    if (!session || !canReadSession(session, request.subject)) {
+      return [];
+    }
     return this.store
       .listTurnEvents({
         turnId: request.turnId,
@@ -358,9 +412,17 @@ export class CursorAgentProvider extends SDKAgentProvider {
   }
 
   async listInteractions(
-    _request: ListAgentProviderInteractionsRequest,
+    request: ListAgentProviderInteractionsRequest,
   ): Promise<AgentInteractionListInit> {
     this.requireRuntime();
+    const turnId = String((request as { turnId?: unknown }).turnId ?? "").trim();
+    if (turnId) {
+      const turn = this.store.getTurn(turnId);
+      const session = turn ? this.store.getSession(turn.sessionId) : undefined;
+      if (!session || !canReadSession(session, request.subject)) {
+        return [];
+      }
+    }
     return [];
   }
 
@@ -470,6 +532,17 @@ export class CursorAgentProvider extends SDKAgentProvider {
       release();
     }
   }
+
+  private requireReadableSession(
+    session: StoredSession,
+    subject: { subjectId?: string } | undefined,
+  ): void {
+    if (!canReadSession(session, subject)) {
+      throw notFound(
+        `agent session ${JSON.stringify(session.sessionId)} was not found`,
+      );
+    }
+  }
 }
 
 export function createCursorAgentProvider(
@@ -550,6 +623,74 @@ function objectOrEmpty(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+function sessionVisibilityForCreateMetadata(
+  metadata: Record<string, unknown>,
+  createdBy: { subjectId?: string; subjectKind?: string } | undefined,
+): StoredSessionVisibility {
+  return hasSlackSessionMetadata(metadata) && isManagedActor(createdBy)
+    ? SESSION_VISIBILITY_COMPANY
+    : SESSION_VISIBILITY_PRIVATE;
+}
+
+function hasSlackSessionMetadata(metadata: Record<string, unknown>): boolean {
+  const slack = metadata.slack;
+  return (
+    isRecord(slack) &&
+    nonEmptyString(slack.team_id) &&
+    nonEmptyString(slack.channel_id) &&
+    nonEmptyString(slack.root_message_ts) &&
+    nonEmptyString(slack.session_ref)
+  );
+}
+
+function isManagedActor(
+  actor: { subjectId?: string; subjectKind?: string } | undefined,
+): boolean {
+  const subjectId = String(actor?.subjectId ?? "").trim();
+  return (
+    String(actor?.subjectKind ?? "").trim() === "service_account" ||
+    subjectId.startsWith("service_account:")
+  );
+}
+
+function nonEmptyString(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function canReadSession(
+  session: StoredSession,
+  subject: { subjectId?: string } | undefined,
+): boolean {
+  const subjectId = subjectIdFrom(subject);
+  if (!subjectId) {
+    return false;
+  }
+  return (
+    session.createdBy?.subjectId === subjectId ||
+    session.visibility === SESSION_VISIBILITY_COMPANY
+  );
+}
+
+function requireOwnedSession(
+  session: StoredSession,
+  subject: { subjectId?: string } | undefined,
+): void {
+  const subjectId = subjectIdFrom(subject);
+  if (!subjectId || session.createdBy?.subjectId !== subjectId) {
+    throw permissionDenied(
+      `agent session ${JSON.stringify(session.sessionId)} is owned by another subject`,
+    );
+  }
+}
+
+function subjectIdFrom(subject: { subjectId?: string } | undefined): string {
+  return String(subject?.subjectId ?? "").trim();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 function preparedWorkspaceFromRequest(
   request: CreateAgentProviderSessionRequest,
 ): PreparedWorkspace | undefined {
@@ -586,6 +727,10 @@ function invalidArgument(message: string): ConnectError {
 
 function notFound(message: string): ConnectError {
   return new ConnectError(message, Code.NotFound);
+}
+
+function permissionDenied(message: string): ConnectError {
+  return new ConnectError(message, Code.PermissionDenied);
 }
 
 function errorMessage(error: unknown): string {

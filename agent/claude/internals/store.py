@@ -22,6 +22,7 @@ from .store_projection import (
     _turn_projection_prefix,
 )
 from .store_records import (
+    SESSION_VISIBILITY_COMPANY,
     TERMINAL_STATUSES,
     StoredSession,
     StoredTurn,
@@ -33,6 +34,8 @@ from .store_records import (
     _session_to_record,
     _turn_event_to_record,
     _turn_to_record,
+    session_readable_by,
+    session_visibility_for_create,
 )
 from .store_retry import StoreUnavailableError, _call_with_busy_retry, _indexeddb_unavailable_message
 
@@ -140,6 +143,7 @@ class IndexedDBRunStore:
                 metadata=copy.deepcopy(metadata),
                 prepared_workspace=copy.deepcopy(prepared_workspace) if prepared_workspace is not None else None,
                 created_by=_coerce_string_dict(created_by),
+                visibility=session_visibility_for_create(metadata, created_by),
                 created_at=now,
                 updated_at=now,
             )
@@ -200,12 +204,10 @@ class IndexedDBRunStore:
         filtered = [session for session in sessions if session is not None]
 
         subject_id = subject_id.strip()
-        if subject_id:
-            filtered = [
-                session
-                for session in filtered
-                if str(session.created_by.get("subject_id", "") or "").strip() == subject_id
-            ]
+        if not subject_id:
+            filtered = []
+        else:
+            filtered = [session for session in filtered if session_readable_by(session, subject_id)]
         if state:
             filtered = [session for session in filtered if session.state == state]
         filtered = sorted(filtered, key=_session_projection_order_key)
@@ -528,11 +530,23 @@ class IndexedDBRunStore:
         return _call_with_busy_retry(run_transaction)
 
     def _list_session_projections(self, *, subject_id: str = "", state: int = 0, limit: int = 0) -> list[StoredSession]:
-        prefix = _session_projection_prefix(subject_id=subject_id, state=state)
-        records = self._session_projections.iter_records(_prefix_key_range(prefix), limit=limit, require_cursor=True)
-        return [
-            session for session in (_record_to_session_projection(record) for record in records) if session is not None
-        ]
+        subject_id = subject_id.strip()
+        prefixes = [_session_projection_prefix(subject_id=subject_id, state=state)]
+        if subject_id:
+            prefixes.append(_session_projection_prefix(visibility=SESSION_VISIBILITY_COMPANY, state=state))
+        by_id: dict[str, StoredSession] = {}
+        cursor_limit = limit if limit > 0 else 0
+        for prefix in prefixes:
+            records = self._session_projections.iter_records(
+                _prefix_key_range(prefix), limit=cursor_limit, require_cursor=True
+            )
+            for session in (_record_to_session_projection(record) for record in records):
+                if session is not None:
+                    by_id[session.session_id] = session
+        sessions = sorted(by_id.values(), key=_session_projection_order_key)
+        if limit > 0:
+            sessions = sessions[:limit]
+        return sessions
 
     def _list_turn_projections(
         self, *, session_id: str, subject_id: str = "", status: int = 0, limit: int = 0
