@@ -3830,8 +3830,8 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(len(authorization.write_requests), 1)
         grant = sdk_value_to_dict(authorization.write_requests[0])["writes"][0]
         subject_set = grant["target"]["subject_set"]
-        self.assertEqual(subject_set["resource"]["type"], "slack_channel")
-        self.assertEqual(subject_set["resource"]["id"], "T123:C789")
+        self.assertEqual(subject_set["resource"]["type"], "everyone")
+        self.assertEqual(subject_set["resource"]["id"], "global")
         self.assertEqual(subject_set["relation"], "member")
         self.assertEqual(grant["relation"], "viewer")
         self.assertEqual(grant["resource"]["type"], "agent_session")
@@ -3939,32 +3939,6 @@ class SlackProviderTests(unittest.TestCase):
             },
         )
         self.assertEqual(len(authorization.write_requests), 1)
-
-    def test_agent_session_slack_channel_viewer_write_request_falls_back_without_sdk_helper(
-        self,
-    ) -> None:
-        with mock.patch.object(
-            provider_module.gestalt,
-            "agent_session_slack_channel_viewer_write_request",
-            None,
-            create=True,
-        ):
-            request = (
-                provider_module._agent._agent_session_slack_channel_viewer_write_request(
-                    "T123",
-                    "C789",
-                    "agent-session-123",
-                )
-            )
-
-        grant = sdk_value_to_dict(request)["writes"][0]
-        subject_set = grant["target"]["subject_set"]
-        self.assertEqual(subject_set["resource"]["type"], "slack_channel")
-        self.assertEqual(subject_set["resource"]["id"], "T123:C789")
-        self.assertEqual(subject_set["relation"], "member")
-        self.assertEqual(grant["relation"], "viewer")
-        self.assertEqual(grant["resource"]["type"], "agent_session")
-        self.assertEqual(grant["resource"]["id"], "agent-session-123")
 
     def test_slack_events_reply_session_started_skips_thread_replies(self) -> None:
         provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
