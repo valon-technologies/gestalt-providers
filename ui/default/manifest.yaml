@@ -1,12 +1,23 @@
 source: github.com/valon-technologies/gestalt-providers/ui/default
-version: 0.0.2-alpha.1
+version: 0.0.2-alpha.2
 displayName: Default UI
 description: Default Gestalt UI bundle served at /.
 kind: ui
-release:
-  build:
-    command:
+build:
+  command:
     - sh
     - ./build.sh
-spec:
-  assetRoot: out
+  output: out
+  inputs:
+    - build.sh
+    - eslint.config.mjs
+    - next.config.mjs
+    - package-lock.json
+    - package.json
+    - postcss.config.mjs
+    - public
+    - shared
+    - source-assets
+    - src
+    - tailwind.config.ts
+    - tsconfig.json

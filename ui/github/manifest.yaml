@@ -1,10 +1,22 @@
 kind: ui
 source: github.com/valon-technologies/gestalt-providers/ui/github
-version: 0.0.1-alpha.1
+version: 0.0.1-alpha.2
 displayName: GitHub UI
 description: Mounted UI for GitHub integration settings.
+build:
+  command:
+    - sh
+    - ./build.sh
+  output: out
+  inputs:
+    - app
+    - build.sh
+    - next.config.ts
+    - package-lock.json
+    - package.json
+    - src
+    - tsconfig.json
 spec:
-  assetRoot: src
   routes:
     - path: /
       allowedRoles: [viewer, editor, admin]
