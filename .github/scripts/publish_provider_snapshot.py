@@ -16,7 +16,7 @@ FULL_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Publish commit-addressed provider snapshot archives to GCS."
+        description="Publish provider and Gestalt commit-addressed snapshot archives to GCS."
     )
     parser.add_argument("--provider-dir", required=True, help="Provider directory containing manifest.yaml")
     parser.add_argument("--provider-ref", required=True, help="Full gestalt-providers commit SHA")
@@ -43,10 +43,12 @@ def normalize_provider_dir(raw: str) -> str:
     return path.as_posix()
 
 
-def snapshot_version(provider_ref: str) -> str:
+def snapshot_version(provider_ref: str, gestalt_ref: str) -> str:
     if not FULL_SHA_RE.fullmatch(provider_ref):
         raise SystemExit("--provider-ref must be a 40-character commit SHA")
-    return f"0.0.0-snapshot.g{provider_ref.lower()}"
+    if not FULL_SHA_RE.fullmatch(gestalt_ref):
+        raise SystemExit("--gestalt-ref must be a 40-character commit SHA")
+    return f"0.0.0-snapshot.g{provider_ref.lower()}.gestalt.g{gestalt_ref.lower()}"
 
 
 def validate_ref(name: str, value: str) -> str:
@@ -168,14 +170,14 @@ def validate_dist(dist_dir: pathlib.Path, want_version: str) -> tuple[pathlib.Pa
     return metadata, archives
 
 
-def gcs_destination(root: str, repository: str, provider_ref: str, provider_dir: str, filename: str) -> str:
+def gcs_destination(root: str, repository: str, provider_ref: str, gestalt_ref: str, provider_dir: str, filename: str) -> str:
     root = root.rstrip("/")
     if not root.startswith("gs://"):
         raise SystemExit("--gcs-root must start with gs://")
     owner_repo = repository.strip("/")
     if owner_repo.count("/") != 1:
         raise SystemExit("--repository must be owner/name")
-    return f"{root}/github.com/{owner_repo}/{provider_ref}/{provider_dir}/{filename}"
+    return f"{root}/gestalt/{gestalt_ref}/github.com/{owner_repo}/{provider_ref}/{provider_dir}/{filename}"
 
 
 def run(args: list[str]) -> str:
@@ -230,7 +232,7 @@ def main() -> int:
     provider_ref = validate_ref("--provider-ref", args.provider_ref)
     gestalt_ref = validate_ref("--gestalt-ref", args.gestalt_ref)
     provider_dir = normalize_provider_dir(args.provider_dir)
-    want_version = snapshot_version(provider_ref)
+    want_version = snapshot_version(provider_ref, gestalt_ref)
     dist_dir = pathlib.Path(args.dist_dir)
     metadata, archives = validate_dist(dist_dir, want_version)
 
@@ -238,14 +240,14 @@ def main() -> int:
     for archive in archives:
         upload_write_once(
             archive,
-            gcs_destination(args.gcs_root, args.repository, provider_ref, provider_dir, archive.name),
+            gcs_destination(args.gcs_root, args.repository, provider_ref, gestalt_ref, provider_dir, archive.name),
             provider_ref,
             gestalt_ref,
             args.dry_run,
         )
     upload_write_once(
         metadata,
-        gcs_destination(args.gcs_root, args.repository, provider_ref, provider_dir, "provider-release.yaml"),
+        gcs_destination(args.gcs_root, args.repository, provider_ref, gestalt_ref, provider_dir, "provider-release.yaml"),
         provider_ref,
         gestalt_ref,
         args.dry_run,

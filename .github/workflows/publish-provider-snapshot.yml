@@ -109,6 +109,11 @@ jobs:
       - name: Verify provider ref
         run: |
           test "$(git rev-parse HEAD)" = "${{ inputs.provider-ref }}"
+      - name: Checkout snapshot publisher tools
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .snapshot-tools
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
@@ -145,7 +150,7 @@ jobs:
           mkdir -p "$GOBIN"
           echo "$GOBIN" >> "$GITHUB_PATH"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
+          .snapshot-tools/.github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
           test "$(git -C "$toolchain_dir" rev-parse HEAD)" = "${{ inputs.gestalt-ref }}"
           (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - uses: google-github-actions/auth@v2
@@ -158,7 +163,7 @@ jobs:
       - name: Package snapshot
         env:
           PROVIDER_DIR: ${{ matrix.provider.dir }}
-          SNAPSHOT_VERSION: 0.0.0-snapshot.g${{ inputs.provider-ref }}
+          SNAPSHOT_VERSION: 0.0.0-snapshot.g${{ inputs.provider-ref }}.gestalt.g${{ inputs.gestalt-ref }}
           RUNNER_TEMP: ${{ runner.temp }}
           GESTALT_SDK_HOST_DIR: ${{ github.workspace }}/../gestalt/sdk/python
         run: |
@@ -169,7 +174,7 @@ jobs:
           fi
           if [ "${{ matrix.provider.has_python }}" = "true" ]; then
             python_image="python:${{ matrix.provider.python_version }}-alpine${{ env.PYTHON_ALPINE_VERSION }}"
-            .github/scripts/package_python_docker.sh linux/amd64 "${python_image}" gestaltd GESTALT_PYTHON_LINUX_AMD64 linux/amd64 "$PROVIDER_DIR" "$SNAPSHOT_VERSION"
+            .snapshot-tools/.github/scripts/package_python_docker.sh linux/amd64 "${python_image}" gestaltd GESTALT_PYTHON_LINUX_AMD64 linux/amd64 "$PROVIDER_DIR" "$SNAPSHOT_VERSION"
           else
             (cd "$PROVIDER_DIR" && gestaltd provider release --version "$SNAPSHOT_VERSION" --platform linux/amd64)
             if [ "${{ matrix.provider.has_go }}" = "true" ] || [ "${{ matrix.provider.has_typescript }}" = "true" ]; then
@@ -177,7 +182,7 @@ jobs:
               (cd "$PROVIDER_DIR" && gestaltd provider release --version "$SNAPSHOT_VERSION" --platform darwin/amd64)
             fi
           fi
-          python3 .github/scripts/write_provider_release_metadata.py \
+          python3 .snapshot-tools/.github/scripts/write_provider_release_metadata.py \
             --manifest "${PROVIDER_DIR}/manifest.yaml" \
             --output-dir "${PROVIDER_DIR}/dist" \
             --version "$SNAPSHOT_VERSION"
@@ -189,7 +194,7 @@ jobs:
           if [ "$DRY_RUN" = "true" ]; then
             args+=(--dry-run)
           fi
-          .github/scripts/publish_provider_snapshot.py \
+          .snapshot-tools/.github/scripts/publish_provider_snapshot.py \
             --provider-dir "${{ matrix.provider.dir }}" \
             --provider-ref "${{ inputs.provider-ref }}" \
             --gestalt-ref "${{ inputs.gestalt-ref }}" \
