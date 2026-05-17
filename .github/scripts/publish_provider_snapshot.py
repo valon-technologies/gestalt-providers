@@ -2,6 +2,7 @@
 
 import argparse
 import hashlib
+import json
 import os
 import pathlib
 import re
@@ -25,6 +26,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dist-dir", required=True, help="Directory containing .tar.gz archives and provider-release.yaml")
     parser.add_argument("--gcs-root", required=True, help="GCS root, for example gs://bucket/prefix")
     parser.add_argument("--dry-run", action="store_true", help="Validate and print uploads without writing to GCS")
+    parser.add_argument(
+        "--merge-existing",
+        action="store_true",
+        help="Merge generated artifacts with an existing provider-release.yaml instead of failing on existing differing archives",
+    )
     return parser.parse_args()
 
 
@@ -34,6 +40,10 @@ def sha256_file(path: pathlib.Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def sha256_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
 
 
 def normalize_provider_dir(raw: str) -> str:
@@ -74,6 +84,29 @@ def metadata_version(path: pathlib.Path) -> str:
     return version
 
 
+def metadata_fields(path: pathlib.Path) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    with path.open("r", encoding="utf-8") as handle:
+        for raw in handle:
+            if raw.startswith("schema:"):
+                fields["schema"] = normalize_scalar(raw.split(":", 1)[1])
+            elif raw.startswith("schemaVersion:"):
+                fields["schemaVersion"] = normalize_scalar(raw.split(":", 1)[1])
+            elif raw.startswith("package:"):
+                fields["package"] = normalize_scalar(raw.split(":", 1)[1])
+            elif raw.startswith("kind:"):
+                fields["kind"] = normalize_scalar(raw.split(":", 1)[1])
+            elif raw.startswith("version:"):
+                fields["version"] = normalize_scalar(raw.split(":", 1)[1])
+            elif raw.startswith("runtime:"):
+                fields["runtime"] = normalize_scalar(raw.split(":", 1)[1])
+    required = ("schema", "schemaVersion", "package", "kind", "version", "runtime")
+    missing = [name for name in required if not fields.get(name)]
+    if missing:
+        raise SystemExit(f"{path} is missing {', '.join(missing)}")
+    return fields
+
+
 def metadata_artifacts(path: pathlib.Path) -> dict[str, dict[str, str]]:
     artifacts: dict[str, dict[str, str]] = {}
     current_target = ""
@@ -103,6 +136,31 @@ def metadata_artifacts(path: pathlib.Path) -> dict[str, dict[str, str]]:
         if missing:
             raise SystemExit(f"{path} artifact {target!r} is missing {', '.join(missing)}")
     return artifacts
+
+
+def metadata_lines(fields: dict[str, str], artifacts: dict[str, dict[str, str]]) -> list[str]:
+    lines = [
+        f"schema: {fields['schema']}",
+        f"schemaVersion: {fields['schemaVersion']}",
+        f"package: {fields['package']}",
+        f"kind: {fields['kind']}",
+        f"version: {fields['version']}",
+        f"runtime: {fields['runtime']}",
+        "artifacts:",
+    ]
+    ordered_targets = sorted(target for target in artifacts if target != "generic")
+    if "generic" in artifacts:
+        ordered_targets.append("generic")
+    for target in ordered_targets:
+        artifact = artifacts[target]
+        lines.append(f"  {target}:")
+        lines.append(f"    path: {artifact['path']}")
+        lines.append(f"    sha256: {artifact['sha256']}")
+    return lines
+
+
+def write_metadata(path: pathlib.Path, fields: dict[str, str], artifacts: dict[str, dict[str, str]]) -> None:
+    path.write_text("\n".join(metadata_lines(fields, artifacts)) + "\n", encoding="utf-8")
 
 
 def archive_manifest_versions(path: pathlib.Path) -> list[str]:
@@ -187,12 +245,15 @@ def run(args: list[str]) -> str:
     return completed.stdout
 
 
-def object_exists(dest: str) -> bool:
+def object_metadata(dest: str) -> dict[str, object] | None:
     try:
-        run(["gcloud", "storage", "objects", "describe", dest, "--format=json"])
-        return True
+        return json.loads(run(["gcloud", "storage", "objects", "describe", dest, "--format=json"]))
     except RuntimeError:
-        return False
+        return None
+
+
+def object_exists(dest: str) -> bool:
+    return object_metadata(dest) is not None
 
 
 def object_bytes(dest: str) -> bytes:
@@ -202,16 +263,8 @@ def object_bytes(dest: str) -> bytes:
         return local.read_bytes()
 
 
-def upload_write_once(local: pathlib.Path, dest: str, provider_ref: str, gestalt_ref: str, dry_run: bool) -> None:
+def upload_new(local: pathlib.Path, dest: str, provider_ref: str, gestalt_ref: str) -> None:
     digest = sha256_file(local)
-    if dry_run:
-        print(f"dry-run upload {local} -> {dest} sha256={digest}")
-        return
-    if object_exists(dest):
-        if object_bytes(dest) == local.read_bytes():
-            print(f"exists byte-identical {dest}")
-            return
-        raise SystemExit(f"{dest} already exists with different bytes")
     metadata = f"provider-ref={provider_ref},gestalt-ref={gestalt_ref},sha256={digest}"
     run([
         "gcloud",
@@ -222,7 +275,83 @@ def upload_write_once(local: pathlib.Path, dest: str, provider_ref: str, gestalt
         str(local),
         dest,
     ])
+
+
+def upload_replace(local: pathlib.Path, dest: str, provider_ref: str, gestalt_ref: str) -> None:
+    digest = sha256_file(local)
+    metadata = f"provider-ref={provider_ref},gestalt-ref={gestalt_ref},sha256={digest}"
+    run([
+        "gcloud",
+        "storage",
+        "cp",
+        f"--custom-metadata={metadata}",
+        str(local),
+        dest,
+    ])
+
+
+def upload_archive(local: pathlib.Path, dest: str, provider_ref: str, gestalt_ref: str, dry_run: bool, merge_existing: bool) -> str:
+    digest = sha256_file(local)
+    if dry_run:
+        print(f"dry-run upload {local} -> {dest} sha256={digest}")
+        return digest
+    if object_exists(dest):
+        remote = object_bytes(dest)
+        if remote == local.read_bytes():
+            print(f"exists byte-identical {dest}")
+            return digest
+        if merge_existing:
+            remote_digest = sha256_bytes(remote)
+            print(f"exists with different bytes; retaining remote {dest} sha256={remote_digest}")
+            return remote_digest
+        raise SystemExit(f"{dest} already exists with different bytes")
+    upload_new(local, dest, provider_ref, gestalt_ref)
     print(f"uploaded {dest}")
+    return digest
+
+
+def upload_metadata(local: pathlib.Path, dest: str, provider_ref: str, gestalt_ref: str, dry_run: bool, merge_existing: bool) -> None:
+    digest = sha256_file(local)
+    if dry_run:
+        print(f"dry-run upload {local} -> {dest} sha256={digest}")
+        return
+    if object_exists(dest):
+        if object_bytes(dest) == local.read_bytes():
+            print(f"exists byte-identical {dest}")
+            return
+        if not merge_existing:
+            raise SystemExit(f"{dest} already exists with different bytes")
+        upload_replace(local, dest, provider_ref, gestalt_ref)
+        print(f"updated {dest}")
+        return
+    upload_new(local, dest, provider_ref, gestalt_ref)
+    print(f"uploaded {dest}")
+
+
+def download_metadata(dest: str) -> pathlib.Path | None:
+    if not object_exists(dest):
+        return None
+    handle = tempfile.NamedTemporaryFile("wb", delete=False)
+    try:
+        handle.write(object_bytes(dest))
+        return pathlib.Path(handle.name)
+    finally:
+        handle.close()
+
+
+def merge_metadata(existing_metadata: pathlib.Path | None, generated_metadata: pathlib.Path) -> dict[str, dict[str, str]]:
+    generated_fields = metadata_fields(generated_metadata)
+    merged: dict[str, dict[str, str]] = {}
+    if existing_metadata is not None:
+        existing_fields = metadata_fields(existing_metadata)
+        for key in ("schema", "schemaVersion", "package", "kind", "version", "runtime"):
+            if existing_fields[key] != generated_fields[key]:
+                raise SystemExit(
+                    f"existing metadata {key} {existing_fields[key]!r} does not match generated {generated_fields[key]!r}"
+                )
+        merged.update(metadata_artifacts(existing_metadata))
+    merged.update(metadata_artifacts(generated_metadata))
+    return merged
 
 
 def main() -> int:
@@ -233,22 +362,38 @@ def main() -> int:
     want_version = snapshot_version(provider_ref)
     dist_dir = pathlib.Path(args.dist_dir)
     metadata, archives = validate_dist(dist_dir, want_version)
-
-    # Upload archives first; metadata is the discoverable object and must appear last.
+    metadata_dest = gcs_destination(args.gcs_root, args.repository, provider_ref, provider_dir, "provider-release.yaml")
+    existing_metadata = download_metadata(metadata_dest) if args.merge_existing and not args.dry_run else None
+    fields = metadata_fields(metadata)
+    generated_artifacts = metadata_artifacts(metadata)
+    merged_artifacts = merge_metadata(existing_metadata, metadata) if args.merge_existing else generated_artifacts
+    artifact_targets_by_path = {
+        artifact["path"]: target for target, artifact in generated_artifacts.items()
+    }
     for archive in archives:
-        upload_write_once(
+        target = artifact_targets_by_path.get(archive.name)
+        if target is None:
+            raise SystemExit(f"{metadata} does not reference archive {archive.name}")
+        generated_artifacts[target]["sha256"] = upload_archive(
             archive,
             gcs_destination(args.gcs_root, args.repository, provider_ref, provider_dir, archive.name),
             provider_ref,
             gestalt_ref,
             args.dry_run,
+            args.merge_existing,
         )
-    upload_write_once(
+        merged_artifacts[target] = generated_artifacts[target]
+    if args.merge_existing:
+        write_metadata(metadata, fields, merged_artifacts)
+
+    # Upload archives first; metadata is the discoverable object and must appear last.
+    upload_metadata(
         metadata,
-        gcs_destination(args.gcs_root, args.repository, provider_ref, provider_dir, "provider-release.yaml"),
+        metadata_dest,
         provider_ref,
         gestalt_ref,
         args.dry_run,
+        args.merge_existing,
     )
     return 0
 

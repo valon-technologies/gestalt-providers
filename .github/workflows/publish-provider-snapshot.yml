@@ -25,6 +25,11 @@ on:
         required: true
         default: false
         type: boolean
+      merge-existing:
+        description: Merge missing platform artifacts into existing snapshot metadata
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -188,6 +193,9 @@ jobs:
           args=()
           if [ "$DRY_RUN" = "true" ]; then
             args+=(--dry-run)
+          fi
+          if [ "${{ inputs.merge-existing }}" = "true" ]; then
+            args+=(--merge-existing)
           fi
           .github/scripts/publish_provider_snapshot.py \
             --provider-dir "${{ matrix.provider.dir }}" \
