@@ -865,10 +865,8 @@ def reply_slack_event_session_started(
             body={"error": "host.public_base_url is required"},
         )
     try:
-        _grant_agent_session_viewer_to_slack_channel(
+        _grant_agent_session_viewer_to_everyone(
             req.authorization(),
-            verified_ref.team_id,
-            verified_ref.channel_id,
             normalized_session_id,
         )
     except RuntimeError:
@@ -955,60 +953,27 @@ def _reply_ref_is_thread_reply(ref: SlackReplyRef) -> bool:
     return bool(ref.reply_thread_ts and ref.reply_thread_ts != ref.message_ts)
 
 
-def _grant_agent_session_viewer_to_slack_channel(
-    authorization: Any, team_id: str, channel_id: str, session_id: str
-) -> None:
-    normalized_team_id = team_id.strip()
-    normalized_channel_id = channel_id.strip()
+def _grant_agent_session_viewer_to_everyone(authorization: Any, session_id: str) -> None:
     normalized_session_id = session_id.strip()
-    if not normalized_team_id or not normalized_channel_id or not normalized_session_id:
-        raise RuntimeError("agent session share requires Slack team, channel, and session")
-    grant_channel_viewer = getattr(
-        authorization,
-        "grant_agent_session_viewer_to_slack_channel",
-        None,
-    )
-    if callable(grant_channel_viewer):
-        grant_channel_viewer(
-            normalized_team_id,
-            normalized_channel_id,
-            normalized_session_id,
-        )
-        return
+    if not normalized_session_id:
+        raise RuntimeError("agent session share requires session")
     write_relationships = getattr(authorization, "write_relationships", None)
     if not callable(write_relationships):
-        raise RuntimeError(
-            "authorization client does not support agent session channel sharing"
-        )
+        raise RuntimeError("authorization client does not support agent session sharing")
     write_relationships(
-        _agent_session_slack_channel_viewer_write_request(
-            normalized_team_id,
-            normalized_channel_id,
-            normalized_session_id,
-        )
+        _agent_session_everyone_viewer_write_request(normalized_session_id)
     )
 
 
-def _agent_session_slack_channel_viewer_write_request(
-    team_id: str,
-    channel_id: str,
-    session_id: str,
-) -> Any:
-    public_builder = getattr(
-        gestalt,
-        "agent_session_slack_channel_viewer_write_request",
-        None,
-    )
-    if callable(public_builder):
-        return public_builder(team_id, channel_id, session_id)
+def _agent_session_everyone_viewer_write_request(session_id: str) -> dict[str, Any]:
     return {
         "writes": [
             {
                 "target": {
                     "subject_set": {
                         "resource": {
-                            "type": "slack_channel",
-                            "id": f"{team_id}:{channel_id}",
+                            "type": "everyone",
+                            "id": "global",
                         },
                         "relation": "member",
                     },
