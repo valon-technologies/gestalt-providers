@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import pathlib
 import types
 import unittest
@@ -606,6 +607,12 @@ def slack_replies_response(
 
 
 class SlackProviderTests(unittest.TestCase):
+    def setUp(self) -> None:
+        env = {"SLACK_SIGNING_SECRET": "test-slack-signing-secret"}
+        self._env_patcher = mock.patch.dict(os.environ, env)
+        self._env_patcher.start()
+        self.addCleanup(self._env_patcher.stop)
+
     def test_agent_session_url_preserves_public_base_path(self) -> None:
         url = agent_session_url(
             "https://gestalt.example.test/team-a/",
@@ -707,6 +714,118 @@ class SlackProviderTests(unittest.TestCase):
             "SlackWorkflowConfig",
         ):
             self.assertIs(getattr(agent_module, name), getattr(models_module, name))
+
+    def test_bot_workspaces_parse_list_and_map_configs(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {
+                    "workspaces": [
+                        {
+                            "teamId": "T123",
+                            "token": "xoxb-team-123",
+                            "userId": "UBOT123",
+                        },
+                        {
+                            "team_id": "T999",
+                            "bot_token": "xoxb-team-999",
+                        },
+                    ]
+                }
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        bot = provider_module._agent._agent_config.bot
+
+        self.assertEqual(bot.token_for_team_id("T123"), "xoxb-team-123")
+        self.assertEqual(bot.user_id_for_team_id("T123"), "UBOT123")
+        self.assertEqual(bot.token_for_team_id("T999"), "xoxb-team-999")
+        self.assertEqual(bot.user_id_for_team_id("T999"), "")
+        self.assertEqual(bot.token_for_team_id("T404"), "")
+
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {
+                    "workspaces": {
+                        "TABC": {"token": "xoxb-team-abc", "userId": "UBOTABC"}
+                    }
+                }
+            },
+        )
+        bot = provider_module._agent._agent_config.bot
+        self.assertEqual(bot.token_for_team_id("TABC"), "xoxb-team-abc")
+        self.assertEqual(bot.user_id_for_team_id("TABC"), "UBOTABC")
+
+    def test_bot_workspaces_reject_duplicate_team_ids(self) -> None:
+        with self.assertRaisesRegex(ValueError, "duplicate teamId 'T123'"):
+            provider_module.configure(
+                "slack",
+                {
+                    "bot": {
+                        "workspaces": [
+                            {
+                                "teamId": "T123",
+                                "token": "xoxb-team-123",
+                                "userId": "UBOT123",
+                            },
+                            {
+                                "teamId": "T123",
+                                "token": "xoxb-team-duplicate",
+                                "userId": "UBOTDUP",
+                            },
+                        ]
+                    }
+                },
+            )
+
+    def test_bot_workspaces_require_team_and_token(self) -> None:
+        invalid_configs = [
+            ({"token": "xoxb-team-123", "userId": "UBOT123"}, "teamId is required"),
+            ({"teamId": "T123", "userId": "UBOT123"}, "token is required"),
+        ]
+
+        for workspace, error in invalid_configs:
+            with self.subTest(workspace=workspace):
+                with self.assertRaisesRegex(ValueError, error):
+                    provider_module.configure(
+                        "slack", {"bot": {"workspaces": [workspace]}}
+                    )
+
+    def test_singleton_bot_config_still_parses(self) -> None:
+        provider_module.configure(
+            "slack", {"bot": {"token": "xoxb-single", "userId": "UBOT_SINGLE"}}
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        bot = provider_module._agent._agent_config.bot
+
+        self.assertEqual(bot.workspaces, ())
+        self.assertEqual(bot.token_for_team_id("T123"), "xoxb-single")
+        self.assertEqual(bot.user_id_for_team_id("T123"), "UBOT_SINGLE")
+
+    def test_reply_refs_accept_legacy_singleton_bot_token_signature(self) -> None:
+        provider_module.configure("slack", {"bot": {"token": "xoxb-single"}})
+        self.addCleanup(provider_module.configure, "slack", {})
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="Ev123",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C789",
+            channel_type="channel",
+            text="<@UBOT> hello",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts="1712161829.000300",
+        )
+
+        with mock.patch.dict(os.environ, {}, clear=True):
+            legacy_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
+        verified = provider_module._verify_reply_ref(legacy_ref, "user:gestalt-123")
+
+        self.assertEqual(verified.team_id, "T123")
+        self.assertEqual(verified.subject_id, "user:gestalt-123")
 
     def test_agent_tools_reject_non_exact_or_runtime_policy_fields(self) -> None:
         invalid_tools = [
@@ -3159,6 +3278,461 @@ class SlackProviderTests(unittest.TestCase):
         response = cast(gestalt.Response[dict[str, str]], result)
         self.assertEqual(response.status, HTTPStatus.PRECONDITION_FAILED)
         self.assertEqual(response.body, {"error": "Slack bot token is not configured"})
+
+    def test_multi_workspace_events_select_workspace_bot_user_and_reply_token(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {
+                    "workspaces": [
+                        {
+                            "teamId": "T123",
+                            "token": "xoxb-team-123",
+                            "userId": "UBOT123",
+                        },
+                        {
+                            "teamId": "T999",
+                            "token": "xoxb-team-999",
+                        },
+                    ]
+                },
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+
+        def event_payload(team_id: str, bot_user_id: str) -> dict[str, Any]:
+            return {
+                "type": "event_callback",
+                "event_id": f"Ev{team_id}",
+                "team_id": team_id,
+                "authorizations": [
+                    {
+                        "is_bot": True,
+                        "team_id": team_id,
+                        "user_id": bot_user_id,
+                    }
+                ],
+                "event": {
+                    "type": "app_mention",
+                    "user": "U456",
+                    "channel": "C789",
+                    "channel_type": "channel",
+                    "text": f"<@{bot_user_id}> hello",
+                    "ts": "1712161829.000300",
+                },
+            }
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            first_response = provider_module.slack_events_handle(
+                event_payload("T123", "UBOT123"),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+            second_response = provider_module.slack_events_handle(
+                event_payload("T999", "UBOT999"),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(first_response["ok"], True)
+        self.assertEqual(second_response["ok"], True)
+        self.assertEqual(len(workflow_manager.signal_or_start_requests), 2)
+        first_signal = sdk_value_to_dict(
+            workflow_manager.signal_or_start_requests[0].signal.payload
+        )
+        second_signal = sdk_value_to_dict(
+            workflow_manager.signal_or_start_requests[1].signal.payload
+        )
+        self.assertEqual(first_signal["slack"]["bot_user_id"], "UBOT123")
+        self.assertEqual(second_signal["slack"]["bot_user_id"], "UBOT999")
+
+        calls: list[tuple[str | None, dict[str, Any]]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            calls.append((authorization_header(request), request_json(request)))
+            return FakeHTTPResponse(
+                '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            provider_module.slack_events_reply(
+                provider_module.SlackEventReplyInput(
+                    reply_ref=first_signal["reply_ref"], text="team 123"
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+            provider_module.slack_events_reply(
+                provider_module.SlackEventReplyInput(
+                    reply_ref=second_signal["reply_ref"], text="team 999"
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(calls[0][0], "Bearer xoxb-team-123")
+        self.assertEqual(calls[0][1]["text"], "team 123")
+        self.assertEqual(calls[1][0], "Bearer xoxb-team-999")
+        self.assertEqual(calls[1][1]["text"], "team 999")
+
+        calls.clear()
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            result = provider_module.slack_interactions_request(
+                provider_module.SlackInteractionRequestInput(
+                    reply_ref=second_signal["reply_ref"],
+                    text="choose",
+                    actions=[
+                        provider_module.SlackInteractionActionInput(
+                            action_id="approve", label="Approve", value="yes"
+                        )
+                    ],
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(result["ok"], True)
+        self.assertEqual(calls[0][0], "Bearer xoxb-team-999")
+        self.assertEqual(calls[0][1]["text"], "choose")
+
+    def test_multi_workspace_unknown_event_team_is_ignored(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {
+                    "workspaces": [
+                        {
+                            "teamId": "T123",
+                            "token": "xoxb-team-123",
+                            "userId": "UBOT123",
+                        }
+                    ]
+                },
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvUnknownTeam",
+            "team_id": "T404",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT404> hello",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response, {"ok": True, "ignored": "unknown_bot_workspace"})
+        self.assertEqual(workflow_manager.signal_or_start_requests, [])
+
+    def test_multi_workspace_reply_refs_do_not_depend_on_bot_token(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {
+                    "workspaces": [
+                        {
+                            "teamId": "T123",
+                            "token": "xoxb-old-team-123",
+                            "userId": "UBOT123",
+                        }
+                    ]
+                }
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="Ev123",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C789",
+            channel_type="channel",
+            text="<@UBOT123> hello",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts="1712161829.000300",
+        )
+        reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {
+                    "workspaces": [
+                        {
+                            "teamId": "T123",
+                            "token": "xoxb-new-team-123",
+                            "userId": "UBOT123",
+                        }
+                    ]
+                }
+            },
+        )
+        captured: dict[str, Any] = {}
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            captured["authorization"] = authorization_header(request)
+            captured["payload"] = request_json(request)
+            return FakeHTTPResponse(
+                '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            response = provider_module.slack_events_reply(
+                provider_module.SlackEventReplyInput(
+                    reply_ref=reply_ref, text="uses current token"
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        self.assertEqual(captured["authorization"], "Bearer xoxb-new-team-123")
+        self.assertEqual(captured["payload"]["text"], "uses current token")
+
+    def test_multi_workspace_unknown_reply_ref_team_does_not_use_other_token(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {
+                    "workspaces": [
+                        {
+                            "teamId": "T123",
+                            "token": "xoxb-team-123",
+                            "userId": "UBOT123",
+                        },
+                        {
+                            "teamId": "T999",
+                            "token": "xoxb-team-999",
+                            "userId": "UBOT999",
+                        },
+                    ]
+                }
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="Ev123",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C789",
+            channel_type="channel",
+            text="<@UBOT123> hello",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts="1712161829.000300",
+        )
+        reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {
+                    "workspaces": [
+                        {
+                            "teamId": "T999",
+                            "token": "xoxb-team-999",
+                            "userId": "UBOT999",
+                        }
+                    ]
+                }
+            },
+        )
+
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            response = provider_module.slack_events_reply(
+                provider_module.SlackEventReplyInput(
+                    reply_ref=reply_ref, text="should not post"
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertIsInstance(response, gestalt.Response)
+        failed = cast(gestalt.Response[dict[str, str]], response)
+        self.assertEqual(failed.status, HTTPStatus.PRECONDITION_FAILED)
+        self.assertEqual(
+            failed.body,
+            {"error": "Slack bot token is not configured for team_id"},
+        )
+        urlopen.assert_not_called()
+
+    def test_multi_workspace_unknown_interaction_ref_team_returns_precondition(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {
+                    "workspaces": [
+                        {
+                            "teamId": "T123",
+                            "token": "xoxb-team-123",
+                            "userId": "UBOT123",
+                        },
+                        {
+                            "teamId": "T999",
+                            "token": "xoxb-team-999",
+                            "userId": "UBOT999",
+                        },
+                    ]
+                },
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        interaction_payload = signed_block_action_payload()
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {
+                    "workspaces": [
+                        {
+                            "teamId": "T999",
+                            "token": "xoxb-team-999",
+                            "userId": "UBOT999",
+                        }
+                    ]
+                },
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+            },
+        )
+        workflow_manager = FakeWorkflowManager()
+        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
+
+        with (
+            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_interactions_handle(
+                {"payload": json.dumps(interaction_payload)},
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertIsInstance(response, gestalt.Response)
+        failed = cast(gestalt.Response[dict[str, str]], response)
+        self.assertEqual(failed.status, HTTPStatus.PRECONDITION_FAILED)
+        self.assertEqual(
+            failed.body,
+            {"error": "Slack bot token is not configured for team_id"},
+        )
+        self.assertEqual(workflow_manager.signal_or_start_requests, [])
+
+    def test_multi_workspace_unknown_interaction_ref_team_does_not_escape_subject_resolution(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {
+                    "workspaces": [
+                        {
+                            "teamId": "T123",
+                            "token": "xoxb-team-123",
+                            "userId": "UBOT123",
+                        },
+                        {
+                            "teamId": "T999",
+                            "token": "xoxb-team-999",
+                            "userId": "UBOT999",
+                        },
+                    ]
+                }
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        interaction_payload = signed_block_action_payload()
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {
+                    "workspaces": [
+                        {
+                            "teamId": "T999",
+                            "token": "xoxb-team-999",
+                            "userId": "UBOT999",
+                        }
+                    ]
+                }
+            },
+        )
+
+        self.assertIsNone(
+            provider_module._agent._interaction_route_run_as_subject(
+                interaction_payload
+            )
+        )
 
     def test_slack_event_handler_sets_native_assistant_status_when_configured(
         self,

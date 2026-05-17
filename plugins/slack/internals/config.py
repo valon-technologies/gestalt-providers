@@ -11,6 +11,7 @@ from .models import (
     SlackAgentToolRef,
     SlackAssistantConfig,
     SlackBotConfig,
+    SlackBotWorkspaceConfig,
     SlackEventPublishConfig,
     SlackEventPublishRoute,
     SlackEventPublishRouteMatch,
@@ -58,21 +59,25 @@ def agent_config_from_provider_config(
     _validate_agent_route_ids(routes)
     _validate_agent_tool_set_refs(agent_tool_sets, agent_tool_set_refs, routes)
 
+    bot_token = _config_string(
+        bot, "token", "botToken", "bot_token", "accessToken", "access_token"
+    ) or _config_string(
+        config,
+        "botToken",
+        "bot_token",
+        "slackBotToken",
+        "slack_bot_token",
+    )
+    bot_user_id = _config_string(bot, "userId", "user_id", "botUserId", "bot_user_id")
+    if not bot_user_id:
+        bot_user_id = _config_string(config, "botUserId", "bot_user_id")
+
     return SlackAgentConfig(
         plugin_name=plugin_name.strip() or "slack",
         bot=SlackBotConfig(
-            token=_config_string(
-                bot, "token", "botToken", "bot_token", "accessToken", "access_token"
-            )
-            or _config_string(
-                config,
-                "botToken",
-                "bot_token",
-                "slackBotToken",
-                "slack_bot_token",
-            ),
-            user_id=_config_string(bot, "userId", "user_id", "botUserId", "bot_user_id")
-            or _config_string(config, "botUserId", "bot_user_id"),
+            token=bot_token,
+            user_id=bot_user_id,
+            workspaces=_bot_workspaces_from_config(bot),
         ),
         events=events,
         assistant=assistant,
@@ -114,6 +119,60 @@ def normalize_suggested_prompts(
     if require_one and not normalized:
         raise ValueError("at least one prompt with title and message is required")
     return normalized
+
+
+def _bot_workspaces_from_config(bot: dict[str, Any]) -> tuple[SlackBotWorkspaceConfig, ...]:
+    if not any(key in bot for key in ("workspaces", "workspace")):
+        return ()
+    raw_workspaces = bot.get("workspaces")
+    if raw_workspaces is None:
+        raw_workspaces = bot.get("workspace")
+    workspace_configs: list[tuple[str, dict[str, Any]]] = []
+    if isinstance(raw_workspaces, list):
+        for index, raw_workspace in enumerate(raw_workspaces, start=1):
+            if not isinstance(raw_workspace, dict):
+                raise ValueError(f"bot.workspaces[{index}] must be an object")
+            workspace_configs.append(
+                (f"bot.workspaces[{index}]", cast(dict[str, Any], raw_workspace))
+            )
+    elif isinstance(raw_workspaces, dict):
+        for raw_team_id, raw_workspace in raw_workspaces.items():
+            if not isinstance(raw_workspace, dict):
+                raise ValueError(
+                    f"bot.workspaces[{raw_team_id!r}] must be an object"
+                )
+            workspace = dict(raw_workspace)
+            workspace.setdefault("teamId", str(raw_team_id))
+            workspace_configs.append((f"bot.workspaces[{raw_team_id!r}]", workspace))
+    else:
+        raise ValueError("bot.workspaces must be an array or object")
+
+    workspaces: list[SlackBotWorkspaceConfig] = []
+    seen_team_ids: set[str] = set()
+    for path, workspace in workspace_configs:
+        team_id = _config_string(workspace, "teamId", "team_id", "team")
+        token = _config_string(
+            workspace,
+            "token",
+            "botToken",
+            "bot_token",
+            "accessToken",
+            "access_token",
+        )
+        user_id = _config_string(
+            workspace, "userId", "user_id", "botUserId", "bot_user_id"
+        )
+        if not team_id:
+            raise ValueError(f"{path}.teamId is required")
+        if not token:
+            raise ValueError(f"{path}.token is required")
+        if team_id in seen_team_ids:
+            raise ValueError(f"bot.workspaces has duplicate teamId {team_id!r}")
+        seen_team_ids.add(team_id)
+        workspaces.append(
+            SlackBotWorkspaceConfig(team_id=team_id, token=token, user_id=user_id)
+        )
+    return tuple(workspaces)
 
 
 def _assistant_config_from_provider_config(
