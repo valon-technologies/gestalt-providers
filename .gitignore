@@ -15,3 +15,6 @@ plugins/*/.venv/
 plugins/*/dist/
 service-account*.json
 web/*/dist/
+ui/*/.next/
+ui/*/node_modules/
+ui/*/out/
