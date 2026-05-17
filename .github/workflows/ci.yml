@@ -134,7 +134,7 @@ jobs:
           packages_by_root = {}
           for plugin in all_plugins:
               packages_by_root.setdefault(plugin["root"], set()).add(plugin["dir"])
-          shared_prefixes = (".github/workflows/", ".github/scripts/")
+          shared_prefixes = (".github/scripts/",)
 
           event_name = os.environ["EVENT_NAME"]
           run_all = event_name != "pull_request"
