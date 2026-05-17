@@ -21,6 +21,7 @@ import provider as provider_module
 from gestalt import ENV_AGENT_HOST_SOCKET, ENV_AGENT_HOST_SOCKET_TOKEN, ProviderKind, _runtime
 from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
+from gestalt._gen.v1 import plugin_pb2 as _plugin_pb2
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.codex_runner import normalize_codex_result
@@ -31,6 +32,7 @@ from internals.tool_bridge import MAX_LISTED_TOOLS, ToolBridgeError, list_tools,
 agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
 empty_pb2: Any = _empty_pb2
+plugin_pb2: Any = cast(Any, _plugin_pb2)
 runtime_pb2: Any = _runtime_pb2
 runtime_pb2_grpc: Any = _runtime_pb2_grpc
 struct_pb2: Any = _struct_pb2
@@ -336,7 +338,7 @@ class CodexProviderTests(unittest.TestCase):
             )
         )
 
-        reader_subject = agent_pb2.AgentSubjectContext(subject_id="user-reader")
+        reader_subject = _agent_subject_context("user-reader")
         visible = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(subject=reader_subject, limit=10, summary_only=True)
         )
@@ -363,7 +365,7 @@ class CodexProviderTests(unittest.TestCase):
         owner_update = provider_client.UpdateSession(
             agent_pb2.UpdateAgentProviderSessionRequest(
                 session_id="session-slack",
-                subject=agent_pb2.AgentSubjectContext(subject_id="service_account:slack-bot"),
+                subject=_agent_subject_context("service_account:slack-bot"),
                 state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED,
             )
         )
@@ -388,13 +390,13 @@ class CodexProviderTests(unittest.TestCase):
             session_id="session-slack-turn",
             messages=[agent_pb2.AgentMessage(role="user", text="Company-visible turn")],
         )
-        turn_request.subject.subject_id = "service_account:slack-bot"
+        _set_agent_subject_id(turn_request.subject, "service_account:slack-bot")
         turn_request.created_by.subject_id = "service_account:slack-bot"
         turn_request.created_by.subject_kind = "service_account"
         provider_client.CreateTurn(turn_request)
         _wait_for_turn(provider_client, "turn-slack", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
-        reader_subject = agent_pb2.AgentSubjectContext(subject_id="user-reader")
+        reader_subject = _agent_subject_context("user-reader")
         fetched = provider_client.GetTurn(
             agent_pb2.GetAgentProviderTurnRequest(turn_id="turn-slack", subject=reader_subject)
         )
@@ -413,7 +415,7 @@ class CodexProviderTests(unittest.TestCase):
         )
         self.assertGreaterEqual(len(events.events), 1)
         denied_turn = _turn_request(turn_id="turn-denied", session_id="session-slack-turn")
-        denied_turn.subject.subject_id = "user-reader"
+        _set_agent_subject_id(denied_turn.subject, "user-reader")
         denied_turn.created_by.subject_id = "user-reader"
         with self.assertRaises(grpc.RpcError) as denied_create:
             provider_client.CreateTurn(denied_turn)
@@ -612,7 +614,7 @@ class CodexProviderTests(unittest.TestCase):
             agent_pb2.CancelAgentProviderTurnRequest(
                 turn_id="turn-cancel",
                 reason="test cancellation",
-                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                subject=_agent_subject_context("user-123"),
             )
         )
         self.assertEqual(canceled.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
@@ -624,7 +626,7 @@ class CodexProviderTests(unittest.TestCase):
         fetched_again = provider_client.GetTurn(
             agent_pb2.GetAgentProviderTurnRequest(
                 turn_id="turn-cancel",
-                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                subject=_agent_subject_context("user-123"),
             )
         )
         self.assertEqual(fetched_again.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
@@ -795,7 +797,7 @@ def _turn_request(
         run_grant=run_grant,
         execution_ref=execution_ref,
         created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
-        subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+        subject=_agent_subject_context("user-123"),
     )
     linear = request.tool_refs.add()
     linear.plugin = "linear"
@@ -814,13 +816,29 @@ def _owned_session_request(session_id: str, **kwargs: Any) -> Any:
     return agent_pb2.CreateAgentProviderSessionRequest(
         session_id=session_id,
         created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
-        subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+        subject=_agent_subject_context("user-123"),
         **kwargs,
     )
 
 
 def _create_owned_session(provider_client: Any, session_id: str, **kwargs: Any) -> Any:
     return provider_client.CreateSession(_owned_session_request(session_id, **kwargs))
+
+
+def _agent_subject_context(subject_id: str) -> Any:
+    context_cls = getattr(agent_pb2, "AgentSubjectContext", None) or getattr(
+        plugin_pb2, "AgentSubjectContext", None
+    )
+    if context_cls is not None:
+        return context_cls(subject_id=subject_id)
+    return plugin_pb2.SubjectContext(id=subject_id)
+
+
+def _set_agent_subject_id(subject: Any, subject_id: str) -> None:
+    if hasattr(subject, "subject_id"):
+        subject.subject_id = subject_id
+        return
+    subject.id = subject_id
 
 
 def _slack_session_metadata() -> dict[str, Any]:
@@ -930,7 +948,7 @@ def _wait_for_turn(provider_client: Any, turn_id: str, status: int) -> Any:
         turn = provider_client.GetTurn(
             agent_pb2.GetAgentProviderTurnRequest(
                 turn_id=turn_id,
-                subject=agent_pb2.AgentSubjectContext(subject_id="user-123"),
+                subject=_agent_subject_context("user-123"),
             )
         )
         if turn.status == status:

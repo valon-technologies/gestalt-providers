@@ -3219,7 +3219,10 @@ def _agent_tool_ref_run_as_subject(
     subject_id = subject_id.strip()
     if not subject_id:
         return None
-    return gestalt.AgentSubjectContext(subject_id=subject_id)
+    context_cls = getattr(gestalt, "AgentSubjectContext", None)
+    if context_cls is not None:
+        return context_cls(subject_id=subject_id)
+    return gestalt.Subject(id=subject_id, kind=_subject_kind_from_id(subject_id))
 
 
 def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:

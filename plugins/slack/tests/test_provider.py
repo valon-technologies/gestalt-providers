@@ -508,13 +508,9 @@ def _manifest_parameter_types(operation: dict[str, Any], name: str) -> list[str]
 
 
 class FakeAuthorization:
-    def __init__(
-        self, subjects: list[Any], *, write_error: Exception | None = None
-    ) -> None:
+    def __init__(self, subjects: list[Any]) -> None:
         self.subjects = [_native_subject(subject) for subject in subjects]
         self.requests: list[Any] = []
-        self.write_requests: list[Any] = []
-        self.write_error = write_error
 
     def search_subjects(self, request: Any) -> Any:
         self.requests.append(request)
@@ -528,11 +524,6 @@ class FakeAuthorization:
             if not subject_type or str(subject.type or "").strip() == subject_type
         ]
         return types.SimpleNamespace(subjects=subjects)
-
-    def write_relationships(self, request: Any) -> None:
-        self.write_requests.append(request)
-        if self.write_error is not None:
-            raise self.write_error
 
 def _native_subject(subject: Any) -> Any:
     properties = getattr(subject, "properties", None)
@@ -5714,7 +5705,7 @@ class SlackProviderTests(unittest.TestCase):
             if ref.plugin == "linear" and ref.operation == "searchIssues"
         )
         self.assertEqual(
-            linear_ref.run_as.subject_id,
+            _agent_subject_id(linear_ref.run_as),
             "service_account:slack-linear",
         )
 
@@ -8292,6 +8283,10 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(calls, 2)
         sleep.assert_called_once_with(0.0)
         self.assertEqual(result["data"]["message"]["text"], "after retry")
+
+
+def _agent_subject_id(subject: Any) -> str:
+    return cast(str, getattr(subject, "subject_id", getattr(subject, "id", "")))
 
 
 if __name__ == "__main__":

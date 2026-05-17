@@ -60,18 +60,17 @@ export type CursorAgentProviderDependencies = {
 type AgentSessionInit = Awaited<
   ReturnType<NonNullable<AgentProviderOptions["createSession"]>>
 >;
-type AgentSessionListInit = Awaited<
-  ReturnType<NonNullable<AgentProviderOptions["listSessions"]>>
->;
+type AgentSessionListInit = AgentSessionInit[];
 type AgentTurnInit = Awaited<
   ReturnType<NonNullable<AgentProviderOptions["createTurn"]>>
 >;
-type AgentTurnListInit = Awaited<
-  ReturnType<NonNullable<AgentProviderOptions["listTurns"]>>
->;
-type AgentTurnEventListInit = Awaited<
+type AgentTurnListInit = AgentTurnInit[];
+type AgentTurnEventHandlerReturn = Awaited<
   ReturnType<NonNullable<AgentProviderOptions["listTurnEvents"]>>
 >;
+type AgentTurnEventInit =
+  AgentTurnEventHandlerReturn extends readonly (infer Event)[] ? Event : AgentTurnEvent;
+type AgentTurnEventListInit = AgentTurnEventInit[];
 type AgentInteractionInit = Awaited<
   ReturnType<NonNullable<AgentProviderOptions["getInteraction"]>>
 >;
@@ -535,7 +534,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
 
   private requireReadableSession(
     session: StoredSession,
-    subject: { subjectId?: string } | undefined,
+    subject: ReadSubject | undefined,
   ): void {
     if (!canReadSession(session, subject)) {
       throw notFound(
@@ -625,7 +624,7 @@ function objectOrEmpty(value: unknown): Record<string, unknown> {
 
 function sessionVisibilityForCreateMetadata(
   metadata: Record<string, unknown>,
-  createdBy: { subjectId?: string; subjectKind?: string } | undefined,
+  createdBy: ReadActor | undefined,
 ): StoredSessionVisibility {
   return hasSlackSessionMetadata(metadata) && isManagedActor(createdBy)
     ? SESSION_VISIBILITY_COMPANY
@@ -643,9 +642,7 @@ function hasSlackSessionMetadata(metadata: Record<string, unknown>): boolean {
   );
 }
 
-function isManagedActor(
-  actor: { subjectId?: string; subjectKind?: string } | undefined,
-): boolean {
+function isManagedActor(actor: ReadActor | undefined): boolean {
   const subjectId = String(actor?.subjectId ?? "").trim();
   return (
     String(actor?.subjectKind ?? "").trim() === "service_account" ||
@@ -659,7 +656,7 @@ function nonEmptyString(value: unknown): boolean {
 
 function canReadSession(
   session: StoredSession,
-  subject: { subjectId?: string } | undefined,
+  subject: ReadSubject | undefined,
 ): boolean {
   const subjectId = subjectIdFrom(subject);
   if (!subjectId) {
@@ -673,7 +670,7 @@ function canReadSession(
 
 function requireOwnedSession(
   session: StoredSession,
-  subject: { subjectId?: string } | undefined,
+  subject: ReadSubject | undefined,
 ): void {
   const subjectId = subjectIdFrom(subject);
   if (!subjectId || session.createdBy?.subjectId !== subjectId) {
@@ -683,8 +680,17 @@ function requireOwnedSession(
   }
 }
 
-function subjectIdFrom(subject: { subjectId?: string } | undefined): string {
-  return String(subject?.subjectId ?? "").trim();
+type ReadSubject = {
+  subjectId?: string | undefined;
+  id?: string | undefined;
+};
+type ReadActor = {
+  subjectId?: string | undefined;
+  subjectKind?: string | undefined;
+};
+
+function subjectIdFrom(subject: ReadSubject | undefined): string {
+  return String(subject?.subjectId ?? subject?.id ?? "").trim();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

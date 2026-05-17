@@ -59,19 +59,25 @@ import { schemaFromJson, type ToolEntry } from "../src/tools.ts";
 const activeHosts: FakeAgentHost[] = [];
 const OWNER_ACTOR = {
   subjectId: "user:owner@example.com",
+  id: "user:owner@example.com",
   subjectKind: "user",
+  kind: "user",
   displayName: "Owner",
   authSource: "test",
 };
 const OTHER_ACTOR = {
   subjectId: "user:other@example.com",
+  id: "user:other@example.com",
   subjectKind: "user",
+  kind: "user",
   displayName: "Other",
   authSource: "test",
 };
 const SLACK_ACTOR = {
   subjectId: "service_account:slack-bot",
+  id: "service_account:slack-bot",
   subjectKind: "service_account",
+  kind: "service_account",
   displayName: "Slack Bot",
   authSource: "test",
 };

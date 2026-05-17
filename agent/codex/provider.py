@@ -531,7 +531,7 @@ def _existing_session_for_create(
 
 
 def _subject_id(subject: Any) -> str:
-    return _text(getattr(subject, "subject_id", ""))
+    return _text(getattr(subject, "subject_id", "") or getattr(subject, "id", ""))
 
 
 def _text(value: Any) -> str:

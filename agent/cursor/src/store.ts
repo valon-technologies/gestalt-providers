@@ -1,4 +1,3 @@
-import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import {
   AgentExecutionStatus,
   AgentSessionState,
@@ -6,7 +5,6 @@ import {
   type AgentMessage,
   type AgentProviderOptions,
   type AgentSession,
-  type AgentTurn,
   type AgentTurnEvent,
 } from "@valon-technologies/gestalt";
 
@@ -15,7 +13,8 @@ type AgentTurnInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["create
 type AgentTurnEventListInit = Awaited<
   ReturnType<NonNullable<AgentProviderOptions["listTurnEvents"]>>
 >;
-type AgentTurnEventInit = AgentTurnEventListInit[number];
+type AgentTurnEventInit =
+  AgentTurnEventListInit extends readonly (infer Event)[] ? Event : AgentTurnEvent;
 
 export type PreparedWorkspace = {
   root: string;
@@ -431,8 +430,8 @@ export function sessionToAgentSession(session: StoredSession, summaryOnly = fals
     model: session.model,
     clientRef: session.clientRef,
     state: session.state,
-    createdAt: timestampFromDate(session.createdAt),
-    updatedAt: timestampFromDate(session.updatedAt),
+    createdAt: sdkDate<AgentSessionInit["createdAt"]>(session.createdAt),
+    updatedAt: sdkDate<AgentSessionInit["updatedAt"]>(session.updatedAt),
   };
   if (!summaryOnly && Object.keys(session.metadata).length > 0) {
     out.metadata = session.metadata as AgentSession["metadata"];
@@ -441,7 +440,7 @@ export function sessionToAgentSession(session: StoredSession, summaryOnly = fals
     out.createdBy = session.createdBy;
   }
   if (session.lastTurnAt) {
-    out.lastTurnAt = timestampFromDate(session.lastTurnAt);
+    out.lastTurnAt = sdkDate<AgentSessionInit["lastTurnAt"]>(session.lastTurnAt);
   }
   return out;
 }
@@ -456,7 +455,7 @@ export function turnToAgentTurn(turn: StoredTurn, summaryOnly = false): AgentTur
     outputText: summaryOnly ? "" : turn.outputText,
     statusMessage: turn.statusMessage,
     executionRef: turn.executionRef,
-    createdAt: timestampFromDate(turn.createdAt),
+    createdAt: sdkDate<AgentTurnInit["createdAt"]>(turn.createdAt),
   };
   if (!summaryOnly) {
     out.messages = cloneMessages(turn.messages);
@@ -465,10 +464,10 @@ export function turnToAgentTurn(turn: StoredTurn, summaryOnly = false): AgentTur
     out.createdBy = turn.createdBy;
   }
   if (turn.startedAt) {
-    out.startedAt = timestampFromDate(turn.startedAt);
+    out.startedAt = sdkDate<AgentTurnInit["startedAt"]>(turn.startedAt);
   }
   if (turn.completedAt) {
-    out.completedAt = timestampFromDate(turn.completedAt);
+    out.completedAt = sdkDate<AgentTurnInit["completedAt"]>(turn.completedAt);
   }
   return out;
 }
@@ -482,8 +481,12 @@ export function turnEventToAgentTurnEvent(event: StoredTurnEvent): AgentTurnEven
     source: event.source,
     visibility: event.visibility,
     data: event.data as AgentTurnEvent["data"],
-    createdAt: timestampFromDate(event.createdAt),
+    createdAt: sdkDate<AgentTurnEventInit["createdAt"]>(event.createdAt),
   };
+}
+
+function sdkDate<T>(value: Date): T {
+  return new Date(value) as T;
 }
 
 export function cloneRecord(value: Record<string, unknown>): Record<string, unknown> {
