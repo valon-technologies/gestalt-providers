@@ -6,7 +6,7 @@ dependencies = ["gestalt-sdk"]
 
 [dependency-groups]
 dev = [
-  "ruff==0.15.9",
+  "ruff==0.15.13",
   "ty==0.0.35",
   "vulture==2.16",
 ]
