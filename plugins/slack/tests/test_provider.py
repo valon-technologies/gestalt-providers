@@ -94,9 +94,13 @@ class FakeBoundWorkflowAgentTarget:
         prompt: str = "",
         messages: list[Any] | None = None,
         tool_refs: list[Any] | None = None,
+        response_schema: Any = None,
+        metadata: Any = None,
         timeout_seconds: int = 0,
         output_delivery: Any = None,
         session_ready_delivery: Any = None,
+        model_options: Any = None,
+        steps: list[Any] | None = None,
         **_kwargs: Any,
     ) -> None:
         self.provider_name = provider_name
@@ -104,12 +108,47 @@ class FakeBoundWorkflowAgentTarget:
         self.prompt = prompt
         self.messages = messages or []
         self.tool_refs = tool_refs or []
+        self.response_schema = response_schema
         self.timeout_seconds = timeout_seconds
         self.output_delivery = output_delivery
         self.session_ready_delivery = session_ready_delivery
-        self.metadata = new_struct()
-        self.model_options = new_struct()
+        self.metadata = metadata or new_struct()
+        self.model_options = model_options or new_struct()
         self.provider_options = self.model_options
+        self.steps = steps or []
+
+
+class FakeWorkflowAgentStep:
+    def __init__(
+        self,
+        id: str = "",
+        prompt: str = "",
+        messages: list[Any] | None = None,
+        tool_refs: list[Any] | None = None,
+        response_schema: Any = None,
+        model_options: Any = None,
+        metadata: Any = None,
+        timeout_seconds: int = 0,
+        when: Any = None,
+        output_delivery: Any = None,
+        **_kwargs: Any,
+    ) -> None:
+        self.id = id
+        self.prompt = prompt
+        self.messages = messages or []
+        self.tool_refs = tool_refs or []
+        self.response_schema = response_schema
+        self.model_options = model_options or new_struct()
+        self.metadata = metadata or new_struct()
+        self.timeout_seconds = timeout_seconds
+        self.when = when
+        self.output_delivery = output_delivery
+
+
+class FakeWorkflowAgentStepWhen:
+    def __init__(self, **kwargs: Any) -> None:
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
 
 class FakeBoundWorkflowPluginTarget:
@@ -241,6 +280,8 @@ class FakeWorkflowPb2:
     WorkflowEvent = FakeWorkflowEvent
     WorkflowSignal = FakeWorkflowSignal
     BoundWorkflowAgentTarget = FakeBoundWorkflowAgentTarget
+    WorkflowAgentStep = FakeWorkflowAgentStep
+    WorkflowAgentStepWhen = FakeWorkflowAgentStepWhen
     BoundWorkflowPluginTarget = FakeBoundWorkflowPluginTarget
     BoundWorkflowTarget = FakeBoundWorkflowTarget
     WorkflowOutputBinding = FakeWorkflowOutputBinding
@@ -695,6 +736,7 @@ class SlackProviderTests(unittest.TestCase):
             "SlackAgentEvent",
             "SlackAgentRoute",
             "SlackAgentRouteMatch",
+            "SlackAgentStep",
             "SlackAgentToolRef",
             "SlackAssistantConfig",
             "SlackBotConfig",
@@ -1095,6 +1137,208 @@ class SlackProviderTests(unittest.TestCase):
                                 "provider": "simple",
                                 "model": "deep",
                                 "timeoutSeconds": value,
+                            }
+                        },
+                    )
+
+    def test_route_agent_steps_map_to_workflow_target_steps(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "toolSets": {
+                        "triage": [{"plugin": "linear", "operation": "searchIssues"}],
+                    },
+                    "routes": [
+                        {
+                            "id": "stepped",
+                            "match": {"channel": "C_STEPS"},
+                            "agent": {
+                                "tools": [{"plugin": "jira", "operation": "search"}],
+                                "steps": [
+                                    {
+                                        "id": "collect",
+                                        "prompt": "Collect Slack context.",
+                                        "messages": [
+                                            {
+                                                "role": "system",
+                                                "text": "Use the event signal.",
+                                            },
+                                            {
+                                                "role": "user",
+                                                "text": "Summarize the request.",
+                                            },
+                                        ],
+                                        "toolSetRefs": ["triage"],
+                                        "tools": [
+                                            {
+                                                "plugin": "github",
+                                                "operation": "pulls/list",
+                                            }
+                                        ],
+                                        "responseSchema": {
+                                            "type": "object",
+                                            "properties": {
+                                                "summary": {"type": "string"}
+                                            },
+                                        },
+                                        "modelOptions": {"temperature": 0},
+                                        "metadata": {"phase": "collect"},
+                                        "timeoutSeconds": 120,
+                                    },
+                                    {
+                                        "id": "reply",
+                                        "prompt": "Write the Slack reply.",
+                                        "when": {
+                                            "stepId": "collect",
+                                            "outputPath": "structured_output.actionable",
+                                            "equals": True,
+                                        },
+                                        "slackReply": {
+                                            "agentOutput": "answer.markdown"
+                                        },
+                                    },
+                                ],
+                            },
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_manager = FakeWorkflowManager()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvRouteSteps",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C_STEPS",
+                "channel_type": "channel",
+                "text": "<@UBOT> plan this",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        with (
+            mock.patch.object(
+                gestalt,
+                "BoundWorkflowAgentTarget",
+                FakeBoundWorkflowAgentTarget,
+                create=True,
+            ),
+            mock.patch.object(
+                gestalt,
+                "WorkflowAgentStep",
+                FakeWorkflowAgentStep,
+                create=True,
+            ),
+            mock.patch.object(
+                gestalt,
+                "WorkflowAgentStepWhen",
+                FakeWorkflowAgentStepWhen,
+                create=True,
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflow_manager",
+                return_value=workflow_manager,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+        agent_target = workflow_manager.signal_or_start_requests[0].target.agent
+        self.assertEqual(agent_target.prompt, "")
+        self.assertEqual(list(agent_target.tool_refs or []), [])
+        self.assertIsNone(agent_target.output_delivery)
+        self.assertEqual(len(agent_target.steps), 2)
+        collect = agent_target.steps[0]
+        self.assertEqual(collect.id, "collect")
+        self.assertEqual(collect.prompt, "Collect Slack context.")
+        self.assertEqual(
+            [message.role for message in collect.messages], ["system", "system", "user"]
+        )
+        collect_tool_pairs = tool_ref_pairs(collect.tool_refs)
+        self.assertEqual(
+            collect_tool_pairs[:3],
+            [("jira", "search"), ("linear", "searchIssues"), ("github", "pulls/list")],
+        )
+        self.assertEqual(collect_tool_pairs[3:], BASE_EVENT_TOOL_REFS)
+        self.assertEqual(collect.response_schema["type"], "object")
+        self.assertEqual(collect.model_options["temperature"], 0)
+        self.assertEqual(collect.metadata["phase"], "collect")
+        self.assertEqual(collect.timeout_seconds, 120)
+        self.assertIsNone(collect.when)
+
+        reply = agent_target.steps[1]
+        self.assertEqual(reply.id, "reply")
+        self.assertEqual(reply.when.step_id, "collect")
+        self.assertEqual(reply.when.output_path, "structured_output.actionable")
+        self.assertEqual(reply.when.equals, True)
+        self.assertEqual(
+            output_delivery_bindings(reply.output_delivery),
+            {
+                "text": ("agent_output", "answer.markdown"),
+                "reply_ref": ("signal_payload", "reply_ref"),
+            },
+        )
+        self.assertEqual(reply.output_delivery.target.plugin_name, "slack")
+        self.assertEqual(reply.output_delivery.target.operation, "events.reply")
+
+    def test_route_agent_steps_reject_invalid_ids_and_when_references(self) -> None:
+        invalid_steps = [
+            ([{"prompt": "missing id"}], ".id is required"),
+            (
+                [
+                    {"id": "diagnosis", "prompt": "first"},
+                    {"id": "diagnosis", "prompt": "second"},
+                ],
+                "duplicates another step",
+            ),
+            (
+                [
+                    {
+                        "id": "pr_fix",
+                        "prompt": "fix",
+                        "when": {
+                            "stepId": "diagnosis",
+                            "outputPath": "structured_output.actionable",
+                            "equals": True,
+                        },
+                    }
+                ],
+                "must reference an earlier step",
+            ),
+            ([{"id": "empty"}], "prompt or messages is required"),
+        ]
+        for steps, message in invalid_steps:
+            with self.subTest(message=message):
+                with self.assertRaisesRegex(ValueError, message):
+                    provider_module.configure(
+                        "slack",
+                        {
+                            "agent": {
+                                "provider": "simple",
+                                "model": "deep",
+                                "routes": [
+                                    {
+                                        "id": "stepped",
+                                        "match": {"channel": "C_STEPS"},
+                                        "agent": {"steps": steps},
+                                    }
+                                ],
                             }
                         },
                     )

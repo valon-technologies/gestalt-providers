@@ -12,6 +12,7 @@ import unittest
 from concurrent import futures
 from datetime import UTC, datetime
 from typing import Any, cast
+from unittest import mock
 
 import grpc
 import gestalt
@@ -40,6 +41,15 @@ runtime_pb2: Any = _runtime_pb2
 runtime_pb2_grpc: Any = _runtime_pb2_grpc
 struct_pb2: Any = _struct_pb2
 AGENT_TOOL_SOURCE_MODE_NONE = provider_module.AGENT_TOOL_SOURCE_MODE_NONE
+
+
+def agent_subject_context(subject_id: str) -> Any:
+    subject_cls = getattr(agent_pb2, "AgentSubjectContext", None)
+    if subject_cls is None:
+        subject_cls = getattr(plugin_pb2, "AgentSubjectContext", None)
+    if subject_cls is not None:
+        return subject_cls(subject_id=subject_id)
+    return plugin_pb2.SubjectContext(id=subject_id)
 
 _runtime_server: grpc.Server | None = None
 _host_server: grpc.Server | None = None
@@ -299,6 +309,24 @@ class _FakeClaudeSDKClient:
                 session_id=self.session_id,
                 result="list",
                 structured_output=[{"score": 1}],
+            )
+            return
+        if self.mode == "catalog_structured_success":
+            assert self.options.tools == ["mcp__gestalt__*"]
+            assert self.options.allowed_tools == ["mcp__gestalt__*"]
+            assert set(self.options.mcp_servers.keys()) == {"gestalt"}
+            assert self.options.output_format["type"] == "json_schema"
+            visible_tools = await _visible_sdk_tools(self.options)
+            assert visible_tools == ["ashby__candidate_list", "linear__issues", "github__pulls_list"], visible_tools
+            yield ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id=self.session_id,
+                result="catalog structured",
+                structured_output={"answer": "done"},
             )
             return
 
@@ -664,7 +692,7 @@ class ClaudeProviderTests(unittest.TestCase):
         fake_client = _FakeClaudeSDKClient.instances[0]
         self.assertTrue(fake_client.connected)
         self.assertTrue(fake_client.disconnected)
-        self.assertEqual(fake_client.session_id, "turn-claude")
+        self.assertEqual(fake_client.session_id, "session-claude")
         self.assertIn("List my Linear issues", fake_client.prompt)
         self.assertIn('<message 1 role="user">', fake_client.prompt)
         self.assertEqual(fake_client.options.model, "sonnet-session")
@@ -767,6 +795,28 @@ class ClaudeProviderTests(unittest.TestCase):
             message_events[0].data.fields["structured_output"].struct_value.fields["score"].number_value, 1
         )
 
+    def test_provider_allows_catalog_tools_with_response_schema(self) -> None:
+        _FakeClaudeSDKClient.mode = "catalog_structured_success"
+        _, provider_client = _configure_provider()
+        provider_client.CreateSession(agent_pb2.CreateAgentProviderSessionRequest(session_id="session-catalog-schema"))
+        schema = struct_pb2.Struct()
+        schema.update({"type": "object", "properties": {"answer": {"type": "string"}}})
+
+        provider_client.CreateTurn(
+            _turn_request(turn_id="turn-catalog-schema", session_id="session-catalog-schema", response_schema=schema)
+        )
+
+        fetched = _wait_for_turn(provider_client, "turn-catalog-schema", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        self.assertEqual(fetched.output_text, "catalog structured")
+        self.assertEqual(fetched.structured_output.fields["answer"].string_value, "done")
+        fake_client = _FakeClaudeSDKClient.instances[-1]
+        self.assertEqual(fake_client.session_id, "session-catalog-schema")
+        self.assertEqual(fake_client.options.output_format["schema"]["type"], "object")
+        host = _host_servicer
+        assert host is not None
+        self.assertEqual(host.list_requests[0]["session_id"], "session-catalog-schema")
+        self.assertEqual(host.list_requests[0]["turn_id"], "turn-catalog-schema")
+
     def test_provider_fails_structured_turn_without_object_output(self) -> None:
         for mode, message in [
             ("structured_missing", "did not include structured output"),
@@ -810,6 +860,69 @@ class ClaudeProviderTests(unittest.TestCase):
             _restore_env("ANTHROPIC_API_KEY", previous)
 
         self.assertEqual(_FakeClaudeSDKClient.instances[-1].options.env["ANTHROPIC_API_KEY"], "env-anthropic-key")
+
+    def test_runner_uses_per_turn_timeout_override(self) -> None:
+        _FakeClaudeSDKClient.mode = "structured_success"
+        _configure_provider()
+        runner = provider_module.provider._runner
+        assert runner is not None
+        captured_timeouts: list[float | None] = []
+
+        async def fake_wait_for(awaitable: Any, timeout: float | None = None) -> Any:
+            captured_timeouts.append(timeout)
+            return await awaitable
+
+        with mock.patch("internals.claude_runner.asyncio.wait_for", side_effect=fake_wait_for):
+            result = runner.run_turn(
+                session_id="session-timeout",
+                turn_id="turn-timeout",
+                model="sonnet-session",
+                messages=[{"role": "user", "text": "hello"}],
+                turn_profile=provider_module.ClaudeTurnProfile.structured_output(response_schema={"type": "object"}),
+                timeout_seconds=1.25,
+            )
+
+        self.assertEqual(captured_timeouts, [1.25])
+        self.assertEqual(result.structured_output, {"score": 1, "reasoning": "correct"})
+        self.assertEqual(_FakeClaudeSDKClient.instances[-1].session_id, "session-timeout")
+
+    def test_provider_uses_request_timeout_override(self) -> None:
+        if "timeout_seconds" not in agent_pb2.CreateAgentProviderTurnRequest.DESCRIPTOR.fields_by_name:
+            self.skipTest("installed Gestalt SDK does not expose CreateAgentProviderTurnRequest.timeout_seconds")
+        _FakeClaudeSDKClient.mode = "structured_success"
+        _, provider_client = _configure_provider()
+        provider_client.CreateSession(
+            agent_pb2.CreateAgentProviderSessionRequest(session_id="session-request-timeout")
+        )
+        captured_timeouts: list[float | None] = []
+        schema = struct_pb2.Struct()
+        schema.update({"type": "object"})
+
+        async def fake_wait_for(awaitable: Any, timeout: float | None = None) -> Any:
+            captured_timeouts.append(timeout)
+            return await awaitable
+
+        with mock.patch(
+            "internals.claude_runner.asyncio.wait_for", side_effect=fake_wait_for
+        ):
+            provider_client.CreateTurn(
+                _turn_request(
+                    turn_id="turn-request-timeout",
+                    session_id="session-request-timeout",
+                    response_schema=schema,
+                    tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
+                    timeout_seconds=2,
+                    include_tool_refs=False,
+                )
+            )
+
+        fetched = _wait_for_turn(
+            provider_client,
+            "turn-request-timeout",
+            agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
+        )
+        self.assertEqual(fetched.structured_output.fields["score"].number_value, 1)
+        self.assertEqual(captured_timeouts, [2.0])
 
     def test_provider_launches_agent_sdk_from_prepared_workspace(self) -> None:
         if not hasattr(agent_pb2.CreateAgentProviderSessionRequest(), "prepared_workspace"):
@@ -1024,31 +1137,31 @@ class ClaudeProviderTests(unittest.TestCase):
 
         summary_sessions = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=plugin_pb2.AgentSubjectContext(subject_id="user-123"), limit=1, summary_only=True
+                subject=agent_subject_context("user-123"), limit=1, summary_only=True
             )
         )
         full_sessions = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=plugin_pb2.AgentSubjectContext(subject_id="user-123"), limit=1
+                subject=agent_subject_context("user-123"), limit=1
             )
         )
         summary_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
                 session_id="session-stream-a",
-                subject=plugin_pb2.AgentSubjectContext(subject_id="user-123"),
+                subject=agent_subject_context("user-123"),
                 limit=1,
                 summary_only=True,
             )
         )
         full_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
-                session_id="session-stream-a", subject=plugin_pb2.AgentSubjectContext(subject_id="user-123"), limit=1
+                session_id="session-stream-a", subject=agent_subject_context("user-123"), limit=1
             )
         )
         running_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
                 session_id="session-stream-a",
-                subject=plugin_pb2.AgentSubjectContext(subject_id="user-123"),
+                subject=agent_subject_context("user-123"),
                 status=agent_pb2.AGENT_EXECUTION_STATUS_RUNNING,
                 limit=10,
                 summary_only=True,
@@ -1057,7 +1170,7 @@ class ClaudeProviderTests(unittest.TestCase):
         succeeded_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
                 session_id="session-stream-a",
-                subject=plugin_pb2.AgentSubjectContext(subject_id="user-123"),
+                subject=agent_subject_context("user-123"),
                 status=agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
                 limit=10,
                 summary_only=True,
@@ -1068,7 +1181,7 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         subject_mismatch_exact_session = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=plugin_pb2.AgentSubjectContext(subject_id="user-456"),
+                subject=agent_subject_context("user-456"),
                 session_ids=["session-stream-b"],
                 limit=10,
                 summary_only=True,
@@ -1092,7 +1205,7 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         active_sessions = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=plugin_pb2.AgentSubjectContext(subject_id="user-123"),
+                subject=agent_subject_context("user-123"),
                 state=agent_pb2.AGENT_SESSION_STATE_ACTIVE,
                 limit=10,
                 summary_only=True,
@@ -1100,7 +1213,7 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         archived_sessions = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=plugin_pb2.AgentSubjectContext(subject_id="user-123"),
+                subject=agent_subject_context("user-123"),
                 state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED,
                 limit=10,
                 summary_only=True,
@@ -1467,11 +1580,6 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         _assert_invalid(provider_client, bad_schema, "response_schema.type must be")
 
-        catalog_schema = _turn_request(
-            turn_id="turn-catalog-response-schema", session_id="session-validation", response_schema=scalar_schema
-        )
-        _assert_invalid(provider_client, catalog_schema, "response_schema is not supported with toolSource mcp_catalog")
-
         model_options = struct_pb2.Struct()
         model_options.update({"temperature": 0.2})
         bad_options = _turn_request(
@@ -1769,6 +1877,7 @@ def _turn_request(
     response_schema: Any | None = None,
     model_options: Any | None = None,
     tool_source: int | None = None,
+    timeout_seconds: int = 0,
     include_tool_refs: bool = True,
 ) -> Any:
     request = agent_pb2.CreateAgentProviderTurnRequest(
@@ -1781,6 +1890,8 @@ def _turn_request(
         idempotency_key=idempotency_key,
         created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
     )
+    if timeout_seconds:
+        request.timeout_seconds = timeout_seconds
     if include_tool_refs:
         linear = request.tool_refs.add()
         linear.plugin = "linear"

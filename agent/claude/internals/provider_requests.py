@@ -47,6 +47,7 @@ class TurnCreateRequest:
     created_by: dict[str, str]
     execution_ref: str
     turn_profile: ClaudeTurnProfile
+    timeout_seconds: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +104,7 @@ def turn_create_request_from_provider_request(
         claude_code_options = config.claude_code.resolve_turn_options(session.metadata)
         turn_profile = ClaudeTurnProfile.catalog(
             run_grant=_text(getattr(request, "run_grant", "")),
+            response_schema=response_schema,
             claude_code_options=claude_code_options,
             cwd=prepared_workspace_cwd(session.prepared_workspace),
         )
@@ -116,6 +118,7 @@ def turn_create_request_from_provider_request(
         created_by=gestalt.agent_actor_to_dict(getattr(request, "created_by", None)),
         execution_ref=_text(getattr(request, "execution_ref", "")),
         turn_profile=turn_profile,
+        timeout_seconds=_timeout_seconds_from_request(request),
     )
 
 
@@ -133,8 +136,6 @@ def validate_turn_contract(
         raise ValueError("tool_refs are not supported with toolSource none")
     if tool_source == tool_source_modes.none and not _has_response_schema(request):
         raise ValueError("response_schema is required with toolSource none")
-    if tool_source == tool_source_modes.mcp_catalog and _has_response_schema(request):
-        raise ValueError("response_schema is not supported with toolSource mcp_catalog")
     _validate_response_schema(_response_schema_from_request(request))
     if dict(getattr(request, "model_options", {}) or {}):
         raise ValueError("model_options are not supported by agent/claude")
@@ -250,6 +251,18 @@ def _validate_system_tool_ref(ref: ToolRefRequest) -> None:
 
 def _tool_source_from_request(request: Any) -> int:
     return int(getattr(request, "tool_source", 0) or 0)
+
+
+def _timeout_seconds_from_request(request: Any) -> float:
+    if not hasattr(request, "timeout_seconds"):
+        return 0.0
+    raw_value = getattr(request, "timeout_seconds", 0)
+    if raw_value is None or str(raw_value).strip() == "":
+        return 0.0
+    value = float(raw_value)
+    if value < 0:
+        raise ValueError("timeout_seconds must be non-negative")
+    return value
 
 
 def _required_text(value: Any, *, field_name: str) -> str:

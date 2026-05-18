@@ -220,6 +220,7 @@ class ClaudeCodeAgentProvider(
                     "model": create_request.model,
                     "messages": list(turn.messages),
                     "turn_profile": create_request.turn_profile,
+                    "timeout_seconds": create_request.timeout_seconds,
                 },
                 daemon=True,
             ).start()
@@ -340,6 +341,7 @@ class ClaudeCodeAgentProvider(
         model: str,
         messages: list[dict[str, Any]],
         turn_profile: ClaudeTurnProfile,
+        timeout_seconds: float,
     ) -> None:
         try:
             claude_code_options = turn_profile.claude_code_options
@@ -352,7 +354,12 @@ class ClaudeCodeAgentProvider(
                     },
                 )
             output = runner.run_turn(
-                session_id=session_id, turn_id=turn_id, model=model, messages=messages, turn_profile=turn_profile
+                session_id=session_id,
+                turn_id=turn_id,
+                model=model,
+                messages=messages,
+                turn_profile=turn_profile,
+                timeout_seconds=timeout_seconds,
             )
         except ClaudeExecutionCanceled as exc:
             store.cancel_turn(turn_id=turn_id, reason=str(exc))

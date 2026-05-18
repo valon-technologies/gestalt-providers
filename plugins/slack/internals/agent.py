@@ -4,11 +4,13 @@ import base64
 import binascii
 import hashlib
 import hmac
+import inspect
 import json
 import logging
 import time
 import urllib.parse
 import uuid
+from dataclasses import dataclass, field
 from http import HTTPStatus
 from typing import Any, Iterable, TypeAlias, cast
 
@@ -25,6 +27,7 @@ from .models import (
     SlackAgentConfig,
     SlackAgentEvent,
     SlackAgentRoute,
+    SlackAgentStep,
     SlackAgentToolRef,
     SlackCallbackType,
     SlackChannelType,
@@ -109,6 +112,25 @@ When you answer the Slack user, return the complete Slack message body as your
 final assistant answer. Gestalt will deliver that final answer to Slack.
 Do not use raw Slack message-posting tools for the final reply.
 """.strip()
+
+
+@dataclass(frozen=True, slots=True)
+class _CompatWorkflowAgentStepWhen:
+    data: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class _CompatWorkflowAgentStep:
+    id: str = ""
+    prompt: str = ""
+    messages: list[Any] = field(default_factory=list)
+    tool_refs: list[Any] = field(default_factory=list)
+    response_schema: dict[str, Any] | None = None
+    model_options: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
+    timeout_seconds: int = 0
+    when: Any | None = None
+    output_delivery: Any | None = None
 
 
 def _request_subject_id(req: gestalt.Request) -> str:
@@ -2811,24 +2833,36 @@ def _build_workflow_agent_target(
     event: SlackAgentEvent,
     route: SlackAgentRoute | None,
 ) -> Any:
+    steps = _agent_event_steps(route)
     target_kwargs: dict[str, Any] = {
         "provider_name": _agent_provider(route),
         "model": _agent_model(route),
-        "prompt": _workflow_agent_prompt(),
-        "messages": [
-            gestalt.AgentMessage(role="system", text=_agent_system_prompt(route))
-        ],
-        "tool_refs": _agent_event_tool_refs(route),
         "session_ready_delivery": _workflow_session_ready_delivery(),
-        "output_delivery": _workflow_output_delivery(),
         "metadata": _agent_session_metadata(event),
     }
     timeout_seconds = _agent_timeout_seconds(route)
     if timeout_seconds > 0:
         target_kwargs["timeout_seconds"] = timeout_seconds
-    model_options = _agent_model_options(route)
-    if model_options:
-        target_kwargs["model_options"] = model_options
+    if steps:
+        if not _constructor_supports_kwarg(
+            getattr(gestalt, "BoundWorkflowAgentTarget", None), "steps"
+        ):
+            raise RuntimeError("configured agent steps require a Gestalt SDK with workflow step support")
+        target_kwargs["steps"] = steps
+    else:
+        target_kwargs.update(
+            {
+                "prompt": _workflow_agent_prompt(),
+                "messages": [
+                    gestalt.AgentMessage(role="system", text=_agent_system_prompt(route))
+                ],
+                "tool_refs": _agent_event_tool_refs(route),
+                "output_delivery": _workflow_output_delivery(),
+            }
+        )
+        model_options = _agent_model_options(route)
+        if model_options:
+            target_kwargs["model_options"] = model_options
     agent = gestalt.BoundWorkflowAgentTarget(**target_kwargs)
     return gestalt.BoundWorkflowTarget(agent=agent)
 
@@ -2847,7 +2881,7 @@ def _workflow_agent_prompt() -> str:
     )
 
 
-def _workflow_output_delivery() -> Any:
+def _workflow_output_delivery(*, agent_output: str = "text") -> Any:
     return gestalt.WorkflowOutputDelivery(
         target=gestalt.BoundWorkflowPluginTarget(
             plugin_name=_agent_config.plugin_name,
@@ -2857,7 +2891,7 @@ def _workflow_output_delivery() -> Any:
         input_bindings=[
             gestalt.WorkflowOutputBinding(
                 input_field="text",
-                value=gestalt.WorkflowOutputValueSource(agent_output="text"),
+                value=gestalt.WorkflowOutputValueSource(agent_output=agent_output),
             ),
             gestalt.WorkflowOutputBinding(
                 input_field="reply_ref",
@@ -2889,6 +2923,111 @@ def _workflow_session_ready_delivery() -> Any:
             ),
         ],
     )
+
+
+def _agent_event_steps(route: SlackAgentRoute | None) -> list[Any]:
+    if route is None or not route.agent_steps:
+        return []
+    return [_workflow_agent_step(route, step) for step in route.agent_steps]
+
+
+def _workflow_agent_step(route: SlackAgentRoute, step: SlackAgentStep) -> Any:
+    messages = [gestalt.AgentMessage(role="system", text=_agent_system_prompt(route))]
+    messages.extend(
+        gestalt.AgentMessage(
+            role=message.get("role", "user"),
+            text=message.get("text", ""),
+            metadata=message.get("metadata") or None,
+        )
+        for message in step.messages
+    )
+    step_kwargs: dict[str, Any] = {
+        "id": step.id,
+        "prompt": step.prompt,
+        "messages": messages,
+        "tool_refs": _agent_step_tool_refs(route, step),
+        "response_schema": step.response_schema or None,
+        "model_options": step.model_options or None,
+        "metadata": step.metadata or None,
+        "timeout_seconds": step.timeout_seconds,
+        "when": _workflow_agent_step_when(step.when) if step.when else None,
+        "output_delivery": _workflow_step_slack_reply_delivery(step),
+    }
+    return _construct_workflow_agent_step(
+        {key: value for key, value in step_kwargs.items() if _keep_step_value(value)}
+    )
+
+
+def _keep_step_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if value == "":
+        return False
+    if value == []:
+        return False
+    if value == 0:
+        return False
+    return True
+
+
+def _workflow_agent_step_when(value: dict[str, Any]) -> Any:
+    when_cls = getattr(gestalt, "WorkflowAgentStepWhen", None)
+    if when_cls is None:
+        return _CompatWorkflowAgentStepWhen(data=dict(value))
+    return _construct_workflow_value(when_cls, dict(value))
+
+
+def _construct_workflow_agent_step(kwargs: dict[str, Any]) -> Any:
+    step_cls = getattr(gestalt, "WorkflowAgentStep", None)
+    if step_cls is None:
+        return _CompatWorkflowAgentStep(
+            **_supported_kwargs(_CompatWorkflowAgentStep, kwargs)
+        )
+    return _construct_workflow_value(step_cls, kwargs)
+
+
+def _construct_workflow_value(factory: Any, kwargs: dict[str, Any]) -> Any:
+    try:
+        return factory(**kwargs)
+    except TypeError:
+        return factory(**_supported_kwargs(factory, kwargs))
+
+
+def _supported_kwargs(factory: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
+    try:
+        signature = inspect.signature(factory)
+    except (TypeError, ValueError):
+        return dict(kwargs)
+    parameters = signature.parameters
+    if any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    ):
+        return dict(kwargs)
+    return {key: value for key, value in kwargs.items() if key in parameters}
+
+
+def _constructor_supports_kwarg(factory: Any, key: str) -> bool:
+    if factory is None:
+        return False
+    try:
+        signature = inspect.signature(factory)
+    except (TypeError, ValueError):
+        return False
+    parameters = signature.parameters
+    if key in parameters:
+        return True
+    return any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+
+
+def _workflow_step_slack_reply_delivery(step: SlackAgentStep) -> Any | None:
+    agent_output = step.slack_reply_agent_output.strip()
+    if not agent_output:
+        return None
+    return _workflow_output_delivery(agent_output=agent_output)
 
 
 def _prefetch_thread_context(
@@ -3158,6 +3297,23 @@ def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
         *_agent_tool_set_refs(route.agent_tool_set_refs if route is not None else ()),
         *(route.agent_tools if route is not None else ()),
     ]
+    refs.extend(_agent_default_tool_refs(route))
+    return [
+        _agent_tool_ref(
+            system=ref.system,
+            plugin=ref.plugin,
+            operation=ref.operation,
+            connection=ref.connection,
+            instance=ref.instance,
+            title=ref.title,
+            description=ref.description,
+            run_as_subject_id=ref.run_as_subject_id,
+        )
+        for ref in _dedupe_agent_tool_refs(refs)
+    ]
+
+
+def _agent_default_tool_refs(route: SlackAgentRoute | None) -> list[SlackAgentToolRef]:
     operations = [
         SLACK_CONTEXT_OPERATION,
         SLACK_MESSAGE_OPERATION,
@@ -3177,6 +3333,25 @@ def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
             ]
         )
     return [
+        SlackAgentToolRef(
+            plugin=_agent_config.plugin_name,
+            operation=operation,
+        )
+        for operation in operations
+    ]
+
+
+def _agent_step_tool_refs(route: SlackAgentRoute, step: SlackAgentStep) -> list[Any]:
+    refs = [
+        *_agent_tool_set_refs(_agent_config.agent_tool_set_refs),
+        *_agent_config.agent_tools,
+        *_agent_tool_set_refs(route.agent_tool_set_refs),
+        *route.agent_tools,
+        *_agent_tool_set_refs(step.tool_set_refs),
+        *step.tools,
+        *_agent_default_tool_refs(route),
+    ]
+    return [
         _agent_tool_ref(
             system=ref.system,
             plugin=ref.plugin,
@@ -3187,18 +3362,7 @@ def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
             description=ref.description,
             run_as_subject_id=ref.run_as_subject_id,
         )
-        for ref in _dedupe_agent_tool_refs(
-            [
-                *refs,
-                *[
-                    SlackAgentToolRef(
-                        plugin=_agent_config.plugin_name,
-                        operation=operation,
-                    )
-                    for operation in operations
-                ],
-            ]
-        )
+        for ref in _dedupe_agent_tool_refs(refs)
     ]
 
 

@@ -497,6 +497,20 @@ plugins:
               thread: any
             agent:
               systemPrompt: Help with team questions.
+              steps:
+                - id: classify
+                  prompt: Classify the Slack request and identify the next action.
+                  toolSetRefs:
+                    - directory
+                  responseSchema:
+                    type: object
+                    properties:
+                      category:
+                        type: string
+                - id: reply
+                  prompt: Write the final Slack response.
+                  slackReply:
+                    agentOutput: text
           - id: operations-help
             match:
               channels:
@@ -536,6 +550,13 @@ longer exists in the provider configuration, the provider rejects the callback
 instead of silently falling back to global behavior.
 Route `agent.timeoutSeconds` overrides the top-level agent timeout for both
 Slack events and signed Slack interaction callbacks generated from that route.
+Route `agent.steps` is passed through to workflow agents that support the
+step-based interface. Each step must set a stable `id` and may set `prompt`,
+`messages`, `toolSetRefs`, `tools`, `responseSchema`, `modelOptions`,
+`metadata`, `timeoutSeconds`, and `when`. Set `slackReply.agentOutput` on a
+step to deliver that step's agent output through `slack.events.reply`; the
+provider binds the reply text from the named agent output and the `reply_ref`
+from the Slack workflow signal.
 Route `runAs.subject` can name a managed service-account subject, such as
 `service_account:slack-bot`; matching Slack events then resolve to that subject
 instead of requiring the Slack bot user to have a linked external identity. This
