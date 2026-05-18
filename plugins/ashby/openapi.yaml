@@ -207,6 +207,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/Response"
 
+  /applicationFeedback.submit:
+    post:
+      operationId: applicationFeedback.submit
+      summary: Submit application feedback
+      description: Submit feedback for an application using an Ashby feedback form definition.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplicationFeedbackSubmitRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Response"
+
   /job.list:
     post:
       operationId: job.list
@@ -370,6 +389,61 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/IdRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Response"
+
+  /interviewBriefing.info:
+    post:
+      operationId: interviewBriefing.info
+      summary: Get interview briefing data
+      description: Returns application, interview, interviewer status, and feedback form context for an interview event.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InterviewBriefingInfoRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Response"
+
+  /feedbackFormDefinition.list:
+    post:
+      operationId: feedbackFormDefinition.list
+      summary: List feedback form definitions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackFormDefinitionListRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedResponse"
+
+  /feedbackFormDefinition.info:
+    post:
+      operationId: feedbackFormDefinition.info
+      summary: Get a feedback form definition
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeedbackFormDefinitionInfoRequest"
       responses:
         "200":
           description: OK
@@ -593,6 +667,52 @@ components:
       properties:
         interviewStageId:
           type: string
+
+    InterviewBriefingInfoRequest:
+      type: object
+      required: [interviewEventId]
+      properties:
+        interviewEventId:
+          type: string
+        expand:
+          type: array
+          items:
+            type: string
+
+    FeedbackFormDefinitionListRequest:
+      allOf:
+        - $ref: "#/components/schemas/PaginationParams"
+        - type: object
+          properties:
+            includeArchived:
+              type: boolean
+            syncToken:
+              type: string
+
+    FeedbackFormDefinitionInfoRequest:
+      type: object
+      required: [feedbackFormDefinitionId]
+      properties:
+        feedbackFormDefinitionId:
+          type: string
+
+    ApplicationFeedbackSubmitRequest:
+      type: object
+      required: [feedbackForm]
+      properties:
+        feedbackForm:
+          type: object
+          required: [formDefinitionId, applicationId, values]
+          properties:
+            formDefinitionId:
+              type: string
+            applicationId:
+              type: string
+            userId:
+              type: string
+            values:
+              type: object
+              additionalProperties: true
 
     InterviewStageListRequest:
       type: object

@@ -54,6 +54,10 @@ Representative operations include:
 - `application.info`
 - `application.create`
 - `application.changeStage`
+- `applicationFeedback.submit`
+- `feedbackFormDefinition.list`
+- `feedbackFormDefinition.info`
+- `interviewBriefing.info`
 
 - Ashby API keys use HTTP Basic authentication as described by Ashby; create a key in Ashby admin settings.
 - When creating the default connection, provide the Ashby API key for the HTTP
