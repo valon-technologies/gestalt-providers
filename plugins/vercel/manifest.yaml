@@ -4,6 +4,12 @@ displayName: Vercel
 description: Manage Vercel projects and deployments, and read or write Vercel Blob storage.
 iconFile: assets/icon.svg
 kind: plugin
+build:
+  command:
+    - sh
+    - ./build.sh
+entrypoint:
+  artifactPath: .gestalt/build/provider
 spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
