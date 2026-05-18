@@ -3,4 +3,17 @@ version: 0.0.1-alpha.1
 displayName: RelationalDB
 description: IndexedDB provider supporting PostgreSQL, MySQL, SQLite, and SQL Server.
 kind: indexeddb
+build:
+  command:
+    - sh
+    - -c
+    - |
+      if [ -n "${RELEASE_PLATFORM:-}" ] && [ -z "${GOOS:-}" ]; then
+        export GOOS="${RELEASE_PLATFORM%%/*}"
+        export GOARCH="${RELEASE_PLATFORM#*/}"
+      fi
+      mkdir -p .gestalt/build
+      go build -trimpath -o .gestalt/build/provider ./cmd/provider
+entrypoint:
+  artifactPath: .gestalt/build/provider
 spec: {}

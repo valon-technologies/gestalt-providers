@@ -4,6 +4,12 @@ displayName: GitHub
 description: Repository, issue, pull request, workflow, and code search operations.
 iconFile: assets/icon.svg
 kind: plugin
+build:
+  command:
+    - sh
+    - ./build.sh
+entrypoint:
+  artifactPath: .gestalt/build/provider
 spec:
   defaultConnection: default
   configSchemaPath: schemas/config.schema.yaml
