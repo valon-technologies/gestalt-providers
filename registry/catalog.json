@@ -2028,6 +2028,35 @@
         "entryKind": "plugin",
         "section": "plugins"
       },
+      "description": "Manage Retool Cloud users, groups, spaces, apps, resources, source control, releases, workflows, and CLI automation.",
+      "displayName": "Retool",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/retool/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/retool/README.md",
+          "sourcePath": "plugins/retool/README.md",
+          "title": "Retool"
+        }
+      ],
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/retool/assets/icon.svg",
+      "kind": "plugin",
+      "latestInstallableVersion": null,
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/retool/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "retool",
+      "package": "github.com/valon-technologies/gestalt-providers/plugins/retool",
+      "packagePath": "plugins/retool",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/retool/README.md",
+      "registryPath": "/providers/plugin/retool/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/plugins/retool",
+      "versions": []
+    },
+    {
+      "configTarget": {
+        "entryKind": "plugin",
+        "section": "plugins"
+      },
       "description": "Access company, employee, org structure, payroll, identity, leave, and time data from Rippling's REST API.",
       "displayName": "Rippling",
       "docs": [

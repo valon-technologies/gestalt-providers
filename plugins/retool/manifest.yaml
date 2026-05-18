@@ -1,0 +1,198 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/retool
+version: 0.0.1-alpha.1
+displayName: Retool
+description: Manage Retool Cloud users, groups, spaces, apps, resources, source control, releases, workflows, and CLI automation.
+iconFile: assets/icon.svg
+kind: plugin
+spec:
+  defaultConnection: default
+  surfaces:
+    openapi:
+      connection: default
+      document: openapi.yaml
+  allowedOperations:
+    users.getUser: {}
+    users.deleteUser: {}
+    users.updateUser: {}
+    users.listUsers: {}
+    users.createUser: {}
+    users.resetUsersTwoFactorAuthentication: {}
+    users.logOutUser: {}
+    userAttributes.createUpdateUserAttribute: {}
+    userAttributes.deleteUserAttribute: {}
+    groups.deleteGroup: {}
+    groups.getGroup: {}
+    groups.updateGroup: {}
+    groups.replaceGroup: {}
+    groups.listGroups: {}
+    groups.createGroup: {}
+    groups.addUserInvitesGroup: {}
+    groups.addUsersGroup: {}
+    groups.removeUserFromGroup: {}
+    groups.removeUserInviteFromGroup: {}
+    folders.listFolders: {}
+    folders.createFolder: {}
+    folders.getFolder: {}
+    folders.deleteFolder: {}
+    folders.updateFolder: {}
+    spaces.createSpace: {}
+    spaces.listSpaces: {}
+    spaces.getSpace: {}
+    spaces.updateSpace: {}
+    spaces.deleteSpace: {}
+    spaces.copyElementsAnotherSpace: {}
+    sourceControl.getSourceControlConfiguration: {}
+    sourceControl.createSourceControlConfiguration: {}
+    sourceControl.setSourceControlConfiguration: {}
+    sourceControl.deleteSourceControlConfiguration: {}
+    sourceControl.testSourceControlConnection: {}
+    sourceControl.testSourceControlChanges: {}
+    sourceControl.deployLatestChanges: {}
+    sourceControl.getDeployment: {}
+    sourceControl.listSourceControlDeployments: {}
+    sourceControl.getSourceControlSettings: {}
+    sourceControl.setSourceControlSettings: {}
+    releaseManagement.listReleaseManifests: {}
+    releaseManagement.getReleaseManifest: {}
+    releaseManagement.setReleaseManifest: {}
+    releaseManagement.deleteReleaseManifest: {}
+    releaseManagement.setReleaseVersionElementManifest: {}
+    releaseManagement.deleteElementFromReleaseManifest: {}
+    releaseManagement.listAllAvailableReleasesGivenElement: {}
+    releaseManagement.createReleaseArtifact: {}
+    appThemes.getAppTheme: {}
+    appThemes.deleteAppTheme: {}
+    appThemes.listAppThemes: {}
+    appThemes.createAppTheme: {}
+    appThemes.updateAppTheme: {}
+    apps.deleteApp: {}
+    apps.getApp: {}
+    apps.listApps: {}
+    apps.cloneApp: {}
+    sso.setSsoConfiguration: {}
+    sso.removeSsoConfiguration: {}
+    sso.getSsoConfiguration: {}
+    userAttributes.listOrganizationUserAttributes: {}
+    userAttributes.createOrganizationUserAttribute: {}
+    userAttributes.updateOrganizationUserAttribute: {}
+    userAttributes.deleteOrganizationUserAttribute: {}
+    permissions.getAccessList: {}
+    permissions.listObjectsGroupCanAccess: {}
+    permissions.grantPermissions: {}
+    permissions.revokePermissions: {}
+    permissions.listRoles: {}
+    permissions.createRole: {}
+    permissions.deleteRole: {}
+    permissions.updateRole: {}
+    permissions.deleteRoleGrant: {}
+    permissions.createRoleGrant: {}
+    permissions.listRoleGrants: {}
+    permissions.getRoleGrantsSubject: {}
+    permissions.deleteRoleGrantSubject: {}
+    accessRequests.listAccessRequests: {}
+    accessRequests.getAccessRequest: {}
+    accessRequests.approveDenyAccessRequest: {}
+    accessTokens.listAccessTokens: {}
+    accessTokens.createAccessToken: {}
+    accessTokens.getAccessToken: {}
+    userInvites.listUserInvites: {}
+    userInvites.createUserInvite: {}
+    userInvites.getUserInvite: {}
+    userInvites.deleteUserInvite: {}
+    userInvites.addUpdateUserAttributesOnUserInvite: {}
+    userInvites.deleteUserAttributeOnUserInvite: {}
+    resources.listResources: {}
+    resources.createResource: {}
+    resources.getResource: {}
+    resources.updateResource: {}
+    resources.deleteResource: {}
+    resourceConfigurations.listResourceConfigurations: {}
+    resourceConfigurations.createResourceConfiguration: {}
+    resourceConfigurations.getResourceConfiguration: {}
+    resourceConfigurations.deleteResourceConfiguration: {}
+    resourceConfigurations.updateResourceConfiguration: {}
+    environments.listEnvironments: {}
+    environments.createEnvironment: {}
+    environments.getEnvironment: {}
+    environments.updateEnvironment: {}
+    environments.deleteEnvironment: {}
+    customComponentLibraries.getCustomComponentLibrary: {}
+    customComponentLibraries.createCustomComponentLibrary: {}
+    customComponentLibraries.listCustomComponentLibraries: {}
+    customComponentLibraries.createCustomComponentLibraryRevision: {}
+    customComponentLibraries.listRevisionsCustomComponentLibrary: {}
+    customComponentLibraries.listFilesCustomComponentLibraryRevision: {}
+    configurationVariables.listConfigurationVariablesTheirValues: {}
+    configurationVariables.createConfigurationVariable: {}
+    configurationVariables.getConfigurationVariable: {}
+    configurationVariables.updateConfigurationVariable: {}
+    configurationVariables.deleteConfigurationVariable: {}
+    observability.createObservabilityConfiguration: {}
+    observability.listObservabilityConfigurations: {}
+    observability.updateObservabilityConfiguration: {}
+    observability.deleteObservabilityConfiguration: {}
+    observability.sendTestErrorEvent: {}
+    usage.listOrganizations: {}
+    usage.getUsageSummary: {}
+    usage.getAppUsageSummaries: {}
+    usage.getAppUsageDetails: {}
+    usage.getUserUsageSummaries: {}
+    usage.getUserUsageDetails: {}
+    userTasks.listUserTasks: {}
+    userTasks.submitUserTask: {}
+    userTasks.cancelUserTask: {}
+    userTasks.reassignUserTask: {}
+    workflowRuns.getWorkflowRun: {}
+    organization.getOrganizationSettings: {}
+    organization.updateOrganizationSettings: {}
+    organization.invalidateAllSessions: {}
+    organization.getOrganizationAiSettings: {}
+    organization.updateOrganizationAiSettings: {}
+    organization.getOrganizationAnalyticsIntegrations: {}
+    organization.getOrgLevelCodeExecutorResourceSettings: {}
+    organization.updateOrgLevelCodeExecutorResourceSettings: {}
+    workflows.listWorkflows: {}
+    workflows.getWorkflow: {}
+    workflows.deleteWorkflow: {}
+    workflows.updateWorkflow: {}
+    info.getIpAllowlistRegion: {}
+  connections:
+    default:
+      mode: user
+      auth:
+        type: bearer
+        credentials:
+        - name: token
+          label: Retool API Token
+          description: Create a scoped access token in Retool under Settings > Retool API.
+    cliSession:
+      mode: user
+      auth:
+        type: manual
+        credentials:
+        - name: origin
+          label: Retool Origin
+          description: Retool org URL, for example https://your-org.retool.com.
+        - name: access_token
+          label: Retool accessToken Cookie
+          description: Browser cookie named accessToken from your Retool org session.
+        - name: xsrf_token
+          label: Retool xsrfToken Cookie
+          description: Browser cookie named xsrfToken from your Retool org session.
+  responseMapping:
+    dataPath: data
+    pagination:
+      hasMore:
+        source: body
+        path: has_more
+      cursor:
+        source: body
+        path: next_token
+  pagination:
+    style: cursor
+    cursorParam: next_token
+    cursor:
+      source: body
+      path: next_token
+    defaultLimit: 100
+    resultsPath: data
