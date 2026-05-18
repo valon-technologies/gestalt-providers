@@ -52,9 +52,9 @@ export function GettingStartedDocsPage() {
             workspace you are currently using: install{" "}
             <code className="font-mono text-sm text-primary">gestalt</code>,
             point it at this workspace, sign in when required, connect
-            plugins, invoke operations, mint API tokens, and attach an
-            MCP-aware client. No command-line experience is required. Follow
-            the pages below and copy the commands as-is.
+            plugins, grant authorization, invoke operations, mint API tokens,
+            and attach an MCP-aware client. No command-line experience is
+            required. Follow the pages below and copy the commands as-is.
           </>
         }
       />
@@ -189,6 +189,29 @@ brew install valon-technologies/gestalt/gestalt`}
         <p className="doc-copy">Then verify access:</p>
         <CodeBlock code="gestalt plugins list" />
 
+        <Subheading id="authorization" title="Grant authorization" />
+        <p className="doc-copy">
+          Use authorization grants when another user or service account needs
+          access to a plugin. Plugin admins can manage members for their own
+          plugin; built-in Gestalt admins can manage grants across plugins.
+        </p>
+        <CodeBlock
+          code={`gestalt authorization plugins members set <plugin> \\
+  --email operator@example.com \\
+  --role viewer
+
+gestalt authorization subjects grants set service_account:release-bot <plugin> \\
+  --role viewer`}
+        />
+        <p className="doc-copy">
+          For service account setup, built-in admin grants, and split
+          management listener deployments, open{" "}
+          <Link href="/docs/authorization" className="doc-link">
+            Grant Authorization
+          </Link>
+          .
+        </p>
+
         <Subheading
           id="agent-environments"
           title="Configure cloud environments"
@@ -298,6 +321,106 @@ gestalt tokens revoke <token-id>`}
           . The raw token value is shown once, so store it immediately in your
           secret manager or shell environment.
         </p>
+      </DocsPageBody>
+    </>
+  );
+}
+
+export function AuthorizationDocsPage() {
+  return (
+    <>
+      <DocsPageHeader
+        eyebrow="Grant Authorization"
+        title="Grant Authorization"
+        description="Grant users and service accounts access to plugin operations from the Gestalt CLI."
+      />
+      <DocsPageBody>
+        <p className="doc-copy">
+          Most teams grant access at the plugin level. Plugin admins can manage
+          members for plugins they administer. Built-in Gestalt admins can
+          manage every plugin and the global admin set. If your deployment
+          splits public and management listeners, pass{" "}
+          <code className="font-mono text-sm text-primary">
+            --url &lt;management-url&gt;
+          </code>{" "}
+          to admin authorization commands.
+        </p>
+
+        <Subheading id="authz-plugin-access" title="Grant plugin access" />
+        <p className="doc-copy">
+          Grant a user or service account a plugin role with{" "}
+          <code className="font-mono text-sm text-primary">
+            viewer
+          </code>
+          ,{" "}
+          <code className="font-mono text-sm text-primary">
+            editor
+          </code>
+          , or{" "}
+          <code className="font-mono text-sm text-primary">admin</code>.
+        </p>
+        <CodeBlock
+          code={`gestalt authorization plugins list
+gestalt authorization plugins members list <plugin>
+
+gestalt authorization plugins members set <plugin> \\
+  --email operator@example.com \\
+  --role viewer
+
+gestalt authorization plugins members set <plugin> \\
+  --subject-id service_account:release-bot \\
+  --role editor
+
+gestalt authorization plugins members remove <plugin> user:user_123`}
+        />
+
+        <Subheading id="authz-service-accounts" title="Grant service account access" />
+        <p className="doc-copy">
+          Service accounts are managed subjects. Create the subject, grant it a
+          plugin role, connect any plugin credentials it needs, then mint a
+          scoped token for automation.
+        </p>
+        <CodeBlock
+          code={`gestalt authorization subjects create release-bot \\
+  --display-name "Release Bot"
+
+gestalt authorization subjects grants set service_account:release-bot <plugin> \\
+  --role viewer
+
+gestalt authorization subjects integrations connect service_account:release-bot <plugin>
+
+gestalt authorization subjects tokens create service_account:release-bot \\
+  --name release-bot \\
+  --permission <plugin>:<operation>`}
+        />
+
+        <Subheading id="authz-admins" title="Grant built-in admin access" />
+        <p className="doc-copy">
+          Built-in admins can administer the global authorization surface. Use
+          this only for operators who should manage grants beyond one plugin.
+        </p>
+        <CodeBlock
+          code={`gestalt authorization admins members list
+
+gestalt authorization admins members set \\
+  --email admin@example.com \\
+  --role admin
+
+gestalt authorization admins members remove user:user_123`}
+        />
+
+        <Subheading id="authz-inspect" title="Inspect grants" />
+        <p className="doc-copy">
+          Use provider and relationship views to confirm which authorization
+          provider is active and which dynamic plugin grants are stored.
+        </p>
+        <CodeBlock
+          code={`gestalt authorization provider get
+gestalt authorization models list
+gestalt authorization relationships list \\
+  --resource-type plugin_dynamic \\
+  --resource-id <plugin>`}
+        />
       </DocsPageBody>
     </>
   );

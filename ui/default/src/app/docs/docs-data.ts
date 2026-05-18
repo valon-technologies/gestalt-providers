@@ -19,6 +19,7 @@ export const docsNavItems: DocsNavItem[] = [
       { id: "install", label: "Install" },
       { id: "point-cli", label: "Point the CLI" },
       { id: "authenticate", label: "Authenticate" },
+      { id: "authorization", label: "Grant authorization" },
       { id: "agent-environments", label: "Cloud environments" },
       { id: "workflows", label: "Inspect workflows" },
     ],
@@ -37,6 +38,17 @@ export const docsNavItems: DocsNavItem[] = [
     ],
   },
   { id: "tokens", href: "/docs/tokens", label: "Manage API Tokens", subsections: [] },
+  {
+    id: "authorization",
+    href: "/docs/authorization",
+    label: "Grant Authorization",
+    subsections: [
+      { id: "authz-plugin-access", label: "Plugin access" },
+      { id: "authz-service-accounts", label: "Service accounts" },
+      { id: "authz-admins", label: "Built-in admins" },
+      { id: "authz-inspect", label: "Inspect grants" },
+    ],
+  },
   { id: "mcp", href: "/docs/mcp", label: "Use With MCP", subsections: [] },
   {
     id: "troubleshooting",
