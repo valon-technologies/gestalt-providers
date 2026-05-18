@@ -902,6 +902,64 @@
         "entryKind": "plugin",
         "section": "plugins"
       },
+      "description": "Google Cloud Batch job management",
+      "displayName": "GCP Batch",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/gcp_batch/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/gcp_batch/README.md",
+          "sourcePath": "plugins/gcp_batch/README.md",
+          "title": "GCP Batch"
+        }
+      ],
+      "iconUrl": null,
+      "kind": "plugin",
+      "latestInstallableVersion": null,
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/gcp_batch/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "gcp_batch",
+      "package": "github.com/valon-technologies/gestalt-providers/plugins/gcp_batch",
+      "packagePath": "plugins/gcp_batch",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/gcp_batch/README.md",
+      "registryPath": "/providers/plugin/gcp_batch/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/plugins/gcp_batch",
+      "versions": []
+    },
+    {
+      "configTarget": {
+        "entryKind": "plugin",
+        "section": "plugins"
+      },
+      "description": "Google Cloud Storage object management",
+      "displayName": "Google Cloud Storage",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/gcs/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/gcs/README.md",
+          "sourcePath": "plugins/gcs/README.md",
+          "title": "Google Cloud Storage"
+        }
+      ],
+      "iconUrl": null,
+      "kind": "plugin",
+      "latestInstallableVersion": null,
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/gcs/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "gcs",
+      "package": "github.com/valon-technologies/gestalt-providers/plugins/gcs",
+      "packagePath": "plugins/gcs",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/gcs/README.md",
+      "registryPath": "/providers/plugin/gcs/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/plugins/gcs",
+      "versions": []
+    },
+    {
+      "configTarget": {
+        "entryKind": "plugin",
+        "section": "plugins"
+      },
       "description": "Repository, issue, pull request, workflow, and code search operations.",
       "displayName": "GitHub",
       "docs": [

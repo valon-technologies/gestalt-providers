@@ -1,0 +1,125 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/gcp_batch
+version: 0.0.1-alpha.1
+displayName: GCP Batch
+description: Google Cloud Batch job management
+kind: plugin
+spec:
+  surfaces:
+    rest:
+      connection: default
+      baseUrl: https://batch.googleapis.com
+      operations:
+      - name: jobs.create
+        description: Create a Google Cloud Batch job
+        method: POST
+        path: /v1/projects/{project_id}/locations/{location}/jobs
+        parameters:
+        - name: project_id
+          type: string
+          in: path
+          required: true
+        - name: location
+          type: string
+          in: path
+          required: true
+        - name: jobId
+          type: string
+          in: query
+        - name: requestId
+          type: string
+          in: query
+        - name: taskGroups
+          type: array
+          in: body
+          required: true
+        - name: allocationPolicy
+          type: object
+          in: body
+        - name: logsPolicy
+          type: object
+          in: body
+        - name: labels
+          type: object
+          in: body
+        - name: notifications
+          type: array
+          in: body
+        - name: priority
+          type: int
+          in: body
+      - name: jobs.get
+        description: Get a Google Cloud Batch job
+        method: GET
+        path: /v1/projects/{project_id}/locations/{location}/jobs/{job_id}
+        parameters:
+        - name: project_id
+          type: string
+          in: path
+          required: true
+        - name: location
+          type: string
+          in: path
+          required: true
+        - name: job_id
+          type: string
+          in: path
+          required: true
+      - name: jobs.list
+        description: List Google Cloud Batch jobs in a location
+        method: GET
+        path: /v1/projects/{project_id}/locations/{location}/jobs
+        parameters:
+        - name: project_id
+          type: string
+          in: path
+          required: true
+        - name: location
+          type: string
+          in: path
+          required: true
+        - name: pageSize
+          type: int
+          in: query
+        - name: pageToken
+          type: string
+          in: query
+        - name: filter
+          type: string
+          in: query
+        - name: orderBy
+          type: string
+          in: query
+      - name: jobs.delete
+        description: Delete a Google Cloud Batch job
+        method: DELETE
+        path: /v1/projects/{project_id}/locations/{location}/jobs/{job_id}
+        parameters:
+        - name: project_id
+          type: string
+          in: path
+          required: true
+        - name: location
+          type: string
+          in: path
+          required: true
+        - name: job_id
+          type: string
+          in: path
+          required: true
+        - name: reason
+          type: string
+          in: query
+        - name: requestId
+          type: string
+          in: query
+  connections:
+    default:
+      auth:
+        type: oauth2
+        authorizationUrl: https://accounts.google.com/o/oauth2/v2/auth
+        tokenUrl: https://oauth2.googleapis.com/token
+        scopes:
+        - https://www.googleapis.com/auth/cloud-platform
+        authorizationParams:
+          access_type: offline
+          prompt: consent
