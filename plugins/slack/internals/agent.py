@@ -3219,9 +3219,6 @@ def _agent_tool_ref_run_as_subject(
     subject_id = subject_id.strip()
     if not subject_id:
         return None
-    context_cls = getattr(gestalt, "AgentSubjectContext", None)
-    if context_cls is not None:
-        return context_cls(subject_id=subject_id)
     return gestalt.Subject(id=subject_id, kind=_subject_kind_from_id(subject_id))
 
 

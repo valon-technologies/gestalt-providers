@@ -8286,7 +8286,7 @@ class SlackProviderTests(unittest.TestCase):
 
 
 def _agent_subject_id(subject: Any) -> str:
-    return cast(str, getattr(subject, "subject_id", getattr(subject, "id", "")))
+    return cast(str, getattr(subject, "id", ""))
 
 
 if __name__ == "__main__":

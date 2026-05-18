@@ -1910,7 +1910,7 @@ async fn create_session_with(
     provider: &HermesAgentProvider,
     session_id: &str,
     owner_subject_id: &str,
-    subject: Option<gestalt::AgentSubjectContext>,
+    subject: Option<gestalt::Subject>,
     metadata: Option<JsonValue>,
 ) -> gestalt::AgentSession {
     provider
@@ -1950,7 +1950,7 @@ async fn create_turn_in_session_as(
     session_id: &str,
     turn_id: &str,
     created_by: gestalt::AgentActor,
-    subject: gestalt::AgentSubjectContext,
+    subject: gestalt::Subject,
 ) -> gestalt::AgentTurn {
     provider
         .create_turn(gestalt::CreateAgentProviderTurnRequest {
@@ -1997,7 +1997,7 @@ fn owner_actor() -> gestalt::AgentActor {
     subject_actor(OWNER_SUBJECT_ID)
 }
 
-fn owner_subject() -> gestalt::AgentSubjectContext {
+fn owner_subject() -> gestalt::Subject {
     subject_context(OWNER_SUBJECT_ID)
 }
 
@@ -2005,11 +2005,11 @@ fn slack_actor() -> gestalt::AgentActor {
     service_account_actor(SLACK_SUBJECT_ID)
 }
 
-fn slack_subject() -> gestalt::AgentSubjectContext {
+fn slack_subject() -> gestalt::Subject {
     service_account_subject(SLACK_SUBJECT_ID)
 }
 
-fn other_subject() -> gestalt::AgentSubjectContext {
+fn other_subject() -> gestalt::Subject {
     subject_context(OTHER_SUBJECT_ID)
 }
 
@@ -2029,18 +2029,18 @@ fn service_account_actor(subject_id: &str) -> gestalt::AgentActor {
     }
 }
 
-fn subject_context(subject_id: &str) -> gestalt::AgentSubjectContext {
-    gestalt::AgentSubjectContext {
-        subject_id: subject_id.to_string(),
-        subject_kind: "human".to_string(),
+fn subject_context(subject_id: &str) -> gestalt::Subject {
+    gestalt::Subject {
+        id: subject_id.to_string(),
+        kind: "human".to_string(),
         ..Default::default()
     }
 }
 
-fn service_account_subject(subject_id: &str) -> gestalt::AgentSubjectContext {
-    gestalt::AgentSubjectContext {
-        subject_id: subject_id.to_string(),
-        subject_kind: "service_account".to_string(),
+fn service_account_subject(subject_id: &str) -> gestalt::Subject {
+    gestalt::Subject {
+        id: subject_id.to_string(),
+        kind: "service_account".to_string(),
         ..Default::default()
     }
 }
