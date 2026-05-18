@@ -12,6 +12,9 @@ import {
 
 const hasBackend =
   !!process.env.PLAYWRIGHT_BASE_URL || !!process.env.GESTALT_BASE_URL;
+const AUTH_RETURN_PATH_STORAGE_KEY = "gestalt.auth.returnPath";
+const AUTH_TEST_OAUTH_SEEDED_KEY = "gestalt.test.oauthSeeded";
+const AUTH_TEST_USER_SEEDED_KEY = "gestalt.test.userSeeded";
 
 function encodeWrappedState(hostState: string): string {
   return Buffer.from(
@@ -23,14 +26,46 @@ function encodeWrappedState(hostState: string): string {
 async function seedOAuthState(
   page: import("@playwright/test").Page,
   oauthState?: string,
+  returnPath?: string,
 ) {
-  await page.addInitScript((state) => {
-    localStorage.clear();
-    sessionStorage.clear();
-    if (state) {
-      sessionStorage.setItem("oauth_state", state);
-    }
-  }, oauthState);
+  await page.addInitScript(
+    ({ state, path, key, seededKey }) => {
+      if (sessionStorage.getItem(seededKey) === "1") {
+        return;
+      }
+      localStorage.clear();
+      sessionStorage.clear();
+      if (state) {
+        sessionStorage.setItem("oauth_state", state);
+      }
+      if (path) {
+        sessionStorage.setItem(key, path);
+      }
+      sessionStorage.setItem(seededKey, "1");
+    },
+    {
+      state: oauthState,
+      path: returnPath,
+      key: AUTH_RETURN_PATH_STORAGE_KEY,
+      seededKey: AUTH_TEST_OAUTH_SEEDED_KEY,
+    },
+  );
+}
+
+async function seedAuthenticatedUserOnce(
+  page: import("@playwright/test").Page,
+) {
+  await page.addInitScript(
+    ({ seededKey }) => {
+      if (sessionStorage.getItem(seededKey) === "1") {
+        return;
+      }
+      localStorage.clear();
+      localStorage.setItem("user_email", "test@gestalt.dev");
+      sessionStorage.setItem(seededKey, "1");
+    },
+    { seededKey: AUTH_TEST_USER_SEEDED_KEY },
+  );
 }
 
 test.describe("Authentication", () => {
@@ -38,7 +73,9 @@ test.describe("Authentication", () => {
     hasBackend,
     "Auth flow tests use mocked routes and do not apply when running against a real server",
   );
-  test("unauthenticated user is redirected to /login", async ({ page }) => {
+  test("unauthenticated user is redirected to /login with the current route", async ({
+    page,
+  }) => {
     await page.addInitScript(() => {
       localStorage.clear();
       sessionStorage.clear();
@@ -47,8 +84,13 @@ test.describe("Authentication", () => {
       provider: "test-sso",
       displayName: "Test SSO",
     });
-    await page.goto("/");
-    await expect(page).toHaveURL(/\/login/);
+    await page.goto("/identities?id=agent-1#profile");
+    await expect(page).toHaveURL((url) => {
+      return (
+        url.pathname === "/login" &&
+        url.searchParams.get("next") === "/identities?id=agent-1#profile"
+      );
+    });
   });
 
   test("login page renders with provider button", async ({ page }) => {
@@ -88,6 +130,21 @@ test.describe("Authentication", () => {
       page.getByRole("link", { name: "Authorization", exact: true }),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: /Logout/i })).toHaveCount(0);
+
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await page.goto(
+      `/login?next=${encodeURIComponent("/identities?id=agent-1#profile")}`,
+    );
+    await expect(page).toHaveURL((url) => {
+      return (
+        url.pathname === "/identities" &&
+        url.searchParams.get("id") === "agent-1" &&
+        url.hash === "#profile"
+      );
+    });
 
     await page.evaluate(() => {
       localStorage.clear();
@@ -143,7 +200,7 @@ test.describe("Authentication", () => {
     ).toBeVisible();
   });
 
-  test("authenticated user on /login is redirected to dashboard", async ({
+  test("authenticated user on /login is redirected to the requested app route", async ({
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
@@ -154,8 +211,71 @@ test.describe("Authentication", () => {
     await mockWorkflowEventTriggers(page, []);
     await mockWorkflowRuns(page, []);
 
-    await page.goto("/login");
-    await expect(page).toHaveURL("/");
+    await page.goto(
+      `/login?next=${encodeURIComponent("/authorization?view=tokens#api")}`,
+    );
+    await expect(page).toHaveURL((url) => {
+      return (
+        url.pathname === "/authorization" &&
+        url.searchParams.get("view") === "tokens" &&
+        url.hash === "#api"
+      );
+    });
+  });
+
+  test("login sanitizes invalid next paths to dashboard", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockManagedIdentities(page, []);
+    await mockIntegrations(page, []);
+    await mockTokens(page, []);
+    await mockWorkflowSchedules(page, []);
+    await mockWorkflowEventTriggers(page, []);
+    await mockWorkflowRuns(page, []);
+
+    for (const next of [
+      "https://evil.example.test/app",
+      "//evil.example.test/app",
+      "/\\evil.example.test/app",
+      "/login?next=/identities",
+      "/auth/callback?code=test-code",
+      "/api/v1/auth/login/callback?code=test-code",
+    ]) {
+      await page.goto(`/login?next=${encodeURIComponent(next)}`);
+      await expect(page).toHaveURL("/");
+    }
+  });
+
+  test("login start stores sanitized return path", async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await mockAuthInfo(page, {
+      provider: "test-sso",
+      displayName: "Test SSO",
+    });
+
+    let loginBody: { state?: string } | null = null;
+    await page.route("**/api/v1/auth/login", async (route, request) => {
+      loginBody = request.postDataJSON() as { state?: string };
+      await route.fulfill({ json: { url: "#idp" } });
+    });
+
+    const returnPath = "/identities?id=agent-1#profile";
+    await page.goto(`/login?next=${encodeURIComponent(returnPath)}`);
+    await page.getByRole("button", { name: /Sign in with Test SSO/i }).click();
+
+    await expect.poll(() => loginBody?.state).toBeTruthy();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (key) => sessionStorage.getItem(key),
+          AUTH_RETURN_PATH_STORAGE_KEY,
+        ),
+      )
+      .toBe(returnPath);
   });
 
   test("logout clears session and redirects to login", async ({ page }) => {
@@ -208,49 +328,59 @@ test.describe("Authentication", () => {
     });
 
     await page.goto("/auth/callback?code=test-code&state=wrong-state");
-    await expect(page).toHaveURL(/\/login/);
+    await expect(page).toHaveURL((url) => {
+      return url.pathname === "/login" && url.searchParams.get("next") === "/";
+    });
     await expect(
       page.getByRole("button", { name: /Sign in with Test SSO/i }),
     ).toBeVisible();
     expect(callbackCalled).toBe(false);
   });
 
-  test("auth callback redirects missing OAuth state back to login", async ({
+  test("auth callback delegates missing OAuth state to the server callback", async ({
     page,
   }) => {
     await seedOAuthState(page);
-    await mockAuthInfo(page, {
-      provider: "test-sso",
-      displayName: "Test SSO",
-    });
 
-    let callbackCalled = false;
-    await page.route("**/api/v1/auth/login/callback?**", (route) => {
-      callbackCalled = true;
+    let callbackURL: string | null = null;
+    await page.route("**/api/v1/auth/login/callback?**", (route, request) => {
+      callbackURL = request.url();
       route.fulfill({
         status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          email: "unexpected@gestalt.dev",
-          displayName: "Unexpected",
-        }),
+        contentType: "text/plain",
+        body: "delegated",
       });
     });
 
     await page.goto("/auth/callback?code=attacker-code&state=attacker-state");
-    await expect(page).toHaveURL(/\/login/);
-    await expect(
-      page.getByRole("button", { name: /Sign in with Test SSO/i }),
-    ).toBeVisible();
-    expect(callbackCalled).toBe(false);
+    await expect.poll(() => callbackURL).not.toBeNull();
+    expect(new URL(callbackURL!).pathname).toBe("/api/v1/auth/login/callback");
+    expect(new URL(callbackURL!).searchParams.get("code")).toBe(
+      "attacker-code",
+    );
+    expect(new URL(callbackURL!).searchParams.get("state")).toBe(
+      "attacker-state",
+    );
+    await expect(page).toHaveURL((url) => {
+      return (
+        url.pathname === "/api/v1/auth/login/callback" &&
+        url.searchParams.get("code") === "attacker-code" &&
+        url.searchParams.get("state") === "attacker-state"
+      );
+    });
   });
 
   test("auth callback accepts wrapped host_state and completes login", async ({
     page,
   }) => {
     const wrappedState = encodeWrappedState("correct-state");
+    const returnPath = "/identities?id=agent-1#profile";
 
-    await seedOAuthState(page, "correct-state");
+    await seedOAuthState(page, "correct-state", returnPath);
+    await mockAuthInfo(page, {
+      provider: "test-sso",
+      displayName: "Test SSO",
+    });
     await mockManagedIdentities(page, []);
     await mockIntegrations(page, []);
     await mockTokens(page, []);
@@ -274,6 +404,42 @@ test.describe("Authentication", () => {
     await page.goto(`/auth/callback?code=test-code&state=${wrappedState}`);
 
     await expect.poll(() => callbackState).toBe(wrappedState);
+    await expect(page).toHaveURL((url) => {
+      return (
+        url.pathname === "/identities" &&
+        url.searchParams.get("id") === "agent-1" &&
+        url.hash === "#profile"
+      );
+    });
+    await expect(page.getByText("test@gestalt.dev")).toBeVisible();
+  });
+
+  test("auth callback sanitizes stored return path before redirecting", async ({
+    page,
+  }) => {
+    await seedOAuthState(page, "correct-state", "https://evil.example.test/app");
+    await mockIntegrations(page, []);
+    await mockTokens(page, []);
+    await mockWorkflowSchedules(page, []);
+    await mockWorkflowEventTriggers(page, []);
+    await mockWorkflowRuns(page, []);
+
+    let callbackCalled = false;
+    await page.route("**/api/v1/auth/login/callback?**", (route) => {
+      callbackCalled = true;
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          email: "test@gestalt.dev",
+          displayName: "Test User",
+        }),
+      });
+    });
+
+    await page.goto("/auth/callback?code=test-code&state=correct-state");
+
+    await expect.poll(() => callbackCalled).toBe(true);
     await expect(page).toHaveURL("/");
     await expect(page.getByText("test@gestalt.dev")).toBeVisible();
   });
@@ -320,9 +486,9 @@ test.describe("Authentication", () => {
   });
 
   test("401 response clears session and redirects to login", async ({
-    authenticatedPage,
+    page,
   }) => {
-    const page = authenticatedPage;
+    await seedAuthenticatedUserOnce(page);
     await page.route("**/api/v1/integrations", (route) => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
@@ -339,8 +505,13 @@ test.describe("Authentication", () => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
 
-    await page.goto("/");
-    await expect(page).toHaveURL(/\/login/);
+    await page.goto("/workflows?range=week#runs");
+    await expect(page.getByRole("button", { name: /Sign in/i })).toBeVisible();
+    const redirectURL = new URL(page.url());
+    expect(redirectURL.pathname).toBe("/login");
+    expect(redirectURL.searchParams.get("next")).toBe(
+      "/workflows?range=week#runs",
+    );
   });
 
 });

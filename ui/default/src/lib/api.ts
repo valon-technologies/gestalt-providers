@@ -1,5 +1,6 @@
 import { clearSession } from "./auth";
 import { HTTP_UNAUTHORIZED, LOGIN_PATH } from "./constants";
+import { loginPathForCurrentLocation } from "./authReturn";
 
 export interface ConnectionParamDef {
   required?: boolean;
@@ -632,7 +633,7 @@ export async function fetchAPI<T>(
   if (res.status === HTTP_UNAUTHORIZED) {
     clearSession();
     if (window.location.pathname !== LOGIN_PATH) {
-      window.location.href = LOGIN_PATH;
+      window.location.href = loginPathForCurrentLocation();
     }
     throw new APIError(HTTP_UNAUTHORIZED, "Session expired");
   }

@@ -1,9 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { loginCallback } from "@/lib/api";
 import { setUserEmail } from "@/lib/auth";
+import {
+  clearStoredAuthReturnPath,
+  loginPathForReturnPath,
+  storedAuthReturnPath,
+} from "@/lib/authReturn";
 
 const CLI_STATE_PREFIX = "cli:";
 const CLI_CALLBACK_ORIGIN = "http://127.0.0.1";
@@ -55,7 +59,6 @@ function getCliCallbackURL(state: string | null, code: string): string | null {
 }
 
 export default function AuthCallbackPage() {
-  const router = useRouter();
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -65,12 +68,7 @@ export default function AuthCallbackPage() {
     const hostState = decodeWrappedHostState(rawState);
     const savedState = sessionStorage.getItem("oauth_state");
 
-    if (!code) {
-      setError("Missing authorization code");
-      return;
-    }
-
-    const cliCallbackURL = getCliCallbackURL(hostState, code);
+    const cliCallbackURL = code ? getCliCallbackURL(hostState, code) : null;
     if (cliCallbackURL) {
       window.location.href = cliCallbackURL;
       return;
@@ -81,23 +79,42 @@ export default function AuthCallbackPage() {
       return;
     }
 
-    if (!savedState || hostState !== savedState) {
-      // Stale or unsolicited callback URLs should fall back to the normal app entrypoint.
-      window.location.replace("/");
+    if (!savedState) {
+      if (window.location.search) {
+        window.location.replace(
+          `/api/v1/auth/login/callback${window.location.search}`,
+        );
+        return;
+      }
+      setError("Missing authorization code");
+      return;
+    }
+
+    if (!code) {
+      setError("Missing authorization code");
+      return;
+    }
+
+    const returnPath = storedAuthReturnPath();
+    if (hostState !== savedState) {
+      sessionStorage.removeItem("oauth_state");
+      clearStoredAuthReturnPath();
+      window.location.replace(loginPathForReturnPath(returnPath));
       return;
     }
 
     sessionStorage.removeItem("oauth_state");
+    clearStoredAuthReturnPath();
 
     loginCallback(code, rawState ?? undefined)
       .then((result) => {
         setUserEmail(result.email);
-        router.replace("/");
+        window.location.replace(returnPath);
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : "Login failed");
       });
-  }, [router]);
+  }, []);
 
   if (error) {
     return (
