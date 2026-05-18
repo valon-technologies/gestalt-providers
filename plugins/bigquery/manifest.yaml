@@ -35,6 +35,31 @@ spec:
           type: string
           in: path
           required: true
+      - name: insert_dataset
+        description: Create a dataset in a project
+        method: POST
+        path: /projects/{project_id}/datasets
+        parameters:
+        - name: project_id
+          type: string
+          in: path
+          required: true
+        - name: datasetReference
+          type: object
+          in: body
+          required: true
+        - name: location
+          type: string
+          in: body
+        - name: friendlyName
+          type: string
+          in: body
+        - name: description
+          type: string
+          in: body
+        - name: labels
+          type: object
+          in: body
       - name: list_tables
         description: List tables in a dataset
         method: GET
