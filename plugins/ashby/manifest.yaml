@@ -27,6 +27,7 @@ spec:
     application.info: {}
     application.create: {}
     application.changeStage: {}
+    applicationFeedback.submit: {}
     job.list:
       paginate: true
     job.info: {}
@@ -39,8 +40,12 @@ spec:
     interviewSchedule.list:
       paginate: true
     interview.info: {}
+    interviewBriefing.info: {}
     interviewStage.list: {}
     interviewStage.info: {}
+    feedbackFormDefinition.list:
+      paginate: true
+    feedbackFormDefinition.info: {}
     department.info: {}
     department.list:
       paginate: true
