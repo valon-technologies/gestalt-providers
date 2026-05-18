@@ -343,15 +343,22 @@ export class CursorAgentProvider extends SDKAgentProvider {
     } else if (request.turnIds.length === 0) {
       return [];
     }
-    return this.store
-      .listTurns({
-        sessionId,
-        turnIds: request.turnIds,
-        subjectId: undefined,
-        status: request.status,
-        limit: request.limit,
-      })
-      .map((turn) => turnToAgentTurn(turn, request.summaryOnly));
+    const turns = this.store.listTurns({
+      sessionId,
+      turnIds: request.turnIds,
+      subjectId: undefined,
+      status: request.status,
+      limit: request.turnIds.length > 0 ? undefined : request.limit,
+    });
+    const readable = turns.filter((turn) => {
+      const session = this.store.getSession(turn.sessionId);
+      return Boolean(session && canReadSession(session, request.subject));
+    });
+    const limited =
+      request.turnIds.length > 0 && request.limit > 0
+        ? readable.slice(0, request.limit)
+        : readable;
+    return limited.map((turn) => turnToAgentTurn(turn, request.summaryOnly));
   }
 
   async cancelTurn(
@@ -542,6 +549,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
       );
     }
   }
+
 }
 
 export function createCursorAgentProvider(
@@ -681,7 +689,6 @@ function requireOwnedSession(
 }
 
 type ReadSubject = {
-  subjectId?: string | undefined;
   id?: string | undefined;
 };
 type ReadActor = {
@@ -690,7 +697,7 @@ type ReadActor = {
 };
 
 function subjectIdFrom(subject: ReadSubject | undefined): string {
-  return String(subject?.subjectId ?? subject?.id ?? "").trim();
+  return String(subject?.id ?? "").trim();
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

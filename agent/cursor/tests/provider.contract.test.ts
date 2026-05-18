@@ -57,35 +57,25 @@ import { CursorSDKRunner, type CursorAgentFactory } from "../src/runner.ts";
 import { schemaFromJson, type ToolEntry } from "../src/tools.ts";
 
 const activeHosts: FakeAgentHost[] = [];
-const OWNER_ACTOR = {
-  subjectId: "user:owner@example.com",
-  id: "user:owner@example.com",
-  subjectKind: "user",
-  kind: "user",
-  displayName: "Owner",
-  authSource: "test",
-};
-const OTHER_ACTOR = {
-  subjectId: "user:other@example.com",
-  id: "user:other@example.com",
-  subjectKind: "user",
-  kind: "user",
-  displayName: "Other",
-  authSource: "test",
-};
-const SLACK_ACTOR = {
-  subjectId: "service_account:slack-bot",
-  id: "service_account:slack-bot",
-  subjectKind: "service_account",
-  kind: "service_account",
-  displayName: "Slack Bot",
-  authSource: "test",
-};
+const OWNER_ACTOR = actorFixture("user:owner@example.com", "user", "Owner");
+const OWNER_SUBJECT = subjectFixture("user:owner@example.com", "user", "Owner");
+const OTHER_ACTOR = actorFixture("user:other@example.com", "user", "Other");
+const OTHER_SUBJECT = subjectFixture("user:other@example.com", "user", "Other");
+const SLACK_ACTOR = actorFixture("service_account:slack-bot", "service_account", "Slack Bot");
+const SLACK_SUBJECT = subjectFixture("service_account:slack-bot", "service_account", "Slack Bot");
+
+function actorFixture(subjectId: string, subjectKind: string, displayName: string) {
+  return { subjectId, subjectKind, displayName, authSource: "test" };
+}
+
+function subjectFixture(id: string, kind: string, displayName: string) {
+  return { id, kind, displayName, authSource: "test" };
+}
 
 function create<T = any>(schema: any, input: Record<string, unknown>): T {
   let payload = input;
   if (schema === CreateAgentProviderSessionRequestSchema) {
-    payload = { createdBy: OWNER_ACTOR, subject: OWNER_ACTOR, ...input };
+    payload = { createdBy: OWNER_ACTOR, subject: OWNER_SUBJECT, ...input };
   } else if (
     [
       CancelAgentProviderTurnRequestSchema,
@@ -98,7 +88,7 @@ function create<T = any>(schema: any, input: Record<string, unknown>): T {
       UpdateAgentProviderSessionRequestSchema,
     ].includes(schema)
   ) {
-    payload = { subject: OWNER_ACTOR, ...input };
+    payload = { subject: OWNER_SUBJECT, ...input };
   }
   return createMessage(schema, payload) as T;
 }
@@ -382,7 +372,7 @@ describe("Cursor agent provider contract", () => {
       create(CreateAgentProviderSessionRequestSchema, {
         sessionId: "access-company",
         createdBy: SLACK_ACTOR,
-        subject: SLACK_ACTOR,
+        subject: SLACK_SUBJECT,
         metadata: slackSessionMetadata(),
       }),
     );
@@ -395,14 +385,14 @@ describe("Cursor agent provider contract", () => {
         runGrant: "grant",
         toolRefs: [{ plugin: "p", operation: "o" }],
         createdBy: SLACK_ACTOR,
-        subject: SLACK_ACTOR,
+        subject: SLACK_SUBJECT,
       }),
     );
 
     const otherSession = await provider.getSession(
       create(GetAgentProviderSessionRequestSchema, {
         sessionId: "access-company",
-        subject: OTHER_ACTOR,
+        subject: OTHER_SUBJECT,
       }),
     );
     expect(otherSession.id).toBe("access-company");
@@ -412,7 +402,7 @@ describe("Cursor agent provider contract", () => {
     );
     const otherSessions = await provider.listSessions(
       create(ListAgentProviderSessionsRequestSchema, {
-        subject: OTHER_ACTOR,
+        subject: OTHER_SUBJECT,
       }),
     );
     expect(otherSessions.map((session) => session.id)).toContain(
@@ -422,14 +412,14 @@ describe("Cursor agent provider contract", () => {
     const otherTurns = await provider.listTurns(
       create(ListAgentProviderTurnsRequestSchema, {
         sessionId: "access-company",
-        subject: OTHER_ACTOR,
+        subject: OTHER_SUBJECT,
       }),
     );
     expect(otherTurns.map((turn) => turn.id)).toContain("access-company-turn");
     const exactOtherTurns = await provider.listTurns(
       create(ListAgentProviderTurnsRequestSchema, {
         turnIds: ["access-company-turn"],
-        subject: OTHER_ACTOR,
+        subject: OTHER_SUBJECT,
       }),
     );
     expect(exactOtherTurns.map((turn) => turn.id)).toEqual([
@@ -455,7 +445,7 @@ describe("Cursor agent provider contract", () => {
       provider.getSession(
         create(GetAgentProviderSessionRequestSchema, {
           sessionId: "access-private",
-          subject: OTHER_ACTOR,
+          subject: OTHER_SUBJECT,
         }),
       ),
       Code.NotFound,
@@ -466,7 +456,7 @@ describe("Cursor agent provider contract", () => {
     );
     const otherSessions = await provider.listSessions(
       create(ListAgentProviderSessionsRequestSchema, {
-        subject: OTHER_ACTOR,
+        subject: OTHER_SUBJECT,
       }),
     );
     expect(otherSessions.map((session) => session.id)).not.toContain(
@@ -483,7 +473,7 @@ describe("Cursor agent provider contract", () => {
       create(CreateAgentProviderSessionRequestSchema, {
         sessionId: "access-incomplete-slack",
         createdBy: SLACK_ACTOR,
-        subject: SLACK_ACTOR,
+        subject: SLACK_SUBJECT,
         metadata: { slack: { team_id: "T123", channel_id: "C456" } },
       }),
     );
@@ -491,7 +481,7 @@ describe("Cursor agent provider contract", () => {
       provider.getSession(
         create(GetAgentProviderSessionRequestSchema, {
           sessionId: "access-incomplete-slack",
-          subject: OTHER_ACTOR,
+          subject: OTHER_SUBJECT,
         }),
       ),
       Code.NotFound,
@@ -530,7 +520,7 @@ describe("Cursor agent provider contract", () => {
       provider.updateSession(
         create(UpdateAgentProviderSessionRequestSchema, {
           sessionId: "access-private-turns",
-          subject: OTHER_ACTOR,
+          subject: OTHER_SUBJECT,
           clientRef: "not-owner",
         }),
       ),
@@ -541,7 +531,7 @@ describe("Cursor agent provider contract", () => {
         create(CreateAgentProviderTurnRequestSchema, {
           turnId: "access-private-turn-other",
           sessionId: "access-private-turns",
-          subject: OTHER_ACTOR,
+          subject: OTHER_SUBJECT,
           messages: [{ role: "user", text: "nope" }],
           toolSource: AgentToolSourceMode.MCP_CATALOG,
           runGrant: "grant",
@@ -554,7 +544,7 @@ describe("Cursor agent provider contract", () => {
       provider.cancelTurn(
         create(CancelAgentProviderTurnRequestSchema, {
           turnId: "access-private-turn",
-          subject: OTHER_ACTOR,
+          subject: OTHER_SUBJECT,
           reason: "nope",
         }),
       ),
@@ -565,7 +555,7 @@ describe("Cursor agent provider contract", () => {
       provider.getTurn(
         create(GetAgentProviderTurnRequestSchema, {
           turnId: "access-private-turn",
-          subject: OTHER_ACTOR,
+          subject: OTHER_SUBJECT,
         }),
       ),
       Code.NotFound,
@@ -574,7 +564,15 @@ describe("Cursor agent provider contract", () => {
       await provider.listTurns(
         create(ListAgentProviderTurnsRequestSchema, {
           sessionId: "access-private-turns",
-          subject: OTHER_ACTOR,
+          subject: OTHER_SUBJECT,
+        }),
+      ),
+    ).toEqual([]);
+    expect(
+      await provider.listTurns(
+        create(ListAgentProviderTurnsRequestSchema, {
+          turnIds: ["access-private-turn"],
+          subject: OTHER_SUBJECT,
         }),
       ),
     ).toEqual([]);
@@ -582,7 +580,7 @@ describe("Cursor agent provider contract", () => {
       await provider.listTurnEvents(
         create(ListAgentProviderTurnEventsRequestSchema, {
           turnId: "access-private-turn",
-          subject: OTHER_ACTOR,
+          subject: OTHER_SUBJECT,
         }),
       ),
     ).toEqual([]);

@@ -338,7 +338,7 @@ class CodexProviderTests(unittest.TestCase):
             )
         )
 
-        reader_subject = _agent_subject_context("user-reader")
+        reader_subject = _subject_context("user-reader")
         visible = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(subject=reader_subject, limit=10, summary_only=True)
         )
@@ -365,7 +365,7 @@ class CodexProviderTests(unittest.TestCase):
         owner_update = provider_client.UpdateSession(
             agent_pb2.UpdateAgentProviderSessionRequest(
                 session_id="session-slack",
-                subject=_agent_subject_context("service_account:slack-bot"),
+                subject=_subject_context("service_account:slack-bot"),
                 state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED,
             )
         )
@@ -390,13 +390,14 @@ class CodexProviderTests(unittest.TestCase):
             session_id="session-slack-turn",
             messages=[agent_pb2.AgentMessage(role="user", text="Company-visible turn")],
         )
-        _set_agent_subject_id(turn_request.subject, "service_account:slack-bot")
+        turn_request.subject.id = "service_account:slack-bot"
+        turn_request.subject.kind = "service_account"
         turn_request.created_by.subject_id = "service_account:slack-bot"
         turn_request.created_by.subject_kind = "service_account"
         provider_client.CreateTurn(turn_request)
         _wait_for_turn(provider_client, "turn-slack", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
-        reader_subject = _agent_subject_context("user-reader")
+        reader_subject = _subject_context("user-reader")
         fetched = provider_client.GetTurn(
             agent_pb2.GetAgentProviderTurnRequest(turn_id="turn-slack", subject=reader_subject)
         )
@@ -415,7 +416,8 @@ class CodexProviderTests(unittest.TestCase):
         )
         self.assertGreaterEqual(len(events.events), 1)
         denied_turn = _turn_request(turn_id="turn-denied", session_id="session-slack-turn")
-        _set_agent_subject_id(denied_turn.subject, "user-reader")
+        denied_turn.subject.id = "user-reader"
+        denied_turn.subject.kind = "user"
         denied_turn.created_by.subject_id = "user-reader"
         with self.assertRaises(grpc.RpcError) as denied_create:
             provider_client.CreateTurn(denied_turn)
@@ -614,7 +616,7 @@ class CodexProviderTests(unittest.TestCase):
             agent_pb2.CancelAgentProviderTurnRequest(
                 turn_id="turn-cancel",
                 reason="test cancellation",
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
             )
         )
         self.assertEqual(canceled.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
@@ -626,7 +628,7 @@ class CodexProviderTests(unittest.TestCase):
         fetched_again = provider_client.GetTurn(
             agent_pb2.GetAgentProviderTurnRequest(
                 turn_id="turn-cancel",
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
             )
         )
         self.assertEqual(fetched_again.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
@@ -797,7 +799,7 @@ def _turn_request(
         run_grant=run_grant,
         execution_ref=execution_ref,
         created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
-        subject=_agent_subject_context("user-123"),
+        subject=_subject_context("user-123"),
     )
     linear = request.tool_refs.add()
     linear.plugin = "linear"
@@ -816,7 +818,7 @@ def _owned_session_request(session_id: str, **kwargs: Any) -> Any:
     return agent_pb2.CreateAgentProviderSessionRequest(
         session_id=session_id,
         created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
-        subject=_agent_subject_context("user-123"),
+        subject=_subject_context("user-123"),
         **kwargs,
     )
 
@@ -825,20 +827,10 @@ def _create_owned_session(provider_client: Any, session_id: str, **kwargs: Any) 
     return provider_client.CreateSession(_owned_session_request(session_id, **kwargs))
 
 
-def _agent_subject_context(subject_id: str) -> Any:
-    context_cls = getattr(agent_pb2, "AgentSubjectContext", None) or getattr(
-        plugin_pb2, "AgentSubjectContext", None
-    )
-    if context_cls is not None:
-        return context_cls(subject_id=subject_id)
-    return plugin_pb2.SubjectContext(id=subject_id)
-
-
-def _set_agent_subject_id(subject: Any, subject_id: str) -> None:
-    if hasattr(subject, "subject_id"):
-        subject.subject_id = subject_id
-        return
-    subject.id = subject_id
+def _subject_context(subject_id: str, kind: str = "user") -> Any:
+    if kind == "user" and subject_id.startswith("service_account:"):
+        kind = "service_account"
+    return plugin_pb2.SubjectContext(id=subject_id, kind=kind)
 
 
 def _slack_session_metadata() -> dict[str, Any]:
@@ -948,7 +940,7 @@ def _wait_for_turn(provider_client: Any, turn_id: str, status: int) -> Any:
         turn = provider_client.GetTurn(
             agent_pb2.GetAgentProviderTurnRequest(
                 turn_id=turn_id,
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
             )
         )
         if turn.status == status:

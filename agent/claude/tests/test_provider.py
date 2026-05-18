@@ -430,7 +430,7 @@ class ClaudeProviderTests(unittest.TestCase):
                 idempotency_key="session-start-idem",
                 session_start=session_start,
                 created_by=gestalt.AgentActor(subject_id="user-123", subject_kind="human"),
-                subject=_sdk_subject_context("user-123"),
+                subject=_sdk_subject("user-123"),
             )
         )
         metadata = session.metadata or {}
@@ -453,7 +453,7 @@ class ClaudeProviderTests(unittest.TestCase):
                 idempotency_key="session-start-idem",
                 session_start=replay_session_start,
                 created_by=gestalt.AgentActor(subject_id="user-123", subject_kind="human"),
-                subject=_sdk_subject_context("user-123"),
+                subject=_sdk_subject("user-123"),
             )
         )
         self.assertEqual(replay.id, "session-start-provider")
@@ -675,7 +675,7 @@ class ClaudeProviderTests(unittest.TestCase):
         events = provider_client.ListTurnEvents(
             agent_pb2.ListAgentProviderTurnEventsRequest(
                 turn_id="turn-claude",
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
             )
         )
         self.assertEqual(
@@ -734,7 +734,7 @@ class ClaudeProviderTests(unittest.TestCase):
             session_id="session-structured",
             model="sonnet-session",
             created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
-            subject=_agent_subject_context("user-123"),
+            subject=_subject_context("user-123"),
         )
         if hasattr(session_req, "prepared_workspace"):
             session_req.prepared_workspace.root = "/sandbox/runtime/workspaces/session-structured"
@@ -769,7 +769,7 @@ class ClaudeProviderTests(unittest.TestCase):
             agent_pb2.ListAgentProviderTurnsRequest(
                 session_id="session-structured",
                 turn_ids=["turn-structured"],
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
                 summary_only=True,
             )
         )
@@ -793,7 +793,7 @@ class ClaudeProviderTests(unittest.TestCase):
         events = provider_client.ListTurnEvents(
             agent_pb2.ListAgentProviderTurnEventsRequest(
                 turn_id="turn-structured",
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
             )
         )
         message_events = [event for event in events.events if event.type == "assistant.message"]
@@ -846,7 +846,7 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         self.assertEqual(shared.id, "session-slack")
 
-        reader_subject = _agent_subject_context("user-reader")
+        reader_subject = _subject_context("user-reader")
         visible = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(subject=reader_subject, limit=10, summary_only=True)
         )
@@ -873,7 +873,7 @@ class ClaudeProviderTests(unittest.TestCase):
         owner_update = provider_client.UpdateSession(
             agent_pb2.UpdateAgentProviderSessionRequest(
                 session_id="session-slack",
-                subject=_agent_subject_context("service_account:slack-bot"),
+                subject=_subject_context("service_account:slack-bot"),
                 state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED,
             )
         )
@@ -898,13 +898,14 @@ class ClaudeProviderTests(unittest.TestCase):
             session_id="session-slack-turn",
             messages=[agent_pb2.AgentMessage(role="user", text="Company-visible turn")],
         )
-        _set_agent_subject_id(turn_request.subject, "service_account:slack-bot")
+        turn_request.subject.id = "service_account:slack-bot"
+        turn_request.subject.kind = "service_account"
         turn_request.created_by.subject_id = "service_account:slack-bot"
         turn_request.created_by.subject_kind = "service_account"
         provider_client.CreateTurn(turn_request)
         _wait_for_turn(provider_client, "turn-slack", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
-        reader_subject = _agent_subject_context("user-reader")
+        reader_subject = _subject_context("user-reader")
         fetched = provider_client.GetTurn(
             agent_pb2.GetAgentProviderTurnRequest(turn_id="turn-slack", subject=reader_subject)
         )
@@ -923,7 +924,8 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         self.assertGreaterEqual(len(events.events), 1)
         denied_turn = _turn_request(turn_id="turn-denied", session_id="session-slack-turn")
-        _set_agent_subject_id(denied_turn.subject, "user-reader")
+        denied_turn.subject.id = "user-reader"
+        denied_turn.subject.kind = "user"
         denied_turn.created_by.subject_id = "user-reader"
         with self.assertRaises(grpc.RpcError) as denied_create:
             provider_client.CreateTurn(denied_turn)
@@ -1087,7 +1089,7 @@ class ClaudeProviderTests(unittest.TestCase):
         fetched_session = client_b.GetSession(
             agent_pb2.GetAgentProviderSessionRequest(
                 session_id="session-durable",
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
             )
         )
         self.assertEqual(fetched_session.id, "session-durable")
@@ -1103,7 +1105,7 @@ class ClaudeProviderTests(unittest.TestCase):
         fetched_turn = client_b.GetTurn(
             agent_pb2.GetAgentProviderTurnRequest(
                 turn_id="turn-durable",
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
             )
         )
         self.assertEqual(fetched_turn.id, "turn-durable")
@@ -1187,24 +1189,24 @@ class ClaudeProviderTests(unittest.TestCase):
         fetched_session = provider_client.GetSession(
             agent_pb2.GetAgentProviderSessionRequest(
                 session_id="session-seeded",
-                subject=_agent_subject_context("user-seeded"),
+                subject=_subject_context("user-seeded"),
             )
         )
         listed_sessions = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=_agent_subject_context("user-seeded")
+                subject=_subject_context("user-seeded")
             )
         )
         fetched_turn = provider_client.GetTurn(
             agent_pb2.GetAgentProviderTurnRequest(
                 turn_id="turn-seeded",
-                subject=_agent_subject_context("user-seeded"),
+                subject=_subject_context("user-seeded"),
             )
         )
         listed_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
                 session_id="session-seeded",
-                subject=_agent_subject_context("user-seeded"),
+                subject=_subject_context("user-seeded"),
             )
         )
 
@@ -1274,31 +1276,31 @@ class ClaudeProviderTests(unittest.TestCase):
 
         summary_sessions = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=_agent_subject_context("user-123"), limit=1, summary_only=True
+                subject=_subject_context("user-123"), limit=1, summary_only=True
             )
         )
         full_sessions = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=_agent_subject_context("user-123"), limit=1
+                subject=_subject_context("user-123"), limit=1
             )
         )
         summary_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
                 session_id="session-stream-a",
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
                 limit=1,
                 summary_only=True,
             )
         )
         full_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
-                session_id="session-stream-a", subject=_agent_subject_context("user-123"), limit=1
+                session_id="session-stream-a", subject=_subject_context("user-123"), limit=1
             )
         )
         running_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
                 session_id="session-stream-a",
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
                 status=agent_pb2.AGENT_EXECUTION_STATUS_RUNNING,
                 limit=10,
                 summary_only=True,
@@ -1307,7 +1309,7 @@ class ClaudeProviderTests(unittest.TestCase):
         succeeded_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
                 session_id="session-stream-a",
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
                 status=agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
                 limit=10,
                 summary_only=True,
@@ -1318,7 +1320,7 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         subject_mismatch_exact_session = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=_agent_subject_context("user-456"),
+                subject=_subject_context("user-456"),
                 session_ids=["session-stream-b"],
                 limit=10,
                 summary_only=True,
@@ -1339,12 +1341,12 @@ class ClaudeProviderTests(unittest.TestCase):
             agent_pb2.UpdateAgentProviderSessionRequest(
                 session_id="session-stream-b",
                 state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED,
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
             )
         )
         active_sessions = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
                 state=agent_pb2.AGENT_SESSION_STATE_ACTIVE,
                 limit=10,
                 summary_only=True,
@@ -1352,7 +1354,7 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         archived_sessions = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
                 state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED,
                 limit=10,
                 summary_only=True,
@@ -1494,7 +1496,7 @@ class ClaudeProviderTests(unittest.TestCase):
                 session_id="session-race-loser",
                 idempotency_key="session-race",
                 created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
             )
         )
 
@@ -1820,7 +1822,7 @@ class ClaudeProviderTests(unittest.TestCase):
             agent_pb2.CancelAgentProviderTurnRequest(
                 turn_id="turn-cancel",
                 reason="test cancellation",
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
             )
         )
         self.assertEqual(canceled.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
@@ -1832,7 +1834,7 @@ class ClaudeProviderTests(unittest.TestCase):
         fetched_again = provider_client.GetTurn(
             agent_pb2.GetAgentProviderTurnRequest(
                 turn_id="turn-cancel",
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
             )
         )
         self.assertEqual(fetched_again.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
@@ -2038,7 +2040,7 @@ def _turn_request(
         execution_ref=execution_ref,
         idempotency_key=idempotency_key,
         created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
-        subject=_agent_subject_context("user-123"),
+        subject=_subject_context("user-123"),
     )
     if timeout_seconds:
         request.timeout_seconds = timeout_seconds
@@ -2060,7 +2062,7 @@ def _owned_session_request(session_id: str, **kwargs: Any) -> Any:
     return agent_pb2.CreateAgentProviderSessionRequest(
         session_id=session_id,
         created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
-        subject=_agent_subject_context("user-123"),
+        subject=_subject_context("user-123"),
         **kwargs,
     )
 
@@ -2069,27 +2071,16 @@ def _create_owned_session(provider_client: Any, session_id: str, **kwargs: Any) 
     return provider_client.CreateSession(_owned_session_request(session_id, **kwargs))
 
 
-def _agent_subject_context(subject_id: str) -> Any:
-    context_cls = getattr(agent_pb2, "AgentSubjectContext", None) or getattr(
-        plugin_pb2, "AgentSubjectContext", None
-    )
-    if context_cls is not None:
-        return context_cls(subject_id=subject_id)
-    return plugin_pb2.SubjectContext(id=subject_id)
+def _subject_context(subject_id: str, kind: str = "user") -> Any:
+    if kind == "user" and subject_id.startswith("service_account:"):
+        kind = "service_account"
+    return plugin_pb2.SubjectContext(id=subject_id, kind=kind)
 
 
-def _sdk_subject_context(subject_id: str) -> Any:
-    context_cls = getattr(gestalt, "AgentSubjectContext", None)
-    if context_cls is not None:
-        return context_cls(subject_id=subject_id)
-    return gestalt.Subject(id=subject_id, kind="user")
-
-
-def _set_agent_subject_id(subject: Any, subject_id: str) -> None:
-    if hasattr(subject, "subject_id"):
-        subject.subject_id = subject_id
-        return
-    subject.id = subject_id
+def _sdk_subject(subject_id: str, kind: str = "user") -> Any:
+    if kind == "user" and subject_id.startswith("service_account:"):
+        kind = "service_account"
+    return gestalt.Subject(id=subject_id, kind=kind)
 
 
 def _slack_session_metadata() -> dict[str, Any]:
@@ -2159,7 +2150,7 @@ def _wait_for_turn(provider_client: Any, turn_id: str, status: int) -> Any:
         turn = provider_client.GetTurn(
             agent_pb2.GetAgentProviderTurnRequest(
                 turn_id=turn_id,
-                subject=_agent_subject_context("user-123"),
+                subject=_subject_context("user-123"),
             )
         )
         if turn.status == status:

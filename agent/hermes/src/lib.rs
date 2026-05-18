@@ -1056,9 +1056,9 @@ fn content_text(update: &JsonValue) -> String {
         .to_string()
 }
 
-fn subject_id(subject: Option<&gestalt::AgentSubjectContext>) -> String {
+fn subject_id(subject: Option<&gestalt::Subject>) -> String {
     subject
-        .map(|subject| subject.subject_id.trim().to_string())
+        .map(|subject| subject.id.trim().to_string())
         .unwrap_or_default()
 }
 
