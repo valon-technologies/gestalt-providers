@@ -3,5 +3,18 @@ version: 0.0.1-alpha.1
 displayName: Kubernetes Runtime
 description: Hosted executable-plugin runtime backed by Kubernetes.
 kind: runtime
+build:
+  command:
+    - sh
+    - -c
+    - |
+      if [ -n "${RELEASE_PLATFORM:-}" ] && [ -z "${GOOS:-}" ]; then
+        export GOOS="${RELEASE_PLATFORM%%/*}"
+        export GOARCH="${RELEASE_PLATFORM#*/}"
+      fi
+      mkdir -p .gestalt/build
+      go build -trimpath -o .gestalt/build/provider ./cmd/provider
+entrypoint:
+  artifactPath: .gestalt/build/provider
 spec:
   configSchemaPath: schemas/config.schema.yaml

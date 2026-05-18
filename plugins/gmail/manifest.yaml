@@ -4,6 +4,12 @@ displayName: Gmail
 description: Read, send, and manage Gmail messages, threads, drafts, and labels.
 iconFile: assets/icon.svg
 kind: plugin
+build:
+  command:
+    - sh
+    - ./build.sh
+entrypoint:
+  artifactPath: .gestalt/build/provider
 spec:
   configSchemaPath: schemas/config.schema.yaml
   managedParameters:

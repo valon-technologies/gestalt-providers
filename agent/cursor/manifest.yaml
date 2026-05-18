@@ -3,5 +3,11 @@ version: 0.0.1-alpha.1
 displayName: Cursor Agent SDK
 description: Agent provider that runs the Cursor Agent SDK with Gestalt MCP catalog tools exposed through a per-turn MCP server.
 kind: agent
+build:
+  command:
+    - sh
+    - ./build.sh
+entrypoint:
+  artifactPath: .gestalt/build/provider
 spec:
   configSchemaPath: schemas/config.schema.yaml
