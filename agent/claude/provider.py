@@ -27,6 +27,7 @@ from internals.session_start import (
     validate_session_start_user_metadata,
 )
 from internals.store import StoreConflictError, StoreUnavailableError
+from internals.store_records import StoredSession, StoredTurn, session_readable_by, session_writable_by
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,7 @@ class ClaudeCodeAgentProvider(
 
     def create_session(self, request: gestalt.CreateAgentProviderSessionRequest) -> gestalt.AgentSession:
         _, store, config = self._require_runtime()
+        request_subject_id = subject_id(getattr(request, "subject", None))
         try:
             create_request = session_create_request_from_provider_request(request, config=config)
         except ValueError as exc:
@@ -98,6 +100,7 @@ class ClaudeCodeAgentProvider(
                     )
                 )
                 if existing is not None:
+                    _require_session_readable(existing, request_subject_id)
                     return agent_session(existing)
                 try:
                     create_request = create_request.with_metadata(
@@ -105,12 +108,16 @@ class ClaudeCodeAgentProvider(
                     )
                 except Exception as exc:
                     raise gestalt.Error(412, str(exc)) from exc
-                return self._create_session(store=store, request=create_request)
+                return self._create_session(
+                    store=store, request=create_request, request_subject_id=request_subject_id
+                )
 
-        return self._create_session(store=store, request=create_request)
+        return self._create_session(store=store, request=create_request, request_subject_id=request_subject_id)
 
-    def _create_session(self, *, store: IndexedDBRunStore, request: SessionCreateRequest) -> gestalt.AgentSession:
-        session, _ = self._store_call(
+    def _create_session(
+        self, *, store: IndexedDBRunStore, request: SessionCreateRequest, request_subject_id: str
+    ) -> gestalt.AgentSession:
+        session, created = self._store_call(
             lambda: store.create_session(
                 session_id=request.session_id,
                 idempotency_key=request.idempotency_key,
@@ -122,6 +129,8 @@ class ClaudeCodeAgentProvider(
                 created_by=request.created_by,
             )
         )
+        if not created:
+            _require_session_readable(session, request_subject_id)
         return agent_session(session)
 
     def get_session(self, request: gestalt.GetAgentProviderSessionRequest) -> gestalt.AgentSession:
@@ -129,6 +138,7 @@ class ClaudeCodeAgentProvider(
         session = self._store_call(lambda: store.get_session(str(request.session_id or "").strip()))
         if session is None:
             raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
+        _require_session_readable(session, subject_id(getattr(request, "subject", None)))
         return agent_session(session)
 
     def list_sessions(
@@ -162,6 +172,12 @@ class ClaudeCodeAgentProvider(
         except ValueError as exc:
             raise gestalt.Error(400, str(exc)) from exc
         session = self._store_call(
+            lambda: store.get_session(str(request.session_id or "").strip())
+        )
+        if session is None:
+            raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
+        _require_session_writable(session, subject_id(getattr(request, "subject", None)))
+        session = self._store_call(
             lambda: store.update_session(
                 session_id=str(request.session_id or "").strip(),
                 client_ref=str(request.client_ref or "").strip(),
@@ -185,6 +201,7 @@ class ClaudeCodeAgentProvider(
         session = self._store_call(lambda: store.get_session(session_id))
         if session is None:
             raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
+        _require_session_writable(session, subject_id(getattr(request, "subject", None)))
         try:
             create_request = turn_create_request_from_provider_request(
                 request, config=config, session=session, tool_source_modes=tool_source_modes
@@ -231,6 +248,8 @@ class ClaudeCodeAgentProvider(
         turn = self._store_call(lambda: store.get_turn(str(request.turn_id or "").strip()))
         if turn is None:
             raise gestalt.Error(404, f"agent turn {request.turn_id!r} was not found")
+        session = self._session_for_turn(store, turn)
+        _require_session_readable(session, subject_id(getattr(request, "subject", None)))
         return agent_turn(turn)
 
     def list_turns(self, request: gestalt.ListAgentProviderTurnsRequest) -> gestalt.ListAgentProviderTurnsResponse:
@@ -239,24 +258,43 @@ class ClaudeCodeAgentProvider(
         if limit < 0:
             raise gestalt.Error(400, "limit must be non-negative")
         summary_only = bool(request.summary_only)
-        return gestalt.ListAgentProviderTurnsResponse(
-            turns=[
-                agent_turn(turn, summary_only=summary_only)
-                for turn in self._store_call(
-                    lambda: store.list_turns(
-                        session_id=str(request.session_id or "").strip(),
-                        turn_ids=[str(value or "").strip() for value in request.turn_ids],
-                        subject_id=subject_id(request.subject),
-                        status=int(request.status or 0),
-                        limit=limit,
-                        summary_only=summary_only,
-                    )
+        request_subject_id = subject_id(getattr(request, "subject", None))
+        session_id = str(request.session_id or "").strip()
+        turn_ids = [str(value or "").strip() for value in request.turn_ids]
+        if session_id:
+            session = self._store_call(lambda: store.get_session(session_id))
+            if session is None or not session_readable_by(session, request_subject_id):
+                return gestalt.ListAgentProviderTurnsResponse(turns=[])
+        store_limit = 0 if turn_ids else limit
+        turns = self._readable_turns(
+            store,
+            self._store_call(
+                lambda: store.list_turns(
+                    session_id=session_id,
+                    turn_ids=turn_ids,
+                    subject_id="",
+                    status=int(request.status or 0),
+                    limit=store_limit,
+                    summary_only=summary_only,
                 )
-            ]
+            ),
+            request_subject_id,
+        )
+        if turn_ids and limit > 0:
+            turns = turns[:limit]
+        return gestalt.ListAgentProviderTurnsResponse(
+            turns=[agent_turn(turn, summary_only=summary_only) for turn in turns]
         )
 
     def cancel_turn(self, request: gestalt.CancelAgentProviderTurnRequest) -> gestalt.AgentTurn:
         runner, store, _ = self._require_runtime()
+        existing = self._store_call(lambda: store.get_turn(str(request.turn_id or "").strip()))
+        if existing is None:
+            raise gestalt.Error(404, f"agent turn {request.turn_id!r} was not found")
+        _require_session_writable(
+            self._session_for_turn(store, existing),
+            subject_id(getattr(request, "subject", None)),
+        )
         turn = self._store_call(
             lambda: store.cancel_turn(
                 turn_id=str(request.turn_id or "").strip(), reason=str(request.reason or "").strip()
@@ -272,6 +310,12 @@ class ClaudeCodeAgentProvider(
         self, request: gestalt.ListAgentProviderTurnEventsRequest
     ) -> gestalt.ListAgentProviderTurnEventsResponse:
         _, store, _ = self._require_runtime()
+        turn = self._store_call(lambda: store.get_turn(str(request.turn_id or "").strip()))
+        if turn is None:
+            return gestalt.ListAgentProviderTurnEventsResponse(events=[])
+        session = self._session_for_turn(store, turn)
+        if not session_readable_by(session, subject_id(getattr(request, "subject", None))):
+            return gestalt.ListAgentProviderTurnEventsResponse(events=[])
         return gestalt.ListAgentProviderTurnEventsResponse(
             events=[
                 agent_turn_event(event)
@@ -331,6 +375,28 @@ class ClaudeCodeAgentProvider(
         except StoreUnavailableError as exc:
             raise gestalt.Error(412, str(exc)) from exc
 
+    def _session_for_turn(self, store: IndexedDBRunStore, turn: StoredTurn) -> StoredSession:
+        session = self._store_call(lambda: store.get_session(turn.session_id))
+        if session is None:
+            raise gestalt.Error(404, f"agent session {turn.session_id!r} was not found")
+        return session
+
+    def _readable_turns(
+        self, store: IndexedDBRunStore, turns: list[StoredTurn], request_subject_id: str
+    ) -> list[StoredTurn]:
+        if not request_subject_id:
+            return []
+        readable: list[StoredTurn] = []
+        session_cache: dict[str, StoredSession | None] = {}
+        for turn in turns:
+            session = session_cache.get(turn.session_id)
+            if turn.session_id not in session_cache:
+                session = self._store_call(lambda session_id=turn.session_id: store.get_session(session_id))
+                session_cache[turn.session_id] = session
+            if session is not None and session_readable_by(session, request_subject_id):
+                readable.append(turn)
+        return readable
+
     def _complete_turn(
         self,
         *,
@@ -384,6 +450,16 @@ class ClaudeCodeAgentProvider(
 
 def _tool_source_modes() -> ToolSourceModes:
     return ToolSourceModes(none=AGENT_TOOL_SOURCE_MODE_NONE, mcp_catalog=AGENT_TOOL_SOURCE_MODE_MCP_CATALOG)
+
+
+def _require_session_readable(session: StoredSession, request_subject_id: str) -> None:
+    if not session_readable_by(session, request_subject_id):
+        raise gestalt.Error(404, f"agent session {session.session_id!r} was not found")
+
+
+def _require_session_writable(session: StoredSession, request_subject_id: str) -> None:
+    if not session_writable_by(session, request_subject_id):
+        raise gestalt.Error(403, f"agent session {session.session_id!r} is owned by another subject")
 
 
 def _resolve_claude_cli(config: ClaudeAgentConfig) -> str | None:

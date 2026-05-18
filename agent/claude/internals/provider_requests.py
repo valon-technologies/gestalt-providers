@@ -165,7 +165,7 @@ def request_session_id(request: Any) -> str:
 
 
 def subject_id(subject: Any) -> str:
-    return _text(getattr(subject, "subject_id", ""))
+    return _text(getattr(subject, "subject_id", "") or getattr(subject, "id", ""))
 
 
 def _prepared_workspace_from_request(request: gestalt.CreateAgentProviderSessionRequest) -> dict[str, str] | None:

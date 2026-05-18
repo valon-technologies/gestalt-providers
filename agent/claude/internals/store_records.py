@@ -13,6 +13,9 @@ TERMINAL_STATUSES = {
     gestalt.AGENT_EXECUTION_STATUS_CANCELED,
 }
 
+SESSION_VISIBILITY_COMPANY = "company"
+SESSION_VISIBILITY_PRIVATE = "private"
+
 
 @dataclass(frozen=True, slots=True)
 class StoredSession:
@@ -25,6 +28,7 @@ class StoredSession:
     metadata: dict[str, Any]
     prepared_workspace: dict[str, str] | None
     created_by: dict[str, str]
+    visibility: str
     created_at: datetime
     updated_at: datetime
     last_turn_at: datetime | None = None
@@ -72,6 +76,7 @@ def _session_to_record(session: StoredSession) -> dict[str, Any]:
         "metadata": copy.deepcopy(session.metadata),
         "prepared_workspace": copy.deepcopy(session.prepared_workspace),
         "created_by": dict(session.created_by),
+        "visibility": session.visibility,
         "created_at": session.created_at,
         "updated_at": session.updated_at,
         "last_turn_at": session.last_turn_at,
@@ -91,6 +96,7 @@ def _record_to_session(record: dict[str, Any] | None) -> StoredSession | None:
         metadata=_coerce_optional_dict(record.get("metadata")) or {},
         prepared_workspace=_coerce_optional_string_dict(record.get("prepared_workspace")),
         created_by=_coerce_string_dict(record.get("created_by")),
+        visibility=_session_visibility_from_record(record),
         created_at=_coerce_required_datetime(record.get("created_at")),
         updated_at=_coerce_required_datetime(record.get("updated_at")),
         last_turn_at=_coerce_datetime(record.get("last_turn_at")),
@@ -212,3 +218,52 @@ def _coerce_required_datetime(raw_value: Any) -> datetime:
     if parsed is None:
         raise ValueError("expected a timestamp value")
     return parsed
+
+
+def session_visibility_for_create(metadata: dict[str, Any], created_by: dict[str, str]) -> str:
+    if _is_slack_agent_session_metadata(metadata) and _is_managed_actor(created_by):
+        return SESSION_VISIBILITY_COMPANY
+    return SESSION_VISIBILITY_PRIVATE
+
+
+def session_readable_by(session: StoredSession, subject_id: str) -> bool:
+    subject_id = subject_id.strip()
+    if not subject_id:
+        return False
+    if str(session.created_by.get("subject_id", "") or "").strip() == subject_id:
+        return True
+    return session.visibility == SESSION_VISIBILITY_COMPANY
+
+
+def session_writable_by(session: StoredSession, subject_id: str) -> bool:
+    subject_id = subject_id.strip()
+    if not subject_id:
+        return False
+    return str(session.created_by.get("subject_id", "") or "").strip() == subject_id
+
+
+def _session_visibility_from_record(record: dict[str, Any]) -> str:
+    visibility = str(record.get("visibility") or "").strip()
+    if visibility in {SESSION_VISIBILITY_PRIVATE, SESSION_VISIBILITY_COMPANY}:
+        return visibility
+    metadata = _coerce_optional_dict(record.get("metadata")) or {}
+    created_by = _coerce_string_dict(record.get("created_by"))
+    return session_visibility_for_create(metadata, created_by)
+
+
+def _is_slack_agent_session_metadata(metadata: dict[str, Any]) -> bool:
+    slack = metadata.get("slack")
+    if not isinstance(slack, dict):
+        return False
+    return bool(
+        str(slack.get("team_id") or "").strip()
+        and str(slack.get("channel_id") or "").strip()
+        and str(slack.get("root_message_ts") or "").strip()
+        and str(slack.get("session_ref") or "").strip()
+    )
+
+
+def _is_managed_actor(actor: dict[str, str]) -> bool:
+    subject_id = str(actor.get("subject_id", "") or "").strip()
+    subject_kind = str(actor.get("subject_kind", "") or "").strip()
+    return subject_kind == "service_account" or subject_id.startswith("service_account:")

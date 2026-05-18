@@ -14,6 +14,9 @@ TERMINAL_STATUSES = {
     gestalt.AGENT_EXECUTION_STATUS_CANCELED,
 }
 
+SESSION_VISIBILITY_COMPANY = "company"
+SESSION_VISIBILITY_PRIVATE = "private"
+
 
 class StoreConflictError(ValueError):
     pass
@@ -30,6 +33,7 @@ class StoredSession:
     metadata: dict[str, Any]
     prepared_workspace: dict[str, str] | None
     created_by: dict[str, str]
+    visibility: str
     created_at: datetime
     updated_at: datetime
     last_turn_at: datetime | None = None
@@ -113,6 +117,7 @@ class InMemoryRunStore:
                 metadata=copy.deepcopy(metadata),
                 prepared_workspace=copy.deepcopy(prepared_workspace) if prepared_workspace is not None else None,
                 created_by=dict(created_by),
+                visibility=session_visibility_for_create(metadata, created_by),
                 created_at=now,
                 updated_at=now,
             )
@@ -146,12 +151,10 @@ class InMemoryRunStore:
                 sessions = [self._sessions[value] for value in requested_ids if value in self._sessions]
             else:
                 sessions = list(self._sessions.values())
-            if subject_id:
-                sessions = [
-                    session
-                    for session in sessions
-                    if str(session.created_by.get("subject_id", "")).strip() == subject_id
-                ]
+            if not subject_id:
+                sessions = []
+            else:
+                sessions = [session for session in sessions if session_readable_by(session, subject_id)]
             if state:
                 sessions = [session for session in sessions if session.state == state]
             sessions = sorted(sessions, key=lambda session: session.last_turn_at or session.updated_at, reverse=True)
@@ -335,3 +338,43 @@ class InMemoryRunStore:
 
 def _utcnow() -> datetime:
     return datetime.now(tz=UTC)
+
+
+def session_visibility_for_create(metadata: dict[str, Any], created_by: dict[str, str]) -> str:
+    if _is_slack_agent_session_metadata(metadata) and _is_managed_actor(created_by):
+        return SESSION_VISIBILITY_COMPANY
+    return SESSION_VISIBILITY_PRIVATE
+
+
+def session_readable_by(session: StoredSession, subject_id: str) -> bool:
+    subject_id = subject_id.strip()
+    if not subject_id:
+        return False
+    if str(session.created_by.get("subject_id", "") or "").strip() == subject_id:
+        return True
+    return session.visibility == SESSION_VISIBILITY_COMPANY
+
+
+def session_writable_by(session: StoredSession, subject_id: str) -> bool:
+    subject_id = subject_id.strip()
+    if not subject_id:
+        return False
+    return str(session.created_by.get("subject_id", "") or "").strip() == subject_id
+
+
+def _is_slack_agent_session_metadata(metadata: dict[str, Any]) -> bool:
+    slack = metadata.get("slack")
+    if not isinstance(slack, dict):
+        return False
+    return bool(
+        str(slack.get("team_id") or "").strip()
+        and str(slack.get("channel_id") or "").strip()
+        and str(slack.get("root_message_ts") or "").strip()
+        and str(slack.get("session_ref") or "").strip()
+    )
+
+
+def _is_managed_actor(actor: dict[str, str]) -> bool:
+    subject_id = str(actor.get("subject_id", "") or "").strip()
+    subject_kind = str(actor.get("subject_kind", "") or "").strip()
+    return subject_kind == "service_account" or subject_id.startswith("service_account:")

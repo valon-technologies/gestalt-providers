@@ -13,6 +13,7 @@ use mcp_bridge::McpBridgeHandle;
 use serde_json::{Value as JsonValue, json};
 use store::{
     BeginTurnResult, CreateSessionResult, Store, agent_session, agent_turn, agent_turn_event,
+    session_readable_by,
 };
 use tokio::sync::{Mutex, RwLock};
 
@@ -110,6 +111,7 @@ impl gestalt::AgentProvider for HermesAgentProvider {
         let config = self.require_config().await?;
         let provider_name = self.provider_name().await;
         let model = config.resolve_model(&req.model);
+        let subject_id = subject_id(req.subject.as_ref());
         if let Some(existing) = self
             .inner
             .store
@@ -117,6 +119,12 @@ impl gestalt::AgentProvider for HermesAgentProvider {
             .await
             .existing_session_for_create(&req)
         {
+            if !session_readable_by(&existing, &subject_id) {
+                return Err(gestalt::Error::not_found(format!(
+                    "agent session {:?} was not found",
+                    req.session_id
+                )));
+            }
             return Ok(agent_session(existing, false));
         }
         let token = config
@@ -149,7 +157,17 @@ impl gestalt::AgentProvider for HermesAgentProvider {
 
         let mut store = self.inner.store.lock().await;
         let session = match store.create_session(&req, &provider_name, model, acp_session_id) {
-            Ok(CreateSessionResult::Created(session) | CreateSessionResult::Existing(session)) => {
+            Ok(CreateSessionResult::Created(session)) => session,
+            Ok(CreateSessionResult::Existing(session)) => {
+                if store
+                    .get_session_if_readable(&session.id, &subject_id)
+                    .is_none()
+                {
+                    return Err(gestalt::Error::not_found(format!(
+                        "agent session {:?} was not found",
+                        req.session_id
+                    )));
+                }
                 session
             }
             Err(err) => return Err(gestalt::Error::bad_request(err)),
@@ -162,12 +180,13 @@ impl gestalt::AgentProvider for HermesAgentProvider {
         req: gestalt::GetAgentProviderSessionRequest,
     ) -> gestalt::Result<gestalt::AgentSession> {
         self.require_config().await?;
+        let subject_id = subject_id(req.subject.as_ref());
         let session = self
             .inner
             .store
             .lock()
             .await
-            .get_session(&req.session_id)
+            .get_session_if_readable(&req.session_id, &subject_id)
             .ok_or_else(|| {
                 gestalt::Error::not_found(format!(
                     "agent session {:?} was not found",
@@ -185,11 +204,7 @@ impl gestalt::AgentProvider for HermesAgentProvider {
         if req.limit < 0 {
             return Err(gestalt::Error::bad_request("limit must be non-negative"));
         }
-        let subject_id = req
-            .subject
-            .as_ref()
-            .map(|subject| subject.subject_id.trim().to_string())
-            .unwrap_or_default();
+        let subject_id = subject_id(req.subject.as_ref());
         let sessions = self
             .inner
             .store
@@ -208,18 +223,39 @@ impl gestalt::AgentProvider for HermesAgentProvider {
     ) -> gestalt::Result<gestalt::AgentSession> {
         self.require_config().await?;
         let metadata = req.metadata.clone();
-        let session = self
-            .inner
-            .store
-            .lock()
-            .await
-            .update_session(&req.session_id, &req.client_ref, req.state, metadata)
-            .ok_or_else(|| {
-                gestalt::Error::not_found(format!(
+        let subject_id = subject_id(req.subject.as_ref());
+        let session = {
+            let mut store = self.inner.store.lock().await;
+            if store.get_session(&req.session_id).is_none() {
+                return Err(gestalt::Error::not_found(format!(
                     "agent session {:?} was not found",
                     req.session_id
-                ))
-            })?;
+                )));
+            }
+            if store
+                .get_session_if_owner(&req.session_id, &subject_id)
+                .is_none()
+            {
+                return Err(gestalt::Error::permission_denied(format!(
+                    "agent session {:?} is not writable",
+                    req.session_id
+                )));
+            }
+            store
+                .update_session(
+                    &req.session_id,
+                    &req.client_ref,
+                    req.state,
+                    metadata,
+                    &subject_id,
+                )
+                .ok_or_else(|| {
+                    gestalt::Error::not_found(format!(
+                        "agent session {:?} was not found",
+                        req.session_id
+                    ))
+                })?
+        };
         Ok(agent_session(session, false))
     }
 
@@ -227,9 +263,9 @@ impl gestalt::AgentProvider for HermesAgentProvider {
         &self,
         req: gestalt::CreateAgentProviderTurnRequest,
     ) -> gestalt::Result<gestalt::AgentTurn> {
-        validate_turn_request(&req)?;
         let config = self.require_config().await?;
         let provider_name = self.provider_name().await;
+        let subject_id = subject_id(req.subject.as_ref());
         let model = {
             let store = self.inner.store.lock().await;
             let session = store.get_session(&req.session_id).ok_or_else(|| {
@@ -238,16 +274,26 @@ impl gestalt::AgentProvider for HermesAgentProvider {
                     req.session_id
                 ))
             })?;
+            if store
+                .get_session_if_owner(&req.session_id, &subject_id)
+                .is_none()
+            {
+                return Err(gestalt::Error::permission_denied(format!(
+                    "agent session {:?} is not writable",
+                    req.session_id
+                )));
+            }
             config.resolve_model(if req.model.trim().is_empty() {
                 &session.model
             } else {
                 &req.model
             })
         };
+        validate_turn_request(&req)?;
 
         let turn = {
             let mut store = self.inner.store.lock().await;
-            match store.begin_turn(&req, &provider_name, model) {
+            match store.begin_turn(&req, &provider_name, model, &subject_id) {
                 Ok(BeginTurnResult::Created(turn)) => {
                     let worker = self.clone();
                     let turn_id = turn.id.clone();
@@ -259,6 +305,9 @@ impl gestalt::AgentProvider for HermesAgentProvider {
                 Ok(BeginTurnResult::Existing(turn)) => turn,
                 Err(err) if err.contains("active turn") => {
                     return Err(gestalt::Error::failed_precondition(err));
+                }
+                Err(err) if err.contains("not writable") => {
+                    return Err(gestalt::Error::permission_denied(err));
                 }
                 Err(err) if err.contains("was not found") => {
                     return Err(gestalt::Error::not_found(err));
@@ -274,12 +323,13 @@ impl gestalt::AgentProvider for HermesAgentProvider {
         req: gestalt::GetAgentProviderTurnRequest,
     ) -> gestalt::Result<gestalt::AgentTurn> {
         self.require_config().await?;
+        let subject_id = subject_id(req.subject.as_ref());
         let turn = self
             .inner
             .store
             .lock()
             .await
-            .get_turn(&req.turn_id)
+            .get_turn_if_readable(&req.turn_id, &subject_id)
             .ok_or_else(|| {
                 gestalt::Error::not_found(format!("agent turn {:?} was not found", req.turn_id))
             })?;
@@ -294,11 +344,7 @@ impl gestalt::AgentProvider for HermesAgentProvider {
         if req.limit < 0 {
             return Err(gestalt::Error::bad_request("limit must be non-negative"));
         }
-        let subject_id = req
-            .subject
-            .as_ref()
-            .map(|subject| subject.subject_id.trim().to_string())
-            .unwrap_or_default();
+        let subject_id = subject_id(req.subject.as_ref());
         let turns = self
             .inner
             .store
@@ -323,13 +369,20 @@ impl gestalt::AgentProvider for HermesAgentProvider {
     ) -> gestalt::Result<gestalt::AgentTurn> {
         self.require_config().await?;
         let provider_name = self.provider_name().await;
+        let subject_id = subject_id(req.subject.as_ref());
         let turn = {
             let mut store = self.inner.store.lock().await;
             let before = store.get_turn(&req.turn_id).ok_or_else(|| {
                 gestalt::Error::not_found(format!("agent turn {:?} was not found", req.turn_id))
             })?;
+            if store.get_turn_if_owner(&req.turn_id, &subject_id).is_none() {
+                return Err(gestalt::Error::permission_denied(format!(
+                    "agent turn {:?} is not writable",
+                    req.turn_id
+                )));
+            }
             let turn = store
-                .cancel_turn(&req.turn_id, &req.reason)
+                .cancel_turn(&req.turn_id, &req.reason, &subject_id)
                 .ok_or_else(|| {
                     gestalt::Error::not_found(format!("agent turn {:?} was not found", req.turn_id))
                 })?;
@@ -379,12 +432,13 @@ impl gestalt::AgentProvider for HermesAgentProvider {
         if req.limit < 0 {
             return Err(gestalt::Error::bad_request("limit must be non-negative"));
         }
+        let subject_id = subject_id(req.subject.as_ref());
         let events = self
             .inner
             .store
             .lock()
             .await
-            .list_events(&req.turn_id, req.after_seq, req.limit)
+            .list_events(&req.turn_id, req.after_seq, req.limit, &subject_id)
             .into_iter()
             .map(agent_turn_event)
             .collect();
@@ -404,9 +458,24 @@ impl gestalt::AgentProvider for HermesAgentProvider {
 
     async fn list_interactions(
         &self,
-        _request: gestalt::ListAgentProviderInteractionsRequest,
+        request: gestalt::ListAgentProviderInteractionsRequest,
     ) -> gestalt::Result<gestalt::ListAgentProviderInteractionsResponse> {
         self.require_config().await?;
+        if !request.turn_id.trim().is_empty() {
+            let subject_id = subject_id(request.subject.as_ref());
+            if self
+                .inner
+                .store
+                .lock()
+                .await
+                .get_turn_if_readable(&request.turn_id, &subject_id)
+                .is_none()
+            {
+                return Ok(gestalt::ListAgentProviderInteractionsResponse {
+                    interactions: Vec::new(),
+                });
+            }
+        }
         Ok(gestalt::ListAgentProviderInteractionsResponse {
             interactions: Vec::new(),
         })
@@ -985,6 +1054,12 @@ fn content_text(update: &JsonValue) -> String {
         .and_then(JsonValue::as_str)
         .unwrap_or_default()
         .to_string()
+}
+
+fn subject_id(subject: Option<&gestalt::AgentSubjectContext>) -> String {
+    subject
+        .map(|subject| subject.subject_id.trim().to_string())
+        .unwrap_or_default()
 }
 
 fn redacted_token_error(err: String) -> String {

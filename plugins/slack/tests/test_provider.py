@@ -508,13 +508,9 @@ def _manifest_parameter_types(operation: dict[str, Any], name: str) -> list[str]
 
 
 class FakeAuthorization:
-    def __init__(
-        self, subjects: list[Any], *, write_error: Exception | None = None
-    ) -> None:
+    def __init__(self, subjects: list[Any]) -> None:
         self.subjects = [_native_subject(subject) for subject in subjects]
         self.requests: list[Any] = []
-        self.write_requests: list[Any] = []
-        self.write_error = write_error
 
     def search_subjects(self, request: Any) -> Any:
         self.requests.append(request)
@@ -528,11 +524,6 @@ class FakeAuthorization:
             if not subject_type or str(subject.type or "").strip() == subject_type
         ]
         return types.SimpleNamespace(subjects=subjects)
-
-    def write_relationships(self, request: Any) -> None:
-        self.write_requests.append(request)
-        if self.write_error is not None:
-            raise self.write_error
 
 def _native_subject(subject: Any) -> Any:
     properties = getattr(subject, "properties", None)
@@ -4020,7 +4011,6 @@ class SlackProviderTests(unittest.TestCase):
         )
         reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
         captured: dict[str, Any] = {}
-        authorization = FakeAuthorization([])
         idempotency_key = "workflow:local:run-123:session-ready:signal-batch-abc"
         expected_client_msg_id = str(
             uuid.UUID(
@@ -4035,7 +4025,6 @@ class SlackProviderTests(unittest.TestCase):
             self.assertEqual(request.get_method(), "POST")
             self.assertEqual(request.full_url, "https://slack.com/api/chat.postMessage")
             self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
-            self.assertEqual(len(authorization.write_requests), 1)
             captured["payload"] = json.loads(cast(bytes, request.data).decode("utf-8"))
             return FakeHTTPResponse(
                 '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
@@ -4061,7 +4050,6 @@ class SlackProviderTests(unittest.TestCase):
                                 public_base_url="https://gestalt.example.test/"
                             ),
                             "idempotency_key": idempotency_key,
-                            "authorization": lambda self: authorization,
                         },
                     )(),
                 ),
@@ -4071,15 +4059,6 @@ class SlackProviderTests(unittest.TestCase):
             "https://gestalt.example.test/",
             "agent session/123",
         )
-        self.assertEqual(len(authorization.write_requests), 1)
-        grant = sdk_value_to_dict(authorization.write_requests[0])["writes"][0]
-        subject_set = grant["target"]["subject_set"]
-        self.assertEqual(subject_set["resource"]["type"], "everyone")
-        self.assertEqual(subject_set["resource"]["id"], "global")
-        self.assertEqual(subject_set["relation"], "member")
-        self.assertEqual(grant["relation"], "viewer")
-        self.assertEqual(grant["resource"]["type"], "agent_session")
-        self.assertEqual(grant["resource"]["id"], "agent session/123")
         self.assertEqual(
             captured["payload"],
             {
@@ -4121,68 +4100,6 @@ class SlackProviderTests(unittest.TestCase):
             missing_base_url_response.body,
             {"error": "host.public_base_url is required"},
         )
-
-    def test_slack_events_reply_session_started_does_not_post_when_share_fails(
-        self,
-    ) -> None:
-        provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
-        self.addCleanup(provider_module.configure, "slack", {})
-        event = provider_module.SlackAgentEvent(
-            callback_type="event_callback",
-            event_type="app_mention",
-            event_id="Ev123",
-            team_id="T123",
-            user_id="U456",
-            channel_id="C789",
-            channel_type="channel",
-            text="<@UBOT> hello",
-            message_ts="1712161829.000300",
-            thread_ts="",
-            reply_thread_ts="1712161829.000300",
-        )
-        reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123")
-        authorization = FakeAuthorization([], write_error=ValueError("write failed"))
-
-        with mock.patch(
-            "internals.client.urllib.request.urlopen",
-            side_effect=AssertionError("session links should not post before grants"),
-        ):
-            result = provider_module.slack_events_reply_session_started(
-                provider_module.SlackEventSessionStartedInput(
-                    reply_ref=reply_ref, session_id="agent-session-123"
-                ),
-                cast(
-                    Any,
-                    type(
-                        "RequestWithFailingAuthorization",
-                        (),
-                        {
-                            "subject": gestalt.Subject(
-                                id="user:gestalt-123", kind="user"
-                            ),
-                            "host": types.SimpleNamespace(
-                                public_base_url="https://gestalt.example.test/"
-                            ),
-                            "authorization": lambda self: authorization,
-                        },
-                    )(),
-                ),
-            )
-
-        self.assertIsInstance(result, gestalt.Response)
-        response = cast(gestalt.Response[dict[str, Any]], result)
-        self.assertEqual(response.status, HTTPStatus.BAD_GATEWAY)
-        self.assertEqual(
-            response.body,
-            {
-                "error": "failed to share agent session",
-                "authorization_error": {
-                    "type": "ValueError",
-                    "message": "write failed",
-                },
-            },
-        )
-        self.assertEqual(len(authorization.write_requests), 1)
 
     def test_slack_events_reply_session_started_skips_thread_replies(self) -> None:
         provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
@@ -5788,7 +5705,7 @@ class SlackProviderTests(unittest.TestCase):
             if ref.plugin == "linear" and ref.operation == "searchIssues"
         )
         self.assertEqual(
-            linear_ref.run_as.subject_id,
+            _agent_subject_id(linear_ref.run_as),
             "service_account:slack-linear",
         )
 
@@ -8366,6 +8283,10 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(calls, 2)
         sleep.assert_called_once_with(0.0)
         self.assertEqual(result["data"]["message"]["text"], "after retry")
+
+
+def _agent_subject_id(subject: Any) -> str:
+    return cast(str, getattr(subject, "subject_id", getattr(subject, "id", "")))
 
 
 if __name__ == "__main__":
