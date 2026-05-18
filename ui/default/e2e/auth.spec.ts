@@ -3,11 +3,9 @@ import { test, expect } from "@playwright/test";
 test.describe("Authentication", () => {
   test("unauthenticated user is redirected through login", async ({ page }) => {
     await page.goto("/integrations");
-    await page.waitForURL((url) => url.pathname !== "/integrations", {
-      timeout: 10000,
-    });
+    await expect(page).toHaveURL((url) => url.pathname === "/integrations");
     await expect(
-      page.getByRole("heading", { name: "Dashboard" }),
+      page.getByRole("heading", { name: "Plugins" }),
     ).toBeVisible();
   });
 
