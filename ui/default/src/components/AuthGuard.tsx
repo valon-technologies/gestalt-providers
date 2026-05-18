@@ -1,12 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { isAuthenticated } from "@/lib/auth";
-import { LOGIN_PATH } from "@/lib/constants";
+import { loginPathForCurrentLocation } from "@/lib/authReturn";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
   const [checked, setChecked] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
 
@@ -15,9 +13,9 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     setAuthenticated(authed);
     setChecked(true);
     if (!authed) {
-      router.replace(LOGIN_PATH);
+      window.location.replace(loginPathForCurrentLocation());
     }
-  }, [router]);
+  }, []);
 
   if (!checked || !authenticated) return null;
 

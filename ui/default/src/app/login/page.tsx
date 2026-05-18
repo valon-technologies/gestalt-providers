@@ -4,6 +4,10 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { getAuthInfo, startLogin } from "@/lib/api";
 import { isAuthenticated, setUserEmail } from "@/lib/auth";
+import {
+  authReturnPathFromLoginURL,
+  storeAuthReturnPath,
+} from "@/lib/authReturn";
 import { DOCS_PATH, DEFAULT_LOCAL_EMAIL } from "@/lib/constants";
 import Button from "@/components/Button";
 
@@ -13,15 +17,16 @@ export default function LoginPage() {
   const [authLabel, setAuthLabel] = useState("Sign in");
 
   useEffect(() => {
+    const returnPath = authReturnPathFromLoginURL();
     if (typeof window !== "undefined" && isAuthenticated()) {
-      window.location.replace("/");
+      window.location.replace(returnPath);
       return;
     }
     getAuthInfo()
       .then((info) => {
         if (!info.loginSupported) {
           setUserEmail(DEFAULT_LOCAL_EMAIL);
-          window.location.replace("/");
+          window.location.replace(returnPath);
           return;
         }
         setAuthLabel("Sign in with " + info.displayName);
@@ -35,6 +40,7 @@ export default function LoginPage() {
     try {
       const state = crypto.randomUUID();
       sessionStorage.setItem("oauth_state", state);
+      storeAuthReturnPath(authReturnPathFromLoginURL());
       const { url } = await startLogin(state);
       window.location.href = url;
     } catch (err) {
