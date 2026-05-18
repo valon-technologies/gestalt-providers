@@ -5,6 +5,69 @@ description: Access company, employee, org structure, payroll, identity, leave, 
 iconFile: assets/icon.svg
 kind: plugin
 spec:
+  allowedOperations:
+    Companies.List: {}
+    Compensations.List: {}
+    Compensations.Get: {}
+    CurrentUser.Get: {}
+    CustomFields.List: {}
+    Departments.List: {}
+    Departments.Create: {}
+    Departments.Get: {}
+    Departments.Update: {}
+    Employees.List: {}
+    Employees.Get: {}
+    Employees.Update: {}
+    EmploymentTypes.List: {}
+    EmploymentTypes.Get: {}
+    EarningTypes.List: {}
+    JobFunctions.List: {}
+    JobFunctions.Get: {}
+    JobAssignments.Create: {}
+    JobAssignments.Update: {}
+    JobAssignments.Delete: {}
+    JobCodes.Create: {}
+    JobCodes.Update: {}
+    JobCodes.Delete: {}
+    JobDimensions.Create: {}
+    JobDimensions.Update: {}
+    JobDimensions.Delete: {}
+    LegalEntities.List: {}
+    LegalEntities.Get: {}
+    LeaveBalances.List: {}
+    LeaveBalances.Get: {}
+    LeaveRequests.List: {}
+    LeaveRequests.Get: {}
+    LeaveRequests.Create: {}
+    LeaveRequests.Update: {}
+    LeaveTypes.List: {}
+    LeaveTypes.Get: {}
+    Levels.List: {}
+    Levels.Get: {}
+    PayrollRuns.List: {}
+    PayrollRuns.ListEmployees: {}
+    PayrollEarnings.Create: {}
+    Teams.List: {}
+    Teams.Get: {}
+    TimeEntries.List: {}
+    TimeEntries.Get: {}
+    TimeEntries.Create: {}
+    TimeEntries.Update: {}
+    TimeEntries.Delete: {}
+    Titles.List: {}
+    Titles.Create: {}
+    Titles.Get: {}
+    Titles.Update: {}
+    Titles.Delete: {}
+    Tracks.List: {}
+    Tracks.Get: {}
+    Users.List: {}
+    Users.Get: {}
+    WorkLocations.List: {}
+    WorkLocations.Create: {}
+    WorkLocations.Get: {}
+    WorkLocations.Update: {}
+    WorkLocations.Delete: {}
   surfaces:
     openapi:
       connection: default
