@@ -3,5 +3,11 @@ version: 0.0.1-alpha.1
 displayName: Hermes ACP Agent
 description: Agent provider that runs Hermes through the Agent Client Protocol.
 kind: agent
+build:
+  command:
+    - sh
+    - ./build.sh
+entrypoint:
+  artifactPath: .gestalt/build/provider
 spec:
   configSchemaPath: schemas/config.schema.yaml

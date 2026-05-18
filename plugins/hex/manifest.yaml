@@ -4,6 +4,12 @@ displayName: Hex
 description: Hex Public API plus CLI-only draft notebook, YAML import/export, cell run, and Context Studio operations.
 iconFile: assets/icon.svg
 kind: plugin
+build:
+  command:
+    - sh
+    - ./build.sh
+entrypoint:
+  artifactPath: .gestalt/build/provider
 spec:
   surfaces:
     openapi:
