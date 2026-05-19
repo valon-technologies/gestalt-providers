@@ -69,12 +69,8 @@ func (h *sdkWorkflowHost) InvokeOperation(ctx context.Context, input gestalt.Inv
 	return h.client.InvokeOperation(ctx, input)
 }
 
-func (h *sdkWorkflowHost) InvokeWorkflowPluginAction(ctx context.Context, input gestalt.InvokeWorkflowPluginActionInput) (*gestalt.WorkflowHostActionResponse, error) {
-	return h.client.InvokeWorkflowPluginAction(ctx, input)
-}
-
-func (h *sdkWorkflowHost) InvokeWorkflowAgentTurn(ctx context.Context, input gestalt.InvokeWorkflowAgentTurnInput) (*gestalt.WorkflowHostActionResponse, error) {
-	return h.client.InvokeWorkflowAgentTurn(ctx, input)
+func (h *sdkWorkflowHost) InvokeWorkflowAction(ctx context.Context, input gestalt.InvokeWorkflowActionInput) (*gestalt.WorkflowHostActionResponse, error) {
+	return h.client.InvokeWorkflowAction(ctx, input)
 }
 
 func (h *sdkWorkflowHost) Close() error {

@@ -25,12 +25,8 @@ func (a *workflowActivities) InvokeOperation(ctx context.Context, req gestalt.In
 	return a.host.InvokeOperation(ctx, req)
 }
 
-func (a *workflowActivities) InvokeWorkflowPluginAction(ctx context.Context, req gestalt.InvokeWorkflowPluginActionInput) (*gestalt.WorkflowHostActionResponse, error) {
-	return a.host.InvokeWorkflowPluginAction(ctx, req)
-}
-
-func (a *workflowActivities) InvokeWorkflowAgentTurn(ctx context.Context, req gestalt.InvokeWorkflowAgentTurnInput) (*gestalt.WorkflowHostActionResponse, error) {
-	return a.host.InvokeWorkflowAgentTurn(ctx, req)
+func (a *workflowActivities) InvokeWorkflowAction(ctx context.Context, req gestalt.InvokeWorkflowActionInput) (*gestalt.WorkflowHostActionResponse, error) {
+	return a.host.InvokeWorkflowAction(ctx, req)
 }
 
 func (a *workflowActivities) ProjectRun(ctx context.Context, run gestalt.BoundWorkflowRun) error {

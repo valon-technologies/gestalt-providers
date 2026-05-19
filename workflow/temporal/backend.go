@@ -21,8 +21,7 @@ import (
 
 type workflowHost interface {
 	InvokeOperation(context.Context, gestalt.InvokeWorkflowOperationInput) (*gestalt.InvokeWorkflowOperationResponse, error)
-	InvokeWorkflowPluginAction(context.Context, gestalt.InvokeWorkflowPluginActionInput) (*gestalt.WorkflowHostActionResponse, error)
-	InvokeWorkflowAgentTurn(context.Context, gestalt.InvokeWorkflowAgentTurnInput) (*gestalt.WorkflowHostActionResponse, error)
+	InvokeWorkflowAction(context.Context, gestalt.InvokeWorkflowActionInput) (*gestalt.WorkflowHostActionResponse, error)
 	Close() error
 }
 

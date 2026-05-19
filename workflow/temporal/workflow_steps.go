@@ -126,31 +126,30 @@ func invokeWorkflowStepAction(ctx workflow.Context, input runWorkflowV4Input, ru
 		if err != nil {
 			return nil, err
 		}
-		req := gestalt.InvokeWorkflowPluginActionInput{
+		req := gestalt.InvokeWorkflowActionInput{
 			Selector: workflowStepSelector(input.PlanBinding, run.ID, run.ExecutionRef, step.ID, workflowStepActionID(step.ID, workflowStepPluginActionSuffix)),
-			Input:    body,
+			Plugin:   &gestalt.WorkflowPluginActionPayload{Input: body},
 			Metadata: step.Metadata,
 			Trigger:  run.Trigger,
 			Signals:  signals,
 		}
 		var resp gestalt.WorkflowHostActionResponse
-		err = workflow.ExecuteActivity(activityCtx, (*workflowActivities).InvokeWorkflowPluginAction, req).Get(activityCtx, &resp)
+		err = workflow.ExecuteActivity(activityCtx, (*workflowActivities).InvokeWorkflowAction, req).Get(activityCtx, &resp)
 		return &resp, err
 	case step.Agent != nil:
 		prompt, messages, err := evaluateWorkflowStepAgentTurn(step.Agent, eval)
 		if err != nil {
 			return nil, err
 		}
-		req := gestalt.InvokeWorkflowAgentTurnInput{
-			Selector: workflowStepSelector(input.PlanBinding, run.ID, run.ExecutionRef, step.ID, workflowStepActionID(step.ID, workflowStepAgentActionSuffix)),
-			Prompt:   prompt,
-			Messages: messages,
-			Metadata: step.Metadata,
-			Trigger:  run.Trigger,
-			Signals:  signals,
+		req := gestalt.InvokeWorkflowActionInput{
+			Selector:  workflowStepSelector(input.PlanBinding, run.ID, run.ExecutionRef, step.ID, workflowStepActionID(step.ID, workflowStepAgentActionSuffix)),
+			AgentTurn: &gestalt.WorkflowAgentTurnPayload{Prompt: prompt, Messages: messages},
+			Metadata:  step.Metadata,
+			Trigger:   run.Trigger,
+			Signals:   signals,
 		}
 		var resp gestalt.WorkflowHostActionResponse
-		err = workflow.ExecuteActivity(activityCtx, (*workflowActivities).InvokeWorkflowAgentTurn, req).Get(activityCtx, &resp)
+		err = workflow.ExecuteActivity(activityCtx, (*workflowActivities).InvokeWorkflowAction, req).Get(activityCtx, &resp)
 		return &resp, err
 	default:
 		return nil, fmt.Errorf("step %q has no action", step.ID)
@@ -169,15 +168,15 @@ func invokeWorkflowStepDelivery(ctx workflow.Context, input runWorkflowV4Input, 
 		StartToCloseTimeout: stepActivityTimeout(input, step),
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	})
-	req := gestalt.InvokeWorkflowPluginActionInput{
+	req := gestalt.InvokeWorkflowActionInput{
 		Selector: workflowStepSelector(input.PlanBinding, run.ID, run.ExecutionRef, step.ID, workflowStepActionID(step.ID, workflowStepDeliveryActionSuffix)),
-		Input:    body,
+		Plugin:   &gestalt.WorkflowPluginActionPayload{Input: body},
 		Metadata: step.Metadata,
 		Trigger:  run.Trigger,
 		Signals:  signals,
 	}
 	var resp gestalt.WorkflowHostActionResponse
-	err = workflow.ExecuteActivity(activityCtx, (*workflowActivities).InvokeWorkflowPluginAction, req).Get(activityCtx, &resp)
+	err = workflow.ExecuteActivity(activityCtx, (*workflowActivities).InvokeWorkflowAction, req).Get(activityCtx, &resp)
 	return &resp, err
 }
 

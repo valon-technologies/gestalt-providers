@@ -46,6 +46,10 @@ func (p *Provider) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObjectSt
 	return p.Store.GetAllKeys(ctx, req)
 }
 
+func (p *Provider) Query(ctx context.Context, req gestalt.IndexedDBObjectStoreQueryRequest) (*gestalt.IndexedDBQueryResponse, error) {
+	return p.Store.Query(ctx, req)
+}
+
 func (p *Provider) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
 	return p.Store.Count(ctx, req)
 }

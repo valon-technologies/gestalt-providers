@@ -147,30 +147,35 @@ func TestGestaltRunWorkflowV4ExecutesStepPlanViaHostActions(t *testing.T) {
 		run.Steps[1].Status != gestalt.WorkflowStepStatusValueSucceeded {
 		t.Fatalf("run steps = %#v, want two succeeded steps", run.Steps)
 	}
-	if len(host.pluginCalls) != 1 {
-		t.Fatalf("plugin calls = %d, want 1", len(host.pluginCalls))
+	if len(host.actionCalls) != 2 {
+		t.Fatalf("action calls = %d, want plugin and agent actions", len(host.actionCalls))
 	}
-	pluginInput, ok := host.pluginCalls[0].Input.(map[string]any)
+	pluginCall := host.actionCalls[0]
+	if pluginCall.Plugin == nil {
+		t.Fatalf("first action = %#v, want plugin payload", pluginCall)
+	}
+	pluginInput, ok := pluginCall.Plugin.Input.(map[string]any)
 	if !ok {
-		t.Fatalf("plugin input = %#v, want object", host.pluginCalls[0].Input)
+		t.Fatalf("plugin input = %#v, want object", pluginCall.Plugin.Input)
 	}
 	if got := pluginInput["message"]; got != "cpu high" {
 		t.Fatalf("plugin input message = %#v, want cpu high", got)
 	}
-	if selector := host.pluginCalls[0].Selector; selector == nil ||
+	if selector := pluginCall.Selector; selector == nil ||
 		selector.ActionID != "step/diagnosis/plugin" ||
 		selector.ExecutionRef != binding.ExecutionRef ||
 		selector.TargetDigest != binding.TargetDigest ||
 		selector.ProviderPlanDigest != binding.ProviderPlanDigest {
 		t.Fatalf("plugin selector = %#v, want bound diagnosis action", selector)
 	}
-	if len(host.agentCalls) != 1 {
-		t.Fatalf("agent calls = %d, want 1", len(host.agentCalls))
+	agentCall := host.actionCalls[1]
+	if agentCall.AgentTurn == nil {
+		t.Fatalf("second action = %#v, want agent-turn payload", agentCall)
 	}
-	if got := host.agentCalls[0].Prompt.Template; got != "Diagnosis: diagnosed" {
+	if got := agentCall.AgentTurn.Prompt.Template; got != "Diagnosis: diagnosed" {
 		t.Fatalf("agent prompt = %q, want rendered diagnosis", got)
 	}
-	if selector := host.agentCalls[0].Selector; selector == nil || selector.ActionID != "step/reply/agent-turn" {
+	if selector := agentCall.Selector; selector == nil || selector.ActionID != "step/reply/agent-turn" {
 		t.Fatalf("agent selector = %#v, want reply agent-turn action", selector)
 	}
 }
@@ -224,8 +229,8 @@ func TestGestaltRunWorkflowV4AcceptsSignalWhileStepActionIsRunning(t *testing.T)
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	if len(host.pluginCalls) != 2 {
-		t.Fatalf("plugin calls = %d, want 2 runs of the step plan", len(host.pluginCalls))
+	if len(host.actionCalls) != 2 {
+		t.Fatalf("action calls = %d, want 2 runs of the step plan", len(host.actionCalls))
 	}
 }
 
@@ -1877,8 +1882,7 @@ type capturingHost struct {
 	actionResp        *gestalt.WorkflowHostActionResponse
 	err               error
 	calls             []gestalt.InvokeWorkflowOperationInput
-	pluginCalls       []gestalt.InvokeWorkflowPluginActionInput
-	agentCalls        []gestalt.InvokeWorkflowAgentTurnInput
+	actionCalls       []gestalt.InvokeWorkflowActionInput
 	pluginEntered     chan struct{}
 	pluginRelease     chan struct{}
 	pluginEnteredOnce sync.Once
@@ -1889,22 +1893,14 @@ func (h *capturingHost) InvokeOperation(_ context.Context, req gestalt.InvokeWor
 	return h.resp, h.err
 }
 
-func (h *capturingHost) InvokeWorkflowPluginAction(_ context.Context, req gestalt.InvokeWorkflowPluginActionInput) (*gestalt.WorkflowHostActionResponse, error) {
-	h.pluginCalls = append(h.pluginCalls, req)
-	if h.pluginEntered != nil {
+func (h *capturingHost) InvokeWorkflowAction(_ context.Context, req gestalt.InvokeWorkflowActionInput) (*gestalt.WorkflowHostActionResponse, error) {
+	h.actionCalls = append(h.actionCalls, req)
+	if req.Plugin != nil && h.pluginEntered != nil {
 		h.pluginEnteredOnce.Do(func() { close(h.pluginEntered) })
 	}
-	if h.pluginRelease != nil {
+	if req.Plugin != nil && h.pluginRelease != nil {
 		<-h.pluginRelease
 	}
-	if h.actionResp != nil {
-		return h.actionResp, h.err
-	}
-	return &gestalt.WorkflowHostActionResponse{Status: http.StatusOK, Body: "{}"}, h.err
-}
-
-func (h *capturingHost) InvokeWorkflowAgentTurn(_ context.Context, req gestalt.InvokeWorkflowAgentTurnInput) (*gestalt.WorkflowHostActionResponse, error) {
-	h.agentCalls = append(h.agentCalls, req)
 	if h.actionResp != nil {
 		return h.actionResp, h.err
 	}
@@ -1994,11 +1990,7 @@ func (h *blockingHost) InvokeOperation(ctx context.Context, req gestalt.InvokeWo
 	return h.resp, h.err
 }
 
-func (h *blockingHost) InvokeWorkflowPluginAction(context.Context, gestalt.InvokeWorkflowPluginActionInput) (*gestalt.WorkflowHostActionResponse, error) {
-	return &gestalt.WorkflowHostActionResponse{Status: http.StatusOK, Body: "{}"}, h.err
-}
-
-func (h *blockingHost) InvokeWorkflowAgentTurn(context.Context, gestalt.InvokeWorkflowAgentTurnInput) (*gestalt.WorkflowHostActionResponse, error) {
+func (h *blockingHost) InvokeWorkflowAction(context.Context, gestalt.InvokeWorkflowActionInput) (*gestalt.WorkflowHostActionResponse, error) {
 	return &gestalt.WorkflowHostActionResponse{Status: http.StatusOK, Body: "{}"}, h.err
 }
 

@@ -658,6 +658,10 @@ func (s *Store) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObjectStore
 	return keys, nil
 }
 
+func (s *Store) Query(context.Context, gestalt.IndexedDBObjectStoreQueryRequest) (*gestalt.IndexedDBQueryResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "relationaldb: query is not implemented")
+}
+
 func (s *Store) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
 	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
