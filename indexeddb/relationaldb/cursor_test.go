@@ -2,6 +2,7 @@ package relationaldb
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -192,6 +193,33 @@ func TestOpenCursorKeysOnlyOmitsRecord(t *testing.T) {
 	}
 }
 
+func TestOpenCursorOrdersStringPrimaryKeysByNativeValue(t *testing.T) {
+	h := newCursorHarness(t)
+	ctx := context.Background()
+	if err := h.store.CreateObjectStore(ctx, "strings", cursorItemsSchema()); err != nil {
+		t.Fatalf("CreateObjectStore(strings): %v", err)
+	}
+	for _, record := range []gestalt.Record{
+		makeCursorItem("b", "Bob", "active", "bob@test.com"),
+		makeCursorItem("aa", "Alice", "active", "alice@test.com"),
+		makeCursorItem("c", "Carol", "active", "carol@test.com"),
+	} {
+		if err := h.store.Add(ctx, gestalt.IndexedDBRecordRequest{Store: "strings", Record: record}); err != nil {
+			t.Fatalf("Add(strings): %v", err)
+		}
+	}
+
+	cursor := openTestCursor(t, h.store, gestalt.IndexedDBOpenCursorRequest{
+		Store:     "strings",
+		Direction: gestalt.CursorNext,
+	})
+	entries := collectCursor(t, cursor)
+	got := []string{entries[0].PrimaryKey, entries[1].PrimaryKey, entries[2].PrimaryKey}
+	if want := []string{"aa", "b", "c"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("string cursor primary keys = %#v, want %#v", got, want)
+	}
+}
+
 func TestOpenCursorIndexRangeUsesIndexKeys(t *testing.T) {
 	h := newCursorHarness(t)
 	seedCursorItems(t, h.store)
@@ -344,6 +372,14 @@ func TestOpenCursorUpdatePersistsRecordWithCurrentPrimaryKey(t *testing.T) {
 	}
 	if got := stored["email"]; got != "updated@test.com" {
 		t.Fatalf("stored email = %#v, want %q", got, "updated@test.com")
+	}
+
+	next, err := cursor.Next(context.Background())
+	if err != nil {
+		t.Fatalf("Next after update: %v", err)
+	}
+	if got := next.PrimaryKey; got != "b" {
+		t.Fatalf("next primary key after update = %q, want %q", got, "b")
 	}
 }
 
