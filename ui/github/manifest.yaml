@@ -7,7 +7,6 @@ build:
   command:
     - sh
     - ./build.sh
-  output: out
   inputs:
     - app
     - build.sh
@@ -17,6 +16,7 @@ build:
     - src
     - tsconfig.json
 spec:
+  assetRoot: out
   routes:
     - path: /
       allowedRoles: [viewer, editor, admin]

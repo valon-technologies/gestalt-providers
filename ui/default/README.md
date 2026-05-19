@@ -31,9 +31,10 @@ If you serve this static bundle behind a Content Security Policy, allow
 
 This package publishes the default Gestalt UI as a `ui` bundle.
 
-`gestaltd provider release` runs the package's `release.build` recipe, which
+`gestaltd provider release` runs the package's source build command, which
 builds the exported Next app and bundles the static admin shell into `out/`
-before packaging.
+before packaging. The generated static bundle is declared in the manifest with
+`spec.assetRoot: out`.
 
 By default the build looks for a sibling checkout at `../../../gestalt` from
 this package directory. Set `GESTALT_CHECKOUT=/path/to/gestalt` if your local
