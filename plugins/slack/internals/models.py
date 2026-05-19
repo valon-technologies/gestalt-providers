@@ -131,6 +131,7 @@ class SlackAgentRouteMatch:
     user_ids: tuple[str, ...] = ()
     bot_ids: tuple[str, ...] = ()
     include_bot_events: bool = False
+    addressed_to_bot: bool | None = None
     subtypes: tuple[str, ...] | None = None
     thread: str = "any"
 
@@ -174,6 +175,11 @@ class SlackAgentRouteMatch:
             if not event.is_thread_reply:
                 return False
         elif self.thread != "any":
+            return False
+        if (
+            self.addressed_to_bot is not None
+            and event.addressed_to_bot != self.addressed_to_bot
+        ):
             return False
         if self.user_ids and event.user_id not in self.user_ids:
             return False

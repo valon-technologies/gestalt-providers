@@ -869,16 +869,48 @@ class SlackProviderTests(unittest.TestCase):
                         },
                     )
 
-    def test_agent_routes_require_bot_ids_for_run_as_subjects(self) -> None:
+    def test_agent_routes_require_guarded_match_for_run_as_subjects(self) -> None:
         invalid_matches = [
             {"channel": "C_ALERTS"},
             {"channel": "C_ALERTS", "botIds": []},
             {"channel": "C_ALERTS", "includeBotEvents": True},
+            {
+                "channel": "C_ALERTS",
+                "eventTypes": ["message.channels"],
+                "thread": "root",
+            },
+            {
+                "channel": "C_ALERTS",
+                "eventTypes": ["message.channels"],
+                "thread": "root",
+                "addressedToBot": True,
+            },
+            {
+                "eventTypes": ["message.channels"],
+                "thread": "root",
+                "addressedToBot": False,
+            },
+            {
+                "channel": "C_ALERTS",
+                "eventTypes": ["app_mention"],
+                "thread": "root",
+                "addressedToBot": False,
+            },
+            {
+                "channel": "C_ALERTS",
+                "eventTypes": ["message.channels"],
+                "thread": "any",
+                "addressedToBot": False,
+            },
         ]
 
         for match in invalid_matches:
             with self.subTest(match=match):
-                with self.assertRaisesRegex(ValueError, "runAs requires match.botIds"):
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "runAs requires match.botIds or an explicit top-level "
+                    "unaddressed channel message match",
+                ):
                     provider_module.configure(
                         "slack",
                         {
@@ -897,6 +929,31 @@ class SlackProviderTests(unittest.TestCase):
                             }
                         },
                     )
+
+        provider_module.configure(
+            "slack",
+            {
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "support-background",
+                            "runAs": {
+                                "subject": {
+                                    "id": "service_account:eng-background-agent"
+                                }
+                            },
+                            "match": {
+                                "channel": "C_SUPPORT",
+                                "eventTypes": ["message.channels"],
+                                "thread": "root",
+                                "addressedToBot": False,
+                            },
+                        }
+                    ]
+                }
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
 
     def test_agent_routes_validate_event_type_literals(self) -> None:
         invalid_match_configs = [
@@ -1986,6 +2043,195 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(resolved.display_name, "Platform Slack Bot")
         self.assertEqual(resolved.auth_source, "slack_agent_route_run_as")
         self.assertEqual(authorization.requests, [])
+
+    def test_http_subject_uses_route_run_as_for_unaddressed_channel_root(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "support-background",
+                            "runAs": {
+                                "subject": {
+                                    "id": "service_account:eng-background-agent",
+                                    "kind": "service_account",
+                                    "displayName": "Engineering Background Agent",
+                                },
+                            },
+                            "match": {
+                                "channel": "C_SUPPORT",
+                                "eventTypes": ["message.channels"],
+                                "thread": "root",
+                                "addressedToBot": False,
+                            },
+                        },
+                        {
+                            "id": "support-mentions",
+                            "match": {
+                                "channel": "C_SUPPORT",
+                                "eventTypes": ["app_mention"],
+                                "thread": "any",
+                            },
+                        },
+                    ]
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        authorization = FakeAuthorization([])
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvSupportRoot",
+            "team_id": "T123",
+            "event": {
+                "type": "message",
+                "user": "U456",
+                "channel": "C_SUPPORT",
+                "channel_type": "channel",
+                "text": "please inspect this",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        with mock.patch.object(
+            gestalt.Request, "authorization", return_value=authorization
+        ):
+            resolved = provider_module.resolve_http_subject(
+                gestalt.HTTPSubjectRequest(params=payload),
+                gestalt.Request(),
+            )
+
+        self.assertIsNotNone(resolved)
+        assert resolved is not None
+        self.assertEqual(resolved.id, "service_account:eng-background-agent")
+        self.assertEqual(resolved.kind, "service_account")
+        self.assertEqual(resolved.display_name, "Engineering Background Agent")
+        self.assertEqual(resolved.auth_source, "slack_agent_route_run_as")
+        self.assertEqual(authorization.requests, [])
+
+    def test_addressed_channel_message_skips_unaddressed_run_as_route(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "support-background",
+                            "runAs": {
+                                "subject": {
+                                    "id": "service_account:eng-background-agent"
+                                },
+                            },
+                            "match": {
+                                "channel": "C_SUPPORT",
+                                "eventTypes": ["message.channels"],
+                                "thread": "root",
+                                "addressedToBot": False,
+                            },
+                        },
+                        {
+                            "id": "support-mentions",
+                            "match": {
+                                "channel": "C_SUPPORT",
+                                "eventTypes": ["app_mention"],
+                                "thread": "any",
+                            },
+                        },
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+
+        response, workflow_manager = self._handle_event_with_workflow(
+            {
+                "type": "event_callback",
+                "event_id": "EvMentionDuplicateMessage",
+                "team_id": "T123",
+                "event": {
+                    "type": "message",
+                    "user": "U456",
+                    "channel": "C_SUPPORT",
+                    "channel_type": "channel",
+                    "text": "<@UBOT> please inspect this",
+                    "ts": "1712161829.000300",
+                },
+            }
+        )
+
+        self.assertEqual(response, {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(workflow_manager.signal_or_start_requests, [])
+
+    def test_app_mention_route_keeps_requester_subject_in_run_as_channel(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "support-background",
+                            "runAs": {
+                                "subject": {
+                                    "id": "service_account:eng-background-agent"
+                                },
+                            },
+                            "match": {
+                                "channel": "C_SUPPORT",
+                                "eventTypes": ["message.channels"],
+                                "thread": "root",
+                                "addressedToBot": False,
+                            },
+                        },
+                        {
+                            "id": "support-mentions",
+                            "match": {
+                                "channel": "C_SUPPORT",
+                                "eventTypes": ["app_mention"],
+                                "thread": "any",
+                            },
+                        },
+                    ]
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        subject = authorization_subject(type="subject", id="user:gestalt-123")
+        authorization = FakeAuthorization([subject])
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvSupportMention",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C_SUPPORT",
+                "channel_type": "channel",
+                "text": "<@UBOT> please inspect this",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        with mock.patch.object(
+            gestalt.Request, "authorization", return_value=authorization
+        ):
+            resolved = provider_module.resolve_http_subject(
+                gestalt.HTTPSubjectRequest(params=payload),
+                gestalt.Request(),
+            )
+
+        self.assertIsNotNone(resolved)
+        assert resolved is not None
+        self.assertEqual(resolved.id, "user:gestalt-123")
+        self.assertEqual(resolved.kind, "user")
+        self.assertEqual(resolved.auth_source, "authorization")
+        self.assertEqual(len(authorization.requests), 1)
 
     def test_http_subject_does_not_use_route_run_as_for_route_mismatches(
         self,

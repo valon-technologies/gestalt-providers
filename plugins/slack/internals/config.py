@@ -327,8 +327,11 @@ def _agent_route_from_config(
 
     match = _agent_route_match_from_config(_config_dict(config, "match"))
     run_as_subject_id = _agent_route_run_as_subject_id(config, index)
-    if run_as_subject_id and not match.bot_ids:
-        raise ValueError(f"agent.routes[{index}].runAs requires match.botIds")
+    if run_as_subject_id and not _agent_route_run_as_match_guarded(match):
+        raise ValueError(
+            f"agent.routes[{index}].runAs requires match.botIds or an explicit "
+            "top-level unaddressed channel message match"
+        )
 
     return SlackAgentRoute(
         id=_config_string(config, "id", "name") or f"route_{index}",
@@ -381,6 +384,19 @@ def _agent_route_run_as_subject_id(config: dict[str, Any], index: int) -> str:
             f"agent.routes[{index}].runAs.subject must identify a service_account subject"
         )
     return subject_id
+
+
+def _agent_route_run_as_match_guarded(match: SlackAgentRouteMatch) -> bool:
+    if match.bot_ids:
+        return True
+    event_types = frozenset(value.strip().lower() for value in match.event_types)
+    return bool(
+        match.channel_ids
+        and match.thread == "root"
+        and match.addressed_to_bot is False
+        and event_types
+        and event_types.issubset({"message.channels"})
+    )
 
 
 def _agent_route_run_as_subject_kind(
@@ -898,6 +914,13 @@ def _agent_route_match_from_config(config: dict[str, Any]) -> SlackAgentRouteMat
             "include_bots",
             default=False,
         ),
+        addressed_to_bot=_config_optional_bool(
+            config,
+            "addressedToBot",
+            "addressed_to_bot",
+            "botMentioned",
+            "bot_mentioned",
+        ),
         thread=_config_choice(
             config,
             SUPPORTED_AGENT_ROUTE_THREAD_MATCHES,
@@ -1065,6 +1088,20 @@ def _config_bool(config: dict[str, Any], *keys: str, default: bool) -> bool:
             if normalized in {"0", "false", "no", "off"}:
                 return False
     return default
+
+
+def _config_optional_bool(config: dict[str, Any], *keys: str) -> bool | None:
+    for key in keys:
+        value = config.get(key)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "on"}:
+                return True
+            if normalized in {"0", "false", "no", "off"}:
+                return False
+    return None
 
 
 def _config_has_bool(config: dict[str, Any], *keys: str) -> bool:
