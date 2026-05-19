@@ -519,8 +519,8 @@ func (p *providerCore) queryIndexEntries(ctx context.Context, req gestalt.Indexe
 	}
 
 	rangeCursor := &dynamoCursor{
-		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}},
-		index:    index,
+		LazyCursor: cursorutil.LazyCursor{Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}}},
+		index:      index,
 	}
 	entries := make([]cursorutil.Entry, 0, len(records))
 	for _, record := range records {
@@ -555,8 +555,8 @@ func (p *providerCore) queryIndexKeyEntries(ctx context.Context, req gestalt.Ind
 	}
 
 	rangeCursor := &dynamoCursor{
-		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}},
-		index:    index,
+		LazyCursor: cursorutil.LazyCursor{Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}}},
+		index:      index,
 	}
 	entries, err = rangeCursor.ApplyRange(entries, req.Range)
 	if err != nil {

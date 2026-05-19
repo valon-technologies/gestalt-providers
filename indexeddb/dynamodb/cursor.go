@@ -16,35 +16,35 @@ import (
 )
 
 type dynamoCursor struct {
-	cursorutil.Snapshot
+	cursorutil.LazyCursor
 	provider  *providerCore
 	storeName string
 	index     *indexDef
 	req       gestalt.IndexedDBOpenCursorRequest
 	items     []map[string]ddbtypes.AttributeValue
 	startKey  map[string]ddbtypes.AttributeValue
-	lastKey   any
-	lazy      bool
+	closed    bool
 }
 
 var errDynamoCursorFieldMissing = errors.New("dynamodb cursor field missing")
 
 func (c *dynamoCursor) SnapshotState() *cursorutil.Snapshot {
-	return &c.Snapshot
+	return &c.LazyCursor.Snapshot
 }
 
 func (p *providerCore) OpenCursor(ctx context.Context, req gestalt.IndexedDBOpenCursorRequest) (gestalt.IndexedDBCursor, error) {
 	if p.store == nil {
 		return nil, status.Error(codes.FailedPrecondition, "dynamodb: not configured")
 	}
-	return p.openCursorSnapshot(ctx, req)
+	return p.openCursor(ctx, req)
 }
 
-func (p *providerCore) openCursorSnapshot(ctx context.Context, req gestalt.IndexedDBOpenCursorRequest) (*dynamoCursor, error) {
+func (p *providerCore) openCursor(ctx context.Context, req gestalt.IndexedDBOpenCursorRequest) (*dynamoCursor, error) {
 	cursor := &dynamoCursor{
-		Snapshot:  cursorutil.NewSnapshot(req),
-		provider:  p,
-		storeName: req.Store,
+		LazyCursor: cursorutil.NewLazyCursor(req),
+		provider:   p,
+		storeName:  req.Store,
+		req:        req,
 	}
 	if cursor.IndexCursor {
 		meta, err := p.lookupIndexMeta(req.Store, req.Index)
@@ -53,115 +53,7 @@ func (p *providerCore) openCursorSnapshot(ctx context.Context, req gestalt.Index
 		}
 		cursor.index = meta
 	}
-	if canUseLazyDynamoObjectCursor(req) {
-		cursor.req = req
-		cursor.lazy = true
-		cursor.startKey = dynamoCursorExclusiveStartKey(req)
-		return cursor, nil
-	}
-
-	var (
-		entries []cursorutil.Entry
-		err     error
-	)
-	if cursor.KeysOnly {
-		entries, err = p.cursorKeys(ctx, cursor, req)
-	} else {
-		records, err := p.cursorRecords(ctx, req)
-		if err != nil {
-			return nil, err
-		}
-		entries, err = cursorutil.EntriesFromRecords(records, cursor.entryFromRecord, func(err error) bool {
-			return cursor.IndexCursor && errors.Is(err, errDynamoCursorFieldMissing)
-		})
-	}
-	if err != nil {
-		return nil, err
-	}
-	if err := cursor.Load(entries, req.Range); err != nil {
-		return nil, err
-	}
 	return cursor, nil
-}
-
-func canUseLazyDynamoObjectCursor(req gestalt.IndexedDBOpenCursorRequest) bool {
-	return req.Index == "" && req.Direction != gestalt.CursorPrev && req.Direction != gestalt.CursorPrevUnique
-}
-
-func (p *providerCore) cursorKeys(ctx context.Context, cursor *dynamoCursor, req gestalt.IndexedDBOpenCursorRequest) ([]cursorutil.Entry, error) {
-	if cursor.IndexCursor {
-		return p.cursorIndexKeys(ctx, cursor, req)
-	}
-	return p.cursorObjectStoreKeys(ctx, req)
-}
-
-func (p *providerCore) cursorObjectStoreKeys(ctx context.Context, req gestalt.IndexedDBOpenCursorRequest) ([]cursorutil.Entry, error) {
-	cond, vals := buildKeyCondition(req.Store, req.Range)
-	var entries []cursorutil.Entry
-	var startKey map[string]ddbtypes.AttributeValue
-	for {
-		resp, err := p.store.client.Query(ctx, &dynamodb.QueryInput{
-			TableName:                 &p.store.table,
-			KeyConditionExpression:    &cond,
-			ExpressionAttributeValues: vals,
-			ExclusiveStartKey:         startKey,
-			ProjectionExpression:      aws.String(attrSK),
-		})
-		if err != nil {
-			return nil, wrapErr(err)
-		}
-		for _, item := range resp.Items {
-			primaryKey := getS(item, attrSK)
-			entries = append(entries, cursorutil.Entry{
-				Key:             primaryKey,
-				PrimaryKey:      primaryKey,
-				PrimaryKeyValue: primaryKey,
-			})
-		}
-		if resp.LastEvaluatedKey == nil {
-			break
-		}
-		startKey = resp.LastEvaluatedKey
-	}
-	return entries, nil
-}
-
-func (p *providerCore) cursorIndexKeys(ctx context.Context, cursor *dynamoCursor, req gestalt.IndexedDBOpenCursorRequest) ([]cursorutil.Entry, error) {
-	cond, exprVals := buildIndexCondition(req.Store, req.Index, req.Values)
-	var entries []cursorutil.Entry
-	var startKey map[string]ddbtypes.AttributeValue
-	for {
-		resp, err := p.store.client.Query(ctx, &dynamodb.QueryInput{
-			TableName:                 &p.store.table,
-			KeyConditionExpression:    aws.String(cond),
-			ExpressionAttributeValues: exprVals,
-			ExpressionAttributeNames: map[string]string{
-				"#idx_key": attrKey,
-			},
-			ExclusiveStartKey:    startKey,
-			ProjectionExpression: aws.String(attrSK + ",#idx_key," + attrRefID),
-		})
-		if err != nil {
-			return nil, wrapErr(err)
-		}
-		for _, item := range resp.Items {
-			key, err := dynamoIndexKeyFromItem(item, len(cursor.index.KeyPath))
-			if err != nil {
-				return nil, err
-			}
-			primaryKey := getS(item, attrRefID)
-			entries = append(entries, cursorutil.Entry{
-				Key:             key,
-				PrimaryKey:      primaryKey,
-				PrimaryKeyValue: primaryKey,
-			})
-		}
-		if resp.LastEvaluatedKey == nil {
-			break
-		}
-		startKey = resp.LastEvaluatedKey
-	}
-	return entries, nil
 }
 
 func dynamoIndexKeyFromItem(item map[string]ddbtypes.AttributeValue, keyParts int) ([]any, error) {
@@ -199,18 +91,6 @@ func (p *providerCore) lookupIndexMeta(storeName, indexName string) (*indexDef, 
 	return nil, status.Errorf(codes.NotFound, "index %q not found on store %q", indexName, storeName)
 }
 
-func (p *providerCore) cursorRecords(ctx context.Context, req gestalt.IndexedDBOpenCursorRequest) ([]gestalt.Record, error) {
-	if req.Index == "" {
-		return p.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: req.Store})
-	}
-
-	return p.IndexGetAll(ctx, gestalt.IndexedDBIndexQueryRequest{
-		Store:  req.Store,
-		Index:  req.Index,
-		Values: req.Values,
-	})
-}
-
 func (c *dynamoCursor) entryFromRecord(record gestalt.Record) (cursorutil.Entry, error) {
 	primaryKey, err := extractID(record)
 	if err != nil {
@@ -242,41 +122,15 @@ func (c *dynamoCursor) entryFromRecord(record gestalt.Record) (cursorutil.Entry,
 }
 
 func (c *dynamoCursor) Next(ctx context.Context) (*gestalt.IndexedDBCursorEntry, error) {
-	if c.lazy {
-		return c.nextLazyObject(ctx)
-	}
-	entry, _, err := c.ContinueNext()
-	return entry, err
+	return c.LazyCursor.Next(ctx, c.nextEntry)
 }
 
 func (c *dynamoCursor) ContinueToKey(ctx context.Context, key any) (*gestalt.IndexedDBCursorEntry, error) {
-	if c.lazy {
-		c.req.Range = mergeDynamoCursorSeekRange(c.req.Range, c.lastKey, key)
-		c.startKey = dynamoCursorExclusiveStartKey(c.req)
-		c.items = nil
-		return c.nextLazyObject(ctx)
-	}
-	entry, _, err := c.Snapshot.ContinueToKey(key)
-	return entry, err
+	return c.LazyCursor.ContinueToKey(ctx, key, c.nextEntry)
 }
 
 func (c *dynamoCursor) Advance(ctx context.Context, count int) (*gestalt.IndexedDBCursorEntry, error) {
-	if c.lazy {
-		if count <= 0 {
-			return nil, status.Error(codes.InvalidArgument, "advance count must be positive")
-		}
-		var entry *gestalt.IndexedDBCursorEntry
-		var err error
-		for i := 0; i < count; i++ {
-			entry, err = c.Next(ctx)
-			if entry == nil || err != nil {
-				return entry, err
-			}
-		}
-		return entry, nil
-	}
-	entry, _, err := c.Snapshot.Advance(count)
-	return entry, err
+	return c.LazyCursor.Advance(ctx, count, c.nextEntry)
 }
 
 func (c *dynamoCursor) Delete(ctx context.Context) error {
@@ -291,22 +145,87 @@ func (c *dynamoCursor) Close() error {
 	return nil
 }
 
-func (c *dynamoCursor) nextLazyObject(ctx context.Context) (*gestalt.IndexedDBCursorEntry, error) {
+func (c *dynamoCursor) nextEntry(ctx context.Context) (*cursorutil.Entry, error) {
 	for len(c.items) == 0 {
-		if c.startKey == nil && c.items != nil {
+		if c.closed {
 			return nil, nil
 		}
-		if err := c.loadLazyObjectPage(ctx); err != nil {
+		if err := c.loadPage(ctx); err != nil {
 			return nil, err
-		}
-		if len(c.items) == 0 && c.startKey == nil {
-			return nil, nil
 		}
 	}
 	item := c.items[0]
 	c.items = c.items[1:]
+	return c.entryFromItem(item)
+}
+
+func (c *dynamoCursor) loadPage(ctx context.Context) error {
+	input := c.queryInput()
+	resp, err := c.provider.store.client.Query(ctx, input)
+	if err != nil {
+		return wrapErr(err)
+	}
+	c.items = resp.Items
+	c.startKey = resp.LastEvaluatedKey
+	c.closed = resp.LastEvaluatedKey == nil
+	return nil
+}
+
+func (c *dynamoCursor) queryInput() *dynamodb.QueryInput {
+	input := &dynamodb.QueryInput{
+		TableName:         &c.provider.store.table,
+		ExclusiveStartKey: c.startKey,
+		Limit:             aws.Int32(100),
+		ScanIndexForward:  aws.Bool(!c.Reverse),
+	}
+	if c.IndexCursor {
+		cond, vals := buildIndexCondition(c.req.Store, c.req.Index, c.req.Values)
+		input.KeyConditionExpression = aws.String(cond)
+		input.ExpressionAttributeValues = vals
+		input.ExpressionAttributeNames = map[string]string{
+			"#idx_key": attrKey,
+		}
+		input.ProjectionExpression = aws.String(attrSK + ",#idx_key," + attrRefID)
+		if !c.KeysOnly {
+			input.ExpressionAttributeNames["#data"] = attrData
+			input.ProjectionExpression = aws.String(attrSK + ",#idx_key," + attrRefID + ",#data")
+		}
+		return input
+	}
+
+	cond, vals := buildKeyCondition(c.req.Store, c.req.Range)
+	input.KeyConditionExpression = &cond
+	input.ExpressionAttributeValues = vals
+	if c.KeysOnly {
+		input.ProjectionExpression = aws.String(attrSK)
+	}
+	return input
+}
+
+func (c *dynamoCursor) entryFromItem(item map[string]ddbtypes.AttributeValue) (*cursorutil.Entry, error) {
+	if c.IndexCursor {
+		key, err := dynamoIndexKeyFromItem(item, len(c.index.KeyPath))
+		if err != nil {
+			return nil, err
+		}
+		primaryKey := getS(item, attrRefID)
+		entry := &cursorutil.Entry{
+			Key:             key,
+			PrimaryKey:      primaryKey,
+			PrimaryKeyValue: primaryKey,
+		}
+		if !c.KeysOnly {
+			record, err := parseData(item)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "decode cursor stream: %v", err)
+			}
+			entry.Record = record
+		}
+		return entry, nil
+	}
+
 	primaryKey := getS(item, attrSK)
-	entry := cursorutil.Entry{
+	entry := &cursorutil.Entry{
 		Key:             primaryKey,
 		PrimaryKey:      primaryKey,
 		PrimaryKeyValue: primaryKey,
@@ -318,59 +237,7 @@ func (c *dynamoCursor) nextLazyObject(ctx context.Context) (*gestalt.IndexedDBCu
 		}
 		entry.Record = record
 	}
-	c.lastKey = entry.Key
-	c.Entries = []cursorutil.Entry{entry}
-	c.Pos = 0
-	return c.CurrentEntry()
-}
-
-func (c *dynamoCursor) loadLazyObjectPage(ctx context.Context) error {
-	cond, vals := buildKeyCondition(c.req.Store, c.req.Range)
-	input := &dynamodb.QueryInput{
-		TableName:                 &c.provider.store.table,
-		KeyConditionExpression:    &cond,
-		ExpressionAttributeValues: vals,
-		ExclusiveStartKey:         c.startKey,
-		Limit:                     aws.Int32(100),
-	}
-	if c.KeysOnly {
-		input.ProjectionExpression = aws.String(attrSK)
-	}
-	resp, err := c.provider.store.client.Query(ctx, input)
-	if err != nil {
-		return wrapErr(err)
-	}
-	c.items = resp.Items
-	c.startKey = resp.LastEvaluatedKey
-	return nil
-}
-
-func dynamoCursorExclusiveStartKey(req gestalt.IndexedDBOpenCursorRequest) map[string]ddbtypes.AttributeValue {
-	if req.Range == nil || req.Range.Lower == nil || !req.Range.LowerOpen {
-		return nil
-	}
-	return map[string]ddbtypes.AttributeValue{
-		attrPK: &ddbtypes.AttributeValueMemberS{Value: req.Store},
-		attrSK: &ddbtypes.AttributeValueMemberS{Value: valueToString(req.Range.Lower)},
-	}
-}
-
-func mergeDynamoCursorSeekRange(r *gestalt.KeyRange, lastKey, key any) *gestalt.KeyRange {
-	lower := key
-	lowerOpen := false
-	if lastKey != nil && (lower == nil || cursorutil.CompareValues(lower, lastKey) <= 0) {
-		lower = lastKey
-		lowerOpen = true
-	}
-	out := &gestalt.KeyRange{Lower: lower, LowerOpen: lowerOpen}
-	if r != nil {
-		*out = *r
-		if lower != nil && (r.Lower == nil || cursorutil.CompareValues(lower, r.Lower) > 0 || (cursorutil.CompareValues(lower, r.Lower) == 0 && lowerOpen && !r.LowerOpen)) {
-			out.Lower = lower
-			out.LowerOpen = lowerOpen
-		}
-	}
-	return out
+	return entry, nil
 }
 
 func (c *dynamoCursor) DeleteCurrent(ctx context.Context) error {

@@ -2,8 +2,8 @@ package relationaldb
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
+	"sort"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
@@ -12,36 +12,41 @@ import (
 )
 
 type relationalCursor struct {
-	cursorutil.Snapshot
-	store     *Store
-	storeName string
-	meta      *storeMeta
-	index     *gestalt.IndexSchema
-	lazy      bool
-	keyRange  *gestalt.KeyRange
-	seekKey   any
-	lastKey   any
+	cursorutil.LazyCursor
+	store            *Store
+	storeName        string
+	meta             *storeMeta
+	index            *gestalt.IndexSchema
+	req              gestalt.IndexedDBOpenCursorRequest
+	page             []cursorutil.Entry
+	sourceKey        any
+	sourcePrimaryKey any
+	sourceStarted    bool
+	exhausted        bool
 }
 
+const relationalCursorPageSize = 100
+
 func (c *relationalCursor) SnapshotState() *cursorutil.Snapshot {
-	return &c.Snapshot
+	return &c.LazyCursor.Snapshot
 }
 
 func (s *Store) OpenCursor(ctx context.Context, req gestalt.IndexedDBOpenCursorRequest) (gestalt.IndexedDBCursor, error) {
-	return s.openCursorSnapshot(ctx, req)
+	return s.openCursor(ctx, req)
 }
 
-func (s *Store) openCursorSnapshot(ctx context.Context, req gestalt.IndexedDBOpenCursorRequest) (*relationalCursor, error) {
+func (s *Store) openCursor(ctx context.Context, req gestalt.IndexedDBOpenCursorRequest) (*relationalCursor, error) {
 	meta, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return nil, err
 	}
 
 	cursor := &relationalCursor{
-		Snapshot:  cursorutil.NewSnapshot(req),
-		store:     s,
-		storeName: req.Store,
-		meta:      meta,
+		LazyCursor: cursorutil.NewLazyCursor(req),
+		store:      s,
+		storeName:  req.Store,
+		meta:       meta,
+		req:        req,
 	}
 	if cursor.IndexCursor {
 		cursor.index = findIndex(meta, req.Index)
@@ -49,61 +54,19 @@ func (s *Store) openCursorSnapshot(ctx context.Context, req gestalt.IndexedDBOpe
 			return nil, status.Errorf(codes.NotFound, "index not found: %s", req.Index)
 		}
 	}
-	if canUseLazyRelationalObjectCursor(req, meta) {
-		cursor.lazy = true
-		cursor.keyRange = req.Range
-		return cursor, nil
-	}
-
-	var entries []cursorutil.Entry
-	if cursor.IndexCursor {
-		entries, err = s.genericIndexEntries(ctx, req.Store, meta, cursor.index, req.Values, req.Range, cursor.KeysOnly)
-	} else {
-		entries, err = s.genericObjectStoreEntries(ctx, req.Store, meta, req.Range, cursor.KeysOnly)
-	}
-	if err != nil {
-		return nil, err
-	}
-	if err := cursor.Load(entries, nil); err != nil {
-		return nil, err
-	}
 	return cursor, nil
 }
 
 func (c *relationalCursor) Next(ctx context.Context) (*gestalt.IndexedDBCursorEntry, error) {
-	if c.lazy {
-		return c.nextLazyObject(ctx)
-	}
-	entry, _, err := c.ContinueNext()
-	return entry, err
+	return c.LazyCursor.Next(ctx, c.nextEntry)
 }
 
 func (c *relationalCursor) ContinueToKey(ctx context.Context, key any) (*gestalt.IndexedDBCursorEntry, error) {
-	if c.lazy {
-		c.seekKey = key
-		return c.nextLazyObject(ctx)
-	}
-	entry, _, err := c.Snapshot.ContinueToKey(key)
-	return entry, err
+	return c.LazyCursor.ContinueToKey(ctx, key, c.nextEntry)
 }
 
 func (c *relationalCursor) Advance(ctx context.Context, count int) (*gestalt.IndexedDBCursorEntry, error) {
-	if c.lazy {
-		if count <= 0 {
-			return nil, status.Error(codes.InvalidArgument, "advance count must be positive")
-		}
-		var entry *gestalt.IndexedDBCursorEntry
-		var err error
-		for i := 0; i < count; i++ {
-			entry, err = c.Next(ctx)
-			if entry == nil || err != nil {
-				return entry, err
-			}
-		}
-		return entry, nil
-	}
-	entry, _, err := c.Snapshot.Advance(count)
-	return entry, err
+	return c.LazyCursor.Advance(ctx, count, c.nextEntry)
 }
 
 func (c *relationalCursor) Delete(ctx context.Context) error {
@@ -115,95 +78,265 @@ func (c *relationalCursor) Update(ctx context.Context, record gestalt.Record) (*
 }
 
 func (c *relationalCursor) Close() error {
+	c.page = nil
+	c.exhausted = true
 	return nil
 }
 
-func canUseLazyRelationalObjectCursor(req gestalt.IndexedDBOpenCursorRequest, meta *storeMeta) bool {
-	if req.Index != "" || req.Direction == gestalt.CursorPrev || req.Direction == gestalt.CursorPrevUnique {
-		return false
+func (c *relationalCursor) nextEntry(ctx context.Context) (*cursorutil.Entry, error) {
+	for len(c.page) == 0 {
+		if c.exhausted {
+			return nil, nil
+		}
+		if err := c.loadPage(ctx); err != nil {
+			return nil, err
+		}
+		if len(c.page) == 0 {
+			c.exhausted = true
+			return nil, nil
+		}
 	}
-	if len(meta.columns) == 0 {
-		return true
-	}
-	return columnType(meta, meta.pkCol) == int32(gestalt.TypeString)
+
+	entry := c.page[0]
+	c.page = c.page[1:]
+	c.sourceKey = entry.Key
+	c.sourcePrimaryKey = entry.PrimaryKeyValue
+	c.sourceStarted = true
+	return &entry, nil
 }
 
-func (c *relationalCursor) nextLazyObject(ctx context.Context) (*gestalt.IndexedDBCursorEntry, error) {
-	rows, err := c.store.openGenericObjectStoreRows(ctx, c.storeName)
+func (c *relationalCursor) loadPage(ctx context.Context) error {
+	var (
+		candidates []relationalCursorCandidate
+		err        error
+	)
+	if c.IndexCursor {
+		candidates, err = c.collectIndexPage(ctx)
+	} else {
+		candidates, err = c.collectObjectStorePage(ctx)
+	}
 	if err != nil {
-		return nil, err
+		return err
+	}
+	if len(candidates) == 0 {
+		c.page = nil
+		return nil
+	}
+	entries, err := c.materializeCandidates(ctx, candidates)
+	if err != nil {
+		return err
+	}
+	c.page = entries
+	return nil
+}
+
+type relationalCursorCandidate struct {
+	entry      cursorutil.Entry
+	recordBlob []byte
+	pkHash     []byte
+	pkBytes    []byte
+}
+
+func (c *relationalCursor) collectObjectStorePage(ctx context.Context) ([]relationalCursorCandidate, error) {
+	rows, err := c.store.query(ctx,
+		"SELECT "+quoteIdent(c.store.dialect, "pk_hash")+", "+
+			quoteIdent(c.store.dialect, "pk_bytes")+", "+
+			quoteIdent(c.store.dialect, "record_blob")+
+			" FROM "+quoteTableName(c.store.dialect, c.store.genericRecordsTable())+
+			" WHERE "+quoteIdent(c.store.dialect, "store_name")+" = ?",
+		c.storeName,
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "open cursor page: %v", err)
 	}
 	defer rows.Close()
 
-	var best *cursorutil.Entry
+	var page []relationalCursorCandidate
 	for rows.Next() {
 		var row genericRecordRow
 		if err := rows.Scan(&row.pkHash, &row.pkBytes, &row.recordBlob); err != nil {
-			return nil, err
+			return nil, status.Errorf(codes.Internal, "scan cursor page: %v", err)
 		}
-		entry, err := c.entryFromGenericRow(row)
+		candidate, ok, err := c.objectStoreCandidate(row)
 		if err != nil {
 			return nil, err
 		}
-		if c.lastKey != nil && cursorutil.CompareValues(entry.Key, c.lastKey) <= 0 {
-			continue
-		}
-		if c.seekKey != nil && cursorutil.CompareValues(entry.Key, c.seekKey) < 0 {
-			continue
-		}
-		filtered, err := c.ApplyRange([]cursorutil.Entry{entry}, c.keyRange)
-		if err != nil {
-			return nil, err
-		}
-		if len(filtered) == 0 {
-			continue
-		}
-		if best == nil || cursorutil.CompareValues(entry.Key, best.Key) < 0 {
-			selected := entry
-			best = &selected
+		if ok {
+			page = c.addCandidate(page, candidate)
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, status.Errorf(codes.Internal, "iterate cursor page: %v", err)
 	}
-	c.seekKey = nil
-	if best == nil {
-		return nil, nil
-	}
-	c.lastKey = best.Key
-	c.Entries = []cursorutil.Entry{*best}
-	c.Pos = 0
-	return c.CurrentEntry()
+	return page, nil
 }
 
-func (s *Store) openGenericObjectStoreRows(ctx context.Context, store string) (*sql.Rows, error) {
-	query := "SELECT " + quoteIdent(s.dialect, "pk_hash") + ", " +
-		quoteIdent(s.dialect, "pk_bytes") + ", " +
-		quoteIdent(s.dialect, "record_blob") +
-		" FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) +
-		" WHERE " + quoteIdent(s.dialect, "store_name") + " = ?" +
-		" ORDER BY " + quoteIdent(s.dialect, "pk_bytes") + " ASC"
-	return s.query(ctx, query, store)
-}
-
-func (c *relationalCursor) entryFromGenericRow(row genericRecordRow) (cursorutil.Entry, error) {
+func (c *relationalCursor) objectStoreCandidate(row genericRecordRow) (relationalCursorCandidate, bool, error) {
 	primaryKeyValue, err := decodeKeyValue(row.pkBytes)
 	if err != nil {
-		return cursorutil.Entry{}, err
+		return relationalCursorCandidate{}, false, err
 	}
-	var record gestalt.Record
-	if !c.KeysOnly {
-		record, err = unmarshalRecordBlob(row.recordBlob)
-		if err != nil {
-			return cursorutil.Entry{}, err
-		}
-	}
-	return cursorutil.Entry{
+	entry := cursorutil.Entry{
 		Key:             primaryKeyValue,
 		PrimaryKey:      fmt.Sprint(primaryKeyValue),
 		PrimaryKeyValue: primaryKeyValue,
-		Record:          record,
-	}, nil
+	}
+	if ok, err := c.entryEligible(entry); err != nil || !ok {
+		return relationalCursorCandidate{}, false, err
+	}
+	return relationalCursorCandidate{entry: entry, recordBlob: cloneBytes(row.recordBlob)}, true, nil
+}
+
+func (c *relationalCursor) collectIndexPage(ctx context.Context) ([]relationalCursorCandidate, error) {
+	page, err := c.collectIndexTablePage(ctx, c.store.genericIndexTable(), nil)
+	if err != nil {
+		return nil, err
+	}
+	return c.collectIndexTablePage(ctx, c.store.genericUniqueIndexTable(), page)
+}
+
+func (c *relationalCursor) collectIndexTablePage(ctx context.Context, table string, page []relationalCursorCandidate) ([]relationalCursorCandidate, error) {
+	rows, err := c.store.query(ctx,
+		"SELECT "+quoteIdent(c.store.dialect, "index_name")+", "+
+			quoteIdent(c.store.dialect, "index_key_hash")+", "+
+			quoteIdent(c.store.dialect, "index_key_bytes")+", "+
+			quoteIdent(c.store.dialect, "pk_hash")+", "+
+			quoteIdent(c.store.dialect, "pk_bytes")+
+			" FROM "+quoteTableName(c.store.dialect, table)+
+			" WHERE "+quoteIdent(c.store.dialect, "store_name")+" = ? AND "+
+			quoteIdent(c.store.dialect, "index_name")+" = ?",
+		c.storeName,
+		c.index.Name,
+	)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "open cursor page: %v", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var row genericIndexRow
+		if err := rows.Scan(&row.indexName, &row.indexKeyHash, &row.indexKeyBytes, &row.pkHash, &row.pkBytes); err != nil {
+			return nil, status.Errorf(codes.Internal, "scan cursor page: %v", err)
+		}
+		candidate, ok, err := c.indexCandidate(row)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			page = c.addCandidate(page, candidate)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, status.Errorf(codes.Internal, "iterate cursor page: %v", err)
+	}
+	return page, nil
+}
+
+func (c *relationalCursor) indexCandidate(row genericIndexRow) (relationalCursorCandidate, bool, error) {
+	indexKeyValue, err := decodeKeyValue(row.indexKeyBytes)
+	if err != nil {
+		return relationalCursorCandidate{}, false, err
+	}
+	primaryKeyValue, err := decodeKeyValue(row.pkBytes)
+	if err != nil {
+		return relationalCursorCandidate{}, false, err
+	}
+	entry := cursorutil.Entry{
+		Key:             normalizeDocumentBound(indexKeyValue),
+		PrimaryKey:      fmt.Sprint(primaryKeyValue),
+		PrimaryKeyValue: primaryKeyValue,
+	}
+	filtered, err := filterEntriesByPrefix([]cursorutil.Entry{entry}, c.req.Values)
+	if err != nil || len(filtered) == 0 {
+		return relationalCursorCandidate{}, false, err
+	}
+	if ok, err := c.entryEligible(entry); err != nil || !ok {
+		return relationalCursorCandidate{}, false, err
+	}
+	return relationalCursorCandidate{
+		entry:   entry,
+		pkHash:  cloneBytes(row.pkHash),
+		pkBytes: cloneBytes(row.pkBytes),
+	}, true, nil
+}
+
+func (c *relationalCursor) entryEligible(entry cursorutil.Entry) (bool, error) {
+	if c.sourceStarted && !c.entryAfterSource(entry) {
+		return false, nil
+	}
+	filtered, err := c.ApplyRange([]cursorutil.Entry{entry}, c.req.Range)
+	if err != nil {
+		return false, err
+	}
+	return len(filtered) != 0, nil
+}
+
+func (c *relationalCursor) entryAfterSource(entry cursorutil.Entry) bool {
+	cmp := compareRelationalCursorPosition(entry.Key, entry.PrimaryKeyValue, c.sourceKey, c.sourcePrimaryKey)
+	if c.Reverse {
+		return cmp < 0
+	}
+	return cmp > 0
+}
+
+func (c *relationalCursor) addCandidate(page []relationalCursorCandidate, candidate relationalCursorCandidate) []relationalCursorCandidate {
+	page = append(page, candidate)
+	c.sortCandidates(page)
+	if len(page) > relationalCursorPageSize {
+		page = page[:relationalCursorPageSize]
+	}
+	return page
+}
+
+func (c *relationalCursor) sortCandidates(page []relationalCursorCandidate) {
+	sort.Slice(page, func(i, j int) bool {
+		cmp := compareRelationalCursorEntries(page[i].entry, page[j].entry)
+		if c.Reverse {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
+}
+
+func (c *relationalCursor) materializeCandidates(ctx context.Context, candidates []relationalCursorCandidate) ([]cursorutil.Entry, error) {
+	entries := make([]cursorutil.Entry, 0, len(candidates))
+	for _, candidate := range candidates {
+		entry := candidate.entry
+		if !c.KeysOnly {
+			record, err := c.candidateRecord(ctx, candidate)
+			if err != nil {
+				return nil, err
+			}
+			entry.Record = record
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+func (c *relationalCursor) candidateRecord(ctx context.Context, candidate relationalCursorCandidate) (gestalt.Record, error) {
+	if !c.IndexCursor {
+		return unmarshalRecordBlob(candidate.recordBlob)
+	}
+	recordRow, err := c.store.loadGenericRecordByPrimaryDirect(ctx, c.storeName, candidate.pkHash, candidate.pkBytes)
+	if err != nil {
+		return nil, err
+	}
+	if recordRow == nil {
+		return nil, status.Error(codes.Internal, "index row points to missing record")
+	}
+	return unmarshalRecordBlob(recordRow.recordBlob)
+}
+
+func compareRelationalCursorEntries(a, b cursorutil.Entry) int {
+	return compareRelationalCursorPosition(a.Key, a.PrimaryKeyValue, b.Key, b.PrimaryKeyValue)
+}
+
+func compareRelationalCursorPosition(aKey, aPrimary, bKey, bPrimary any) int {
+	if cmp := cursorutil.CompareValues(aKey, bKey); cmp != 0 {
+		return cmp
+	}
+	return cursorutil.CompareValues(aPrimary, bPrimary)
 }
 
 func (c *relationalCursor) DeleteCurrent(ctx context.Context) error {
