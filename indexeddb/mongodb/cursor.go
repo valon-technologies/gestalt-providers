@@ -16,35 +16,33 @@ import (
 )
 
 type mongoCursor struct {
-	cursorutil.Snapshot
+	cursorutil.LazyCursor
 	provider  *providerCore
 	storeName string
 	index     *indexMeta
 	req       gestalt.IndexedDBOpenCursorRequest
 	docs      *mongo.Cursor
-	lastKey   any
-	seekKey   any
-	lazy      bool
 }
 
 var errMongoCursorFieldMissing = errors.New("mongodb cursor field missing")
 
 func (c *mongoCursor) SnapshotState() *cursorutil.Snapshot {
-	return &c.Snapshot
+	return &c.LazyCursor.Snapshot
 }
 
 func (p *providerCore) OpenCursor(ctx context.Context, req gestalt.IndexedDBOpenCursorRequest) (gestalt.IndexedDBCursor, error) {
 	if _, err := p.configured(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	return p.openCursorSnapshot(ctx, req)
+	return p.openCursor(ctx, req)
 }
 
-func (p *providerCore) openCursorSnapshot(ctx context.Context, req gestalt.IndexedDBOpenCursorRequest) (*mongoCursor, error) {
+func (p *providerCore) openCursor(ctx context.Context, req gestalt.IndexedDBOpenCursorRequest) (*mongoCursor, error) {
 	cursor := &mongoCursor{
-		Snapshot:  cursorutil.NewSnapshot(req),
-		provider:  p,
-		storeName: req.Store,
+		LazyCursor: cursorutil.NewLazyCursor(req),
+		provider:   p,
+		storeName:  req.Store,
+		req:        req,
 	}
 	if cursor.IndexCursor {
 		meta, err := p.lookupIndexMeta(req.Store, req.Index)
@@ -53,30 +51,7 @@ func (p *providerCore) openCursorSnapshot(ctx context.Context, req gestalt.Index
 		}
 		cursor.index = meta
 	}
-	if canUseLazyMongoObjectCursor(req) {
-		cursor.req = req
-		cursor.lazy = true
-		return cursor, nil
-	}
-
-	records, err := p.cursorRecords(ctx, cursor, req)
-	if err != nil {
-		return nil, err
-	}
-	entries, err := cursorutil.EntriesFromRecords(records, cursor.entryFromRecord, func(err error) bool {
-		return cursor.IndexCursor && errors.Is(err, errMongoCursorFieldMissing)
-	})
-	if err != nil {
-		return nil, err
-	}
-	if err := cursor.Load(entries, req.Range); err != nil {
-		return nil, err
-	}
 	return cursor, nil
-}
-
-func canUseLazyMongoObjectCursor(req gestalt.IndexedDBOpenCursorRequest) bool {
-	return req.Index == "" && req.Direction != gestalt.CursorPrev && req.Direction != gestalt.CursorPrevUnique
 }
 
 func (p *providerCore) lookupIndexMeta(storeName, indexName string) (*indexMeta, error) {
@@ -98,68 +73,6 @@ func (p *providerCore) lookupIndexMeta(storeName, indexName string) (*indexMeta,
 	}
 	metaCopy := meta
 	return &metaCopy, nil
-}
-
-func (p *providerCore) cursorRecords(ctx context.Context, cursor *mongoCursor, req gestalt.IndexedDBOpenCursorRequest) ([]gestalt.Record, error) {
-	docs, err := p.cursorDocuments(ctx, cursor, req)
-	if err != nil {
-		return nil, err
-	}
-
-	records := make([]gestalt.Record, 0, len(docs))
-	for _, doc := range docs {
-		record, err := docToRecord(doc)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "marshal cursor record: %v", err)
-		}
-		records = append(records, record)
-	}
-	return records, nil
-}
-
-func (p *providerCore) cursorDocuments(ctx context.Context, cursor *mongoCursor, req gestalt.IndexedDBOpenCursorRequest) ([]bson.M, error) {
-	s, err := p.configured()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-
-	var filter bson.M
-	if cursor.IndexCursor {
-		filter, err = s.indexFilter(ctx, req.Store, req.Index, req.Values)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		filter, err = keyRangeFilter(req.Range)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid key range: %v", err)
-		}
-	}
-
-	var mongoCursorDocs *mongo.Cursor
-	projection := mongoCursorProjection(cursor)
-	if projection == nil {
-		mongoCursorDocs, err = s.db.Collection(req.Store).Find(ctx, filter)
-	} else {
-		mongoCursorDocs, err = s.db.Collection(req.Store).Find(ctx, filter, options.Find().SetProjection(projection))
-	}
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "open cursor snapshot: %v", err)
-	}
-	defer mongoCursorDocs.Close(ctx)
-
-	var docs []bson.M
-	for mongoCursorDocs.Next(ctx) {
-		var doc bson.M
-		if err := mongoCursorDocs.Decode(&doc); err != nil {
-			return nil, status.Errorf(codes.Internal, "decode cursor snapshot: %v", err)
-		}
-		docs = append(docs, doc)
-	}
-	if err := mongoCursorDocs.Err(); err != nil {
-		return nil, status.Errorf(codes.Internal, "cursor snapshot: %v", err)
-	}
-	return docs, nil
 }
 
 func mongoCursorProjection(cursor *mongoCursor) bson.M {
@@ -210,43 +123,15 @@ func (c *mongoCursor) entryFromRecord(record gestalt.Record) (cursorutil.Entry, 
 }
 
 func (c *mongoCursor) Next(ctx context.Context) (*gestalt.IndexedDBCursorEntry, error) {
-	if c.lazy {
-		return c.nextLazyObject(ctx)
-	}
-	entry, _, err := c.ContinueNext()
-	return entry, err
+	return c.LazyCursor.Next(ctx, c.nextEntry)
 }
 
 func (c *mongoCursor) ContinueToKey(ctx context.Context, key any) (*gestalt.IndexedDBCursorEntry, error) {
-	if c.lazy {
-		c.seekKey = key
-		if c.docs != nil {
-			_ = c.docs.Close(ctx)
-			c.docs = nil
-		}
-		return c.nextLazyObject(ctx)
-	}
-	entry, _, err := c.Snapshot.ContinueToKey(key)
-	return entry, err
+	return c.LazyCursor.ContinueToKey(ctx, key, c.nextEntry)
 }
 
 func (c *mongoCursor) Advance(ctx context.Context, count int) (*gestalt.IndexedDBCursorEntry, error) {
-	if c.lazy {
-		if count <= 0 {
-			return nil, status.Error(codes.InvalidArgument, "advance count must be positive")
-		}
-		var entry *gestalt.IndexedDBCursorEntry
-		var err error
-		for i := 0; i < count; i++ {
-			entry, err = c.Next(ctx)
-			if entry == nil || err != nil {
-				return entry, err
-			}
-		}
-		return entry, nil
-	}
-	entry, _, err := c.Snapshot.Advance(count)
-	return entry, err
+	return c.LazyCursor.Advance(ctx, count, c.nextEntry)
 }
 
 func (c *mongoCursor) Delete(ctx context.Context) error {
@@ -266,9 +151,9 @@ func (c *mongoCursor) Close() error {
 	return nil
 }
 
-func (c *mongoCursor) nextLazyObject(ctx context.Context) (*gestalt.IndexedDBCursorEntry, error) {
+func (c *mongoCursor) nextEntry(ctx context.Context) (*cursorutil.Entry, error) {
 	if c.docs == nil {
-		if err := c.openLazyObjectCursor(ctx); err != nil {
+		if err := c.openDocs(ctx); err != nil {
 			return nil, err
 		}
 	}
@@ -288,25 +173,24 @@ func (c *mongoCursor) nextLazyObject(ctx context.Context) (*gestalt.IndexedDBCur
 	}
 	entry, err := c.entryFromRecord(record)
 	if err != nil {
+		if c.IndexCursor && errors.Is(err, errMongoCursorFieldMissing) {
+			return c.nextEntry(ctx)
+		}
 		return nil, err
 	}
-	c.lastKey = entry.PrimaryKeyValue
-	c.Entries = []cursorutil.Entry{entry}
-	c.Pos = 0
-	return c.CurrentEntry()
+	return &entry, nil
 }
 
-func (c *mongoCursor) openLazyObjectCursor(ctx context.Context) error {
+func (c *mongoCursor) openDocs(ctx context.Context) error {
 	s, err := c.provider.configured()
 	if err != nil {
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}
-	filter, err := mongoObjectCursorFilter(c.req.Range, c.lastKey, c.seekKey)
-	c.seekKey = nil
+	filter, err := c.cursorFilter(ctx, s)
 	if err != nil {
-		return status.Errorf(codes.InvalidArgument, "invalid key range: %v", err)
+		return err
 	}
-	opts := options.Find().SetSort(bson.D{{Key: "_id", Value: 1}})
+	opts := options.Find().SetSort(c.cursorSort())
 	if projection := mongoCursorProjection(c); projection != nil {
 		opts.SetProjection(projection)
 	}
@@ -318,30 +202,35 @@ func (c *mongoCursor) openLazyObjectCursor(ctx context.Context) error {
 	return nil
 }
 
-func mongoObjectCursorFilter(r *gestalt.KeyRange, after, seek any) (bson.M, error) {
-	filter, err := keyRangeFilter(r)
-	if err != nil {
-		return nil, err
-	}
-	idFilter, _ := filter["_id"].(bson.M)
-	if idFilter == nil {
-		idFilter = bson.M{}
-	}
-	if after != nil {
-		idFilter["$gt"] = after
-	}
-	if seek != nil {
-		if after == nil {
-			idFilter["$gte"] = seek
-		} else if cursorutil.CompareValues(seek, after) > 0 {
-			idFilter["$gte"] = seek
-			delete(idFilter, "$gt")
+func (c *mongoCursor) cursorFilter(ctx context.Context, s *Store) (bson.M, error) {
+	if c.IndexCursor {
+		filter, err := s.indexFilter(ctx, c.req.Store, c.req.Index, c.req.Values)
+		if err != nil {
+			return nil, err
 		}
+		return filter, nil
 	}
-	if len(idFilter) > 0 {
-		filter["_id"] = idFilter
+	filter, err := keyRangeFilter(c.req.Range)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid key range: %v", err)
 	}
 	return filter, nil
+}
+
+func (c *mongoCursor) cursorSort() bson.D {
+	direction := 1
+	if c.Reverse {
+		direction = -1
+	}
+	if !c.IndexCursor || c.index == nil {
+		return bson.D{{Key: "_id", Value: direction}}
+	}
+	sort := make(bson.D, 0, len(c.index.keyPath)+1)
+	for _, field := range c.index.keyPath {
+		sort = append(sort, bson.E{Key: field, Value: direction})
+	}
+	sort = append(sort, bson.E{Key: "_id", Value: direction})
+	return sort
 }
 
 func (c *mongoCursor) DeleteCurrent(ctx context.Context) error {

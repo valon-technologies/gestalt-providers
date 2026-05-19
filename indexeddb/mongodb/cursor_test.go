@@ -18,20 +18,31 @@ func mongoTestRecord(id any, fields map[string]any) gestalt.Record {
 	return record
 }
 
+func nextMongoTestEntries(entries []cursorutil.Entry) cursorutil.NextEntryFunc {
+	return func(context.Context) (*cursorutil.Entry, error) {
+		if len(entries) == 0 {
+			return nil, nil
+		}
+		entry := entries[0]
+		entries = entries[1:]
+		return &entry, nil
+	}
+}
+
 func TestMongoCursorAdvanceSkipsRequestedCount(t *testing.T) {
-	cursor := &mongoCursor{
+	cursor := cursorutil.LazyCursor{
 		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{
-			Entries: []cursorutil.Entry{
-				{PrimaryKey: "a", PrimaryKeyValue: "a", Key: "a", Record: mongoTestRecord("a", nil)},
-				{PrimaryKey: "b", PrimaryKeyValue: "b", Key: "b", Record: mongoTestRecord("b", nil)},
-				{PrimaryKey: "c", PrimaryKeyValue: "c", Key: "c", Record: mongoTestRecord("c", nil)},
-				{PrimaryKey: "d", PrimaryKeyValue: "d", Key: "d", Record: mongoTestRecord("d", nil)},
-			},
-			Pos: 0,
+			Entries: []cursorutil.Entry{{PrimaryKey: "a", PrimaryKeyValue: "a", Key: "a", Record: mongoTestRecord("a", nil)}},
+			Pos:     0,
 		}},
 	}
+	next := nextMongoTestEntries([]cursorutil.Entry{
+		{PrimaryKey: "b", PrimaryKeyValue: "b", Key: "b", Record: mongoTestRecord("b", nil)},
+		{PrimaryKey: "c", PrimaryKeyValue: "c", Key: "c", Record: mongoTestRecord("c", nil)},
+		{PrimaryKey: "d", PrimaryKeyValue: "d", Key: "d", Record: mongoTestRecord("d", nil)},
+	})
 
-	entry, err := cursor.Advance(context.Background(), 2)
+	entry, err := cursor.Advance(context.Background(), 2, next)
 	if err != nil {
 		t.Fatalf("advance: %v", err)
 	}
@@ -45,7 +56,7 @@ func TestMongoCursorAdvanceSkipsRequestedCount(t *testing.T) {
 
 func TestMongoCursorKeysOnlyEntryOmitsRecord(t *testing.T) {
 	cursor := &mongoCursor{
-		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{
+		LazyCursor: cursorutil.LazyCursor{Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{
 			KeysOnly: true,
 			Entries: []cursorutil.Entry{
 				{
@@ -55,7 +66,7 @@ func TestMongoCursorKeysOnlyEntryOmitsRecord(t *testing.T) {
 				},
 			},
 			Pos: 0,
-		}},
+		}}},
 	}
 
 	entry, err := cursor.CurrentEntry()
@@ -91,8 +102,8 @@ func TestMongoEntryFromRecordPreservesNativeObjectStorePrimaryKey(t *testing.T) 
 
 func TestMongoCursorIndexRangeUsesIndexKeys(t *testing.T) {
 	cursor := &mongoCursor{
-		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}},
-		index:    &indexMeta{keyPath: []string{"status"}},
+		LazyCursor: cursorutil.LazyCursor{Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}}},
+		index:      &indexMeta{keyPath: []string{"status"}},
 	}
 	entries := []cursorutil.Entry{
 		{PrimaryKey: "a", PrimaryKeyValue: "a", Key: []any{"active"}, Record: mongoTestRecord("a", map[string]any{"status": "active"})},
@@ -119,20 +130,19 @@ func TestMongoCursorIndexRangeUsesIndexKeys(t *testing.T) {
 }
 
 func TestMongoCursorReverseContinueToKey(t *testing.T) {
-	cursor := &mongoCursor{
+	cursor := cursorutil.LazyCursor{
 		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{
 			Reverse: true,
-			Entries: []cursorutil.Entry{
-				{PrimaryKey: "d", PrimaryKeyValue: "d", Key: "d", Record: mongoTestRecord("d", nil)},
-				{PrimaryKey: "c", PrimaryKeyValue: "c", Key: "c", Record: mongoTestRecord("c", nil)},
-				{PrimaryKey: "b", PrimaryKeyValue: "b", Key: "b", Record: mongoTestRecord("b", nil)},
-				{PrimaryKey: "a", PrimaryKeyValue: "a", Key: "a", Record: mongoTestRecord("a", nil)},
-			},
-			Pos: -1,
 		}},
 	}
+	next := nextMongoTestEntries([]cursorutil.Entry{
+		{PrimaryKey: "d", PrimaryKeyValue: "d", Key: "d", Record: mongoTestRecord("d", nil)},
+		{PrimaryKey: "c", PrimaryKeyValue: "c", Key: "c", Record: mongoTestRecord("c", nil)},
+		{PrimaryKey: "b", PrimaryKeyValue: "b", Key: "b", Record: mongoTestRecord("b", nil)},
+		{PrimaryKey: "a", PrimaryKeyValue: "a", Key: "a", Record: mongoTestRecord("a", nil)},
+	})
 
-	entry, err := cursor.ContinueToKey(context.Background(), "c")
+	entry, err := cursor.ContinueToKey(context.Background(), "c", next)
 	if err != nil {
 		t.Fatalf("continueToKey: %v", err)
 	}
@@ -172,8 +182,8 @@ func TestMongoCursorObjectStoreRangeUsesNativePrimaryKeys(t *testing.T) {
 
 func TestMongoCursorCompoundIndexRangeUsesDecodedArrayKey(t *testing.T) {
 	cursor := &mongoCursor{
-		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}},
-		index:    &indexMeta{keyPath: []string{"status", "rank"}},
+		LazyCursor: cursorutil.LazyCursor{Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}}},
+		index:      &indexMeta{keyPath: []string{"status", "rank"}},
 	}
 	entries := []cursorutil.Entry{
 		{PrimaryKey: "a", PrimaryKeyValue: "a", Key: []any{"active", int64(1)}, Record: mongoTestRecord("a", map[string]any{"status": "active", "rank": int64(1)})},
@@ -232,7 +242,7 @@ func TestMongoPrepareUpdatedRecordPreservesNativePrimaryKeyType(t *testing.T) {
 
 func TestMongoCursorProjectionForKeyOnlyObjectStore(t *testing.T) {
 	projection := mongoCursorProjection(&mongoCursor{
-		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{KeysOnly: true}},
+		LazyCursor: cursorutil.LazyCursor{Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{KeysOnly: true}}},
 	})
 	if len(projection) != 1 {
 		t.Fatalf("projection = %#v, want only _id", projection)
@@ -244,10 +254,10 @@ func TestMongoCursorProjectionForKeyOnlyObjectStore(t *testing.T) {
 
 func TestMongoCursorProjectionForKeyOnlyIndexCursor(t *testing.T) {
 	projection := mongoCursorProjection(&mongoCursor{
-		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{
+		LazyCursor: cursorutil.LazyCursor{Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{
 			KeysOnly:    true,
 			IndexCursor: true,
-		}},
+		}}},
 		index: &indexMeta{keyPath: []string{"status", "rank"}},
 	})
 	if got, ok := projection["_id"]; !ok || got != 1 {

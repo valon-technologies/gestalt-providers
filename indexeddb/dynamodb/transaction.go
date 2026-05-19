@@ -412,8 +412,8 @@ func (t *dynamoTransaction) indexEntries(req gestalt.IndexedDBIndexQueryRequest,
 		return nil, err
 	}
 	rangeCursor := &dynamoCursor{
-		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}},
-		index:    index,
+		LazyCursor: cursorutil.LazyCursor{Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}}},
+		index:      index,
 	}
 	entries := make([]cursorutil.Entry, 0, len(txStore.records))
 	for _, record := range txStore.records {

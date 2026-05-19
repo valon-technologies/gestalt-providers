@@ -16,20 +16,31 @@ func dynamoTestRecord(id string, fields map[string]any) gestalt.Record {
 	return record
 }
 
+func nextDynamoTestEntries(entries []cursorutil.Entry) cursorutil.NextEntryFunc {
+	return func(context.Context) (*cursorutil.Entry, error) {
+		if len(entries) == 0 {
+			return nil, nil
+		}
+		entry := entries[0]
+		entries = entries[1:]
+		return &entry, nil
+	}
+}
+
 func TestDynamoCursorAdvanceSkipsRequestedCount(t *testing.T) {
-	cursor := &dynamoCursor{
+	cursor := cursorutil.LazyCursor{
 		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{
-			Entries: []cursorutil.Entry{
-				{PrimaryKey: "a", PrimaryKeyValue: "a", Key: "a", Record: dynamoTestRecord("a", nil)},
-				{PrimaryKey: "b", PrimaryKeyValue: "b", Key: "b", Record: dynamoTestRecord("b", nil)},
-				{PrimaryKey: "c", PrimaryKeyValue: "c", Key: "c", Record: dynamoTestRecord("c", nil)},
-				{PrimaryKey: "d", PrimaryKeyValue: "d", Key: "d", Record: dynamoTestRecord("d", nil)},
-			},
-			Pos: 0,
+			Entries: []cursorutil.Entry{{PrimaryKey: "a", PrimaryKeyValue: "a", Key: "a", Record: dynamoTestRecord("a", nil)}},
+			Pos:     0,
 		}},
 	}
+	next := nextDynamoTestEntries([]cursorutil.Entry{
+		{PrimaryKey: "b", PrimaryKeyValue: "b", Key: "b", Record: dynamoTestRecord("b", nil)},
+		{PrimaryKey: "c", PrimaryKeyValue: "c", Key: "c", Record: dynamoTestRecord("c", nil)},
+		{PrimaryKey: "d", PrimaryKeyValue: "d", Key: "d", Record: dynamoTestRecord("d", nil)},
+	})
 
-	entry, err := cursor.Advance(context.Background(), 2)
+	entry, err := cursor.Advance(context.Background(), 2, next)
 	if err != nil {
 		t.Fatalf("advance: %v", err)
 	}
@@ -43,7 +54,7 @@ func TestDynamoCursorAdvanceSkipsRequestedCount(t *testing.T) {
 
 func TestDynamoCursorKeysOnlyEntryOmitsRecord(t *testing.T) {
 	cursor := &dynamoCursor{
-		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{
+		LazyCursor: cursorutil.LazyCursor{Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{
 			KeysOnly: true,
 			Entries: []cursorutil.Entry{
 				{
@@ -53,7 +64,7 @@ func TestDynamoCursorKeysOnlyEntryOmitsRecord(t *testing.T) {
 				},
 			},
 			Pos: 0,
-		}},
+		}}},
 	}
 
 	entry, err := cursor.CurrentEntry()
@@ -67,8 +78,8 @@ func TestDynamoCursorKeysOnlyEntryOmitsRecord(t *testing.T) {
 
 func TestDynamoCursorIndexRangeUsesIndexKeys(t *testing.T) {
 	cursor := &dynamoCursor{
-		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}},
-		index:    &indexDef{KeyPath: []string{"status"}},
+		LazyCursor: cursorutil.LazyCursor{Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}}},
+		index:      &indexDef{KeyPath: []string{"status"}},
 	}
 	entries := []cursorutil.Entry{
 		{PrimaryKey: "a", PrimaryKeyValue: "a", Key: []any{"active"}, Record: dynamoTestRecord("a", map[string]any{"status": "active"})},
@@ -95,20 +106,19 @@ func TestDynamoCursorIndexRangeUsesIndexKeys(t *testing.T) {
 }
 
 func TestDynamoCursorReverseContinueToKey(t *testing.T) {
-	cursor := &dynamoCursor{
+	cursor := cursorutil.LazyCursor{
 		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{
 			Reverse: true,
-			Entries: []cursorutil.Entry{
-				{PrimaryKey: "d", PrimaryKeyValue: "d", Key: "d", Record: dynamoTestRecord("d", nil)},
-				{PrimaryKey: "c", PrimaryKeyValue: "c", Key: "c", Record: dynamoTestRecord("c", nil)},
-				{PrimaryKey: "b", PrimaryKeyValue: "b", Key: "b", Record: dynamoTestRecord("b", nil)},
-				{PrimaryKey: "a", PrimaryKeyValue: "a", Key: "a", Record: dynamoTestRecord("a", nil)},
-			},
-			Pos: -1,
 		}},
 	}
+	next := nextDynamoTestEntries([]cursorutil.Entry{
+		{PrimaryKey: "d", PrimaryKeyValue: "d", Key: "d", Record: dynamoTestRecord("d", nil)},
+		{PrimaryKey: "c", PrimaryKeyValue: "c", Key: "c", Record: dynamoTestRecord("c", nil)},
+		{PrimaryKey: "b", PrimaryKeyValue: "b", Key: "b", Record: dynamoTestRecord("b", nil)},
+		{PrimaryKey: "a", PrimaryKeyValue: "a", Key: "a", Record: dynamoTestRecord("a", nil)},
+	})
 
-	entry, err := cursor.ContinueToKey(context.Background(), "c")
+	entry, err := cursor.ContinueToKey(context.Background(), "c", next)
 	if err != nil {
 		t.Fatalf("continueToKey: %v", err)
 	}
@@ -117,18 +127,6 @@ func TestDynamoCursorReverseContinueToKey(t *testing.T) {
 	}
 	if got := entry.PrimaryKey; got != "c" {
 		t.Fatalf("ContinueToKey(\"c\") primary key = %q, want %q", got, "c")
-	}
-}
-
-func TestMergeDynamoCursorSeekRangeDoesNotMoveBehindCurrentKey(t *testing.T) {
-	rangeAfterCurrent := mergeDynamoCursorSeekRange(nil, "b", "a")
-	if rangeAfterCurrent.Lower != "b" || !rangeAfterCurrent.LowerOpen {
-		t.Fatalf("range after current = %#v, want lower b open", rangeAfterCurrent)
-	}
-
-	rangeAtSeek := mergeDynamoCursorSeekRange(nil, "b", "c")
-	if rangeAtSeek.Lower != "c" || rangeAtSeek.LowerOpen {
-		t.Fatalf("range at seek = %#v, want lower c closed", rangeAtSeek)
 	}
 }
 
@@ -147,8 +145,8 @@ func TestBuildIndexConditionWithoutValuesScansWholeIndexPartition(t *testing.T) 
 
 func TestDynamoCursorCompoundIndexRangeUsesDecodedArrayKey(t *testing.T) {
 	cursor := &dynamoCursor{
-		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}},
-		index:    &indexDef{KeyPath: []string{"status", "rank"}},
+		LazyCursor: cursorutil.LazyCursor{Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}}},
+		index:      &indexDef{KeyPath: []string{"status", "rank"}},
 	}
 	entries := []cursorutil.Entry{
 		{PrimaryKey: "a", PrimaryKeyValue: "a", Key: []any{"active", int64(1)}, Record: dynamoTestRecord("a", map[string]any{"status": "active", "rank": int64(1)})},

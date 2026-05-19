@@ -452,8 +452,8 @@ func (p *providerCore) queryIndexEntriesWithProjection(ctx context.Context, req 
 	}
 
 	rangeCursor := &mongoCursor{
-		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}},
-		index:    &meta,
+		LazyCursor: cursorutil.LazyCursor{Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}}},
+		index:      &meta,
 	}
 	entries := make([]cursorutil.Entry, 0, len(records))
 	for _, record := range records {

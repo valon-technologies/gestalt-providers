@@ -2,6 +2,7 @@ package relationaldb
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -217,6 +218,34 @@ func TestOpenCursorOrdersStringPrimaryKeysByNativeValue(t *testing.T) {
 	got := []string{entries[0].PrimaryKey, entries[1].PrimaryKey, entries[2].PrimaryKey}
 	if want := []string{"aa", "b", "c"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("string cursor primary keys = %#v, want %#v", got, want)
+	}
+}
+
+func TestOpenCursorStreamsPastRelationalPageSize(t *testing.T) {
+	h := newCursorHarness(t)
+	ctx := context.Background()
+	if err := h.store.CreateObjectStore(ctx, "many", cursorItemsSchema()); err != nil {
+		t.Fatalf("CreateObjectStore(many): %v", err)
+	}
+	count := relationalCursorPageSize + 5
+	for i := 0; i < count; i++ {
+		id := fmt.Sprintf("%03d", i)
+		record := makeCursorItem(id, "User "+id, "active", id+"@test.com")
+		if err := h.store.Add(ctx, gestalt.IndexedDBRecordRequest{Store: "many", Record: record}); err != nil {
+			t.Fatalf("Add(many, %q): %v", id, err)
+		}
+	}
+
+	cursor := openTestCursor(t, h.store, gestalt.IndexedDBOpenCursorRequest{
+		Store:     "many",
+		Direction: gestalt.CursorNext,
+	})
+	entries := collectCursor(t, cursor)
+	if len(entries) != count {
+		t.Fatalf("cursor count = %d, want %d", len(entries), count)
+	}
+	if got, want := entries[len(entries)-1].PrimaryKey, fmt.Sprintf("%03d", count-1); got != want {
+		t.Fatalf("last primary key = %q, want %q", got, want)
 	}
 }
 
@@ -494,8 +523,8 @@ func TestOpenCursorIndexUpdateAllowsClearingIndexedField(t *testing.T) {
 
 func TestRelationalCursorCompoundIndexRangeUsesDecodedArrayKey(t *testing.T) {
 	cursor := &relationalCursor{
-		Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}},
-		index:    &gestalt.IndexSchema{KeyPath: []string{"status", "rank"}},
+		LazyCursor: cursorutil.LazyCursor{Snapshot: cursorutil.Snapshot{IndexedDBCursorSnapshot: gestalt.IndexedDBCursorSnapshot{IndexCursor: true}}},
+		index:      &gestalt.IndexSchema{KeyPath: []string{"status", "rank"}},
 	}
 
 	entries := []cursorutil.Entry{
