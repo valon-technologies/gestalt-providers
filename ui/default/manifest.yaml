@@ -7,7 +7,6 @@ build:
   command:
     - sh
     - ./build.sh
-  output: out
   inputs:
     - build.sh
     - eslint.config.mjs
@@ -21,3 +20,5 @@ build:
     - src
     - tailwind.config.ts
     - tsconfig.json
+spec:
+  assetRoot: out
