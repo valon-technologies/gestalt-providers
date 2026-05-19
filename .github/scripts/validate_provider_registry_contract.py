@@ -10,7 +10,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.parse
+import urllib.request
 import xml.etree.ElementTree as ET
 from typing import Any
 
@@ -21,6 +23,8 @@ INDEX_SCHEMA_NAME = "gestaltd-provider-index"
 INDEX_SCHEMA_VERSION = 1
 CATALOG_SCHEMA_NAME = "gestaltd-provider-catalog"
 CATALOG_SCHEMA_VERSION = 1
+RELEASE_SCHEMA_NAME = "gestaltd-provider-release"
+RELEASE_SCHEMA_VERSION = 1
 REPOSITORY = "valon-technologies/gestalt-providers"
 SOURCE_PREFIX = "github.com/valon-technologies/gestalt-providers/"
 RAW_URL_PREFIX = f"https://raw.githubusercontent.com/{REPOSITORY}/main/"
@@ -256,6 +260,61 @@ def validate_provider_docs(repo_root: pathlib.Path, catalog: dict[str, Any]) -> 
             validate_doc_source_text(source_file, package)
 
 
+def fetch_release_metadata(metadata_url: str, source: str, version: str) -> dict[str, Any]:
+    request = urllib.request.Request(
+        metadata_url,
+        headers={"Accept": "application/x-yaml,text/yaml,text/plain,*/*"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            data = response.read()
+            status = response.status
+    except urllib.error.HTTPError as error:
+        raise SystemExit(
+            f"metadata URL for {source} {version} returned HTTP {error.code}: {metadata_url}"
+        ) from error
+    except urllib.error.URLError as error:
+        raise SystemExit(
+            f"metadata URL for {source} {version} could not be fetched: {metadata_url}: {error}"
+        ) from error
+    if status != 200:
+        raise SystemExit(
+            f"metadata URL for {source} {version} returned HTTP {status}: {metadata_url}"
+        )
+    try:
+        metadata = yaml.safe_load(data)
+    except yaml.YAMLError as error:
+        raise SystemExit(f"metadata URL for {source} {version} is invalid YAML: {error}") from error
+    if not isinstance(metadata, dict):
+        raise SystemExit(f"metadata URL for {source} {version} must contain a mapping")
+    return metadata
+
+
+def validate_release_metadata(index: dict[str, Any]) -> None:
+    packages = index.get("packages") or {}
+    for source, package in packages.items():
+        versions = package.get("versions") or {}
+        for version, entry in versions.items():
+            metadata_url = entry.get("metadata")
+            if not isinstance(metadata_url, str) or not metadata_url:
+                raise SystemExit(f"provider index metadata URL missing for {source} {version}")
+            metadata = fetch_release_metadata(metadata_url, source, version)
+            checks = {
+                "schema": RELEASE_SCHEMA_NAME,
+                "schemaVersion": RELEASE_SCHEMA_VERSION,
+                "package": source,
+                "kind": entry.get("kind"),
+                "version": version,
+            }
+            for field, expected in checks.items():
+                actual = metadata.get(field)
+                if actual != expected:
+                    raise SystemExit(
+                        f"metadata URL for {source} {version} has {field}={actual!r}, "
+                        f"want {expected!r}: {metadata_url}"
+                    )
+
+
 def validate_catalog(repo_root: pathlib.Path, index: dict[str, Any], catalog: dict[str, Any]) -> None:
     validate_latest_installable_selection_rules()
     if index.get("schema") != INDEX_SCHEMA_NAME:
@@ -300,6 +359,7 @@ def validate_catalog(repo_root: pathlib.Path, index: dict[str, Any], catalog: di
         raise SystemExit("catalog missing ui/default")
     if (ui_default.get("configTarget") or {}).get("requiredSet", {}).get("path") != "/":
         raise SystemExit("catalog ui/default configTarget must require path=/")
+    validate_release_metadata(index)
     validate_icon_assets(repo_root, catalog)
     validate_provider_docs(repo_root, catalog)
 
