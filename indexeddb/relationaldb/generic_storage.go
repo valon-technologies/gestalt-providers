@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
+	"strings"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
@@ -134,6 +136,76 @@ func buildGenericIndexRows(record gestalt.Record, m *storeMeta, primary encodedK
 		}
 	}
 	return uniqueRows, nonUniqueRows, nil
+}
+
+func (s *Store) queryGenericRecordsPage(ctx context.Context, store string, pageSize int, pageToken string, keysOnly bool) (*gestalt.IndexedDBQueryResponse, error) {
+	if pageSize <= 0 {
+		pageSize = 100
+	}
+	if pageSize > 1000 {
+		pageSize = 1000
+	}
+	limit := pageSize + 1
+	args := []any{store}
+	where := quoteIdent(s.dialect, "store_name") + " = ?"
+	if strings.TrimSpace(pageToken) != "" {
+		after, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(pageToken))
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, "page_token is invalid")
+		}
+		where += " AND " + quoteIdent(s.dialect, "pk_bytes") + " > ?"
+		args = append(args, after)
+	}
+	args = append(args, limit)
+	query := "SELECT " +
+		quoteIdent(s.dialect, "pk_hash") + ", " +
+		quoteIdent(s.dialect, "pk_bytes") + ", " +
+		quoteIdent(s.dialect, "record_blob") +
+		" FROM " + quoteTableName(s.dialect, s.genericRecordsTable()) +
+		" WHERE " + where +
+		" ORDER BY " + quoteIdent(s.dialect, "pk_bytes") + " ASC"
+	if s.dialect == dialectSQLServer {
+		query += " OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY"
+	} else {
+		query += " LIMIT ?"
+	}
+	rows, err := s.query(ctx, query, args...)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "query records: %v", err)
+	}
+	defer rows.Close()
+
+	out := &gestalt.IndexedDBQueryResponse{}
+	count := 0
+	lastReturnedToken := ""
+	for rows.Next() {
+		var row genericRecordRow
+		if err := rows.Scan(&row.pkHash, &row.pkBytes, &row.recordBlob); err != nil {
+			return nil, status.Errorf(codes.Internal, "scan records: %v", err)
+		}
+		count++
+		if count > pageSize {
+			out.NextPageToken = lastReturnedToken
+			break
+		}
+		lastReturnedToken = base64.RawURLEncoding.EncodeToString(row.pkBytes)
+		key, err := decodeKeyValue(row.pkBytes)
+		if err != nil {
+			return nil, err
+		}
+		out.Keys = append(out.Keys, fmt.Sprint(key))
+		if !keysOnly {
+			record, err := unmarshalRecordBlob(row.recordBlob)
+			if err != nil {
+				return nil, err
+			}
+			out.Records = append(out.Records, record)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, status.Errorf(codes.Internal, "iterate records: %v", err)
+	}
+	return out, nil
 }
 
 func (s *Store) loadGenericRecordByHash(ctx context.Context, tx *sql.Tx, store string, hash []byte) (*genericRecordRow, error) {

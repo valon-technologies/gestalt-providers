@@ -658,6 +658,24 @@ func (s *Store) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObjectStore
 	return keys, nil
 }
 
+func (s *Store) Query(ctx context.Context, req gestalt.IndexedDBObjectStoreQueryRequest) (*gestalt.IndexedDBQueryResponse, error) {
+	if _, err := s.getMetaForContext(ctx, req.Store); err != nil {
+		return nil, err
+	}
+	if len(req.Filters) > 0 {
+		return nil, status.Error(codes.InvalidArgument, "query filters are not supported by relationaldb object-store scans")
+	}
+	for _, order := range req.OrderBy {
+		if strings.TrimSpace(order.Column) != "" && strings.TrimSpace(order.Column) != "id" {
+			return nil, status.Error(codes.InvalidArgument, "query order_by only supports id")
+		}
+		if order.Descending {
+			return nil, status.Error(codes.InvalidArgument, "query order_by only supports ascending order")
+		}
+	}
+	return s.queryGenericRecordsPage(ctx, req.Store, req.PageSize, req.PageToken, req.KeysOnly)
+}
+
 func (s *Store) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
 	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {

@@ -882,6 +882,35 @@ func TestGetAllWithRange(t *testing.T) {
 	}
 }
 
+func TestQueryReturnsBoundedPages(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+
+	s.CreateObjectStore(ctx, "widgets", widgetsSchema())
+	for _, id := range []string{"a", "b", "c"} {
+		s.Add(ctx, gestalt.IndexedDBRecordRequest{Store: "widgets", Record: makeWidget(id, "W-"+id, "Widget "+id)})
+	}
+
+	first, err := s.Query(ctx, gestalt.IndexedDBObjectStoreQueryRequest{Store: "widgets", PageSize: 2})
+	if err != nil {
+		t.Fatalf("Query first page: %v", err)
+	}
+	if len(first.Records) != 2 || first.NextPageToken == "" {
+		t.Fatalf("first page = %#v, want 2 records and next token", first)
+	}
+	if first.Records[0]["id"] != "a" || first.Records[1]["id"] != "b" {
+		t.Fatalf("first page records = %#v", first.Records)
+	}
+
+	second, err := s.Query(ctx, gestalt.IndexedDBObjectStoreQueryRequest{Store: "widgets", PageSize: 2, PageToken: first.NextPageToken})
+	if err != nil {
+		t.Fatalf("Query second page: %v", err)
+	}
+	if len(second.Records) != 1 || second.NextPageToken != "" || second.Records[0]["id"] != "c" {
+		t.Fatalf("second page = %#v, want c and no next token", second)
+	}
+}
+
 func TestRebind(t *testing.T) {
 	tests := []struct {
 		style bindStyle

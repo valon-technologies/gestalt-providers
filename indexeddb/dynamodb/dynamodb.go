@@ -178,7 +178,7 @@ func (p *providerCore) CreateObjectStore(ctx context.Context, name string, schem
 	})
 	if err != nil {
 		if isConditionFailed(err) {
-			return status.Errorf(codes.AlreadyExists, "object store %s already exists", name)
+			return fmt.Errorf("%w: object store %s already exists", gestalt.ErrAlreadyExists, name)
 		}
 		return wrapErr(err)
 	}
@@ -253,7 +253,7 @@ func (p *providerCore) Add(ctx context.Context, req gestalt.IndexedDBRecordReque
 	if conflict, err := st.hasUniqueIndexConflict(ctx, idxItems); err != nil {
 		return err
 	} else if conflict {
-		return status.Errorf(codes.AlreadyExists, "record %s violates a unique index", id)
+		return fmt.Errorf("%w: record %s violates a unique index", gestalt.ErrAlreadyExists, id)
 	}
 
 	items := []ddbtypes.TransactWriteItem{
@@ -274,7 +274,7 @@ func (p *providerCore) Add(ctx context.Context, req gestalt.IndexedDBRecordReque
 	_, err = st.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
 	if err != nil {
 		if isConditionFailed(err) {
-			return status.Errorf(codes.AlreadyExists, "record %s already exists", id)
+			return fmt.Errorf("%w: record %s already exists", gestalt.ErrAlreadyExists, id)
 		}
 		return wrapErr(err)
 	}
@@ -300,7 +300,7 @@ func (p *providerCore) Put(ctx context.Context, req gestalt.IndexedDBRecordReque
 	if conflict, err := st.hasUniqueIndexConflict(ctx, idxItems); err != nil {
 		return err
 	} else if conflict {
-		return status.Errorf(codes.AlreadyExists, "record %s violates a unique index", id)
+		return fmt.Errorf("%w: record %s violates a unique index", gestalt.ErrAlreadyExists, id)
 	}
 
 	items := []ddbtypes.TransactWriteItem{
@@ -337,7 +337,7 @@ func (p *providerCore) Put(ctx context.Context, req gestalt.IndexedDBRecordReque
 	_, err = st.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
 	if err != nil {
 		if isConditionFailed(err) {
-			return status.Errorf(codes.AlreadyExists, "record %s violates a unique index", id)
+			return fmt.Errorf("%w: record %s violates a unique index", gestalt.ErrAlreadyExists, id)
 		}
 		return wrapErr(err)
 	}
@@ -384,6 +384,76 @@ func (p *providerCore) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObje
 		return nil, wrapErr(err)
 	}
 	return keys, nil
+}
+
+func (p *providerCore) Query(ctx context.Context, req gestalt.IndexedDBObjectStoreQueryRequest) (*gestalt.IndexedDBQueryResponse, error) {
+	if len(req.Filters) > 0 {
+		return nil, status.Error(codes.InvalidArgument, "query filters are not supported by dynamodb object-store scans")
+	}
+	for _, order := range req.OrderBy {
+		if strings.TrimSpace(order.Column) != "" && strings.TrimSpace(order.Column) != "id" {
+			return nil, status.Error(codes.InvalidArgument, "query order_by only supports id")
+		}
+		if order.Descending {
+			return nil, status.Error(codes.InvalidArgument, "query order_by only supports ascending order")
+		}
+	}
+	pageSize := req.PageSize
+	if pageSize <= 0 {
+		pageSize = 100
+	}
+	if pageSize > 1000 {
+		pageSize = 1000
+	}
+	cond := "PK = :pk"
+	vals := map[string]ddbtypes.AttributeValue{
+		":pk": &ddbtypes.AttributeValueMemberS{Value: req.Store},
+	}
+	if token := strings.TrimSpace(req.PageToken); token != "" {
+		after, err := base64.RawURLEncoding.DecodeString(token)
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, "page_token is invalid")
+		}
+		cond = "PK = :pk AND SK > :sk"
+		vals[":sk"] = &ddbtypes.AttributeValueMemberS{Value: string(after)}
+	}
+	input := &dynamodb.QueryInput{
+		TableName:                 &p.store.table,
+		KeyConditionExpression:    aws.String(cond),
+		ExpressionAttributeValues: vals,
+		Limit:                     aws.Int32(int32(pageSize + 1)),
+	}
+	if req.KeysOnly {
+		input.ProjectionExpression = aws.String(attrSK)
+	}
+	resp, err := p.store.client.Query(ctx, input)
+	if err != nil {
+		return nil, wrapErr(err)
+	}
+	out := &gestalt.IndexedDBQueryResponse{}
+	lastReturnedToken := ""
+	for i, item := range resp.Items {
+		if i >= pageSize {
+			out.NextPageToken = lastReturnedToken
+			break
+		}
+		key := getS(item, attrSK)
+		lastReturnedToken = base64.RawURLEncoding.EncodeToString([]byte(key))
+		out.Keys = append(out.Keys, key)
+		if !req.KeysOnly {
+			record, err := parseData(item)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "query decode: %v", err)
+			}
+			if record != nil {
+				out.Records = append(out.Records, record)
+			}
+		}
+	}
+	if out.NextPageToken == "" && resp.LastEvaluatedKey != nil && lastReturnedToken != "" {
+		out.NextPageToken = lastReturnedToken
+	}
+	return out, nil
 }
 
 func (p *providerCore) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {

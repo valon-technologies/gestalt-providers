@@ -69,7 +69,7 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 	if projected.Status != gestalt.WorkflowRunStatusValueSucceeded || projected.ResultBody != "ok" {
 		t.Fatalf("projected run = %#v, want succeeded with body", projected)
 	}
-	listed, err := state.listRuns(ctx)
+	listed, _, err := state.listRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{})
 	if err != nil {
 		t.Fatalf("listRuns: %v", err)
 	}
@@ -1502,6 +1502,101 @@ func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 	}
 	if len(tc.updates) != 0 {
 		t.Fatalf("temporal updates=%#v, want indexeddb-only list", tc.updates)
+	}
+}
+
+func TestListRunsPaginatesAndFiltersIndexedDBRunProjections(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	runs := []*gestalt.BoundWorkflowRun{
+		{
+			ID: encodeTemporalRunHandle(temporalRunHandle{
+				RunWorkflowID:    "run-alpha-workflow",
+				RunTemporalRunID: "run-alpha-temporal-run",
+				OwnerKey:         "slack",
+			}),
+			Status:    gestalt.WorkflowRunStatusValueSucceeded,
+			Target:    nativePluginTargetInput("slack", "postMessage"),
+			Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
+			CreatedAt: time.Unix(100, 0).UTC(),
+		},
+		{
+			ID: encodeTemporalRunHandle(temporalRunHandle{
+				RunWorkflowID:    "run-beta-workflow",
+				RunTemporalRunID: "run-beta-temporal-run",
+				OwnerKey:         "github",
+			}),
+			Status:    gestalt.WorkflowRunStatusValueSucceeded,
+			Target:    nativePluginTargetInput("github", "createIssue"),
+			Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
+			CreatedAt: time.Unix(200, 0).UTC(),
+		},
+		{
+			ID: encodeTemporalRunHandle(temporalRunHandle{
+				RunWorkflowID:    "run-charlie-workflow",
+				RunTemporalRunID: "run-charlie-temporal-run",
+				OwnerKey:         "slack",
+			}),
+			Status:    gestalt.WorkflowRunStatusValueSucceeded,
+			Target:    nativePluginTargetInput("slack", "postMessage"),
+			Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
+			CreatedAt: time.Unix(300, 0).UTC(),
+		},
+		{
+			ID: encodeTemporalRunHandle(temporalRunHandle{
+				RunWorkflowID:    "run-delta-workflow",
+				RunTemporalRunID: "run-delta-temporal-run",
+				OwnerKey:         "slack",
+			}),
+			Status:    gestalt.WorkflowRunStatusValueSucceeded,
+			Target:    nativePluginTargetInput("slack", "postMessage"),
+			Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
+			CreatedAt: time.Unix(400, 0).UTC(),
+		},
+	}
+	for _, run := range runs {
+		if err := state.putRun(ctx, run); err != nil {
+			t.Fatalf("putRun %q: %v", run.ID, err)
+		}
+	}
+
+	backend := newRecordingTemporalBackend(&recordingTemporalClient{}, state)
+	first, err := backend.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{
+		PageSize:     2,
+		TargetPlugin: "slack",
+		Status:       gestalt.WorkflowRunStatusValueSucceeded,
+	})
+	if err != nil {
+		t.Fatalf("first ListRuns: %v", err)
+	}
+	if len(first.GetRuns()) != 2 || first.GetNextPageToken() == "" {
+		t.Fatalf("first page runs=%#v next=%q, want two runs and next token", first.GetRuns(), first.GetNextPageToken())
+	}
+	assertSlackRun := func(t *testing.T, run gestalt.BoundWorkflowRun) {
+		t.Helper()
+		if run.Status != gestalt.WorkflowRunStatusValueSucceeded || run.Target == nil || run.Target.Plugin == nil || run.Target.Plugin.PluginName != "slack" {
+			t.Fatalf("run = %#v, want succeeded slack run", run)
+		}
+	}
+	assertSlackRun(t, first.GetRuns()[0])
+	assertSlackRun(t, first.GetRuns()[1])
+
+	second, err := backend.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{
+		PageSize:     2,
+		PageToken:    first.GetNextPageToken(),
+		TargetPlugin: "slack",
+		Status:       gestalt.WorkflowRunStatusValueSucceeded,
+	})
+	if err != nil {
+		t.Fatalf("second ListRuns: %v", err)
+	}
+	if len(second.GetRuns()) != 1 {
+		t.Fatalf("second page runs=%#v, want one run", second.GetRuns())
+	}
+	assertSlackRun(t, second.GetRuns()[0])
+	for _, run := range first.GetRuns() {
+		if run.ID == second.GetRuns()[0].ID {
+			t.Fatalf("second page repeated run %q", second.GetRuns()[0].ID)
+		}
 	}
 }
 

@@ -2,9 +2,11 @@ package mongodb
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
@@ -298,6 +300,80 @@ func (p *providerCore) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObje
 		keys = append(keys, fmt.Sprint(doc["_id"]))
 	}
 	return keys, nil
+}
+
+func (p *providerCore) Query(ctx context.Context, req gestalt.IndexedDBObjectStoreQueryRequest) (*gestalt.IndexedDBQueryResponse, error) {
+	if len(req.Filters) > 0 {
+		return nil, status.Error(codes.InvalidArgument, "query filters are not supported by mongodb object-store scans")
+	}
+	for _, order := range req.OrderBy {
+		if strings.TrimSpace(order.Column) != "" && strings.TrimSpace(order.Column) != "id" {
+			return nil, status.Error(codes.InvalidArgument, "query order_by only supports id")
+		}
+		if order.Descending {
+			return nil, status.Error(codes.InvalidArgument, "query order_by only supports ascending order")
+		}
+	}
+	pageSize := req.PageSize
+	if pageSize <= 0 {
+		pageSize = 100
+	}
+	if pageSize > 1000 {
+		pageSize = 1000
+	}
+	filter := bson.M{}
+	if token := strings.TrimSpace(req.PageToken); token != "" {
+		after, err := base64.RawURLEncoding.DecodeString(token)
+		if err != nil {
+			return nil, status.Error(codes.InvalidArgument, "page_token is invalid")
+		}
+		filter["_id"] = bson.M{"$gt": string(after)}
+	}
+	s, err := p.configured()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	projection := bson.M{"_id": 1}
+	if !req.KeysOnly {
+		projection = nil
+	}
+	opts := options.Find().
+		SetSort(bson.D{{Key: "_id", Value: 1}}).
+		SetLimit(int64(pageSize + 1)).
+		SetProjection(projection)
+	cursor, err := s.db.Collection(req.Store).Find(ctx, filter, opts)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "query: %v", err)
+	}
+	defer cursor.Close(ctx)
+	out := &gestalt.IndexedDBQueryResponse{}
+	count := 0
+	lastReturnedToken := ""
+	for cursor.Next(ctx) {
+		var doc bson.M
+		if err := cursor.Decode(&doc); err != nil {
+			return nil, status.Errorf(codes.Internal, "query decode: %v", err)
+		}
+		count++
+		if count > pageSize {
+			out.NextPageToken = lastReturnedToken
+			break
+		}
+		key := fmt.Sprint(doc["_id"])
+		lastReturnedToken = base64.RawURLEncoding.EncodeToString([]byte(key))
+		out.Keys = append(out.Keys, key)
+		if !req.KeysOnly {
+			record, err := docToRecord(doc)
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "query record: %v", err)
+			}
+			out.Records = append(out.Records, record)
+		}
+	}
+	if err := cursor.Err(); err != nil {
+		return nil, status.Errorf(codes.Internal, "query cursor: %v", err)
+	}
+	return out, nil
 }
 
 func (p *providerCore) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {

@@ -119,6 +119,23 @@ func (p *testIndexedDBProvider) GetAllKeys(_ context.Context, req gestalt.Indexe
 	return keys, nil
 }
 
+func (p *testIndexedDBProvider) Query(_ context.Context, req gestalt.IndexedDBObjectStoreQueryRequest) (*gestalt.IndexedDBQueryResponse, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	records := p.storeLocked(req.Store).records
+	resp := &gestalt.IndexedDBQueryResponse{}
+	for key, record := range records {
+		resp.Keys = append(resp.Keys, key)
+		if !req.KeysOnly {
+			resp.Records = append(resp.Records, cloneTestRecord(record))
+		}
+		if req.PageSize > 0 && len(resp.Keys) >= req.PageSize {
+			break
+		}
+	}
+	return resp, nil
+}
+
 func (p *testIndexedDBProvider) Count(_ context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

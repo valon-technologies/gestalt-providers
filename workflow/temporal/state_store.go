@@ -374,30 +374,77 @@ func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store *ges
 	return run, err == nil && strings.TrimSpace(run.ID) != "", err
 }
 
-func (s *workflowStateStore) listRuns(ctx context.Context) ([]*gestalt.BoundWorkflowRun, error) {
-	records, err := s.runProjections.GetAll(ctx, nil)
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil, nil
+func (s *workflowStateStore) listRuns(ctx context.Context, req *gestalt.ListWorkflowProviderRunsRequest) ([]*gestalt.BoundWorkflowRun, string, error) {
+	pageSize := effectiveRunListPageSize(req)
+	pageToken := ""
+	if req != nil {
+		pageToken = strings.TrimSpace(req.PageToken)
 	}
-	if err != nil {
-		return nil, err
-	}
-	runs := make([]*gestalt.BoundWorkflowRun, 0, len(records))
-	for _, record := range records {
-		if recordString(record, "scope_id") != s.scopeID {
-			continue
+	runs := make([]*gestalt.BoundWorkflowRun, 0, pageSize)
+	for {
+		remaining := pageSize - len(runs)
+		if remaining <= 0 {
+			return runs, pageToken, nil
 		}
-		run, err := runFromRecord(record)
+		resp, err := s.runProjections.Query(ctx, gestalt.IndexedDBObjectStoreQueryRequest{
+			PageSize:  remaining,
+			PageToken: pageToken,
+		})
+		if errors.Is(err, gestalt.ErrNotFound) {
+			return nil, "", nil
+		}
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		if unsupportedTemporalRunID(run.ID) {
-			continue
+		if resp == nil {
+			return runs, "", nil
 		}
-		runs = append(runs, run)
+		for _, record := range resp.Records {
+			if recordString(record, "scope_id") != s.scopeID {
+				continue
+			}
+			run, err := runFromRecord(record)
+			if err != nil {
+				return nil, "", err
+			}
+			if unsupportedTemporalRunID(run.ID) || !runMatchesListRequest(run, req) {
+				continue
+			}
+			runs = append(runs, run)
+			if len(runs) >= pageSize {
+				return runs, strings.TrimSpace(resp.NextPageToken), nil
+			}
+		}
+		pageToken = strings.TrimSpace(resp.NextPageToken)
+		if pageToken == "" {
+			return runs, "", nil
+		}
 	}
-	sortRunInputs(runs)
-	return runs, nil
+}
+
+func effectiveRunListPageSize(req *gestalt.ListWorkflowProviderRunsRequest) int {
+	if req == nil || req.PageSize <= 0 {
+		return 100
+	}
+	if req.PageSize > 200 {
+		return 200
+	}
+	return req.PageSize
+}
+
+func runMatchesListRequest(run *gestalt.BoundWorkflowRun, req *gestalt.ListWorkflowProviderRunsRequest) bool {
+	if run == nil || req == nil {
+		return run != nil
+	}
+	if plugin := strings.TrimSpace(req.TargetPlugin); plugin != "" {
+		if run.Target == nil || run.Target.Plugin == nil || strings.TrimSpace(run.Target.Plugin.PluginName) != plugin {
+			return false
+		}
+	}
+	if req.Status != gestalt.WorkflowRunStatusValueUnspecified && run.Status != req.Status {
+		return false
+	}
+	return true
 }
 
 type workflowKeyRecord struct {
