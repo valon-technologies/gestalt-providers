@@ -3816,7 +3816,7 @@ func startTestIndexedDBBackendWithWrapper(t *testing.T, wrap func(proto.IndexedD
 	if err != nil {
 		t.Fatalf("Listen(indexeddb): %v", err)
 	}
-	indexedDBServer := proto.IndexedDBServer(store.Store)
+	indexedDBServer := newIndexedDBTestServer(store)
 	if wrap != nil {
 		indexedDBServer = wrap(indexedDBServer)
 	}
