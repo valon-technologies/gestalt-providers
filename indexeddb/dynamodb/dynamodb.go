@@ -32,30 +32,36 @@ const (
 	metaPK = "\x1fmeta"
 )
 
-type sdkSentinelError struct {
-	sentinel error
-	message  string
-}
-
-func (e sdkSentinelError) Error() string {
-	return e.message
-}
-
-func (e sdkSentinelError) Unwrap() error {
-	return e.sentinel
-}
-
-func errAlreadyExists(format string, args ...any) error {
-	return sdkSentinelError{
-		sentinel: gestalt.ErrAlreadyExists,
-		message:  fmt.Sprintf(format, args...),
-	}
-}
-
 type indexDef struct {
 	Name    string   `json:"name"`
 	KeyPath []string `json:"key_path"`
 	Unique  bool     `json:"unique"`
+}
+
+type sentinelStatusError struct {
+	sentinel error
+	code     codes.Code
+	message  string
+}
+
+func (e *sentinelStatusError) Error() string {
+	return e.GRPCStatus().Err().Error()
+}
+
+func (e *sentinelStatusError) Unwrap() error {
+	return e.sentinel
+}
+
+func (e *sentinelStatusError) GRPCStatus() *status.Status {
+	return status.New(e.code, e.message)
+}
+
+func alreadyExistsErrorf(format string, args ...any) error {
+	return &sentinelStatusError{
+		sentinel: gestalt.ErrAlreadyExists,
+		code:     codes.AlreadyExists,
+		message:  fmt.Sprintf(format, args...),
+	}
 }
 
 type storedSchema struct {
@@ -198,7 +204,7 @@ func (p *providerCore) CreateObjectStore(ctx context.Context, name string, schem
 	})
 	if err != nil {
 		if isConditionFailed(err) {
-			return errAlreadyExists("object store %s already exists", name)
+			return alreadyExistsErrorf("object store %s already exists", name)
 		}
 		return wrapErr(err)
 	}
@@ -273,7 +279,7 @@ func (p *providerCore) Add(ctx context.Context, req gestalt.IndexedDBRecordReque
 	if conflict, err := st.hasUniqueIndexConflict(ctx, idxItems); err != nil {
 		return err
 	} else if conflict {
-		return errAlreadyExists("record %s violates a unique index", id)
+		return alreadyExistsErrorf("record %s violates a unique index", id)
 	}
 
 	items := []ddbtypes.TransactWriteItem{
@@ -294,7 +300,7 @@ func (p *providerCore) Add(ctx context.Context, req gestalt.IndexedDBRecordReque
 	_, err = st.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
 	if err != nil {
 		if isConditionFailed(err) {
-			return errAlreadyExists("record %s already exists", id)
+			return alreadyExistsErrorf("record %s already exists", id)
 		}
 		return wrapErr(err)
 	}
@@ -320,7 +326,7 @@ func (p *providerCore) Put(ctx context.Context, req gestalt.IndexedDBRecordReque
 	if conflict, err := st.hasUniqueIndexConflict(ctx, idxItems); err != nil {
 		return err
 	} else if conflict {
-		return errAlreadyExists("record %s violates a unique index", id)
+		return alreadyExistsErrorf("record %s violates a unique index", id)
 	}
 
 	items := []ddbtypes.TransactWriteItem{
@@ -357,7 +363,7 @@ func (p *providerCore) Put(ctx context.Context, req gestalt.IndexedDBRecordReque
 	_, err = st.client.TransactWriteItems(ctx, &dynamodb.TransactWriteItemsInput{TransactItems: items})
 	if err != nil {
 		if isConditionFailed(err) {
-			return errAlreadyExists("record %s violates a unique index", id)
+			return alreadyExistsErrorf("record %s violates a unique index", id)
 		}
 		return wrapErr(err)
 	}
