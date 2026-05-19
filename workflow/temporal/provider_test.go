@@ -69,7 +69,7 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 	if projected.Status != gestalt.WorkflowRunStatusValueSucceeded || projected.ResultBody != "ok" {
 		t.Fatalf("projected run = %#v, want succeeded with body", projected)
 	}
-	listed, err := state.listRuns(ctx)
+	listed, _, err := state.listRuns(ctx, nil)
 	if err != nil {
 		t.Fatalf("listRuns: %v", err)
 	}
@@ -1502,6 +1502,139 @@ func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 	}
 	if len(tc.updates) != 0 {
 		t.Fatalf("temporal updates=%#v, want indexeddb-only list", tc.updates)
+	}
+}
+
+func TestListRunsPaginatesAndFiltersIndexedDBRunProjections(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	runs := []*gestalt.BoundWorkflowRun{
+		{
+			ID: encodeTemporalRunHandle(temporalRunHandle{
+				RunWorkflowID:    "run-alpha-workflow",
+				RunTemporalRunID: "run-alpha-temporal-run",
+				OwnerKey:         "slack",
+			}),
+			Status:    gestalt.WorkflowRunStatusValueSucceeded,
+			Target:    nativePluginTargetInput("slack", "postMessage"),
+			Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
+			CreatedAt: time.Unix(100, 0).UTC(),
+		},
+		{
+			ID: encodeTemporalRunHandle(temporalRunHandle{
+				RunWorkflowID:    "run-beta-workflow",
+				RunTemporalRunID: "run-beta-temporal-run",
+				OwnerKey:         "github",
+			}),
+			Status:    gestalt.WorkflowRunStatusValueSucceeded,
+			Target:    nativePluginTargetInput("github", "createIssue"),
+			Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
+			CreatedAt: time.Unix(200, 0).UTC(),
+		},
+		{
+			ID: encodeTemporalRunHandle(temporalRunHandle{
+				RunWorkflowID:    "run-charlie-workflow",
+				RunTemporalRunID: "run-charlie-temporal-run",
+				OwnerKey:         "slack",
+			}),
+			Status:    gestalt.WorkflowRunStatusValueSucceeded,
+			Target:    nativePluginTargetInput("slack", "postMessage"),
+			Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
+			CreatedAt: time.Unix(300, 0).UTC(),
+		},
+		{
+			ID: encodeTemporalRunHandle(temporalRunHandle{
+				RunWorkflowID:    "run-delta-workflow",
+				RunTemporalRunID: "run-delta-temporal-run",
+				OwnerKey:         "slack",
+			}),
+			Status:    gestalt.WorkflowRunStatusValueSucceeded,
+			Target:    nativePluginTargetInput("slack", "postMessage"),
+			Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
+			CreatedAt: time.Unix(400, 0).UTC(),
+		},
+	}
+	for _, run := range runs {
+		if err := state.putRun(ctx, run); err != nil {
+			t.Fatalf("putRun %q: %v", run.ID, err)
+		}
+	}
+
+	backend := newRecordingTemporalBackend(&recordingTemporalClient{}, state)
+	first, err := backend.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{
+		PageSize: 2,
+		Status:   gestalt.WorkflowRunStatusValueSucceeded,
+	})
+	if err != nil {
+		t.Fatalf("first ListRuns: %v", err)
+	}
+	if len(first.GetRuns()) != 2 || first.GetNextPageToken() == "" {
+		t.Fatalf("first page runs=%#v next=%q, want two runs and next token", first.GetRuns(), first.GetNextPageToken())
+	}
+	if first.GetRuns()[0].ID != runs[3].ID || first.GetRuns()[1].ID != runs[2].ID {
+		t.Fatalf("first page order = [%q %q], want newest succeeded runs [%q %q]", first.GetRuns()[0].ID, first.GetRuns()[1].ID, runs[3].ID, runs[2].ID)
+	}
+	assertSucceededRun := func(t *testing.T, run gestalt.BoundWorkflowRun) {
+		t.Helper()
+		if run.Status != gestalt.WorkflowRunStatusValueSucceeded {
+			t.Fatalf("run = %#v, want succeeded run", run)
+		}
+	}
+	assertSucceededRun(t, first.GetRuns()[0])
+	assertSucceededRun(t, first.GetRuns()[1])
+
+	second, err := backend.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{
+		PageSize:  2,
+		PageToken: first.GetNextPageToken(),
+		Status:    gestalt.WorkflowRunStatusValueSucceeded,
+	})
+	if err != nil {
+		t.Fatalf("second ListRuns: %v", err)
+	}
+	if len(second.GetRuns()) != 2 || second.GetNextPageToken() != "" {
+		t.Fatalf("second page runs=%#v next=%q, want final two runs", second.GetRuns(), second.GetNextPageToken())
+	}
+	if second.GetRuns()[0].ID != runs[1].ID || second.GetRuns()[1].ID != runs[0].ID {
+		t.Fatalf("second page order = [%q %q], want remaining succeeded runs [%q %q]", second.GetRuns()[0].ID, second.GetRuns()[1].ID, runs[1].ID, runs[0].ID)
+	}
+	assertSucceededRun(t, second.GetRuns()[0])
+	assertSucceededRun(t, second.GetRuns()[1])
+	for _, run := range first.GetRuns() {
+		for _, secondRun := range second.GetRuns() {
+			if run.ID == secondRun.ID {
+				t.Fatalf("second page repeated run %q", secondRun.ID)
+			}
+		}
+	}
+}
+
+func TestListRunsRejectsCrossScopePageToken(t *testing.T) {
+	_, state := newTestWorkflowStateStore(t)
+	token := encodeRunListPageToken(&gestalt.BoundWorkflowRun{
+		ID:        "run-id",
+		CreatedAt: time.Unix(100, 0).UTC(),
+	}, "other-scope", nil)
+	backend := newRecordingTemporalBackend(&recordingTemporalClient{}, state)
+	_, err := backend.ListRuns(context.Background(), &gestalt.ListWorkflowProviderRunsRequest{PageToken: token})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("ListRuns cross-scope token error = %v, want InvalidArgument", err)
+	}
+}
+
+func TestListRunsRejectsPageTokenWithChangedFilters(t *testing.T) {
+	_, state := newTestWorkflowStateStore(t)
+	token := encodeRunListPageToken(&gestalt.BoundWorkflowRun{
+		ID:        "run-id",
+		CreatedAt: time.Unix(100, 0).UTC(),
+	}, state.scopeID, &gestalt.ListWorkflowProviderRunsRequest{
+		Status: gestalt.WorkflowRunStatusValueSucceeded,
+	})
+	backend := newRecordingTemporalBackend(&recordingTemporalClient{}, state)
+	_, err := backend.ListRuns(context.Background(), &gestalt.ListWorkflowProviderRunsRequest{
+		PageToken: token,
+		Status:    gestalt.WorkflowRunStatusValueRunning,
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("ListRuns changed-filter token error = %v, want InvalidArgument", err)
 	}
 }
 

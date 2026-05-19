@@ -173,8 +173,8 @@ func (b *temporalBackend) GetRun(ctx context.Context, req *gestalt.GetWorkflowPr
 	return nil, status.Errorf(codes.NotFound, "workflow run %q not found", runID)
 }
 
-func (b *temporalBackend) ListRuns(ctx context.Context, _ *gestalt.ListWorkflowProviderRunsRequest) (*gestalt.ListWorkflowProviderRunsResponse, error) {
-	runs, err := b.state.listRuns(ctx)
+func (b *temporalBackend) ListRuns(ctx context.Context, req *gestalt.ListWorkflowProviderRunsRequest) (*gestalt.ListWorkflowProviderRunsResponse, error) {
+	runs, nextPageToken, err := b.state.listRuns(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +184,7 @@ func (b *temporalBackend) ListRuns(ctx context.Context, _ *gestalt.ListWorkflowP
 			inputs = append(inputs, *run)
 		}
 	}
-	return &gestalt.ListWorkflowProviderRunsResponse{Runs: inputs}, nil
+	return &gestalt.ListWorkflowProviderRunsResponse{Runs: inputs, NextPageToken: nextPageToken}, nil
 }
 
 func (b *temporalBackend) CancelRun(ctx context.Context, req *gestalt.CancelWorkflowProviderRunRequest) (*gestalt.BoundWorkflowRun, error) {

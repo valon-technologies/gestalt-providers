@@ -120,6 +120,18 @@ func TestDynamoCursorReverseContinueToKey(t *testing.T) {
 	}
 }
 
+func TestMergeDynamoCursorSeekRangeDoesNotMoveBehindCurrentKey(t *testing.T) {
+	rangeAfterCurrent := mergeDynamoCursorSeekRange(nil, "b", "a")
+	if rangeAfterCurrent.Lower != "b" || !rangeAfterCurrent.LowerOpen {
+		t.Fatalf("range after current = %#v, want lower b open", rangeAfterCurrent)
+	}
+
+	rangeAtSeek := mergeDynamoCursorSeekRange(nil, "b", "c")
+	if rangeAtSeek.Lower != "c" || rangeAtSeek.LowerOpen {
+		t.Fatalf("range at seek = %#v, want lower c closed", rangeAtSeek)
+	}
+}
+
 func TestBuildIndexConditionWithoutValuesScansWholeIndexPartition(t *testing.T) {
 	cond, expr := buildIndexCondition("items", "by_status", nil)
 	if cond != "PK = :pk" {

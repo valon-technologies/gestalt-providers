@@ -2,10 +2,12 @@ package temporal
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -374,30 +376,186 @@ func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store *ges
 	return run, err == nil && strings.TrimSpace(run.ID) != "", err
 }
 
-func (s *workflowStateStore) listRuns(ctx context.Context) ([]*gestalt.BoundWorkflowRun, error) {
-	records, err := s.runProjections.GetAll(ctx, nil)
+func (s *workflowStateStore) listRuns(ctx context.Context, req *gestalt.ListWorkflowProviderRunsRequest) ([]*gestalt.BoundWorkflowRun, string, error) {
+	pageSize := effectiveRunListPageSize(req)
+	pageToken := ""
+	if req != nil {
+		pageToken = req.PageToken
+	}
+	cursorAfter, err := decodeRunListPageToken(pageToken, s.scopeID, req)
+	if err != nil {
+		return nil, "", err
+	}
+	cursor, err := s.runProjections.OpenCursor(ctx, s.runProjectionScopeRange(), gestalt.CursorNext)
 	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil, nil
+		return nil, "", nil
 	}
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	runs := make([]*gestalt.BoundWorkflowRun, 0, len(records))
-	for _, record := range records {
+	defer func() { _ = cursor.Close() }()
+
+	runs := make([]*gestalt.BoundWorkflowRun, 0, pageSize+1)
+	for cursor.Continue() {
+		record, err := cursor.Value()
+		if err != nil {
+			return nil, "", err
+		}
 		if recordString(record, "scope_id") != s.scopeID {
+			continue
+		}
+		if req != nil && req.Status != gestalt.WorkflowRunStatusValueUnspecified &&
+			gestalt.WorkflowRunStatus(recordInt64(record, "status")) != req.Status {
 			continue
 		}
 		run, err := runFromRecord(record)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
-		if unsupportedTemporalRunID(run.ID) {
+		if unsupportedTemporalRunID(run.ID) || !runMatchesListRequest(run, req) {
+			continue
+		}
+		if cursorAfter != nil && !runSortsAfterRunListCursor(run, cursorAfter) {
 			continue
 		}
 		runs = append(runs, run)
+		if len(runs) > pageSize+1 {
+			sortWorkflowRunsNewestFirst(runs)
+			runs = runs[:pageSize+1]
+		}
 	}
-	sortRunInputs(runs)
-	return runs, nil
+	if err := cursor.Err(); err != nil {
+		return nil, "", err
+	}
+	sortWorkflowRunsNewestFirst(runs)
+	if len(runs) > pageSize {
+		page := runs[:pageSize]
+		return page, encodeRunListPageToken(page[len(page)-1], s.scopeID, req), nil
+	}
+	return runs, "", nil
+}
+
+func (s *workflowStateStore) runProjectionScopeRange() *gestalt.KeyRange {
+	prefix := s.scopeID + "\x00"
+	return &gestalt.KeyRange{
+		Lower:     prefix,
+		Upper:     s.scopeID + "\x01",
+		UpperOpen: true,
+	}
+}
+
+const runListPageTokenVersion = 1
+
+type runListPageToken struct {
+	Version   int                       `json:"v"`
+	ScopeID   string                    `json:"scopeId"`
+	CreatedAt string                    `json:"createdAt"`
+	RunID     string                    `json:"runId"`
+	Status    gestalt.WorkflowRunStatus `json:"status,omitempty"`
+}
+
+type runListCursor struct {
+	CreatedAt time.Time
+	RunID     string
+}
+
+func encodeRunListPageToken(lastRun *gestalt.BoundWorkflowRun, scopeID string, req *gestalt.ListWorkflowProviderRunsRequest) string {
+	if lastRun == nil || strings.TrimSpace(lastRun.ID) == "" {
+		return ""
+	}
+	token := runListPageToken{
+		Version:   runListPageTokenVersion,
+		ScopeID:   strings.TrimSpace(scopeID),
+		CreatedAt: lastRun.CreatedAt.UTC().Format(time.RFC3339Nano),
+		RunID:     strings.TrimSpace(lastRun.ID),
+		Status:    runListRequestStatus(req),
+	}
+	encoded, err := json.Marshal(token)
+	if err != nil {
+		return ""
+	}
+	return base64.RawURLEncoding.EncodeToString(encoded)
+}
+
+func decodeRunListPageToken(raw, scopeID string, req *gestalt.ListWorkflowProviderRunsRequest) (*runListCursor, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "page token is invalid")
+	}
+	var token runListPageToken
+	if err := json.Unmarshal(decoded, &token); err != nil {
+		return nil, status.Error(codes.InvalidArgument, "page token is invalid")
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(token.CreatedAt))
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "page token is invalid")
+	}
+	if token.Version != runListPageTokenVersion ||
+		strings.TrimSpace(token.ScopeID) != strings.TrimSpace(scopeID) ||
+		strings.TrimSpace(token.RunID) == "" ||
+		token.Status != runListRequestStatus(req) {
+		return nil, status.Error(codes.InvalidArgument, "page token is invalid")
+	}
+	return &runListCursor{CreatedAt: createdAt.UTC(), RunID: strings.TrimSpace(token.RunID)}, nil
+}
+
+func effectiveRunListPageSize(req *gestalt.ListWorkflowProviderRunsRequest) int {
+	if req == nil || req.PageSize <= 0 {
+		return 100
+	}
+	if req.PageSize > 200 {
+		return 200
+	}
+	return int(req.PageSize)
+}
+
+func runMatchesListRequest(run *gestalt.BoundWorkflowRun, req *gestalt.ListWorkflowProviderRunsRequest) bool {
+	if run == nil || req == nil {
+		return run != nil
+	}
+	if req.Status != gestalt.WorkflowRunStatusValueUnspecified && run.Status != req.Status {
+		return false
+	}
+	return true
+}
+
+func runListRequestStatus(req *gestalt.ListWorkflowProviderRunsRequest) gestalt.WorkflowRunStatus {
+	if req == nil {
+		return gestalt.WorkflowRunStatusValueUnspecified
+	}
+	return req.Status
+}
+
+func sortWorkflowRunsNewestFirst(runs []*gestalt.BoundWorkflowRun) {
+	sort.SliceStable(runs, func(i, j int) bool {
+		left := runs[i]
+		right := runs[j]
+		if left == nil {
+			return false
+		}
+		if right == nil {
+			return true
+		}
+		if !left.CreatedAt.Equal(right.CreatedAt) {
+			return left.CreatedAt.After(right.CreatedAt)
+		}
+		return strings.TrimSpace(left.ID) < strings.TrimSpace(right.ID)
+	})
+}
+
+func runSortsAfterRunListCursor(run *gestalt.BoundWorkflowRun, cursor *runListCursor) bool {
+	if run == nil || cursor == nil {
+		return false
+	}
+	createdAt := run.CreatedAt.UTC()
+	if !createdAt.Equal(cursor.CreatedAt) {
+		return createdAt.Before(cursor.CreatedAt)
+	}
+	return strings.TrimSpace(run.ID) > strings.TrimSpace(cursor.RunID)
 }
 
 type workflowKeyRecord struct {

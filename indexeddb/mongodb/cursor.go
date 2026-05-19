@@ -20,6 +20,11 @@ type mongoCursor struct {
 	provider  *providerCore
 	storeName string
 	index     *indexMeta
+	req       gestalt.IndexedDBOpenCursorRequest
+	docs      *mongo.Cursor
+	lastKey   any
+	seekKey   any
+	lazy      bool
 }
 
 var errMongoCursorFieldMissing = errors.New("mongodb cursor field missing")
@@ -48,6 +53,11 @@ func (p *providerCore) openCursorSnapshot(ctx context.Context, req gestalt.Index
 		}
 		cursor.index = meta
 	}
+	if canUseLazyMongoObjectCursor(req) {
+		cursor.req = req
+		cursor.lazy = true
+		return cursor, nil
+	}
 
 	records, err := p.cursorRecords(ctx, cursor, req)
 	if err != nil {
@@ -63,6 +73,10 @@ func (p *providerCore) openCursorSnapshot(ctx context.Context, req gestalt.Index
 		return nil, err
 	}
 	return cursor, nil
+}
+
+func canUseLazyMongoObjectCursor(req gestalt.IndexedDBOpenCursorRequest) bool {
+	return req.Index == "" && req.Direction != gestalt.CursorPrev && req.Direction != gestalt.CursorPrevUnique
 }
 
 func (p *providerCore) lookupIndexMeta(storeName, indexName string) (*indexMeta, error) {
@@ -196,16 +210,41 @@ func (c *mongoCursor) entryFromRecord(record gestalt.Record) (cursorutil.Entry, 
 }
 
 func (c *mongoCursor) Next(ctx context.Context) (*gestalt.IndexedDBCursorEntry, error) {
+	if c.lazy {
+		return c.nextLazyObject(ctx)
+	}
 	entry, _, err := c.ContinueNext()
 	return entry, err
 }
 
 func (c *mongoCursor) ContinueToKey(ctx context.Context, key any) (*gestalt.IndexedDBCursorEntry, error) {
+	if c.lazy {
+		c.seekKey = key
+		if c.docs != nil {
+			_ = c.docs.Close(ctx)
+			c.docs = nil
+		}
+		return c.nextLazyObject(ctx)
+	}
 	entry, _, err := c.Snapshot.ContinueToKey(key)
 	return entry, err
 }
 
 func (c *mongoCursor) Advance(ctx context.Context, count int) (*gestalt.IndexedDBCursorEntry, error) {
+	if c.lazy {
+		if count <= 0 {
+			return nil, status.Error(codes.InvalidArgument, "advance count must be positive")
+		}
+		var entry *gestalt.IndexedDBCursorEntry
+		var err error
+		for i := 0; i < count; i++ {
+			entry, err = c.Next(ctx)
+			if entry == nil || err != nil {
+				return entry, err
+			}
+		}
+		return entry, nil
+	}
 	entry, _, err := c.Snapshot.Advance(count)
 	return entry, err
 }
@@ -219,7 +258,90 @@ func (c *mongoCursor) Update(ctx context.Context, record gestalt.Record) (*gesta
 }
 
 func (c *mongoCursor) Close() error {
+	if c.docs != nil {
+		err := c.docs.Close(context.Background())
+		c.docs = nil
+		return err
+	}
 	return nil
+}
+
+func (c *mongoCursor) nextLazyObject(ctx context.Context) (*gestalt.IndexedDBCursorEntry, error) {
+	if c.docs == nil {
+		if err := c.openLazyObjectCursor(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if !c.docs.Next(ctx) {
+		if err := c.docs.Err(); err != nil {
+			return nil, status.Errorf(codes.Internal, "cursor stream: %v", err)
+		}
+		return nil, nil
+	}
+	var doc bson.M
+	if err := c.docs.Decode(&doc); err != nil {
+		return nil, status.Errorf(codes.Internal, "decode cursor stream: %v", err)
+	}
+	record, err := docToRecord(doc)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "marshal cursor record: %v", err)
+	}
+	entry, err := c.entryFromRecord(record)
+	if err != nil {
+		return nil, err
+	}
+	c.lastKey = entry.PrimaryKeyValue
+	c.Entries = []cursorutil.Entry{entry}
+	c.Pos = 0
+	return c.CurrentEntry()
+}
+
+func (c *mongoCursor) openLazyObjectCursor(ctx context.Context) error {
+	s, err := c.provider.configured()
+	if err != nil {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
+	filter, err := mongoObjectCursorFilter(c.req.Range, c.lastKey, c.seekKey)
+	c.seekKey = nil
+	if err != nil {
+		return status.Errorf(codes.InvalidArgument, "invalid key range: %v", err)
+	}
+	opts := options.Find().SetSort(bson.D{{Key: "_id", Value: 1}})
+	if projection := mongoCursorProjection(c); projection != nil {
+		opts.SetProjection(projection)
+	}
+	docs, err := s.db.Collection(c.req.Store).Find(ctx, filter, opts)
+	if err != nil {
+		return status.Errorf(codes.Internal, "open cursor stream: %v", err)
+	}
+	c.docs = docs
+	return nil
+}
+
+func mongoObjectCursorFilter(r *gestalt.KeyRange, after, seek any) (bson.M, error) {
+	filter, err := keyRangeFilter(r)
+	if err != nil {
+		return nil, err
+	}
+	idFilter, _ := filter["_id"].(bson.M)
+	if idFilter == nil {
+		idFilter = bson.M{}
+	}
+	if after != nil {
+		idFilter["$gt"] = after
+	}
+	if seek != nil {
+		if after == nil {
+			idFilter["$gte"] = seek
+		} else if cursorutil.CompareValues(seek, after) > 0 {
+			idFilter["$gte"] = seek
+			delete(idFilter, "$gt")
+		}
+	}
+	if len(idFilter) > 0 {
+		filter["_id"] = idFilter
+	}
+	return filter, nil
 }
 
 func (c *mongoCursor) DeleteCurrent(ctx context.Context) error {
