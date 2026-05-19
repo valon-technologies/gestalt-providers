@@ -6,6 +6,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb v0.0.0-00010101000000-000000000000
+	github.com/valon-technologies/gestalt/sdk/go/gen v0.0.0
 	github.com/valon-technologies/gestalt/sdk/go v0.0.0-00010101000000-000000000000
 	google.golang.org/grpc v1.80.0
 	google.golang.org/protobuf v1.36.11
@@ -32,7 +33,6 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
-	github.com/valon-technologies/gestalt v0.0.0-00010101000000-000000000000 // indirect
 	github.com/valon-technologies/gestalt-providers/indexeddb/internal v0.0.0-00010101000000-000000000000 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel v1.43.0 // indirect
@@ -67,4 +67,4 @@ replace github.com/valon-technologies/gestalt-providers/indexeddb/contracttest =
 
 replace github.com/valon-technologies/gestalt/sdk/go => ../../../gestalt/sdk/go
 
-replace github.com/valon-technologies/gestalt => ../../../gestalt
+replace github.com/valon-technologies/gestalt/sdk/go/gen => ./protoshim

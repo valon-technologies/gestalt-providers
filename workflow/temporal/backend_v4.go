@@ -60,8 +60,12 @@ func (b *temporalBackend) startKeyedRunV4(ctx context.Context, target scopedTarg
 		return nil, status.Errorf(codes.FailedPrecondition, "workflow key %q already has an active run", workflowKey)
 	}
 
-	input := b.runV4Input(target.OwnerKey, req.ExecutionRef, workflowKey, target.Target, manualTriggerInput(), req.CreatedBy, false)
+	input := b.runV4Input(target.OwnerKey, req.ExecutionRef, workflowKey, target.Target, manualTriggerInput(), req.CreatedBy, false, req.PlanBinding)
 	input.RequireClaim = true
+	if isStepTargetInput(target.Target) && req.PlanBinding != nil && strings.TrimSpace(req.PlanBinding.ID) != "" {
+		temporalWorkflowID = workflowID(b.cfg.ScopeID, "binding-keyed-v4", req.PlanBinding.ID, hashID(workflowKey))
+		conflictPolicy = enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
+	}
 	run, err := b.executeRunV4(ctx, temporalWorkflowID, input, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
@@ -86,6 +90,9 @@ func (b *temporalBackend) startKeyedRunV4(ctx context.Context, target scopedTarg
 			return nil, status.Errorf(codes.Internal, "complete workflow run idempotency: %v", err)
 		}
 	}
+	if err := b.putPreparedRunBinding(ctx, req.PlanBinding, owner); err != nil {
+		return nil, b.cleanupPreparedRunAfterBindingStoreFailure(ctx, owner, err)
+	}
 	return owner, nil
 }
 
@@ -108,7 +115,10 @@ func (b *temporalBackend) startUnkeyedRunV4(ctx context.Context, target scopedTa
 		}
 	}
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "manual-v4", target.OwnerKey, key)
-	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.ExecutionRef, "", target.Target, manualTriggerInput(), req.CreatedBy, false), enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+	if isStepTargetInput(target.Target) && req.PlanBinding != nil && strings.TrimSpace(req.PlanBinding.ID) != "" {
+		temporalWorkflowID = workflowID(b.cfg.ScopeID, "binding-manual-v4", req.PlanBinding.ID)
+	}
+	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.ExecutionRef, "", target.Target, manualTriggerInput(), req.CreatedBy, false, req.PlanBinding), enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
 	}
@@ -118,6 +128,9 @@ func (b *temporalBackend) startUnkeyedRunV4(ctx context.Context, target scopedTa
 			return nil, status.Error(codes.FailedPrecondition, err.Error())
 		}
 		return nil, status.Errorf(codes.Internal, "complete workflow run idempotency: %v", err)
+	}
+	if err := b.putPreparedRunBinding(ctx, req.PlanBinding, run); err != nil {
+		return nil, b.cleanupPreparedRunAfterBindingStoreFailure(ctx, run, err)
 	}
 	return run, nil
 }
@@ -231,8 +244,12 @@ func (b *temporalBackend) startSignalWorkflowRunV4(ctx context.Context, target s
 		temporalWorkflowID = workflowID(b.cfg.ScopeID, "signal-keyed-v4", target.OwnerKey, signalIDKey, hashID(workflowKey))
 		conflictPolicy = enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
 	}
-	input := b.runV4Input(target.OwnerKey, req.ExecutionRef, workflowKey, target.Target, manualTriggerInput(), req.CreatedBy, true)
+	input := b.runV4Input(target.OwnerKey, req.ExecutionRef, workflowKey, target.Target, manualTriggerInput(), req.CreatedBy, true, req.PlanBinding)
 	input.RequireClaim = true
+	if isStepTargetInput(target.Target) && req.PlanBinding != nil && strings.TrimSpace(req.PlanBinding.ID) != "" {
+		temporalWorkflowID = workflowID(b.cfg.ScopeID, "binding-signal-v4", req.PlanBinding.ID, hashID(workflowKey))
+		conflictPolicy = enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
+	}
 	startOperation := b.client.NewWithStartWorkflowOperation(
 		b.startWorkflowOptions(temporalWorkflowID, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE),
 		gestaltRunWorkflowV4,
@@ -286,6 +303,9 @@ func (b *temporalBackend) startSignalWorkflowRunV4(ctx context.Context, target s
 	}
 	out.StartedRun = true
 	out.WorkflowKey = strings.TrimSpace(workflowKey)
+	if err := b.putPreparedRunBinding(ctx, req.PlanBinding, owner); err != nil {
+		return nil, b.cleanupPreparedRunAfterBindingStoreFailure(ctx, owner, err)
+	}
 	return cloneSignalResponseInput(&out), nil
 }
 
@@ -324,7 +344,8 @@ func mapWorkflowKeyLoadError(err error) error {
 	return status.Errorf(codes.Internal, "load workflow key: %v", err)
 }
 
-func (b *temporalBackend) runV4Input(ownerKey, executionRef, workflowKey string, target *gestalt.BoundWorkflowTarget, trigger *gestalt.WorkflowRunTrigger, createdBy *gestalt.WorkflowActor, requireSignal bool) runWorkflowV4Input {
+func (b *temporalBackend) runV4Input(ownerKey, executionRef, workflowKey string, target *gestalt.BoundWorkflowTarget, trigger *gestalt.WorkflowRunTrigger, createdBy *gestalt.WorkflowActor, requireSignal bool, binding *gestalt.WorkflowPlanBinding) runWorkflowV4Input {
+	binding = clonePlanBindingInput(binding)
 	return runWorkflowV4Input{
 		ActivityStartToCloseTimeoutNS: b.cfg.ActivityStartToCloseTimeout,
 		ExecutionRef:                  strings.TrimSpace(executionRef),
@@ -334,6 +355,10 @@ func (b *temporalBackend) runV4Input(ownerKey, executionRef, workflowKey string,
 		Trigger:                       trigger,
 		CreatedBy:                     createdBy,
 		RequireSignal:                 requireSignal,
+		PlanBinding:                   binding,
+		RequireActivation:             isStepTargetInput(target) && binding != nil,
+		TargetDigest:                  planBindingTargetDigest(binding),
+		ProviderPlanDigest:            planBindingProviderPlanDigest(binding),
 	}
 }
 
@@ -358,14 +383,17 @@ func (b *temporalBackend) pendingRunFromWorkflowRun(run client.WorkflowRun, inpu
 		OwnerKey:         input.OwnerKey,
 	})
 	out := &gestalt.BoundWorkflowRun{
-		ID:           publicID,
-		Status:       gestalt.WorkflowRunStatusValuePending,
-		Target:       input.targetInput(),
-		Trigger:      input.triggerInput(now),
-		CreatedAt:    now,
-		CreatedBy:    input.createdByInput(),
-		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
-		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
+		ID:                 publicID,
+		Status:             gestalt.WorkflowRunStatusValuePending,
+		Target:             input.targetInput(),
+		Trigger:            input.triggerInput(now),
+		CreatedAt:          now,
+		CreatedBy:          input.createdByInput(),
+		ExecutionRef:       strings.TrimSpace(input.ExecutionRef),
+		WorkflowKey:        strings.TrimSpace(input.WorkflowKey),
+		TargetDigest:       strings.TrimSpace(input.TargetDigest),
+		ProviderPlanDigest: strings.TrimSpace(input.ProviderPlanDigest),
+		Steps:              initialWorkflowStepStates(input.Target, now),
 	}
 	return out
 }

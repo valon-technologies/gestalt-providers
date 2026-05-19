@@ -123,6 +123,29 @@ func normalizeTarget(target *gestalt.BoundWorkflowTarget) (scopedTarget, error) 
 	if target == nil {
 		return scopedTarget{}, errors.New("target is required")
 	}
+	modes := 0
+	if target.Agent != nil {
+		modes++
+	}
+	if target.Plugin != nil {
+		modes++
+	}
+	if len(target.Steps) > 0 {
+		modes++
+	}
+	if modes > 1 {
+		return scopedTarget{}, errors.New("workflow target must set exactly one target mode")
+	}
+	if len(target.Steps) > 0 {
+		steps, err := normalizeWorkflowSteps(target.Steps)
+		if err != nil {
+			return scopedTarget{}, err
+		}
+		return scopedTarget{
+			OwnerKey: "steps",
+			Target:   &gestalt.BoundWorkflowTarget{Steps: steps},
+		}, nil
+	}
 	if target.Agent != nil {
 		agent := *target.Agent
 		agent.ProviderName = strings.TrimSpace(agent.ProviderName)
@@ -270,6 +293,9 @@ func targetOwnerKeyInput(target *gestalt.BoundWorkflowTarget) string {
 	if target == nil {
 		return ""
 	}
+	if len(target.Steps) > 0 {
+		return "steps"
+	}
 	if target.Agent != nil {
 		if provider := strings.TrimSpace(target.Agent.ProviderName); provider != "" {
 			return "agent:" + provider
@@ -346,7 +372,44 @@ func cloneRunInput(run *gestalt.BoundWorkflowRun) *gestalt.BoundWorkflowRun {
 	out.StatusMessage = strings.TrimSpace(out.StatusMessage)
 	out.ExecutionRef = strings.TrimSpace(out.ExecutionRef)
 	out.WorkflowKey = strings.TrimSpace(out.WorkflowKey)
+	out.TargetDigest = strings.TrimSpace(out.TargetDigest)
+	out.ProviderPlanDigest = strings.TrimSpace(out.ProviderPlanDigest)
 	out.CreatedBy = cloneActorInput(out.CreatedBy)
+	out.Steps = cloneWorkflowStepStates(out.Steps)
+	out.Error = cloneWorkflowRunError(out.Error)
+	return &out
+}
+
+func cloneWorkflowStepStates(values []gestalt.WorkflowStepState) []gestalt.WorkflowStepState {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]gestalt.WorkflowStepState, len(values))
+	for i := range values {
+		out[i] = values[i]
+		if values[i].OutputSummary != nil {
+			summary := *values[i].OutputSummary
+			out[i].OutputSummary = &summary
+		}
+		if values[i].Error != nil {
+			out[i].Error = cloneWorkflowRunError(values[i].Error)
+		}
+		if values[i].UpdatedAt != nil {
+			updatedAt := values[i].UpdatedAt.UTC()
+			out[i].UpdatedAt = &updatedAt
+		}
+	}
+	return out
+}
+
+func cloneWorkflowRunError(err *gestalt.WorkflowRunError) *gestalt.WorkflowRunError {
+	if err == nil {
+		return nil
+	}
+	out := *err
+	out.Code = strings.TrimSpace(out.Code)
+	out.Message = strings.TrimSpace(out.Message)
+	out.StepID = strings.TrimSpace(out.StepID)
 	return &out
 }
 

@@ -78,6 +78,157 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 	}
 }
 
+func TestGestaltRunWorkflowV4ExecutesStepPlanViaHostActions(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := newTestWorkflowEnvironment(&suite)
+	host := &capturingHost{
+		actionResp: &gestalt.WorkflowHostActionResponse{Status: http.StatusOK, Body: `{"body":{"text":"diagnosed"}}`},
+	}
+	env.RegisterWorkflow(gestaltRunWorkflowV4)
+	env.RegisterActivity(&workflowActivities{host: host})
+
+	target := &gestalt.BoundWorkflowTarget{Steps: []gestalt.WorkflowStep{
+		{
+			ID: "diagnosis",
+			Plugin: &gestalt.WorkflowStepPluginCall{
+				Name:      "datadog",
+				Operation: "diagnose",
+				Input: gestalt.WorkflowValue{Object: map[string]gestalt.WorkflowValue{
+					"message": {SignalPayload: "text"},
+				}},
+			},
+		},
+		{
+			ID: "reply",
+			Agent: &gestalt.WorkflowStepAgentTurn{
+				Provider: "eng-background-agent",
+				Model:    "gpt-5.5",
+				Prompt:   gestalt.WorkflowText{Template: "Diagnosis: ${stepOutput.diagnosis.body.text}"},
+			},
+		},
+	}}
+	binding := &gestalt.WorkflowPlanBinding{
+		ID:                     "binding-1",
+		ExecutionRef:           "exec-ref-1",
+		ExecutionRefGeneration: 2,
+		ExecutionRefSeal:       "seal-1",
+		TargetDigest:           "target-digest-1",
+		ProviderPlanDigest:     "plan-digest-1",
+		IdempotencyKey:         "request-1",
+	}
+
+	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
+		ExecutionRef:                  "exec-ref-1",
+		ActivityStartToCloseTimeoutNS: time.Minute,
+		Target:                        target,
+		PlanBinding:                   binding,
+		TargetDigest:                  binding.TargetDigest,
+		ProviderPlanDigest:            binding.ProviderPlanDigest,
+		Trigger:                       &gestalt.WorkflowRunTrigger{Manual: true},
+		CreatedBy:                     actor("user-1"),
+		InitialSignal: &gestalt.WorkflowSignal{
+			Name:    "slack.event",
+			Payload: map[string]any{"text": "cpu high"},
+		},
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var run gestalt.BoundWorkflowRun
+	if err := env.GetWorkflowResult(&run); err != nil {
+		t.Fatalf("workflow result: %v", err)
+	}
+	if run.Status != gestalt.WorkflowRunStatusValueSucceeded {
+		t.Fatalf("run status = %v, want succeeded", run.Status)
+	}
+	if len(run.Steps) != 2 ||
+		run.Steps[0].Status != gestalt.WorkflowStepStatusValueSucceeded ||
+		run.Steps[1].Status != gestalt.WorkflowStepStatusValueSucceeded {
+		t.Fatalf("run steps = %#v, want two succeeded steps", run.Steps)
+	}
+	if len(host.pluginCalls) != 1 {
+		t.Fatalf("plugin calls = %d, want 1", len(host.pluginCalls))
+	}
+	pluginInput, ok := host.pluginCalls[0].Input.(map[string]any)
+	if !ok {
+		t.Fatalf("plugin input = %#v, want object", host.pluginCalls[0].Input)
+	}
+	if got := pluginInput["message"]; got != "cpu high" {
+		t.Fatalf("plugin input message = %#v, want cpu high", got)
+	}
+	if selector := host.pluginCalls[0].Selector; selector == nil ||
+		selector.ActionID != "step/diagnosis/plugin" ||
+		selector.ExecutionRef != binding.ExecutionRef ||
+		selector.TargetDigest != binding.TargetDigest ||
+		selector.ProviderPlanDigest != binding.ProviderPlanDigest {
+		t.Fatalf("plugin selector = %#v, want bound diagnosis action", selector)
+	}
+	if len(host.agentCalls) != 1 {
+		t.Fatalf("agent calls = %d, want 1", len(host.agentCalls))
+	}
+	if got := host.agentCalls[0].Prompt.Template; got != "Diagnosis: diagnosed" {
+		t.Fatalf("agent prompt = %q, want rendered diagnosis", got)
+	}
+	if selector := host.agentCalls[0].Selector; selector == nil || selector.ActionID != "step/reply/agent-turn" {
+		t.Fatalf("agent selector = %#v, want reply agent-turn action", selector)
+	}
+}
+
+func TestGestaltRunWorkflowV4AcceptsSignalWhileStepActionIsRunning(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := newTestWorkflowEnvironment(&suite)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	host := &capturingHost{
+		actionResp:    &gestalt.WorkflowHostActionResponse{Status: http.StatusOK, Body: `{}`},
+		pluginEntered: entered,
+		pluginRelease: release,
+	}
+	env.RegisterWorkflow(gestaltRunWorkflowV4)
+	env.RegisterActivity(&workflowActivities{host: host})
+
+	target := &gestalt.BoundWorkflowTarget{Steps: []gestalt.WorkflowStep{{
+		ID: "diagnosis",
+		Plugin: &gestalt.WorkflowStepPluginCall{
+			Name:      "datadog",
+			Operation: "diagnose",
+			Input:     gestalt.WorkflowValue{Literal: map[string]any{"ok": true}, LiteralSet: true},
+		},
+	}}}
+
+	env.RegisterDelayedCallback(func() {
+		<-entered
+		env.UpdateWorkflow(updateAddSignal, "signal-while-running", updateCallback(t, func(value interface{}) {
+			resp := value.(*gestalt.SignalWorkflowRunResponse)
+			if resp.Signal == nil || resp.Signal.IdempotencyKey != "signal-while-running" {
+				t.Fatalf("signal response = %#v, want queued signal", resp.Signal)
+			}
+		}), gestalt.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-while-running", CreatedAt: time.Now().UTC()})
+		close(release)
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
+		ExecutionRef:                  "exec-ref-1",
+		ActivityStartToCloseTimeoutNS: time.Minute,
+		WorkflowKey:                   "thread-1",
+		OwnerKey:                      "steps",
+		Target:                        target,
+		PlanBinding:                   &gestalt.WorkflowPlanBinding{ID: "binding-1", ExecutionRef: "exec-ref-1"},
+		Trigger:                       &gestalt.WorkflowRunTrigger{Manual: true},
+		CreatedBy:                     actor("user-1"),
+		InitialSignal:                 &gestalt.WorkflowSignal{Name: "slack.event", CreatedAt: time.Now().UTC()},
+		RequireSignal:                 true,
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(host.pluginCalls) != 2 {
+		t.Fatalf("plugin calls = %d, want 2 runs of the step plan", len(host.pluginCalls))
+	}
+}
+
 func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
@@ -1722,14 +1873,42 @@ func TestProviderSurfaceStartsBackendForExecutionRPCs(t *testing.T) {
 }
 
 type capturingHost struct {
-	resp  *gestalt.InvokeWorkflowOperationResponse
-	err   error
-	calls []gestalt.InvokeWorkflowOperationInput
+	resp              *gestalt.InvokeWorkflowOperationResponse
+	actionResp        *gestalt.WorkflowHostActionResponse
+	err               error
+	calls             []gestalt.InvokeWorkflowOperationInput
+	pluginCalls       []gestalt.InvokeWorkflowPluginActionInput
+	agentCalls        []gestalt.InvokeWorkflowAgentTurnInput
+	pluginEntered     chan struct{}
+	pluginRelease     chan struct{}
+	pluginEnteredOnce sync.Once
 }
 
 func (h *capturingHost) InvokeOperation(_ context.Context, req gestalt.InvokeWorkflowOperationInput) (*gestalt.InvokeWorkflowOperationResponse, error) {
 	h.calls = append(h.calls, req)
 	return h.resp, h.err
+}
+
+func (h *capturingHost) InvokeWorkflowPluginAction(_ context.Context, req gestalt.InvokeWorkflowPluginActionInput) (*gestalt.WorkflowHostActionResponse, error) {
+	h.pluginCalls = append(h.pluginCalls, req)
+	if h.pluginEntered != nil {
+		h.pluginEnteredOnce.Do(func() { close(h.pluginEntered) })
+	}
+	if h.pluginRelease != nil {
+		<-h.pluginRelease
+	}
+	if h.actionResp != nil {
+		return h.actionResp, h.err
+	}
+	return &gestalt.WorkflowHostActionResponse{Status: http.StatusOK, Body: "{}"}, h.err
+}
+
+func (h *capturingHost) InvokeWorkflowAgentTurn(_ context.Context, req gestalt.InvokeWorkflowAgentTurnInput) (*gestalt.WorkflowHostActionResponse, error) {
+	h.agentCalls = append(h.agentCalls, req)
+	if h.actionResp != nil {
+		return h.actionResp, h.err
+	}
+	return &gestalt.WorkflowHostActionResponse{Status: http.StatusOK, Body: "{}"}, h.err
 }
 
 func (h *capturingHost) Close() error { return nil }
@@ -1813,6 +1992,14 @@ func (h *blockingHost) InvokeOperation(ctx context.Context, req gestalt.InvokeWo
 		}
 	}
 	return h.resp, h.err
+}
+
+func (h *blockingHost) InvokeWorkflowPluginAction(context.Context, gestalt.InvokeWorkflowPluginActionInput) (*gestalt.WorkflowHostActionResponse, error) {
+	return &gestalt.WorkflowHostActionResponse{Status: http.StatusOK, Body: "{}"}, h.err
+}
+
+func (h *blockingHost) InvokeWorkflowAgentTurn(context.Context, gestalt.InvokeWorkflowAgentTurnInput) (*gestalt.WorkflowHostActionResponse, error) {
+	return &gestalt.WorkflowHostActionResponse{Status: http.StatusOK, Body: "{}"}, h.err
 }
 
 func (h *blockingHost) Close() error { return nil }

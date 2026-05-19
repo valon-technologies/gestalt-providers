@@ -1476,8 +1476,15 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 			Permissions: []*proto.WorkflowAccessPermission{
 				{Plugin: "roadmap", Operations: []string{"sync"}},
 			},
-			CreatedAt: timestamppb.New(secondCreatedAt),
-			RevokedAt: timestamppb.New(revokedAt),
+			CreatedAt:                timestamppb.New(secondCreatedAt),
+			RevokedAt:                timestamppb.New(revokedAt),
+			SourceDefinitionId:       "definition-1",
+			TargetDigest:             "target-digest-1",
+			ProviderPlanDigest:       "plan-digest-1",
+			PermissionsDigest:        "permissions-digest-1",
+			WorkflowSemanticsVersion: "workflow-steps-v1",
+			Generation:               7,
+			Seal:                     "sealed-ref-1",
 		},
 	})
 	if err != nil {
@@ -1529,6 +1536,15 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 	}
 	if got.GetTarget().GetPlugin().GetCredentialMode() != "none" {
 		t.Fatalf("target credential mode = %q, want none", got.GetTarget().GetPlugin().GetCredentialMode())
+	}
+	if got.GetSourceDefinitionId() != "definition-1" ||
+		got.GetTargetDigest() != "target-digest-1" ||
+		got.GetProviderPlanDigest() != "plan-digest-1" ||
+		got.GetPermissionsDigest() != "permissions-digest-1" ||
+		got.GetWorkflowSemanticsVersion() != "workflow-steps-v1" ||
+		got.GetGeneration() != 7 ||
+		got.GetSeal() != "sealed-ref-1" {
+		t.Fatalf("authority fields = %#v, want preserved digests/generation/seal", got)
 	}
 	if len(got.GetPermissions()) != 1 || got.GetPermissions()[0].GetPlugin() != "roadmap" {
 		t.Fatalf("permissions = %#v, want roadmap entry", got.GetPermissions())
@@ -3816,7 +3832,7 @@ func startTestIndexedDBBackendWithWrapper(t *testing.T, wrap func(proto.IndexedD
 	if err != nil {
 		t.Fatalf("Listen(indexeddb): %v", err)
 	}
-	indexedDBServer := proto.IndexedDBServer(store.Store)
+	indexedDBServer := proto.NewIndexedDBServer(store.Store)
 	if wrap != nil {
 		indexedDBServer = wrap(indexedDBServer)
 	}
@@ -3908,6 +3924,13 @@ func workflowExecutionReferenceSchema() gestalt.ObjectStoreSchema {
 			{Name: "run_as_json", Type: gestalt.TypeString},
 			{Name: "permissions_json", Type: gestalt.TypeString},
 			{Name: "caller_plugin_name", Type: gestalt.TypeString},
+			{Name: "source_definition_id", Type: gestalt.TypeString},
+			{Name: "target_digest", Type: gestalt.TypeString},
+			{Name: "provider_plan_digest", Type: gestalt.TypeString},
+			{Name: "permissions_digest", Type: gestalt.TypeString},
+			{Name: "workflow_semantics_version", Type: gestalt.TypeString},
+			{Name: "generation", Type: gestalt.TypeInt},
+			{Name: "seal", Type: gestalt.TypeString},
 			{Name: "created_at", Type: gestalt.TypeTime},
 			{Name: "revoked_at", Type: gestalt.TypeTime},
 		},

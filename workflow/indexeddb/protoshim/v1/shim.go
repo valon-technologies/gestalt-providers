@@ -1,0 +1,144 @@
+package v1
+
+import (
+	internal "github.com/valon-technologies/gestalt/sdk/go/internal/gen/v1"
+	"google.golang.org/grpc"
+)
+
+type AgentToolRef = internal.AgentToolRef
+type AgentMessage = internal.AgentMessage
+type AgentMessagePart = internal.AgentMessagePart
+type AgentMessagePartToolCall = internal.AgentMessagePartToolCall
+type AgentMessagePartToolResult = internal.AgentMessagePartToolResult
+type AgentMessagePartImageRef = internal.AgentMessagePartImageRef
+type AbortWorkflowBindingRequest = internal.AbortWorkflowBindingRequest
+type BoundWorkflowAgentTarget = internal.BoundWorkflowAgentTarget
+type BoundWorkflowEventTrigger = internal.BoundWorkflowEventTrigger
+type BoundWorkflowPluginTarget = internal.BoundWorkflowPluginTarget
+type BoundWorkflowRun = internal.BoundWorkflowRun
+type BoundWorkflowSchedule = internal.BoundWorkflowSchedule
+type BoundWorkflowTarget = internal.BoundWorkflowTarget
+type BoundWorkflowTarget_Agent = internal.BoundWorkflowTarget_Agent
+type BoundWorkflowTarget_Plugin = internal.BoundWorkflowTarget_Plugin
+type CancelWorkflowProviderRunRequest = internal.CancelWorkflowProviderRunRequest
+type CompileWorkflowTargetRequest = internal.CompileWorkflowTargetRequest
+type CompileWorkflowTargetResponse = internal.CompileWorkflowTargetResponse
+type CountResponse = internal.CountResponse
+type DeleteWorkflowProviderEventTriggerRequest = internal.DeleteWorkflowProviderEventTriggerRequest
+type DeleteWorkflowProviderScheduleRequest = internal.DeleteWorkflowProviderScheduleRequest
+type GetWorkflowExecutionReferenceRequest = internal.GetWorkflowExecutionReferenceRequest
+type GetWorkflowProviderEventTriggerRequest = internal.GetWorkflowProviderEventTriggerRequest
+type GetWorkflowProviderRunRequest = internal.GetWorkflowProviderRunRequest
+type GetWorkflowProviderScheduleRequest = internal.GetWorkflowProviderScheduleRequest
+type IndexQueryRequest = internal.IndexQueryRequest
+type IndexedDBServer = internal.IndexedDBServer
+type InvokeWorkflowAgentTurnRequest = internal.InvokeWorkflowAgentTurnRequest
+type InvokeWorkflowOperationRequest = internal.InvokeWorkflowOperationRequest
+type InvokeWorkflowOperationResponse = internal.InvokeWorkflowOperationResponse
+type InvokeWorkflowPluginActionRequest = internal.InvokeWorkflowPluginActionRequest
+type ListWorkflowExecutionReferencesRequest = internal.ListWorkflowExecutionReferencesRequest
+type ListWorkflowExecutionReferencesResponse = internal.ListWorkflowExecutionReferencesResponse
+type ListWorkflowProviderEventTriggersRequest = internal.ListWorkflowProviderEventTriggersRequest
+type ListWorkflowProviderEventTriggersResponse = internal.ListWorkflowProviderEventTriggersResponse
+type ListWorkflowProviderRunsRequest = internal.ListWorkflowProviderRunsRequest
+type ListWorkflowProviderRunsResponse = internal.ListWorkflowProviderRunsResponse
+type ListWorkflowProviderSchedulesRequest = internal.ListWorkflowProviderSchedulesRequest
+type ListWorkflowProviderSchedulesResponse = internal.ListWorkflowProviderSchedulesResponse
+type ObjectStoreRangeRequest = internal.ObjectStoreRangeRequest
+type ObjectStoreRequest = internal.ObjectStoreRequest
+type PauseWorkflowProviderEventTriggerRequest = internal.PauseWorkflowProviderEventTriggerRequest
+type PauseWorkflowProviderScheduleRequest = internal.PauseWorkflowProviderScheduleRequest
+type PublishWorkflowProviderEventRequest = internal.PublishWorkflowProviderEventRequest
+type PutWorkflowExecutionReferenceRequest = internal.PutWorkflowExecutionReferenceRequest
+type RecordResponse = internal.RecordResponse
+type RecordsResponse = internal.RecordsResponse
+type ResumeWorkflowProviderEventTriggerRequest = internal.ResumeWorkflowProviderEventTriggerRequest
+type ResumeWorkflowProviderScheduleRequest = internal.ResumeWorkflowProviderScheduleRequest
+type SignalOrStartWorkflowProviderRunRequest = internal.SignalOrStartWorkflowProviderRunRequest
+type SignalWorkflowProviderRunRequest = internal.SignalWorkflowProviderRunRequest
+type SignalWorkflowRunResponse = internal.SignalWorkflowRunResponse
+type StartWorkflowProviderRunRequest = internal.StartWorkflowProviderRunRequest
+type UnimplementedWorkflowHostServer = internal.UnimplementedWorkflowHostServer
+type UnimplementedWorkflowProviderServer = internal.UnimplementedWorkflowProviderServer
+type UpsertWorkflowProviderEventTriggerRequest = internal.UpsertWorkflowProviderEventTriggerRequest
+type UpsertWorkflowProviderScheduleRequest = internal.UpsertWorkflowProviderScheduleRequest
+type WorkflowAccessPermission = internal.WorkflowAccessPermission
+type WorkflowActor = internal.WorkflowActor
+type WorkflowAgentMessage = internal.WorkflowAgentMessage
+type WorkflowEvent = internal.WorkflowEvent
+type WorkflowEventMatch = internal.WorkflowEventMatch
+type WorkflowExecutionReference = internal.WorkflowExecutionReference
+type WorkflowHostActionResponse = internal.WorkflowHostActionResponse
+type WorkflowHostServer = internal.WorkflowHostServer
+type WorkflowArray = internal.WorkflowArray
+type WorkflowObject = internal.WorkflowObject
+type WorkflowOutputBinding = internal.WorkflowOutputBinding
+type WorkflowOutputDelivery = internal.WorkflowOutputDelivery
+type WorkflowOutputSummary = internal.WorkflowOutputSummary
+type WorkflowOutputValueSource = internal.WorkflowOutputValueSource
+type WorkflowOutputValueSource_AgentOutput = internal.WorkflowOutputValueSource_AgentOutput
+type WorkflowOutputValueSource_AgentSession = internal.WorkflowOutputValueSource_AgentSession
+type WorkflowOutputValueSource_Literal = internal.WorkflowOutputValueSource_Literal
+type WorkflowOutputValueSource_SignalMetadata = internal.WorkflowOutputValueSource_SignalMetadata
+type WorkflowOutputValueSource_SignalPayload = internal.WorkflowOutputValueSource_SignalPayload
+type WorkflowPlanBinding = internal.WorkflowPlanBinding
+type WorkflowProviderServer = internal.WorkflowProviderServer
+type WorkflowRunAsSubject = internal.WorkflowRunAsSubject
+type WorkflowRunError = internal.WorkflowRunError
+type WorkflowRunTrigger = internal.WorkflowRunTrigger
+type WorkflowRunTrigger_Event = internal.WorkflowRunTrigger_Event
+type WorkflowRunTrigger_Manual = internal.WorkflowRunTrigger_Manual
+type WorkflowRunTrigger_Schedule = internal.WorkflowRunTrigger_Schedule
+type WorkflowRunStatus = internal.WorkflowRunStatus
+type WorkflowPathSource = internal.WorkflowPathSource
+type WorkflowManualTrigger = internal.WorkflowManualTrigger
+type WorkflowScheduleTrigger = internal.WorkflowScheduleTrigger
+type WorkflowEventTriggerInvocation = internal.WorkflowEventTriggerInvocation
+type WorkflowSignal = internal.WorkflowSignal
+type WorkflowStep = internal.WorkflowStep
+type WorkflowStepAgentTurn = internal.WorkflowStepAgentTurn
+type WorkflowStepDelivery = internal.WorkflowStepDelivery
+type WorkflowStepOutputSource = internal.WorkflowStepOutputSource
+type WorkflowStepPluginCall = internal.WorkflowStepPluginCall
+type WorkflowStepState = internal.WorkflowStepState
+type WorkflowStepStatus = internal.WorkflowStepStatus
+type WorkflowStepWhen = internal.WorkflowStepWhen
+type WorkflowStep_Agent = internal.WorkflowStep_Agent
+type WorkflowStep_Plugin = internal.WorkflowStep_Plugin
+type WorkflowText = internal.WorkflowText
+type WorkflowUnsupportedFeature = internal.WorkflowUnsupportedFeature
+type WorkflowValue = internal.WorkflowValue
+type WorkflowValue_Array = internal.WorkflowValue_Array
+type WorkflowValue_Literal = internal.WorkflowValue_Literal
+type WorkflowValue_Object = internal.WorkflowValue_Object
+type WorkflowValue_RunInput = internal.WorkflowValue_RunInput
+type WorkflowValue_SignalMetadata = internal.WorkflowValue_SignalMetadata
+type WorkflowValue_SignalPayload = internal.WorkflowValue_SignalPayload
+type WorkflowValue_StepOutput = internal.WorkflowValue_StepOutput
+type WorkflowValue_Template = internal.WorkflowValue_Template
+type WorkflowValue_WorkflowContext = internal.WorkflowValue_WorkflowContext
+
+const (
+	WorkflowRunStatus_WORKFLOW_RUN_STATUS_UNSPECIFIED = internal.WorkflowRunStatus_WORKFLOW_RUN_STATUS_UNSPECIFIED
+	WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING     = internal.WorkflowRunStatus_WORKFLOW_RUN_STATUS_PENDING
+	WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING     = internal.WorkflowRunStatus_WORKFLOW_RUN_STATUS_RUNNING
+	WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED   = internal.WorkflowRunStatus_WORKFLOW_RUN_STATUS_SUCCEEDED
+	WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED      = internal.WorkflowRunStatus_WORKFLOW_RUN_STATUS_FAILED
+	WorkflowRunStatus_WORKFLOW_RUN_STATUS_CANCELED    = internal.WorkflowRunStatus_WORKFLOW_RUN_STATUS_CANCELED
+
+	WorkflowStepStatus_WORKFLOW_STEP_STATUS_UNSPECIFIED = internal.WorkflowStepStatus_WORKFLOW_STEP_STATUS_UNSPECIFIED
+	WorkflowStepStatus_WORKFLOW_STEP_STATUS_PENDING     = internal.WorkflowStepStatus_WORKFLOW_STEP_STATUS_PENDING
+	WorkflowStepStatus_WORKFLOW_STEP_STATUS_RUNNING     = internal.WorkflowStepStatus_WORKFLOW_STEP_STATUS_RUNNING
+	WorkflowStepStatus_WORKFLOW_STEP_STATUS_SUCCEEDED   = internal.WorkflowStepStatus_WORKFLOW_STEP_STATUS_SUCCEEDED
+	WorkflowStepStatus_WORKFLOW_STEP_STATUS_FAILED      = internal.WorkflowStepStatus_WORKFLOW_STEP_STATUS_FAILED
+	WorkflowStepStatus_WORKFLOW_STEP_STATUS_SKIPPED     = internal.WorkflowStepStatus_WORKFLOW_STEP_STATUS_SKIPPED
+	WorkflowStepStatus_WORKFLOW_STEP_STATUS_CANCELED    = internal.WorkflowStepStatus_WORKFLOW_STEP_STATUS_CANCELED
+)
+
+func RegisterIndexedDBServer(s grpc.ServiceRegistrar, srv IndexedDBServer) {
+	internal.RegisterIndexedDBServer(s, srv)
+}
+
+func RegisterWorkflowHostServer(s grpc.ServiceRegistrar, srv WorkflowHostServer) {
+	internal.RegisterWorkflowHostServer(s, srv)
+}

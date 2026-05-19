@@ -23,6 +23,12 @@ func validateExecutionReferenceInput(ref *gestalt.WorkflowExecutionReference) (*
 	out.AuthSource = strings.TrimSpace(out.AuthSource)
 	out.CredentialSubjectID = strings.TrimSpace(out.CredentialSubjectID)
 	out.CallerPluginName = strings.TrimSpace(out.CallerPluginName)
+	out.SourceDefinitionID = strings.TrimSpace(out.SourceDefinitionID)
+	out.TargetDigest = strings.TrimSpace(out.TargetDigest)
+	out.ProviderPlanDigest = strings.TrimSpace(out.ProviderPlanDigest)
+	out.PermissionsDigest = strings.TrimSpace(out.PermissionsDigest)
+	out.SemanticsVersion = strings.TrimSpace(out.SemanticsVersion)
+	out.Seal = strings.TrimSpace(out.Seal)
 	target, err := normalizeTarget(out.Target)
 	if err != nil {
 		return nil, err
@@ -83,6 +89,25 @@ func eventExecutionReferencePermissions(trigger *gestalt.BoundWorkflowEventTrigg
 func executionReferencePermissionsForTarget(target *gestalt.BoundWorkflowTarget) []gestalt.WorkflowAccessPermission {
 	if target == nil {
 		return nil
+	}
+	if len(target.Steps) > 0 {
+		actions := make([]string, 0, len(target.Steps)*2)
+		for _, step := range target.Steps {
+			if step.Plugin != nil {
+				actions = append(actions, workflowStepActionID(step.ID, workflowStepPluginActionSuffix))
+			}
+			if step.Agent != nil {
+				actions = append(actions, workflowStepActionID(step.ID, workflowStepAgentActionSuffix))
+			}
+			if step.OutputDelivery != nil {
+				actions = append(actions, workflowStepActionID(step.ID, workflowStepDeliveryActionSuffix))
+			}
+		}
+		sort.Strings(actions)
+		return []gestalt.WorkflowAccessPermission{{
+			Plugin:  "__gestalt.workflow.step_actions__",
+			Actions: actions,
+		}}
 	}
 	if agent := target.Agent; agent != nil {
 		set := map[string]map[string]struct{}{}

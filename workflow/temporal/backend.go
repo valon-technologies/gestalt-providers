@@ -21,6 +21,8 @@ import (
 
 type workflowHost interface {
 	InvokeOperation(context.Context, gestalt.InvokeWorkflowOperationInput) (*gestalt.InvokeWorkflowOperationResponse, error)
+	InvokeWorkflowPluginAction(context.Context, gestalt.InvokeWorkflowPluginActionInput) (*gestalt.WorkflowHostActionResponse, error)
+	InvokeWorkflowAgentTurn(context.Context, gestalt.InvokeWorkflowAgentTurnInput) (*gestalt.WorkflowHostActionResponse, error)
 	Close() error
 }
 
@@ -139,6 +141,9 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkfl
 	key := strings.TrimSpace(req.IdempotencyKey)
 	workflowKey := strings.TrimSpace(req.WorkflowKey)
 	fingerprint := startFingerprint(target.OwnerKey, key, workflowKey, req.ExecutionRef, target.Target, req.CreatedBy)
+	if req.PlanBinding != nil {
+		fingerprint = hashID(fingerprint, req.PlanBinding.ID, req.PlanBinding.TargetDigest, req.PlanBinding.ProviderPlanDigest)
+	}
 	if key != "" && workflowKey == "" {
 		return b.startUnkeyedRunV4(ctx, target, req, key, fingerprint)
 	}
@@ -146,10 +151,16 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkfl
 		return b.startKeyedRunV4(ctx, target, req, key, fingerprint)
 	}
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "run-v4", uuid.NewString())
+	if isStepTargetInput(target.Target) && req.PlanBinding != nil && strings.TrimSpace(req.PlanBinding.ID) != "" {
+		temporalWorkflowID = workflowID(b.cfg.ScopeID, "binding-run-v4", req.PlanBinding.ID)
+	}
 	conflictPolicy := enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL
-	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.ExecutionRef, "", target.Target, manualTriggerInput(), req.CreatedBy, false), conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.ExecutionRef, "", target.Target, manualTriggerInput(), req.CreatedBy, false, req.PlanBinding), conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
+	}
+	if err := b.putPreparedRunBinding(ctx, req.PlanBinding, run); err != nil {
+		return nil, b.cleanupPreparedRunAfterBindingStoreFailure(ctx, run, err)
 	}
 	return run, nil
 }
@@ -450,6 +461,12 @@ func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *gestalt.Upser
 		CreatedBy:    createdBy,
 		ExecutionRef: strings.TrimSpace(req.ExecutionRef),
 	}
+	if isStepTargetInput(target.Target) && req.PlanBinding != nil {
+		if err := b.putPreparedScheduleBinding(ctx, req.PlanBinding, schedule); err != nil {
+			return nil, err
+		}
+		return schedule, nil
+	}
 	if err := b.upsertTemporalSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
@@ -614,8 +631,19 @@ func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *gestalt.U
 		CreatedBy:    createdBy,
 		ExecutionRef: strings.TrimSpace(req.ExecutionRef),
 	}
+	if isStepTargetInput(target.Target) && req.PlanBinding != nil {
+		if err := b.putPreparedTriggerBinding(ctx, req.PlanBinding, trigger); err != nil {
+			return nil, err
+		}
+		return trigger, nil
+	}
 	if err := b.state.putTrigger(ctx, trigger); err != nil {
 		return nil, err
+	}
+	if !isStepTargetInput(trigger.Target) {
+		if err := b.state.deleteActiveTriggerBinding(ctx, trigger.ID); err != nil {
+			return nil, err
+		}
 	}
 	return trigger, nil
 }
@@ -661,6 +689,9 @@ func (b *temporalBackend) DeleteEventTrigger(ctx context.Context, req *gestalt.D
 	}
 	if !found {
 		return status.Errorf(codes.NotFound, "workflow event trigger %q not found", triggerID)
+	}
+	if err := b.state.deleteActiveTriggerBinding(ctx, triggerID); err != nil {
+		return err
 	}
 	return nil
 }
@@ -793,7 +824,16 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 			TriggerID: trigger.ID,
 			Event:     eventInput,
 		}}
-		input := b.runV4Input(targetOwnerKeyInput(trigger.Target), executionRef, "", trigger.Target, eventTriggerInput, createdBy, false)
+		var binding *gestalt.WorkflowPlanBinding
+		if isStepTargetInput(trigger.Target) {
+			if activeBinding, found, err := b.state.getActiveTriggerBinding(ctx, trigger.ID); err != nil {
+				return status.Errorf(codes.Internal, "load active workflow trigger binding: %v", err)
+			} else if found {
+				binding = activeBinding
+			}
+		}
+		input := b.runV4Input(targetOwnerKeyInput(trigger.Target), executionRef, "", trigger.Target, eventTriggerInput, createdBy, false, binding)
+		input.RequireActivation = false
 		run, err := b.executeRunV4(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 		if err != nil {
 			if strings.TrimSpace(eventInput.ID) != "" && isAlreadyStarted(err) {
@@ -873,7 +913,12 @@ func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, pause
 }
 
 func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *gestalt.BoundWorkflowSchedule) error {
-	actionInput := b.runV4Input(targetOwnerKeyInput(schedule.Target), schedule.ExecutionRef, "", schedule.Target, scheduleTriggerInput(schedule.ID, time.Now().UTC()), schedule.CreatedBy, false)
+	return b.upsertTemporalScheduleWithBinding(ctx, schedule, nil)
+}
+
+func (b *temporalBackend) upsertTemporalScheduleWithBinding(ctx context.Context, schedule *gestalt.BoundWorkflowSchedule, binding *gestalt.WorkflowPlanBinding) error {
+	actionInput := b.runV4Input(targetOwnerKeyInput(schedule.Target), schedule.ExecutionRef, "", schedule.Target, scheduleTriggerInput(schedule.ID, time.Now().UTC()), schedule.CreatedBy, false, binding)
+	actionInput.RequireActivation = false
 	actionInput.ScheduleID = schedule.ID
 	action := &client.ScheduleWorkflowAction{
 		Workflow:            gestaltRunWorkflowV4,

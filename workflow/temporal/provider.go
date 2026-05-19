@@ -69,6 +69,14 @@ func (h *sdkWorkflowHost) InvokeOperation(ctx context.Context, input gestalt.Inv
 	return h.client.InvokeOperation(ctx, input)
 }
 
+func (h *sdkWorkflowHost) InvokeWorkflowPluginAction(ctx context.Context, input gestalt.InvokeWorkflowPluginActionInput) (*gestalt.WorkflowHostActionResponse, error) {
+	return h.client.InvokeWorkflowPluginAction(ctx, input)
+}
+
+func (h *sdkWorkflowHost) InvokeWorkflowAgentTurn(ctx context.Context, input gestalt.InvokeWorkflowAgentTurnInput) (*gestalt.WorkflowHostActionResponse, error) {
+	return h.client.InvokeWorkflowAgentTurn(ctx, input)
+}
+
 func (h *sdkWorkflowHost) Close() error {
 	if h == nil || h.client == nil {
 		return nil
@@ -127,6 +135,30 @@ func (p *Provider) StartRun(ctx context.Context, req *gestalt.StartWorkflowProvi
 		return nil, err
 	}
 	return backend.StartRun(ctx, req)
+}
+
+func (p *Provider) CompileWorkflowTarget(ctx context.Context, req *gestalt.CompileWorkflowTargetRequest) (*gestalt.CompileWorkflowTargetResponse, error) {
+	backend, err := p.requireBackend()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	return backend.CompileWorkflowTarget(ctx, req)
+}
+
+func (p *Provider) ActivateWorkflowBinding(ctx context.Context, binding *gestalt.WorkflowPlanBinding) error {
+	backend, err := p.requireBackend()
+	if err != nil {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
+	return backend.ActivateWorkflowBinding(ctx, binding)
+}
+
+func (p *Provider) AbortWorkflowBinding(ctx context.Context, req *gestalt.AbortWorkflowBindingRequest) error {
+	backend, err := p.requireBackend()
+	if err != nil {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
+	return backend.AbortWorkflowBinding(ctx, req)
 }
 
 func (p *Provider) GetRun(ctx context.Context, req *gestalt.GetWorkflowProviderRunRequest) (*gestalt.BoundWorkflowRun, error) {

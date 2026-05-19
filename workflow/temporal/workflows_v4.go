@@ -18,11 +18,16 @@ type runWorkflowV4Input struct {
 	WorkflowKey                   string                       `json:"workflow_key,omitempty"`
 	OwnerKey                      string                       `json:"owner_key,omitempty"`
 	Target                        *gestalt.BoundWorkflowTarget `json:"target,omitempty"`
+	PlanBinding                   *gestalt.WorkflowPlanBinding `json:"plan_binding,omitempty"`
+	TargetDigest                  string                       `json:"target_digest,omitempty"`
+	ProviderPlanDigest            string                       `json:"provider_plan_digest,omitempty"`
+	RunInput                      any                          `json:"run_input,omitempty"`
 	Trigger                       *gestalt.WorkflowRunTrigger  `json:"trigger,omitempty"`
 	CreatedBy                     *gestalt.WorkflowActor       `json:"created_by,omitempty"`
 	InitialSignal                 *gestalt.WorkflowSignal      `json:"initial_signal,omitempty"`
 	RequireSignal                 bool                         `json:"require_signal,omitempty"`
 	RequireClaim                  bool                         `json:"require_claim,omitempty"`
+	RequireActivation             bool                         `json:"require_activation,omitempty"`
 }
 
 const (
@@ -47,20 +52,24 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		OwnerKey:         input.OwnerKey,
 	})
 	state := &gestalt.BoundWorkflowRun{
-		ID:           publicID,
-		Status:       gestalt.WorkflowRunStatusValuePending,
-		Target:       input.targetInput(),
-		Trigger:      input.triggerInput(now),
-		CreatedAt:    now,
-		CreatedBy:    input.createdByInput(),
-		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
-		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
+		ID:                 publicID,
+		Status:             gestalt.WorkflowRunStatusValuePending,
+		Target:             input.targetInput(),
+		Trigger:            input.triggerInput(now),
+		CreatedAt:          now,
+		CreatedBy:          input.createdByInput(),
+		ExecutionRef:       strings.TrimSpace(input.ExecutionRef),
+		WorkflowKey:        strings.TrimSpace(input.WorkflowKey),
+		TargetDigest:       strings.TrimSpace(input.TargetDigest),
+		ProviderPlanDigest: strings.TrimSpace(input.ProviderPlanDigest),
+		Steps:              initialWorkflowStepStates(input.Target, now),
 	}
 	pendingSignals := make([]gestalt.WorkflowSignal, 0)
 	nextSignalSequence := int64(1)
 	signalCount := 0
 	runMutex := workflow.NewMutex(ctx)
 	claimed := !input.RequireClaim
+	activated := !input.RequireActivation
 
 	project := func(ctx workflow.Context) {
 		activityCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -134,6 +143,52 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 	}); err != nil {
 		return nil, err
 	}
+	if err := workflow.SetUpdateHandler(ctx, updateActivateBinding, func(ctx workflow.Context, binding gestalt.WorkflowPlanBinding) (*gestalt.BoundWorkflowRun, error) {
+		if err := runMutex.Lock(ctx); err != nil {
+			return nil, err
+		}
+		defer runMutex.Unlock()
+		if !planBindingMatches(input.PlanBinding, &binding) {
+			return nil, fmt.Errorf("invalid_argument: workflow plan binding does not match prepared run")
+		}
+		activated = true
+		project(ctx)
+		return cloneRunInput(state), nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := workflow.SetUpdateHandler(ctx, updateAbortBinding, func(ctx workflow.Context, binding gestalt.WorkflowPlanBinding, reason string) (*gestalt.BoundWorkflowRun, error) {
+		if err := runMutex.Lock(ctx); err != nil {
+			return nil, err
+		}
+		defer runMutex.Unlock()
+		if !planBindingMatches(input.PlanBinding, &binding) {
+			return nil, fmt.Errorf("invalid_argument: workflow plan binding does not match prepared run")
+		}
+		if activated {
+			return nil, fmt.Errorf("failed_precondition: workflow run %q is already activated", state.ID)
+		}
+		if workflowRunTerminal(state.Status) {
+			return cloneRunInput(state), nil
+		}
+		completedAt := workflow.Now(ctx).UTC()
+		statusMessage := strings.TrimSpace(reason)
+		if statusMessage == "" {
+			statusMessage = "workflow plan binding aborted"
+		}
+		if err := rebuildRun(func(input *gestalt.BoundWorkflowRun) {
+			input.Status = gestalt.WorkflowRunStatusValueCanceled
+			input.CompletedAt = &completedAt
+			input.StatusMessage = statusMessage
+			cancelPendingSteps(input.Steps, completedAt, statusMessage)
+		}); err != nil {
+			return nil, err
+		}
+		project(ctx)
+		return cloneRunInput(state), nil
+	}); err != nil {
+		return nil, err
+	}
 	if err := workflow.SetUpdateHandler(ctx, updateCancelRun, func(ctx workflow.Context, reason string) (*gestalt.BoundWorkflowRun, error) {
 		if err := runMutex.Lock(ctx); err != nil {
 			return nil, err
@@ -151,6 +206,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 			input.Status = gestalt.WorkflowRunStatusValueCanceled
 			input.CompletedAt = &completedAt
 			input.StatusMessage = statusMessage
+			cancelPendingSteps(input.Steps, completedAt, statusMessage)
 		}); err != nil {
 			return nil, err
 		}
@@ -166,6 +222,16 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		})
 	}
 	project(ctx)
+	if input.RequireActivation {
+		_ = workflow.Await(ctx, func() bool {
+			return activated || workflowRunTerminal(state.Status)
+		})
+		if workflowRunTerminal(state.Status) {
+			project(ctx)
+			_ = workflow.Await(ctx, func() bool { return workflow.AllHandlersFinished(ctx) })
+			return cloneRunInput(state), nil
+		}
+	}
 	if input.RequireSignal {
 		_ = workflow.Await(ctx, func() bool {
 			return len(pendingSignals) > 0 || workflowRunTerminal(state.Status)
@@ -197,6 +263,40 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		batch := pendingSignals
 		pendingSignals = nil
 		runMutex.Unlock()
+
+		if isStepTargetInput(state.Target) {
+			runInput := *state
+			projectStep := func(ctx workflow.Context, run gestalt.BoundWorkflowRun) {
+				if err := runMutex.Lock(ctx); err != nil {
+					return
+				}
+				defer runMutex.Unlock()
+				next := run
+				state = &next
+				project(ctx)
+			}
+			updatedRun, stepErr := executeWorkflowStepsV4(ctx, input, runInput, batch, projectStep)
+			if stepErr != nil {
+				return nil, stepErr
+			}
+			runInput = updatedRun
+			if err := runMutex.Lock(ctx); err != nil {
+				return nil, err
+			}
+			if len(pendingSignals) > 0 && runInput.Status == gestalt.WorkflowRunStatusValueSucceeded {
+				runInput.Status = gestalt.WorkflowRunStatusValuePending
+				runInput.CompletedAt = nil
+				runInput.StatusMessage = ""
+				state = &runInput
+				project(ctx)
+				runMutex.Unlock()
+				continue
+			}
+			state = &runInput
+			project(ctx)
+			runMutex.Unlock()
+			break
+		}
 
 		activityCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: input.ActivityStartToCloseTimeoutNS,

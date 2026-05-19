@@ -23,6 +23,7 @@ const (
 	storeTemporalRunIdempotency    = "workflow_temporal_v4_run_idempotency"
 	storeTemporalSignalIdempotency = "workflow_temporal_v4_signal_idempotency"
 	storeTemporalWorkflowKeys      = "workflow_temporal_v4_workflow_keys"
+	storeTemporalPlanBindings      = "workflow_temporal_v4_plan_bindings"
 
 	indexBySubject   = "by_subject"
 	indexByMatchKey  = "by_match_key"
@@ -41,6 +42,7 @@ type workflowStateStore struct {
 	runIdempotency    *gestalt.ObjectStoreClient
 	signalIdempotency *gestalt.ObjectStoreClient
 	workflowKeys      *gestalt.ObjectStoreClient
+	planBindings      *gestalt.ObjectStoreClient
 }
 
 func openWorkflowStateStore(ctx context.Context, scopeID string) (*workflowStateStore, error) {
@@ -67,6 +69,7 @@ func openWorkflowStateStore(ctx context.Context, scopeID string) (*workflowState
 		runIdempotency:    db.ObjectStore(storeTemporalRunIdempotency),
 		signalIdempotency: db.ObjectStore(storeTemporalSignalIdempotency),
 		workflowKeys:      db.ObjectStore(storeTemporalWorkflowKeys),
+		planBindings:      db.ObjectStore(storeTemporalPlanBindings),
 	}
 	return store, nil
 }
@@ -98,6 +101,9 @@ func ensureWorkflowStateStores(ctx context.Context, db *gestalt.IndexedDBClient)
 	}
 	if err := db.CreateObjectStore(ctx, storeTemporalWorkflowKeys, temporalWorkflowKeySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow key store: %w", err)
+	}
+	if err := db.CreateObjectStore(ctx, storeTemporalPlanBindings, temporalPlanBindingSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+		return fmt.Errorf("create workflow plan binding store: %w", err)
 	}
 	return nil
 }
@@ -241,6 +247,22 @@ func temporalWorkflowKeySchema() gestalt.ObjectStoreSchema {
 	}
 }
 
+func temporalPlanBindingSchema() gestalt.ObjectStoreSchema {
+	return gestalt.ObjectStoreSchema{
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "binding_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "run_id", Type: gestalt.TypeString},
+			{Name: "schedule_id", Type: gestalt.TypeString},
+			{Name: "trigger_id", Type: gestalt.TypeString},
+			{Name: "created_at", Type: gestalt.TypeTime},
+			{Name: "updated_at", Type: gestalt.TypeTime},
+			{Name: "payload", Type: gestalt.TypeBytes, NotNull: true},
+		},
+	}
+}
+
 func (s *workflowStateStore) Close() error {
 	if s == nil || s.db == nil {
 		return nil
@@ -296,6 +318,109 @@ func (s *workflowStateStore) listSchedules(ctx context.Context) ([]*gestalt.Boun
 
 func (s *workflowStateStore) deleteSchedule(ctx context.Context, id string) error {
 	err := s.schedules.Delete(ctx, s.scopedID(strings.TrimSpace(id)))
+	if errors.Is(err, gestalt.ErrNotFound) {
+		return nil
+	}
+	return err
+}
+
+type workflowPlanBindingProjection struct {
+	Binding            *gestalt.WorkflowPlanBinding       `json:"binding,omitempty"`
+	RunID              string                             `json:"run_id,omitempty"`
+	TemporalWorkflowID string                             `json:"temporal_workflow_id,omitempty"`
+	TemporalRunID      string                             `json:"temporal_run_id,omitempty"`
+	Schedule           *gestalt.BoundWorkflowSchedule     `json:"schedule,omitempty"`
+	Trigger            *gestalt.BoundWorkflowEventTrigger `json:"trigger,omitempty"`
+	CreatedAt          time.Time                          `json:"created_at,omitempty"`
+	UpdatedAt          time.Time                          `json:"updated_at,omitempty"`
+}
+
+func (s *workflowStateStore) putPlanBinding(ctx context.Context, record *workflowPlanBindingProjection) error {
+	if record == nil || record.Binding == nil || strings.TrimSpace(record.Binding.ID) == "" {
+		return nil
+	}
+	now := time.Now().UTC()
+	if record.CreatedAt.IsZero() {
+		record.CreatedAt = now
+	}
+	record.UpdatedAt = now
+	return s.planBindings.Put(ctx, s.planBindingRecord(record))
+}
+
+func (s *workflowStateStore) getPlanBinding(ctx context.Context, bindingID string) (*workflowPlanBindingProjection, bool, error) {
+	bindingID = strings.TrimSpace(bindingID)
+	if bindingID == "" {
+		return nil, false, nil
+	}
+	record, err := s.planBindings.Get(ctx, s.scopedID(bindingID))
+	if errors.Is(err, gestalt.ErrNotFound) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	out, err := planBindingFromRecord(record)
+	if err != nil {
+		return nil, false, err
+	}
+	return out, out != nil && out.Binding != nil && strings.TrimSpace(out.Binding.ID) != "", nil
+}
+
+func (s *workflowStateStore) deletePlanBinding(ctx context.Context, bindingID string) error {
+	err := s.planBindings.Delete(ctx, s.scopedID(strings.TrimSpace(bindingID)))
+	if errors.Is(err, gestalt.ErrNotFound) {
+		return nil
+	}
+	return err
+}
+
+func (s *workflowStateStore) putActiveTriggerBinding(ctx context.Context, triggerID string, binding *gestalt.WorkflowPlanBinding) error {
+	triggerID = strings.TrimSpace(triggerID)
+	binding = clonePlanBindingInput(binding)
+	if triggerID == "" || binding == nil || binding.ID == "" {
+		return nil
+	}
+	now := time.Now().UTC()
+	return s.planBindings.Put(ctx, gestalt.Record{
+		"id":         s.activeTriggerBindingID(triggerID),
+		"scope_id":   s.scopeID,
+		"binding_id": binding.ID,
+		"trigger_id": triggerID,
+		"created_at": now,
+		"updated_at": now,
+		"payload": nativePayload(&workflowPlanBindingProjection{
+			Binding:   binding,
+			Trigger:   &gestalt.BoundWorkflowEventTrigger{ID: triggerID},
+			CreatedAt: now,
+			UpdatedAt: now,
+		}),
+	})
+}
+
+func (s *workflowStateStore) getActiveTriggerBinding(ctx context.Context, triggerID string) (*gestalt.WorkflowPlanBinding, bool, error) {
+	triggerID = strings.TrimSpace(triggerID)
+	if triggerID == "" {
+		return nil, false, nil
+	}
+	record, err := s.planBindings.Get(ctx, s.activeTriggerBindingID(triggerID))
+	if errors.Is(err, gestalt.ErrNotFound) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	out, err := planBindingFromRecord(record)
+	if err != nil {
+		return nil, false, err
+	}
+	if out == nil || out.Binding == nil || strings.TrimSpace(out.Binding.ID) == "" {
+		return nil, false, nil
+	}
+	return clonePlanBindingInput(out.Binding), true, nil
+}
+
+func (s *workflowStateStore) deleteActiveTriggerBinding(ctx context.Context, triggerID string) error {
+	err := s.planBindings.Delete(ctx, s.activeTriggerBindingID(strings.TrimSpace(triggerID)))
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil
 	}
@@ -1278,6 +1403,43 @@ func (s *workflowStateStore) scheduleRecord(schedule *gestalt.BoundWorkflowSched
 	}
 }
 
+func (s *workflowStateStore) planBindingRecord(record *workflowPlanBindingProjection) gestalt.Record {
+	payload := nativePayload(record)
+	now := time.Now().UTC()
+	createdAt := record.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = now
+	}
+	updatedAt := record.UpdatedAt
+	if updatedAt.IsZero() {
+		updatedAt = now
+	}
+	runID := strings.TrimSpace(record.RunID)
+	scheduleID := ""
+	if record.Schedule != nil {
+		scheduleID = strings.TrimSpace(record.Schedule.ID)
+	}
+	triggerID := ""
+	if record.Trigger != nil {
+		triggerID = strings.TrimSpace(record.Trigger.ID)
+	}
+	return gestalt.Record{
+		"id":          s.scopedID(record.Binding.ID),
+		"scope_id":    s.scopeID,
+		"binding_id":  strings.TrimSpace(record.Binding.ID),
+		"run_id":      runID,
+		"schedule_id": scheduleID,
+		"trigger_id":  triggerID,
+		"created_at":  createdAt.UTC(),
+		"updated_at":  updatedAt.UTC(),
+		"payload":     payload,
+	}
+}
+
+func planBindingFromRecord(record gestalt.Record) (*workflowPlanBindingProjection, error) {
+	return decodeNativePayload[workflowPlanBindingProjection](recordBytes(record, "payload"), "workflow plan binding")
+}
+
 func (s *workflowStateStore) runRecord(run *gestalt.BoundWorkflowRun) gestalt.Record {
 	payload := nativePayload(run)
 	now := time.Now().UTC()
@@ -1312,6 +1474,10 @@ func (s *workflowStateStore) signalIdempotencyID(key string) string {
 
 func (s *workflowStateStore) workflowKeyID(workflowKey string) string {
 	return s.scopedID("workflow-key", hashID(workflowKey))
+}
+
+func (s *workflowStateStore) activeTriggerBindingID(triggerID string) string {
+	return s.scopedID("active-trigger-binding", hashID(triggerID))
 }
 
 func (s *workflowStateStore) workflowKeyRecord(record workflowKeyRecord) gestalt.Record {
