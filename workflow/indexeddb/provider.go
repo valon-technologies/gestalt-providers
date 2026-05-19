@@ -248,7 +248,7 @@ type NativeProvider struct {
 
 var _ gestalt.WorkflowProvider = (*NativeProvider)(nil)
 var _ gestalt.WorkflowTargetCompiler = (*NativeProvider)(nil)
-var _ gestalt.WorkflowBindingActivator = (*NativeProvider)(nil)
+var _ gestalt.WorkflowBindingFinalizer = (*NativeProvider)(nil)
 
 func New() *NativeProvider {
 	return &NativeProvider{core: newProviderCore()}
@@ -489,12 +489,11 @@ func (p *NativeProvider) CompileWorkflowTarget(_ context.Context, req *gestalt.C
 	return compileIndexedDBWorkflowTarget(req)
 }
 
-func (p *NativeProvider) ActivateWorkflowBinding(context.Context, *gestalt.WorkflowPlanBinding) error {
-	return nil
-}
-
-func (p *NativeProvider) AbortWorkflowBinding(context.Context, *gestalt.AbortWorkflowBindingRequest) error {
-	return nil
+func (p *NativeProvider) FinalizeWorkflowBinding(_ context.Context, req *gestalt.FinalizeWorkflowBindingRequest) error {
+	if req == nil {
+		return status.Error(codes.InvalidArgument, "workflow binding finalization request is required")
+	}
+	return validateWorkflowBindingFinalizationDecision(req.Decision)
 }
 
 func compileIndexedDBWorkflowTarget(req *gestalt.CompileWorkflowTargetRequest) (*gestalt.CompileWorkflowTargetResponse, error) {
@@ -511,6 +510,26 @@ func compileIndexedDBWorkflowTarget(req *gestalt.CompileWorkflowTargetRequest) (
 			Reason:  "IndexedDB workflow provider does not yet support provider-owned durable step interpretation",
 		}},
 	}, nil
+}
+
+func validateWorkflowBindingFinalizationDecision(decision gestalt.WorkflowBindingFinalizationDecision) error {
+	switch decision {
+	case gestalt.WorkflowBindingFinalizationDecisionActivate, gestalt.WorkflowBindingFinalizationDecisionAbort:
+		return nil
+	default:
+		return status.Error(codes.InvalidArgument, "workflow binding finalization decision is required")
+	}
+}
+
+func workflowBindingFinalizationDecisionInput(decision proto.WorkflowBindingFinalizationDecision) gestalt.WorkflowBindingFinalizationDecision {
+	switch decision {
+	case proto.WorkflowBindingFinalizationDecision_WORKFLOW_BINDING_FINALIZATION_DECISION_ACTIVATE:
+		return gestalt.WorkflowBindingFinalizationDecisionActivate
+	case proto.WorkflowBindingFinalizationDecision_WORKFLOW_BINDING_FINALIZATION_DECISION_ABORT:
+		return gestalt.WorkflowBindingFinalizationDecisionAbort
+	default:
+		return ""
+	}
 }
 
 func workflowTargetProto(input *gestalt.BoundWorkflowTarget) (*proto.BoundWorkflowTarget, error) {
@@ -2689,12 +2708,11 @@ func (p *Provider) CompileWorkflowTarget(ctx context.Context, req *proto.Compile
 	return compileWorkflowTargetResponseProto(resp), nil
 }
 
-func (p *Provider) ActivateWorkflowBinding(context.Context, *proto.WorkflowPlanBinding) error {
-	return nil
-}
-
-func (p *Provider) AbortWorkflowBinding(context.Context, *proto.AbortWorkflowBindingRequest) error {
-	return nil
+func (p *Provider) FinalizeWorkflowBinding(_ context.Context, req *proto.FinalizeWorkflowBindingRequest) error {
+	if req == nil {
+		return status.Error(codes.InvalidArgument, "workflow binding finalization request is required")
+	}
+	return validateWorkflowBindingFinalizationDecision(workflowBindingFinalizationDecisionInput(req.GetDecision()))
 }
 
 func (p *Provider) PutExecutionReference(ctx context.Context, req *proto.PutWorkflowExecutionReferenceRequest) (*proto.WorkflowExecutionReference, error) {

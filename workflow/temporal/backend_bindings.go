@@ -46,7 +46,21 @@ func (b *temporalBackend) CompileWorkflowTarget(_ context.Context, req *gestalt.
 	}, nil
 }
 
-func (b *temporalBackend) ActivateWorkflowBinding(ctx context.Context, binding *gestalt.WorkflowPlanBinding) error {
+func (b *temporalBackend) FinalizeWorkflowBinding(ctx context.Context, req *gestalt.FinalizeWorkflowBindingRequest) error {
+	if req == nil {
+		return status.Error(codes.InvalidArgument, "workflow binding finalization request is required")
+	}
+	switch req.Decision {
+	case gestalt.WorkflowBindingFinalizationDecisionActivate:
+		return b.activateWorkflowBinding(ctx, req.PlanBinding)
+	case gestalt.WorkflowBindingFinalizationDecisionAbort:
+		return b.abortWorkflowBinding(ctx, req.PlanBinding, req.Reason)
+	default:
+		return status.Error(codes.InvalidArgument, "workflow binding finalization decision is required")
+	}
+}
+
+func (b *temporalBackend) activateWorkflowBinding(ctx context.Context, binding *gestalt.WorkflowPlanBinding) error {
 	binding = clonePlanBindingInput(binding)
 	if binding == nil || strings.TrimSpace(binding.ID) == "" {
 		return nil
@@ -92,26 +106,26 @@ func (b *temporalBackend) ActivateWorkflowBinding(ctx context.Context, binding *
 	return nil
 }
 
-func (b *temporalBackend) AbortWorkflowBinding(ctx context.Context, req *gestalt.AbortWorkflowBindingRequest) error {
-	if req == nil || req.PlanBinding == nil || strings.TrimSpace(req.PlanBinding.ID) == "" {
+func (b *temporalBackend) abortWorkflowBinding(ctx context.Context, binding *gestalt.WorkflowPlanBinding, reason string) error {
+	if binding == nil || strings.TrimSpace(binding.ID) == "" {
 		return nil
 	}
-	prepared, found, err := b.state.getPlanBinding(ctx, req.PlanBinding.ID)
+	prepared, found, err := b.state.getPlanBinding(ctx, binding.ID)
 	if err != nil {
 		return status.Errorf(codes.Internal, "load workflow plan binding: %v", err)
 	}
 	if !found || prepared == nil {
 		return nil
 	}
-	if !planBindingMatches(prepared.Binding, req.PlanBinding) {
+	if !planBindingMatches(prepared.Binding, binding) {
 		return status.Error(codes.InvalidArgument, "workflow plan binding does not match prepared binding")
 	}
 	if prepared.RunID != "" {
-		if err := b.abortPreparedRun(ctx, prepared, req.Reason); err != nil {
+		if err := b.abortPreparedRun(ctx, prepared, reason); err != nil {
 			return err
 		}
 	}
-	if err := b.state.deletePlanBinding(ctx, req.PlanBinding.ID); err != nil {
+	if err := b.state.deletePlanBinding(ctx, binding.ID); err != nil {
 		return status.Errorf(codes.Internal, "delete workflow plan binding: %v", err)
 	}
 	return nil

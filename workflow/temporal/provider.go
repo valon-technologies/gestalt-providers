@@ -141,20 +141,12 @@ func (p *Provider) CompileWorkflowTarget(ctx context.Context, req *gestalt.Compi
 	return backend.CompileWorkflowTarget(ctx, req)
 }
 
-func (p *Provider) ActivateWorkflowBinding(ctx context.Context, binding *gestalt.WorkflowPlanBinding) error {
+func (p *Provider) FinalizeWorkflowBinding(ctx context.Context, req *gestalt.FinalizeWorkflowBindingRequest) error {
 	backend, err := p.requireBackend()
 	if err != nil {
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}
-	return backend.ActivateWorkflowBinding(ctx, binding)
-}
-
-func (p *Provider) AbortWorkflowBinding(ctx context.Context, req *gestalt.AbortWorkflowBindingRequest) error {
-	backend, err := p.requireBackend()
-	if err != nil {
-		return status.Error(codes.FailedPrecondition, err.Error())
-	}
-	return backend.AbortWorkflowBinding(ctx, req)
+	return backend.FinalizeWorkflowBinding(ctx, req)
 }
 
 func (p *Provider) GetRun(ctx context.Context, req *gestalt.GetWorkflowProviderRunRequest) (*gestalt.BoundWorkflowRun, error) {

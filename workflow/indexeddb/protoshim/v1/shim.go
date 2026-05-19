@@ -11,7 +11,6 @@ type AgentMessagePart = internal.AgentMessagePart
 type AgentMessagePartToolCall = internal.AgentMessagePartToolCall
 type AgentMessagePartToolResult = internal.AgentMessagePartToolResult
 type AgentMessagePartImageRef = internal.AgentMessagePartImageRef
-type AbortWorkflowBindingRequest = internal.AbortWorkflowBindingRequest
 type BoundWorkflowAgentTarget = internal.BoundWorkflowAgentTarget
 type BoundWorkflowEventTrigger = internal.BoundWorkflowEventTrigger
 type BoundWorkflowPluginTarget = internal.BoundWorkflowPluginTarget
@@ -26,6 +25,7 @@ type CompileWorkflowTargetResponse = internal.CompileWorkflowTargetResponse
 type CountResponse = internal.CountResponse
 type DeleteWorkflowProviderEventTriggerRequest = internal.DeleteWorkflowProviderEventTriggerRequest
 type DeleteWorkflowProviderScheduleRequest = internal.DeleteWorkflowProviderScheduleRequest
+type FinalizeWorkflowBindingRequest = internal.FinalizeWorkflowBindingRequest
 type GetWorkflowExecutionReferenceRequest = internal.GetWorkflowExecutionReferenceRequest
 type GetWorkflowProviderEventTriggerRequest = internal.GetWorkflowProviderEventTriggerRequest
 type GetWorkflowProviderRunRequest = internal.GetWorkflowProviderRunRequest
@@ -64,6 +64,7 @@ type UpsertWorkflowProviderScheduleRequest = internal.UpsertWorkflowProviderSche
 type WorkflowAccessPermission = internal.WorkflowAccessPermission
 type WorkflowActor = internal.WorkflowActor
 type WorkflowAgentMessage = internal.WorkflowAgentMessage
+type WorkflowBindingFinalizationDecision = internal.WorkflowBindingFinalizationDecision
 type WorkflowEvent = internal.WorkflowEvent
 type WorkflowEventMatch = internal.WorkflowEventMatch
 type WorkflowExecutionReference = internal.WorkflowExecutionReference
@@ -132,6 +133,10 @@ const (
 	WorkflowStepStatus_WORKFLOW_STEP_STATUS_FAILED      = internal.WorkflowStepStatus_WORKFLOW_STEP_STATUS_FAILED
 	WorkflowStepStatus_WORKFLOW_STEP_STATUS_SKIPPED     = internal.WorkflowStepStatus_WORKFLOW_STEP_STATUS_SKIPPED
 	WorkflowStepStatus_WORKFLOW_STEP_STATUS_CANCELED    = internal.WorkflowStepStatus_WORKFLOW_STEP_STATUS_CANCELED
+
+	WorkflowBindingFinalizationDecision_WORKFLOW_BINDING_FINALIZATION_DECISION_UNSPECIFIED = internal.WorkflowBindingFinalizationDecision_WORKFLOW_BINDING_FINALIZATION_DECISION_UNSPECIFIED
+	WorkflowBindingFinalizationDecision_WORKFLOW_BINDING_FINALIZATION_DECISION_ACTIVATE    = internal.WorkflowBindingFinalizationDecision_WORKFLOW_BINDING_FINALIZATION_DECISION_ACTIVATE
+	WorkflowBindingFinalizationDecision_WORKFLOW_BINDING_FINALIZATION_DECISION_ABORT       = internal.WorkflowBindingFinalizationDecision_WORKFLOW_BINDING_FINALIZATION_DECISION_ABORT
 )
 
 func RegisterIndexedDBServer(s grpc.ServiceRegistrar, srv IndexedDBServer) {
