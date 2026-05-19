@@ -39,6 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       providers: ${{ steps.discover.outputs.providers }}
+      darwin-providers: ${{ steps.discover.outputs.darwin-providers }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -82,19 +83,22 @@ jobs:
                   if match is None:
                       raise SystemExit(f"{pyproject}: project.requires-python must pin ==X.Y.*")
                   python_version = match.group(1)
-              providers.append({
+              provider = {
                   "dir": path.as_posix(),
+                  "key": path.as_posix().replace("/", "__"),
                   "root": path.parts[0],
                   "has_go": any(candidate.suffix == ".go" for candidate in pathlib.Path(path.as_posix()).glob("*.go")),
                   "has_python": pyproject.is_file(),
                   "has_rust": (pathlib.Path(path.as_posix()) / "Cargo.toml").is_file(),
                   "has_typescript": has_typescript,
                   "python_version": python_version,
-              })
+              }
+              providers.append(provider)
           print("providers=" + json.dumps(providers))
+          print("darwin-providers=" + json.dumps([provider for provider in providers if provider["has_go"] or provider["has_python"] or provider["has_typescript"]]))
           PY
 
-  publish:
+  build-linux-amd64:
     needs: discover
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -102,6 +106,7 @@ jobs:
       fail-fast: false
       matrix:
         provider: ${{ fromJson(needs.discover.outputs.providers) }}
+    name: Build ${{ matrix.provider.dir }} linux/amd64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -127,13 +132,6 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get install -y musl-tools
           rustup target add "$(uname -m)-unknown-linux-musl"
-      - name: Install rcodesign
-        if: ${{ matrix.provider.has_go || matrix.provider.has_typescript }}
-        run: |
-          set -euo pipefail
-          version="0.29.0"
-          archive="apple-codesign-${version}-x86_64-unknown-linux-musl.tar.gz"
-          curl -fsSL "https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign/${version}/${archive}" | tar xz -C /usr/local/bin --strip-components=1 "apple-codesign-${version}-x86_64-unknown-linux-musl/rcodesign"
       - name: Install Python
         if: matrix.provider.has_python
         run: uv python install "${{ matrix.provider.python_version }}"
@@ -148,14 +146,7 @@ jobs:
           .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
           test "$(git -C "$toolchain_dir" rev-parse HEAD)" = "${{ inputs.gestalt-ref }}"
           (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
-      - uses: google-github-actions/auth@v2
-        if: ${{ !inputs.dry-run }}
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-      - uses: google-github-actions/setup-gcloud@v2
-        if: ${{ !inputs.dry-run }}
-      - name: Package snapshot
+      - name: Package linux/amd64 snapshot
         env:
           PROVIDER_DIR: ${{ matrix.provider.dir }}
           SNAPSHOT_VERSION: 0.0.0-snapshot.g${{ inputs.provider-ref }}
@@ -172,15 +163,125 @@ jobs:
             .github/scripts/package_python_docker.sh linux/amd64 "${python_image}" gestaltd GESTALT_PYTHON_LINUX_AMD64 linux/amd64 "$PROVIDER_DIR" "$SNAPSHOT_VERSION"
           else
             (cd "$PROVIDER_DIR" && gestaltd provider release --version "$SNAPSHOT_VERSION" --platform linux/amd64)
-            if [ "${{ matrix.provider.has_go }}" = "true" ] || [ "${{ matrix.provider.has_typescript }}" = "true" ]; then
-              (cd "$PROVIDER_DIR" && gestaltd provider release --version "$SNAPSHOT_VERSION" --platform darwin/arm64)
-              (cd "$PROVIDER_DIR" && gestaltd provider release --version "$SNAPSHOT_VERSION" --platform darwin/amd64)
-            fi
           fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-dist-${{ matrix.provider.key }}-linux-amd64
+          path: ${{ matrix.provider.dir }}/dist/*.tar.gz
+          if-no-files-found: error
+
+  build-darwin-arm64:
+    needs: discover
+    if: needs.discover.outputs.darwin-providers != '[]'
+    runs-on: macos-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: ${{ fromJson(needs.discover.outputs.darwin-providers) }}
+    name: Build ${{ matrix.provider.dir }} darwin/arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.provider-ref }}
+      - name: Verify provider ref
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ inputs.provider-ref }}"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        if: matrix.provider.has_python
+      - uses: oven-sh/setup-bun@v2
+        if: matrix.provider.has_typescript
+      - name: Install Python
+        if: matrix.provider.has_python
+        run: uv python install "${{ matrix.provider.python_version }}"
+      - name: Install gestaltd
+        env:
+          GOBIN: ${{ runner.temp }}/bin
+        run: |
+          set -euo pipefail
+          mkdir -p "$GOBIN"
+          echo "$GOBIN" >> "$GITHUB_PATH"
+          toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
+          test "$(git -C "$toolchain_dir" rev-parse HEAD)" = "${{ inputs.gestalt-ref }}"
+          (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+      - name: Package darwin/arm64 snapshot
+        env:
+          PROVIDER_DIR: ${{ matrix.provider.dir }}
+          SNAPSHOT_VERSION: 0.0.0-snapshot.g${{ inputs.provider-ref }}
+          GESTALT_SDK_HOST_DIR: ${{ github.workspace }}/../gestalt/sdk/python
+        run: |
+          set -euo pipefail
+          rm -rf "${PROVIDER_DIR}/dist"
+          if [ "${{ matrix.provider.has_typescript }}" = "true" ]; then
+            (cd "$PROVIDER_DIR" && bun install --frozen-lockfile)
+          fi
+          if [ "${{ matrix.provider.has_python }}" = "true" ]; then
+            cd "$PROVIDER_DIR"
+            uv sync --frozen --no-dev
+            if [ ! -d "${GESTALT_SDK_HOST_DIR}" ]; then
+              echo "GESTALT_SDK_HOST_DIR does not exist: ${GESTALT_SDK_HOST_DIR}" >&2
+              exit 1
+            fi
+            rm -rf /tmp/gestalt-sdk
+            cp -R "${GESTALT_SDK_HOST_DIR}" /tmp/gestalt-sdk
+            uv pip install --python "$PWD/.venv/bin/python" --reinstall --no-deps /tmp/gestalt-sdk
+            GESTALT_PYTHON_DARWIN_ARM64="$PWD/.venv/bin/python" \
+              gestaltd provider release --version "$SNAPSHOT_VERSION" --platform darwin/arm64
+          else
+            (cd "$PROVIDER_DIR" && gestaltd provider release --version "$SNAPSHOT_VERSION" --platform darwin/arm64)
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-dist-${{ matrix.provider.key }}-darwin-arm64
+          path: ${{ matrix.provider.dir }}/dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs:
+      - discover
+      - build-linux-amd64
+      - build-darwin-arm64
+    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && needs.build-linux-amd64.result == 'success' && (needs.build-darwin-arm64.result == 'success' || needs.build-darwin-arm64.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: ${{ fromJson(needs.discover.outputs.providers) }}
+    name: Publish ${{ matrix.provider.dir }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.provider-ref }}
+      - name: Verify provider ref
+        run: |
+          test "$(git rev-parse HEAD)" = "${{ inputs.provider-ref }}"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: snapshot-dist-${{ matrix.provider.key }}-*
+          path: ${{ matrix.provider.dir }}/dist
+          merge-multiple: true
+      - name: Generate provider release metadata
+        env:
+          PROVIDER_DIR: ${{ matrix.provider.dir }}
+          SNAPSHOT_VERSION: 0.0.0-snapshot.g${{ inputs.provider-ref }}
+        run: |
+          set -euo pipefail
           python3 .github/scripts/write_provider_release_metadata.py \
             --manifest "${PROVIDER_DIR}/manifest.yaml" \
             --output-dir "${PROVIDER_DIR}/dist" \
             --version "$SNAPSHOT_VERSION"
+      - uses: google-github-actions/auth@v2
+        if: ${{ !inputs.dry-run }}
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+        if: ${{ !inputs.dry-run }}
       - name: Publish snapshot
         env:
           DRY_RUN: ${{ inputs.dry-run }}
