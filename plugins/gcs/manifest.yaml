@@ -73,6 +73,30 @@ spec:
           type: string
           in: query
           required: true
+      - name: objects.insert
+        description: Upload object media to a Google Cloud Storage bucket
+        method: POST
+        path: /upload/storage/v1/b/{bucket}/o
+        parameters:
+        - name: bucket
+          type: string
+          in: path
+          required: true
+        - name: name
+          type: string
+          in: query
+          required: true
+        - name: uploadType
+          type: string
+          in: query
+          required: true
+        - name: contentType
+          type: string
+          in: query
+        - name: body
+          type: string
+          in: body
+          required: true
   connections:
     default:
       auth:
