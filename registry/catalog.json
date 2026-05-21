@@ -1950,6 +1950,35 @@
         "entryKind": "plugin",
         "section": "plugins"
       },
+      "description": "Use the official PlanetScale insights-only MCP server for organizations, databases, branches, schema, Insights, documentation search, and schema recommendations.",
+      "displayName": "PlanetScale",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/planetscale/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/plugins/planetscale/README.md",
+          "sourcePath": "plugins/planetscale/README.md",
+          "title": "PlanetScale Plugin"
+        }
+      ],
+      "iconUrl": null,
+      "kind": "plugin",
+      "latestInstallableVersion": null,
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/planetscale/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.0",
+      "name": "planetscale",
+      "package": "github.com/valon-technologies/gestalt-providers/plugins/planetscale",
+      "packagePath": "plugins/planetscale",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/plugins/planetscale/README.md",
+      "registryPath": "/providers/plugin/planetscale/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/plugins/planetscale",
+      "versions": []
+    },
+    {
+      "configTarget": {
+        "entryKind": "plugin",
+        "section": "plugins"
+      },
       "description": "Manage customers, invoices, bills, payments, accounts, and reports in QuickBooks Online.",
       "displayName": "QuickBooks Online",
       "docs": [
