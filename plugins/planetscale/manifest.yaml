@@ -11,6 +11,6 @@ spec:
   connections:
     MCP:
       displayName: MCP
-      mode: subject
+      mode: user
       auth:
         type: mcp_oauth
