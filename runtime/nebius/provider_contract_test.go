@@ -11,7 +11,7 @@ import (
 func TestRuntimeProviderContractPassesHostServiceEnv(t *testing.T) {
 	t.Parallel()
 
-	const hostServiceEnv = gestalt.EnvAgentHostSocket
+	const hostServiceEnv = gestalt.EnvHostServiceSocket
 	if !isHostServiceEnvVar(hostServiceEnv) {
 		t.Fatalf("%s should be accepted as a relay host service env", hostServiceEnv)
 	}

@@ -29,10 +29,8 @@ import (
 const providerSocketEnv = "GESTALT_PLUGIN_SOCKET"
 
 func TestExternalCredentialProviderRoundTrip(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	provider, providerConn := startTestProviderServer(t)
-	defer func() { _ = providerConn.Close() }()
-
+	idbHost := startTestIndexedDBBackend(t)
+	provider := startTestProviderServer(t)
 	configureProvider(t, provider, map[string]any{
 		"encryptionKey": "provider-roundtrip-key",
 	})
@@ -48,6 +46,9 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 	if meta.Name != "default" {
 		t.Fatalf("name = %q, want %q", meta.Name, "default")
 	}
+
+	providerConn := startTestExternalCredentialServer(t, provider, idbHost)
+	defer func() { _ = providerConn.Close() }()
 
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
@@ -83,6 +84,7 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 		t.Fatalf("timestamps = created:%v updated:%v, want both set", created.GetCreatedAt(), created.GetUpdatedAt())
 	}
 
+	useIndexedDBHostEnv(t, idbHost)
 	db, err := gestalt.IndexedDB()
 	if err != nil {
 		t.Fatalf("IndexedDB: %v", err)
@@ -161,10 +163,8 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 }
 
 func TestExternalCredentialProviderInitializesObjectStore(t *testing.T) {
-	startTestIndexedDBBackendWithoutSeed(t)
-	provider, providerConn := startTestProviderServer(t)
-	defer func() { _ = providerConn.Close() }()
-
+	idbHost := startTestIndexedDBBackendWithoutSeed(t)
+	provider := startTestProviderServer(t)
 	configureProvider(t, provider, map[string]any{
 		"encryptionKey": "provider-initialize-store-key",
 	})
@@ -172,6 +172,9 @@ func TestExternalCredentialProviderInitializesObjectStore(t *testing.T) {
 	if err := provider.HealthCheck(context.Background()); err != nil {
 		t.Fatalf("HealthCheck: %v", err)
 	}
+	providerConn := startTestExternalCredentialServer(t, provider, idbHost)
+	defer func() { _ = providerConn.Close() }()
+
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
 		t.Fatalf("ExternalCredentials: %v", err)
@@ -192,10 +195,8 @@ func TestExternalCredentialProviderInitializesObjectStore(t *testing.T) {
 }
 
 func TestExternalCredentialProviderManualTokenExchange(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	provider, providerConn := startTestProviderServer(t)
-	defer func() { _ = providerConn.Close() }()
-
+	idbHost := startTestIndexedDBBackend(t)
+	provider := startTestProviderServer(t)
 	configureProvider(t, provider, map[string]any{
 		"encryptionKey": "provider-manual-exchange-key",
 	})
@@ -218,6 +219,9 @@ func TestExternalCredentialProviderManualTokenExchange(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":{"token":"manual-access-token"},"refresh_token":"provider-refresh-token","expires_in":3600,"token_type":"Bearer"}`))
 	}))
 	defer tokenServer.Close()
+
+	providerConn := startTestExternalCredentialServer(t, provider, idbHost)
+	defer func() { _ = providerConn.Close() }()
 
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
@@ -260,13 +264,14 @@ func TestExternalCredentialProviderManualTokenExchange(t *testing.T) {
 }
 
 func TestExternalCredentialProviderRejectsPlatformCredentialMode(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	provider, providerConn := startTestProviderServer(t)
-	defer func() { _ = providerConn.Close() }()
-
+	idbHost := startTestIndexedDBBackend(t)
+	provider := startTestProviderServer(t)
 	configureProvider(t, provider, map[string]any{
 		"encryptionKey": "provider-platform-mode-unsupported-key",
 	})
+
+	providerConn := startTestExternalCredentialServer(t, provider, idbHost)
+	defer func() { _ = providerConn.Close() }()
 
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
@@ -313,10 +318,8 @@ func TestExternalCredentialProviderRejectsPlatformCredentialMode(t *testing.T) {
 }
 
 func TestExternalCredentialProviderResolveRefreshesStoredManualCredential(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	provider, providerConn := startTestProviderServer(t)
-	defer func() { _ = providerConn.Close() }()
-
+	idbHost := startTestIndexedDBBackend(t)
+	provider := startTestProviderServer(t)
 	configureProvider(t, provider, map[string]any{
 		"encryptionKey": "provider-resolve-refresh-key",
 	})
@@ -336,6 +339,9 @@ func TestExternalCredentialProviderResolveRefreshesStoredManualCredential(t *tes
 		_, _ = w.Write([]byte(`{"access_token":"refreshed-access-token","expires_in":1800}`))
 	}))
 	defer tokenServer.Close()
+
+	providerConn := startTestExternalCredentialServer(t, provider, idbHost)
+	defer func() { _ = providerConn.Close() }()
 
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
@@ -413,9 +419,8 @@ func TestExternalCredentialProviderResolveInvalidGrantDeletesStoredCredential(t 
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			startTestIndexedDBBackend(t)
-			provider, providerConn := startTestProviderServer(t)
-			defer func() { _ = providerConn.Close() }()
+			idbHost := startTestIndexedDBBackend(t)
+			provider := startTestProviderServer(t)
 
 			configureProvider(t, provider, map[string]any{
 				"encryptionKey": "provider-invalid-grant-delete-key-" + strings.ReplaceAll(tc.name, " ", "-"),
@@ -436,6 +441,9 @@ func TestExternalCredentialProviderResolveInvalidGrantDeletesStoredCredential(t 
 				_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"revoked-refresh-token secret should not leak"}`))
 			}))
 			defer tokenServer.Close()
+
+			providerConn := startTestExternalCredentialServer(t, provider, idbHost)
+			defer func() { _ = providerConn.Close() }()
 
 			client, err := gestalt.ExternalCredentials()
 			if err != nil {
@@ -502,9 +510,8 @@ func TestExternalCredentialProviderResolveTransientRefreshFailureRetainsStoredCr
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			startTestIndexedDBBackend(t)
-			provider, providerConn := startTestProviderServer(t)
-			defer func() { _ = providerConn.Close() }()
+			idbHost := startTestIndexedDBBackend(t)
+			provider := startTestProviderServer(t)
 
 			configureProvider(t, provider, map[string]any{
 				"encryptionKey": "provider-transient-refresh-key-" + strings.ReplaceAll(tc.name, " ", "-"),
@@ -516,6 +523,9 @@ func TestExternalCredentialProviderResolveTransientRefreshFailureRetainsStoredCr
 				_, _ = w.Write([]byte(`{"error":"temporarily_unavailable","error_description":"transient secret should not leak"}`))
 			}))
 			defer tokenServer.Close()
+
+			providerConn := startTestExternalCredentialServer(t, provider, idbHost)
+			defer func() { _ = providerConn.Close() }()
 
 			client, err := gestalt.ExternalCredentials()
 			if err != nil {
@@ -581,10 +591,9 @@ func TestExternalCredentialProviderResolveTransientRefreshFailureRetainsStoredCr
 }
 
 func TestExternalCredentialProviderCredentialMaintenanceRefreshesDueTargets(t *testing.T) {
-	startTestIndexedDBBackend(t)
+	idbHost := startTestIndexedDBBackend(t)
 	provider := New()
-	provider, providerConn := startTestProviderServerWithProvider(t, provider)
-	defer func() { _ = providerConn.Close() }()
+	
 
 	var refreshCalls int
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -607,6 +616,9 @@ func TestExternalCredentialProviderCredentialMaintenanceRefreshesDueTargets(t *t
 	defer tokenServer.Close()
 
 	configureProvider(t, provider, credentialRefreshProviderConfig("maintenance-refresh-key", tokenServer.URL))
+
+	providerConn := startTestExternalCredentialServer(t, provider, idbHost)
+	defer func() { _ = providerConn.Close() }()
 
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
@@ -639,6 +651,7 @@ func TestExternalCredentialProviderCredentialMaintenanceRefreshesDueTargets(t *t
 		RefreshToken: "slack-refresh-token",
 		ExpiresAt:    testTimePtr(now.Add(5 * time.Minute)),
 	})
+	useIndexedDBHostEnv(t, idbHost)
 	db, err := gestalt.IndexedDB()
 	if err != nil {
 		t.Fatalf("IndexedDB: %v", err)
@@ -680,9 +693,8 @@ func TestExternalCredentialProviderCredentialMaintenanceRefreshesDueTargets(t *t
 }
 
 func TestExternalCredentialProviderCredentialMaintenanceRejectsConflictingResolvedConnections(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	provider, providerConn := startTestProviderServer(t)
-	defer func() { _ = providerConn.Close() }()
+	_ = startTestIndexedDBBackend(t)
+	provider := startTestProviderServer(t)
 
 	cfg := credentialRefreshProviderConfig("maintenance-conflict-key", "https://token-a.example.test")
 	connections := cfg["resolvedConnections"].([]any)
@@ -713,9 +725,8 @@ func TestExternalCredentialProviderCredentialMaintenanceRejectsConflictingResolv
 }
 
 func TestExternalCredentialProviderCredentialMaintenanceAcceptsSubjectMode(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	provider, providerConn := startTestProviderServer(t)
-	defer func() { _ = providerConn.Close() }()
+	_ = startTestIndexedDBBackend(t)
+	provider := startTestProviderServer(t)
 
 	cfg := credentialRefreshProviderConfig("maintenance-subject-mode-key", "https://token.example.test")
 	connections := cfg["resolvedConnections"].([]any)
@@ -726,9 +737,8 @@ func TestExternalCredentialProviderCredentialMaintenanceAcceptsSubjectMode(t *te
 }
 
 func TestExternalCredentialProviderCredentialMaintenanceRejectsUnsupportedAuthConfig(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	provider, providerConn := startTestProviderServer(t)
-	defer func() { _ = providerConn.Close() }()
+	_ = startTestIndexedDBBackend(t)
+	provider := startTestProviderServer(t)
 
 	cfg := credentialRefreshProviderConfig("maintenance-invalid-auth-key", "https://token.example.test")
 	connections := cfg["resolvedConnections"].([]any)
@@ -745,7 +755,7 @@ func TestExternalCredentialProviderCredentialMaintenanceRejectsUnsupportedAuthCo
 }
 
 func TestExternalCredentialProviderCredentialMaintenanceScansImmediately(t *testing.T) {
-	startTestIndexedDBBackend(t)
+	_ = startTestIndexedDBBackend(t)
 	provider := New()
 	if err := provider.Configure(context.Background(), "default", map[string]any{
 		"encryptionKey": "maintenance-immediate-key",
@@ -796,7 +806,7 @@ func TestExternalCredentialProviderCredentialMaintenanceScansImmediately(t *test
 }
 
 func TestExternalCredentialProviderCredentialMaintenanceSharesResolveSingleflight(t *testing.T) {
-	startTestIndexedDBBackend(t)
+	_ = startTestIndexedDBBackend(t)
 	provider := New()
 	if err := provider.Configure(context.Background(), "default", map[string]any{
 		"encryptionKey": "maintenance-singleflight-key",
@@ -906,10 +916,9 @@ func TestExternalCredentialProviderCredentialMaintenanceSharesResolveSinglefligh
 }
 
 func TestExternalCredentialProviderCredentialMaintenancePreservesTransientFailures(t *testing.T) {
-	startTestIndexedDBBackend(t)
+	idbHost := startTestIndexedDBBackend(t)
 	provider := New()
-	provider, providerConn := startTestProviderServerWithProvider(t, provider)
-	defer func() { _ = providerConn.Close() }()
+	
 
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -919,6 +928,9 @@ func TestExternalCredentialProviderCredentialMaintenancePreservesTransientFailur
 	defer tokenServer.Close()
 
 	configureProvider(t, provider, credentialRefreshProviderConfig("maintenance-transient-key", tokenServer.URL))
+	providerConn := startTestExternalCredentialServer(t, provider, idbHost)
+	defer func() { _ = providerConn.Close() }()
+
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
 		t.Fatalf("ExternalCredentials: %v", err)
@@ -942,10 +954,9 @@ func TestExternalCredentialProviderCredentialMaintenancePreservesTransientFailur
 }
 
 func TestExternalCredentialProviderCredentialMaintenanceDeletesInvalidGrant(t *testing.T) {
-	startTestIndexedDBBackend(t)
+	idbHost := startTestIndexedDBBackend(t)
 	provider := New()
-	provider, providerConn := startTestProviderServerWithProvider(t, provider)
-	defer func() { _ = providerConn.Close() }()
+	
 
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -955,6 +966,9 @@ func TestExternalCredentialProviderCredentialMaintenanceDeletesInvalidGrant(t *t
 	defer tokenServer.Close()
 
 	configureProvider(t, provider, credentialRefreshProviderConfig("maintenance-invalid-grant-key", tokenServer.URL))
+	providerConn := startTestExternalCredentialServer(t, provider, idbHost)
+	defer func() { _ = providerConn.Close() }()
+
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
 		t.Fatalf("ExternalCredentials: %v", err)
@@ -984,7 +998,7 @@ func TestExternalCredentialProviderCredentialMaintenanceDeletesInvalidGrant(t *t
 }
 
 func TestExternalCredentialProviderCredentialMaintenanceLifecycleCancelsLoops(t *testing.T) {
-	startTestIndexedDBBackend(t)
+	_ = startTestIndexedDBBackend(t)
 	provider := New()
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1053,9 +1067,8 @@ func TestExternalCredentialProviderTokenEndpointErrorsAreSanitized(t *testing.T)
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			startTestIndexedDBBackend(t)
-			provider, providerConn := startTestProviderServer(t)
-			defer func() { _ = providerConn.Close() }()
+			idbHost := startTestIndexedDBBackend(t)
+			provider := startTestProviderServer(t)
 
 			configureProvider(t, provider, map[string]any{
 				"encryptionKey": "provider-token-error-sanitize-key-" + strings.ReplaceAll(tc.name, " ", "-"),
@@ -1066,6 +1079,9 @@ func TestExternalCredentialProviderTokenEndpointErrorsAreSanitized(t *testing.T)
 				_, _ = w.Write([]byte(tc.body))
 			}))
 			defer tokenServer.Close()
+
+			providerConn := startTestExternalCredentialServer(t, provider, idbHost)
+			defer func() { _ = providerConn.Close() }()
 
 			client, err := gestalt.ExternalCredentials()
 			if err != nil {
@@ -1101,13 +1117,14 @@ func TestExternalCredentialProviderTokenEndpointErrorsAreSanitized(t *testing.T)
 }
 
 func TestExternalCredentialProviderRestorePreservesTimestamps(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	provider, providerConn := startTestProviderServer(t)
-	defer func() { _ = providerConn.Close() }()
-
+	idbHost := startTestIndexedDBBackend(t)
+	provider := startTestProviderServer(t)
 	configureProvider(t, provider, map[string]any{
 		"encryptionKey": "provider-restore-key",
 	})
+
+	providerConn := startTestExternalCredentialServer(t, provider, idbHost)
+	defer func() { _ = providerConn.Close() }()
 
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
@@ -1142,15 +1159,15 @@ func TestExternalCredentialProviderRestorePreservesTimestamps(t *testing.T) {
 }
 
 func TestExternalCredentialProviderReadsExistingCiphertextFormat(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	provider, providerConn := startTestProviderServer(t)
-	defer func() { _ = providerConn.Close() }()
+	idbHost := startTestIndexedDBBackend(t)
+	provider := startTestProviderServer(t)
 
 	const encryptionKey = "provider-ciphertext-key"
 	configureProvider(t, provider, map[string]any{
 		"encryptionKey": encryptionKey,
 	})
 
+	useIndexedDBHostEnv(t, idbHost)
 	db, err := gestalt.IndexedDB()
 	if err != nil {
 		t.Fatalf("IndexedDB: %v", err)
@@ -1179,6 +1196,9 @@ func TestExternalCredentialProviderReadsExistingCiphertextFormat(t *testing.T) {
 		t.Fatalf("Put(seed raw record): %v", err)
 	}
 
+	providerConn := startTestExternalCredentialServer(t, provider, idbHost)
+	defer func() { _ = providerConn.Close() }()
+
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
 		t.Fatalf("ExternalCredentials: %v", err)
@@ -1204,13 +1224,14 @@ func TestExternalCredentialProviderReadsExistingCiphertextFormat(t *testing.T) {
 }
 
 func TestExternalCredentialProviderValidation(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	provider, providerConn := startTestProviderServer(t)
-	defer func() { _ = providerConn.Close() }()
-
+	idbHost := startTestIndexedDBBackend(t)
+	provider := startTestProviderServer(t)
 	configureProvider(t, provider, map[string]any{
 		"encryptionKey": "provider-validation-key",
 	})
+
+	providerConn := startTestExternalCredentialServer(t, provider, idbHost)
+	defer func() { _ = providerConn.Close() }()
 
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
@@ -1226,15 +1247,14 @@ func TestExternalCredentialProviderValidation(t *testing.T) {
 }
 
 func TestExternalCredentialProviderUsesNamedIndexedDBBinding(t *testing.T) {
-	startTestIndexedDBBackend(t)
-	startTestIndexedDBBackendAtEnv(t, gestalt.IndexedDBSocketEnv("archive"), "external_credentials_archive.sqlite")
-	provider, providerConn := startTestProviderServer(t)
-	defer func() { _ = providerConn.Close() }()
-
+	idbHost := startTestIndexedDBBackend(t)
+	provider := New()
 	configureProvider(t, provider, map[string]any{
 		"encryptionKey": "provider-named-indexeddb-key",
 		"indexeddb":     "archive",
 	})
+	providerConn := startTestExternalCredentialServer(t, provider, idbHost)
+	defer func() { _ = providerConn.Close() }()
 
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
@@ -1254,21 +1274,13 @@ func TestExternalCredentialProviderUsesNamedIndexedDBBinding(t *testing.T) {
 		t.Fatalf("UpsertCredential: %v", err)
 	}
 
-	defaultDB, err := gestalt.IndexedDB()
-	if err != nil {
-		t.Fatalf("IndexedDB(default): %v", err)
-	}
-	defer func() { _ = defaultDB.Close() }()
-
+	useIndexedDBHostEnv(t, idbHost)
 	namedDB, err := gestalt.IndexedDB("archive")
 	if err != nil {
 		t.Fatalf("IndexedDB(archive): %v", err)
 	}
 	defer func() { _ = namedDB.Close() }()
 
-	if _, err := defaultDB.ObjectStore(storeName).Get(context.Background(), created.GetId()); !errors.Is(err, gestalt.ErrNotFound) {
-		t.Fatalf("default indexeddb Get error = %v, want %v", err, gestalt.ErrNotFound)
-	}
 	raw, err := namedDB.ObjectStore(storeName).Get(context.Background(), created.GetId())
 	if err != nil {
 		t.Fatalf("named indexeddb Get: %v", err)
@@ -1278,22 +1290,17 @@ func TestExternalCredentialProviderUsesNamedIndexedDBBinding(t *testing.T) {
 	}
 }
 
-func startTestIndexedDBBackend(t *testing.T) {
+func startTestIndexedDBBackend(t *testing.T) string {
 	t.Helper()
-	startTestIndexedDBBackendAtEnv(t, gestalt.EnvIndexedDBSocket, "external_credentials.sqlite")
+	return startTestIndexedDBBackendWithSeed(t, "external_credentials.sqlite", true)
 }
 
-func startTestIndexedDBBackendWithoutSeed(t *testing.T) {
+func startTestIndexedDBBackendWithoutSeed(t *testing.T) string {
 	t.Helper()
-	startTestIndexedDBBackendAtEnvWithSeed(t, gestalt.EnvIndexedDBSocket, "external_credentials.sqlite", false)
+	return startTestIndexedDBBackendWithSeed(t, "external_credentials.sqlite", false)
 }
 
-func startTestIndexedDBBackendAtEnv(t *testing.T, envName, sqliteName string) {
-	t.Helper()
-	startTestIndexedDBBackendAtEnvWithSeed(t, envName, sqliteName, true)
-}
-
-func startTestIndexedDBBackendAtEnvWithSeed(t *testing.T, envName, sqliteName string, seedStore bool) {
+func startTestIndexedDBBackendWithSeed(t *testing.T, sqliteName string, seedStore bool) string {
 	t.Helper()
 
 	socketPath := newSocketPath(t, "indexeddb.sock")
@@ -1308,6 +1315,8 @@ func startTestIndexedDBBackendAtEnvWithSeed(t *testing.T, envName, sqliteName st
 	}
 
 	t.Setenv(providerSocketEnv, socketPath)
+	hostTarget := "unix://" + socketPath
+	t.Setenv(gestalt.EnvHostServiceSocket, hostTarget)
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
@@ -1320,27 +1329,33 @@ func startTestIndexedDBBackendAtEnvWithSeed(t *testing.T, envName, sqliteName st
 		waitServeResult(t, errCh)
 		_ = os.Remove(socketPath)
 	})
-
-	t.Setenv(envName, socketPath)
+	return hostTarget
 }
 
-func seedExternalCredentialStore(t *testing.T, store *relationaldb.Provider) {
+func startTestProviderServer(t *testing.T) *Provider {
 	t.Helper()
-	if err := store.CreateObjectStore(context.Background(), storeName, externalCredentialSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-		t.Fatalf("CreateObjectStore(%s): %v", storeName, err)
-	}
+	return New()
 }
 
-func startTestProviderServer(t *testing.T) (*Provider, *grpc.ClientConn) {
-	return startTestProviderServerWithProvider(t, New())
+func startTestProviderServerWithProvider(t *testing.T, provider *Provider) *Provider {
+	t.Helper()
+	return provider
 }
 
-func startTestProviderServerWithProvider(t *testing.T, provider *Provider) (*Provider, *grpc.ClientConn) {
+func useIndexedDBHostEnv(t *testing.T, indexedDBHostTarget string) {
+	t.Helper()
+	t.Setenv(gestalt.EnvHostServiceSocket, indexedDBHostTarget)
+}
+
+func startTestExternalCredentialServer(t *testing.T, provider *Provider, indexedDBHostTarget string) *grpc.ClientConn {
 	t.Helper()
 
 	socketPath := newSocketPath(t, "external-credentials.sock")
 	t.Setenv(providerSocketEnv, socketPath)
-	t.Setenv(gestalt.EnvExternalCredentialSocket, socketPath)
+	t.Setenv(gestalt.EnvHostServiceSocket, "unix://"+socketPath)
+	t.Cleanup(func() {
+		useIndexedDBHostEnv(t, indexedDBHostTarget)
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
@@ -1352,8 +1367,14 @@ func startTestProviderServerWithProvider(t *testing.T, provider *Provider) (*Pro
 		waitServeResult(t, errCh)
 	})
 
-	conn := newUnixConn(t, socketPath)
-	return provider, conn
+	return newUnixConn(t, socketPath)
+}
+
+func seedExternalCredentialStore(t *testing.T, store *relationaldb.Provider) {
+	t.Helper()
+	if err := store.CreateObjectStore(context.Background(), storeName, externalCredentialSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+		t.Fatalf("CreateObjectStore(%s): %v", storeName, err)
+	}
 }
 
 func credentialRefreshProviderConfig(encryptionKey, tokenURL string) map[string]any {

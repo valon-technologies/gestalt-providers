@@ -57,7 +57,7 @@ When `config.anthropicApiKey` is omitted, the provider uses the host-injected
 
 Normal runtime usage requires an agent `indexeddb` binding. The provider gets
 the host socket through the Gestalt Python SDK `IndexedDB()` binding
-(`GESTALT_INDEXEDDB_SOCKET`) and derives collision-safe object-store names from
+(`GESTALT_HOST_SERVICE_SOCKET`) and derives collision-safe object-store names from
 the configured provider name. `configure` does not open the socket; if the
 binding is missing or unreachable, the first session/turn RPC fails with
 `FAILED_PRECONDITION`.

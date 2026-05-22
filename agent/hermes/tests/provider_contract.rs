@@ -21,6 +21,8 @@ static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const OWNER_SUBJECT_ID: &str = "user-1";
 const OTHER_SUBJECT_ID: &str = "user-2";
 const SLACK_SUBJECT_ID: &str = "service_account:slack-bot";
+const ENV_HOST_SERVICE_SOCKET: &str = "GESTALT_HOST_SERVICE_SOCKET";
+const ENV_HOST_SERVICE_TOKEN: &str = "GESTALT_HOST_SERVICE_TOKEN";
 
 #[tokio::test]
 async fn completes_turn_and_refreshes_adc_token_per_turn() {
@@ -165,8 +167,8 @@ async fn mcp_catalog_turn_bridges_gestalt_tools_to_hermes() {
     let fixture = Fixture::new("mcp-call");
     let host = TestAgentHostService::default();
     let socket_path = fixture.tmp.path().join("agent-host.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+    let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
+    let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
@@ -268,8 +270,8 @@ async fn mcp_catalog_turn_does_not_prefetch_tools_before_mcp_use() {
     let fixture = Fixture::new("mcp-list-only");
     let host = TestAgentHostService::default();
     let socket_path = fixture.tmp.path().join("agent-host.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+    let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
+    let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
@@ -326,8 +328,8 @@ async fn mcp_catalog_turn_marks_unavailable_sentinel_call_as_error() {
         ..Default::default()
     };
     let socket_path = fixture.tmp.path().join("agent-host.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+    let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
+    let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
@@ -383,8 +385,8 @@ async fn mcp_catalog_turn_preserves_empty_target_error_body() {
         ..Default::default()
     };
     let socket_path = fixture.tmp.path().join("agent-host-empty-error.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+    let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
+    let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
@@ -420,8 +422,8 @@ async fn mcp_catalog_proxy_gets_schema_by_returned_mcp_name() {
     let fixture = Fixture::new("mcp-schema");
     let host = TestAgentHostService::default();
     let socket_path = fixture.tmp.path().join("agent-host-schema.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+    let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
+    let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
@@ -465,8 +467,8 @@ async fn mcp_catalog_proxy_rejects_ambiguous_ref_selectors() {
         ..Default::default()
     };
     let socket_path = fixture.tmp.path().join("agent-host-ambiguous.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+    let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
+    let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
@@ -503,8 +505,8 @@ async fn mcp_catalog_proxy_rejects_invalid_selectors_before_lookup() {
     let fixture = Fixture::new("mcp-invalid-selector");
     let host = TestAgentHostService::default();
     let socket_path = fixture.tmp.path().join("agent-host-invalid-selector.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+    let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
+    let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
@@ -537,8 +539,8 @@ async fn mcp_catalog_proxy_searches_only_catalog_metadata() {
         ..Default::default()
     };
     let socket_path = fixture.tmp.path().join("agent-host-schema-only.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+    let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
+    let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
@@ -573,8 +575,8 @@ async fn mcp_catalog_proxy_ranks_matches_across_pages() {
         ..Default::default()
     };
     let socket_path = fixture.tmp.path().join("agent-host-ranked-pages.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+    let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
+    let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
@@ -627,8 +629,8 @@ async fn mcp_catalog_proxy_reports_cursor_and_page_errors_as_tool_errors() {
     ] {
         let fixture = Fixture::new("mcp-search-only");
         let socket_path = fixture.tmp.path().join(format!("agent-host-{name}.sock"));
-        let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-        let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+        let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
+        let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
         let host_task = serve_agent_host(socket_path, host.clone()).await;
         let provider = fixture.configure_provider().await;
 
@@ -662,8 +664,8 @@ async fn mcp_catalog_proxy_reports_list_rpc_errors_as_tool_errors() {
         ..Default::default()
     };
     let socket_path = fixture.tmp.path().join("agent-host-list-error.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+    let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
+    let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
@@ -722,8 +724,8 @@ async fn mcp_catalog_proxy_reports_invalid_catalog_tools_as_tool_errors() {
     ] {
         let fixture = Fixture::new("mcp-search-only");
         let socket_path = fixture.tmp.path().join(format!("agent-host-{name}.sock"));
-        let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-        let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+        let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
+        let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
         let host_task = serve_agent_host(socket_path, host.clone()).await;
         let provider = fixture.configure_provider().await;
 
@@ -754,8 +756,8 @@ async fn mcp_catalog_proxy_reports_input_cap_errors_without_listing_tools() {
     let fixture = Fixture::new("mcp-input-caps");
     let host = TestAgentHostService::default();
     let socket_path = fixture.tmp.path().join("agent-host-input-caps.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+    let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
+    let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
@@ -789,8 +791,8 @@ async fn mcp_catalog_proxy_reports_execute_rpc_errors_as_tool_errors() {
         ..Default::default()
     };
     let socket_path = fixture.tmp.path().join("agent-host-execute-error.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+    let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
+    let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
@@ -827,8 +829,8 @@ async fn mcp_catalog_does_not_require_advertised_acp_http_mcp_support() {
     let fixture = Fixture::new("mcp-call-no-cap");
     let host = TestAgentHostService::default();
     let socket_path = fixture.tmp.path().join("agent-host-no-cap.sock");
-    let _socket_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET", socket_path.as_os_str());
-    let _token_guard = EnvGuard::set("GESTALT_AGENT_HOST_SOCKET_TOKEN", "relay-token");
+    let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
+    let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 

@@ -2678,5 +2678,5 @@ func startTestIndexedDBBackend(t *testing.T) {
 		}
 		_ = os.Remove(socketPath)
 	})
-	t.Setenv(gestalt.EnvIndexedDBSocket, socketPath)
+	t.Setenv(gestalt.EnvHostServiceSocket, "unix://"+socketPath)
 }

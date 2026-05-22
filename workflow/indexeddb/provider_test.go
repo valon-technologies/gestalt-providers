@@ -3910,7 +3910,7 @@ func startTestIndexedDBBackendWithWrapper(t *testing.T, wrap func(gestalt.Indexe
 	}
 	serverCtx, cancel := context.WithCancel(context.Background())
 	t.Setenv("GESTALT_PLUGIN_SOCKET", socketPath)
-	t.Setenv(gestalt.EnvIndexedDBSocket, socketPath)
+	t.Setenv(gestalt.EnvHostServiceSocket, "unix://"+socketPath)
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- gestalt.ServeIndexedDBProvider(serverCtx, indexedDBServer) }()
 	waitForUnixSocket(t, socketPath)

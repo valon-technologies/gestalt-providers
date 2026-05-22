@@ -23,7 +23,7 @@ from google.protobuf import struct_pb2 as _struct_pb2
 from mcp import types as mcp_types
 
 import provider as provider_module
-from gestalt import ENV_AGENT_HOST_SOCKET, ENV_AGENT_HOST_SOCKET_TOKEN, ProviderKind, _runtime, indexeddb_socket_env
+from gestalt import ENV_HOST_SERVICE_SOCKET, ENV_HOST_SERVICE_TOKEN, ProviderKind, _runtime
 from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt._gen.v1 import plugin_pb2 as _plugin_pb2
@@ -45,15 +45,12 @@ AGENT_TOOL_SOURCE_MODE_NONE = provider_module.AGENT_TOOL_SOURCE_MODE_NONE
 
 _runtime_server: grpc.Server | None = None
 _host_server: grpc.Server | None = None
-_indexeddb_server: grpc.Server | None = None
 _runtime_socket = ""
 _host_socket = ""
-_indexeddb_socket = ""
 _host_servicer: "_FakeAgentHost | None" = None
 _indexeddb_servicer: "FakeIndexedDB | None" = None
-_previous_agent_host_socket: str | None = None
-_previous_agent_host_token: str | None = None
-_previous_indexeddb_socket: str | None = None
+_previous_host_service_socket: str | None = None
+_previous_host_service_token: str | None = None
 
 
 class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
@@ -1403,8 +1400,8 @@ class ClaudeProviderTests(unittest.TestCase):
 
     def test_missing_indexeddb_socket_fails_first_store_rpc_with_failed_precondition(self) -> None:
         missing_socket = _fresh_socket("claude-agent-missing-indexeddb")
-        previous_socket = os.environ.get(indexeddb_socket_env())
-        os.environ[indexeddb_socket_env()] = missing_socket
+        previous_socket = os.environ.get(ENV_HOST_SERVICE_SOCKET)
+        os.environ[ENV_HOST_SERVICE_SOCKET] = f"unix:{missing_socket}"
 
         try:
             lifecycle, provider_client = _configure_provider()
@@ -1417,9 +1414,9 @@ class ClaudeProviderTests(unittest.TestCase):
                 )
         finally:
             if previous_socket is None:
-                os.environ.pop(indexeddb_socket_env(), None)
+                os.environ.pop(ENV_HOST_SERVICE_SOCKET, None)
             else:
-                os.environ[indexeddb_socket_env()] = previous_socket
+                os.environ[ENV_HOST_SERVICE_SOCKET] = previous_socket
             if os.path.exists(missing_socket):
                 os.remove(missing_socket)
 
@@ -1896,31 +1893,24 @@ class ClaudeProviderTests(unittest.TestCase):
 
 
 def setUpModule() -> None:
-    global _runtime_server, _host_server, _indexeddb_server, _runtime_socket, _host_socket, _indexeddb_socket
+    global _runtime_server, _host_server, _runtime_socket, _host_socket
     global _host_servicer, _indexeddb_servicer
-    global _previous_agent_host_socket, _previous_agent_host_token, _previous_indexeddb_socket
+    global _previous_host_service_socket, _previous_host_service_token
 
     _runtime_socket = _fresh_socket("claude-sdk-agent-runtime")
     _host_socket = _fresh_socket("claude-sdk-agent-host")
-    _indexeddb_socket = _fresh_socket("claude-sdk-agent-indexeddb")
-    _previous_agent_host_socket = os.environ.get(ENV_AGENT_HOST_SOCKET)
-    _previous_agent_host_token = os.environ.get(ENV_AGENT_HOST_SOCKET_TOKEN)
-    _previous_indexeddb_socket = os.environ.get(indexeddb_socket_env())
-    os.environ[ENV_AGENT_HOST_SOCKET] = _host_socket
-    os.environ[ENV_AGENT_HOST_SOCKET_TOKEN] = "relay-token"
-    os.environ[indexeddb_socket_env()] = _indexeddb_socket
+    _previous_host_service_socket = os.environ.get(ENV_HOST_SERVICE_SOCKET)
+    _previous_host_service_token = os.environ.get(ENV_HOST_SERVICE_TOKEN)
+    os.environ[ENV_HOST_SERVICE_SOCKET] = f"unix:{_host_socket}"
+    os.environ[ENV_HOST_SERVICE_TOKEN] = "relay-token"
 
     _host_servicer = _FakeAgentHost()
+    _indexeddb_servicer = FakeIndexedDB()
     _host_server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-    agent_pb2_grpc.add_AgentHostServicer_to_server(_host_servicer, _host_server)
+    _agent_pb2_grpc.add_AgentHostServicer_to_server(_host_servicer, _host_server)
+    datastore_pb2_grpc.add_IndexedDBServicer_to_server(_indexeddb_servicer, _host_server)
     _host_server.add_insecure_port(f"unix:{_host_socket}")
     _host_server.start()
-
-    _indexeddb_servicer = FakeIndexedDB()
-    _indexeddb_server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-    datastore_pb2_grpc.add_IndexedDBServicer_to_server(_indexeddb_servicer, _indexeddb_server)
-    _indexeddb_server.add_insecure_port(f"unix:{_indexeddb_socket}")
-    _indexeddb_server.start()
 
     _runtime_server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
     adapter = _runtime._servable_target(provider_module.provider, runtime_kind=ProviderKind.AGENT)
@@ -1932,17 +1922,16 @@ def setUpModule() -> None:
 def tearDownModule() -> None:
     if provider_module.provider is not None:
         provider_module.provider.close()
-    for server in (_runtime_server, _host_server, _indexeddb_server):
+    for server in (_runtime_server, _host_server):
         if server is not None:
             server.stop(0)
-    for path in (_runtime_socket, _host_socket, _indexeddb_socket):
+    for path in (_runtime_socket, _host_socket):
         try:
             os.unlink(path)
         except OSError:
             pass
-    _restore_env(ENV_AGENT_HOST_SOCKET, _previous_agent_host_socket)
-    _restore_env(ENV_AGENT_HOST_SOCKET_TOKEN, _previous_agent_host_token)
-    _restore_env(indexeddb_socket_env(), _previous_indexeddb_socket)
+    _restore_env(ENV_HOST_SERVICE_SOCKET, _previous_host_service_socket)
+    _restore_env(ENV_HOST_SERVICE_TOKEN, _previous_host_service_token)
 
 
 def _configure_provider(config: dict[str, Any] | None = None) -> tuple[Any, Any]:

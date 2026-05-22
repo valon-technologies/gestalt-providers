@@ -56,7 +56,7 @@ def _error_details(exc: BaseException) -> str:
 
 
 def _indexeddb_unavailable_message(details: str) -> str:
-    env_name = gestalt.indexeddb_socket_env()
+    env_name = gestalt.ENV_HOST_SERVICE_SOCKET
     detail = details.strip()
     suffix = f": {detail}" if detail else ""
     return f"agent/claude requires an IndexedDB host socket binding via {env_name}{suffix}"
