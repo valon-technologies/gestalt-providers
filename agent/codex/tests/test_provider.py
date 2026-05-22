@@ -723,7 +723,7 @@ def setUpModule() -> None:
     _previous_host_service_socket = os.environ.get(ENV_HOST_SERVICE_SOCKET)
     _previous_host_service_token = os.environ.get(ENV_HOST_SERVICE_TOKEN)
     _previous_openai_api_key = os.environ.get("OPENAI_API_KEY")
-    os.environ[ENV_HOST_SERVICE_SOCKET] = f"unix:{_host_socket}"
+    os.environ[ENV_HOST_SERVICE_SOCKET] = _host_socket
     os.environ[ENV_HOST_SERVICE_TOKEN] = "relay-token"
     os.environ.pop("OPENAI_API_KEY", None)
 

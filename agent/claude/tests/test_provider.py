@@ -1401,7 +1401,7 @@ class ClaudeProviderTests(unittest.TestCase):
     def test_missing_indexeddb_socket_fails_first_store_rpc_with_failed_precondition(self) -> None:
         missing_socket = _fresh_socket("claude-agent-missing-indexeddb")
         previous_socket = os.environ.get(ENV_HOST_SERVICE_SOCKET)
-        os.environ[ENV_HOST_SERVICE_SOCKET] = f"unix:{missing_socket}"
+        os.environ[ENV_HOST_SERVICE_SOCKET] = missing_socket
 
         try:
             lifecycle, provider_client = _configure_provider()
@@ -1901,7 +1901,7 @@ def setUpModule() -> None:
     _host_socket = _fresh_socket("claude-sdk-agent-host")
     _previous_host_service_socket = os.environ.get(ENV_HOST_SERVICE_SOCKET)
     _previous_host_service_token = os.environ.get(ENV_HOST_SERVICE_TOKEN)
-    os.environ[ENV_HOST_SERVICE_SOCKET] = f"unix:{_host_socket}"
+    os.environ[ENV_HOST_SERVICE_SOCKET] = _host_socket
     os.environ[ENV_HOST_SERVICE_TOKEN] = "relay-token"
 
     _host_servicer = _FakeAgentHost()

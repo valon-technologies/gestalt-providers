@@ -47,6 +47,8 @@ require (
 
 replace github.com/valon-technologies/gestalt-providers/indexeddb/contracttest => ../contracttest
 
+replace github.com/valon-technologies/gestalt-providers/internal/hostservicetest => ../../internal/hostservicetest
+
 replace github.com/valon-technologies/gestalt-providers/indexeddb/internal => ../internal
 
 replace github.com/valon-technologies/gestalt/sdk/go => ../../../gestalt/sdk/go

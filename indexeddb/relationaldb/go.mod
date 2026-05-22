@@ -33,6 +33,7 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
+	github.com/valon-technologies/gestalt-providers/internal/hostservicetest v0.0.0-00010101000000-000000000000 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel v1.43.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.43.0 // indirect
@@ -59,6 +60,8 @@ require (
 )
 
 replace github.com/valon-technologies/gestalt-providers/indexeddb/contracttest => ../contracttest
+
+replace github.com/valon-technologies/gestalt-providers/internal/hostservicetest => ../../internal/hostservicetest
 
 replace github.com/valon-technologies/gestalt-providers/indexeddb/internal => ../internal
 
