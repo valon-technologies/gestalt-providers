@@ -41,6 +41,7 @@ const (
 
 	storeSchedules     = "schedules"
 	storeEventTriggers = "event_triggers"
+	storeDefinitions   = "definitions"
 	storeRuns          = "runs"
 	storeRunClaims     = "workflow_run_claims"
 	storeIdempotency   = "idempotency"
@@ -102,6 +103,7 @@ type Provider struct {
 	host              workflowHostClient
 	scheduleStore     *gestalt.ObjectStoreClient
 	eventTriggerStore *gestalt.ObjectStoreClient
+	definitionStore   *gestalt.ObjectStoreClient
 	runStore          *gestalt.ObjectStoreClient
 	runClaimStore     *gestalt.ObjectStoreClient
 	idempotencyStore  *gestalt.ObjectStoreClient
@@ -289,6 +291,7 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	p.host = host
 	p.scheduleStore = db.ObjectStore(storeSchedules)
 	p.eventTriggerStore = db.ObjectStore(storeEventTriggers)
+	p.definitionStore = db.ObjectStore(storeDefinitions)
 	p.runStore = runStore
 	p.runClaimStore = runClaimStore
 	p.idempotencyStore = db.ObjectStore(storeIdempotency)
@@ -403,6 +406,7 @@ func (p *Provider) Close() error {
 	p.host = nil
 	p.scheduleStore = nil
 	p.eventTriggerStore = nil
+	p.definitionStore = nil
 	p.runStore = nil
 	p.runClaimStore = nil
 	p.idempotencyStore = nil
@@ -1246,14 +1250,14 @@ func (p *Provider) ResumeEventTrigger(ctx context.Context, req *gestalt.ResumeWo
 	return p.updateEventTriggerPaused(ctx, "", strings.TrimSpace(req.TriggerID), false)
 }
 
-func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflowProviderEventRequest) error {
+func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflowProviderEventRequest) (*gestalt.WorkflowEvent, error) {
 	if req == nil {
-		return status.Error(codes.InvalidArgument, "request is required")
+		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
 	pluginName := strings.TrimSpace(req.PluginName)
 	event, err := normalizeWorkflowEvent(req.Event, p.clock())
 	if err != nil {
-		return status.Error(codes.InvalidArgument, err.Error())
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
 	p.publishMu.Lock()
@@ -1263,12 +1267,12 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 	state, err := p.requireConfiguredLocked()
 	if err != nil {
 		p.mu.RUnlock()
-		return status.Error(codes.FailedPrecondition, err.Error())
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	triggers, err := listEventTriggerRecords(ctx, state.eventTriggerStore, pluginName)
 	if err != nil {
 		p.mu.RUnlock()
-		return status.Errorf(codes.Internal, "list event triggers: %v", err)
+		return nil, status.Errorf(codes.Internal, "list event triggers: %v", err)
 	}
 	now := p.clock().UTC()
 	providerName := strings.TrimSpace(p.name)
@@ -1285,7 +1289,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 		}
 		if _, found, err := loadRunRecord(ctx, state.runStore, trigger.ownerKey(), runID); err != nil {
 			p.mu.RUnlock()
-			return status.Errorf(codes.Internal, "load event run: %v", err)
+			return nil, status.Errorf(codes.Internal, "load event run: %v", err)
 		} else if found {
 			continue
 		}
@@ -1297,18 +1301,18 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 			ref, err := publishedEventExecutionReference(providerName, runID, trigger, publishedBy, now)
 			if err != nil {
 				p.mu.RUnlock()
-				return status.Errorf(codes.Internal, "build event execution reference: %v", err)
+				return nil, status.Errorf(codes.Internal, "build event execution reference: %v", err)
 			}
 			if ref != nil {
 				record, err := executionReferenceRecordFromInput(ref)
 				if err != nil {
 					p.mu.RUnlock()
-					return status.Errorf(codes.Internal, "build event execution reference record: %v", err)
+					return nil, status.Errorf(codes.Internal, "build event execution reference record: %v", err)
 				}
 				if err := state.executionRefStore.Add(ctx, record.toRecord()); err != nil {
 					if !errors.Is(err, gestalt.ErrAlreadyExists) {
 						p.mu.RUnlock()
-						return status.Errorf(codes.Internal, "store event execution reference: %v", err)
+						return nil, status.Errorf(codes.Internal, "store event execution reference: %v", err)
 					}
 				} else {
 					createdExecutionRef = true
@@ -1336,7 +1340,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 				_ = state.executionRefStore.Delete(ctx, executionRef)
 			}
 			p.mu.RUnlock()
-			return status.Errorf(codes.Internal, "enqueue workflow run: %v", err)
+			return nil, status.Errorf(codes.Internal, "enqueue workflow run: %v", err)
 		}
 		enqueued = true
 		if preferredRunID == "" {
@@ -1347,7 +1351,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 		p.signalWorkerLocked(preferredRunID)
 	}
 	p.mu.RUnlock()
-	return nil
+	return cloneWorkflowEvent(event), nil
 }
 
 func (p *Provider) PutExecutionReference(ctx context.Context, req *gestalt.PutWorkflowExecutionReferenceRequest) (*gestalt.WorkflowExecutionReference, error) {
@@ -2235,7 +2239,7 @@ func completeRunInTransaction(ctx context.Context, stores workflowRunCompletionT
 }
 
 func (p *Provider) requireConfiguredLocked() (*configuredState, error) {
-	if p.db == nil || p.runStore == nil || p.runClaimStore == nil || p.scheduleStore == nil || p.eventTriggerStore == nil || p.idempotencyStore == nil || p.executionRefStore == nil || p.workflowKeyStore == nil || p.signalStore == nil || p.host == nil {
+	if p.db == nil || p.runStore == nil || p.runClaimStore == nil || p.scheduleStore == nil || p.eventTriggerStore == nil || p.definitionStore == nil || p.idempotencyStore == nil || p.executionRefStore == nil || p.workflowKeyStore == nil || p.signalStore == nil || p.host == nil {
 		return nil, errors.New("indexeddb workflow: provider is not configured")
 	}
 	return &configuredState{
@@ -2243,6 +2247,7 @@ func (p *Provider) requireConfiguredLocked() (*configuredState, error) {
 		host:               p.host,
 		scheduleStore:      p.scheduleStore,
 		eventTriggerStore:  p.eventTriggerStore,
+		definitionStore:    p.definitionStore,
 		runStore:           p.runStore,
 		runClaimStore:      p.runClaimStore,
 		idempotencyStore:   p.idempotencyStore,
@@ -2297,6 +2302,7 @@ type configuredState struct {
 	host               workflowHostClient
 	scheduleStore      *gestalt.ObjectStoreClient
 	eventTriggerStore  *gestalt.ObjectStoreClient
+	definitionStore    *gestalt.ObjectStoreClient
 	runStore           *gestalt.ObjectStoreClient
 	runClaimStore      *gestalt.ObjectStoreClient
 	idempotencyStore   *gestalt.ObjectStoreClient
@@ -4168,14 +4174,22 @@ func idempotencyID(ownerKey, key string) string {
 	return ownerKey + ":" + key
 }
 
+func hashScopedID(prefix string, parts ...string) string {
+	normalized := make([]string, 0, len(parts))
+	for _, part := range parts {
+		normalized = append(normalized, strings.TrimSpace(part))
+	}
+	sum := sha256.Sum256([]byte(strings.Join(normalized, "\x00")))
+	return strings.TrimSpace(prefix) + ":" + hex.EncodeToString(sum[:16])
+}
+
 func idempotentManualRunID(ownerKey, key string) string {
 	sum := sha256.Sum256([]byte(ownerKey + "\x00" + key))
 	return "manual:" + hex.EncodeToString(sum[:16])
 }
 
 func eventRunID(triggerID, eventSource, eventID string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(triggerID) + "\x00" + strings.TrimSpace(eventSource) + "\x00" + strings.TrimSpace(eventID)))
-	return "event:" + hex.EncodeToString(sum[:16])
+	return hashScopedID("event", triggerID, eventSource, eventID)
 }
 
 func eventExecutionRefID(runID string) string {

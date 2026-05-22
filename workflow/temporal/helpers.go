@@ -313,7 +313,41 @@ func normalizeWorkflowEvent(event *gestalt.WorkflowEvent, now func() time.Time) 
 		Data:            event.Data,
 		Extensions:      event.Extensions,
 	}
-	return normalized, nil
+	return cloneWorkflowEventInput(normalized), nil
+}
+
+func cloneWorkflowEventInput(event *gestalt.WorkflowEvent) *gestalt.WorkflowEvent {
+	if event == nil {
+		return nil
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		out := *event
+		return &out
+	}
+	var out gestalt.WorkflowEvent
+	if err := json.Unmarshal(data, &out); err != nil {
+		out := *event
+		return &out
+	}
+	return &out
+}
+
+func cloneWorkflowDefinitionInput(definition *gestalt.BoundWorkflowDefinition) *gestalt.BoundWorkflowDefinition {
+	if definition == nil {
+		return nil
+	}
+	data, err := json.Marshal(definition)
+	if err != nil {
+		out := *definition
+		return &out
+	}
+	var out gestalt.BoundWorkflowDefinition
+	if err := json.Unmarshal(data, &out); err != nil {
+		out := *definition
+		return &out
+	}
+	return &out
 }
 
 func normalizeWorkflowSignalInput(signal *gestalt.WorkflowSignal, now time.Time) (*gestalt.WorkflowSignal, error) {

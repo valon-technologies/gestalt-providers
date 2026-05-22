@@ -121,6 +121,38 @@ func (p *Provider) Close() error {
 	return backend.Close()
 }
 
+func (p *Provider) CreateDefinition(ctx context.Context, req *gestalt.CreateWorkflowProviderDefinitionRequest) (*gestalt.BoundWorkflowDefinition, error) {
+	backend, err := p.requireBackend()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	return backend.CreateDefinition(ctx, req)
+}
+
+func (p *Provider) GetDefinition(ctx context.Context, req *gestalt.GetWorkflowProviderDefinitionRequest) (*gestalt.BoundWorkflowDefinition, error) {
+	backend, err := p.requireBackend()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	return backend.GetDefinition(ctx, req)
+}
+
+func (p *Provider) UpdateDefinition(ctx context.Context, req *gestalt.UpdateWorkflowProviderDefinitionRequest) (*gestalt.BoundWorkflowDefinition, error) {
+	backend, err := p.requireBackend()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	return backend.UpdateDefinition(ctx, req)
+}
+
+func (p *Provider) DeleteDefinition(ctx context.Context, req *gestalt.DeleteWorkflowProviderDefinitionRequest) error {
+	backend, err := p.requireBackend()
+	if err != nil {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
+	return backend.DeleteDefinition(ctx, req)
+}
+
 func (p *Provider) StartRun(ctx context.Context, req *gestalt.StartWorkflowProviderRunRequest) (*gestalt.BoundWorkflowRun, error) {
 	backend, err := p.requireStartedBackend(ctx)
 	if err != nil {
@@ -289,10 +321,10 @@ func (p *Provider) ListExecutionReferences(ctx context.Context, req *gestalt.Lis
 	return backend.ListExecutionReferences(ctx, req)
 }
 
-func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflowProviderEventRequest) error {
+func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflowProviderEventRequest) (*gestalt.WorkflowEvent, error) {
 	backend, err := p.requireStartedBackend(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	return backend.PublishEvent(ctx, req)
 }
