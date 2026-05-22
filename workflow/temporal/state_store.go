@@ -20,6 +20,7 @@ const (
 	storeTemporalSchedules         = "workflow_temporal_schedules"
 	storeTemporalEventTriggers     = "workflow_temporal_event_triggers"
 	storeTemporalEventTriggerKeys  = "workflow_temporal_event_trigger_keys"
+	storeTemporalDefinitions       = "workflow_temporal_definitions"
 	storeTemporalExecutionRefs     = "workflow_temporal_execution_refs"
 	storeTemporalRunProjections    = "workflow_temporal_v4_run_projections"
 	storeTemporalRunIdempotency    = "workflow_temporal_v4_run_idempotency"
@@ -38,6 +39,7 @@ type workflowStateStore struct {
 	schedules         *gestalt.ObjectStoreClient
 	eventTriggers     *gestalt.ObjectStoreClient
 	eventTriggerKeys  *gestalt.ObjectStoreClient
+	definitions       *gestalt.ObjectStoreClient
 	executionRefs     *gestalt.ObjectStoreClient
 	runProjections    *gestalt.ObjectStoreClient
 	runIdempotency    *gestalt.ObjectStoreClient
@@ -64,6 +66,7 @@ func openWorkflowStateStore(ctx context.Context, scopeID string) (*workflowState
 		schedules:         db.ObjectStore(storeTemporalSchedules),
 		eventTriggers:     db.ObjectStore(storeTemporalEventTriggers),
 		eventTriggerKeys:  db.ObjectStore(storeTemporalEventTriggerKeys),
+		definitions:       db.ObjectStore(storeTemporalDefinitions),
 		executionRefs:     db.ObjectStore(storeTemporalExecutionRefs),
 		runProjections:    db.ObjectStore(storeTemporalRunProjections),
 		runIdempotency:    db.ObjectStore(storeTemporalRunIdempotency),
@@ -85,6 +88,9 @@ func ensureWorkflowStateStores(ctx context.Context, db *gestalt.IndexedDBClient)
 	}
 	if err := db.CreateObjectStore(ctx, storeTemporalEventTriggerKeys, temporalEventTriggerKeySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow event trigger key store: %w", err)
+	}
+	if err := db.CreateObjectStore(ctx, storeTemporalDefinitions, temporalDefinitionSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+		return fmt.Errorf("create workflow definition store: %w", err)
 	}
 	if err := db.CreateObjectStore(ctx, storeTemporalExecutionRefs, temporalExecutionRefSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow execution reference store: %w", err)

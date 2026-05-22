@@ -85,6 +85,93 @@ func TestProviderStartRunUsesIdempotencyAndExecutesHostCallbacks(t *testing.T) {
 	}
 }
 
+func TestProviderDefinitionCRUD(t *testing.T) {
+	ctx := context.Background()
+	startTestIndexedDBBackend(t)
+	startTestWorkflowHost(t, newWorkflowHostStub(200, "ok"))
+
+	provider := newProviderCore()
+	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
+		t.Fatalf("Configure: %v", err)
+	}
+	t.Cleanup(func() { _ = provider.Close() })
+
+	created, err := provider.CreateDefinition(ctx, &gestalt.CreateWorkflowProviderDefinitionRequest{
+		IdempotencyKey: "definition-sync",
+		Target:         workflowTarget(t, "roadmap", "sync", map[string]any{"mode": "full"}),
+	})
+	if err != nil {
+		t.Fatalf("CreateDefinition: %v", err)
+	}
+	if created.ID == "" || created.ProviderName != "indexeddb" {
+		t.Fatalf("created definition = %#v, want id and provider", created)
+	}
+
+	again, err := provider.CreateDefinition(ctx, &gestalt.CreateWorkflowProviderDefinitionRequest{
+		IdempotencyKey: "definition-sync",
+		Target:         workflowTarget(t, "roadmap", "sync", map[string]any{"mode": "full"}),
+	})
+	if err != nil {
+		t.Fatalf("CreateDefinition(idempotent): %v", err)
+	}
+	if again.ID != created.ID {
+		t.Fatalf("idempotent definition ids = %q and %q, want equal", created.ID, again.ID)
+	}
+	conflicting, err := provider.CreateDefinition(ctx, &gestalt.CreateWorkflowProviderDefinitionRequest{
+		IdempotencyKey: "definition-sync",
+		Target:         workflowTarget(t, "roadmap", "conflicting", nil),
+	})
+	if err != nil {
+		t.Fatalf("CreateDefinition(conflicting idempotent target): %v", err)
+	}
+	if conflicting.ID != created.ID || conflicting.Target.Plugin.Operation != "sync" {
+		t.Fatalf("conflicting idempotent definition = %#v, want original sync definition", conflicting)
+	}
+	record, found, err := loadDefinitionRecord(ctx, provider.definitionStore, created.ID)
+	if err != nil || !found {
+		t.Fatalf("loadDefinitionRecord found=%v err=%v", found, err)
+	}
+	record.CreatedBy = &gestalt.WorkflowActor{SubjectID: "creator-1", SubjectKind: "user"}
+	if err := provider.definitionStore.Put(ctx, record.toRecord()); err != nil {
+		t.Fatalf("store definition creator: %v", err)
+	}
+
+	updated, err := provider.UpdateDefinition(ctx, &gestalt.UpdateWorkflowProviderDefinitionRequest{
+		DefinitionID: created.ID,
+		Target:       workflowTarget(t, "roadmap", "refresh", map[string]any{"mode": "delta"}),
+	})
+	if err != nil {
+		t.Fatalf("UpdateDefinition: %v", err)
+	}
+	if updated.ID != created.ID || updated.CreatedAt != created.CreatedAt {
+		t.Fatalf("updated definition = %#v, want same id and created_at", updated)
+	}
+	if updated.Target.Plugin.Operation != "refresh" {
+		t.Fatalf("updated operation = %q, want refresh", updated.Target.Plugin.Operation)
+	}
+	if updated.CreatedBy == nil || updated.CreatedBy.SubjectID != "creator-1" {
+		t.Fatalf("updated created_by = %#v, want creator-1", updated.CreatedBy)
+	}
+
+	got, err := provider.GetDefinition(ctx, &gestalt.GetWorkflowProviderDefinitionRequest{DefinitionID: created.ID})
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	if got.Target.Plugin.Operation != "refresh" {
+		t.Fatalf("stored operation = %q, want refresh", got.Target.Plugin.Operation)
+	}
+	if got.CreatedBy == nil || got.CreatedBy.SubjectID != "creator-1" {
+		t.Fatalf("stored created_by = %#v, want creator-1", got.CreatedBy)
+	}
+
+	if err := provider.DeleteDefinition(ctx, &gestalt.DeleteWorkflowProviderDefinitionRequest{DefinitionID: created.ID}); err != nil {
+		t.Fatalf("DeleteDefinition: %v", err)
+	}
+	if _, err := provider.GetDefinition(ctx, &gestalt.GetWorkflowProviderDefinitionRequest{DefinitionID: created.ID}); status.Code(err) != codes.NotFound {
+		t.Fatalf("GetDefinition after delete error = %v, want NotFound", err)
+	}
+}
+
 func TestProviderStartControlsPollLoopLifecycle(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
@@ -1791,16 +1878,23 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	if trigger.ExecutionRef != "event-ref" {
 		t.Fatalf("trigger execution_ref = %q, want event-ref", trigger.ExecutionRef)
 	}
-	if err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
-		Event: &gestalt.WorkflowEvent{
-			ID:          "evt-1",
-			Source:      "roadmap",
-			Type:        "task.updated",
-			SpecVersion: "1.0",
-			Data:        mustStruct(t, map[string]any{"taskId": "task-1"}),
-		},
-	}); err != nil {
+	requestEvent := &gestalt.WorkflowEvent{
+		ID:          "evt-1",
+		Source:      "roadmap",
+		Type:        "task.updated",
+		SpecVersion: "1.0",
+		Data:        mustStruct(t, map[string]any{"taskId": "task-1"}),
+	}
+	published, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{Event: requestEvent})
+	if err != nil {
 		t.Fatalf("PublishEvent: %v", err)
+	}
+	requestEvent.Data.(map[string]any)["taskId"] = "mutated"
+	if published.ID != "evt-1" || published.Source != "roadmap" || published.Type != "task.updated" {
+		t.Fatalf("published event = %#v, want normalized input event", published)
+	}
+	if got := published.Data.(map[string]any)["taskId"]; got != "task-1" {
+		t.Fatalf("published event data taskId = %v, want isolated task-1", got)
 	}
 	eventCall, err := host.waitForCall(time.Second)
 	if err != nil {
@@ -1943,7 +2037,7 @@ func TestProviderPublishEventDoesNotWaitForConcurrentScheduleList(t *testing.T) 
 
 	publishDone := make(chan error, 1)
 	go func() {
-		err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
+		_, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
 			PluginName: "roadmap",
 			Event: &gestalt.WorkflowEvent{
 				ID:          "evt-while-listing",
@@ -2048,7 +2142,7 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 		DisplayName: "GitHub App installation 127579767 (valon-technologies/gestalt)",
 		AuthSource:  "github_app_webhook",
 	}
-	if err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
+	if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
 		PluginName:  "github",
 		PublishedBy: publishedBy,
 		Event:       githubWebhookWorkflowEvent(t),
@@ -2097,7 +2191,7 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 		DisplayName: "GitHub App installation 127579767 (valon-technologies/other)",
 		AuthSource:  "github_app_webhook",
 	}
-	if err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
+	if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
 		PluginName:  "github",
 		PublishedBy: duplicatePublisher,
 		Event:       githubWebhookWorkflowEvent(t),
@@ -2149,7 +2243,7 @@ func TestProviderPublishEventAgentTargetExecutionReferenceIncludesOutputDelivery
 		DisplayName: "GitHub App installation 127579767 (valon-technologies/gestalt)",
 		AuthSource:  "github_app_webhook",
 	}
-	if err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
+	if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
 		PluginName:  "agent:managed",
 		PublishedBy: publishedBy,
 		Event:       githubWebhookWorkflowEvent(t),
@@ -2501,7 +2595,7 @@ func TestProviderPublishEventDoesNotCoalesceDifferentSources(t *testing.T) {
 		{source: "a", id: "b:c"},
 	}
 	for _, event := range events {
-		if err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
+		if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
 			PluginName: "roadmap",
 			Event: &gestalt.WorkflowEvent{
 				ID:          event.id,
@@ -3126,7 +3220,7 @@ func TestProviderTickPrioritizesPluginEventWhenPreferredWakeLost(t *testing.T) {
 		t.Fatalf("UpsertEventTrigger: %v", err)
 	}
 	clock.Set(start.Add(time.Minute))
-	if err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
+	if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
 		Event: &gestalt.WorkflowEvent{
 			ID:          "evt-lost-wake",
 			Source:      "slack",
@@ -3852,6 +3946,7 @@ func seedWorkflowObjectStores(t *testing.T, store *relationaldb.Provider) {
 	}{
 		{name: storeSchedules, schema: gestalt.ObjectStoreSchema{}},
 		{name: storeEventTriggers, schema: gestalt.ObjectStoreSchema{}},
+		{name: storeDefinitions, schema: gestalt.ObjectStoreSchema{}},
 		{name: storeIdempotency, schema: gestalt.ObjectStoreSchema{}},
 		{name: storeWorkflowKeys, schema: gestalt.ObjectStoreSchema{}},
 		{name: storeRuns, schema: gestalt.ObjectStoreSchema{}},

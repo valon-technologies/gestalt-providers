@@ -78,6 +78,88 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 	}
 }
 
+func TestBackendDefinitionCRUD(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	backend := newRecordingTemporalBackend(&recordingTemporalClient{}, state)
+	createTarget := nativePluginTargetInput("slack", "postMessage")
+	createTarget.Plugin.Input = map[string]any{"mode": "full"}
+
+	created, err := backend.CreateDefinition(ctx, &gestalt.CreateWorkflowProviderDefinitionRequest{
+		IdempotencyKey: "definition-sync",
+		Target:         createTarget,
+	})
+	if err != nil {
+		t.Fatalf("CreateDefinition: %v", err)
+	}
+	createTarget.Plugin.Input.(map[string]any)["mode"] = "mutated"
+	if created.ID == "" || created.ProviderName != "temporal" {
+		t.Fatalf("created definition = %#v, want id and provider", created)
+	}
+	if got := created.Target.Plugin.Input.(map[string]any)["mode"]; got != "full" {
+		t.Fatalf("created definition input mode = %v, want isolated full", got)
+	}
+
+	again, err := backend.CreateDefinition(ctx, &gestalt.CreateWorkflowProviderDefinitionRequest{
+		IdempotencyKey: "definition-sync",
+		Target:         nativePluginTargetInput("slack", "postMessage"),
+	})
+	if err != nil {
+		t.Fatalf("CreateDefinition(idempotent): %v", err)
+	}
+	if again.ID != created.ID {
+		t.Fatalf("idempotent definition ids = %q and %q, want equal", created.ID, again.ID)
+	}
+	conflicting, err := backend.CreateDefinition(ctx, &gestalt.CreateWorkflowProviderDefinitionRequest{
+		IdempotencyKey: "definition-sync",
+		Target:         nativePluginTargetInput("slack", "conflictingMessage"),
+	})
+	if err != nil {
+		t.Fatalf("CreateDefinition(conflicting idempotent target): %v", err)
+	}
+	if conflicting.ID != created.ID || conflicting.Target.Plugin.Operation != "postMessage" {
+		t.Fatalf("conflicting idempotent definition = %#v, want original postMessage definition", conflicting)
+	}
+	created.CreatedBy = actor("creator-1")
+	if err := state.putDefinition(ctx, created); err != nil {
+		t.Fatalf("store definition creator: %v", err)
+	}
+
+	updated, err := backend.UpdateDefinition(ctx, &gestalt.UpdateWorkflowProviderDefinitionRequest{
+		DefinitionID: created.ID,
+		Target:       nativePluginTargetInput("slack", "updateMessage"),
+	})
+	if err != nil {
+		t.Fatalf("UpdateDefinition: %v", err)
+	}
+	if updated.ID != created.ID || updated.CreatedAt != created.CreatedAt {
+		t.Fatalf("updated definition = %#v, want same id and created_at", updated)
+	}
+	if updated.Target.Plugin.Operation != "updateMessage" {
+		t.Fatalf("updated operation = %q, want updateMessage", updated.Target.Plugin.Operation)
+	}
+	if updated.CreatedBy == nil || updated.CreatedBy.SubjectID != "creator-1" {
+		t.Fatalf("updated created_by = %#v, want creator-1", updated.CreatedBy)
+	}
+
+	got, err := backend.GetDefinition(ctx, &gestalt.GetWorkflowProviderDefinitionRequest{DefinitionID: created.ID})
+	if err != nil {
+		t.Fatalf("GetDefinition: %v", err)
+	}
+	if got.Target.Plugin.Operation != "updateMessage" {
+		t.Fatalf("stored operation = %q, want updateMessage", got.Target.Plugin.Operation)
+	}
+	if got.CreatedBy == nil || got.CreatedBy.SubjectID != "creator-1" {
+		t.Fatalf("stored created_by = %#v, want creator-1", got.CreatedBy)
+	}
+
+	if err := backend.DeleteDefinition(ctx, &gestalt.DeleteWorkflowProviderDefinitionRequest{DefinitionID: created.ID}); err != nil {
+		t.Fatalf("DeleteDefinition: %v", err)
+	}
+	if _, err := backend.GetDefinition(ctx, &gestalt.GetWorkflowProviderDefinitionRequest{DefinitionID: created.ID}); status.Code(err) != codes.NotFound {
+		t.Fatalf("GetDefinition after delete error = %v, want NotFound", err)
+	}
+}
+
 func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
@@ -1741,12 +1823,25 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 		}
 	}
 
-	err := backend.PublishEvent(context.Background(), &gestalt.PublishWorkflowProviderEventRequest{
+	requestEvent := &gestalt.WorkflowEvent{
+		ID:     "event-1",
+		Source: "slack",
+		Type:   "message.created",
+		Data:   map[string]any{"channel": "C123"},
+	}
+	published, err := backend.PublishEvent(context.Background(), &gestalt.PublishWorkflowProviderEventRequest{
 		PluginName: "slack",
-		Event:      &gestalt.WorkflowEvent{ID: "event-1", Source: "slack", Type: "message.created"},
+		Event:      requestEvent,
 	})
 	if err != nil {
 		t.Fatalf("PublishEvent: %v", err)
+	}
+	requestEvent.Data.(map[string]any)["channel"] = "mutated"
+	if published.ID != "event-1" || published.Source != "slack" || published.Type != "message.created" || published.SpecVersion != defaultSpecVersion {
+		t.Fatalf("published event = %#v, want normalized input event", published)
+	}
+	if got := published.Data.(map[string]any)["channel"]; got != "C123" {
+		t.Fatalf("published event data channel = %v, want isolated C123", got)
 	}
 	if len(tc.executions) != 2 {
 		t.Fatalf("executions = %d, want 2", len(tc.executions))

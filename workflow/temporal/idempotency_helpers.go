@@ -42,6 +42,10 @@ func startFingerprint(ownerKey, key, workflowKey, executionRef string, target *g
 	return hashID("start", ownerKey, key, workflowKey, executionRef, valueHashID(target), valueHashID(createdBy))
 }
 
+func idempotentDefinitionID(ownerKey, key string) string {
+	return "definition:" + hashID(strings.TrimSpace(ownerKey), strings.TrimSpace(key))
+}
+
 func eventRunWorkflowID(scopeID, triggerID string, event *gestalt.WorkflowEvent) string {
 	// The event-v3 family is a persisted idempotency namespace for published event
 	// IDs. Keep it stable even though the provider runtime is now V4-only.

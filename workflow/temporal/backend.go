@@ -740,18 +740,18 @@ func (b *temporalBackend) ListExecutionReferences(ctx context.Context, req *gest
 	return &gestalt.ListWorkflowExecutionReferencesResponse{References: inputs}, nil
 }
 
-func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflowProviderEventRequest) error {
+func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflowProviderEventRequest) (*gestalt.WorkflowEvent, error) {
 	if req == nil {
-		return status.Error(codes.InvalidArgument, "request is required")
+		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
 	pluginName := strings.TrimSpace(req.PluginName)
 	eventInput, err := normalizeWorkflowEvent(req.Event, time.Now)
 	if err != nil {
-		return status.Error(codes.InvalidArgument, err.Error())
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	triggers, err := b.state.matchTriggers(ctx, pluginName, eventInput)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	now := time.Now().UTC()
 	publishedBy := cloneActorInput(req.PublishedBy)
@@ -781,7 +781,7 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 		if actorHasSubject(publishedBy) {
 			ref, err := publishedEventExecutionReference(b.providerName, temporalWorkflowID, trigger, publishedBy, now)
 			if err != nil {
-				return status.Errorf(codes.Internal, "build event execution reference: %v", err)
+				return nil, status.Errorf(codes.Internal, "build event execution reference: %v", err)
 			}
 			if ref != nil {
 				if stored, err := b.PutExecutionReference(ctx, &gestalt.PutWorkflowExecutionReferenceRequest{Reference: ref}); err == nil && stored != nil {
@@ -799,7 +799,7 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 			if strings.TrimSpace(eventInput.ID) != "" && isAlreadyStarted(err) {
 				continue
 			}
-			return status.Errorf(codes.Internal, "start event workflow: %v", err)
+			return nil, status.Errorf(codes.Internal, "start event workflow: %v", err)
 		}
 		gestalt.RecordWorkflowRunStarted(ctx, b.workflowTelemetryOptions(
 			gestalt.WorkflowOperationPublishEvent,
@@ -808,7 +808,7 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 			workflowTelemetryRunStatus(run),
 		))
 	}
-	return nil
+	return eventInput, nil
 }
 
 func (b *temporalBackend) workflowTelemetryOptions(operationName, triggerKind, targetKind, runStatus string) gestalt.WorkflowOperationOptions {
