@@ -16,7 +16,7 @@ func TestBeginPluginStartRejectsConcurrentLaunch(t *testing.T) {
 			"session-1": {
 				id:       "session-1",
 				state:    sessionStateReady,
-				bindings: map[string]string{"GESTALT_AGENT_HOST_SOCKET": "tls://example.test:443"},
+				bindings: map[string]string{gestalt.EnvHostServiceSocket: "tls://example.test:443"},
 				image:    "ghcr.io/example/runtime:latest",
 			},
 		},

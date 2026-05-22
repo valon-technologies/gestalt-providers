@@ -504,7 +504,7 @@ class IndexedDBRunStore:
                 return self._client
             if self._closed:
                 raise RuntimeError("agent run store is closed")
-            env_name = gestalt.indexeddb_socket_env()
+            env_name = gestalt.ENV_HOST_SERVICE_SOCKET
             if not os.environ.get(env_name, ""):
                 raise StoreUnavailableError(_indexeddb_unavailable_message(f"{env_name} is not set"))
             try:

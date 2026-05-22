@@ -95,7 +95,7 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 		t.Fatalf("runtime Start metadata tenant = %q, want %q", got, want)
 	}
 
-	const hostServiceEnv = gestalt.EnvAgentHostSocket
+	const hostServiceEnv = gestalt.EnvHostServiceSocket
 
 	hosted, err := client.StartPlugin(ctx, gestalt.StartHostedPluginRequest{
 		SessionID:  session.ID,
@@ -104,9 +104,8 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 		Args:       []string{"--serve", "space value"},
 		Env: map[string]string{
 			"CUSTOM":                  "value",
-			"GESTALT_CACHE_SOCKET":    "https://gestaltd.example.internal/runtime/session/relay",
 			hostServiceEnv:            "tls://host-service-relay.gestalt.example:443",
-			hostServiceEnv + "_TOKEN": "host-service-token",
+			gestalt.EnvHostServiceToken: "host-service-token",
 		},
 	})
 	if err != nil {
@@ -132,9 +131,8 @@ func TestRuntimeProviderContractLaunchesHostedPlugin(t *testing.T) {
 		"TCP-LISTEN:50051",
 		"UNIX-CONNECT:'/tmp/gestalt/plugin.sock'",
 		"'GESTALT_PLUGIN_SOCKET=/tmp/gestalt/plugin.sock'",
-		"'GESTALT_CACHE_SOCKET=https://gestaltd.example.internal/runtime/session/relay'",
-		"'GESTALT_AGENT_HOST_SOCKET=tls://host-service-relay.gestalt.example:443'",
-		"'GESTALT_AGENT_HOST_SOCKET_TOKEN=host-service-token'",
+		"'GESTALT_HOST_SERVICE_SOCKET=tls://host-service-relay.gestalt.example:443'",
+		"'GESTALT_HOST_SERVICE_TOKEN=host-service-token'",
 		"'CUSTOM=value'",
 		"'./plugin' '--serve' 'space value'",
 	} {
@@ -497,10 +495,8 @@ func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(
 		DefaultAction: "deny",
 		Env: map[string]string{
 			"HTTPS_PROXY":                            "https://proxy.gestalt.example:9443",
-			gestalt.EnvAgentHostSocket:               "tls://agent-relay.gestalt.example:7443",
-			gestalt.EnvAgentHostSocket + "_TOKEN":    "agent-host-token",
-			gestalt.EnvAgentManagerSocket:            "tls://manager-relay.gestalt.example:443",
-			gestalt.EnvAgentManagerSocket + "_TOKEN": "agent-manager-token",
+			gestalt.EnvHostServiceSocket: "tls://host-service-relay.gestalt.example:7443",
+			gestalt.EnvHostServiceToken:  "host-service-token",
 		},
 	}); err != nil {
 		t.Fatalf("StartPlugin: %v", err)
@@ -519,8 +515,7 @@ func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(
 	}
 	for _, want := range []hostnameEgressEndpoint{
 		{Host: "proxy.gestalt.example", Port: 9443},
-		{Host: "agent-relay.gestalt.example", Port: 7443},
-		{Host: "manager-relay.gestalt.example", Port: 443},
+		{Host: "host-service-relay.gestalt.example", Port: 7443},
 	} {
 		if !slices.Contains(policies[0].config.Endpoints, want) {
 			t.Fatalf("hostname egress endpoints = %#v, want %#v", policies[0].config.Endpoints, want)
@@ -531,10 +526,8 @@ func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(
 	}
 	launchScript := execCalls[0].command[2]
 	for _, want := range []string{
-		"'GESTALT_AGENT_HOST_SOCKET=tls://agent-relay.gestalt.example:7443'",
-		"'GESTALT_AGENT_HOST_SOCKET_TOKEN=agent-host-token'",
-		"'GESTALT_AGENT_MANAGER_SOCKET=tls://manager-relay.gestalt.example:443'",
-		"'GESTALT_AGENT_MANAGER_SOCKET_TOKEN=agent-manager-token'",
+		"'GESTALT_HOST_SERVICE_SOCKET=tls://host-service-relay.gestalt.example:7443'",
+		"'GESTALT_HOST_SERVICE_TOKEN=host-service-token'",
 	} {
 		if !strings.Contains(launchScript, want) {
 			t.Fatalf("launch script missing %q:\n%s", want, launchScript)
@@ -789,11 +782,11 @@ func TestRuntimeProviderContractAllowsRelayOnlyAgentHostLaunchWithoutProxy(t *te
 		PluginName: "agent-provider",
 		Command:    "./plugin",
 		AllowedHosts: []string{
-			"agent-relay.gestalt.example",
+			"host-service-relay.gestalt.example",
 		},
 		Env: map[string]string{
-			gestalt.EnvAgentHostSocket:            "tls://agent-relay.gestalt.example:7443",
-			gestalt.EnvAgentHostSocket + "_TOKEN": "agent-host-token",
+			gestalt.EnvHostServiceSocket: "tls://host-service-relay.gestalt.example:7443",
+			gestalt.EnvHostServiceToken:  "host-service-token",
 		},
 	}); err != nil {
 		t.Fatalf("StartPlugin: %v", err)
@@ -809,8 +802,8 @@ func TestRuntimeProviderContractAllowsRelayOnlyAgentHostLaunchWithoutProxy(t *te
 	}
 	launchScript := fake.execCalls[0].command[2]
 	for _, want := range []string{
-		"'GESTALT_AGENT_HOST_SOCKET=tls://agent-relay.gestalt.example:7443'",
-		"'GESTALT_AGENT_HOST_SOCKET_TOKEN=agent-host-token'",
+		"'GESTALT_HOST_SERVICE_SOCKET=tls://host-service-relay.gestalt.example:7443'",
+		"'GESTALT_HOST_SERVICE_TOKEN=host-service-token'",
 	} {
 		if !strings.Contains(launchScript, want) {
 			t.Fatalf("launch script missing %q:\n%s", want, launchScript)

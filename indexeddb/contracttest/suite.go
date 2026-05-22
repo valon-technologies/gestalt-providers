@@ -815,13 +815,13 @@ func newSession(t *testing.T, harness Harness) *session {
 	socket := filepath.Join(tempDir, "s")
 
 	prevProviderSocket, hadProviderSocket := os.LookupEnv(envProviderSocket)
-	prevIndexedDBSocket, hadIndexedDBSocket := os.LookupEnv(gestalt.EnvIndexedDBSocket)
+	prevHostServiceSocket, hadHostServiceSocket := os.LookupEnv(gestalt.EnvHostServiceSocket)
 	if err := os.Setenv(envProviderSocket, socket); err != nil {
 		t.Fatalf("set %s: %v", envProviderSocket, err)
 	}
-	if err := os.Setenv(gestalt.EnvIndexedDBSocket, "unix://"+socket); err != nil {
+	if err := os.Setenv(gestalt.EnvHostServiceSocket, "unix://"+socket); err != nil {
 		restoreEnv(envProviderSocket, prevProviderSocket, hadProviderSocket)
-		t.Fatalf("set %s: %v", gestalt.EnvIndexedDBSocket, err)
+		t.Fatalf("set %s: %v", gestalt.EnvHostServiceSocket, err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -846,7 +846,7 @@ func newSession(t *testing.T, harness Harness) *session {
 		providerClose()
 		_ = os.RemoveAll(tempDir)
 		restoreEnv(envProviderSocket, prevProviderSocket, hadProviderSocket)
-		restoreEnv(gestalt.EnvIndexedDBSocket, prevIndexedDBSocket, hadIndexedDBSocket)
+		restoreEnv(gestalt.EnvHostServiceSocket, prevHostServiceSocket, hadHostServiceSocket)
 	}
 
 	var client *gestalt.IndexedDBClient

@@ -70,7 +70,7 @@ func newTestClient(t *testing.T) *gestalt.S3Client {
 	serveCtx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	t.Setenv("GESTALT_PLUGIN_SOCKET", socketPath)
-	t.Setenv(gestalt.EnvS3Socket, socketPath)
+	t.Setenv(gestalt.EnvHostServiceSocket, "unix://"+socketPath)
 	errCh := make(chan error, 1)
 	go func() { errCh <- gestalt.ServeS3Provider(serveCtx, provider) }()
 	t.Cleanup(func() {

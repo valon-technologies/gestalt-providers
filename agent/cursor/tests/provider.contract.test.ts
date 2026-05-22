@@ -40,8 +40,8 @@ import {
 
 import {
   AGENT_HOST_RELAY_TOKEN_HEADER,
-  ENV_AGENT_HOST_SOCKET,
-  ENV_AGENT_HOST_SOCKET_TOKEN,
+  ENV_HOST_SERVICE_SOCKET,
+  ENV_HOST_SERVICE_TOKEN,
 } from "../src/agent_host.ts";
 import {
   DEFAULT_TIMEOUT_SECONDS,
@@ -97,8 +97,8 @@ afterEach(async () => {
   for (const host of activeHosts.splice(0)) {
     await host.close();
   }
-  delete process.env[ENV_AGENT_HOST_SOCKET];
-  delete process.env[ENV_AGENT_HOST_SOCKET_TOKEN];
+  delete process.env[ENV_HOST_SERVICE_SOCKET];
+  delete process.env[ENV_HOST_SERVICE_TOKEN];
 });
 
 describe("Cursor agent provider contract", () => {
@@ -223,7 +223,7 @@ describe("Cursor agent provider contract", () => {
       pages: [{ tools: [tool({ id: "tool", mcpName: "linear__issues" })] }],
     });
     activeHosts.push(host);
-    process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
+    process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
     let prompt = "";
     const cursor = new FakeCursorAgentFactory(async (_options, runPrompt) => {
       prompt = runPrompt;
@@ -361,7 +361,7 @@ describe("Cursor agent provider contract", () => {
       pages: [{ tools: [tool({ id: "t", mcpName: "t" })] }],
     });
     activeHosts.push(host);
-    process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
+    process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
     const provider = await configuredProvider({
       runnerFactory: (config) =>
         new CursorSDKRunner(config, {
@@ -493,7 +493,7 @@ describe("Cursor agent provider contract", () => {
       pages: [{ tools: [tool({ id: "t", mcpName: "t" })] }],
     });
     activeHosts.push(host);
-    process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
+    process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
     const provider = await configuredProvider({
       runnerFactory: (config) =>
         new CursorSDKRunner(config, {
@@ -606,8 +606,8 @@ describe("Cursor agent provider contract", () => {
       executeBody: '{"forecast":"sunny"}',
     });
     activeHosts.push(host);
-    process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
-    process.env[ENV_AGENT_HOST_SOCKET_TOKEN] = "relay-token";
+    process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
+    process.env[ENV_HOST_SERVICE_TOKEN] = "relay-token";
 
     const cursor = new FakeCursorAgentFactory(async (options, prompt) => {
       expect(options.model).toEqual({ id: "composer-2" });
@@ -695,7 +695,7 @@ describe("Cursor agent provider contract", () => {
       pages: [{ tools: [tool({ id: "tool", mcpName: "workspace" })] }],
     });
     activeHosts.push(host);
-    process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
+    process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
     const preparedCwd = join(tmpdir(), "gestalt-prepared-cursor-workspace");
     const cursor = new FakeCursorAgentFactory(async (options) => {
       expect(options.local?.cwd).toBe(preparedCwd);
@@ -774,7 +774,7 @@ describe("Cursor agent provider contract", () => {
       pages: [{ tools: [tool({ id: "t", mcpName: "t" })] }],
     });
     activeHosts.push(host);
-    process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
+    process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
     const provider = await configuredProvider({
       config: { sandboxEnabled: true },
       runnerFactory: (config) =>
@@ -897,7 +897,7 @@ describe("Cursor agent provider contract", () => {
       pages: [{ tools: [tool({ id: "t", mcpName: "tool" })] }],
     });
     activeHosts.push(host);
-    process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
+    process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
 
     const failingCursor = new FakeCursorAgentFactory(async () => ({
       messages: [],
@@ -1114,7 +1114,7 @@ describe("Cursor agent provider contract", () => {
       pages: [{ tools: [tool({ id: "t", mcpName: "tool" })] }],
     });
     activeHosts.push(host);
-    process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
+    process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
     const cursor = new FakeCursorAgentFactory(async () => ({
       messages: [
         {
@@ -1222,7 +1222,7 @@ describe("Cursor agent provider contract", () => {
     for (const [name, pages, message] of cases) {
       const host = await FakeAgentHost.start({ pages });
       activeHosts.push(host);
-      process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
+      process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
       const provider = await configuredProvider({
         runnerFactory: (config) =>
           new CursorSDKRunner(config, {
@@ -1310,7 +1310,7 @@ describe("Cursor agent provider contract", () => {
       pages: [{ tools: [tool({ id: "t", mcpName: "t" })] }],
     });
     activeHosts.push(host);
-    process.env[ENV_AGENT_HOST_SOCKET] = host.socketPath;
+    process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
     const cursor = new FakeCursorAgentFactory(async () => [
       {
         type: "assistant",

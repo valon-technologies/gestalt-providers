@@ -25,7 +25,7 @@ import (
 func TestRuntimeProviderContractPassesHostServiceEnv(t *testing.T) {
 	t.Parallel()
 
-	const hostServiceEnv = gestalt.EnvAgentHostSocket
+	const hostServiceEnv = gestalt.EnvHostServiceSocket
 	if !isHostServiceEnvVar(hostServiceEnv) {
 		t.Fatalf("%s should be accepted as a relay host service env", hostServiceEnv)
 	}
@@ -691,7 +691,7 @@ func TestRuntimeProviderContractRelayOnlyAgentHostLaunchSkipsHostnameProxy(t *te
 		PluginName:   "agent-provider",
 		AllowedHosts: []string{"agent-relay.gestalt.example"},
 		Env: map[string]string{
-			gestalt.EnvAgentHostSocket: "tls://agent-relay.gestalt.example:7443",
+			gestalt.EnvHostServiceSocket: "tls://host-service-relay.gestalt.example:7443",
 		},
 	}, "session-1")
 	if err != nil {
@@ -709,7 +709,7 @@ func TestRuntimeProviderContractNonRelayAllowedHostStillRequiresProxy(t *testing
 		PluginName:   "agent-provider",
 		AllowedHosts: []string{"api.github.com"},
 		Env: map[string]string{
-			gestalt.EnvAgentHostSocket: "tls://agent-relay.gestalt.example:7443",
+			gestalt.EnvHostServiceSocket: "tls://host-service-relay.gestalt.example:7443",
 		},
 	}, "session-1")
 	if err == nil || !strings.Contains(err.Error(), "HTTP_PROXY or HTTPS_PROXY is required") {

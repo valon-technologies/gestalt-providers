@@ -682,7 +682,7 @@ func newProviderSessionWithSeed(t *testing.T, seedStores bool) *providerSession 
 	}()
 	waitUnixSocket(t, idbSocket)
 
-	t.Setenv(gestalt.IndexedDBSocketEnv("test"), idbSocket)
+	t.Setenv(gestalt.EnvHostServiceSocket, "unix://"+idbSocket)
 	authzProvider := New()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 
