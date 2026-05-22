@@ -5,18 +5,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"testing"
 	"time"
 
+	"github.com/valon-technologies/gestalt-providers/internal/hostservicetest"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
 const (
-	envProviderSocket = "GESTALT_PLUGIN_SOCKET"
-
 	typeString gestalt.ColumnType = gestalt.TypeString
 	typeInt    gestalt.ColumnType = gestalt.TypeInt
 	typeTime   gestalt.ColumnType = gestalt.TypeTime
@@ -808,99 +805,22 @@ func newSession(t *testing.T, harness Harness) *session {
 	t.Helper()
 
 	provider, providerClose := harness.NewProvider(t)
-	tempDir, err := os.MkdirTemp("/tmp", "gestalt-indexeddb-contract-")
+	hostservicetest.StartIndexedDB(t, provider)
+
+	client, err := gestalt.IndexedDB()
 	if err != nil {
-		t.Fatalf("create socket temp dir: %v", err)
-	}
-	socket := filepath.Join(tempDir, "s")
-
-	prevProviderSocket, hadProviderSocket := os.LookupEnv(envProviderSocket)
-	prevHostServiceSocket, hadHostServiceSocket := os.LookupEnv(gestalt.EnvHostServiceSocket)
-	if err := os.Setenv(envProviderSocket, socket); err != nil {
-		t.Fatalf("set %s: %v", envProviderSocket, err)
-	}
-	if err := os.Setenv(gestalt.EnvHostServiceSocket, "unix://"+socket); err != nil {
-		restoreEnv(envProviderSocket, prevProviderSocket, hadProviderSocket)
-		t.Fatalf("set %s: %v", gestalt.EnvHostServiceSocket, err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	serveErr := make(chan error, 1)
-	go func() {
-		serveErr <- gestalt.ServeIndexedDBProvider(ctx, provider)
-	}()
-
-	cleanup := func(client *gestalt.IndexedDBClient) {
-		if client != nil {
-			_ = client.Close()
-		}
-		cancel()
-		select {
-		case err := <-serveErr:
-			if err != nil {
-				t.Logf("ServeIndexedDBProvider stopped: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatalf("ServeIndexedDBProvider did not stop")
-		}
 		providerClose()
-		_ = os.RemoveAll(tempDir)
-		restoreEnv(envProviderSocket, prevProviderSocket, hadProviderSocket)
-		restoreEnv(gestalt.EnvHostServiceSocket, prevHostServiceSocket, hadHostServiceSocket)
+		t.Fatalf("IndexedDB connect: %v", err)
 	}
 
-	var client *gestalt.IndexedDBClient
-	success := false
-	defer func() {
-		if !success {
-			cleanup(client)
-		}
-	}()
-
-	client = connectIndexedDBClient(t, socket, serveErr)
-	success = true
 	return &session{
 		harness: harness,
 		client:  client,
 		close: func() {
-			cleanup(client)
+			_ = client.Close()
+			providerClose()
 		},
 	}
-}
-
-func connectIndexedDBClient(t *testing.T, socket string, serveErr chan error) *gestalt.IndexedDBClient {
-	t.Helper()
-
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Stat(socket); err == nil {
-			break
-		}
-		select {
-		case err := <-serveErr:
-			serveErr <- err
-			t.Fatalf("ServeIndexedDBProvider exited before socket was ready: %v", err)
-		default:
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("indexeddb socket %s was not created", socket)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	client, err := gestalt.IndexedDB()
-	if err != nil {
-		t.Fatalf("IndexedDB connect: %v", err)
-	}
-	return client
-}
-
-func restoreEnv(key, value string, ok bool) {
-	if ok {
-		_ = os.Setenv(key, value)
-		return
-	}
-	_ = os.Unsetenv(key)
 }
 
 func (s *session) Restart(t *testing.T) {

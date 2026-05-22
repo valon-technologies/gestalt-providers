@@ -5,6 +5,7 @@ go 1.26
 require (
 	github.com/google/uuid v1.6.0
 	github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb v0.0.0-00010101000000-000000000000
+	github.com/valon-technologies/gestalt-providers/internal/hostservicetest v0.0.0-00010101000000-000000000000
 	github.com/valon-technologies/gestalt/sdk/go v0.0.0-00010101000000-000000000000
 	golang.org/x/crypto v0.49.0
 	golang.org/x/sync v0.20.0
@@ -58,6 +59,8 @@ require (
 )
 
 replace github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb => ../../indexeddb/relationaldb
+
+replace github.com/valon-technologies/gestalt-providers/internal/hostservicetest => ../../internal/hostservicetest
 
 replace github.com/valon-technologies/gestalt-providers/indexeddb/internal => ../../indexeddb/internal
 

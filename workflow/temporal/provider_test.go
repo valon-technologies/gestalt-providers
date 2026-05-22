@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	relationaldb "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb"
+	"github.com/valon-technologies/gestalt-providers/internal/hostservicetest"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -29,8 +30,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
-
-const providerSocketEnv = "GESTALT_PLUGIN_SOCKET"
 
 func newTestWorkflowEnvironment(suite *testsuite.WorkflowTestSuite) *testsuite.TestWorkflowEnvironment {
 	env := suite.NewTestWorkflowEnvironment()
@@ -2637,12 +2636,6 @@ func temporalMetricAttrsMatch(set attribute.Set, want map[string]string) bool {
 func startTestIndexedDBBackend(t *testing.T) {
 	t.Helper()
 
-	socketDir, err := os.MkdirTemp("/tmp", "temporal-indexeddb-*")
-	if err != nil {
-		t.Fatalf("MkdirTemp: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(socketDir) })
-	socketPath := filepath.Join(socketDir, "indexeddb.sock")
 	store := relationaldb.New()
 	if err := store.Configure(context.Background(), "temporal_workflow_state", map[string]any{
 		"dsn": "file:" + filepath.Join(t.TempDir(), "workflow.sqlite") + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)",
@@ -2650,33 +2643,5 @@ func startTestIndexedDBBackend(t *testing.T) {
 		t.Fatalf("relationaldb.Configure: %v", err)
 	}
 
-	t.Setenv(providerSocketEnv, socketPath)
-	ctx, cancel := context.WithCancel(context.Background())
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- gestalt.ServeIndexedDBProvider(ctx, store)
-	}()
-
-	deadline := time.Now().Add(time.Second)
-	for {
-		conn, err := net.DialTimeout("unix", socketPath, 20*time.Millisecond)
-		if err == nil {
-			_ = conn.Close()
-			break
-		}
-		if time.Now().After(deadline) {
-			cancel()
-			t.Fatalf("indexeddb socket did not start: %v", err)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Cleanup(func() {
-		cancel()
-		err := <-errCh
-		if err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatalf("ServeIndexedDBProvider: %v", err)
-		}
-		_ = os.Remove(socketPath)
-	})
-	t.Setenv(gestalt.EnvHostServiceSocket, "unix://"+socketPath)
+	hostservicetest.StartIndexedDB(t, store)
 }
