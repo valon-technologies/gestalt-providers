@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       plugin-dir:
-        description: Provider directory, for example plugins/slack
+        description: Provider directory, for example apps/slack
         required: true
         type: string
       version:

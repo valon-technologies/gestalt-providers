@@ -1,0 +1,214 @@
+source: github.com/valon-technologies/gestalt-providers/apps/zendesk
+version: 0.0.1-alpha.1
+displayName: Zendesk
+description: Support tickets, users, organizations, macros, automations, triggers, and SLA policies.
+iconFile: assets/icon.svg
+kind: app
+spec:
+  defaultConnection: default
+  surfaces:
+    openapi:
+      connection: default
+      document: https://developer.zendesk.com/zendesk/oas.yaml
+  allowedOperations:
+    # Tickets
+    ListTickets:
+      paginate: true
+    ShowTicket: {}
+    CreateTicket: {}
+    UpdateTicket: {}
+    DeleteTicket: {}
+    TicketsShowMany: {}
+    TicketsCreateMany: {}
+    TicketsUpdateMany: {}
+    CountTickets: {}
+    ListRecentTickets: {}
+    ListDeletedTickets:
+      paginate: true
+    # Ticket comments
+    ListTicketComments:
+      paginate: true
+    ShowComment: {}
+    # Ticket audits
+    ListAuditsForTicket:
+      paginate: true
+    ShowTicketAudit: {}
+    # Ticket metrics
+    ListTicketMetrics:
+      paginate: true
+    ShowTicketMetrics: {}
+    ShowTicketMetricsByTicket: {}
+    # Ticket skips
+    ListTicketSkips:
+      paginate: true
+    # Ticket fields / forms
+    ListTicketFields:
+      paginate: true
+    ShowTicketfield: {}
+    ListTicketForms:
+      paginate: true
+    ShowTicketForm: {}
+    # Requests
+    ListRequests:
+      paginate: true
+    ShowRequest: {}
+    CreateRequest: {}
+    UpdateRequest: {}
+    # Users
+    ListUsers:
+      paginate: true
+    ShowUser: {}
+    CreateUser: {}
+    UpdateUser: {}
+    DeleteUser: {}
+    ShowManyUsers: {}
+    CreateManyUsers: {}
+    UpdateManyUsers: {}
+    DestroyManyUsers: {}
+    CountUsers: {}
+    SearchUsers:
+      paginate: true
+    # User identities
+    ListUserIdentities:
+      paginate: true
+    CreateUserIdentity: {}
+    UpdateUserIdentity: {}
+    DeleteUserIdentity: {}
+    MakeUserIdentityPrimary: {}
+    VerifyUserIdentity: {}
+    # User fields
+    ListUserFields:
+      paginate: true
+    ShowUserField: {}
+    # Organizations
+    ListOrganizations:
+      paginate: true
+    ShowOrganization: {}
+    CreateOrganization: {}
+    UpdateOrganization: {}
+    DeleteOrganization: {}
+    ShowManyOrganizations: {}
+    CreateManyOrganizations: {}
+    UpdateManyOrganizations: {}
+    CountOrganizations: {}
+    SearchOrganizations:
+      paginate: true
+    # Organization memberships
+    ListOrganizationMemberships:
+      paginate: true
+    CreateOrganizationMembership: {}
+    DeleteOrganizationMembership: {}
+    # Organization fields
+    ListOrganizationFields:
+      paginate: true
+    ShowOrganizationField: {}
+    # Groups
+    ListGroups:
+      paginate: true
+    ShowGroupById: {}
+    CreateGroup: {}
+    UpdateGroup: {}
+    DeleteGroup: {}
+    # Group memberships
+    ListGroupMemberships:
+      paginate: true
+    CreateGroupMembership: {}
+    DeleteGroupMembership: {}
+    # Views
+    ListViews:
+      paginate: true
+    ShowView: {}
+    ExecuteView:
+      paginate: true
+    ListTicketsFromView:
+      paginate: true
+    # Macros
+    ListMacros:
+      paginate: true
+    ShowMacro: {}
+    CreateMacro: {}
+    UpdateMacro: {}
+    DeleteMacro: {}
+    ListActiveMacros:
+      paginate: true
+    # Automations
+    ListAutomations:
+      paginate: true
+    ShowAutomation: {}
+    CreateAutomation: {}
+    UpdateAutomation: {}
+    DeleteAutomation: {}
+    ListActiveAutomations:
+      paginate: true
+    # Triggers
+    ListTriggers:
+      paginate: true
+    GetTrigger: {}
+    CreateTrigger: {}
+    UpdateTrigger: {}
+    DeleteTrigger: {}
+    ListActiveTriggers:
+      paginate: true
+    # SLA policies
+    ListSLAPolicies:
+      paginate: true
+    ShowSLAPolicy: {}
+    CreateSLAPolicy: {}
+    UpdateSLAPolicy: {}
+    DeleteSLAPolicy: {}
+    # Search
+    ListSearchResults:
+      paginate: true
+    CountSearchResults: {}
+    # Satisfaction ratings
+    ListSatisfactionRatings:
+      paginate: true
+    ShowSatisfactionRatings: {}
+    CreateTicketSatisfactionRating: {}
+    # Attachments
+    ShowAttachment: {}
+    DeleteAttachment: {}
+    # Brands
+    ListBrands:
+      paginate: true
+    ShowBrand: {}
+    # Suspended tickets
+    ListSuspendedTickets:
+      paginate: true
+    RecoverSuspendedTicket: {}
+    DeleteSuspendedTicket: {}
+    # Audit logs
+    ListAuditLogs:
+      paginate: true
+    ShowAuditLog: {}
+    # Account
+    ShowAccountSettings: {}
+    UpdateAccountSettings: {}
+    # Redactions
+    RedactTicketCommentInAgentWorkspace: {}
+  connections:
+    default:
+      mode: user
+      auth:
+        type: manual
+        credentials:
+          - name: email
+            label: Email address
+            description: The email address of a Zendesk agent or admin account.
+          - name: api_token
+            label: API Token
+            description: Zendesk API token with read and write access. Create one in Admin Center > Apps and integrations > APIs > Zendesk API.
+        authMapping:
+          basic:
+            username:
+              valueFrom:
+                credentialFieldRef:
+                  name: email
+            password:
+              valueFrom:
+                credentialFieldRef:
+                  name: api_token
+      params:
+        subdomain:
+          required: true
+          description: Your Zendesk subdomain (e.g. mycompany in https://mycompany.zendesk.com).

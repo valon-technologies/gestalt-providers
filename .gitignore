@@ -10,9 +10,9 @@ auth/*/dist/
 credentials.json
 datastore/*/dist/
 gestalt
-plugins/*/*.egg-info/
-plugins/*/.venv/
-plugins/*/dist/
+apps/*/*.egg-info/
+apps/*/.venv/
+apps/*/dist/
 service-account*.json
 web/*/dist/
 ui/*/.next/

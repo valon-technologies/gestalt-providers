@@ -604,7 +604,7 @@ class ClaudeProviderTests(unittest.TestCase):
 
             cases = [
                 ({"plugins": ["relative"]}, "path must be absolute"),
-                ({"plugins": [{"path": valid}]}, r"plugins\[1\] must be a local plugin path"),
+                ({"plugins": [{"path": valid}]}, r"apps\[1\] must be a local plugin path"),
                 ({"plugins": [valid, valid]}, "resolve to the same path"),
                 ({"plugins": [valid, duplicate_docs]}, "use the same manifest name"),
                 ({"plugins": [missing_manifest]}, "must include .claude-plugin/plugin.json"),

@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -18,6 +17,7 @@ import (
 	"time"
 
 	relationaldb "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb"
+	"github.com/valon-technologies/gestalt-providers/internal/hostservicetest"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -27,6 +27,21 @@ import (
 type testHostServiceOptions struct {
 	seedStore  bool
 	sqliteName string
+}
+
+func TestHostServiceHarnessCreatesSocket(t *testing.T) {
+	socketPath := hostservicetest.SocketPath(t, "host-service.sock")
+	t.Setenv(gestalt.EnvHostServiceSocket, "unix://"+socketPath)
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- gestalt.ServeHostServiceGRPC(ctx, socketPath, func(srv *grpc.Server) {})
+	}()
+	hostservicetest.WaitForSocket(t, socketPath)
+	t.Cleanup(func() {
+		cancel()
+		hostservicetest.WaitServeResult(t, errCh)
+	})
 }
 
 func TestExternalCredentialProviderRoundTrip(t *testing.T) {
@@ -1265,10 +1280,6 @@ func startTestHostService(t *testing.T, provider *Provider, opts testHostService
 		sqliteName = "external_credentials.sqlite"
 	}
 
-	socketPath := newSocketPath(t, "host-service.sock")
-	hostTarget := "unix://" + socketPath
-	t.Setenv(gestalt.EnvHostServiceSocket, hostTarget)
-
 	store := relationaldb.New()
 	if err := store.Configure(context.Background(), "external_credentials_state", map[string]any{
 		"dsn": "file:" + filepath.Join(t.TempDir(), sqliteName) + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)",
@@ -1279,38 +1290,12 @@ func startTestHostService(t *testing.T, provider *Provider, opts testHostService
 		seedExternalCredentialStore(t, store)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- gestalt.ServeHostServiceGRPC(ctx, socketPath, func(srv *grpc.Server) {
-			gestalt.RegisterIndexedDBHostService(srv, store)
-			if provider != nil {
-				gestalt.RegisterExternalCredentialHostService(srv, provider)
-			}
-		})
-	}()
-
-	waitForHostServiceSocket(t, socketPath)
-	t.Cleanup(func() {
-		cancel()
-		waitServeResult(t, errCh)
-		_ = os.Remove(socketPath)
+	hostservicetest.Start(t, func(srv *grpc.Server) {
+		gestalt.RegisterIndexedDBHostService(srv, store)
+		if provider != nil {
+			gestalt.RegisterExternalCredentialHostService(srv, provider)
+		}
 	})
-}
-
-func waitForHostServiceSocket(t *testing.T, socketPath string) {
-	t.Helper()
-
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		if _, err := os.Stat(socketPath); err == nil {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("socket %q was not created", socketPath)
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
 }
 
 func seedExternalCredentialStore(t *testing.T, store *relationaldb.Provider) {
@@ -1417,23 +1402,5 @@ func waitForCondition(t *testing.T, timeout time.Duration, fn func() (bool, erro
 			t.Fatalf("condition was not met within %s", timeout)
 		}
 		time.Sleep(25 * time.Millisecond)
-	}
-}
-
-func newSocketPath(t *testing.T, name string) string {
-	t.Helper()
-	return filepath.Join("/tmp", fmt.Sprintf("gestalt-%d-%d-%s", os.Getpid(), time.Now().UnixNano(), name))
-}
-
-func waitServeResult(t *testing.T, errCh <-chan error) {
-	t.Helper()
-
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatalf("serve returned error: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("serve did not stop after context cancellation")
 	}
 }

@@ -1,0 +1,20 @@
+source: github.com/valon-technologies/gestalt-providers/apps/asana
+version: 0.0.1-alpha.1
+displayName: Asana
+description: Manage tasks, projects, and workspaces.
+iconFile: assets/icon.svg
+kind: app
+spec:
+  configSchemaPath: schemas/config.schema.yaml
+  surfaces:
+    openapi:
+      connection: default
+      document: https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/asana.com/1.0/openapi.yaml
+  connections:
+    default:
+      auth:
+        type: oauth2
+        authorizationUrl: https://app.asana.com/-/oauth_authorize
+        tokenUrl: https://app.asana.com/-/oauth_token
+        scopes:
+        - default

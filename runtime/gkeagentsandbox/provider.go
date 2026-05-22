@@ -720,21 +720,7 @@ func normalizeHostServiceEnvVar(envVar string) (string, error) {
 }
 
 func isHostServiceEnvVar(envVar string) bool {
-	if envVar == "" {
-		return false
-	}
-	for i, r := range envVar {
-		switch {
-		case r >= 'A' && r <= 'Z':
-		case r >= 'a' && r <= 'z':
-		case r == '_':
-		case i > 0 && r >= '0' && r <= '9':
-		default:
-			return false
-		}
-	}
-	first := envVar[0]
-	return first == '_' || (first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z')
+	return strings.TrimSpace(envVar) == gestalt.EnvHostServiceSocket
 }
 
 var _ gestalt.PluginRuntimeProvider = (*Provider)(nil)

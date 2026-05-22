@@ -107,8 +107,8 @@ providers:
         disableAutoMemory: true
         skillDiscovery: all
         plugins:
-          - /opt/company/claude-plugins/docs
-          - /opt/company/claude-plugins/workflows
+          - /opt/company/claude-apps/docs
+          - /opt/company/claude-apps/workflows
         allowedTools:
           - Skill
           - Read

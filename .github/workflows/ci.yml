@@ -8,7 +8,7 @@ on:
       - 'registry/**'
       - 'agent/**'
       - 'runtime/**'
-      - 'plugins/**'
+      - 'apps/**'
       - 'auth/**'
       - 'authorization/**'
       - 'externalcredentials/**'
@@ -29,7 +29,7 @@ on:
       - 'registry/**'
       - 'agent/**'
       - 'runtime/**'
-      - 'plugins/**'
+      - 'apps/**'
       - 'auth/**'
       - 'authorization/**'
       - 'externalcredentials/**'
@@ -316,7 +316,7 @@ jobs:
           fi
 
           if [ -f "${plugin_dir}/pyproject.toml" ]; then
-            python3 .github/scripts/validate_python_plugin.py "$plugin_dir"
+            python3 .github/scripts/validate_python_app.py "$plugin_dir"
           fi
 
           if [ "${{ matrix.plugin.has_typescript }}" = "true" ]; then

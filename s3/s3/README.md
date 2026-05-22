@@ -26,7 +26,7 @@ providers:
   plugins:
     media:
       source:
-        path: ./plugins/media/manifest.yaml
+        path: ./apps/media/manifest.yaml
       s3:
         - assets
 ```

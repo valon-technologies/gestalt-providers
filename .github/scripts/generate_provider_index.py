@@ -119,11 +119,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--release-tag",
-        help="Release tag, for example plugins/slack/v0.0.1-alpha.42",
+        help="Release tag, for example apps/slack/v0.0.1-alpha.42",
     )
     parser.add_argument(
         "--package-dir",
-        help="Provider directory, for example plugins/slack",
+        help="Provider directory, for example apps/slack",
     )
     return parser.parse_args()
 

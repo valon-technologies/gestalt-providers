@@ -1,0 +1,42 @@
+source: github.com/valon-technologies/gestalt-providers/apps/granola
+version: 0.0.1-alpha.1
+displayName: Granola
+description: Read Granola meeting notes over REST and use the official Granola MCP server.
+iconFile: assets/icon.svg
+kind: app
+spec:
+  surfaces:
+    openapi:
+      connection: default
+      document: openapi.yaml
+    mcp:
+      connection: MCP
+      url: https://mcp.granola.ai/mcp
+  allowedOperations:
+    list_notes:
+      alias: listNotes
+      paginate: true
+    get_note:
+      alias: getNote
+  connections:
+    default:
+      mode: user
+      auth:
+        type: bearer
+        credentials:
+        - name: token
+          label: Granola API Key
+          description: For user-scoped access, personal keys only expose notes the key owner can access. Create a key in the Granola desktop app under Settings > API.
+    MCP:
+      mode: user
+      auth:
+        type: mcp_oauth
+  pagination:
+    style: cursor
+    cursorParam: cursor
+    cursor:
+      source: body
+      path: cursor
+    limitParam: page_size
+    defaultLimit: 10
+    resultsPath: notes

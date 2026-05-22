@@ -2,14 +2,12 @@ package indexeddb
 
 import (
 	"context"
-	"net"
-	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt-providers/internal/hostservicetest"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -657,7 +655,6 @@ type providerSession struct {
 	cancel   context.CancelFunc
 	provider *Provider
 	idb      *testIndexedDBProvider
-	idbErrCh chan error
 }
 
 func newProviderSession(t *testing.T) *providerSession {
@@ -668,21 +665,12 @@ func newProviderSession(t *testing.T) *providerSession {
 func newProviderSessionWithSeed(t *testing.T, seedStores bool) *providerSession {
 	t.Helper()
 
-	idbSocket := newSocketPath(t, "indexeddb.sock")
-
-	t.Setenv("GESTALT_PLUGIN_SOCKET", idbSocket)
 	idbProvider := newTestIndexedDBProvider()
 	if seedStores {
 		seedAuthorizationStores(t, idbProvider)
 	}
-	idbCtx, idbCancel := context.WithCancel(context.Background())
-	idbErrCh := make(chan error, 1)
-	go func() {
-		idbErrCh <- gestalt.ServeIndexedDBProvider(idbCtx, idbProvider)
-	}()
-	waitUnixSocket(t, idbSocket)
+	hostservicetest.StartIndexedDB(t, idbProvider)
 
-	t.Setenv(gestalt.EnvHostServiceSocket, "unix://"+idbSocket)
 	authzProvider := New()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 
@@ -691,13 +679,10 @@ func newProviderSessionWithSeed(t *testing.T, seedStores bool) *providerSession 
 		cancel:   cancel,
 		provider: authzProvider,
 		idb:      idbProvider,
-		idbErrCh: idbErrCh,
 	}
 	t.Cleanup(func() {
 		cancel()
 		_ = authzProvider.Close()
-		idbCancel()
-		waitServeResult(t, idbErrCh)
 	})
 	return session
 }
@@ -722,46 +707,6 @@ func seedAuthorizationStores(t *testing.T, provider *testIndexedDBProvider) {
 		if err := provider.CreateObjectStore(context.Background(), def.name, def.schema); err != nil {
 			t.Fatalf("CreateObjectStore(%s): %v", def.name, err)
 		}
-	}
-}
-
-func newSocketPath(t *testing.T, name string) string {
-	t.Helper()
-	dir, err := os.MkdirTemp("", "gst-authz-")
-	if err != nil {
-		t.Fatalf("MkdirTemp: %v", err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	return filepath.Join(dir, name)
-}
-
-func waitUnixSocket(t *testing.T, socket string) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for {
-		if _, err := os.Stat(socket); err == nil {
-			conn, dialErr := net.DialTimeout("unix", socket, time.Second)
-			if dialErr == nil {
-				_ = conn.Close()
-				return
-			}
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("socket %q was not created", socket)
-		}
-		time.Sleep(25 * time.Millisecond)
-	}
-}
-
-func waitServeResult(t *testing.T, errCh <-chan error) {
-	t.Helper()
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatalf("serve returned error: %v", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("serve did not stop after context cancellation")
 	}
 }
 

@@ -13,6 +13,6 @@ test.describe("Integrations", () => {
     await expect(
       page.getByRole("heading", { name: "Plugins" }),
     ).toBeVisible();
-    await expect(page.getByText(/no plugins/i)).toBeVisible();
+    await expect(page.getByText(/no apps/i)).toBeVisible();
   });
 });

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	relationaldb "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb"
+	"github.com/valon-technologies/gestalt-providers/internal/hostservicetest"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -3802,7 +3803,6 @@ func startTestIndexedDBBackend(t *testing.T) {
 
 func startTestIndexedDBBackendWithWrapper(t *testing.T, wrap func(gestalt.IndexedDBProvider) gestalt.IndexedDBProvider) {
 	t.Helper()
-	socketPath := newSocketPath(t, "indexeddb.sock")
 	store := relationaldb.New()
 	if err := store.Configure(context.Background(), "workflow_state", map[string]any{
 		"dsn": "file:" + filepath.Join(t.TempDir(), "workflow.sqlite") + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)",
@@ -3814,34 +3814,8 @@ func startTestIndexedDBBackendWithWrapper(t *testing.T, wrap func(gestalt.Indexe
 	if wrap != nil {
 		indexedDBServer = wrap(indexedDBServer)
 	}
-	serverCtx, cancel := context.WithCancel(context.Background())
-	t.Setenv("GESTALT_PLUGIN_SOCKET", socketPath)
-	t.Setenv(gestalt.EnvHostServiceSocket, "unix://"+socketPath)
-	serveErr := make(chan error, 1)
-	go func() { serveErr <- gestalt.ServeIndexedDBProvider(serverCtx, indexedDBServer) }()
-	waitForUnixSocket(t, socketPath)
-	t.Cleanup(func() {
-		cancel()
-		if err := <-serveErr; err != nil && !errors.Is(err, context.Canceled) {
-			t.Errorf("ServeIndexedDBProvider: %v", err)
-		}
-		_ = os.Remove(socketPath)
-		_ = store.Close()
-	})
-}
-
-func waitForUnixSocket(t *testing.T, socketPath string) {
-	t.Helper()
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("unix", socketPath, 10*time.Millisecond)
-		if err == nil {
-			_ = conn.Close()
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for unix socket %s", socketPath)
+	hostservicetest.StartIndexedDB(t, indexedDBServer)
+	t.Cleanup(func() { _ = store.Close() })
 }
 
 func seedWorkflowObjectStores(t *testing.T, store *relationaldb.Provider) {
@@ -4128,11 +4102,6 @@ func workflowValuesEqual(left, right any) bool {
 	leftJSON, leftErr := json.Marshal(left)
 	rightJSON, rightErr := json.Marshal(right)
 	return leftErr == nil && rightErr == nil && string(leftJSON) == string(rightJSON)
-}
-
-func newSocketPath(t *testing.T, name string) string {
-	t.Helper()
-	return filepath.Join("/tmp", fmt.Sprintf("gestalt-%d-%d-%s", os.Getpid(), time.Now().UnixNano(), name))
 }
 
 func waitForCondition(t *testing.T, timeout time.Duration, fn func() bool) {

@@ -70,7 +70,7 @@ async function wireAdminRoutes(
     await route.fulfill({ json: state.plugins });
   });
 
-  await page.route("**/admin/api/v1/authorization/plugins/**", async (route, request) => {
+  await page.route("**/admin/api/v1/authorization/apps/**", async (route, request) => {
     const url = new URL(request.url());
     const parts = url.pathname.split("/").filter(Boolean);
     const plugin = decodeURIComponent(parts[5] || "");

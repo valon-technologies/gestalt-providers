@@ -162,32 +162,32 @@ packages:
           - "linux/amd64"
           - "linux/arm64"
           - "linux/arm"
-  github.com/valon-technologies/gestalt-providers/plugins/asana:
+  github.com/valon-technologies/gestalt-providers/apps/asana:
     displayName: "Asana"
     description: "Manage tasks, projects, and workspaces."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/asana/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/asana/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/ashby:
+  github.com/valon-technologies/gestalt-providers/apps/ashby:
     displayName: "Ashby"
     description: "Candidates, applications, jobs, offers, interviews, departments, locations, users, and reports."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/ashby/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/ashby/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/bigquery:
+  github.com/valon-technologies/gestalt-providers/apps/bigquery:
     displayName: "BigQuery"
     description: "Google BigQuery data warehouse"
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/bigquery/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/bigquery/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "executable"
         platforms:
@@ -197,82 +197,82 @@ packages:
           - "linux/arm64"
           - "linux/arm"
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/carta:
+  github.com/valon-technologies/gestalt-providers/apps/carta:
     displayName: "Carta"
     description: "Access Carta Launch, Investor, Issuer, Portfolio, corporation, compensation, open cap table, file upload, and user APIs."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/carta/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/carta/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/clickhouse:
+  github.com/valon-technologies/gestalt-providers/apps/clickhouse:
     displayName: "ClickHouse"
     description: "Query and manage analytical databases."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/clickhouse/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/clickhouse/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/confluence:
+  github.com/valon-technologies/gestalt-providers/apps/confluence:
     displayName: "Confluence Cloud"
     description: "Atlassian Confluence Cloud pages, spaces, and content search."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/confluence/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/confluence/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/datadog:
+  github.com/valon-technologies/gestalt-providers/apps/datadog:
     displayName: "Datadog"
     description: "Manage dashboards, monitors, incidents, logs, RUM, CI Visibility, Synthetics, users, and roles."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/datadog/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/datadog/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/dbt_cloud:
+  github.com/valon-technologies/gestalt-providers/apps/dbt_cloud:
     displayName: "dbt Cloud"
     description: "Manage accounts, projects, jobs, and runs."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/dbt_cloud/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/dbt_cloud/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/extend:
+  github.com/valon-technologies/gestalt-providers/apps/extend:
     displayName: "Extend"
     description: "Document processing and extraction with Extend."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/extend/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/extend/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/figma:
+  github.com/valon-technologies/gestalt-providers/apps/figma:
     displayName: "Figma"
     description: "Access files, components, comments, and team projects."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/figma/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/figma/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/github:
+  github.com/valon-technologies/gestalt-providers/apps/github:
     displayName: "GitHub"
     description: "Repository, issue, pull request, workflow, and code search operations."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/github/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/github/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "executable"
         platforms:
@@ -282,22 +282,22 @@ packages:
           - "linux/arm64"
           - "linux/arm"
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/gitlab:
+  github.com/valon-technologies/gestalt-providers/apps/gitlab:
     displayName: "GitLab"
     description: "Repository, issue, merge request, and pipeline operations."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gitlab/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/gitlab/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/gmail:
+  github.com/valon-technologies/gestalt-providers/apps/gmail:
     displayName: "Gmail"
     description: "Read, send, and manage Gmail messages, threads, drafts, and labels."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gmail/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/gmail/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "executable"
         platforms:
@@ -307,112 +307,112 @@ packages:
           - "linux/arm64"
           - "linux/arm"
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/gong:
+  github.com/valon-technologies/gestalt-providers/apps/gong:
     displayName: "Gong"
     description: "Access the Gong public API v2 for calls, users, stats, settings, CRM, library, coaching, and data privacy workflows."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/gong/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/gong/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/google_admin_datatransfer:
+  github.com/valon-technologies/gestalt-providers/apps/google_admin_datatransfer:
     displayName: "Google Admin Data Transfer"
     description: "Transfer data between Google Workspace users using the Admin SDK Data Transfer API."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_admin_datatransfer/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/google_admin_datatransfer/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/google_admin_directory:
+  github.com/valon-technologies/gestalt-providers/apps/google_admin_directory:
     displayName: "Google Admin Directory"
     description: "Manage Google Workspace users, groups, organizational units, devices, roles, domains, and schemas via the Admin SDK Directory API."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_admin_directory/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/google_admin_directory/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/google_calendar:
+  github.com/valon-technologies/gestalt-providers/apps/google_calendar:
     displayName: "Google Calendar"
     description: "Read and manage Google calendars and events."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_calendar/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/google_calendar/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/google_docs:
+  github.com/valon-technologies/gestalt-providers/apps/google_docs:
     displayName: "Google Docs"
     description: "Read, create, and edit Google Docs documents."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_docs/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/google_docs/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/google_drive:
+  github.com/valon-technologies/gestalt-providers/apps/google_drive:
     displayName: "Google Drive"
     description: "Read, create, update, and share files in Google Drive."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_drive/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/google_drive/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/google_forms:
+  github.com/valon-technologies/gestalt-providers/apps/google_forms:
     displayName: "Google Forms"
     description: "Read and manage Google Forms and responses."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_forms/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/google_forms/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/google_sheets:
+  github.com/valon-technologies/gestalt-providers/apps/google_sheets:
     displayName: "Google Sheets"
     description: "Read and update Google Sheets spreadsheets and values."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_sheets/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/google_sheets/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/google_slides:
+  github.com/valon-technologies/gestalt-providers/apps/google_slides:
     displayName: "Google Slides"
     description: "Create and update Google Slides presentations."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/google_slides/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/google_slides/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/granola:
+  github.com/valon-technologies/gestalt-providers/apps/granola:
     displayName: "Granola"
     description: "Read Granola meeting notes over REST and use the official Granola MCP server."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/granola/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/granola/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/hex:
+  github.com/valon-technologies/gestalt-providers/apps/hex:
     displayName: "Hex"
     description: "Hex Public API plus CLI-only draft notebook, YAML import/export, cell run, and Context Studio operations."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/hex/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/hex/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "executable"
         platforms:
@@ -422,162 +422,162 @@ packages:
           - "linux/arm64"
           - "linux/arm"
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/httpbin:
+  github.com/valon-technologies/gestalt-providers/apps/httpbin:
     displayName: "HTTPBin"
     description: "Development/testing-only HTTP request and response service. Do not use with production or sensitive data."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/httpbin/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/httpbin/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/incident_io:
+  github.com/valon-technologies/gestalt-providers/apps/incident_io:
     displayName: "incident.io"
     description: "Manage incidents, schedules, users, severities, statuses, and incident.io MCP tools."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/incident_io/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/incident_io/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/intercom:
+  github.com/valon-technologies/gestalt-providers/apps/intercom:
     displayName: "Intercom"
     description: "Read and update contacts, companies, conversations, and notes."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/intercom/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/intercom/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/jira:
+  github.com/valon-technologies/gestalt-providers/apps/jira:
     displayName: "Jira Cloud"
     description: "Atlassian Jira Cloud project and issue management"
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/jira/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/jira/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/launchdarkly:
+  github.com/valon-technologies/gestalt-providers/apps/launchdarkly:
     displayName: "LaunchDarkly"
     description: "Manage feature flags and targeting rules."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/launchdarkly/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/launchdarkly/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/linear:
+  github.com/valon-technologies/gestalt-providers/apps/linear:
     displayName: "Linear"
     description: "Manage issues, projects, and teams."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/linear/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/linear/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/looker:
+  github.com/valon-technologies/gestalt-providers/apps/looker:
     displayName: "Looker"
     description: "Run queries, manage dashboards, looks, folders, users, groups, schedules, projects, content validation, and instance configuration in Looker."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/looker/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/looker/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/modern_treasury:
+  github.com/valon-technologies/gestalt-providers/apps/modern_treasury:
     displayName: "Modern Treasury"
     description: "Create payment orders, manage external accounts, and inspect treasury activity in Modern Treasury."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/modern_treasury/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/modern_treasury/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/nice_incontact:
+  github.com/valon-technologies/gestalt-providers/apps/nice_incontact:
     displayName: "NICE CXone"
     description: "Access NICE CXone / NICE inContact Admin, Agent, Reporting, Digital Engagement, WFM, and related public REST APIs."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/nice_incontact/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/nice_incontact/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/notion:
+  github.com/valon-technologies/gestalt-providers/apps/notion:
     displayName: "Notion"
     description: "Current Notion REST operations plus the official Notion MCP tool surface."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/notion/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/notion/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/pagerduty:
+  github.com/valon-technologies/gestalt-providers/apps/pagerduty:
     displayName: "PagerDuty"
     description: "Manage incidents, services, and on-call schedules."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/pagerduty/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/pagerduty/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/quickbooks:
+  github.com/valon-technologies/gestalt-providers/apps/quickbooks:
     displayName: "QuickBooks Online"
     description: "Manage customers, invoices, bills, payments, accounts, and reports in QuickBooks Online."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/quickbooks/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/quickbooks/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/ramp:
+  github.com/valon-technologies/gestalt-providers/apps/ramp:
     displayName: "Ramp"
     description: "Manage corporate cards, transactions, and reimbursements."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/ramp/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/ramp/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/rippling:
+  github.com/valon-technologies/gestalt-providers/apps/rippling:
     displayName: "Rippling"
     description: "Access company, employee, org structure, payroll, identity, leave, and time data from Rippling's REST API."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/rippling/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/rippling/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/sharepoint:
+  github.com/valon-technologies/gestalt-providers/apps/sharepoint:
     displayName: "Microsoft SharePoint"
     description: "Browse SharePoint sites, document libraries, lists, pages, and file content through Microsoft Graph."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/sharepoint/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/sharepoint/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/slack:
+  github.com/valon-technologies/gestalt-providers/apps/slack:
     displayName: "Slack"
     description: "Read public and private conversations, DMs, and group DMs; send messages; and manage channels."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/slack/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/slack/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "executable"
         platforms:
@@ -587,52 +587,52 @@ packages:
           - "linux/arm64"
           - "linux/arm"
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/teams:
+  github.com/valon-technologies/gestalt-providers/apps/teams:
     displayName: "Microsoft Teams"
     description: "Browse Microsoft Teams teams, channels, chats, members, and messages through Microsoft Graph."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/teams/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/teams/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/trunk:
+  github.com/valon-technologies/gestalt-providers/apps/trunk:
     displayName: "Trunk"
     description: "Manage Trunk Merge Queue and Flaky Tests APIs with an API token."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/trunk/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/trunk/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/twilio:
+  github.com/valon-technologies/gestalt-providers/apps/twilio:
     displayName: "Twilio"
     description: "Send and receive SMS, voice calls, and messaging operations."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/twilio/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/twilio/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/vanta:
+  github.com/valon-technologies/gestalt-providers/apps/vanta:
     displayName: "Vanta"
     description: "Query and mutate security, compliance, audit, and vendor data via the Vanta REST API."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/vanta/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/vanta/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/vercel:
+  github.com/valon-technologies/gestalt-providers/apps/vercel:
     displayName: "Vercel"
     description: "Manage Vercel projects and deployments, and read or write Vercel Blob storage."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/vercel/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/vercel/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "executable"
         platforms:
@@ -642,12 +642,12 @@ packages:
           - "linux/arm64"
           - "linux/arm"
           - "generic"
-  github.com/valon-technologies/gestalt-providers/plugins/zendesk:
+  github.com/valon-technologies/gestalt-providers/apps/zendesk:
     displayName: "Zendesk"
     description: "Support tickets, users, organizations, macros, automations, triggers, and SLA policies."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/plugins/zendesk/v0.0.1-alpha.1/provider-release.yaml"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/zendesk/v0.0.1-alpha.1/provider-release.yaml"
         kind: "plugin"
         runtime: "declarative"
         platforms:
