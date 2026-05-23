@@ -752,9 +752,14 @@ class FakeWorkflowManager:
         if self.signal_or_start_error is not None:
             raise self.signal_or_start_error
         signal = request.signal or gestalt.WorkflowSignal()
+        run_type = getattr(
+            gestalt,
+            "WorkflowManagerBoundRun",
+            getattr(gestalt, "BoundWorkflowRun"),
+        )
         return gestalt.WorkflowManagerRunSignal(
             provider_name=request.provider_name or "local",
-            run=gestalt.WorkflowManagerBoundRun(
+            run=run_type(
                 id="run-123",
                 status=gestalt.WORKFLOW_RUN_STATUS_PENDING,
                 workflow_key=request.workflow_key,

@@ -142,9 +142,14 @@ class FakeWorkflowManager:
         if self.fail:
             raise RuntimeError("workflow manager unavailable")
         signal = request.signal or gestalt.WorkflowSignal()
+        run_type = getattr(
+            gestalt,
+            "WorkflowManagerBoundRun",
+            getattr(gestalt, "BoundWorkflowRun"),
+        )
         return gestalt.WorkflowManagerRunSignal(
             provider_name=request.provider_name,
-            run=gestalt.WorkflowManagerBoundRun(
+            run=run_type(
                 id="workflow-run-123",
                 status=gestalt.WORKFLOW_RUN_STATUS_RUNNING,
                 target=request.target,
