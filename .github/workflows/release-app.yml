@@ -63,7 +63,7 @@ jobs:
           fi
 
           case "$PLUGIN_ROOT" in
-            agent|runtime|plugins|auth|authorization|externalcredentials|s3|indexeddb|workflow|cache|secrets|ui)
+            agent|runtime|apps|auth|authorization|externalcredentials|s3|indexeddb|workflow|cache|secrets|ui)
               GESTALT_REF="main"
               ;;
             *)
