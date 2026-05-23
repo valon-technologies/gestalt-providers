@@ -3858,7 +3858,6 @@ func workflowExecutionReferenceSchema() gestalt.ObjectStoreSchema {
 			{Name: "credential_subject_id", Type: gestalt.TypeString},
 			{Name: "run_as_json", Type: gestalt.TypeString},
 			{Name: "permissions_json", Type: gestalt.TypeString},
-			{Name: "caller_plugin_name", Type: gestalt.TypeString},
 			{Name: "created_at", Type: gestalt.TypeTime},
 			{Name: "revoked_at", Type: gestalt.TypeTime},
 		},

@@ -5239,7 +5239,7 @@ func executionReferenceRecordFromRecord(record gestalt.Record) (workflowExecutio
 		CredentialSubjectID: stringField(value, "credential_subject_id"),
 		RunAsJSON:           stringField(value, "run_as_json"),
 		PermissionsJSON:     stringField(value, "permissions_json"),
-		CallerAppName:       firstNonEmpty(stringField(value, "caller_app_name"), stringField(value, "caller_plugin_name")),
+		CallerAppName:       stringField(value, "caller_app_name"),
 	}
 	if createdAt := timeField(value, "created_at"); createdAt != nil {
 		out.CreatedAt = createdAt.UTC()

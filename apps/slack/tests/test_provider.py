@@ -69,206 +69,6 @@ def authorization_subject(
     return types.SimpleNamespace(type=type, id=id, properties=properties or {})
 
 
-class FakeWorkflowRunStatus:
-    @staticmethod
-    def Name(status: int) -> str:
-        if status == FakeWorkflowPb2.WORKFLOW_RUN_STATUS_PENDING:
-            return "WORKFLOW_RUN_STATUS_PENDING"
-        return str(status)
-
-
-class FakeWorkflowSignal:
-    def __init__(
-        self,
-        id: str = "",
-        name: str = "",
-        idempotency_key: str = "",
-        **_kwargs: Any,
-    ) -> None:
-        self.id = id
-        self.name = name
-        self.idempotency_key = idempotency_key
-        self.payload = new_struct()
-        self.metadata = new_struct()
-
-
-class FakeBoundWorkflowAgentTarget:
-    def __init__(
-        self,
-        provider_name: str = "",
-        model: str = "",
-        prompt: str = "",
-        messages: list[Any] | None = None,
-        tool_refs: list[Any] | None = None,
-        response_schema: Any = None,
-        metadata: Any = None,
-        timeout_seconds: int = 0,
-        output_delivery: Any = None,
-        session_ready_delivery: Any = None,
-        model_options: Any = None,
-        steps: list[Any] | None = None,
-        **_kwargs: Any,
-    ) -> None:
-        self.provider_name = provider_name
-        self.model = model
-        self.prompt = prompt
-        self.messages = messages or []
-        self.tool_refs = tool_refs or []
-        self.response_schema = response_schema
-        self.timeout_seconds = timeout_seconds
-        self.output_delivery = output_delivery
-        self.session_ready_delivery = session_ready_delivery
-        self.metadata = metadata or new_struct()
-        self.model_options = model_options or new_struct()
-        self.provider_options = self.model_options
-        self.steps = steps or []
-
-
-class FakeWorkflowAgentStep:
-    def __init__(
-        self,
-        id: str = "",
-        prompt: str = "",
-        messages: list[Any] | None = None,
-        tool_refs: list[Any] | None = None,
-        response_schema: Any = None,
-        model_options: Any = None,
-        metadata: Any = None,
-        timeout_seconds: int = 0,
-        when: Any = None,
-        output_delivery: Any = None,
-        **_kwargs: Any,
-    ) -> None:
-        self.id = id
-        self.prompt = prompt
-        self.messages = messages or []
-        self.tool_refs = tool_refs or []
-        self.response_schema = response_schema
-        self.model_options = model_options or new_struct()
-        self.metadata = metadata or new_struct()
-        self.timeout_seconds = timeout_seconds
-        self.when = when
-        self.output_delivery = output_delivery
-
-
-class FakeWorkflowAgentStepWhen:
-    def __init__(self, **kwargs: Any) -> None:
-        for key, value in kwargs.items():
-            setattr(self, key, value)
-
-
-class FakeBoundWorkflowPluginTarget:
-    def __init__(
-        self,
-        plugin_name: str = "",
-        operation: str = "",
-        connection: str = "",
-        instance: str = "",
-        **_kwargs: Any,
-    ) -> None:
-        self.plugin_name = plugin_name
-        self.operation = operation
-        self.connection = connection
-        self.instance = instance
-        self.input = new_struct()
-
-
-class FakeWorkflowOutputValueSource:
-    def __init__(
-        self,
-        agent_output: str = "",
-        signal_payload: str = "",
-        signal_metadata: str = "",
-        agent_session: str = "",
-        literal: Any = None,
-        **_kwargs: Any,
-    ) -> None:
-        self.agent_output = agent_output
-        self.signal_payload = signal_payload
-        self.signal_metadata = signal_metadata
-        self.agent_session = agent_session
-        self.literal = literal
-
-    def WhichOneof(self, _name: str) -> str | None:
-        if self.agent_output:
-            return "agent_output"
-        if self.signal_payload:
-            return "signal_payload"
-        if self.signal_metadata:
-            return "signal_metadata"
-        if self.agent_session:
-            return "agent_session"
-        if self.literal is not None:
-            return "literal"
-        return None
-
-
-class FakeWorkflowOutputBinding:
-    def __init__(
-        self,
-        input_field: str = "",
-        value: Any = None,
-        **_kwargs: Any,
-    ) -> None:
-        self.input_field = input_field
-        self.value = value
-
-
-class FakeWorkflowOutputDelivery:
-    def __init__(
-        self,
-        target: Any = None,
-        input_bindings: list[Any] | None = None,
-        credential_mode: str = "",
-        **_kwargs: Any,
-    ) -> None:
-        self.target = target
-        self.input_bindings = input_bindings or []
-        self.credential_mode = credential_mode
-
-
-class FakeBoundWorkflowTarget:
-    def __init__(self, agent: Any = None, **_kwargs: Any) -> None:
-        self.agent = agent
-
-
-class FakeWorkflowManagerSignalOrStartRun:
-    def __init__(
-        self,
-        provider_name: str = "",
-        workflow_key: str = "",
-        idempotency_key: str = "",
-        target: Any = None,
-        signal: Any = None,
-        **_kwargs: Any,
-    ) -> None:
-        self.provider_name = provider_name
-        self.workflow_key = workflow_key
-        self.idempotency_key = idempotency_key
-        self.target = target
-        self.signal = signal
-
-
-class FakeWorkflowEvent:
-    def __init__(
-        self,
-        id: str = "",
-        source: str = "",
-        spec_version: str = "",
-        type: str = "",
-        subject: str = "",
-        datacontenttype: str = "",
-        **_kwargs: Any,
-    ) -> None:
-        self.id = id
-        self.source = source
-        self.spec_version = spec_version
-        self.type = type
-        self.subject = subject
-        self.datacontenttype = datacontenttype
-        self.data = new_struct()
-
-
 class FakeWorkflowManagerPublishEvent:
     def __init__(
         self,
@@ -278,34 +78,6 @@ class FakeWorkflowManagerPublishEvent:
     ) -> None:
         self.event = event
         self.provider_name = provider_name
-
-
-class FakeWorkflowPb2:
-    WORKFLOW_RUN_STATUS_PENDING = 1
-    WorkflowRunStatus = FakeWorkflowRunStatus
-    WorkflowEvent = FakeWorkflowEvent
-    WorkflowSignal = FakeWorkflowSignal
-    BoundWorkflowAgentTarget = FakeBoundWorkflowAgentTarget
-    WorkflowAgentStep = FakeWorkflowAgentStep
-    WorkflowAgentStepWhen = FakeWorkflowAgentStepWhen
-    BoundWorkflowPluginTarget = FakeBoundWorkflowPluginTarget
-    BoundWorkflowTarget = FakeBoundWorkflowTarget
-    WorkflowOutputBinding = FakeWorkflowOutputBinding
-    WorkflowOutputDelivery = FakeWorkflowOutputDelivery
-    WorkflowOutputValueSource = FakeWorkflowOutputValueSource
-    WorkflowManagerSignalOrStartRun = FakeWorkflowManagerSignalOrStartRun
-    WorkflowManagerPublishEvent = FakeWorkflowManagerPublishEvent
-
-
-workflow_pb2: Any = FakeWorkflowPb2
-
-
-def workflow_pb2_with_signal_or_start_contract() -> Any:
-    if hasattr(workflow_pb2, "WorkflowManagerSignalOrStartRun") and hasattr(
-        workflow_pb2, "WorkflowOutputDelivery"
-    ):
-        return workflow_pb2
-    return FakeWorkflowPb2
 
 
 class FakeHTTPResponse:
@@ -388,11 +160,11 @@ class WorkflowMessageView:
         self.text = workflow_text(getattr(message, "text", ""))
 
 
-class WorkflowOutputDeliveryView:
+class WorkflowAppDeliveryView:
     def __init__(self, app_step: Any) -> None:
         app = getattr(app_step, "app", None)
         self.target = types.SimpleNamespace(
-            plugin_name=getattr(app, "plugin_name", "") or getattr(app, "name", ""),
+            app_name=getattr(app, "name", ""),
             operation=getattr(app, "operation", ""),
         )
         self.credential_mode = getattr(app, "credential_mode", "")
@@ -466,15 +238,15 @@ class WorkflowAgentView:
             agent, "provider_options", None
         ) or new_struct()
         self.provider_options = self.model_options
-        self.output_delivery: Any = (
-            workflow_output_delivery_for_agent(
+        self.reply_delivery: Any = (
+            workflow_app_delivery_for_agent(
                 all_steps, getattr(step, "id", ""), "events.reply"
             )
             if compute_deliveries
             else None
         )
-        self.session_ready_delivery: Any = (
-            workflow_output_delivery_for_agent(
+        self.session_ready_reply_delivery: Any = (
+            workflow_app_delivery_for_agent(
                 all_steps, getattr(step, "id", ""), "events.replySessionStarted"
             )
             if compute_deliveries
@@ -484,18 +256,6 @@ class WorkflowAgentView:
 
 
 def workflow_target_agent(target: Any) -> WorkflowAgentView:
-    legacy = getattr(target, "agent", None)
-    if legacy is not None:
-        return WorkflowAgentView(
-            types.SimpleNamespace(
-                id="run",
-                metadata=getattr(legacy, "metadata", None),
-                timeout_seconds=getattr(legacy, "timeout_seconds", 0),
-            ),
-            legacy,
-            list(getattr(legacy, "steps", None) or []),
-            include_steps=True,
-        )
     steps = list(getattr(target, "steps", None) or [])
     agent_steps = [step for step in steps if getattr(step, "agent", None) is not None]
     if len(agent_steps) > 1:
@@ -515,24 +275,22 @@ def workflow_agent_steps(steps: list[Any]) -> list[WorkflowAgentView]:
     out: list[WorkflowAgentView] = []
     for step in steps:
         agent = getattr(step, "agent", None)
-        if agent is None and hasattr(step, "prompt"):
-            agent = step
         if agent is not None:
             out.append(WorkflowAgentView(step, agent, steps))
     return out
 
 
-def workflow_output_delivery_for_agent(
+def workflow_app_delivery_for_agent(
     steps: list[Any],
     agent_step_id: str,
     operation: str,
-) -> WorkflowOutputDeliveryView | None:
+) -> WorkflowAppDeliveryView | None:
     for step in steps:
         app = getattr(step, "app", None)
         if app is None or getattr(app, "operation", "") != operation:
             continue
         if workflow_app_step_uses_agent_output(step, agent_step_id):
-            return WorkflowOutputDeliveryView(step)
+            return WorkflowAppDeliveryView(step)
     return None
 
 
@@ -582,7 +340,7 @@ def workflow_binding_value(value: Any) -> tuple[str | None, Any]:
     return None, None
 
 
-def output_delivery_bindings(delivery: Any) -> dict[str, tuple[str | None, Any]]:
+def app_delivery_bindings(delivery: Any) -> dict[str, tuple[str | None, Any]]:
     out: dict[str, tuple[str | None, Any]] = {}
     for binding in delivery.input_bindings:
         out[str(binding.input_field)] = workflow_binding_value(binding.value)
@@ -801,7 +559,7 @@ class DictWorkflowManager(FakeWorkflowManager):
             "providerName": request.provider_name or "local",
             "run": {
                 "id": "run-123",
-                "status": workflow_pb2.WORKFLOW_RUN_STATUS_PENDING,
+                "status": 1,
                 "workflowKey": request.workflow_key,
             },
             "signal": {"id": "signal-123"},
@@ -898,9 +656,7 @@ class SlackProviderTests(unittest.TestCase):
         self, payload: dict[str, Any]
     ) -> tuple[Any, FakeWorkflowManager]:
         workflow_manager = FakeWorkflowManager()
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -1267,9 +1023,7 @@ class SlackProviderTests(unittest.TestCase):
                     "ts": "1712161829.000300",
                 },
             }
-            workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
             with (
-                mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
                 mock.patch.object(
                     gestalt.Request,
                     "workflow_manager",
@@ -1476,24 +1230,6 @@ class SlackProviderTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                gestalt,
-                "BoundWorkflowAgentTarget",
-                FakeBoundWorkflowAgentTarget,
-                create=True,
-            ),
-            mock.patch.object(
-                gestalt,
-                "WorkflowAgentStep",
-                FakeWorkflowAgentStep,
-                create=True,
-            ),
-            mock.patch.object(
-                gestalt,
-                "WorkflowAgentStepWhen",
-                FakeWorkflowAgentStepWhen,
-                create=True,
-            ),
-            mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
                 return_value=workflow_manager,
@@ -1513,7 +1249,7 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(agent_target.prompt, "")
         self.assertEqual(list(agent_target.tool_refs or []), [])
-        self.assertIsNone(agent_target.output_delivery)
+        self.assertIsNone(agent_target.reply_delivery)
         self.assertEqual(len(agent_target.steps), 2)
         collect = agent_target.steps[0]
         self.assertEqual(collect.id, "collect")
@@ -1539,14 +1275,14 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(reply.when.output_path, "structured_output.actionable")
         self.assertEqual(reply.when.equals, True)
         self.assertEqual(
-            output_delivery_bindings(reply.output_delivery),
+            app_delivery_bindings(reply.reply_delivery),
             {
                 "text": ("agent_output", "answer.markdown"),
                 "reply_ref": ("signal_payload", "reply_ref"),
             },
         )
-        self.assertEqual(reply.output_delivery.target.plugin_name, "slack")
-        self.assertEqual(reply.output_delivery.target.operation, "events.reply")
+        self.assertEqual(reply.reply_delivery.target.app_name, "slack")
+        self.assertEqual(reply.reply_delivery.target.operation, "events.reply")
 
     def test_route_agent_steps_reject_invalid_ids_and_when_references(self) -> None:
         invalid_steps = [
@@ -2665,10 +2401,8 @@ class SlackProviderTests(unittest.TestCase):
         request = gestalt.Request(
             subject=gestalt.Subject(id="user:gestalt-123", kind="user")
         )
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -2737,32 +2471,32 @@ class SlackProviderTests(unittest.TestCase):
             ),
         )
         self.assertEqual(
-            agent_target.output_delivery.target.plugin_name,
+            agent_target.reply_delivery.target.app_name,
             "slack",
         )
         self.assertEqual(
-            agent_target.output_delivery.target.operation,
+            agent_target.reply_delivery.target.operation,
             "events.reply",
         )
-        self.assertEqual(agent_target.output_delivery.credential_mode, "none")
+        self.assertEqual(agent_target.reply_delivery.credential_mode, "none")
         self.assertEqual(
-            output_delivery_bindings(agent_target.output_delivery),
+            app_delivery_bindings(agent_target.reply_delivery),
             {
                 "text": ("agent_output", "text"),
                 "reply_ref": ("signal_payload", "reply_ref"),
             },
         )
         self.assertEqual(
-            agent_target.session_ready_delivery.target.plugin_name,
+            agent_target.session_ready_reply_delivery.target.app_name,
             "slack",
         )
         self.assertEqual(
-            agent_target.session_ready_delivery.target.operation,
+            agent_target.session_ready_reply_delivery.target.operation,
             "events.replySessionStarted",
         )
-        self.assertEqual(agent_target.session_ready_delivery.credential_mode, "none")
+        self.assertEqual(agent_target.session_ready_reply_delivery.credential_mode, "none")
         self.assertEqual(
-            output_delivery_bindings(agent_target.session_ready_delivery),
+            app_delivery_bindings(agent_target.session_ready_reply_delivery),
             {
                 "session_id": ("agent_session", "id"),
                 "reply_ref": ("signal_payload", "reply_ref"),
@@ -2939,10 +2673,7 @@ class SlackProviderTests(unittest.TestCase):
                     },
                 ]
             )
-
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -3017,9 +2748,7 @@ class SlackProviderTests(unittest.TestCase):
                 "thread_ts": "1712161829.000300",
             },
         }
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -3084,10 +2813,7 @@ class SlackProviderTests(unittest.TestCase):
             parsed = urllib.parse.urlsplit(request.full_url)
             self.assertEqual(parsed.path, "/api/conversations.replies")
             return FakeHTTPResponse('{"ok": false, "error": "channel_not_found"}')
-
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -3174,10 +2900,7 @@ class SlackProviderTests(unittest.TestCase):
                 has_more=True,
                 next_cursor="next-page",
             )
-
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -3237,10 +2960,8 @@ class SlackProviderTests(unittest.TestCase):
         request = gestalt.Request(
             subject=gestalt.Subject(id="user:gestalt-123", kind="user")
         )
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -3297,10 +3018,8 @@ class SlackProviderTests(unittest.TestCase):
         request = gestalt.Request(
             subject=gestalt.Subject(id="user:gestalt-123", kind="user")
         )
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -3357,10 +3076,8 @@ class SlackProviderTests(unittest.TestCase):
         request = gestalt.Request(
             subject=gestalt.Subject(id="user:gestalt-123", kind="user")
         )
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -3413,10 +3130,8 @@ class SlackProviderTests(unittest.TestCase):
         request = gestalt.Request(
             subject=gestalt.Subject(id="user:gestalt-123", kind="user")
         )
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 provider_module._agent,
                 "_workflow_signal_response_fields",
@@ -3472,10 +3187,8 @@ class SlackProviderTests(unittest.TestCase):
         request = gestalt.Request(
             subject=gestalt.Subject(id="user:gestalt-123", kind="user")
         )
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -3651,13 +3364,11 @@ class SlackProviderTests(unittest.TestCase):
             },
         }
         workflow_manager = FakeWorkflowManager()
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         request = gestalt.Request(
             subject=gestalt.Subject(id="system:http_binding:slack:events")
         )
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -3780,10 +3491,8 @@ class SlackProviderTests(unittest.TestCase):
         request = gestalt.Request(
             subject=gestalt.Subject(id="user:gestalt-123", kind="user")
         )
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -3887,10 +3596,7 @@ class SlackProviderTests(unittest.TestCase):
             payload = json.loads(cast(bytes, request.data).decode("utf-8"))
             calls.append((parsed.path, payload))
             return FakeHTTPResponse('{"ok": true}')
-
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -3985,10 +3691,7 @@ class SlackProviderTests(unittest.TestCase):
             calls.append((parsed.path, body))
             sequence.append(("slack", parsed.path))
             return FakeHTTPResponse('{"ok": true}')
-
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -4063,10 +3766,7 @@ class SlackProviderTests(unittest.TestCase):
             parsed = urllib.parse.urlsplit(request.full_url)
             self.assertEqual(parsed.path, "/api/reactions.add")
             return FakeHTTPResponse('{"ok": false, "error": "already_reacted"}')
-
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -4665,7 +4365,6 @@ class SlackProviderTests(unittest.TestCase):
         interaction_ref = button["value"]
 
         workflow_manager = FakeWorkflowManager()
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         interaction_payload = {
             "type": "block_actions",
             "team": {"id": "T123"},
@@ -4687,7 +4386,6 @@ class SlackProviderTests(unittest.TestCase):
         }
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -4735,7 +4433,6 @@ class SlackProviderTests(unittest.TestCase):
         )
         workflow_manager = FakeWorkflowManager()
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -4777,11 +4474,9 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.addCleanup(provider_module.configure, "slack", {})
         workflow_manager = FakeWorkflowManager()
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         interaction_payload = signed_block_action_payload()
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 provider_module._agent,
                 "_workflow_signal_response_fields",
@@ -4824,11 +4519,9 @@ class SlackProviderTests(unittest.TestCase):
         self.addCleanup(provider_module.configure, "slack", {})
         workflow_manager = FakeWorkflowManager()
         workflow_manager.signal_or_start_error = RuntimeError("signal failed")
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         interaction_payload = signed_block_action_payload()
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -5290,10 +4983,8 @@ class SlackProviderTests(unittest.TestCase):
         request = gestalt.Request(
             subject=gestalt.Subject(id="user:gestalt-123", kind="user")
         )
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -5324,14 +5015,14 @@ class SlackProviderTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            agent_target.output_delivery.target.plugin_name,
+            agent_target.reply_delivery.target.app_name,
             "supportSlackbot",
         )
         self.assertEqual(
-            agent_target.output_delivery.target.operation,
+            agent_target.reply_delivery.target.operation,
             "events.reply",
         )
-        self.assertEqual(agent_target.output_delivery.credential_mode, "none")
+        self.assertEqual(agent_target.reply_delivery.credential_mode, "none")
         self.assertNotIn("supportSlackbot.events.reply", agent_target.messages[0].text)
         self.assertNotIn(
             "supportSlackbot.events.startStream", agent_target.messages[0].text
@@ -5397,10 +5088,8 @@ class SlackProviderTests(unittest.TestCase):
                 "ts": "1712161829.000300",
             },
         }
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -5452,10 +5141,8 @@ class SlackProviderTests(unittest.TestCase):
         self.addCleanup(provider_module.configure, "slack", {})
         interaction_payload = signed_route_block_action_payload("route-local")
         workflow_manager = FakeWorkflowManager()
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -5548,10 +5235,8 @@ class SlackProviderTests(unittest.TestCase):
             channel_id="C_ALERTS",
         )
         workflow_manager = FakeWorkflowManager()
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -5684,10 +5369,7 @@ class SlackProviderTests(unittest.TestCase):
                 (parsed.path, json.loads(cast(bytes, request.data).decode("utf-8")))
             )
             return FakeHTTPResponse('{"ok": true}')
-
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -5749,7 +5431,6 @@ class SlackProviderTests(unittest.TestCase):
         workflow_manager = FakeWorkflowManager()
         calls.clear()
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -5830,10 +5511,7 @@ class SlackProviderTests(unittest.TestCase):
                 (parsed.path, json.loads(cast(bytes, request.data).decode("utf-8")))
             )
             return FakeHTTPResponse('{"ok": true}')
-
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -5878,7 +5556,6 @@ class SlackProviderTests(unittest.TestCase):
         workflow_manager = FakeWorkflowManager()
         calls.clear()
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -5946,7 +5623,6 @@ class SlackProviderTests(unittest.TestCase):
                 "thread_ts": "1712161829.000300",
             },
         }
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         thread_context_result = {
             "data": {
                 "channel": "C_ROUTE",
@@ -5957,7 +5633,6 @@ class SlackProviderTests(unittest.TestCase):
         }
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -6027,10 +5702,8 @@ class SlackProviderTests(unittest.TestCase):
                 "thread_ts": "1712161829.000300",
             },
         }
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -6122,10 +5795,8 @@ class SlackProviderTests(unittest.TestCase):
                 "ts": "1712161829.000300",
             },
         }
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -6212,10 +5883,8 @@ class SlackProviderTests(unittest.TestCase):
                 "ts": "1712161829.000300",
             },
         }
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
 
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",
@@ -7278,10 +6947,7 @@ class SlackProviderTests(unittest.TestCase):
                 "thread_ts": "1712161829.000300",
             },
         }
-
-        workflow_pb2_contract = workflow_pb2_with_signal_or_start_contract()
         with (
-            mock.patch(f"{__name__}.workflow_pb2", workflow_pb2_contract),
             mock.patch.object(
                 gestalt.Request,
                 "workflow_manager",

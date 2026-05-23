@@ -184,15 +184,13 @@ delivered in the signal payload, so later Slack messages in the same thread
 signal the existing keyed run instead of replacing its target or authorization
 context. Set positive `agent.timeoutSeconds` to pass an explicit workflow-agent
 run budget to Gestalt; when omitted, Gestalt's workflow-agent default applies.
-The target also sets `session_ready_delivery` so the workflow runtime can post
-an early `events.replySessionStarted` link after the agent session is created,
-before the turn finishes. It sets `output_delivery` so the workflow runtime
-delivers the agent's final assistant answer through `events.reply` with `text`
-sourced from the agent output and `reply_ref` sourced from the current signal
-payload.
+The target also includes Slack app steps that post an early
+`events.replySessionStarted` link after the agent session is created and deliver
+the agent's final assistant answer through `events.reply` with `text` sourced
+from the agent output and `reply_ref` sourced from the current signal payload.
 If the workflow handoff fails, `events.handle` returns an error so Slack can
 retry the callback. Once the workflow provider accepts the event, workflow state,
-signal idempotency, retries, and output delivery are owned by the workflow
+signal idempotency, retries, and reply delivery are owned by the workflow
 provider.
 
 For workflow-dispatched `message` and `app_mention` events that include
@@ -238,7 +236,7 @@ Gestalt subject before posting to Slack with the configured bot token. The same
 prompts, thread titles, reactions, and interactions to the source event channel,
 so the agent never needs raw `chat.postMessage` access for event replies.
 
-Runtime output-delivery input:
+Runtime reply app input:
 
 ```json
 {"reply_ref":"...","text":"I'll check that now."}

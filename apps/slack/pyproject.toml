@@ -49,11 +49,4 @@ vulture-ignore-names = [
   "redirect_request",
   "Name",
   "WorkflowEvent",
-  "WorkflowRunStatus",
-  "BoundWorkflowAgentTarget",
-  "WorkflowAgentStep",
-  "WorkflowAgentStepWhen",
-  "BoundWorkflowPluginTarget",
-  "WorkflowOutputBinding",
-  "WorkflowOutputValueSource",
 ]
