@@ -159,12 +159,14 @@ apps:
           workflow:
             provider: temporal
             target:
-              plugin:
-                plugin: github
-                operation: reviewPullRequest
-                input:
-                  maxComments: 10
-                  changedLinesOnly: true
+              steps:
+                - id: reviewPullRequest
+                  app:
+                    name: github
+                    operation: reviewPullRequest
+                    input:
+                      maxComments: 10
+                      changedLinesOnly: true
         - id: failed-ci-comment
           match:
             events: [check_run, check_suite, workflow_run]
@@ -219,7 +221,7 @@ can expose `bot.commitFiles` for committing directly to the original PR branch
 without pull request creation, and `pull_request` can expose commit and pull
 request tools for opening follow-up PRs. `action.selfFixMode` defaults to
 `disabled`; the older `action.allowSelfFix` remains a deprecated ceiling.
-For `workflow.target.plugin.operation: reviewPullRequest`, `branch_commit`
+For a `workflow.target.steps` app step with `operation: reviewPullRequest`, `branch_commit`
 enables the built-in reviewer to commit validated same-PR fixes after findings
 are produced. It only commits to same-repository PR branches and guards the write
 with the reviewed head SHA.
@@ -360,7 +362,7 @@ provider semantics rather than GitHub SDK enum names; GitHub's REST and GraphQL
 APIs do not expose matching configuration enums for bot review noisiness. For
 built-in GitHub workflow targets, the provider rejects contradictory
 configuration such as `comments.inlinePolicy: never` with
-`workflow.target.plugin.operation: reviewPullRequest`. It also rejects
+`operation: reviewPullRequest` on a `workflow.target.steps` app step. It also rejects
 `action.allowCodeReviewComments: false` for that built-in review target because
 the target's purpose is to post validated inline review comments.
 For CI webhook events, `comments.suppressStaleHead: true` fetches the current PR
@@ -392,19 +394,19 @@ unless the caller supplies them explicitly, and
 expose it with `allowedOperations` only for workflows that should be able to
 resolve threads directly.
 
-Set `workflow.target.plugin` on a policy to dispatch the matched webhook to a
-deterministic workflow/plugin target instead of the generated agent target. The
+Set `workflow.target.steps` on a policy to dispatch the matched webhook to a
+deterministic workflow app target instead of the generated agent target. The
 target `input` is static configuration only; webhook event details are delivered
-through the workflow signal payload and are not merged into `input`. Use
-`plugin: github` with `operation: reviewPullRequest` for the built-in
+through the workflow signal payload and are not merged into `input`. Use an app
+step with `name: github` and `operation: reviewPullRequest` for the built-in
 workflow-backed PR reviewer; it fetches the PR, validates agent findings against
 changed RIGHT-side diff lines, and posts one inline review only when it has
 line-anchored findings. It rejects draft pull requests and only supports exact
 manual `gestalt review`-style comment triggers when invoked from
-`issue_comment` signals. Workflow providers derive plugin-target access from the
-target plugin plus optional `_gestalt.eventRunPermissions` entries in target
-input; include extra permissions only when a target operation calls other
-plugins through the host invoker.
+`issue_comment` signals. Workflow providers derive app-target access from the
+target app plus optional `_gestalt.eventRunPermissions` entries in target input;
+include extra permissions only when a target operation calls other apps through
+the host invoker.
 
 After signature validation, the hosted HTTP binding invokes `events.handle`
 before acknowledging the GitHub delivery. `events.handle` filters the event and
@@ -421,7 +423,7 @@ GitHub's delivery timeout is 10 seconds, so webhook handlers must keep the
 enqueue path small and avoid starting agents inline. Treat non-2xx delivery
 responses as retryable enqueue failures.
 
-For `workflow.target.plugin.operation: reviewPullRequest`, `events.handle`
+For a `workflow.target.steps` app step with `operation: reviewPullRequest`, `events.handle`
 creates or reuses the review check run before calling
 `WorkflowManager.SignalOrStartRun`. If the check run cannot be created, the
 workflow is not enqueued. If enqueueing fails after creating the check run, the

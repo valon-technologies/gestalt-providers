@@ -79,7 +79,7 @@ class _WorkflowMessageView:
 
 class _WorkflowAppView:
     def __init__(self, app: Any) -> None:
-        self.plugin_name = getattr(app, "name", "") or getattr(app, "plugin_name", "")
+        self.app_name = getattr(app, "name", "")
         self.operation = getattr(app, "operation", "")
         self.connection = getattr(app, "connection", "")
         self.instance = getattr(app, "instance", "")
@@ -91,9 +91,6 @@ class _WorkflowAppView:
 
 
 def workflow_target_agent(target: Any) -> _WorkflowAgentView:
-    legacy = getattr(target, "agent", None)
-    if legacy is not None:
-        return _WorkflowAgentView(SimpleNamespace(metadata=getattr(legacy, "metadata", None)), legacy)
     for step in getattr(target, "steps", None) or []:
         agent = getattr(step, "agent", None)
         if agent is not None:
@@ -102,9 +99,6 @@ def workflow_target_agent(target: Any) -> _WorkflowAgentView:
 
 
 def workflow_target_app(target: Any) -> _WorkflowAppView:
-    legacy = getattr(target, "plugin", None)
-    if legacy is not None:
-        return _WorkflowAppView(legacy)
     for step in getattr(target, "steps", None) or []:
         app = getattr(step, "app", None)
         if app is not None:
@@ -811,21 +805,10 @@ class GitHubProviderTests(unittest.TestCase):
         target_schema = schema["properties"]["webhookPolicies"]["items"][
             "properties"
         ]["workflow"]["properties"]["target"]
-        self.assertIn("oneOf", target_schema)
-        legacy_target = target_schema["oneOf"][0]["properties"]["plugin"]
-        self.assertEqual(legacy_target["required"], ["plugin", "operation"])
-        self.assertIn("plugin", legacy_target["properties"])
-        self.assertIn("operation", legacy_target["properties"])
-        self.assertIn("connection", legacy_target["properties"])
-        self.assertIn("instance", legacy_target["properties"])
-        self.assertEqual(
-            legacy_target["properties"]["credentialMode"]["enum"],
-            ["none", "user"],
-        )
-        self.assertEqual(legacy_target["properties"]["input"]["type"], "object")
-        self.assertNotIn("pluginName", legacy_target["properties"])
-        self.assertNotIn("credential_mode", legacy_target["properties"])
-        steps_target = target_schema["oneOf"][1]["properties"]["steps"]["items"]
+        self.assertNotIn("oneOf", target_schema)
+        self.assertEqual(target_schema["required"], ["steps"])
+        self.assertNotIn("plugin", target_schema["properties"])
+        steps_target = target_schema["properties"]["steps"]["items"]
         app_target = steps_target["properties"]["app"]
         self.assertEqual(app_target["required"], ["name", "operation"])
         self.assertEqual(
@@ -2475,10 +2458,15 @@ class GitHubProviderTests(unittest.TestCase):
                         "match": {"events": ["pull_request"]},
                         "workflow": {
                             "target": {
-                                "plugin": {
-                                    "plugin": "github",
-                                    "operation": "reviewPullRequest",
-                                }
+                                "steps": [
+                                    {
+                                        "id": "reviewPullRequest",
+                                        "app": {
+                                            "name": "github",
+                                            "operation": "reviewPullRequest",
+                                        },
+                                    }
+                                ]
                             }
                         },
                         "action": {"mode": "comment"},
@@ -3519,7 +3507,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(workflow_manager.requests, [])
         self.assertEqual(len(calls), 2)
 
-    def test_explicit_policy_can_dispatch_to_configured_plugin_workflow_target(
+    def test_explicit_policy_can_dispatch_to_configured_app_workflow_target(
         self,
     ) -> None:
         payload = {
@@ -3573,57 +3561,62 @@ class GitHubProviderTests(unittest.TestCase):
             {
                 "provider": "temporal",
                 "target": {
-                    "plugin": {
-                        "plugin": "github",
-                        "operation": "reviewPullRequest",
-                        "connection": "review-bot",
-                        "instance": "prod",
-                        "credentialMode": "none",
-                        "input": {
-                            "maxComments": 10,
-                            "changedLinesOnly": True,
-                            "dryRun": True,
-                        },
-                    }
+                    "steps": [
+                        {
+                            "id": "reviewPullRequest",
+                            "app": {
+                                "name": "github",
+                                "operation": "reviewPullRequest",
+                                "connection": "review-bot",
+                                "instance": "prod",
+                                "credentialMode": "none",
+                                "input": {
+                                    "maxComments": 10,
+                                    "changedLinesOnly": True,
+                                    "dryRun": True,
+                                },
+                            },
+                        }
+                    ]
                 },
             }
         )
-        plugin_request = self._workflow_signal_request(payload)
+        app_request = self._workflow_signal_request(payload)
 
-        self.assertEqual(plugin_request.provider_name, agent_request.provider_name)
-        self.assertEqual(plugin_request.workflow_key, agent_request.workflow_key)
-        self.assertEqual(plugin_request.idempotency_key, agent_request.idempotency_key)
-        self.assertEqual(plugin_request.signal.name, agent_request.signal.name)
+        self.assertEqual(app_request.provider_name, agent_request.provider_name)
+        self.assertEqual(app_request.workflow_key, agent_request.workflow_key)
+        self.assertEqual(app_request.idempotency_key, agent_request.idempotency_key)
+        self.assertEqual(app_request.signal.name, agent_request.signal.name)
         self.assertEqual(
-            plugin_request.signal.idempotency_key,
+            app_request.signal.idempotency_key,
             agent_request.signal.idempotency_key,
         )
         self.assertEqual(
-            sdk_value_to_dict(plugin_request.signal.payload),
+            sdk_value_to_dict(app_request.signal.payload),
             sdk_value_to_dict(agent_request.signal.payload),
         )
         self.assertEqual(
-            sdk_value_to_dict(plugin_request.signal.metadata),
+            sdk_value_to_dict(app_request.signal.metadata),
             sdk_value_to_dict(agent_request.signal.metadata),
         )
         self.assertIsNotNone(workflow_target_agent(agent_request.target))
-        self.assertIsNotNone(workflow_target_app(plugin_request.target))
+        self.assertIsNotNone(workflow_target_app(app_request.target))
 
-        plugin = workflow_target_app(plugin_request.target)
-        self.assertEqual(plugin.plugin_name, "github")
-        self.assertEqual(plugin.operation, "reviewPullRequest")
-        self.assertEqual(plugin.connection, "review-bot")
-        self.assertEqual(plugin.instance, "prod")
-        self.assertEqual(plugin.credential_mode, "none")
+        app = workflow_target_app(app_request.target)
+        self.assertEqual(app.app_name, "github")
+        self.assertEqual(app.operation, "reviewPullRequest")
+        self.assertEqual(app.connection, "review-bot")
+        self.assertEqual(app.instance, "prod")
+        self.assertEqual(app.credential_mode, "none")
 
-        target_input = sdk_value_to_dict(plugin.input)
+        target_input = sdk_value_to_dict(app.input)
         self.assertEqual(target_input["maxComments"], 10)
         self.assertEqual(target_input["changedLinesOnly"], True)
         self.assertEqual(target_input["dryRun"], True)
         self.assertNotIn("pull_request", target_input)
         self.assertNotIn("repository", target_input)
 
-        signal_payload = sdk_value_to_dict(plugin_request.signal.payload)
+        signal_payload = sdk_value_to_dict(app_request.signal.payload)
         self.assertEqual(signal_payload["repository"]["full_name"], "acme/widgets")
         self.assertEqual(signal_payload["agent_request"]["pull_request"]["number"], 7)
 
@@ -3653,11 +3646,16 @@ class GitHubProviderTests(unittest.TestCase):
                         },
                         "workflow": {
                             "target": {
-                                "plugin": {
-                                    "plugin": "github",
-                                    "operation": "reviewPullRequest",
-                                    "input": {"checkRunName": "Bugbot Review"},
-                                }
+                                "steps": [
+                                    {
+                                        "id": "reviewPullRequest",
+                                        "app": {
+                                            "name": "github",
+                                            "operation": "reviewPullRequest",
+                                            "input": {"checkRunName": "Bugbot Review"},
+                                        },
+                                    }
+                                ]
                             }
                         },
                     }
@@ -4088,10 +4086,15 @@ class GitHubProviderTests(unittest.TestCase):
                         },
                         "workflow": {
                             "target": {
-                                "plugin": {
-                                    "plugin": "github",
-                                    "operation": "reviewPullRequest",
-                                }
+                                "steps": [
+                                    {
+                                        "id": "reviewPullRequest",
+                                        "app": {
+                                            "name": "github",
+                                            "operation": "reviewPullRequest",
+                                        },
+                                    }
+                                ]
                             }
                         },
                     }
@@ -4188,10 +4191,15 @@ class GitHubProviderTests(unittest.TestCase):
                         },
                         "workflow": {
                             "target": {
-                                "plugin": {
-                                    "plugin": "github",
-                                    "operation": "reviewPullRequest",
-                                }
+                                "steps": [
+                                    {
+                                        "id": "reviewPullRequest",
+                                        "app": {
+                                            "name": "github",
+                                            "operation": "reviewPullRequest",
+                                        },
+                                    }
+                                ]
                             }
                         },
                     }
@@ -4282,10 +4290,15 @@ class GitHubProviderTests(unittest.TestCase):
                         },
                         "workflow": {
                             "target": {
-                                "plugin": {
-                                    "plugin": "github",
-                                    "operation": "reviewPullRequest",
-                                }
+                                "steps": [
+                                    {
+                                        "id": "reviewPullRequest",
+                                        "app": {
+                                            "name": "github",
+                                            "operation": "reviewPullRequest",
+                                        },
+                                    }
+                                ]
                             }
                         },
                     }
@@ -6553,10 +6566,15 @@ class GitHubProviderTests(unittest.TestCase):
                     "workflow": {
                         "provider": "local",
                         "target": {
-                            "plugin": {
-                                "plugin": "github",
-                                "operation": "reviewPullRequest",
-                            }
+                            "steps": [
+                                {
+                                    "id": "reviewPullRequest",
+                                    "app": {
+                                        "name": "github",
+                                        "operation": "reviewPullRequest",
+                                    },
+                                }
+                            ]
                         },
                     }
                 },
@@ -6569,7 +6587,7 @@ class GitHubProviderTests(unittest.TestCase):
             (
                 {
                     "webhookPolicies": [
-                        {"id": "bad-target", "workflow": {"target": "plugin"}}
+                        {"id": "bad-target", "workflow": {"target": "bad"}}
                     ]
                 },
                 "workflow.target must be an object",
@@ -6577,10 +6595,10 @@ class GitHubProviderTests(unittest.TestCase):
             (
                 {
                     "webhookPolicies": [
-                        {"id": "missing-plugin", "workflow": {"target": {}}}
+                        {"id": "missing-steps", "workflow": {"target": {}}}
                     ]
                 },
-                "workflow.target.plugin is required",
+                "workflow.target.steps must be a non-empty array",
             ),
             (
                 {
@@ -6597,112 +6615,148 @@ class GitHubProviderTests(unittest.TestCase):
                 {
                     "webhookPolicies": [
                         {
-                            "id": "bad-plugin-target",
-                            "workflow": {"target": {"plugin": "github"}},
+                            "id": "bad-steps-target",
+                            "workflow": {"target": {"steps": "github"}},
                         }
                     ]
                 },
-                "workflow.target.plugin must be an object",
+                "workflow.target.steps must be a non-empty array",
             ),
             (
                 {
                     "webhookPolicies": [
                         {
-                            "id": "missing-plugin-name",
-                            "workflow": {
-                                "target": {"plugin": {"operation": "reviewPullRequest"}}
-                            },
-                        }
-                    ]
-                },
-                "workflow.target.plugin.plugin is required",
-            ),
-            (
-                {
-                    "webhookPolicies": [
-                        {
-                            "id": "missing-plugin-operation",
-                            "workflow": {"target": {"plugin": {"plugin": "github"}}},
-                        }
-                    ]
-                },
-                "workflow.target.plugin.operation is required",
-            ),
-            (
-                {
-                    "webhookPolicies": [
-                        {
-                            "id": "bad-plugin-input",
+                            "id": "missing-app-name",
                             "workflow": {
                                 "target": {
-                                    "plugin": {
-                                        "plugin": "github",
-                                        "operation": "reviewPullRequest",
-                                        "input": "bad",
-                                    }
+                                    "steps": [
+                                        {
+                                            "id": "reviewPullRequest",
+                                            "app": {"operation": "reviewPullRequest"},
+                                        }
+                                    ]
                                 }
                             },
                         }
                     ]
                 },
-                "workflow.target.plugin.input must be an object",
+                r"workflow.target.steps\[0\].app.name is required",
             ),
             (
                 {
                     "webhookPolicies": [
                         {
-                            "id": "non-json-plugin-input",
+                            "id": "missing-app-operation",
                             "workflow": {
                                 "target": {
-                                    "plugin": {
-                                        "plugin": "github",
-                                        "operation": "reviewPullRequest",
-                                        "input": {"bad": object()},
-                                    }
+                                    "steps": [
+                                        {
+                                            "id": "reviewPullRequest",
+                                            "app": {"name": "github"},
+                                        }
+                                    ]
                                 }
                             },
                         }
                     ]
                 },
-                "workflow.target.plugin.input must be JSON-compatible",
+                r"workflow.target.steps\[0\].app.operation is required",
             ),
             (
                 {
                     "webhookPolicies": [
                         {
-                            "id": "bad-plugin-credential-mode",
+                            "id": "bad-app-input",
                             "workflow": {
                                 "target": {
-                                    "plugin": {
-                                        "plugin": "github",
-                                        "operation": "reviewPullRequest",
-                                        "credentialMode": "platform",
-                                    }
+                                    "steps": [
+                                        {
+                                            "id": "reviewPullRequest",
+                                            "app": {
+                                                "name": "github",
+                                                "operation": "reviewPullRequest",
+                                                "input": "bad",
+                                            },
+                                        }
+                                    ]
                                 }
                             },
                         }
                     ]
                 },
-                'workflow.target.plugin.credentialMode "platform" is not supported',
+                r"workflow.target.steps\[0\].app.input must be an object",
             ),
             (
                 {
                     "webhookPolicies": [
                         {
-                            "id": "snake-plugin-credential-mode",
+                            "id": "non-json-app-input",
                             "workflow": {
                                 "target": {
-                                    "plugin": {
-                                        "plugin": "github",
-                                        "operation": "reviewPullRequest",
-                                        "credential_mode": "none",
-                                    }
+                                    "steps": [
+                                        {
+                                            "id": "reviewPullRequest",
+                                            "app": {
+                                                "name": "github",
+                                                "operation": "reviewPullRequest",
+                                                "input": {"bad": object()},
+                                            },
+                                        }
+                                    ]
                                 }
                             },
                         }
                     ]
                 },
-                "workflow.target.plugin.credential_mode is not supported",
+                r"workflow.target.steps\[0\].app.input must be JSON-compatible",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "bad-app-credential-mode",
+                            "workflow": {
+                                "target": {
+                                    "steps": [
+                                        {
+                                            "id": "reviewPullRequest",
+                                            "app": {
+                                                "name": "github",
+                                                "operation": "reviewPullRequest",
+                                                "credentialMode": "platform",
+                                            },
+                                        }
+                                    ]
+                                }
+                            },
+                        }
+                    ]
+                },
+                r'workflow.target.steps\[0\].app.credentialMode "platform" is not supported',
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
+                            "id": "snake-app-credential-mode",
+                            "workflow": {
+                                "target": {
+                                    "steps": [
+                                        {
+                                            "id": "reviewPullRequest",
+                                            "app": {
+                                                "name": "github",
+                                                "operation": "reviewPullRequest",
+                                                "credential_mode": "none",
+                                            },
+                                        }
+                                    ]
+                                }
+                            },
+                        }
+                    ]
+                },
+                r"workflow.target.steps\[0\].app.credential_mode is not supported",
             ),
             (
                 {
@@ -6712,10 +6766,15 @@ class GitHubProviderTests(unittest.TestCase):
                             "comments": {"inlinePolicy": "never"},
                             "workflow": {
                                 "target": {
-                                    "plugin": {
-                                        "plugin": "github",
-                                        "operation": "reviewPullRequest",
-                                    }
+                                    "steps": [
+                                        {
+                                            "id": "reviewPullRequest",
+                                            "app": {
+                                                "name": "github",
+                                                "operation": "reviewPullRequest",
+                                            },
+                                        }
+                                    ]
                                 }
                             },
                         }
@@ -6731,10 +6790,15 @@ class GitHubProviderTests(unittest.TestCase):
                             "action": {"allowCodeReviewComments": False},
                             "workflow": {
                                 "target": {
-                                    "plugin": {
-                                        "plugin": "github",
-                                        "operation": "reviewPullRequest",
-                                    }
+                                    "steps": [
+                                        {
+                                            "id": "reviewPullRequest",
+                                            "app": {
+                                                "name": "github",
+                                                "operation": "reviewPullRequest",
+                                            },
+                                        }
+                                    ]
                                 }
                             },
                         }
@@ -6786,7 +6850,7 @@ class GitHubProviderTests(unittest.TestCase):
         steps_target = get_github_config().webhook_policies[0].workflow_target
         self.assertIsNotNone(steps_target)
         assert steps_target is not None
-        self.assertEqual(steps_target.plugin_name, "github")
+        self.assertEqual(steps_target.app_name, "github")
         self.assertEqual(steps_target.operation, "reviewPullRequest")
         self.assertEqual(steps_target.credential_mode, "none")
         self.assertEqual(steps_target.input["maxComments"], 3)
@@ -7064,10 +7128,15 @@ class GitHubProviderTests(unittest.TestCase):
                         },
                         "workflow": {
                             "target": {
-                                "plugin": {
-                                    "plugin": "github",
-                                    "operation": "reviewPullRequest",
-                                }
+                                "steps": [
+                                    {
+                                        "id": "reviewPullRequest",
+                                        "app": {
+                                            "name": "github",
+                                            "operation": "reviewPullRequest",
+                                        },
+                                    }
+                                ]
                             }
                         },
                     }

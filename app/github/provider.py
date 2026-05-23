@@ -1243,7 +1243,7 @@ def _policy_targets_review_pull_request(policy: Any) -> bool:
     target = getattr(policy, "workflow_target", None)
     return (
         target is not None
-        and getattr(target, "plugin_name", "") == "github"
+        and getattr(target, "app_name", "") == "github"
         and getattr(target, "operation", "") == REVIEW_PULL_REQUEST_OPERATION
     )
 
@@ -1640,7 +1640,7 @@ def _review_pull_request_disabled_by_preference(policy: Any) -> bool:
     target = getattr(policy, "workflow_target", None)
     return (
         target is not None
-        and getattr(target, "plugin_name", "") == "github"
+        and getattr(target, "app_name", "") == "github"
         and getattr(target, "operation", "") == REVIEW_PULL_REQUEST_OPERATION
         and not getattr(policy, "allow_code_review_comments", True)
     )
@@ -3063,7 +3063,7 @@ def _policy_action_preference_fields(
     workflow_target = policy.workflow_target
     is_review_workflow = (
         workflow_target is not None
-        and workflow_target.plugin_name == "github"
+        and workflow_target.app_name == "github"
         and workflow_target.operation == REVIEW_PULL_REQUEST_OPERATION
     )
     if BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION in operations or is_review_workflow:

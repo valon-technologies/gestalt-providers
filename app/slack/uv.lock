@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = "==3.14.*"
 
 [[package]]
@@ -63,8 +63,8 @@ wheels = [
 
 [[package]]
 name = "gestalt-sdk"
-version = "0.0.1a1"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#6fb60d155592bd3000123c284d6de482367b0ff4" }
+version = "0.0.1a2"
+source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#f45a165f18dfd2ff50cc20223dcc16f29c45485e" }
 dependencies = [
     { name = "googleapis-common-protos" },
     { name = "grpcio" },
