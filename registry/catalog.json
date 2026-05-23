@@ -674,7 +674,7 @@
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/github/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.1",
+      "manifestVersion": "0.0.1-alpha.2",
       "name": "github",
       "package": "github.com/valon-technologies/gestalt-providers/apps/github",
       "packagePath": "apps/github",

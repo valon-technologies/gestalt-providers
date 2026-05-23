@@ -656,6 +656,41 @@ def effective_policy_operations(policy: GitHubWebhookPolicy) -> tuple[str, ...]:
     return tuple(operations)
 
 
+def _parse_workflow_app_call_config(
+    app_config: dict[str, Any], path: str
+) -> GitHubWorkflowPluginTarget:
+    if "credential_mode" in app_config:
+        raise ValueError(f"{path}.credential_mode is not supported; use credentialMode")
+
+    input_value: dict[str, Any] = {}
+    input_path = f"{path}.input"
+    if "input" in app_config:
+        input_config = app_config.get("input")
+        if not isinstance(input_config, dict):
+            raise ValueError(f"{input_path} must be an object")
+        input_value = dict(input_config)
+    validate_struct_compatible(input_value, input_path)
+    credential_mode = optional_string(
+        app_config, "credentialMode", f"{path}.credentialMode"
+    ).lower()
+    if credential_mode not in ("", "none", "user"):
+        raise ValueError(
+            f'{path}.credentialMode "{credential_mode}" is not supported'
+        )
+
+    app_name = optional_string(app_config, "name", f"{path}.name")
+    if not app_name:
+        app_name = required_string(app_config, "plugin", f"{path}.plugin")
+    return GitHubWorkflowPluginTarget(
+        plugin_name=app_name,
+        operation=required_string(app_config, "operation", f"{path}.operation"),
+        connection=optional_string(app_config, "connection", f"{path}.connection"),
+        instance=optional_string(app_config, "instance", f"{path}.instance"),
+        credential_mode=credential_mode,
+        input=input_value,
+    )
+
+
 def parse_policy_workflow_target(
     workflow_config: dict[str, Any], policy_index: int
 ) -> GitHubWorkflowPluginTarget | None:
@@ -663,41 +698,28 @@ def parse_policy_workflow_target(
         return None
     target_path = f"webhookPolicies[{policy_index}].workflow.target"
     target_config = required_config_object(workflow_config, "target", target_path)
+
+    if "steps" in target_config:
+        steps_config = target_config.get("steps")
+        steps_path = f"{target_path}.steps"
+        if not isinstance(steps_config, list) or not steps_config:
+            raise ValueError(f"{steps_path} must be a non-empty array")
+        for index, step_config in enumerate(steps_config):
+            step_path = f"{steps_path}[{index}]"
+            if not isinstance(step_config, dict):
+                raise ValueError(f"{step_path} must be an object")
+            step_map = cast(dict[str, Any], step_config)
+            app_config = step_map.get("app")
+            if app_config is None:
+                continue
+            if not isinstance(app_config, dict):
+                raise ValueError(f"{step_path}.app must be an object")
+            return _parse_workflow_app_call_config(app_config, f"{step_path}.app")
+        raise ValueError(f"{steps_path} must include an app step")
+
     plugin_path = f"{target_path}.plugin"
     plugin_config = required_config_object(target_config, "plugin", plugin_path)
-    if "credential_mode" in plugin_config:
-        raise ValueError(
-            f"{plugin_path}.credential_mode is not supported; use credentialMode"
-        )
-
-    input_value: dict[str, Any] = {}
-    input_path = f"{plugin_path}.input"
-    if "input" in plugin_config:
-        input_config = plugin_config.get("input")
-        if not isinstance(input_config, dict):
-            raise ValueError(f"{input_path} must be an object")
-        input_value = dict(input_config)
-    validate_struct_compatible(input_value, input_path)
-    credential_mode = optional_string(
-        plugin_config, "credentialMode", f"{plugin_path}.credentialMode"
-    ).lower()
-    if credential_mode not in ("", "none", "user"):
-        raise ValueError(
-            f'{plugin_path}.credentialMode "{credential_mode}" is not supported'
-        )
-
-    return GitHubWorkflowPluginTarget(
-        plugin_name=required_string(plugin_config, "plugin", f"{plugin_path}.plugin"),
-        operation=required_string(
-            plugin_config, "operation", f"{plugin_path}.operation"
-        ),
-        connection=optional_string(
-            plugin_config, "connection", f"{plugin_path}.connection"
-        ),
-        instance=optional_string(plugin_config, "instance", f"{plugin_path}.instance"),
-        credential_mode=credential_mode,
-        input=input_value,
-    )
+    return _parse_workflow_app_call_config(plugin_config, plugin_path)
 
 
 def validate_policy_comments_for_workflow_target(
@@ -714,7 +736,7 @@ def validate_policy_comments_for_workflow_target(
     ):
         raise ValueError(
             f"webhookPolicies[{policy_index}].comments.inlinePolicy cannot be "
-            "never when workflow.target.plugin uses github.reviewPullRequest"
+            "never when workflow.target uses github.reviewPullRequest"
         )
 
 
@@ -732,7 +754,7 @@ def validate_policy_action_gates_for_workflow_target(
     ):
         raise ValueError(
             f"webhookPolicies[{policy_index}].action.allowCodeReviewComments cannot "
-            "be false when workflow.target.plugin uses github.reviewPullRequest"
+            "be false when workflow.target uses github.reviewPullRequest"
         )
 
 

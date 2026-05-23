@@ -23,7 +23,7 @@ import internals.identity as identity_module
 import internals.operations as operations_module
 import internals.preferences as preferences_module
 import internals.review as review_module
-from internals.config import GitHubBotIdentity, GitHubUserIdentity
+from internals.config import GitHubBotIdentity, GitHubUserIdentity, get_github_config
 from internals.errors import GitHubAPIError
 import provider as provider_module
 
@@ -808,22 +808,30 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn(provider_module.BOT_UPDATE_CHECK_RUN_OPERATION, enum)
         self.assertIn(provider_module.BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION, enum)
         self.assertNotIn(provider_module.USER_CREATE_PULL_REQUEST_OPERATION, enum)
-        workflow_schema = schema["properties"]["webhookPolicies"]["items"][
+        target_schema = schema["properties"]["webhookPolicies"]["items"][
             "properties"
-        ]["workflow"]["properties"]
-        plugin_target_schema = workflow_schema["target"]["properties"]["plugin"]
-        self.assertEqual(plugin_target_schema["required"], ["plugin", "operation"])
-        self.assertIn("plugin", plugin_target_schema["properties"])
-        self.assertIn("operation", plugin_target_schema["properties"])
-        self.assertIn("connection", plugin_target_schema["properties"])
-        self.assertIn("instance", plugin_target_schema["properties"])
+        ]["workflow"]["properties"]["target"]
+        self.assertIn("oneOf", target_schema)
+        legacy_target = target_schema["oneOf"][0]["properties"]["plugin"]
+        self.assertEqual(legacy_target["required"], ["plugin", "operation"])
+        self.assertIn("plugin", legacy_target["properties"])
+        self.assertIn("operation", legacy_target["properties"])
+        self.assertIn("connection", legacy_target["properties"])
+        self.assertIn("instance", legacy_target["properties"])
         self.assertEqual(
-            plugin_target_schema["properties"]["credentialMode"]["enum"],
+            legacy_target["properties"]["credentialMode"]["enum"],
             ["none", "user"],
         )
-        self.assertEqual(plugin_target_schema["properties"]["input"]["type"], "object")
-        self.assertNotIn("pluginName", plugin_target_schema["properties"])
-        self.assertNotIn("credential_mode", plugin_target_schema["properties"])
+        self.assertEqual(legacy_target["properties"]["input"]["type"], "object")
+        self.assertNotIn("pluginName", legacy_target["properties"])
+        self.assertNotIn("credential_mode", legacy_target["properties"])
+        steps_target = target_schema["oneOf"][1]["properties"]["steps"]["items"]
+        app_target = steps_target["properties"]["app"]
+        self.assertEqual(app_target["required"], ["name", "operation"])
+        self.assertEqual(
+            app_target["properties"]["credentialMode"]["enum"],
+            ["none", "user"],
+        )
         policy_schema = schema["properties"]["webhookPolicies"]["items"]["properties"]
         self.assertEqual(policy_schema["displayName"]["type"], "string")
         self.assertEqual(policy_schema["description"]["type"], "string")
@@ -6578,6 +6586,17 @@ class GitHubProviderTests(unittest.TestCase):
                 {
                     "webhookPolicies": [
                         {
+                            "id": "missing-app-step",
+                            "workflow": {"target": {"steps": [{"id": "run"}]}},
+                        }
+                    ]
+                },
+                "workflow.target.steps must include an app step",
+            ),
+            (
+                {
+                    "webhookPolicies": [
+                        {
                             "id": "bad-plugin-target",
                             "workflow": {"target": {"plugin": "github"}},
                         }
@@ -6735,6 +6754,42 @@ class GitHubProviderTests(unittest.TestCase):
                             **config,
                         },
                     )
+
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "webhookPolicies": [
+                    {
+                        "id": "steps-review",
+                        "workflow": {
+                            "target": {
+                                "steps": [
+                                    {
+                                        "id": "reviewPullRequest",
+                                        "app": {
+                                            "name": "github",
+                                            "operation": "reviewPullRequest",
+                                            "credentialMode": "none",
+                                            "input": {"maxComments": 3},
+                                        },
+                                    }
+                                ]
+                            }
+                        },
+                    }
+                ],
+            },
+        )
+        steps_target = get_github_config().webhook_policies[0].workflow_target
+        self.assertIsNotNone(steps_target)
+        assert steps_target is not None
+        self.assertEqual(steps_target.plugin_name, "github")
+        self.assertEqual(steps_target.operation, "reviewPullRequest")
+        self.assertEqual(steps_target.credential_mode, "none")
+        self.assertEqual(steps_target.input["maxComments"], 3)
 
         provider_module.configure(
             "github",
