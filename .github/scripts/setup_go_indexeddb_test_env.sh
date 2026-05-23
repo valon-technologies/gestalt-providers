@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-app_dir="${1:?plugin directory is required}"
+app_dir="${1:?app directory is required}"
 
 containers=()
 

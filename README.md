@@ -37,7 +37,7 @@ python3 .github/scripts/generate_provider_index.py
 ### Repository Layout
 
 ```
-apps/<name>/       Integration plugin packages (Go, Python)
+apps/<name>/       Integration app packages (Go, Python)
 agent/<name>/         Agent providers (Python, Go)
 runtime/<name>/       Hosted runtime backend packages (Go)
 auth/<name>/          Authentication providers (Go)

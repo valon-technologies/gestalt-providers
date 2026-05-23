@@ -42,7 +42,7 @@ jobs:
             echo "app-name=${PLUGIN_NAME}"
             echo "app-version=${PLUGIN_VERSION}"
           } >> "$GITHUB_OUTPUT"
-      - name: Validate plugin directory
+      - name: Validate app directory
         id: validate
         run: |
           PLUGIN_DIR="${GITHUB_REF_NAME%/v*}"

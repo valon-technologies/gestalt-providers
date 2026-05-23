@@ -15,7 +15,7 @@ SKIP_DIRS = {".venv", "dist", "__pycache__"}
 
 def main() -> int:
     if len(sys.argv) != 2:
-        print("usage: validate_python_plugin.py <app-dir>", file=sys.stderr)
+        print("usage: validate_python_app.py <app-dir>", file=sys.stderr)
         return 2
 
     app_dir = Path(sys.argv[1]).resolve()

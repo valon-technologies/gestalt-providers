@@ -8,17 +8,23 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 INDEX="${ROOT}/provider-index.yaml"
 VERSION="${1:-0.0.1-alpha.1}"
 
+cd "${ROOT}"
+
+export INDEX
 mapfile -t URLS < <(
   python3 - <<'PY'
-import re, pathlib
-text = pathlib.Path("provider-index.yaml").read_text()
+import os
+import re
+from pathlib import Path
+
+text = Path(os.environ["INDEX"]).read_text()
 for match in re.finditer(r'metadata: "([^"]+/apps/[^"]+/provider-release\.yaml)"', text):
     print(match.group(1))
 PY
 )
 
 if ((${#URLS[@]} == 0)); then
-  echo "no apps release metadata URLs found in provider-index.yaml" >&2
+  echo "no apps release metadata URLs found in ${INDEX}" >&2
   exit 1
 fi
 

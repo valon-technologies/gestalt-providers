@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       app-dir:
-        description: Path to plugin directory containing manifest.yaml
+        description: Path to app directory containing manifest.yaml
         type: string
         default: '.'
       version:
@@ -27,9 +27,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      plugin-tag: ${{ steps.plugin.outputs.tag }}
-      prerelease: ${{ steps.plugin.outputs.prerelease }}
-      root: ${{ steps.plugin.outputs.root }}
+      app-tag: ${{ steps.app.outputs.tag }}
+      prerelease: ${{ steps.app.outputs.prerelease }}
+      root: ${{ steps.app.outputs.root }}
       has-go: ${{ steps.detect.outputs.has-go }}
       has-python: ${{ steps.detect.outputs.has-python }}
       has-rust: ${{ steps.detect.outputs.has-rust }}
@@ -42,16 +42,16 @@ jobs:
       - name: Normalize version
         id: version
         run: echo "release=$(echo '${{ inputs.version }}' | sed 's/^v//')" >> "$GITHUB_OUTPUT"
-      - name: Resolve plugin metadata
-        id: plugin
+      - name: Resolve app metadata
+        id: app
         run: |
           set -euo pipefail
-          PLUGIN_DIR="${{ inputs.app-dir }}"
-          if [ ! -f "${PLUGIN_DIR}/manifest.yaml" ]; then echo "ERROR: manifest.yaml not found"; exit 1; fi
-          SOURCE="$(sed -nE "s/^[[:space:]]*source:[[:space:]]*['\"]?([^'\"[:space:]]+)['\"]?[[:space:]]*$/\\1/p" "${PLUGIN_DIR}/manifest.yaml" | head -n1)"
+          APP_DIR="${{ inputs.app-dir }}"
+          if [ ! -f "${APP_DIR}/manifest.yaml" ]; then echo "ERROR: manifest.yaml not found"; exit 1; fi
+          SOURCE="$(sed -nE "s/^[[:space:]]*source:[[:space:]]*['\"]?([^'\"[:space:]]+)['\"]?[[:space:]]*$/\\1/p" "${APP_DIR}/manifest.yaml" | head -n1)"
           if [ -z "$SOURCE" ]; then echo "ERROR: unable to parse source"; exit 1; fi
           VERSION="${{ steps.version.outputs.release }}"
-          MANIFEST_VERSION="$(sed -nE "s/^[[:space:]]*version:[[:space:]]*['\"]?([^'\"[:space:]]+)['\"]?[[:space:]]*$/\\1/p" "${PLUGIN_DIR}/manifest.yaml" | head -n1)"
+          MANIFEST_VERSION="$(sed -nE "s/^[[:space:]]*version:[[:space:]]*['\"]?([^'\"[:space:]]+)['\"]?[[:space:]]*$/\\1/p" "${APP_DIR}/manifest.yaml" | head -n1)"
           if [ -z "$MANIFEST_VERSION" ]; then echo "ERROR: unable to parse version"; exit 1; fi
           if [ "$MANIFEST_VERSION" != "$VERSION" ]; then
             echo "ERROR: manifest version ${MANIFEST_VERSION} does not match release version ${VERSION}"
@@ -59,7 +59,7 @@ jobs:
           fi
           PRERELEASE=false
           case "$VERSION" in *-alpha*|*-beta*|*-rc*) PRERELEASE=true ;; esac
-          { echo "name=${SOURCE##*/}"; echo "tag=${PLUGIN_DIR}/v${VERSION}"; echo "prerelease=${PRERELEASE}"; echo "root=${PLUGIN_DIR%%/*}"; } >> "$GITHUB_OUTPUT"
+          { echo "name=${SOURCE##*/}"; echo "tag=${APP_DIR}/v${VERSION}"; echo "prerelease=${PRERELEASE}"; echo "root=${APP_DIR%%/*}"; } >> "$GITHUB_OUTPUT"
       - name: Detect provider language
         id: detect
         run: |
@@ -140,7 +140,7 @@ jobs:
           (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
 
       # -- Tests (amd64 only) --
-      - name: Test Go plugin
+      - name: Test Go app
         if: needs.metadata.outputs.has-go == 'true'
         run: |
           case "${{ inputs.app-dir }}" in
@@ -154,15 +154,15 @@ jobs:
               ;;
           esac
           cd "${{ inputs.app-dir }}" && go test ./...
-      - name: Test Rust plugin
+      - name: Test Rust app
         if: needs.metadata.outputs.source-language == 'rust'
         run: |
           . .github/scripts/setup_rust_datastore_test_env.sh "${{ inputs.app-dir }}"
           cd "${{ inputs.app-dir }}" && cargo test
-      - name: Validate Python plugin
+      - name: Validate Python app
         if: needs.metadata.outputs.source-language == 'python'
         run: python3 .github/scripts/validate_python_app.py "${{ inputs.app-dir }}"
-      - name: Test TypeScript plugin
+      - name: Test TypeScript app
         if: needs.metadata.outputs.source-language == 'typescript'
         run: |
           cd "${{ inputs.app-dir }}"
@@ -578,7 +578,7 @@ jobs:
           set -euo pipefail
           cd dist && sha256sum ./*.tar.gz > checksums.txt && cd ..
 
-          args=(release create "${{ needs.metadata.outputs.plugin-tag }}" --generate-notes)
+          args=(release create "${{ needs.metadata.outputs.app-tag }}" --generate-notes)
           if [ "${{ needs.metadata.outputs.prerelease }}" = "true" ]; then
             args+=(--prerelease)
           fi
@@ -588,6 +588,6 @@ jobs:
         run: |
           bash .github/scripts/update_provider_registry_release.sh \
             "${{ inputs.app-dir }}" \
-            "${{ needs.metadata.outputs.plugin-tag }}" \
+            "${{ needs.metadata.outputs.app-tag }}" \
             "${{ inputs.app-dir }}/manifest.yaml" \
             "dist/provider-release.yaml"
