@@ -1,0 +1,47 @@
+source: github.com/valon-technologies/gestalt-providers/apps/gmail
+version: 0.0.1-alpha.1
+displayName: Gmail
+description: Read, send, and manage Gmail messages, threads, drafts, and labels.
+iconFile: assets/icon.svg
+kind: app
+spec:
+  configSchemaPath: schemas/config.schema.yaml
+  managedParameters:
+  - in: path
+    name: userId
+    value: me
+  surfaces:
+    openapi:
+      connection: default
+      document: https://api.apis.guru/v2/specs/googleapis.com/gmail/v1/openapi.json
+  allowedOperations:
+    messages.list: {}
+    messages.get: {}
+    messages.attachments.get: {}
+    gmail.users.messages.trash:
+      alias: messages.trash
+    gmail.users.messages.modify:
+      alias: messages.modify
+    gmail.users.drafts.list:
+      alias: drafts.list
+    gmail.users.drafts.get:
+      alias: drafts.get
+    gmail.users.drafts.delete:
+      alias: drafts.delete
+    labels.list: {}
+    gmail.users.labels.patch:
+      alias: labels.patch
+    threads.get: {}
+    getProfile: {}
+  connections:
+    default:
+      auth:
+        type: oauth2
+        authorizationUrl: https://accounts.google.com/o/oauth2/v2/auth
+        tokenUrl: https://oauth2.googleapis.com/token
+        scopes:
+        - https://www.googleapis.com/auth/gmail.modify
+        - https://www.googleapis.com/auth/gmail.compose
+        authorizationParams:
+          access_type: offline
+          prompt: consent

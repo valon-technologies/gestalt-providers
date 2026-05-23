@@ -1,0 +1,32 @@
+source: github.com/valon-technologies/gestalt-providers/apps/pagerduty
+version: 0.0.1-alpha.1
+displayName: PagerDuty
+description: Manage incidents, services, and on-call schedules.
+iconFile: assets/icon.svg
+kind: app
+spec:
+  configSchemaPath: schemas/config.schema.yaml
+  surfaces:
+    openapi:
+      connection: default
+      document: https://raw.githubusercontent.com/PagerDuty/api-schema/main/reference/REST/openapiv3.json
+  connections:
+    default:
+      auth:
+        type: oauth2
+        authorizationUrl: https://identity.pagerduty.com/oauth/authorize
+        tokenUrl: https://identity.pagerduty.com/oauth/token
+        pkce: true
+      postConnect:
+        request:
+          method: GET
+          url: https://api.pagerduty.com/users/me
+          headers:
+            Accept: application/vnd.pagerduty+json;version=2
+            Content-Type: application/json
+        sourcePath: user
+        externalIdentity:
+          type: pagerduty_identity
+          id: user:{id}
+        metadata:
+          pagerduty.user_id: id

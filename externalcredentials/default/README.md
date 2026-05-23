@@ -37,8 +37,8 @@ Configuration fields:
 
 - `encryptionKey`: Required. Must match the key material used for existing
   `external_credentials` rows.
-- `indexeddb`: Optional named host IndexedDB provider to connect to. Omit it to
-  use the default IndexedDB socket.
+- `indexeddb`: Optional named host IndexedDB provider binding. Omit it to use
+  the default IndexedDB binding on the unified host-service socket.
 
 ## Persisted Store
 

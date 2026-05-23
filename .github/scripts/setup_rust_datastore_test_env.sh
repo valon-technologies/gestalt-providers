@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-plugin_dir="${1:?plugin directory is required}"
+app_dir="${1:?plugin directory is required}"
 
 wait_for_command() {
   local attempts="$1"
@@ -17,7 +17,7 @@ wait_for_command() {
   return 1
 }
 
-case "$plugin_dir" in
+case "$app_dir" in
   indexeddb/postgres)
     container_name="gestalt-postgres-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-0}-${RANDOM}"
     port="${GESTALT_TEST_POSTGRES_PORT:-55432}"

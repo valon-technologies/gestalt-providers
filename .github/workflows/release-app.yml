@@ -1,0 +1,92 @@
+name: Release Provider Package
+
+on:
+  push:
+    tags:
+      - 'agent/*/v*'
+      - 'runtime/*/v*'
+      - 'apps/*/v*'
+      - 'auth/*/v*'
+      - 'authorization/*/v*'
+      - 'externalcredentials/*/v*'
+      - 's3/*/v*'
+      - 'indexeddb/*/v*'
+      - 'workflow/*/v*'
+      - 'cache/*/v*'
+      - 'secrets/*/v*'
+      - 'ui/*/v*'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      app-name: ${{ steps.parse.outputs.app-name }}
+      app-dir: ${{ steps.validate.outputs.app-dir }}
+      app-version: ${{ steps.parse.outputs.app-version }}
+      is-app: ${{ steps.validate.outputs.is-app }}
+      gestalt-ref: ${{ steps.validate.outputs.gestalt-ref }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse tag
+        id: parse
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          PLUGIN_PATH="${TAG%/v*}"
+          PLUGIN_NAME="${PLUGIN_PATH##*/}"
+          PLUGIN_VERSION="${TAG##*/v}"
+          {
+            echo "app-name=${PLUGIN_NAME}"
+            echo "app-version=${PLUGIN_VERSION}"
+          } >> "$GITHUB_OUTPUT"
+      - name: Validate plugin directory
+        id: validate
+        run: |
+          PLUGIN_DIR="${GITHUB_REF_NAME%/v*}"
+          PLUGIN_ROOT="${PLUGIN_DIR%%/*}"
+          if [ "$PLUGIN_DIR" = "gestaltd" ]; then
+            echo "Detected gestaltd bootstrap tag; skipping provider package release workflow."
+            echo "is-app=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ ! -d "$PLUGIN_DIR" ]; then
+            echo "ERROR: ${PLUGIN_DIR} does not exist"
+            exit 1
+          fi
+          if [ ! -f "${PLUGIN_DIR}/manifest.yaml" ]; then
+            echo "ERROR: ${PLUGIN_DIR}/manifest.yaml not found"
+            exit 1
+          fi
+
+          case "$PLUGIN_ROOT" in
+            agent|runtime|plugins|auth|authorization|externalcredentials|s3|indexeddb|workflow|cache|secrets|ui)
+              GESTALT_REF="main"
+              ;;
+            *)
+              echo "ERROR: unsupported app root ${PLUGIN_ROOT}"
+              exit 1
+              ;;
+          esac
+
+          {
+            echo "app-dir=${PLUGIN_DIR}"
+            echo "is-app=true"
+            echo "gestalt-ref=${GESTALT_REF}"
+          } >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: prepare
+    if: needs.prepare.outputs.is-app == 'true'
+    permissions:
+      contents: write
+      packages: write
+    uses: ./.github/workflows/release-app-reusable.yml
+    secrets: inherit
+    with:
+      app-dir: ${{ needs.prepare.outputs.app-dir }}
+      version: ${{ needs.prepare.outputs.app-version }}
+      gestalt-ref: ${{ needs.prepare.outputs.gestalt-ref }}

@@ -3,8 +3,8 @@ name: Codex Rerelease Python Provider Assets
 on:
   workflow_dispatch:
     inputs:
-      plugin-dir:
-        description: Provider directory, for example plugins/slack
+      app-dir:
+        description: Provider directory, for example apps/slack
         required: true
         type: string
       version:
@@ -37,13 +37,13 @@ jobs:
         id: source
         run: |
           set -euo pipefail
-          tag="${{ inputs.plugin-dir }}/v${{ inputs.version }}"
+          tag="${{ inputs.app-dir }}/v${{ inputs.version }}"
           git fetch --force origin "refs/tags/${tag}:refs/tags/${tag}"
           source_root="${RUNNER_TEMP}/provider-source"
           rm -rf "${source_root}"
           mkdir -p "${source_root}"
-          git archive "${tag}" "${{ inputs.plugin-dir }}" | tar -x -C "${source_root}"
-          source_dir="${source_root}/${{ inputs.plugin-dir }}"
+          git archive "${tag}" "${{ inputs.app-dir }}" | tar -x -C "${source_root}"
+          source_dir="${source_root}/${{ inputs.app-dir }}"
           if [ ! -f "${source_dir}/manifest.yaml" ]; then
             echo "missing manifest for ${tag}" >&2
             exit 1
@@ -109,7 +109,7 @@ jobs:
       - name: Update provider registry index
         run: |
           bash .github/scripts/update_provider_registry_release.sh \
-            "${{ inputs.plugin-dir }}" \
+            "${{ inputs.app-dir }}" \
             "${{ steps.source.outputs.tag }}" \
             "${{ steps.source.outputs.dir }}/manifest.yaml" \
             "${RUNNER_TEMP}/release-patch/provider-release.yaml"

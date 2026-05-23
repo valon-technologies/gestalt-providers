@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 use gestalt::proto::v1::agent_host_server::{
     AgentHost as AgentHostRpc, AgentHostServer as AgentHostGrpcServer,
 };
-use gestalt::{AgentProvider as _, proto::v1 as proto};
+use gestalt::{
+    AgentProvider as _, ENV_HOST_SERVICE_SOCKET, ENV_HOST_SERVICE_TOKEN, proto::v1 as proto,
+};
 use serde_json::{Map as JsonMap, Value as JsonValue, json};
 use tempfile::TempDir;
 use tokio::net::UnixListener;
@@ -21,8 +23,6 @@ static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const OWNER_SUBJECT_ID: &str = "user-1";
 const OTHER_SUBJECT_ID: &str = "user-2";
 const SLACK_SUBJECT_ID: &str = "service_account:slack-bot";
-const ENV_HOST_SERVICE_SOCKET: &str = "GESTALT_HOST_SERVICE_SOCKET";
-const ENV_HOST_SERVICE_TOKEN: &str = "GESTALT_HOST_SERVICE_TOKEN";
 
 #[tokio::test]
 async fn completes_turn_and_refreshes_adc_token_per_turn() {

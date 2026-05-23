@@ -15,8 +15,8 @@ cross-platform artifact that `gestaltd` resolves at runtime.
 
 - [Getting Started](https://gestaltd.ai/getting-started): run Gestalt in five minutes
 - [Configuration](https://gestaltd.ai/configuration): config model, plugin setup, and authentication
-- [Provider Development](https://gestaltd.ai/providers): writing plugins, authentication providers, S3 object stores, datastores, and secrets engines
-- [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests): manifest format and schema
+- [Provider Development](https://gestaltd.ai/providers): writing apps, authentication providers, S3 object stores, datastores, and secrets engines
+- [Manifest Reference](https://gestaltd.ai/reference/app-manifests): manifest format and schema
 - [Releasing](https://gestaltd.ai/providers/releasing): publishing provider packages
 
 ## Usage
@@ -37,7 +37,7 @@ python3 .github/scripts/generate_provider_index.py
 ### Repository Layout
 
 ```
-plugins/<name>/       Integration plugin packages (Go, Python)
+apps/<name>/       Integration plugin packages (Go, Python)
 agent/<name>/         Agent providers (Python, Go)
 runtime/<name>/       Hosted runtime backend packages (Go)
 auth/<name>/          Authentication providers (Go)
@@ -52,7 +52,7 @@ ui/<name>/            UI bundles
 ```
 
 Every provider requires a
-[`manifest.yaml`](https://gestaltd.ai/reference/plugin-manifests) that declares
+[`manifest.yaml`](https://gestaltd.ai/reference/app-manifests) that declares
 its source, version, display name, and capabilities. Declarative plugins need
 only the manifest and optional assets. Source plugins add an implementation in
 Go, Python, or Rust. See the
@@ -67,8 +67,8 @@ including hosted runtime backends under `runtime/`.
 Push a tag in the format `<kind>/<name>/v<version>`:
 
 ```sh
-git tag plugins/slack/v0.0.1-alpha.1
-git push origin plugins/slack/v0.0.1-alpha.1
+git tag apps/slack/v0.0.1-alpha.1
+git push origin apps/slack/v0.0.1-alpha.1
 ```
 
 Runtime providers use the same release flow:

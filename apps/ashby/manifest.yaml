@@ -1,0 +1,73 @@
+source: github.com/valon-technologies/gestalt-providers/apps/ashby
+version: 0.0.1-alpha.1
+displayName: Ashby
+description: Candidates, applications, jobs, offers, interviews, departments, locations, users, and reports.
+iconFile: assets/icon.svg
+kind: app
+spec:
+  surfaces:
+    openapi:
+      connection: default
+      document: openapi.yaml
+  connections:
+    default:
+      mode: user
+      auth:
+        type: manual
+  allowedOperations:
+    candidate.list:
+      paginate: true
+    candidate.info: {}
+    candidate.search: {}
+    candidate.create: {}
+    candidate.update: {}
+    candidate.createNote: {}
+    application.list:
+      paginate: true
+    application.info: {}
+    application.create: {}
+    application.changeStage: {}
+    applicationFeedback.submit: {}
+    job.list:
+      paginate: true
+    job.info: {}
+    file.info: {}
+    offer.list:
+      paginate: true
+    offer.info: {}
+    report.synchronous: {}
+    report.generate: {}
+    interviewSchedule.list:
+      paginate: true
+    interview.info: {}
+    interviewBriefing.info: {}
+    interviewStage.list: {}
+    interviewStage.info: {}
+    feedbackFormDefinition.list:
+      paginate: true
+    feedbackFormDefinition.info: {}
+    department.info: {}
+    department.list:
+      paginate: true
+    location.list:
+      paginate: true
+    user.list:
+      paginate: true
+  responseMapping:
+    dataPath: results
+    pagination:
+      hasMore:
+        source: body
+        path: moreDataAvailable
+      cursor:
+        source: body
+        path: nextCursor
+  pagination:
+    style: cursor
+    cursorParam: cursor
+    cursor:
+      source: body
+      path: nextCursor
+    limitParam: limit
+    defaultLimit: 100
+    resultsPath: results

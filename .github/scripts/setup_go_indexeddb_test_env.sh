@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-plugin_dir="${1:?plugin directory is required}"
+app_dir="${1:?plugin directory is required}"
 
 containers=()
 
@@ -109,7 +109,7 @@ start_dynamodb_local() {
 
 trap cleanup_go_indexeddb_test_env EXIT
 
-case "$plugin_dir" in
+case "$app_dir" in
   indexeddb/relationaldb)
     start_postgres
     start_mysql

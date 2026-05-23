@@ -8,7 +8,7 @@ on:
       - 'registry/**'
       - 'agent/**'
       - 'runtime/**'
-      - 'plugins/**'
+      - 'apps/**'
       - 'auth/**'
       - 'authorization/**'
       - 'externalcredentials/**'
@@ -29,7 +29,7 @@ on:
       - 'registry/**'
       - 'agent/**'
       - 'runtime/**'
-      - 'plugins/**'
+      - 'apps/**'
       - 'auth/**'
       - 'authorization/**'
       - 'externalcredentials/**'
@@ -79,14 +79,14 @@ jobs:
   discover:
     runs-on: ubuntu-latest
     outputs:
-      plugins: ${{ steps.discover.outputs.plugins }}
+      apps: ${{ steps.discover.outputs.plugins }}
       count: ${{ steps.discover.outputs.count }}
       scope: ${{ steps.discover.outputs.scope }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Discover plugins to validate
+      - name: Discover apps to validate
         id: discover
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -102,8 +102,8 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          package_roots = ("agent", "runtime", "plugins", "auth", "authorization", "externalcredentials", "s3", "indexeddb", "workflow", "cache", "secrets")
-          all_plugins = []
+          package_roots = ("agent", "runtime", "apps", "auth", "authorization", "externalcredentials", "s3", "indexeddb", "workflow", "cache", "secrets")
+          all_apps = []
           for root_name in package_roots:
               root = repo / root_name
               if not root.is_dir():
@@ -120,7 +120,7 @@ jobs:
                           package_data = {}
                       provider = (package_data.get("gestalt") or {}).get("provider")
                       has_typescript = bool(provider)
-                  all_plugins.append(
+                  all_apps.append(
                       {
                           "dir": str(package_dir.as_posix()),
                           "name": f"{root_name}/{package_dir.name}",
@@ -132,7 +132,7 @@ jobs:
                       }
                   )
           packages_by_root = {}
-          for plugin in all_plugins:
+          for plugin in all_apps:
               packages_by_root.setdefault(plugin["root"], set()).add(plugin["dir"])
           shared_prefixes = (".github/scripts/",)
 
@@ -178,14 +178,14 @@ jobs:
                           selected.add(package_dir.as_posix())
 
           if run_all:
-              plugins = all_plugins
+              plugins = all_apps
           else:
-              plugins = [plugin for plugin in all_plugins if plugin["dir"] in selected]
+              plugins = [plugin for plugin in all_apps if plugin["dir"] in selected]
 
           print(
               json.dumps(
                   {
-                      "plugins": plugins,
+                      "apps": plugins,
                       "count": len(plugins),
                       "scope": "all" if run_all else "changed",
                   }
@@ -194,7 +194,7 @@ jobs:
           PY
           )"
 
-          plugins_json="$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.stdin.read())["plugins"]))' <<<"$discovery_output")"
+          plugins_json="$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.stdin.read())["apps"]))' <<<"$discovery_output")"
           count="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["count"])' <<<"$discovery_output")"
           scope="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["scope"])' <<<"$discovery_output")"
 
@@ -208,7 +208,7 @@ jobs:
 
           echo "validation scope: $scope"
           echo "plugin count: $count"
-          echo "plugins: $plugins_json"
+          echo "apps: $plugins_json"
 
   build-gestaltd:
     needs: discover
@@ -291,46 +291,46 @@ jobs:
           OUTPUT_ROOT: ${{ runner.temp }}/dist
         run: |
           set -euo pipefail
-          plugin_dir="${{ matrix.plugin.dir }}"
+          app_dir="${{ matrix.plugin.dir }}"
           plugin_name="${{ matrix.plugin.name }}"
 
           mkdir -p "$OUTPUT_ROOT"
 
           if [ "${{ matrix.plugin.has_go }}" = "true" ]; then
-            case "$plugin_dir" in
+            case "$app_dir" in
               indexeddb/*)
-                . .github/scripts/setup_go_indexeddb_test_env.sh "$plugin_dir"
+                . .github/scripts/setup_go_indexeddb_test_env.sh "$app_dir"
                 ;;
             esac
-            case "$plugin_dir" in
+            case "$app_dir" in
               cache/*)
-                . .github/scripts/setup_go_cache_test_env.sh "$plugin_dir"
+                . .github/scripts/setup_go_cache_test_env.sh "$app_dir"
                 ;;
             esac
-            (cd "$plugin_dir" && go test ./...)
+            (cd "$app_dir" && go test ./...)
           fi
 
           if [ "${{ matrix.plugin.has_rust }}" = "true" ]; then
-            . .github/scripts/setup_rust_datastore_test_env.sh "$plugin_dir"
-            (cd "$plugin_dir" && cargo test)
+            . .github/scripts/setup_rust_datastore_test_env.sh "$app_dir"
+            (cd "$app_dir" && cargo test)
           fi
 
-          if [ -f "${plugin_dir}/pyproject.toml" ]; then
-            python3 .github/scripts/validate_python_plugin.py "$plugin_dir"
+          if [ -f "${app_dir}/pyproject.toml" ]; then
+            python3 .github/scripts/validate_python_app.py "$app_dir"
           fi
 
           if [ "${{ matrix.plugin.has_typescript }}" = "true" ]; then
             (cd "${GESTALT_CHECKOUT}/sdk/typescript" && bun install --frozen-lockfile)
-            (cd "$plugin_dir" && bun install --frozen-lockfile)
-            rm -rf "${plugin_dir}/node_modules/@valon-technologies/gestalt"
-            mkdir -p "${plugin_dir}/node_modules/@valon-technologies"
-            ln -s "${GESTALT_CHECKOUT}/sdk/typescript" "${plugin_dir}/node_modules/@valon-technologies/gestalt"
-            (cd "$plugin_dir" && bun run check)
+            (cd "$app_dir" && bun install --frozen-lockfile)
+            rm -rf "${app_dir}/node_modules/@valon-technologies/gestalt"
+            mkdir -p "${app_dir}/node_modules/@valon-technologies"
+            ln -s "${GESTALT_CHECKOUT}/sdk/typescript" "${app_dir}/node_modules/@valon-technologies/gestalt"
+            (cd "$app_dir" && bun run check)
           fi
 
           rm -rf "${OUTPUT_ROOT:?}/${plugin_name}"
           mkdir -p "${OUTPUT_ROOT}/${plugin_name}"
-          (cd "$plugin_dir" && gestaltd provider release --version "${VALIDATION_VERSION}" --output "${OUTPUT_ROOT}/${plugin_name}")
+          (cd "$app_dir" && gestaltd provider release --version "${VALIDATION_VERSION}" --output "${OUTPUT_ROOT}/${plugin_name}")
 
           if [ ! -f "${OUTPUT_ROOT}/${plugin_name}/provider-release.yaml" ]; then
             echo "ERROR: ${plugin_name} did not produce provider-release.yaml"
@@ -338,7 +338,7 @@ jobs:
           fi
 
           python3 .github/scripts/write_provider_release_metadata.py \
-            --manifest "${plugin_dir}/manifest.yaml" \
+            --manifest "${app_dir}/manifest.yaml" \
             --output-dir "${OUTPUT_ROOT}/${plugin_name}" \
             --version "${VALIDATION_VERSION}" \
             --metadata-path "${OUTPUT_ROOT}/${plugin_name}/provider-release.generated.yaml"

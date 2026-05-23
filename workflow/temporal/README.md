@@ -44,8 +44,9 @@ versions after the new worker version is deployed and polling.
 ## Runtime Requirements
 
 - Gestalt host support for `ProviderLifecycle.StartProvider`
-- the provider's IndexedDB binding must point at an IndexedDB provider socket
-- `GESTALT_WORKFLOW_HOST_SOCKET` must point at the workflow host socket
+- `GESTALT_HOST_SERVICE_SOCKET` must point at the unified host-service socket
+- Named IndexedDB selection happens through SDK-attached
+  `x-gestalt-host-binding` metadata
 - A Temporal Cloud namespace reachable at `hostPort`
 - A Temporal Cloud API key with permission to start workflows, update
   workflows, manage schedules, and run workers on `taskQueue`

@@ -689,7 +689,7 @@ func TestRuntimeProviderContractRelayOnlyAgentHostLaunchSkipsHostnameProxy(t *te
 
 	params, err := buildSandboxCreateParams(context.Background(), Config{}, gestalt.StartHostedPluginRequest{
 		PluginName:   "agent-provider",
-		AllowedHosts: []string{"agent-relay.gestalt.example"},
+		AllowedHosts: []string{"host-service-relay.gestalt.example"},
 		Env: map[string]string{
 			gestalt.EnvHostServiceSocket: "tls://host-service-relay.gestalt.example:7443",
 		},

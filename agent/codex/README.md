@@ -21,10 +21,10 @@ The first cut is intentionally small:
 still use its own built-in behavior within the configured sandbox.
 
 The Gestalt tool bridge runs inside the provider process as a temporary
-`127.0.0.1` MCP HTTP endpoint with an unguessable per-turn path. AgentHost socket
-credentials and tool grants are not serialized into Codex config, and the
-generated Codex shell environment policy excludes `OPENAI_API_KEY` and
-`GESTALT_*` from shell commands.
+`127.0.0.1` MCP HTTP endpoint with an unguessable per-turn path. Unified
+host-service socket credentials and tool grants are not serialized into Codex
+config, and the generated Codex shell environment policy excludes
+`OPENAI_API_KEY` and `GESTALT_*` from shell commands.
 
 Use `config.openaiApiKey` or `OPENAI_API_KEY` for Codex authentication. The
 provider starts Codex with an isolated per-turn `CODEX_HOME`, so it does not read
