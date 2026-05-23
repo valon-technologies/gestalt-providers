@@ -89,8 +89,6 @@ var openWorkflowHost = func() (workflowHostClient, error) {
 }
 
 type Provider struct {
-	gestalt.UnimplementedWorkflowProvider
-
 	mu sync.RWMutex
 	// workerMu serializes scheduler and worker claim work without blocking
 	// foreground enqueue calls on the provider lifecycle lock.
