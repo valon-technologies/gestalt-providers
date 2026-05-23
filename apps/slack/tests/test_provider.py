@@ -53,6 +53,12 @@ def sdk_value_to_dict(value: Any) -> Any:
     return value
 
 
+def operation_body(result: Any) -> dict[str, Any]:
+    if isinstance(result, gestalt.Response):
+        return cast(dict[str, Any], result.body)
+    return cast(dict[str, Any], result)
+
+
 def new_struct() -> dict[str, Any]:
     return {}
 
@@ -350,7 +356,7 @@ def request_json(request: urllib.request.Request) -> dict[str, Any]:
 
 def tool_ref_pairs(refs: Any) -> list[tuple[str, str]]:
     return [
-        (str(getattr(ref, "system", "") or ref.plugin), str(ref.operation))
+        (str(getattr(ref, "system", "") or ref.app), str(ref.operation))
         for ref in refs
     ]
 
@@ -358,7 +364,7 @@ def tool_ref_pairs(refs: Any) -> list[tuple[str, str]]:
 def tool_ref_details(refs: Any) -> list[tuple[str, str, str, str, str, str]]:
     return [
         (
-            str(ref.plugin),
+            str(ref.app),
             str(ref.operation),
             str(getattr(ref, "connection", "")),
             str(getattr(ref, "instance", "")),
@@ -369,29 +375,217 @@ def tool_ref_details(refs: Any) -> list[tuple[str, str, str, str, str, str]]:
     ]
 
 
+def workflow_text(value: Any) -> str:
+    template = getattr(value, "template", None)
+    if template is not None:
+        return str(template)
+    return str(value)
+
+
+class WorkflowMessageView:
+    def __init__(self, message: Any) -> None:
+        self.role = getattr(message, "role", "")
+        self.text = workflow_text(getattr(message, "text", ""))
+
+
+class WorkflowOutputDeliveryView:
+    def __init__(self, app_step: Any) -> None:
+        app = getattr(app_step, "app", None)
+        self.target = types.SimpleNamespace(
+            plugin_name=getattr(app, "plugin_name", "") or getattr(app, "name", ""),
+            operation=getattr(app, "operation", ""),
+        )
+        self.credential_mode = getattr(app, "credential_mode", "")
+        input_value = getattr(app, "input", None)
+        fields = getattr(input_value, "object", None)
+        if fields is None and isinstance(input_value, dict):
+            fields = input_value
+        self.input_bindings = [
+            types.SimpleNamespace(input_field=key, value=value)
+            for key, value in (fields or {}).items()
+        ]
+
+
+class WorkflowWhenView:
+    def __init__(self, when: Any) -> None:
+        self.equals = getattr(when, "equals", None)
+        value = getattr(when, "value", None)
+        step_output = getattr(value, "step_output", None)
+        self.step_id = getattr(when, "step_id", "") or getattr(
+            step_output, "step_id", ""
+        )
+        output_path = getattr(when, "output_path", "") or getattr(
+            step_output, "path", ""
+        )
+        output_path = str(output_path)
+        if output_path.startswith("agent.structuredOutput."):
+            output_path = output_path.replace(
+                "agent.structuredOutput.", "structured_output.", 1
+            )
+        self.output_path = output_path
+
+
+def workflow_when_view(when: Any) -> WorkflowWhenView | None:
+    if when is None:
+        return None
+    return WorkflowWhenView(when)
+
+
+class WorkflowAgentView:
+    def __init__(
+        self,
+        step: Any,
+        agent: Any,
+        all_steps: list[Any],
+        *,
+        include_steps: bool = False,
+        compute_deliveries: bool = True,
+    ) -> None:
+        self.provider_name = getattr(agent, "provider_name", "") or getattr(
+            agent, "provider", ""
+        )
+        self.id = getattr(step, "id", "")
+        self.model = getattr(agent, "model", "")
+        self.prompt = workflow_text(getattr(agent, "prompt", ""))
+        self.messages = [
+            WorkflowMessageView(message)
+            for message in (getattr(agent, "messages", None) or [])
+        ]
+        self.tool_refs = getattr(agent, "tool_refs", None) or getattr(
+            agent, "tools", None
+        ) or []
+        self.response_schema: Any = getattr(agent, "response_schema", None)
+        self.when: Any = workflow_when_view(getattr(step, "when", None))
+        self.timeout_seconds = getattr(step, "timeout_seconds", 0) or getattr(
+            agent, "timeout_seconds", 0
+        )
+        self.metadata = getattr(step, "metadata", None) or getattr(
+            agent, "metadata", None
+        ) or new_struct()
+        self.model_options = getattr(agent, "model_options", None) or getattr(
+            agent, "provider_options", None
+        ) or new_struct()
+        self.provider_options = self.model_options
+        self.output_delivery: Any = (
+            workflow_output_delivery_for_agent(
+                all_steps, getattr(step, "id", ""), "events.reply"
+            )
+            if compute_deliveries
+            else None
+        )
+        self.session_ready_delivery: Any = (
+            workflow_output_delivery_for_agent(
+                all_steps, getattr(step, "id", ""), "events.replySessionStarted"
+            )
+            if compute_deliveries
+            else None
+        )
+        self.steps = workflow_agent_steps(all_steps) if include_steps else []
+
+
+def workflow_target_agent(target: Any) -> WorkflowAgentView:
+    legacy = getattr(target, "agent", None)
+    if legacy is not None:
+        return WorkflowAgentView(
+            types.SimpleNamespace(
+                id="run",
+                metadata=getattr(legacy, "metadata", None),
+                timeout_seconds=getattr(legacy, "timeout_seconds", 0),
+            ),
+            legacy,
+            list(getattr(legacy, "steps", None) or []),
+            include_steps=True,
+        )
+    steps = list(getattr(target, "steps", None) or [])
+    agent_steps = [step for step in steps if getattr(step, "agent", None) is not None]
+    if len(agent_steps) > 1:
+        return WorkflowAgentView(
+            types.SimpleNamespace(id="", timeout_seconds=0, metadata=None),
+            types.SimpleNamespace(prompt="", messages=[], tools=[]),
+            steps,
+            include_steps=True,
+            compute_deliveries=False,
+        )
+    for step in agent_steps:
+        return WorkflowAgentView(step, getattr(step, "agent"), steps, include_steps=True)
+    raise AssertionError("workflow target has no agent step")
+
+
+def workflow_agent_steps(steps: list[Any]) -> list[WorkflowAgentView]:
+    out: list[WorkflowAgentView] = []
+    for step in steps:
+        agent = getattr(step, "agent", None)
+        if agent is None and hasattr(step, "prompt"):
+            agent = step
+        if agent is not None:
+            out.append(WorkflowAgentView(step, agent, steps))
+    return out
+
+
+def workflow_output_delivery_for_agent(
+    steps: list[Any],
+    agent_step_id: str,
+    operation: str,
+) -> WorkflowOutputDeliveryView | None:
+    for step in steps:
+        app = getattr(step, "app", None)
+        if app is None or getattr(app, "operation", "") != operation:
+            continue
+        if workflow_app_step_uses_agent_output(step, agent_step_id):
+            return WorkflowOutputDeliveryView(step)
+    return None
+
+
+def workflow_app_step_uses_agent_output(step: Any, agent_step_id: str) -> bool:
+    app = getattr(step, "app", None)
+    input_value = getattr(app, "input", None)
+    fields = getattr(input_value, "object", None)
+    if fields is None and isinstance(input_value, dict):
+        fields = input_value
+    for value in (fields or {}).values():
+        step_output = getattr(value, "step_output", None)
+        if getattr(step_output, "step_id", "") == agent_step_id:
+            return True
+    return False
+
+
+def workflow_binding_value(value: Any) -> tuple[str | None, Any]:
+    kind = value.WhichOneof("kind") if hasattr(value, "WhichOneof") else None
+    if kind is not None:
+        return kind, getattr(value, kind, None)
+    step_output = getattr(value, "step_output", None)
+    if step_output is not None:
+        path = str(getattr(step_output, "path", ""))
+        if path == "agent.text":
+            return "agent_output", "text"
+        if path == "agent.sessionId":
+            return "agent_session", "id"
+        structured_prefix = "agent.structuredOutput."
+        if path.startswith(structured_prefix):
+            return "agent_output", path.removeprefix(structured_prefix)
+        return "step_output", {
+            "step_id": getattr(step_output, "step_id", ""),
+            "path": path,
+        }
+    for candidate in (
+        "agent_output",
+        "signal_payload",
+        "signal_metadata",
+        "agent_session",
+        "literal",
+    ):
+        candidate_value = getattr(value, candidate, None)
+        if candidate_value not in (None, "") and not (
+            candidate == "literal" and type(candidate_value) is object
+        ):
+            return candidate, candidate_value
+    return None, None
+
+
 def output_delivery_bindings(delivery: Any) -> dict[str, tuple[str | None, Any]]:
     out: dict[str, tuple[str | None, Any]] = {}
     for binding in delivery.input_bindings:
-        value = binding.value
-        kind = value.WhichOneof("kind") if hasattr(value, "WhichOneof") else None
-        if kind is None:
-            for candidate in (
-                "agent_output",
-                "signal_payload",
-                "signal_metadata",
-                "agent_session",
-                "literal",
-            ):
-                candidate_value = getattr(value, candidate, None)
-                if candidate_value not in (None, "") and not (
-                    candidate == "literal" and type(candidate_value) is object
-                ):
-                    kind = candidate
-                    break
-        out[str(binding.input_field)] = (
-            kind,
-            getattr(value, kind, None) if kind else None,
-        )
+        out[str(binding.input_field)] = workflow_binding_value(binding.value)
     return out
 
 
@@ -1040,7 +1234,7 @@ class SlackProviderTests(unittest.TestCase):
 
                 response, workflow_manager = self._handle_event_with_workflow(payload)
 
-                self.assertEqual(response["ok"], True)
+                self.assertEqual(operation_body(response)["ok"], True)
                 self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
                 signal_metadata = sdk_value_to_dict(
                     workflow_manager.signal_or_start_requests[0].signal.metadata
@@ -1084,8 +1278,10 @@ class SlackProviderTests(unittest.TestCase):
                         subject=gestalt.Subject(id="user:gestalt-123", kind="user")
                     ),
                 )
-            self.assertEqual(response["ok"], True)
-            return workflow_manager.signal_or_start_requests[0].target.agent
+            self.assertEqual(operation_body(response)["ok"], True)
+            return workflow_target_agent(
+                workflow_manager.signal_or_start_requests[0].target
+            )
 
         base_config = {
             "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
@@ -1306,8 +1502,10 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
-        agent_target = workflow_manager.signal_or_start_requests[0].target.agent
+        self.assertEqual(operation_body(response)["ok"], True)
+        agent_target = workflow_target_agent(
+            workflow_manager.signal_or_start_requests[0].target
+        )
         self.assertEqual(agent_target.prompt, "")
         self.assertEqual(list(agent_target.tool_refs or []), [])
         self.assertIsNone(agent_target.output_delivery)
@@ -2165,7 +2363,7 @@ class SlackProviderTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(response, {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"})
         self.assertEqual(workflow_manager.signal_or_start_requests, [])
 
     def test_app_mention_route_keeps_requester_subject_in_run_as_channel(self) -> None:
@@ -2476,7 +2674,7 @@ class SlackProviderTests(unittest.TestCase):
             response = provider_module.slack_events_handle(payload, request)
 
         self.assertEqual(
-            response,
+            operation_body(response),
             {
                 "ok": True,
                 "workflow_provider": "local",
@@ -2497,7 +2695,7 @@ class SlackProviderTests(unittest.TestCase):
         expected_idempotency_key = "slack:event:T123:C789:1712161829.000300:U456"
         self.assertEqual(workflow_request.idempotency_key, expected_idempotency_key)
 
-        agent_target = workflow_request.target.agent
+        agent_target = workflow_target_agent(workflow_request.target)
         self.assertEqual(agent_target.provider_name, "simple")
         self.assertEqual(agent_target.model, "deep")
         self.assertIn("final workflow signal batch", agent_target.prompt)
@@ -2757,7 +2955,7 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(calls), 1)
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         workflow_request = workflow_manager.signal_or_start_requests[0]
@@ -2832,7 +3030,7 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         urlopen.assert_not_called()
         signal_payload = sdk_value_to_dict(
             workflow_manager.signal_or_start_requests[0].signal.payload
@@ -2902,7 +3100,7 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         signal_payload = sdk_value_to_dict(
             workflow_manager.signal_or_start_requests[0].signal.payload
@@ -2992,7 +3190,7 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         signal_payload = sdk_value_to_dict(
             workflow_manager.signal_or_start_requests[0].signal.payload
         )
@@ -3047,7 +3245,7 @@ class SlackProviderTests(unittest.TestCase):
         ):
             response = provider_module.slack_events_handle(payload, request)
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         workflow_request = workflow_manager.signal_or_start_requests[0]
         self.assertEqual(
@@ -3107,7 +3305,7 @@ class SlackProviderTests(unittest.TestCase):
         ):
             response = provider_module.slack_events_handle(payload, request)
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         workflow_request = workflow_manager.signal_or_start_requests[0]
         signal_payload = sdk_value_to_dict(workflow_request.signal.payload)
@@ -3229,7 +3427,7 @@ class SlackProviderTests(unittest.TestCase):
             response = provider_module.slack_events_handle(payload, request)
 
         self.assertEqual(
-            response,
+            operation_body(response),
             {
                 "ok": True,
                 "workflow_dispatched": True,
@@ -3340,7 +3538,7 @@ class SlackProviderTests(unittest.TestCase):
         ):
             response = provider_module.slack_events_handle(payload, cast(Any, request))
 
-        self.assertEqual(response, {"ok": True, "unlinked": True})
+        self.assertEqual(operation_body(response), {"ok": True, "unlinked": True})
         self.assertEqual(
             calls,
             [
@@ -3406,7 +3604,7 @@ class SlackProviderTests(unittest.TestCase):
         ):
             response = provider_module.slack_events_handle(payload, cast(Any, request))
 
-        self.assertEqual(response, {"ok": True, "unlinked": True})
+        self.assertEqual(operation_body(response), {"ok": True, "unlinked": True})
 
     def test_slack_event_handler_allows_configured_bot_route_system_subject(
         self,
@@ -3468,7 +3666,7 @@ class SlackProviderTests(unittest.TestCase):
         ):
             response = provider_module.slack_events_handle(payload, request)
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         workflow_request = workflow_manager.signal_or_start_requests[0]
         signal_metadata = sdk_value_to_dict(workflow_request.signal.metadata)
@@ -3528,7 +3726,7 @@ class SlackProviderTests(unittest.TestCase):
         ):
             response = provider_module.slack_events_handle(payload, cast(Any, request))
 
-        self.assertEqual(response, {"ok": True, "unlinked": True})
+        self.assertEqual(operation_body(response), {"ok": True, "unlinked": True})
         self.assertEqual(
             calls,
             [
@@ -3591,7 +3789,7 @@ class SlackProviderTests(unittest.TestCase):
             response = provider_module.slack_events_handle(payload, request)
 
         self.assertEqual(
-            response,
+            operation_body(response),
             {
                 "ok": True,
                 "workflow_provider": "local",
@@ -3705,11 +3903,11 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
-        self.assertNotIn("assistant_status_error", response)
+        self.assertEqual(operation_body(response)["ok"], True)
+        self.assertNotIn("assistant_status_error", operation_body(response))
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         workflow_request = workflow_manager.signal_or_start_requests[0]
-        agent_target = workflow_request.target.agent
+        agent_target = workflow_target_agent(workflow_request.target)
         self.assertEqual(
             tool_ref_pairs(agent_target.tool_refs),
             BASE_EVENT_TOOL_REFS + ASSISTANT_EVENT_TOOL_REFS + WORKFLOW_EVENT_TOOL_REFS,
@@ -3803,8 +4001,8 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
-        self.assertNotIn("acknowledgement_reaction_error", response)
+        self.assertEqual(operation_body(response)["ok"], True)
+        self.assertNotIn("acknowledgement_reaction_error", operation_body(response))
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         self.assertEqual(
             sequence, [("workflow", "signal"), ("slack", "/api/reactions.add")]
@@ -3881,8 +4079,8 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
-        self.assertNotIn("acknowledgement_reaction_error", response)
+        self.assertEqual(operation_body(response)["ok"], True)
+        self.assertNotIn("acknowledgement_reaction_error", operation_body(response))
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
 
     def test_assistant_thread_started_sets_configured_suggested_prompts(
@@ -3946,7 +4144,7 @@ class SlackProviderTests(unittest.TestCase):
             )
 
         self.assertEqual(
-            response,
+            operation_body(response),
             {
                 "ok": True,
                 "event_type": "assistant_thread_started",
@@ -4059,8 +4257,8 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
-        self.assertEqual(response["suggested_prompts_set"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
+        self.assertEqual(operation_body(response)["suggested_prompts_set"], True)
         self.assertEqual(
             calls,
             [
@@ -4138,7 +4336,7 @@ class SlackProviderTests(unittest.TestCase):
             )
 
         self.assertEqual(
-            response,
+            operation_body(response),
             {
                 "ok": True,
                 "event_type": "assistant_thread_started",
@@ -4499,10 +4697,10 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
-        self.assertEqual(response["workflow_run_id"], "run-123")
-        self.assertEqual(response["workflow_key"], "slack:T123:C789:1712161829.000300")
-        self.assertEqual(response["action_id"], "approve")
+        self.assertEqual(operation_body(response)["ok"], True)
+        self.assertEqual(operation_body(response)["workflow_run_id"], "run-123")
+        self.assertEqual(operation_body(response)["workflow_key"], "slack:T123:C789:1712161829.000300")
+        self.assertEqual(operation_body(response)["action_id"], "approve")
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         workflow_request = workflow_manager.signal_or_start_requests[0]
         self.assertEqual(
@@ -4547,9 +4745,9 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         workflow_request = workflow_manager.signal_or_start_requests[0]
-        agent_target = workflow_request.target.agent
+        agent_target = workflow_target_agent(workflow_request.target)
         self.assertIn(
             ("slack", "events.setAssistantStatus"),
             tool_ref_pairs(agent_target.tool_refs),
@@ -4599,7 +4797,7 @@ class SlackProviderTests(unittest.TestCase):
             )
 
         self.assertEqual(
-            response,
+            operation_body(response),
             {
                 "ok": True,
                 "workflow_dispatched": True,
@@ -5100,10 +5298,10 @@ class SlackProviderTests(unittest.TestCase):
         ):
             response = provider_module.slack_events_handle(payload, request)
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         workflow_request = workflow_manager.signal_or_start_requests[0]
-        agent_target = workflow_request.target.agent
+        agent_target = workflow_target_agent(workflow_request.target)
         self.assertEqual(agent_target.provider_name, "simple")
         self.assertEqual(agent_target.model, "deep")
         self.assertEqual(
@@ -5212,15 +5410,17 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
-        self.assertEqual(response["workflow_provider"], "route-provider")
+        self.assertEqual(operation_body(response)["ok"], True)
+        self.assertEqual(operation_body(response)["workflow_provider"], "route-provider")
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         self.assertEqual(
             workflow_manager.signal_or_start_requests[0].provider_name,
             "route-provider",
         )
         self.assertEqual(
-            workflow_manager.signal_or_start_requests[0].target.agent.timeout_seconds,
+            workflow_target_agent(
+                workflow_manager.signal_or_start_requests[0].target
+            ).timeout_seconds,
             900,
         )
 
@@ -5265,8 +5465,8 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
-        self.assertEqual(response["workflow_provider"], "route-provider")
+        self.assertEqual(operation_body(response)["ok"], True)
+        self.assertEqual(operation_body(response)["workflow_provider"], "route-provider")
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         self.assertEqual(
             workflow_manager.signal_or_start_requests[0].provider_name,
@@ -5363,7 +5563,7 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         signal_payload = sdk_value_to_dict(
             workflow_manager.signal_or_start_requests[0].signal.payload
@@ -5500,8 +5700,10 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
-        agent_target = workflow_manager.signal_or_start_requests[0].target.agent
+        self.assertEqual(operation_body(response)["ok"], True)
+        agent_target = workflow_target_agent(
+            workflow_manager.signal_or_start_requests[0].target
+        )
         self.assertIn(
             ("slack", "events.setAssistantStatus"),
             tool_ref_pairs(agent_target.tool_refs),
@@ -5560,8 +5762,10 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
-        agent_target = workflow_manager.signal_or_start_requests[0].target.agent
+        self.assertEqual(operation_body(response)["ok"], True)
+        agent_target = workflow_target_agent(
+            workflow_manager.signal_or_start_requests[0].target
+        )
         self.assertNotIn(
             ("slack", "events.setAssistantStatus"),
             tool_ref_pairs(agent_target.tool_refs),
@@ -5642,7 +5846,7 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(calls[0][0], "/api/reactions.add")
         self.assertEqual(calls[0][1]["name"], "rocket")
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
@@ -5687,7 +5891,7 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(calls, [])
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
 
@@ -5767,7 +5971,7 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         get_context.assert_called_once_with(
             "xoxb-test-bot",
             channel="C_ROUTE",
@@ -5837,7 +6041,7 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         get_context.assert_not_called()
         signal_payload = sdk_value_to_dict(
             workflow_manager.signal_or_start_requests[0].signal.payload
@@ -5931,8 +6135,10 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
-        agent_target = workflow_manager.signal_or_start_requests[0].target.agent
+        self.assertEqual(operation_body(response)["ok"], True)
+        agent_target = workflow_target_agent(
+            workflow_manager.signal_or_start_requests[0].target
+        )
         self.assertEqual(
             tool_ref_pairs(agent_target.tool_refs),
             [
@@ -5948,7 +6154,7 @@ class SlackProviderTests(unittest.TestCase):
         linear_ref = next(
             ref
             for ref in agent_target.tool_refs
-            if ref.plugin == "linear" and ref.operation == "searchIssues"
+            if ref.app == "linear" and ref.operation == "searchIssues"
         )
         self.assertEqual(
             _agent_subject_id(linear_ref.run_as),
@@ -6019,8 +6225,10 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
-        agent_target = workflow_manager.signal_or_start_requests[0].target.agent
+        self.assertEqual(operation_body(response)["ok"], True)
+        agent_target = workflow_target_agent(
+            workflow_manager.signal_or_start_requests[0].target
+        )
         self.assertEqual(
             tool_ref_pairs(agent_target.tool_refs),
             [
@@ -6069,7 +6277,7 @@ class SlackProviderTests(unittest.TestCase):
             ),
         )
 
-        self.assertEqual(response, {"ok": True, "ignored": "unsupported_event_type"})
+        self.assertEqual(operation_body(response), {"ok": True, "ignored": "unsupported_event_type"})
 
     def test_event_type_route_starts_plain_channel_message_agent(self) -> None:
         provider_module.configure(
@@ -6111,7 +6319,7 @@ class SlackProviderTests(unittest.TestCase):
 
         response, workflow_manager = self._handle_event_with_workflow(payload)
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         workflow_request = workflow_manager.signal_or_start_requests[0]
         self.assertEqual(
@@ -6176,7 +6384,7 @@ class SlackProviderTests(unittest.TestCase):
 
         response, workflow_manager = self._handle_event_with_workflow(payload)
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         workflow_request = workflow_manager.signal_or_start_requests[0]
         self.assertEqual(
             workflow_request.workflow_key,
@@ -6242,7 +6450,7 @@ class SlackProviderTests(unittest.TestCase):
                     }
                 )
 
-                self.assertEqual(response["ok"], True)
+                self.assertEqual(operation_body(response)["ok"], True)
                 self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
                 signal_metadata = sdk_value_to_dict(
                     workflow_manager.signal_or_start_requests[0].signal.metadata
@@ -6268,7 +6476,7 @@ class SlackProviderTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(response, {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"})
         self.assertEqual(workflow_manager.signal_or_start_requests, [])
 
     def test_event_type_route_thread_reply_filters_channel_messages(self) -> None:
@@ -6311,7 +6519,7 @@ class SlackProviderTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(response, {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"})
         self.assertEqual(workflow_manager.signal_or_start_requests, [])
 
         response, workflow_manager = self._handle_event_with_workflow(
@@ -6331,7 +6539,7 @@ class SlackProviderTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         workflow_request = workflow_manager.signal_or_start_requests[0]
         self.assertEqual(
@@ -6408,7 +6616,7 @@ class SlackProviderTests(unittest.TestCase):
                     }
                 )
 
-                self.assertEqual(response["ok"], True)
+                self.assertEqual(operation_body(response)["ok"], True)
                 self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
                 signal_metadata = sdk_value_to_dict(
                     workflow_manager.signal_or_start_requests[0].signal.metadata
@@ -6460,7 +6668,7 @@ class SlackProviderTests(unittest.TestCase):
 
         response, workflow_manager = self._handle_event_with_workflow(payload)
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         signal_metadata = sdk_value_to_dict(
             workflow_manager.signal_or_start_requests[0].signal.metadata
         )
@@ -6569,7 +6777,7 @@ class SlackProviderTests(unittest.TestCase):
 
                 response, workflow_manager = self._handle_event_with_workflow(payload)
 
-                self.assertEqual(response["ok"], True)
+                self.assertEqual(operation_body(response)["ok"], True)
                 self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
                 signal_metadata = sdk_value_to_dict(
                     workflow_manager.signal_or_start_requests[0].signal.metadata
@@ -6635,8 +6843,8 @@ class SlackProviderTests(unittest.TestCase):
                     ),
                 )
 
-                self.assertEqual(response["ok"], True)
-                self.assertEqual(response["event_type"], event_type)
+                self.assertEqual(operation_body(response)["ok"], True)
+                self.assertEqual(operation_body(response)["event_type"], event_type)
 
     def test_event_type_routes_filter_message_subtypes(self) -> None:
         provider_module.configure(
@@ -6684,7 +6892,7 @@ class SlackProviderTests(unittest.TestCase):
             ),
         )
 
-        self.assertEqual(response, {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"})
 
         provider_module.configure(
             "slack",
@@ -6715,7 +6923,7 @@ class SlackProviderTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         signal_metadata = sdk_value_to_dict(
             workflow_manager.signal_or_start_requests[0].signal.metadata
         )
@@ -6766,7 +6974,7 @@ class SlackProviderTests(unittest.TestCase):
 
                 response, workflow_manager = self._handle_event_with_workflow(payload)
 
-                self.assertEqual(response, {"ok": True, "ignored": "ignored_event"})
+                self.assertEqual(operation_body(response), {"ok": True, "ignored": "ignored_event"})
                 self.assertEqual(workflow_manager.signal_or_start_requests, [])
 
     def test_event_type_route_ignores_bot_message_without_bot_match(
@@ -6809,7 +7017,7 @@ class SlackProviderTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(response, {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"})
         self.assertEqual(workflow_manager.signal_or_start_requests, [])
 
     def test_event_type_route_can_match_configured_bot_message(
@@ -6865,7 +7073,7 @@ class SlackProviderTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         workflow_request = workflow_manager.signal_or_start_requests[0]
         signal_payload = sdk_value_to_dict(workflow_request.signal.payload)
@@ -6962,7 +7170,7 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         self.assertEqual(workflow_manager.publish_event_requests, [])
         signal_metadata = sdk_value_to_dict(
@@ -7015,7 +7223,7 @@ class SlackProviderTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(response, {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"})
         self.assertEqual(workflow_manager.signal_or_start_requests, [])
 
     def test_repeated_slack_events_reuse_session_key_but_keep_event_metadata_on_turns(
@@ -7088,7 +7296,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(requests[0].workflow_key, "slack:T123:C789:1712161829.000300")
         for workflow_request in requests:
             target_metadata = sdk_value_to_dict(
-                workflow_request.target.agent.metadata
+                workflow_target_agent(workflow_request.target).metadata
             )
             self.assertEqual(
                 target_metadata["slack"]["root_message_ts"], "1712161829.000300"
@@ -7148,7 +7356,7 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response, {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"})
         log_text = "\n".join(logs.output)
         self.assertIn("ignored Slack event", log_text)
         self.assertIn("ignored_reason=no_matching_agent_route", log_text)
@@ -7209,7 +7417,7 @@ class SlackProviderTests(unittest.TestCase):
 
         response = provider_module.slack_events_handle(payload, gestalt.Request())
 
-        self.assertEqual(response, {"challenge": "challenge-token"})
+        self.assertEqual(operation_body(response), {"challenge": "challenge-token"})
 
     def test_publish_route_publishes_exact_workflow_event(self) -> None:
         provider_module.configure(
@@ -7274,7 +7482,7 @@ class SlackProviderTests(unittest.TestCase):
             response = provider_module.slack_events_handle(payload, gestalt.Request())
 
         self.assertEqual(
-            response,
+            operation_body(response),
             {
                 "ok": True,
                 "published": True,
@@ -7440,7 +7648,7 @@ class SlackProviderTests(unittest.TestCase):
             response = provider_module.slack_events_handle(payload, gestalt.Request())
 
         self.assertEqual(
-            response,
+            operation_body(response),
             {
                 "ok": True,
                 "published": True,
@@ -7513,7 +7721,7 @@ class SlackProviderTests(unittest.TestCase):
             response = provider_module.slack_events_handle(payload, request)
 
         self.assertEqual(
-            response,
+            operation_body(response),
             {
                 "ok": True,
                 "workflow_dispatched": True,
@@ -7585,9 +7793,9 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
-        self.assertEqual(response["workflow_key"], "slack:T123:C789")
-        self.assertNotIn("published_event_count", response)
+        self.assertEqual(operation_body(response)["ok"], True)
+        self.assertEqual(operation_body(response)["workflow_key"], "slack:T123:C789")
+        self.assertNotIn("published_event_count", operation_body(response))
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         self.assertEqual(len(workflow_manager.publish_event_requests), 1)
         warning.assert_called_once()
@@ -7657,7 +7865,7 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         self.assertEqual(workflow_manager.publish_event_requests, [])
         warning.assert_called_once()
@@ -7729,7 +7937,7 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(response["ok"], True)
+        self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         self.assertEqual(workflow_manager.publish_event_requests, [])
         warning.assert_called_once()

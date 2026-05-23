@@ -39,6 +39,12 @@ def sdk_value_to_dict(value: Any) -> Any:
     return value
 
 
+def operation_body(result: Any) -> dict[str, Any]:
+    if isinstance(result, gestalt.Response):
+        return cast(dict[str, Any], result.body)
+    return cast(dict[str, Any], result)
+
+
 def _workflow_message_text(message: Any) -> str:
     text = getattr(message, "text", "")
     template = getattr(text, "template", None)
@@ -1333,13 +1339,14 @@ class GitHubProviderTests(unittest.TestCase):
         ):
             result = provider_module.github_events_handle(payload, gestalt.Request())
 
-        self.assertEqual(result["ok"], True)
-        self.assertEqual(result["dispatch"], "workflow")
-        self.assertEqual(result["workflow_provider"], "local")
-        self.assertEqual(result["workflow_run_id"], "workflow-run-123")
-        self.assertEqual(result["workflow_key"], "github:99:acme/widgets:7")
-        self.assertEqual(result["workflow_signal_id"], "signal-123")
-        self.assertEqual(result["workflow_started_run"], True)
+        result_body = operation_body(result)
+        self.assertEqual(result_body["ok"], True)
+        self.assertEqual(result_body["dispatch"], "workflow")
+        self.assertEqual(result_body["workflow_provider"], "local")
+        self.assertEqual(result_body["workflow_run_id"], "workflow-run-123")
+        self.assertEqual(result_body["workflow_key"], "github:99:acme/widgets:7")
+        self.assertEqual(result_body["workflow_signal_id"], "signal-123")
+        self.assertEqual(result_body["workflow_started_run"], True)
         self.assertEqual(len(workflow_manager.requests), 1)
 
         request = workflow_manager.requests[0]
@@ -1359,7 +1366,7 @@ class GitHubProviderTests(unittest.TestCase):
             "bot.createPullRequestConversationComment", agent.messages[0].text
         )
         self.assertEqual(
-            [tool.plugin for tool in agent.tool_refs],
+            [tool.app for tool in agent.tool_refs],
             ["github", "github", "github"],
         )
         self.assertEqual(
@@ -3708,7 +3715,7 @@ class GitHubProviderTests(unittest.TestCase):
                 self._review_pull_request_payload(), github_request()
             )
 
-        self.assertEqual(result["ok"], True)
+        self.assertEqual(operation_body(result)["ok"], True)
         self.assertEqual(events, ["check-list", "check-create", "workflow"])
         self.assertEqual(len(workflow_manager.requests), 1)
         signal_payload = sdk_value_to_dict(
@@ -3896,7 +3903,7 @@ class GitHubProviderTests(unittest.TestCase):
                 self._review_pull_request_payload(), github_request()
             )
 
-        self.assertEqual(result["ok"], True)
+        self.assertEqual(operation_body(result)["ok"], True)
         self.assertEqual(events, ["check-update"])
         payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
         self.assertEqual(payload["review_check_run"]["id"], 456)
@@ -3959,7 +3966,7 @@ class GitHubProviderTests(unittest.TestCase):
                 self._review_pull_request_payload(), github_request()
             )
 
-        self.assertEqual(result["ok"], True)
+        self.assertEqual(operation_body(result)["ok"], True)
         self.assertEqual(events, ["check-list"])
         payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
         self.assertEqual(payload["review_check_run"]["id"], 456)
@@ -4038,7 +4045,7 @@ class GitHubProviderTests(unittest.TestCase):
                 self._review_pull_request_payload(), github_request()
             )
 
-        self.assertEqual(result["ok"], True)
+        self.assertEqual(operation_body(result)["ok"], True)
         self.assertEqual(events, ["check-list", "check-update"])
         payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
         self.assertEqual(payload["review_check_run"]["id"], 456)
@@ -4134,7 +4141,7 @@ class GitHubProviderTests(unittest.TestCase):
             payload["comment"]["body"] = "please gestalt review"
             result = provider_module.github_events_handle(payload, github_request())
 
-        self.assertEqual(result["ok"], True)
+        self.assertEqual(operation_body(result)["ok"], True)
         self.assertEqual(events, ["pull", "check-list", "check-create"])
         payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
         self.assertEqual(payload["review_check_run"]["head_sha"], "abc123")
@@ -4237,7 +4244,7 @@ class GitHubProviderTests(unittest.TestCase):
             payload["comment"]["body"] = "please @example-app"
             result = provider_module.github_events_handle(payload, github_request())
 
-        self.assertEqual(result["ok"], True)
+        self.assertEqual(operation_body(result)["ok"], True)
         self.assertEqual(events, ["pull", "check-list", "check-create"])
         payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
         self.assertEqual(
@@ -4306,7 +4313,7 @@ class GitHubProviderTests(unittest.TestCase):
                 github_request(),
             )
 
-        self.assertEqual(result["ok"], True)
+        self.assertEqual(operation_body(result)["ok"], True)
         payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
         self.assertNotIn("review_check_run", payload)
 
@@ -4354,8 +4361,8 @@ class GitHubProviderTests(unittest.TestCase):
         request = request_with_tool_refs(
             github_request(),
             [
-                gestalt.AgentToolRef(plugin="linear", operation="issue.get"),
-                gestalt.AgentToolRef(plugin="github", operation="bot.getPullRequest"),
+                gestalt.AgentToolRef(app="linear", operation="issue.get"),
+                gestalt.AgentToolRef(app="github", operation="bot.getPullRequest"),
             ],
         )
         request.workflow = {
@@ -4460,7 +4467,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         self.assertFalse(getattr(agent_manager.turns[0], "response_schema", None))
         self.assertEqual(
-            [(ref.plugin, ref.operation) for ref in agent_manager.turns[0].tool_refs],
+            [(ref.app, ref.operation) for ref in agent_manager.turns[0].tool_refs],
             [
                 ("linear", "issue.get"),
                 ("github", "bot.getPullRequest"),
@@ -4676,11 +4683,11 @@ class GitHubProviderTests(unittest.TestCase):
             ("github", "bot.commitFiles"),
         ]
         self.assertEqual(
-            [(ref.plugin, ref.operation) for ref in agent_manager.turns[0].tool_refs],
+            [(ref.app, ref.operation) for ref in agent_manager.turns[0].tool_refs],
             expected_tool_refs,
         )
         self.assertEqual(
-            [(ref.plugin, ref.operation) for ref in agent_manager.turns[1].tool_refs],
+            [(ref.app, ref.operation) for ref in agent_manager.turns[1].tool_refs],
             expected_tool_refs,
         )
         self.assertEqual(
@@ -6968,8 +6975,9 @@ class GitHubProviderTests(unittest.TestCase):
             ),
         ):
             result = provider_module.github_events_handle(payload, gestalt.Request())
-        self.assertEqual(result["ok"], True)
-        self.assertEqual(result["dispatch"], "workflow")
+        result_body = operation_body(result)
+        self.assertEqual(result_body["ok"], True)
+        self.assertEqual(result_body["dispatch"], "workflow")
         self.assertEqual(len(workflow_manager.requests), 1)
         return workflow_manager.requests[0]
 

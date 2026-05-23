@@ -719,7 +719,9 @@ def review_tool_refs_allow_operation(
     for ref in tool_refs:
         if str(getattr(ref, "system", "") or "").strip():
             continue
-        ref_plugin = str(getattr(ref, "plugin", "") or "").strip()
+        ref_plugin = str(
+            getattr(ref, "app", "") or getattr(ref, "plugin", "") or ""
+        ).strip()
         ref_operation = str(getattr(ref, "operation", "") or "").strip()
         if ref_plugin in (plugin, "*") and ref_operation in (operation, ""):
             return True
