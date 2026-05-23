@@ -21,7 +21,7 @@ func TestProviderContractAdvertisesHostnameEgressOnlyWhenEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSupport disabled: %v", err)
 	}
-	if support.EgressMode != gestalt.PluginRuntimeEgressModeNone {
+	if support.EgressMode != gestalt.AppRuntimeEgressModeNone {
 		t.Fatalf("disabled EgressMode = %q, want none", support.EgressMode)
 	}
 
@@ -30,7 +30,7 @@ func TestProviderContractAdvertisesHostnameEgressOnlyWhenEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSupport publicProxy: %v", err)
 	}
-	if support.EgressMode != gestalt.PluginRuntimeEgressModeHostname {
+	if support.EgressMode != gestalt.AppRuntimeEgressModeHostname {
 		t.Fatalf("publicProxy EgressMode = %q, want hostname", support.EgressMode)
 	}
 }
@@ -41,10 +41,10 @@ func TestProviderContractPassesImagePullAuthToRuntime(t *testing.T) {
 	provider.cfg = testConfig()
 	provider.runtime = runtime
 
-	_, err := provider.StartSession(context.Background(), gestalt.StartPluginRuntimeSessionRequest{
-		PluginName: "github",
+	_, err := provider.StartSession(context.Background(), gestalt.StartAppRuntimeSessionRequest{
+		AppName: "github",
 		Image:      "registry.example/runtime:latest",
-		ImagePullAuth: &gestalt.PluginRuntimeImagePullAuth{
+		ImagePullAuth: &gestalt.AppRuntimeImagePullAuth{
 			DockerConfigJSON: `{"auths":{"registry.example":{"username":"u","password":"p"}}}`,
 		},
 	})
@@ -57,8 +57,8 @@ func TestProviderContractPassesImagePullAuthToRuntime(t *testing.T) {
 }
 
 func TestProviderContractBuildsPluginEnv(t *testing.T) {
-	env := buildPluginEnv(gestalt.StartHostedPluginRequest{
-		PluginName: "claude",
+	env := buildPluginEnv(gestalt.StartHostedAppRequest{
+		AppName: "claude",
 		Env:        map[string]string{"CUSTOM": "value"},
 	}, "/tmp/gestalt/plugin.sock")
 	if got, want := env[envProviderSocket], "/tmp/gestalt/plugin.sock"; got != want {
@@ -126,13 +126,13 @@ func TestProviderContractStartPluginBlocksFailedStartedSessionBeforeLaunch(t *te
 	provider.cfg = testConfig()
 	provider.runtime = runtime
 
-	_, err := provider.StartPlugin(context.Background(), gestalt.StartHostedPluginRequest{
+	_, err := provider.StartApp(context.Background(), gestalt.StartHostedAppRequest{
 		SessionID:  "session-1",
-		PluginName: "github",
+		AppName: "github",
 		Command:    "gestalt-plugin-github",
 	})
 	if status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("StartPlugin error = %v, want FailedPrecondition", err)
+		t.Fatalf("StartApp error = %v, want FailedPrecondition", err)
 	}
 	if got, want := len(runtime.execCommands), 1; got != want {
 		t.Fatalf("Exec calls = %d, want only health check", got)
@@ -156,13 +156,13 @@ func TestProviderContractStartPluginBlocksStartedNotReadySessionBeforeLaunch(t *
 	provider.cfg = testConfig()
 	provider.runtime = runtime
 
-	_, err := provider.StartPlugin(context.Background(), gestalt.StartHostedPluginRequest{
+	_, err := provider.StartApp(context.Background(), gestalt.StartHostedAppRequest{
 		SessionID:  "session-1",
-		PluginName: "github",
+		AppName: "github",
 		Command:    "gestalt-plugin-github",
 	})
 	if status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("StartPlugin error = %v, want FailedPrecondition", err)
+		t.Fatalf("StartApp error = %v, want FailedPrecondition", err)
 	}
 	if got, want := len(runtime.execCommands), 1; got != want {
 		t.Fatalf("Exec calls = %d, want only health check", got)
@@ -182,7 +182,7 @@ func (f *fakeRuntime) Start(_ context.Context, req startRuntimeSessionRequest) (
 	f.startReq = req
 	return runtimeSession{
 		ID:         req.Name,
-		PluginName: req.PluginName,
+		AppName: req.AppName,
 		Metadata:   cloneStringMap(req.Metadata),
 		Handle: runtimeHandle{
 			Name:      req.Name,

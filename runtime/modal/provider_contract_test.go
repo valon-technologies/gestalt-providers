@@ -29,7 +29,7 @@ func TestRuntimeProviderContractPassesHostServiceEnv(t *testing.T) {
 	if !isHostServiceEnvVar(hostServiceEnv) {
 		t.Fatalf("%s should be accepted as a relay host service env", hostServiceEnv)
 	}
-	env := buildPluginEnv(gestalt.StartHostedPluginRequest{
+	env := buildPluginEnv(gestalt.StartHostedAppRequest{
 		Env: map[string]string{
 			"CUSTOM":       "value",
 			hostServiceEnv: "tls://host-service-relay.gestalt.example:443",
@@ -101,8 +101,8 @@ func TestRuntimeProviderContractStartSessionHasNoLifecycleBeforeSandbox(t *testi
 	provider.cfg = Config{App: "gestalt-test", Timeout: 5 * time.Minute}
 	client := startRuntimeProviderServer(t, provider)
 
-	session, err := client.StartSession(context.Background(), gestalt.StartPluginRuntimeSessionRequest{
-		PluginName: "agent",
+	session, err := client.StartSession(context.Background(), gestalt.StartAppRuntimeSessionRequest{
+		AppName: "agent",
 		Image:      "python:3.14-slim-bookworm",
 	})
 	if err != nil {
@@ -251,13 +251,13 @@ func TestRuntimeProviderContractRestoredSessionCannotLaunch(t *testing.T) {
 		t.Fatalf("GetSession restore: %v", err)
 	}
 
-	_, launchErr := client.StartPlugin(context.Background(), gestalt.StartHostedPluginRequest{
+	_, launchErr := client.StartApp(context.Background(), gestalt.StartHostedAppRequest{
 		SessionID:  sessionID,
-		PluginName: "agent-provider",
+		AppName: "agent-provider",
 		Command:    "/bin/true",
 	})
 	if status.Code(launchErr) != codes.FailedPrecondition {
-		t.Fatalf("StartPlugin code = %v, want FailedPrecondition: %v", status.Code(launchErr), launchErr)
+		t.Fatalf("StartApp code = %v, want FailedPrecondition: %v", status.Code(launchErr), launchErr)
 	}
 }
 
@@ -376,9 +376,9 @@ func TestRuntimeProviderContractTagsModalSandboxBeforeTunnelLookup(t *testing.T)
 		metadata: map[string]string{"provider_name": "agent-provider", "provider_kind": "agent"},
 		bindings: map[string]string{},
 	}
-	req := gestalt.StartHostedPluginRequest{
+	req := gestalt.StartHostedAppRequest{
 		SessionID:  sessionID,
-		PluginName: "agent-provider",
+		AppName: "agent-provider",
 	}
 	logs := newSessionLogSink(sessionID, &provider.sessions[sessionID].logSeq, nil)
 
@@ -442,10 +442,10 @@ func TestRuntimeProviderContractUsesDockerConfigImagePullAuthForPrivateRegistry(
 	provider := newFakeModalProvider(t, fakeModal)
 	client := startRuntimeProviderServer(t, provider)
 
-	session, err := client.StartSession(context.Background(), gestalt.StartPluginRuntimeSessionRequest{
-		PluginName: "agent-provider",
+	session, err := client.StartSession(context.Background(), gestalt.StartAppRuntimeSessionRequest{
+		AppName: "agent-provider",
 		Image:      "ghcr.io/valon-technologies/agent-simple-runtime:latest",
-		ImagePullAuth: &gestalt.PluginRuntimeImagePullAuth{
+		ImagePullAuth: &gestalt.AppRuntimeImagePullAuth{
 			DockerConfigJSON: `{"auths":{"ghcr.io":{"username":" ghcr-user ","password":" ghcr-token "}}}`,
 		},
 		Metadata: map[string]string{"provider_name": "agent-provider", "provider_kind": "agent"},
@@ -455,9 +455,9 @@ func TestRuntimeProviderContractUsesDockerConfigImagePullAuthForPrivateRegistry(
 	}
 
 	var logSeq uint64
-	sandbox, tunnel, err := provider.ensureSessionSandbox(context.Background(), provider.client, provider.cfg, gestalt.StartHostedPluginRequest{
+	sandbox, tunnel, err := provider.ensureSessionSandbox(context.Background(), provider.client, provider.cfg, gestalt.StartHostedAppRequest{
 		SessionID:  session.ID,
-		PluginName: "agent-provider",
+		AppName: "agent-provider",
 	}, newSessionLogSink(session.ID, &logSeq, nil))
 	if err != nil {
 		t.Fatalf("ensureSessionSandbox: %v", err)
@@ -507,10 +507,10 @@ func TestRuntimeProviderContractUsesDockerConfigAuthFieldForPrivateRegistry(t *t
 	provider := newFakeModalProvider(t, fakeModal)
 	client := startRuntimeProviderServer(t, provider)
 
-	session, err := client.StartSession(context.Background(), gestalt.StartPluginRuntimeSessionRequest{
-		PluginName: "agent-provider",
+	session, err := client.StartSession(context.Background(), gestalt.StartAppRuntimeSessionRequest{
+		AppName: "agent-provider",
 		Image:      "ghcr.io/valon-technologies/agent-simple-runtime:latest",
-		ImagePullAuth: &gestalt.PluginRuntimeImagePullAuth{
+		ImagePullAuth: &gestalt.AppRuntimeImagePullAuth{
 			DockerConfigJSON: `{"auths":{"ghcr.io":{"auth":"Z2hjci11c2VyOmdoY3ItdG9rZW4="}}}`,
 		},
 		Metadata: map[string]string{"provider_name": "agent-provider", "provider_kind": "agent"},
@@ -520,9 +520,9 @@ func TestRuntimeProviderContractUsesDockerConfigAuthFieldForPrivateRegistry(t *t
 	}
 
 	var logSeq uint64
-	_, _, err = provider.ensureSessionSandbox(context.Background(), provider.client, provider.cfg, gestalt.StartHostedPluginRequest{
+	_, _, err = provider.ensureSessionSandbox(context.Background(), provider.client, provider.cfg, gestalt.StartHostedAppRequest{
 		SessionID:  session.ID,
-		PluginName: "agent-provider",
+		AppName: "agent-provider",
 	}, newSessionLogSink(session.ID, &logSeq, nil))
 	if err != nil {
 		t.Fatalf("ensureSessionSandbox: %v", err)
@@ -578,10 +578,10 @@ func TestRuntimeProviderContractUsesDockerHubImagePullAuth(t *testing.T) {
 			provider := newFakeModalProvider(t, fakeModal)
 			client := startRuntimeProviderServer(t, provider)
 
-			session, err := client.StartSession(context.Background(), gestalt.StartPluginRuntimeSessionRequest{
-				PluginName: "agent-provider",
+			session, err := client.StartSession(context.Background(), gestalt.StartAppRuntimeSessionRequest{
+				AppName: "agent-provider",
 				Image:      tc.image,
-				ImagePullAuth: &gestalt.PluginRuntimeImagePullAuth{
+				ImagePullAuth: &gestalt.AppRuntimeImagePullAuth{
 					DockerConfigJSON: tc.dockerConfigJSON,
 				},
 			})
@@ -590,9 +590,9 @@ func TestRuntimeProviderContractUsesDockerHubImagePullAuth(t *testing.T) {
 			}
 
 			var logSeq uint64
-			_, _, err = provider.ensureSessionSandbox(context.Background(), provider.client, provider.cfg, gestalt.StartHostedPluginRequest{
+			_, _, err = provider.ensureSessionSandbox(context.Background(), provider.client, provider.cfg, gestalt.StartHostedAppRequest{
 				SessionID:  session.ID,
-				PluginName: "agent-provider",
+				AppName: "agent-provider",
 			}, newSessionLogSink(session.ID, &logSeq, nil))
 			if err != nil {
 				t.Fatalf("ensureSessionSandbox: %v", err)
@@ -617,39 +617,39 @@ func TestRuntimeProviderContractRejectsInvalidImagePullAuth(t *testing.T) {
 
 	cases := []struct {
 		name string
-		auth *gestalt.PluginRuntimeImagePullAuth
+		auth *gestalt.AppRuntimeImagePullAuth
 	}{
 		{
 			name: "blank Docker config JSON",
-			auth: &gestalt.PluginRuntimeImagePullAuth{},
+			auth: &gestalt.AppRuntimeImagePullAuth{},
 		},
 		{
 			name: "invalid Docker config JSON",
-			auth: &gestalt.PluginRuntimeImagePullAuth{
+			auth: &gestalt.AppRuntimeImagePullAuth{
 				DockerConfigJSON: `{`,
 			},
 		},
 		{
 			name: "missing auths",
-			auth: &gestalt.PluginRuntimeImagePullAuth{
+			auth: &gestalt.AppRuntimeImagePullAuth{
 				DockerConfigJSON: `{}`,
 			},
 		},
 		{
 			name: "missing registry entry",
-			auth: &gestalt.PluginRuntimeImagePullAuth{
+			auth: &gestalt.AppRuntimeImagePullAuth{
 				DockerConfigJSON: `{"auths":{"index.docker.io/v1":{"username":"docker-user","password":"docker-token"}}}`,
 			},
 		},
 		{
 			name: "missing password",
-			auth: &gestalt.PluginRuntimeImagePullAuth{
+			auth: &gestalt.AppRuntimeImagePullAuth{
 				DockerConfigJSON: `{"auths":{"ghcr.io":{"username":"ghcr-user"}}}`,
 			},
 		},
 		{
 			name: "identity token only",
-			auth: &gestalt.PluginRuntimeImagePullAuth{
+			auth: &gestalt.AppRuntimeImagePullAuth{
 				DockerConfigJSON: `{"auths":{"ghcr.io":{"identitytoken":"token"}}}`,
 			},
 		},
@@ -665,8 +665,8 @@ func TestRuntimeProviderContractRejectsInvalidImagePullAuth(t *testing.T) {
 			provider.cfg = Config{App: "gestalt-test", Timeout: 5 * time.Minute}
 			client := startRuntimeProviderServer(t, provider)
 
-			_, err := client.StartSession(context.Background(), gestalt.StartPluginRuntimeSessionRequest{
-				PluginName:    "agent-provider",
+			_, err := client.StartSession(context.Background(), gestalt.StartAppRuntimeSessionRequest{
+				AppName:    "agent-provider",
 				Image:         "ghcr.io/valon-technologies/agent-simple-runtime:latest",
 				ImagePullAuth: tc.auth,
 			})
@@ -687,8 +687,8 @@ func TestRuntimeProviderContractRejectsInvalidImagePullAuth(t *testing.T) {
 func TestRuntimeProviderContractRelayOnlyAgentHostLaunchSkipsHostnameProxy(t *testing.T) {
 	t.Parallel()
 
-	params, err := buildSandboxCreateParams(context.Background(), Config{}, gestalt.StartHostedPluginRequest{
-		PluginName:   "agent-provider",
+	params, err := buildSandboxCreateParams(context.Background(), Config{}, gestalt.StartHostedAppRequest{
+		AppName:   "agent-provider",
 		AllowedHosts: []string{"host-service-relay.gestalt.example"},
 		Env: map[string]string{
 			gestalt.EnvHostServiceSocket: "tls://host-service-relay.gestalt.example:7443",
@@ -705,8 +705,8 @@ func TestRuntimeProviderContractRelayOnlyAgentHostLaunchSkipsHostnameProxy(t *te
 func TestRuntimeProviderContractNonRelayAllowedHostStillRequiresProxy(t *testing.T) {
 	t.Parallel()
 
-	_, err := buildSandboxCreateParams(context.Background(), Config{}, gestalt.StartHostedPluginRequest{
-		PluginName:   "agent-provider",
+	_, err := buildSandboxCreateParams(context.Background(), Config{}, gestalt.StartHostedAppRequest{
+		AppName:   "agent-provider",
 		AllowedHosts: []string{"api.github.com"},
 		Env: map[string]string{
 			gestalt.EnvHostServiceSocket: "tls://host-service-relay.gestalt.example:7443",
@@ -734,7 +734,7 @@ func TestNewProviderIDsAreBootUnique(t *testing.T) {
 	}
 }
 
-func hasLifecycle(lifecycle gestalt.PluginRuntimeSessionLifecycle) bool {
+func hasLifecycle(lifecycle gestalt.AppRuntimeSessionLifecycle) bool {
 	return lifecycle.StartedAt != nil || lifecycle.RecommendedDrainAt != nil || lifecycle.ExpiresAt != nil
 }
 

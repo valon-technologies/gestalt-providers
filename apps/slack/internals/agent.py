@@ -513,7 +513,7 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
                 body={"error": "Slack workflow provider is not configured"},
             )
         if not _workflow_manager_contract_available():
-            message = "Slack event handling requires a Gestalt SDK/runtime with workflow signal-or-start, session-ready delivery, and output-delivery support"
+            message = "Slack event handling requires a Gestalt SDK/runtime with workflow step and signal-or-start support"
             logger.error("%s %s", message, log_context)
             return _server_error(message)
         workflow_manager_factory = cast(
@@ -726,7 +726,7 @@ def handle_slack_interaction(
             body={"error": "Slack workflow provider is not configured"},
         )
     if not _workflow_manager_contract_available():
-        message = "Slack interactions require a Gestalt SDK/runtime with workflow signal-or-start, session-ready delivery, and output-delivery support"
+        message = "Slack interactions require a Gestalt SDK/runtime with workflow step and signal-or-start support"
         logger.error("%s %s", message, log_context)
         return _server_error(message)
     workflow_manager_factory = cast(
@@ -2765,38 +2765,236 @@ def _build_workflow_agent_target(
     event: SlackAgentEvent,
     route: SlackAgentRoute | None,
 ) -> Any:
-    steps = _agent_event_steps(route)
-    target_kwargs: dict[str, Any] = {
-        "provider_name": _agent_provider(route),
-        "model": _agent_model(route),
-        "session_ready_delivery": _workflow_session_ready_delivery(),
-        "metadata": _agent_session_metadata(event),
-    }
-    timeout_seconds = _agent_timeout_seconds(route)
-    if timeout_seconds > 0:
-        target_kwargs["timeout_seconds"] = timeout_seconds
-    if steps:
-        if not _constructor_supports_kwarg(
-            getattr(gestalt, "BoundWorkflowAgentTarget", None), "steps"
-        ):
-            raise RuntimeError("configured agent steps require a Gestalt SDK with workflow step support")
-        target_kwargs["steps"] = steps
-    else:
-        target_kwargs.update(
-            {
-                "prompt": _workflow_agent_prompt(),
-                "messages": [
-                    gestalt.AgentMessage(role="system", text=_agent_system_prompt(route))
-                ],
-                "tool_refs": _agent_event_tool_refs(route),
-                "output_delivery": _workflow_output_delivery(),
+    if route is not None and route.agent_steps:
+        return gestalt.BoundWorkflowTarget(
+            steps=_workflow_steps_for_route(route),
+        )
+
+    agent_step_id = "run"
+    steps = [
+        _workflow_agent_turn_step(
+            agent_step_id,
+            route,
+            prompt=_workflow_agent_prompt(),
+            messages=[_workflow_agent_message("system", _agent_system_prompt(route))],
+            tools=_agent_event_tool_refs(route),
+            model_options=_agent_model_options(route) or None,
+            metadata=_agent_session_metadata(event),
+            timeout_seconds=_agent_timeout_seconds(route),
+        ),
+        _workflow_session_ready_app_step(agent_step_id),
+        _workflow_reply_app_step(agent_step_id, "agent.text"),
+    ]
+    return gestalt.BoundWorkflowTarget(steps=steps)
+
+
+def _workflow_steps_for_route(route: SlackAgentRoute) -> list[Any]:
+    steps: list[Any] = []
+    for config_step in route.agent_steps:
+        steps.extend(_workflow_steps_for_configured_step(route, config_step))
+    return steps
+
+
+def _workflow_steps_for_configured_step(
+    route: SlackAgentRoute,
+    step: SlackAgentStep,
+) -> list[Any]:
+    messages = [_workflow_agent_message("system", _agent_system_prompt(route))]
+    messages.extend(
+        _workflow_agent_message(
+            message.get("role", "user"),
+            message.get("text", ""),
+            message.get("metadata") or None,
+        )
+        for message in step.messages
+    )
+    when = _workflow_step_when(step.when) if step.when else None
+    steps = [
+        _workflow_agent_turn_step(
+            step.id,
+            route,
+            prompt=step.prompt,
+            messages=messages,
+            tools=_agent_step_tool_refs(route, step),
+            response_schema=step.response_schema or None,
+            model_options=step.model_options or None,
+            metadata=step.metadata or None,
+            timeout_seconds=step.timeout_seconds,
+            when=when,
+        )
+    ]
+    agent_output = step.slack_reply_agent_output.strip()
+    if agent_output:
+        steps.append(
+            _workflow_reply_app_step(
+                step.id,
+                _workflow_agent_output_path(agent_output),
+                step_id=f"{step.id}_reply",
+            )
+        )
+    return steps
+
+
+def _workflow_text(template: str) -> Any:
+    text_type = getattr(gestalt, "WorkflowText", None)
+    if text_type is None:
+        return template
+    return text_type(template=template)
+
+
+def _workflow_agent_message(role: str, text: str, metadata: Any = None) -> Any:
+    message_type = getattr(gestalt, "WorkflowAgentMessage", None)
+    if message_type is None:
+        return gestalt.AgentMessage(role=role, text=text, metadata=metadata)
+    return message_type(role=role, text=_workflow_text(text), metadata=metadata or None)
+
+
+def _workflow_value(**kwargs: Any) -> Any:
+    value_type = getattr(gestalt, "WorkflowValue", None)
+    if value_type is None:
+        return kwargs
+    return value_type(**kwargs)
+
+
+def _workflow_step_output(step_id: str, path: str) -> Any:
+    source_type = getattr(gestalt, "WorkflowStepOutputSource", None)
+    if source_type is None:
+        return {"step_id": step_id, "path": path}
+    return _workflow_value(
+        step_output=source_type(step_id=step_id, path=path),
+    )
+
+
+def _workflow_signal_value(path: str) -> Any:
+    return _workflow_value(signal_payload=path)
+
+
+def _workflow_agent_output_path(agent_output: str) -> str:
+    agent_output = agent_output.strip()
+    if not agent_output:
+        return "agent.text"
+    if agent_output.startswith("agent."):
+        return agent_output
+    if agent_output == "text":
+        return "agent.text"
+    return f"agent.structuredOutput.{agent_output}"
+
+
+def _workflow_step_when(when: dict[str, Any]) -> Any:
+    step_id = str(when.get("step_id") or "").strip()
+    output_path = str(when.get("output_path") or "").strip()
+    equals = when.get("equals")
+    path = output_path.replace("structured_output.", "structuredOutput.", 1)
+    if not path.startswith("agent."):
+        path = f"agent.{path}"
+    when_type = getattr(gestalt, "WorkflowStepWhen", None)
+    if when_type is None:
+        return _CompatWorkflowAgentStepWhen(
+            data={
+                "step_id": step_id,
+                "output_path": output_path,
+                "equals": equals,
             }
         )
-        model_options = _agent_model_options(route)
-        if model_options:
-            target_kwargs["model_options"] = model_options
-    agent = gestalt.BoundWorkflowAgentTarget(**target_kwargs)
-    return gestalt.BoundWorkflowTarget(agent=agent)
+    return when_type(
+        value=_workflow_step_output(step_id, path),
+        equals=equals,
+    )
+
+
+def _workflow_slack_app_step(
+    step_id: str,
+    operation: str,
+    *,
+    input_fields: dict[str, Any],
+    when: Any = None,
+) -> Any:
+    step_type = getattr(gestalt, "WorkflowStep", None)
+    app_type = getattr(gestalt, "WorkflowStepAppCall", None)
+    if step_type is None or app_type is None:
+        raise RuntimeError("Gestalt SDK with workflow step support is required")
+    app_call = app_type(
+        name=_agent_config.plugin_name,
+        operation=operation,
+        credential_mode="none",
+        input=_workflow_value(object=input_fields),
+    )
+    kwargs: dict[str, Any] = {"id": step_id, "app": app_call}
+    if when is not None:
+        kwargs["when"] = when
+    return step_type(**kwargs)
+
+
+def _workflow_reply_app_step(
+    agent_step_id: str,
+    agent_output_path: str,
+    *,
+    step_id: str = "reply",
+    when: Any = None,
+) -> Any:
+    return _workflow_slack_app_step(
+        step_id,
+        SLACK_REPLY_OPERATION,
+        input_fields={
+            "text": _workflow_step_output(agent_step_id, agent_output_path),
+            "reply_ref": _workflow_signal_value("reply_ref"),
+        },
+        when=when,
+    )
+
+
+def _workflow_session_ready_app_step(
+    agent_step_id: str,
+    *,
+    step_id: str = "session_ready",
+) -> Any:
+    return _workflow_slack_app_step(
+        step_id,
+        SLACK_SESSION_STARTED_REPLY_OPERATION,
+        input_fields={
+            "session_id": _workflow_step_output(agent_step_id, "agent.sessionId"),
+            "reply_ref": _workflow_signal_value("reply_ref"),
+        },
+    )
+
+
+def _workflow_agent_turn_step(
+    step_id: str,
+    route: SlackAgentRoute | None,
+    *,
+    prompt: str,
+    messages: list[Any],
+    tools: list[Any],
+    response_schema: dict[str, Any] | None = None,
+    model_options: dict[str, Any] | None = None,
+    metadata: Any = None,
+    timeout_seconds: int = 0,
+    when: Any = None,
+) -> Any:
+    step_type = getattr(gestalt, "WorkflowStep", None)
+    agent_type = getattr(gestalt, "WorkflowStepAgentTurn", None)
+    if step_type is None or agent_type is None:
+        raise RuntimeError("Gestalt SDK with workflow step support is required")
+    agent_turn = agent_type(
+        provider=_agent_provider(route),
+        model=_agent_model(route),
+        prompt=_workflow_text(prompt),
+        messages=messages,
+        tools=tools,
+        response_schema=response_schema,
+        model_options=model_options,
+    )
+    kwargs: dict[str, Any] = {
+        "id": step_id,
+        "agent": agent_turn,
+    }
+    if metadata:
+        kwargs["metadata"] = metadata
+    if timeout_seconds > 0:
+        kwargs["timeout_seconds"] = timeout_seconds
+    if when is not None:
+        kwargs["when"] = when
+    return step_type(**{key: value for key, value in kwargs.items() if _keep_step_value(value)})
 
 
 def _workflow_agent_prompt() -> str:
@@ -2813,83 +3011,6 @@ def _workflow_agent_prompt() -> str:
     )
 
 
-def _workflow_output_delivery(*, agent_output: str = "text") -> Any:
-    return gestalt.WorkflowOutputDelivery(
-        target=gestalt.BoundWorkflowPluginTarget(
-            plugin_name=_agent_config.plugin_name,
-            operation=SLACK_REPLY_OPERATION,
-        ),
-        credential_mode="none",
-        input_bindings=[
-            gestalt.WorkflowOutputBinding(
-                input_field="text",
-                value=gestalt.WorkflowOutputValueSource(agent_output=agent_output),
-            ),
-            gestalt.WorkflowOutputBinding(
-                input_field="reply_ref",
-                value=gestalt.WorkflowOutputValueSource(
-                    signal_payload="reply_ref"
-                ),
-            ),
-        ],
-    )
-
-
-def _workflow_session_ready_delivery() -> Any:
-    return gestalt.WorkflowOutputDelivery(
-        target=gestalt.BoundWorkflowPluginTarget(
-            plugin_name=_agent_config.plugin_name,
-            operation=SLACK_SESSION_STARTED_REPLY_OPERATION,
-        ),
-        credential_mode="none",
-        input_bindings=[
-            gestalt.WorkflowOutputBinding(
-                input_field="session_id",
-                value=gestalt.WorkflowOutputValueSource(agent_session="id"),
-            ),
-            gestalt.WorkflowOutputBinding(
-                input_field="reply_ref",
-                value=gestalt.WorkflowOutputValueSource(
-                    signal_payload="reply_ref"
-                ),
-            ),
-        ],
-    )
-
-
-def _agent_event_steps(route: SlackAgentRoute | None) -> list[Any]:
-    if route is None or not route.agent_steps:
-        return []
-    return [_workflow_agent_step(route, step) for step in route.agent_steps]
-
-
-def _workflow_agent_step(route: SlackAgentRoute, step: SlackAgentStep) -> Any:
-    messages = [gestalt.AgentMessage(role="system", text=_agent_system_prompt(route))]
-    messages.extend(
-        gestalt.AgentMessage(
-            role=message.get("role", "user"),
-            text=message.get("text", ""),
-            metadata=message.get("metadata") or None,
-        )
-        for message in step.messages
-    )
-    step_kwargs: dict[str, Any] = {
-        "id": step.id,
-        "prompt": step.prompt,
-        "messages": messages,
-        "tool_refs": _agent_step_tool_refs(route, step),
-        "response_schema": step.response_schema or None,
-        "model_options": step.model_options or None,
-        "metadata": step.metadata or None,
-        "timeout_seconds": step.timeout_seconds,
-        "when": _workflow_agent_step_when(step.when) if step.when else None,
-        "output_delivery": _workflow_step_slack_reply_delivery(step),
-    }
-    return _construct_workflow_agent_step(
-        {key: value for key, value in step_kwargs.items() if _keep_step_value(value)}
-    )
-
-
 def _keep_step_value(value: Any) -> bool:
     if value is None:
         return False
@@ -2900,66 +3021,6 @@ def _keep_step_value(value: Any) -> bool:
     if value == 0:
         return False
     return True
-
-
-def _workflow_agent_step_when(value: dict[str, Any]) -> Any:
-    when_cls = getattr(gestalt, "WorkflowAgentStepWhen", None)
-    if when_cls is None:
-        return _CompatWorkflowAgentStepWhen(data=dict(value))
-    return _construct_workflow_value(when_cls, dict(value))
-
-
-def _construct_workflow_agent_step(kwargs: dict[str, Any]) -> Any:
-    step_cls = getattr(gestalt, "WorkflowAgentStep", None)
-    if step_cls is None:
-        return _CompatWorkflowAgentStep(
-            **_supported_kwargs(_CompatWorkflowAgentStep, kwargs)
-        )
-    return _construct_workflow_value(step_cls, kwargs)
-
-
-def _construct_workflow_value(factory: Any, kwargs: dict[str, Any]) -> Any:
-    try:
-        return factory(**kwargs)
-    except TypeError:
-        return factory(**_supported_kwargs(factory, kwargs))
-
-
-def _supported_kwargs(factory: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
-    try:
-        signature = inspect.signature(factory)
-    except (TypeError, ValueError):
-        return dict(kwargs)
-    parameters = signature.parameters
-    if any(
-        parameter.kind == inspect.Parameter.VAR_KEYWORD
-        for parameter in parameters.values()
-    ):
-        return dict(kwargs)
-    return {key: value for key, value in kwargs.items() if key in parameters}
-
-
-def _constructor_supports_kwarg(factory: Any, key: str) -> bool:
-    if factory is None:
-        return False
-    try:
-        signature = inspect.signature(factory)
-    except (TypeError, ValueError):
-        return False
-    parameters = signature.parameters
-    if key in parameters:
-        return True
-    return any(
-        parameter.kind == inspect.Parameter.VAR_KEYWORD
-        for parameter in parameters.values()
-    )
-
-
-def _workflow_step_slack_reply_delivery(step: SlackAgentStep) -> Any | None:
-    agent_output = step.slack_reply_agent_output.strip()
-    if not agent_output:
-        return None
-    return _workflow_output_delivery(agent_output=agent_output)
 
 
 def _prefetch_thread_context(
@@ -3203,7 +3264,7 @@ def _agent_tool_ref(
 ) -> Any:
     return gestalt.AgentToolRef(
         system=system,
-        plugin=plugin,
+        app=plugin,
         operation=operation,
         connection=connection,
         instance=instance,
@@ -3582,30 +3643,34 @@ def _workflow_run_status_name(status: Any) -> str:
 
 
 def _workflow_manager_contract_available() -> bool:
-    if not all(
-        getattr(gestalt, name, None) is not None
-        for name in (
-            "BoundWorkflowAgentTarget",
-            "BoundWorkflowPluginTarget",
-            "BoundWorkflowTarget",
-            "WorkflowOutputBinding",
-            "WorkflowOutputDelivery",
-            "WorkflowOutputValueSource",
-            "WorkflowManagerSignalOrStartRun",
-            "WorkflowSignal",
-        )
-    ):
+    required = (
+        "BoundWorkflowTarget",
+        "WorkflowStep",
+        "WorkflowStepAppCall",
+        "WorkflowStepAgentTurn",
+        "WorkflowValue",
+        "WorkflowStepOutputSource",
+        "WorkflowManagerSignalOrStartRun",
+        "WorkflowSignal",
+    )
+    if not all(getattr(gestalt, name, None) is not None for name in required):
         return False
     try:
-        agent = gestalt.BoundWorkflowAgentTarget()
-        source = gestalt.WorkflowOutputValueSource(agent_session="id")
+        gestalt.BoundWorkflowTarget(
+            steps=[
+                gestalt.WorkflowStep(
+                    id="run",
+                    agent=gestalt.WorkflowStepAgentTurn(
+                        provider="managed",
+                        prompt=gestalt.WorkflowText(template="Handle the event."),
+                    ),
+                )
+            ]
+        )
         gestalt.WorkflowManagerSignalOrStartRun()
     except Exception:
         return False
-    return (
-        hasattr(agent, "session_ready_delivery")
-        and getattr(source, "agent_session", "") == "id"
-    )
+    return True
 
 
 def _workflow_publish_contract_available() -> bool:

@@ -123,163 +123,157 @@ func normalizeTarget(target *gestalt.BoundWorkflowTarget) (scopedTarget, error) 
 	if target == nil {
 		return scopedTarget{}, errors.New("target is required")
 	}
-	if target.Agent != nil {
-		agent := *target.Agent
-		agent.ProviderName = strings.TrimSpace(agent.ProviderName)
-		agent.Model = strings.TrimSpace(agent.Model)
-		agent.Prompt = strings.TrimSpace(agent.Prompt)
-		agent.OutputDelivery = cloneOutputDeliveryInput(agent.OutputDelivery)
-		agent.SessionReadyDelivery = cloneOutputDeliveryInput(agent.SessionReadyDelivery)
-		if agent.ProviderName == "" {
-			return scopedTarget{}, errors.New("target.agent.provider_name is required")
-		}
-		if agent.Prompt == "" && len(agent.Messages) == 0 {
-			return scopedTarget{}, errors.New("target.agent.prompt or messages is required")
-		}
-		if agent.TimeoutSeconds < 0 {
-			return scopedTarget{}, errors.New("target.agent.timeout_seconds must not be negative")
-		}
-		if err := normalizeAgentOutputDelivery(agent.OutputDelivery); err != nil {
-			return scopedTarget{}, err
-		}
-		if err := normalizeAgentSessionReadyDelivery(agent.SessionReadyDelivery); err != nil {
-			return scopedTarget{}, err
-		}
-		normalized := &gestalt.BoundWorkflowTarget{Agent: &agent}
-		return scopedTarget{
-			OwnerKey: "agent:" + agent.ProviderName,
-			Target:   normalized,
-		}, nil
+	if len(target.Steps) == 0 {
+		return scopedTarget{}, errors.New("target.steps is required")
 	}
-	if target.Plugin == nil {
-		return scopedTarget{}, errors.New("target.plugin.plugin_name is required")
+	steps := append([]gestalt.WorkflowStep(nil), target.Steps...)
+	seen := map[string]struct{}{}
+	ownerKey := ""
+	for i := range steps {
+		step := &steps[i]
+		stepPath := fmt.Sprintf("target.steps[%d]", i)
+		step.ID = strings.TrimSpace(step.ID)
+		if step.ID == "" {
+			return scopedTarget{}, fmt.Errorf("%s.id is required", stepPath)
+		}
+		if _, exists := seen[step.ID]; exists {
+			return scopedTarget{}, fmt.Errorf("%s.id duplicates %q", stepPath, step.ID)
+		}
+		if step.TimeoutSeconds < 0 {
+			return scopedTarget{}, fmt.Errorf("%s.timeout_seconds must not be negative", stepPath)
+		}
+		switch {
+		case step.App != nil && step.Agent != nil:
+			return scopedTarget{}, fmt.Errorf("%s must set exactly one of app or agent", stepPath)
+		case step.App != nil:
+			app, stepOwner, err := normalizeWorkflowStepApp(step.App, stepPath+".app")
+			if err != nil {
+				return scopedTarget{}, err
+			}
+			step.App = app
+			if ownerKey == "" {
+				ownerKey = stepOwner
+			}
+		case step.Agent != nil:
+			agent, stepOwner, err := normalizeWorkflowStepAgent(step.Agent, stepPath+".agent")
+			if err != nil {
+				return scopedTarget{}, err
+			}
+			step.Agent = agent
+			if ownerKey == "" {
+				ownerKey = stepOwner
+			}
+		default:
+			return scopedTarget{}, fmt.Errorf("%s must set app or agent", stepPath)
+		}
+		seen[step.ID] = struct{}{}
 	}
-	plugin := *target.Plugin
-	pluginName := strings.TrimSpace(plugin.PluginName)
-	operation := strings.TrimSpace(plugin.Operation)
-	if pluginName == "" {
-		return scopedTarget{}, errors.New("target.plugin.plugin_name is required")
+	if ownerKey == "" {
+		return scopedTarget{}, errors.New("target owner is required")
 	}
-	if operation == "" {
-		return scopedTarget{}, errors.New("target.plugin.operation is required")
-	}
-	credentialMode := strings.ToLower(strings.TrimSpace(plugin.CredentialMode))
-	switch credentialMode {
-	case "", "none", "user":
-	default:
-		return scopedTarget{}, fmt.Errorf("target.plugin.credential_mode %q is not supported", plugin.CredentialMode)
-	}
-	plugin.PluginName = pluginName
-	plugin.Operation = operation
-	plugin.Connection = strings.TrimSpace(plugin.Connection)
-	plugin.Instance = strings.TrimSpace(plugin.Instance)
-	plugin.CredentialMode = credentialMode
-	normalized := &gestalt.BoundWorkflowTarget{Plugin: &plugin}
 	return scopedTarget{
-		OwnerKey: pluginName,
-		Target:   normalized,
+		OwnerKey: ownerKey,
+		Target:   &gestalt.BoundWorkflowTarget{Steps: steps},
 	}, nil
 }
 
-func normalizeAgentOutputDelivery(delivery *gestalt.WorkflowOutputDelivery) error {
-	return normalizeAgentDelivery(delivery, "output_delivery", false)
-}
-
-func normalizeAgentSessionReadyDelivery(delivery *gestalt.WorkflowOutputDelivery) error {
-	return normalizeAgentDelivery(delivery, "session_ready_delivery", true)
-}
-
-func normalizeAgentDelivery(delivery *gestalt.WorkflowOutputDelivery, fieldName string, beforeTurn bool) error {
-	if delivery == nil {
-		return nil
+func normalizeWorkflowStepApp(app *gestalt.WorkflowStepAppCall, path string) (*gestalt.WorkflowStepAppCall, string, error) {
+	if app == nil {
+		return nil, "", fmt.Errorf("%s is required", path)
 	}
-	target := delivery.Target
-	if target == nil {
-		return fmt.Errorf("target.agent.%s.target.plugin_name is required", fieldName)
-	}
-	targetCopy := *target
-	pluginName := strings.TrimSpace(targetCopy.PluginName)
-	operation := strings.TrimSpace(targetCopy.Operation)
-	if pluginName == "" {
-		return fmt.Errorf("target.agent.%s.target.plugin_name is required", fieldName)
+	out := *app
+	appName := strings.TrimSpace(out.Name)
+	operation := strings.TrimSpace(out.Operation)
+	if appName == "" {
+		return nil, "", fmt.Errorf("%s.name is required", path)
 	}
 	if operation == "" {
-		return fmt.Errorf("target.agent.%s.target.operation is required", fieldName)
+		return nil, "", fmt.Errorf("%s.operation is required", path)
 	}
-	targetCredentialMode := strings.ToLower(strings.TrimSpace(targetCopy.CredentialMode))
-	if targetCredentialMode != "" {
-		return fmt.Errorf("target.agent.%s.target.credential_mode %q is not supported", fieldName, targetCopy.CredentialMode)
-	}
-	credentialMode := strings.ToLower(strings.TrimSpace(delivery.CredentialMode))
+	credentialMode := strings.ToLower(strings.TrimSpace(out.CredentialMode))
 	switch credentialMode {
 	case "", "none", "user":
 	default:
-		return fmt.Errorf("target.agent.%s.credential_mode %q is not supported", fieldName, delivery.CredentialMode)
+		return nil, "", fmt.Errorf("%s.credential_mode %q is not supported", path, out.CredentialMode)
 	}
-	targetCopy.PluginName = pluginName
-	targetCopy.Operation = operation
-	targetCopy.Connection = strings.TrimSpace(targetCopy.Connection)
-	targetCopy.Instance = strings.TrimSpace(targetCopy.Instance)
-	targetCopy.CredentialMode = ""
-	delivery.CredentialMode = credentialMode
-	delivery.Target = &targetCopy
-	for i := range delivery.InputBindings {
-		binding := &delivery.InputBindings[i]
-		if binding.Value == nil {
-			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
-		}
-		binding.InputField = strings.TrimSpace(binding.InputField)
-		if binding.InputField == "" {
-			return fmt.Errorf("target.agent.%s.input_bindings.input_field is required", fieldName)
-		}
-		value := binding.Value
-		value.AgentOutput = strings.TrimSpace(value.AgentOutput)
-		value.SignalPayload = strings.TrimSpace(value.SignalPayload)
-		value.SignalMetadata = strings.TrimSpace(value.SignalMetadata)
-		value.AgentSession = strings.TrimSpace(value.AgentSession)
-		selected := 0
-		if value.AgentOutput != "" {
-			selected++
-			if beforeTurn {
-				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_output is not available before the agent turn starts", fieldName)
+	out.Name = appName
+	out.Operation = operation
+	out.Connection = strings.TrimSpace(out.Connection)
+	out.Instance = strings.TrimSpace(out.Instance)
+	out.CredentialMode = credentialMode
+	return &out, appName, nil
+}
+
+func normalizeWorkflowStepAgent(agent *gestalt.WorkflowStepAgentTurn, path string) (*gestalt.WorkflowStepAgentTurn, string, error) {
+	if agent == nil {
+		return nil, "", fmt.Errorf("%s is required", path)
+	}
+	out := *agent
+	providerName := strings.TrimSpace(out.Provider)
+	out.Model = strings.TrimSpace(out.Model)
+	out.SessionKey = strings.TrimSpace(out.SessionKey)
+	out.Prompt = gestalt.WorkflowText{Template: strings.TrimSpace(out.Prompt.Template)}
+	if providerName == "" {
+		return nil, "", fmt.Errorf("%s.provider is required", path)
+	}
+	if out.Prompt.Template == "" && len(out.Messages) == 0 {
+		return nil, "", fmt.Errorf("%s.prompt or messages is required", path)
+	}
+	out.Provider = providerName
+	return &out, "agent:" + providerName, nil
+}
+
+func targetOwnerKeyInput(target *gestalt.BoundWorkflowTarget) string {
+	if target == nil || len(target.Steps) == 0 {
+		return ""
+	}
+	for _, step := range target.Steps {
+		if step.App != nil {
+			if appName := strings.TrimSpace(step.App.Name); appName != "" {
+				return appName
 			}
 		}
-		if value.SignalPayload != "" {
-			selected++
+		if step.Agent != nil {
+			if provider := strings.TrimSpace(step.Agent.Provider); provider != "" {
+				return "agent:" + provider
+			}
 		}
-		if value.SignalMetadata != "" {
-			selected++
-		}
-		if value.AgentSession != "" {
-			selected++
-		}
-		if value.Literal != nil {
-			selected++
-		}
-		if selected == 0 {
-			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
-		}
-		if selected > 1 {
-			return fmt.Errorf("target.agent.%s.input_bindings.value must set exactly one source", fieldName)
+	}
+	return ""
+}
+
+func firstWorkflowAppStep(target *gestalt.BoundWorkflowTarget) *gestalt.WorkflowStepAppCall {
+	if target == nil {
+		return nil
+	}
+	for i := range target.Steps {
+		if target.Steps[i].App != nil {
+			return target.Steps[i].App
 		}
 	}
 	return nil
 }
 
-func targetOwnerKeyInput(target *gestalt.BoundWorkflowTarget) string {
+func firstWorkflowAgentStep(target *gestalt.BoundWorkflowTarget) (*gestalt.WorkflowStepAgentTurn, *gestalt.WorkflowStep) {
 	if target == nil {
-		return ""
+		return nil, nil
 	}
-	if target.Agent != nil {
-		if provider := strings.TrimSpace(target.Agent.ProviderName); provider != "" {
-			return "agent:" + provider
+	for i := range target.Steps {
+		if target.Steps[i].Agent != nil {
+			step := target.Steps[i]
+			return step.Agent, &step
 		}
-		return ""
 	}
-	if target.Plugin != nil {
-		return strings.TrimSpace(target.Plugin.PluginName)
-	}
-	return ""
+	return nil, nil
+}
+
+func targetHasAppStep(target *gestalt.BoundWorkflowTarget) bool {
+	return firstWorkflowAppStep(target) != nil
+}
+
+func targetHasAgentStep(target *gestalt.BoundWorkflowTarget) bool {
+	agent, _ := firstWorkflowAgentStep(target)
+	return agent != nil
 }
 
 func normalizeWorkflowEvent(event *gestalt.WorkflowEvent, now func() time.Time) (*gestalt.WorkflowEvent, error) {
@@ -381,28 +375,6 @@ func cloneRunInput(run *gestalt.BoundWorkflowRun) *gestalt.BoundWorkflowRun {
 	out.ExecutionRef = strings.TrimSpace(out.ExecutionRef)
 	out.WorkflowKey = strings.TrimSpace(out.WorkflowKey)
 	out.CreatedBy = cloneActorInput(out.CreatedBy)
-	return &out
-}
-
-func cloneOutputDeliveryInput(delivery *gestalt.WorkflowOutputDelivery) *gestalt.WorkflowOutputDelivery {
-	if delivery == nil {
-		return nil
-	}
-	out := *delivery
-	if delivery.Target != nil {
-		target := *delivery.Target
-		out.Target = &target
-	}
-	if len(delivery.InputBindings) > 0 {
-		out.InputBindings = make([]gestalt.WorkflowOutputBinding, len(delivery.InputBindings))
-		for i, binding := range delivery.InputBindings {
-			out.InputBindings[i] = binding
-			if binding.Value != nil {
-				value := *binding.Value
-				out.InputBindings[i].Value = &value
-			}
-		}
-	}
 	return &out
 }
 

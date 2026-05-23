@@ -45,7 +45,7 @@ func TestRuntimeContractStartsSessionFromPodTemplate(t *testing.T) {
 
 	session, err := runtime.Start(ctx, startRuntimeSessionRequest{
 		Name:       "session-1",
-		PluginName: "claude",
+		AppName: "claude",
 		Namespace:  "runtime-system",
 		Template:   "agent-runtime",
 		Image:      "registry.example/runtime@sha256:abc",
@@ -95,7 +95,7 @@ func TestRuntimeContractDirectSessionCreatesImagePullSecretAndService(t *testing
 
 	_, err := runtime.Start(ctx, startRuntimeSessionRequest{
 		Name:             "session-2",
-		PluginName:       "github",
+		AppName:       "github",
 		Namespace:        "runtime-system",
 		Image:            "registry.example/runtime:latest",
 		DockerConfigJSON: `{"auths":{"registry.example":{"username":"u","password":"p"}}}`,

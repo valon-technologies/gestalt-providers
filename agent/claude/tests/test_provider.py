@@ -26,7 +26,7 @@ import provider as provider_module
 from gestalt import ENV_HOST_SERVICE_SOCKET, ENV_HOST_SERVICE_TOKEN, ProviderKind, _runtime
 from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
-from gestalt._gen.v1 import plugin_pb2 as _plugin_pb2
+from gestalt._gen.v1 import app_pb2 as _app_pb2
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.mcp_bridge import GestaltMCPBridge, _schema_from_json
@@ -36,7 +36,7 @@ from tests.fake_indexeddb import FakeIndexedDB, datastore_pb2_grpc
 agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
 empty_pb2: Any = _empty_pb2
-plugin_pb2: Any = cast(Any, _plugin_pb2)
+app_pb2: Any = cast(Any, _app_pb2)
 runtime_pb2: Any = _runtime_pb2
 runtime_pb2_grpc: Any = _runtime_pb2_grpc
 struct_pb2: Any = _struct_pb2
@@ -2063,7 +2063,7 @@ def _create_owned_session(provider_client: Any, session_id: str, **kwargs: Any) 
 def _subject_context(subject_id: str, kind: str = "user") -> Any:
     if kind == "user" and subject_id.startswith("service_account:"):
         kind = "service_account"
-    return plugin_pb2.SubjectContext(id=subject_id, kind=kind)
+    return app_pb2.SubjectContext(id=subject_id, kind=kind)
 
 
 def _sdk_subject(subject_id: str, kind: str = "user") -> Any:

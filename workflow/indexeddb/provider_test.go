@@ -55,11 +55,11 @@ func TestProviderStartRunUsesIdempotencyAndExecutesHostCallbacks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("waitForCall: %v", err)
 	}
-	plugin := call.Target.Plugin
-	if plugin.PluginName != "roadmap" || plugin.Operation != "sync" {
+	plugin := testAppStep(call.Target)
+	if plugin.Name != "roadmap" || plugin.Operation != "sync" {
 		t.Fatalf("target = %#v", call.Target)
 	}
-	if got := anyMap(plugin.Input)["mode"]; got != "full" {
+	if got := workflowValueObjectField(call.Target, "mode"); got != "full" {
 		t.Fatalf("target.input.mode = %v, want full", got)
 	}
 	if call.CreatedBy.SubjectID != "user:123" {
@@ -124,7 +124,7 @@ func TestProviderDefinitionCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateDefinition(conflicting idempotent target): %v", err)
 	}
-	if conflicting.ID != created.ID || conflicting.Target.Plugin.Operation != "sync" {
+	if conflicting.ID != created.ID || testAppStep(conflicting.Target).Operation != "sync" {
 		t.Fatalf("conflicting idempotent definition = %#v, want original sync definition", conflicting)
 	}
 	record, found, err := loadDefinitionRecord(ctx, provider.definitionStore, created.ID)
@@ -146,8 +146,8 @@ func TestProviderDefinitionCRUD(t *testing.T) {
 	if updated.ID != created.ID || updated.CreatedAt != created.CreatedAt {
 		t.Fatalf("updated definition = %#v, want same id and created_at", updated)
 	}
-	if updated.Target.Plugin.Operation != "refresh" {
-		t.Fatalf("updated operation = %q, want refresh", updated.Target.Plugin.Operation)
+	if testAppStep(updated.Target).Operation != "refresh" {
+		t.Fatalf("updated operation = %q, want refresh", testAppStep(updated.Target).Operation)
 	}
 	if updated.CreatedBy == nil || updated.CreatedBy.SubjectID != "creator-1" {
 		t.Fatalf("updated created_by = %#v, want creator-1", updated.CreatedBy)
@@ -157,8 +157,8 @@ func TestProviderDefinitionCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDefinition: %v", err)
 	}
-	if got.Target.Plugin.Operation != "refresh" {
-		t.Fatalf("stored operation = %q, want refresh", got.Target.Plugin.Operation)
+	if testAppStep(got.Target).Operation != "refresh" {
+		t.Fatalf("stored operation = %q, want refresh", testAppStep(got.Target).Operation)
 	}
 	if got.CreatedBy == nil || got.CreatedBy.SubjectID != "creator-1" {
 		t.Fatalf("stored created_by = %#v, want creator-1", got.CreatedBy)
@@ -402,7 +402,7 @@ func TestProviderSignalOrStartRunReinvokesSameRunForQueuedSignals(t *testing.T) 
 	if firstCall.RunID != first.Run.ID {
 		t.Fatalf("first call run_id = %q, want %q", firstCall.RunID, first.Run.ID)
 	}
-	if firstCall.Target.Agent.ProviderName != "managed" {
+	if testAgentStep(firstCall.Target).Provider != "managed" {
 		t.Fatalf("first call target = %#v", firstCall.Target)
 	}
 	if firstCall.ExecutionRef != "agent-ref" {
@@ -442,8 +442,8 @@ func TestProviderSignalOrStartRunReinvokesSameRunForQueuedSignals(t *testing.T) 
 	if secondCall.RunID != first.Run.ID {
 		t.Fatalf("second call run_id = %q, want %q", secondCall.RunID, first.Run.ID)
 	}
-	if secondCall.Target.Agent.Model != "gpt-5.5" {
-		t.Fatalf("second call target model = %q, want original model", secondCall.Target.Agent.Model)
+	if testAgentStep(secondCall.Target).Model != "gpt-5.5" {
+		t.Fatalf("second call target model = %q, want original model", testAgentStep(secondCall.Target).Model)
 	}
 	if len(secondCall.Signals) != 1 || secondCall.Signals[0].IdempotencyKey != "evt-2" {
 		t.Fatalf("second call signals = %#v", secondCall.Signals)
@@ -1406,7 +1406,7 @@ func TestProviderSignalWakePrefersRunAndBatchesSignals(t *testing.T) {
 	}
 
 	interactiveTarget := workflowAgentTarget("managed", "gpt-5.5", "Respond in the Slack thread")
-	interactiveTarget.Agent.Metadata = mustStruct(t, map[string]any{
+	interactiveTarget.Steps[0].Metadata = mustStruct(t, map[string]any{
 		gestaltInputKey: map[string]any{
 			workflowMetadataKey: map[string]any{
 				dispatchPriorityMetadataKey: 5,
@@ -1526,7 +1526,7 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 			SubjectID:           "user:123",
 			CredentialSubjectID: "svc:workflow",
 			Permissions: []gestalt.WorkflowAccessPermission{
-				{Plugin: "roadmap", Operations: []string{"sync", "preview"}},
+				{App: "roadmap", Operations: []string{"sync", "preview"}},
 			},
 			CreatedAt: firstCreatedAt,
 		},
@@ -1543,7 +1543,7 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 
 	revokedAt := secondCreatedAt.Add(time.Minute)
 	updatedTarget := workflowTarget(t, "roadmap", "sync", nil)
-	updatedTarget.Plugin.CredentialMode = "none"
+	updatedTarget.Steps[0].App.CredentialMode = "none"
 	updated, err := provider.PutExecutionReference(ctx, &gestalt.PutWorkflowExecutionReferenceRequest{
 		Reference: &gestalt.WorkflowExecutionReference{
 			ID:                  "ref-1",
@@ -1557,7 +1557,7 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 				AuthSource:  "config",
 			},
 			Permissions: []gestalt.WorkflowAccessPermission{
-				{Plugin: "roadmap", Operations: []string{"sync"}},
+				{App: "roadmap", Operations: []string{"sync"}},
 			},
 			CreatedAt: secondCreatedAt,
 			RevokedAt: &revokedAt,
@@ -1610,10 +1610,10 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 	if got.RunAs.DisplayName != "Roadmap sync" || got.RunAs.AuthSource != "config" {
 		t.Fatalf("run_as metadata = (%q, %q), want display/auth", got.RunAs.DisplayName, got.RunAs.AuthSource)
 	}
-	if got.Target.Plugin.CredentialMode != "none" {
-		t.Fatalf("target credential mode = %q, want none", got.Target.Plugin.CredentialMode)
+	if testAppStep(got.Target).CredentialMode != "none" {
+		t.Fatalf("target credential mode = %q, want none", testAppStep(got.Target).CredentialMode)
 	}
-	if len(got.Permissions) != 1 || got.Permissions[0].Plugin != "roadmap" {
+	if len(got.Permissions) != 1 || got.Permissions[0].App != "roadmap" {
 		t.Fatalf("permissions = %#v, want roadmap entry", got.Permissions)
 	}
 	if ops := got.Permissions[0].Operations; len(ops) != 1 || ops[0] != "sync" {
@@ -1644,62 +1644,32 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 
 func TestNormalizeTargetPreservesPluginCredentialMode(t *testing.T) {
 	target := workflowTarget(t, " github ", " reviewPullRequest ", nil)
-	target.Plugin.CredentialMode = " none "
+	target.Steps[0].App.CredentialMode = " none "
 
 	scoped, err := normalizeTarget(workflowTargetInput(target))
 	if err != nil {
 		t.Fatalf("normalizeTarget: %v", err)
 	}
-	plugin := scoped.Target.Plugin
-	if plugin.PluginName != "github" || plugin.Operation != "reviewPullRequest" {
-		t.Fatalf("plugin target = %#v", plugin)
+	app := testAppStep(scoped.Target)
+	if app.Name != "github" || app.Operation != "reviewPullRequest" {
+		t.Fatalf("app target = %#v", app)
 	}
-	if got := plugin.CredentialMode; got != "none" {
+	if got := app.CredentialMode; got != "none" {
 		t.Fatalf("credential mode = %q, want none", got)
 	}
 }
 
 func TestNormalizeTargetRejectsInvalidPluginCredentialMode(t *testing.T) {
 	target := workflowTarget(t, "github", "reviewPullRequest", nil)
-	target.Plugin.CredentialMode = "platform"
+	target.Steps[0].App.CredentialMode = "platform"
 
 	_, err := normalizeTarget(workflowTargetInput(target))
-	if err == nil || !strings.Contains(err.Error(), `target.plugin.credential_mode "platform" is not supported`) {
+	if err == nil || !strings.Contains(err.Error(), `target.steps[0].app.credential_mode "platform" is not supported`) {
 		t.Fatalf("normalizeTarget error = %v, want unsupported credential mode", err)
 	}
 }
 
-func TestNormalizeTargetRejectsOutputDeliveryTargetCredentialMode(t *testing.T) {
-	target := workflowAgentTargetWithOutputDelivery("managed", "gpt-5.4", "send a Slack reminder")
-	target.Agent.OutputDelivery.Target.CredentialMode = "none"
 
-	_, err := normalizeTarget(workflowTargetInput(target))
-	if err == nil || !strings.Contains(err.Error(), `target.agent.output_delivery.target.credential_mode "none" is not supported`) {
-		t.Fatalf("normalizeTarget error = %v, want unsupported output delivery target mode", err)
-	}
-}
-
-func TestNormalizeTargetRejectsSessionReadyDeliveryInvalidSources(t *testing.T) {
-	target := workflowAgentTargetWithOutputDelivery("managed", "gpt-5.4", "send a Slack reminder")
-	target.Agent.SessionReadyDelivery = workflowSessionReadyDelivery()
-	target.Agent.SessionReadyDelivery.Target.CredentialMode = "none"
-
-	_, err := normalizeTarget(workflowTargetInput(target))
-	if err == nil || !strings.Contains(err.Error(), `target.agent.session_ready_delivery.target.credential_mode "none" is not supported`) {
-		t.Fatalf("normalizeTarget error = %v, want unsupported session ready delivery target mode", err)
-	}
-
-	target = workflowAgentTargetWithOutputDelivery("managed", "gpt-5.4", "send a Slack reminder")
-	target.Agent.SessionReadyDelivery = workflowSessionReadyDelivery()
-	target.Agent.SessionReadyDelivery.InputBindings[0].Value = &gestalt.WorkflowOutputValueSource{
-		AgentOutput: "text",
-	}
-
-	_, err = normalizeTarget(workflowTargetInput(target))
-	if err == nil || !strings.Contains(err.Error(), "target.agent.session_ready_delivery.input_bindings.value.agent_output is not available before the agent turn starts") {
-		t.Fatalf("normalizeTarget error = %v, want unsupported session ready delivery agent output", err)
-	}
-}
 
 func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	ctx := context.Background()
@@ -1716,10 +1686,10 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	ref, err := provider.PutExecutionReference(ctx, &gestalt.PutWorkflowExecutionReferenceRequest{
 		Reference: &gestalt.WorkflowExecutionReference{
 			ID:        "agent-ref",
-			Target:    workflowAgentTargetWithDeliveries("managed", "gpt-5.4", "send a Slack reminder"),
+			Target:    workflowAgentTarget("managed", "gpt-5.4", "send a Slack reminder"),
 			SubjectID: "user:123",
 			Permissions: []gestalt.WorkflowAccessPermission{
-				{Plugin: "slack", Operations: []string{"chat.postMessage"}},
+				{App: "slack", Operations: []string{"chat.postMessage"}},
 			},
 			CreatedAt: createdAt,
 		},
@@ -1730,41 +1700,12 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	if ref.ProviderName != "indexeddb" {
 		t.Fatalf("provider_name = %q, want indexeddb", ref.ProviderName)
 	}
-	if ref.Target.Agent.ProviderName != "managed" {
+	if testAgentStep(ref.Target).Provider != "managed" {
 		t.Fatalf("agent target = %#v", ref.Target)
 	}
-	if ref.Target.Plugin != nil {
+	if testAppStep(ref.Target) != nil {
 		t.Fatalf("agent target included plugin fields: %#v", ref.Target)
 	}
-	delivery := ref.Target.Agent.OutputDelivery
-	if delivery.Target.PluginName != "slack" || delivery.Target.Operation != "events.reply" {
-		t.Fatalf("output delivery target = %#v", delivery.Target)
-	}
-	if delivery.CredentialMode != "none" {
-		t.Fatalf("output delivery credential mode = %q, want none", delivery.CredentialMode)
-	}
-	if len(delivery.InputBindings) != 2 ||
-		delivery.InputBindings[0].InputField != "text" ||
-		delivery.InputBindings[0].Value.AgentOutput != "text" ||
-		delivery.InputBindings[1].InputField != "reply_ref" ||
-		delivery.InputBindings[1].Value.SignalPayload != "reply_ref" {
-		t.Fatalf("output delivery bindings = %#v", delivery.InputBindings)
-	}
-	sessionReadyDelivery := ref.Target.Agent.SessionReadyDelivery
-	if sessionReadyDelivery.Target.PluginName != "slack" || sessionReadyDelivery.Target.Operation != "events.replySessionStarted" {
-		t.Fatalf("session ready delivery target = %#v", sessionReadyDelivery.Target)
-	}
-	if sessionReadyDelivery.CredentialMode != "none" {
-		t.Fatalf("session ready delivery credential mode = %q, want none", sessionReadyDelivery.CredentialMode)
-	}
-	if len(sessionReadyDelivery.InputBindings) != 2 ||
-		sessionReadyDelivery.InputBindings[0].InputField != "session_id" ||
-		sessionReadyDelivery.InputBindings[0].Value.AgentSession != "id" ||
-		sessionReadyDelivery.InputBindings[1].InputField != "reply_ref" ||
-		sessionReadyDelivery.InputBindings[1].Value.SignalPayload != "reply_ref" {
-		t.Fatalf("session ready delivery bindings = %#v", sessionReadyDelivery.InputBindings)
-	}
-
 	got, err := provider.GetExecutionReference(ctx, &gestalt.GetWorkflowExecutionReferenceRequest{ID: "agent-ref"})
 	if err != nil {
 		t.Fatalf("GetExecutionReference(agent-ref): %v", err)
@@ -1787,8 +1728,8 @@ func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
 	stopProviderWorker(t, provider)
 
 	target := workflowTarget(t, "roadmap", "sync", map[string]any{"mode": "full"})
-	target.Plugin.Connection = "primary"
-	target.Plugin.Instance = "prod"
+	target.Steps[0].App.Connection = "primary"
+	target.Steps[0].App.Instance = "prod"
 
 	schedule, err := provider.UpsertSchedule(ctx, &gestalt.UpsertWorkflowProviderScheduleRequest{
 		ScheduleID: "stored-schedule",
@@ -2038,7 +1979,7 @@ func TestProviderPublishEventDoesNotWaitForConcurrentScheduleList(t *testing.T) 
 	publishDone := make(chan error, 1)
 	go func() {
 		_, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
-			PluginName: "roadmap",
+			AppName: "roadmap",
 			Event: &gestalt.WorkflowEvent{
 				ID:          "evt-while-listing",
 				Source:      "roadmap",
@@ -2143,7 +2084,7 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 		AuthSource:  "github_app_webhook",
 	}
 	if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
-		PluginName:  "github",
+		AppName:  "github",
 		PublishedBy: publishedBy,
 		Event:       githubWebhookWorkflowEvent(t),
 	}); err != nil {
@@ -2172,7 +2113,7 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 	}
 	gotOperations := map[string]bool{}
 	for _, permission := range ref.Permissions {
-		if permission.Plugin != "github" {
+		if permission.App != "github" {
 			continue
 		}
 		for _, operation := range permission.Operations {
@@ -2192,7 +2133,7 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 		AuthSource:  "github_app_webhook",
 	}
 	if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
-		PluginName:  "github",
+		AppName:  "github",
 		PublishedBy: duplicatePublisher,
 		Event:       githubWebhookWorkflowEvent(t),
 	}); err != nil {
@@ -2214,75 +2155,6 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 	}
 }
 
-func TestProviderPublishEventAgentTargetExecutionReferenceIncludesOutputDelivery(t *testing.T) {
-	ctx := context.Background()
-	host := newWorkflowHostStub(202, `{"ok":true}`)
-	startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
-
-	provider := newProviderCore()
-	provider.now = func() time.Time {
-		return time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC)
-	}
-	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
-		t.Fatalf("Configure: %v", err)
-	}
-	t.Cleanup(func() { _ = provider.Close() })
-
-	if _, err := provider.UpsertEventTrigger(ctx, &gestalt.UpsertWorkflowProviderEventTriggerRequest{
-		TriggerID: "github-agent-webhook",
-		Match:     &gestalt.WorkflowEventMatch{Type: "github.app.webhook", Source: "github"},
-		Target:    workflowAgentTargetWithDeliveries("managed", "gpt-5.4", "respond to the GitHub event"),
-	}); err != nil {
-		t.Fatalf("UpsertEventTrigger(agent): %v", err)
-	}
-
-	publishedBy := &gestalt.WorkflowActor{
-		SubjectID:   "service_account:github_app_installation:127579767:repo:valon-technologies/gestalt",
-		SubjectKind: "service_account",
-		DisplayName: "GitHub App installation 127579767 (valon-technologies/gestalt)",
-		AuthSource:  "github_app_webhook",
-	}
-	if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
-		PluginName:  "agent:managed",
-		PublishedBy: publishedBy,
-		Event:       githubWebhookWorkflowEvent(t),
-	}); err != nil {
-		t.Fatalf("PublishEvent: %v", err)
-	}
-
-	runs, err := provider.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{})
-	if err != nil {
-		t.Fatalf("ListRuns: %v", err)
-	}
-	if len(runs.Runs) != 1 {
-		t.Fatalf("runs len = %d, want 1", len(runs.Runs))
-	}
-	ref, err := provider.GetExecutionReference(ctx, &gestalt.GetWorkflowExecutionReferenceRequest{ID: runs.Runs[0].ExecutionRef})
-	if err != nil {
-		t.Fatalf("GetExecutionReference: %v", err)
-	}
-	got := map[string]map[string]bool{}
-	for _, permission := range ref.Permissions {
-		ops := got[permission.Plugin]
-		if ops == nil {
-			ops = map[string]bool{}
-			got[permission.Plugin] = ops
-		}
-		for _, operation := range permission.Operations {
-			ops[operation] = true
-		}
-	}
-	if !got["slack"]["events.reply"] {
-		t.Fatalf("permissions = %#v, missing slack/events.reply output delivery permission", ref.Permissions)
-	}
-	if !got["slack"]["events.replySessionStarted"] {
-		t.Fatalf("permissions = %#v, missing slack/events.replySessionStarted session ready delivery permission", ref.Permissions)
-	}
-	if !got["slack"]["chat.postMessage"] {
-		t.Fatalf("permissions = %#v, missing slack/chat.postMessage tool permission", ref.Permissions)
-	}
-}
 
 func githubWebhookWorkflowEvent(t *testing.T) *gestalt.WorkflowEvent {
 	t.Helper()
@@ -2321,10 +2193,10 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertSchedule(agent): %v", err)
 	}
-	if schedule.Target.Agent.ProviderName != "managed" {
+	if testAgentStep(schedule.Target).Provider != "managed" {
 		t.Fatalf("schedule target = %#v", schedule.Target)
 	}
-	if schedule.Target.Plugin != nil {
+	if testAppStep(schedule.Target) != nil {
 		t.Fatalf("schedule target included plugin fields: %#v", schedule.Target)
 	}
 
@@ -2348,18 +2220,18 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 	if call.ExecutionRef != "agent-ref" {
 		t.Fatalf("execution_ref = %q, want agent-ref", call.ExecutionRef)
 	}
-	if call.Target.Agent.Prompt != "send a Slack reminder" {
+	if testAgentStep(call.Target).Prompt.Template != "send a Slack reminder" {
 		t.Fatalf("call target = %#v", call.Target)
 	}
-	toolRefs := call.Target.Agent.ToolRefs
+	toolRefs := testAgentStep(call.Target).Tools
 	if len(toolRefs) != 2 ||
-		toolRefs[0].Plugin != "slack" ||
+		toolRefs[0].App != "slack" ||
 		toolRefs[0].Operation != "chat.postMessage" ||
-		toolRefs[1].Plugin != "linear" ||
+		toolRefs[1].App != "linear" ||
 		toolRefs[1].Operation != "" {
 		t.Fatalf("tool refs = %#v", toolRefs)
 	}
-	if call.Target.Plugin != nil {
+	if testAppStep(call.Target) != nil {
 		t.Fatalf("call target included plugin fields: %#v", call.Target)
 	}
 	if call.Trigger.Schedule.ScheduleID != "slack-reminder" {
@@ -2392,19 +2264,22 @@ func TestProviderLeavesAgentToolValidationToHost(t *testing.T) {
 	}{
 		{
 			name:   "missing provider",
-			target: workflowAgentTargetFromMessage(&gestalt.BoundWorkflowAgentTarget{}),
+			target: &gestalt.BoundWorkflowTarget{Steps: []gestalt.WorkflowStep{{ID: "run", Agent: &gestalt.WorkflowStepAgentTurn{}}}},
 		},
 		{
 			name:   "empty prompt",
-			target: workflowAgentTargetFromMessage(&gestalt.BoundWorkflowAgentTarget{ProviderName: "managed"}),
+			target: workflowAgentTarget("managed", "", ""),
 		},
 		{
 			name: "negative timeout",
-			target: workflowAgentTargetFromMessage(&gestalt.BoundWorkflowAgentTarget{
-				ProviderName:   "managed",
-				Prompt:         "send a Slack reminder",
+			target: &gestalt.BoundWorkflowTarget{Steps: []gestalt.WorkflowStep{{
+				ID:             "run",
 				TimeoutSeconds: -1,
-			}),
+				Agent: &gestalt.WorkflowStepAgentTurn{
+					Provider: "managed",
+					Prompt:   gestalt.WorkflowText{Template: "send a Slack reminder"},
+				},
+			}}},
 		},
 	}
 	for _, tc := range cases {
@@ -2420,12 +2295,8 @@ func TestProviderLeavesAgentToolValidationToHost(t *testing.T) {
 		})
 	}
 
-	target := workflowAgentTargetFromMessage(&gestalt.BoundWorkflowAgentTarget{
-		ProviderName: " managed ",
-		Prompt:       "send a Slack reminder",
-		ToolRefs: []gestalt.AgentToolRef{
-			{Operation: "chat.postMessage"},
-		},
+	target := workflowAgentTargetWithTools(" managed ", "gpt-5.4", "send a Slack reminder", []gestalt.AgentToolRef{
+		{Operation: "chat.postMessage"},
 	})
 	schedule, err := provider.UpsertSchedule(ctx, &gestalt.UpsertWorkflowProviderScheduleRequest{
 		ScheduleID: "host-validated-agent",
@@ -2436,15 +2307,15 @@ func TestProviderLeavesAgentToolValidationToHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertSchedule(agent payload host validation): %v", err)
 	}
-	agent := schedule.Target.Agent
+	agent := testAgentStep(schedule.Target)
 	if agent == nil {
 		t.Fatalf("schedule target = %#v, want agent target", schedule.Target)
 	}
-	if agent.ProviderName != "managed" {
-		t.Fatalf("agent provider_name = %q, want trimmed provider", agent.ProviderName)
+	if agent.Provider != "managed" {
+		t.Fatalf("agent provider = %q, want trimmed provider", agent.Provider)
 	}
-	if got := agent.ToolRefs[0].Plugin; got != "" {
-		t.Fatalf("agent tool plugin = %q, want tool validation left to host", got)
+	if got := agent.Tools[0].App; got != "" {
+		t.Fatalf("agent tool app = %q, want tool validation left to host", got)
 	}
 }
 
@@ -2596,7 +2467,7 @@ func TestProviderPublishEventDoesNotCoalesceDifferentSources(t *testing.T) {
 	}
 	for _, event := range events {
 		if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
-			PluginName: "roadmap",
+			AppName: "roadmap",
 			Event: &gestalt.WorkflowEvent{
 				ID:          event.id,
 				Source:      event.source,
@@ -3032,7 +2903,7 @@ func TestRecoverStaleWorkflowRunsPreservesAgentRunWithinConfiguredTimeout(t *tes
 	now := time.Date(2026, time.May, 3, 16, 0, 0, 0, time.UTC)
 	startedAt := now.Add(-10 * time.Minute)
 	target := workflowAgentTarget("managed", "claude-opus-4-7", "Investigate CI")
-	target.Agent.TimeoutSeconds = int32((30 * time.Minute).Seconds())
+	target.Steps[0].TimeoutSeconds = int32((30 * time.Minute).Seconds())
 	run := workflowRunRecord{
 		ID:          "long-timeout-agent-run",
 		Status:      gestalt.WorkflowRunStatusValueRunning,
@@ -3256,7 +3127,7 @@ func TestWorkflowRunDispatchPriorityUsesAgentMetadataHint(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			target := workflowAgentTarget("managed", "gpt-5.5", "Respond to interactive workflow")
-			target.Agent.Metadata = mustStruct(t, map[string]any{
+			target.Steps[0].Metadata = mustStruct(t, map[string]any{
 				gestaltInputKey: map[string]any{
 					workflowMetadataKey: map[string]any{
 						dispatchPriorityMetadataKey: tc.value,
@@ -3291,7 +3162,7 @@ func TestWorkflowRunDispatchPriorityIgnoresInvalidAgentMetadataHint(t *testing.T
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			target := workflowAgentTarget("managed", "gpt-5.5", "Respond to interactive workflow")
-			target.Agent.Metadata = mustStruct(t, map[string]any{
+			target.Steps[0].Metadata = mustStruct(t, map[string]any{
 				gestaltInputKey: map[string]any{
 					workflowMetadataKey: map[string]any{
 						dispatchPriorityMetadataKey: tc.value,
@@ -4071,91 +3942,6 @@ func startTestWorkflowHost(t *testing.T, host workflowHostClient) {
 	t.Cleanup(func() {
 		openWorkflowHost = previous
 	})
-}
-
-func workflowTarget(t *testing.T, pluginName, operation string, input map[string]any) *gestalt.BoundWorkflowTarget {
-	t.Helper()
-	return &gestalt.BoundWorkflowTarget{
-		Plugin: &gestalt.BoundWorkflowPluginTarget{
-			PluginName: pluginName,
-			Operation:  operation,
-			Input:      mustStruct(t, input),
-		},
-	}
-}
-
-func workflowAgentTarget(providerName, model, prompt string) *gestalt.BoundWorkflowTarget {
-	return workflowAgentTargetFromMessage(&gestalt.BoundWorkflowAgentTarget{
-		ProviderName: providerName,
-		Model:        model,
-		Prompt:       prompt,
-		ToolRefs: []gestalt.AgentToolRef{
-			{Plugin: "slack", Operation: "chat.postMessage"},
-			{Plugin: "linear"},
-		},
-	})
-}
-
-func workflowAgentTargetWithOutputDelivery(providerName, model, prompt string) *gestalt.BoundWorkflowTarget {
-	target := workflowAgentTarget(providerName, model, prompt)
-	target.Agent.OutputDelivery = &gestalt.WorkflowOutputDelivery{
-		Target: &gestalt.BoundWorkflowPluginTarget{
-			PluginName: "slack",
-			Operation:  "events.reply",
-		},
-		CredentialMode: "none",
-		InputBindings: []gestalt.WorkflowOutputBinding{
-			{
-				InputField: "text",
-				Value: &gestalt.WorkflowOutputValueSource{
-					AgentOutput: "text",
-				},
-			},
-			{
-				InputField: "reply_ref",
-				Value: &gestalt.WorkflowOutputValueSource{
-					SignalPayload: "reply_ref",
-				},
-			},
-		},
-	}
-	return target
-}
-
-func workflowAgentTargetWithDeliveries(providerName, model, prompt string) *gestalt.BoundWorkflowTarget {
-	target := workflowAgentTargetWithOutputDelivery(providerName, model, prompt)
-	target.Agent.SessionReadyDelivery = workflowSessionReadyDelivery()
-	return target
-}
-
-func workflowSessionReadyDelivery() *gestalt.WorkflowOutputDelivery {
-	return &gestalt.WorkflowOutputDelivery{
-		Target: &gestalt.BoundWorkflowPluginTarget{
-			PluginName: "slack",
-			Operation:  "events.replySessionStarted",
-		},
-		CredentialMode: "none",
-		InputBindings: []gestalt.WorkflowOutputBinding{
-			{
-				InputField: "session_id",
-				Value: &gestalt.WorkflowOutputValueSource{
-					AgentSession: "id",
-				},
-			},
-			{
-				InputField: "reply_ref",
-				Value: &gestalt.WorkflowOutputValueSource{
-					SignalPayload: "reply_ref",
-				},
-			},
-		},
-	}
-}
-
-func workflowAgentTargetFromMessage(agent *gestalt.BoundWorkflowAgentTarget) *gestalt.BoundWorkflowTarget {
-	return &gestalt.BoundWorkflowTarget{
-		Agent: agent,
-	}
 }
 
 func workflowSignal(t *testing.T, id, idempotencyKey, text string) *gestalt.WorkflowSignal {

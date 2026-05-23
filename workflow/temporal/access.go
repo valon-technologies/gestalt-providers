@@ -22,7 +22,7 @@ func validateExecutionReferenceInput(ref *gestalt.WorkflowExecutionReference) (*
 	out.DisplayName = strings.TrimSpace(out.DisplayName)
 	out.AuthSource = strings.TrimSpace(out.AuthSource)
 	out.CredentialSubjectID = strings.TrimSpace(out.CredentialSubjectID)
-	out.CallerPluginName = strings.TrimSpace(out.CallerPluginName)
+	out.CallerAppName = strings.TrimSpace(out.CallerAppName)
 	target, err := normalizeTarget(out.Target)
 	if err != nil {
 		return nil, err
@@ -73,7 +73,7 @@ func eventExecutionReferencePermissions(trigger *gestalt.BoundWorkflowEventTrigg
 	if !isConfigManagedActorInput(trigger.CreatedBy) {
 		return permissions, nil
 	}
-	extra, err := configuredEventRunPermissions(pluginTargetInput(trigger.Target))
+	extra, err := configuredEventRunPermissions(appTargetInput(trigger.Target))
 	if err != nil {
 		return nil, err
 	}
@@ -84,42 +84,19 @@ func executionReferencePermissionsForTarget(target *gestalt.BoundWorkflowTarget)
 	if target == nil {
 		return nil
 	}
-	if agent := target.Agent; agent != nil {
-		set := map[string]map[string]struct{}{}
-		for _, tool := range agent.ToolRefs {
-			addPermission(set, strings.TrimSpace(tool.Plugin), strings.TrimSpace(tool.Operation))
+	set := map[string]map[string]struct{}{}
+	for _, step := range target.Steps {
+		if step.App != nil {
+			addPermission(set, strings.TrimSpace(step.App.Name), strings.TrimSpace(step.App.Operation))
 		}
-		if delivery := agent.OutputDelivery; delivery != nil {
-			addDeliveryPermission(set, delivery)
+		if step.Agent == nil {
+			continue
 		}
-		if delivery := agent.SessionReadyDelivery; delivery != nil {
-			addDeliveryPermission(set, delivery)
+		for _, tool := range step.Agent.Tools {
+			addPermission(set, strings.TrimSpace(tool.App), strings.TrimSpace(tool.Operation))
 		}
-		return permissionsFromSet(set)
 	}
-	if plugin := target.Plugin; plugin != nil {
-		pluginName := strings.TrimSpace(plugin.PluginName)
-		if pluginName == "" {
-			return nil
-		}
-		permission := gestalt.WorkflowAccessPermission{Plugin: pluginName}
-		if op := strings.TrimSpace(plugin.Operation); op != "" {
-			permission.Operations = []string{op}
-		}
-		return []gestalt.WorkflowAccessPermission{permission}
-	}
-	return nil
-}
-
-func addDeliveryPermission(set map[string]map[string]struct{}, delivery *gestalt.WorkflowOutputDelivery) {
-	if delivery == nil {
-		return
-	}
-	deliveryTarget := delivery.Target
-	if deliveryTarget == nil {
-		return
-	}
-	addPermission(set, strings.TrimSpace(deliveryTarget.PluginName), strings.TrimSpace(deliveryTarget.Operation))
+	return permissionsFromSet(set)
 }
 
 func configuredEventRunPermissions(input map[string]any) ([]gestalt.WorkflowAccessPermission, error) {
@@ -145,9 +122,12 @@ func configuredEventRunPermissions(input map[string]any) ([]gestalt.WorkflowAcce
 		if !ok {
 			return nil, fmt.Errorf("%s.%s[%d] must be an object", gestaltInputKey, eventRunPermissionsKey, i)
 		}
-		pluginName := strings.TrimSpace(stringAny(value["plugin"]))
-		if pluginName == "" {
-			return nil, fmt.Errorf("%s.%s[%d].plugin is required", gestaltInputKey, eventRunPermissionsKey, i)
+		appName := strings.TrimSpace(stringAny(value["app"]))
+		if appName == "" {
+			appName = strings.TrimSpace(stringAny(value["plugin"]))
+		}
+		if appName == "" {
+			return nil, fmt.Errorf("%s.%s[%d].app is required", gestaltInputKey, eventRunPermissionsKey, i)
 		}
 		opsRaw, ok := value["operations"].([]any)
 		if !ok || len(opsRaw) == 0 {
@@ -163,19 +143,33 @@ func configuredEventRunPermissions(input map[string]any) ([]gestalt.WorkflowAcce
 		if len(ops) == 0 {
 			return nil, fmt.Errorf("%s.%s[%d].operations is required", gestaltInputKey, eventRunPermissionsKey, i)
 		}
-		out = append(out, gestalt.WorkflowAccessPermission{Plugin: pluginName, Operations: ops})
+		out = append(out, gestalt.WorkflowAccessPermission{App: appName, Operations: ops})
 	}
 	return out, nil
 }
 
-func pluginTargetInput(target *gestalt.BoundWorkflowTarget) map[string]any {
-	if target == nil || target.Plugin == nil || target.Plugin.Input == nil {
+func appTargetInput(target *gestalt.BoundWorkflowTarget) map[string]any {
+	app := firstWorkflowAppStep(target)
+	if app == nil {
 		return nil
 	}
-	if value, ok := target.Plugin.Input.(map[string]any); ok {
-		return value
+	return workflowValueToMap(app.Input)
+}
+
+func workflowValueToMap(value gestalt.WorkflowValue) map[string]any {
+	switch {
+	case value.Object != nil:
+		out := make(map[string]any, len(value.Object))
+		for key, nested := range value.Object {
+			out[key] = workflowValueToAny(nested)
+		}
+		return out
+	case value.LiteralSet:
+		if m, ok := value.Literal.(map[string]any); ok {
+			return m
+		}
 	}
-	raw, err := json.Marshal(target.Plugin.Input)
+	raw, err := json.Marshal(value)
 	if err != nil {
 		return nil
 	}
@@ -184,6 +178,27 @@ func pluginTargetInput(target *gestalt.BoundWorkflowTarget) map[string]any {
 		return nil
 	}
 	return out
+}
+
+func workflowValueToAny(value gestalt.WorkflowValue) any {
+	switch {
+	case value.LiteralSet:
+		return value.Literal
+	case value.Object != nil:
+		out := make(map[string]any, len(value.Object))
+		for key, nested := range value.Object {
+			out[key] = workflowValueToAny(nested)
+		}
+		return out
+	case value.Array != nil:
+		out := make([]any, 0, len(value.Array))
+		for _, nested := range value.Array {
+			out = append(out, workflowValueToAny(nested))
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func stringAny(value any) string {
@@ -196,26 +211,26 @@ func mergeAccessPermissions(groups ...[]gestalt.WorkflowAccessPermission) []gest
 	for _, group := range groups {
 		for _, permission := range group {
 			for _, op := range permission.Operations {
-				addPermission(set, permission.Plugin, op)
+				addPermission(set, permission.App, op)
 			}
 			if len(permission.Operations) == 0 {
-				addPermission(set, permission.Plugin, "")
+				addPermission(set, permission.App, "")
 			}
 		}
 	}
 	return permissionsFromSet(set)
 }
 
-func addPermission(set map[string]map[string]struct{}, pluginName, operation string) {
-	pluginName = strings.TrimSpace(pluginName)
+func addPermission(set map[string]map[string]struct{}, appName, operation string) {
+	appName = strings.TrimSpace(appName)
 	operation = strings.TrimSpace(operation)
-	if pluginName == "" {
+	if appName == "" {
 		return
 	}
-	ops := set[pluginName]
+	ops := set[appName]
 	if ops == nil {
 		ops = map[string]struct{}{}
-		set[pluginName] = ops
+		set[appName] = ops
 	}
 	if operation != "" {
 		ops[operation] = struct{}{}
@@ -223,19 +238,19 @@ func addPermission(set map[string]map[string]struct{}, pluginName, operation str
 }
 
 func permissionsFromSet(set map[string]map[string]struct{}) []gestalt.WorkflowAccessPermission {
-	plugins := make([]string, 0, len(set))
-	for plugin := range set {
-		plugins = append(plugins, plugin)
+	apps := make([]string, 0, len(set))
+	for app := range set {
+		apps = append(apps, app)
 	}
-	sort.Strings(plugins)
-	out := make([]gestalt.WorkflowAccessPermission, 0, len(plugins))
-	for _, plugin := range plugins {
-		ops := make([]string, 0, len(set[plugin]))
-		for op := range set[plugin] {
+	sort.Strings(apps)
+	out := make([]gestalt.WorkflowAccessPermission, 0, len(apps))
+	for _, app := range apps {
+		ops := make([]string, 0, len(set[app]))
+		for op := range set[app] {
 			ops = append(ops, op)
 		}
 		sort.Strings(ops)
-		out = append(out, gestalt.WorkflowAccessPermission{Plugin: plugin, Operations: ops})
+		out = append(out, gestalt.WorkflowAccessPermission{App: app, Operations: ops})
 	}
 	return out
 }
@@ -247,7 +262,7 @@ func clonePermissionInputs(in []gestalt.WorkflowAccessPermission) []gestalt.Work
 	out := make([]gestalt.WorkflowAccessPermission, 0, len(in))
 	for _, permission := range in {
 		out = append(out, gestalt.WorkflowAccessPermission{
-			Plugin:     strings.TrimSpace(permission.Plugin),
+			App:        strings.TrimSpace(permission.App),
 			Operations: append([]string(nil), permission.Operations...),
 		})
 	}
