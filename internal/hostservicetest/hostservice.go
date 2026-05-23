@@ -2,8 +2,8 @@ package hostservicetest
 
 import (
 	"context"
+	"net"
 	"os"
-	"runtime"
 	"testing"
 	"time"
 
@@ -16,7 +16,7 @@ import (
 func Start(t *testing.T, register func(*grpc.Server)) {
 	t.Helper()
 
-	socketPath := SocketPath(t, "host-service.sock")
+	socketPath := socketPath(t)
 	t.Setenv(gestalt.EnvHostServiceSocket, "unix://"+socketPath)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -24,19 +24,18 @@ func Start(t *testing.T, register func(*grpc.Server)) {
 	go func() {
 		errCh <- gestalt.ServeHostServiceGRPC(ctx, socketPath, register)
 	}()
-	runtime.Gosched()
 
-	if !waitForSocket(socketPath, 2*time.Second) {
+	if !waitForDial(socketPath, 2*time.Second) {
 		select {
 		case err := <-errCh:
-			t.Fatalf("host service socket %q was not created; serve exited: %v", socketPath, err)
+			t.Fatalf("host service socket %q did not accept connections; serve exited: %v", socketPath, err)
 		default:
 			cancel()
 			select {
 			case err := <-errCh:
-				t.Fatalf("host service socket %q was not created; serve stopped after cancel: %v", socketPath, err)
+				t.Fatalf("host service socket %q did not accept connections; serve stopped after cancel: %v", socketPath, err)
 			case <-time.After(2 * time.Second):
-				t.Fatalf("host service socket %q was not created; serve did not exit", socketPath)
+				t.Fatalf("host service socket %q did not accept connections; serve did not exit", socketPath)
 			}
 		}
 	}
@@ -44,6 +43,14 @@ func Start(t *testing.T, register func(*grpc.Server)) {
 		cancel()
 		WaitServeResult(t, errCh)
 		_ = os.Remove(socketPath)
+	})
+}
+
+// StartS3 registers a single S3 host service for the test.
+func StartS3(t *testing.T, provider gestalt.S3Provider) {
+	t.Helper()
+	Start(t, func(srv *grpc.Server) {
+		gestalt.RegisterS3HostService(srv, provider)
 	})
 }
 
@@ -55,9 +62,9 @@ func StartIndexedDB(t *testing.T, provider gestalt.IndexedDBProvider) {
 	})
 }
 
-// SocketPath returns a unix socket path with a short absolute path so tests
-// stay within platform sun_path limits on macOS.
-func SocketPath(t *testing.T, name string) string {
+// socketPath returns a unix socket path with a short absolute path so tests stay
+// within platform sun_path limits on macOS.
+func socketPath(t *testing.T) string {
 	t.Helper()
 
 	f, err := os.CreateTemp("", "ghs-*.sock")
@@ -75,18 +82,12 @@ func SocketPath(t *testing.T, name string) string {
 	return socketPath
 }
 
-// WaitForSocket blocks until socketPath exists or the test times out.
-func WaitForSocket(t *testing.T, socketPath string) {
-	t.Helper()
-	if !waitForSocket(socketPath, 2*time.Second) {
-		t.Fatalf("socket %q was not created", socketPath)
-	}
-}
-
-func waitForSocket(socketPath string, timeout time.Duration) bool {
+func waitForDial(socketPath string, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for {
-		if _, err := os.Stat(socketPath); err == nil {
+		conn, err := net.DialTimeout("unix", socketPath, 25*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
 			return true
 		}
 		if time.Now().After(deadline) {

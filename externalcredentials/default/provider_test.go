@@ -21,6 +21,7 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -47,7 +48,6 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 	if meta.Name != "default" {
 		t.Fatalf("name = %q, want %q", meta.Name, "default")
 	}
-
 
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
@@ -216,7 +216,6 @@ func TestExternalCredentialProviderManualTokenExchange(t *testing.T) {
 	}))
 	defer tokenServer.Close()
 
-
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
 		t.Fatalf("ExternalCredentials: %v", err)
@@ -263,7 +262,6 @@ func TestExternalCredentialProviderRejectsPlatformCredentialMode(t *testing.T) {
 	configureProvider(t, provider, map[string]any{
 		"encryptionKey": "provider-platform-mode-unsupported-key",
 	})
-
 
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
@@ -331,7 +329,6 @@ func TestExternalCredentialProviderResolveRefreshesStoredManualCredential(t *tes
 		_, _ = w.Write([]byte(`{"access_token":"refreshed-access-token","expires_in":1800}`))
 	}))
 	defer tokenServer.Close()
-
 
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
@@ -432,7 +429,6 @@ func TestExternalCredentialProviderResolveInvalidGrantDeletesStoredCredential(t 
 			}))
 			defer tokenServer.Close()
 
-
 			client, err := gestalt.ExternalCredentials()
 			if err != nil {
 				t.Fatalf("ExternalCredentials: %v", err)
@@ -512,7 +508,6 @@ func TestExternalCredentialProviderResolveTransientRefreshFailureRetainsStoredCr
 			}))
 			defer tokenServer.Close()
 
-
 			client, err := gestalt.ExternalCredentials()
 			if err != nil {
 				t.Fatalf("ExternalCredentials: %v", err)
@@ -580,7 +575,6 @@ func TestExternalCredentialProviderCredentialMaintenanceRefreshesDueTargets(t *t
 	provider := New()
 	startTestHostService(t, provider, testHostServiceOptions{seedStore: true})
 
-
 	var refreshCalls int
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		refreshCalls++
@@ -602,7 +596,6 @@ func TestExternalCredentialProviderCredentialMaintenanceRefreshesDueTargets(t *t
 	defer tokenServer.Close()
 
 	configureProvider(t, provider, credentialRefreshProviderConfig("maintenance-refresh-key", tokenServer.URL))
-
 
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
@@ -902,7 +895,6 @@ func TestExternalCredentialProviderCredentialMaintenancePreservesTransientFailur
 	provider := New()
 	startTestHostService(t, provider, testHostServiceOptions{seedStore: true})
 
-
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -937,7 +929,6 @@ func TestExternalCredentialProviderCredentialMaintenancePreservesTransientFailur
 func TestExternalCredentialProviderCredentialMaintenanceDeletesInvalidGrant(t *testing.T) {
 	provider := New()
 	startTestHostService(t, provider, testHostServiceOptions{seedStore: true})
-
 
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1059,7 +1050,6 @@ func TestExternalCredentialProviderTokenEndpointErrorsAreSanitized(t *testing.T)
 			}))
 			defer tokenServer.Close()
 
-
 			client, err := gestalt.ExternalCredentials()
 			if err != nil {
 				t.Fatalf("ExternalCredentials: %v", err)
@@ -1099,7 +1089,6 @@ func TestExternalCredentialProviderRestorePreservesTimestamps(t *testing.T) {
 	configureProvider(t, provider, map[string]any{
 		"encryptionKey": "provider-restore-key",
 	})
-
 
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
@@ -1170,7 +1159,6 @@ func TestExternalCredentialProviderReadsExistingCiphertextFormat(t *testing.T) {
 		t.Fatalf("Put(seed raw record): %v", err)
 	}
 
-
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
 		t.Fatalf("ExternalCredentials: %v", err)
@@ -1202,7 +1190,6 @@ func TestExternalCredentialProviderValidation(t *testing.T) {
 		"encryptionKey": "provider-validation-key",
 	})
 
-
 	client, err := gestalt.ExternalCredentials()
 	if err != nil {
 		t.Fatalf("ExternalCredentials: %v", err)
@@ -1218,7 +1205,14 @@ func TestExternalCredentialProviderValidation(t *testing.T) {
 
 func TestExternalCredentialProviderUsesNamedIndexedDBBinding(t *testing.T) {
 	provider := New()
-	startTestHostService(t, provider, testHostServiceOptions{seedStore: true})
+	defaultStore := newTestIndexedDBStore(t, "default.sqlite", true)
+	archiveStore := newTestIndexedDBStore(t, "archive.sqlite", true)
+	startTestHostServiceWithIndexedDB(t, provider, &bindingIndexedDBProvider{
+		defaultProvider: defaultStore,
+		bindings: map[string]*relationaldb.Provider{
+			"archive": archiveStore,
+		},
+	})
 	configureProvider(t, provider, map[string]any{
 		"encryptionKey": "provider-named-indexeddb-key",
 		"indexeddb":     "archive",
@@ -1255,6 +1249,15 @@ func TestExternalCredentialProviderUsesNamedIndexedDBBinding(t *testing.T) {
 	if got, _ := raw["access_token_encrypted"].(string); got == "" {
 		t.Fatalf("named indexeddb access_token_encrypted = %q, want ciphertext", got)
 	}
+
+	defaultDB, err := gestalt.IndexedDB()
+	if err != nil {
+		t.Fatalf("IndexedDB(default): %v", err)
+	}
+	defer func() { _ = defaultDB.Close() }()
+	if _, err := defaultDB.ObjectStore(storeName).Get(context.Background(), created.GetId()); !errors.Is(err, gestalt.ErrNotFound) {
+		t.Fatalf("default indexeddb Get error = %v, want %v", err, gestalt.ErrNotFound)
+	}
 }
 
 func startTestHostService(t *testing.T, provider *Provider, opts testHostServiceOptions) {
@@ -1264,16 +1267,12 @@ func startTestHostService(t *testing.T, provider *Provider, opts testHostService
 	if sqliteName == "" {
 		sqliteName = "external_credentials.sqlite"
 	}
+	store := newTestIndexedDBStore(t, sqliteName, opts.seedStore)
+	startTestHostServiceWithIndexedDB(t, provider, store)
+}
 
-	store := relationaldb.New()
-	if err := store.Configure(context.Background(), "external_credentials_state", map[string]any{
-		"dsn": "file:" + filepath.Join(t.TempDir(), sqliteName) + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)",
-	}); err != nil {
-		t.Fatalf("relationaldb.Configure: %v", err)
-	}
-	if opts.seedStore {
-		seedExternalCredentialStore(t, store)
-	}
+func startTestHostServiceWithIndexedDB(t *testing.T, provider *Provider, store gestalt.IndexedDBProvider) {
+	t.Helper()
 
 	hostservicetest.Start(t, func(srv *grpc.Server) {
 		gestalt.RegisterIndexedDBHostService(srv, store)
@@ -1281,6 +1280,214 @@ func startTestHostService(t *testing.T, provider *Provider, opts testHostService
 			gestalt.RegisterExternalCredentialHostService(srv, provider)
 		}
 	})
+}
+
+func newTestIndexedDBStore(t *testing.T, sqliteName string, seedStore bool) *relationaldb.Provider {
+	t.Helper()
+	store := relationaldb.New()
+	if err := store.Configure(context.Background(), "external_credentials_state", map[string]any{
+		"dsn": "file:" + filepath.Join(t.TempDir(), sqliteName) + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)",
+	}); err != nil {
+		t.Fatalf("relationaldb.Configure: %v", err)
+	}
+	if seedStore {
+		seedExternalCredentialStore(t, store)
+	}
+	return store
+}
+
+type bindingIndexedDBProvider struct {
+	defaultProvider *relationaldb.Provider
+	bindings        map[string]*relationaldb.Provider
+}
+
+func (p *bindingIndexedDBProvider) Configure(context.Context, string, map[string]any) error {
+	return nil
+}
+
+func (p *bindingIndexedDBProvider) provider(ctx context.Context) (gestalt.IndexedDBProvider, error) {
+	binding := indexedDBBinding(ctx)
+	if binding == "" {
+		return p.defaultProvider, nil
+	}
+	provider := p.bindings[binding]
+	if provider == nil {
+		return nil, status.Errorf(codes.NotFound, "indexeddb binding %q not found", binding)
+	}
+	return provider, nil
+}
+
+func indexedDBBinding(ctx context.Context) string {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return ""
+	}
+	for _, value := range md.Get(gestalt.HostServiceBindingMetadata) {
+		if binding := strings.TrimSpace(value); binding != "" {
+			return binding
+		}
+	}
+	return ""
+}
+
+func (p *bindingIndexedDBProvider) CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreSchema) error {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return err
+	}
+	return provider.CreateObjectStore(ctx, name, schema)
+}
+
+func (p *bindingIndexedDBProvider) DeleteObjectStore(ctx context.Context, name string) error {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return err
+	}
+	return provider.DeleteObjectStore(ctx, name)
+}
+
+func (p *bindingIndexedDBProvider) Get(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (gestalt.Record, error) {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return provider.Get(ctx, req)
+}
+
+func (p *bindingIndexedDBProvider) GetKey(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) (string, error) {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return "", err
+	}
+	return provider.GetKey(ctx, req)
+}
+
+func (p *bindingIndexedDBProvider) Add(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return err
+	}
+	return provider.Add(ctx, req)
+}
+
+func (p *bindingIndexedDBProvider) Put(ctx context.Context, req gestalt.IndexedDBRecordRequest) error {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return err
+	}
+	return provider.Put(ctx, req)
+}
+
+func (p *bindingIndexedDBProvider) Delete(ctx context.Context, req gestalt.IndexedDBObjectStoreRequest) error {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return err
+	}
+	return provider.Delete(ctx, req)
+}
+
+func (p *bindingIndexedDBProvider) Clear(ctx context.Context, store string) error {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return err
+	}
+	return provider.Clear(ctx, store)
+}
+
+func (p *bindingIndexedDBProvider) GetAll(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]gestalt.Record, error) {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return provider.GetAll(ctx, req)
+}
+
+func (p *bindingIndexedDBProvider) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]string, error) {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return provider.GetAllKeys(ctx, req)
+}
+
+func (p *bindingIndexedDBProvider) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return provider.Count(ctx, req)
+}
+
+func (p *bindingIndexedDBProvider) DeleteRange(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return provider.DeleteRange(ctx, req)
+}
+
+func (p *bindingIndexedDBProvider) IndexGet(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (gestalt.Record, error) {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return provider.IndexGet(ctx, req)
+}
+
+func (p *bindingIndexedDBProvider) IndexGetKey(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (string, error) {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return "", err
+	}
+	return provider.IndexGetKey(ctx, req)
+}
+
+func (p *bindingIndexedDBProvider) IndexGetAll(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]gestalt.Record, error) {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return provider.IndexGetAll(ctx, req)
+}
+
+func (p *bindingIndexedDBProvider) IndexGetAllKeys(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]string, error) {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return provider.IndexGetAllKeys(ctx, req)
+}
+
+func (p *bindingIndexedDBProvider) IndexCount(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (int64, error) {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return provider.IndexCount(ctx, req)
+}
+
+func (p *bindingIndexedDBProvider) IndexDelete(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) (int64, error) {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return provider.IndexDelete(ctx, req)
+}
+
+func (p *bindingIndexedDBProvider) OpenCursor(ctx context.Context, req gestalt.IndexedDBOpenCursorRequest) (gestalt.IndexedDBCursor, error) {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return provider.OpenCursor(ctx, req)
+}
+
+func (p *bindingIndexedDBProvider) BeginTransaction(ctx context.Context, req gestalt.IndexedDBBeginTransactionRequest) (gestalt.IndexedDBTransaction, error) {
+	provider, err := p.provider(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return provider.BeginTransaction(ctx, req)
 }
 
 func seedExternalCredentialStore(t *testing.T, store *relationaldb.Provider) {

@@ -2,7 +2,6 @@
 
 import argparse
 import hashlib
-import json
 import os
 import pathlib
 import re
@@ -13,16 +12,6 @@ import tempfile
 
 
 FULL_SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
-METADATA_FIELDS = ("schema", "schemaVersion", "package", "kind", "version", "runtime")
-GENERIC_TARGET = "generic"
-PLATFORM_ORDER = {
-    "darwin/amd64": 0,
-    "darwin/arm64": 1,
-    "linux/amd64": 2,
-    "linux/arm64": 3,
-    "linux/arm": 4,
-    GENERIC_TARGET: 100,
-}
 
 
 def parse_args() -> argparse.Namespace:
@@ -74,25 +63,15 @@ def normalize_scalar(value: str) -> str:
 
 
 def metadata_version(path: pathlib.Path) -> str:
-    version = metadata_fields(path).get("version", "")
+    version = ""
+    with path.open("r", encoding="utf-8") as handle:
+        for raw in handle:
+            if raw.startswith("version:"):
+                version = normalize_scalar(raw.split(":", 1)[1])
+                break
     if not version:
         raise SystemExit(f"{path} is missing version")
     return version
-
-
-def metadata_fields(path: pathlib.Path) -> dict[str, str]:
-    fields: dict[str, str] = {}
-    with path.open("r", encoding="utf-8") as handle:
-        for raw in handle:
-            line = raw.rstrip("\n")
-            if line == "artifacts:":
-                break
-            if not line or line.startswith(" ") or ":" not in line:
-                continue
-            key, value = line.split(":", 1)
-            if key in METADATA_FIELDS:
-                fields[key] = normalize_scalar(value)
-    return fields
 
 
 def metadata_artifacts(path: pathlib.Path) -> dict[str, dict[str, str]]:
@@ -124,54 +103,6 @@ def metadata_artifacts(path: pathlib.Path) -> dict[str, dict[str, str]]:
         if missing:
             raise SystemExit(f"{path} artifact {target!r} is missing {', '.join(missing)}")
     return artifacts
-
-
-def sorted_targets(targets: list[str] | set[str]) -> list[str]:
-    return sorted(
-        targets,
-        key=lambda target: (PLATFORM_ORDER.get(target, 50), target),
-    )
-
-
-def render_metadata(fields: dict[str, str], artifacts: dict[str, dict[str, str]]) -> str:
-    missing = [field for field in METADATA_FIELDS if not fields.get(field)]
-    if missing:
-        raise SystemExit(f"provider-release metadata is missing {', '.join(missing)}")
-    lines = [f"{field}: {fields[field]}" for field in METADATA_FIELDS]
-    lines.append("artifacts:")
-    for target in sorted_targets(set(artifacts)):
-        artifact = artifacts[target]
-        lines.append(f"  {target}:")
-        lines.append(f"    path: {artifact['path']}")
-        lines.append(f"    sha256: {artifact['sha256']}")
-    return "\n".join(lines) + "\n"
-
-
-def merge_metadata(existing: pathlib.Path, local: pathlib.Path) -> str:
-    existing_fields = metadata_fields(existing)
-    local_fields = metadata_fields(local)
-    mismatched_fields = [
-        field
-        for field in METADATA_FIELDS
-        if existing_fields.get(field) != local_fields.get(field)
-    ]
-    if mismatched_fields:
-        details = ", ".join(
-            f"{field}={existing_fields.get(field)!r} != {local_fields.get(field)!r}"
-            for field in mismatched_fields
-        )
-        raise SystemExit(f"existing metadata is for a different release: {details}")
-
-    merged = metadata_artifacts(existing)
-    for target, artifact in metadata_artifacts(local).items():
-        current = merged.get(target)
-        if current is not None and current != artifact:
-            raise SystemExit(
-                f"existing metadata artifact {target!r} differs: "
-                f"{current['path']} {current['sha256']} != {artifact['path']} {artifact['sha256']}"
-            )
-        merged[target] = artifact
-    return render_metadata(local_fields, merged)
 
 
 def archive_manifest_versions(path: pathlib.Path) -> list[str]:
@@ -256,17 +187,12 @@ def run(args: list[str]) -> str:
     return completed.stdout
 
 
-def object_info(dest: str) -> dict[str, object] | None:
-    try:
-        return json.loads(
-            run(["gcloud", "storage", "objects", "describe", dest, "--format=json"])
-        )
-    except RuntimeError:
-        return None
-
-
 def object_exists(dest: str) -> bool:
-    return object_info(dest) is not None
+    try:
+        run(["gcloud", "storage", "objects", "describe", dest, "--format=json"])
+        return True
+    except RuntimeError:
+        return False
 
 
 def object_bytes(dest: str) -> bytes:
@@ -299,42 +225,6 @@ def upload_write_once(local: pathlib.Path, dest: str, provider_ref: str, gestalt
     print(f"uploaded {dest}")
 
 
-def upload_metadata(
-    local: pathlib.Path,
-    dest: str,
-    provider_ref: str,
-    gestalt_ref: str,
-    dry_run: bool,
-    existing_info: dict[str, object] | None = None,
-) -> None:
-    digest = sha256_file(local)
-    if dry_run:
-        print(f"dry-run upload metadata {local} -> {dest} sha256={digest}")
-        return
-    existing_info = existing_info or object_info(dest)
-    if existing_info is None:
-        upload_write_once(local, dest, provider_ref, gestalt_ref, dry_run)
-        return
-    if object_bytes(dest) == local.read_bytes():
-        print(f"exists byte-identical {dest}")
-        return
-
-    generation = str(existing_info.get("generation") or "")
-    if not generation:
-        raise SystemExit(f"{dest} exists but generation is unavailable")
-    metadata = f"provider-ref={provider_ref},gestalt-ref={gestalt_ref},sha256={digest}"
-    run([
-        "gcloud",
-        "storage",
-        "cp",
-        f"--if-generation-match={generation}",
-        f"--custom-metadata={metadata}",
-        str(local),
-        dest,
-    ])
-    print(f"updated {dest}")
-
-
 def main() -> int:
     args = parse_args()
     provider_ref = validate_ref("--provider-ref", args.provider_ref)
@@ -353,34 +243,13 @@ def main() -> int:
             gestalt_ref,
             args.dry_run,
         )
-
-    metadata_dest = gcs_destination(
-        args.gcs_root, args.repository, provider_ref, provider_dir, "provider-release.yaml"
+    upload_write_once(
+        metadata,
+        gcs_destination(args.gcs_root, args.repository, provider_ref, provider_dir, "provider-release.yaml"),
+        provider_ref,
+        gestalt_ref,
+        args.dry_run,
     )
-    if args.dry_run:
-        upload_metadata(metadata, metadata_dest, provider_ref, gestalt_ref, args.dry_run)
-        return 0
-
-    existing_info = object_info(metadata_dest)
-    if existing_info is None:
-        upload_metadata(
-            metadata, metadata_dest, provider_ref, gestalt_ref, args.dry_run, existing_info
-        )
-        return 0
-
-    with tempfile.TemporaryDirectory() as tmp:
-        existing_metadata = pathlib.Path(tmp) / "existing-provider-release.yaml"
-        merged_metadata = pathlib.Path(tmp) / "provider-release.yaml"
-        existing_metadata.write_bytes(object_bytes(metadata_dest))
-        merged_metadata.write_text(merge_metadata(existing_metadata, metadata), encoding="utf-8")
-        upload_metadata(
-            merged_metadata,
-            metadata_dest,
-            provider_ref,
-            gestalt_ref,
-            args.dry_run,
-            existing_info,
-        )
     return 0
 
 
