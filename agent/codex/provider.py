@@ -498,7 +498,7 @@ def _validate_tool_refs(tool_refs: list[Any]) -> None:
     if not tool_refs:
         raise gestalt.Error(400, "tool_refs are required for mcp_catalog turns")
     for index, ref in enumerate(tool_refs, start=1):
-        plugin = _text(getattr(ref, "plugin", ""))
+        plugin = _text(getattr(ref, "app", "") or getattr(ref, "plugin", ""))
         system = _text(getattr(ref, "system", ""))
         operation = _text(getattr(ref, "operation", ""))
         connection = _text(getattr(ref, "connection", ""))

@@ -63,7 +63,7 @@ type tunnel interface {
 
 type startRuntimeSessionRequest struct {
 	Name             string
-	PluginName       string
+	AppName       string
 	Namespace        string
 	Template         string
 	Image            string
@@ -73,7 +73,7 @@ type startRuntimeSessionRequest struct {
 
 type runtimeSession struct {
 	ID             string
-	PluginName     string
+	AppName     string
 	Template       string
 	Metadata       map[string]string
 	Handle         runtimeHandle
@@ -239,7 +239,7 @@ func (r *kubernetesRuntime) Start(ctx context.Context, req startRuntimeSessionRe
 	if err != nil {
 		return runtimeSession{}, errors.Join(err, r.cleanupCreatedSession(context.Background(), handle))
 	}
-	return runtimeSessionFromRuntimeObject(req.Name, req.PluginName, req.Template, req.Metadata, pod.Annotations, ready), nil
+	return runtimeSessionFromRuntimeObject(req.Name, req.AppName, req.Template, req.Metadata, pod.Annotations, ready), nil
 }
 
 func (r *kubernetesRuntime) podForSession(ctx context.Context, req startRuntimeSessionRequest) (*corev1.Pod, error) {
@@ -266,7 +266,7 @@ func (r *kubernetesRuntime) podForSession(ctx context.Context, req startRuntimeS
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        req.Name,
 			Namespace:   req.Namespace,
-			Labels:      mergeStringMaps(template.Labels, runtimeLabels(req.PluginName, req.Name)),
+			Labels:      mergeStringMaps(template.Labels, runtimeLabels(req.AppName, req.Name)),
 			Annotations: mergeStringMaps(template.Annotations, runtimeAnnotations(req)),
 		},
 		Spec: *template.Spec.DeepCopy(),
@@ -396,7 +396,7 @@ func (r *kubernetesRuntime) imagePullSecret(req startRuntimeSessionRequest) (*co
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      imagePullSecretName(runtimeHandle{Name: req.Name}),
 			Namespace: req.Namespace,
-			Labels:    runtimeLabels(req.PluginName, req.Name),
+			Labels:    runtimeLabels(req.AppName, req.Name),
 		},
 		Type: corev1.SecretTypeDockerConfigJson,
 		Data: map[string][]byte{corev1.DockerConfigJsonKey: []byte(req.DockerConfigJSON)},
@@ -409,7 +409,7 @@ func (r *kubernetesRuntime) runtimeService(req startRuntimeSessionRequest) *core
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      req.Name,
 			Namespace: req.Namespace,
-			Labels:    runtimeLabels(req.PluginName, req.Name),
+			Labels:    runtimeLabels(req.AppName, req.Name),
 		},
 		Spec: corev1.ServiceSpec{
 			Type:     corev1.ServiceTypeClusterIP,
@@ -925,7 +925,7 @@ func (r *kubernetesRuntime) pluginStartLeaseActive(ctx context.Context, handle r
 	return pluginStartLeaseHeld(lease, time.Now().UTC()), nil
 }
 
-func (r *kubernetesRuntime) MarkPluginStarted(ctx context.Context, handle runtimeHandle, marker, pluginName string) error {
+func (r *kubernetesRuntime) MarkPluginStarted(ctx context.Context, handle runtimeHandle, marker, appName string) error {
 	marker = strings.TrimSpace(marker)
 	if marker == "" {
 		return fmt.Errorf("plugin start marker is required")
@@ -945,8 +945,8 @@ func (r *kubernetesRuntime) MarkPluginStarted(ctx context.Context, handle runtim
 			return errPluginAlreadyStarted
 		}
 		pod.Annotations[pluginStartedAnnotation] = marker
-		if pluginName = strings.TrimSpace(pluginName); pluginName != "" {
-			pod.Annotations[startedPluginAnnotation] = pluginName
+		if appName = strings.TrimSpace(appName); appName != "" {
+			pod.Annotations[startedPluginAnnotation] = appName
 		}
 		_, err = r.core.CoreV1().Pods(handle.Namespace).Update(ctx, pod, metav1.UpdateOptions{})
 		return err
@@ -978,7 +978,7 @@ const (
 	startedPluginAnnotation   = "gestalt.dev/started-plugin"
 )
 
-func runtimeLabels(pluginName, sessionName string) map[string]string {
+func runtimeLabels(appName, sessionName string) map[string]string {
 	out := map[string]string{
 		"app.kubernetes.io/managed-by": "gestalt",
 		"gestalt.dev/runtime":          "kubernetes",
@@ -986,7 +986,7 @@ func runtimeLabels(pluginName, sessionName string) map[string]string {
 	if value := sanitizeLabelValue(sessionName); value != "" {
 		out[runtimeSessionLabel] = value
 	}
-	if value := sanitizeLabelValue(pluginName); value != "" {
+	if value := sanitizeLabelValue(appName); value != "" {
 		out["gestalt.dev/plugin"] = value
 	}
 	return out
@@ -1014,8 +1014,8 @@ func runtimeObjectOwnershipError(kind, namespace, name, sessionID string) error 
 
 func runtimeAnnotations(req startRuntimeSessionRequest) map[string]string {
 	annotations := map[string]string{}
-	if pluginName := strings.TrimSpace(req.PluginName); pluginName != "" {
-		annotations[sessionPluginAnnotation] = pluginName
+	if appName := strings.TrimSpace(req.AppName); appName != "" {
+		annotations[sessionPluginAnnotation] = appName
 	}
 	if template := strings.TrimSpace(req.Template); template != "" {
 		annotations[sessionTemplateAnnotation] = template
@@ -1028,13 +1028,13 @@ func runtimeAnnotations(req startRuntimeSessionRequest) map[string]string {
 	return annotations
 }
 
-func runtimeSessionFromRuntimeObject(id, pluginName, template string, metadata map[string]string, annotations map[string]string, handle runtimeHandle) runtimeSession {
+func runtimeSessionFromRuntimeObject(id, appName, template string, metadata map[string]string, annotations map[string]string, handle runtimeHandle) runtimeSession {
 	if annotations == nil {
 		annotations = map[string]string{}
 	}
 	out := runtimeSession{
 		ID:            strings.TrimSpace(id),
-		PluginName:    strings.TrimSpace(pluginName),
+		AppName:    strings.TrimSpace(appName),
 		Template:      strings.TrimSpace(template),
 		Metadata:      cloneStringMap(metadata),
 		Handle:        handle,
@@ -1043,8 +1043,8 @@ func runtimeSessionFromRuntimeObject(id, pluginName, template string, metadata m
 	if out.Metadata == nil {
 		out.Metadata = map[string]string{}
 	}
-	if out.PluginName == "" {
-		out.PluginName = strings.TrimSpace(annotations[sessionPluginAnnotation])
+	if out.AppName == "" {
+		out.AppName = strings.TrimSpace(annotations[sessionPluginAnnotation])
 	}
 	if out.Template == "" {
 		out.Template = strings.TrimSpace(annotations[sessionTemplateAnnotation])
@@ -1313,8 +1313,8 @@ func sanitizeLabelValue(value string) string {
 	return out
 }
 
-func runtimeResourceName(pluginName, instanceID, sessionID string) string {
-	name := sanitizeDNSLabelValue(pluginName)
+func runtimeResourceName(appName, instanceID, sessionID string) string {
+	name := sanitizeDNSLabelValue(appName)
 	if name == "" {
 		name = "plugin"
 	}

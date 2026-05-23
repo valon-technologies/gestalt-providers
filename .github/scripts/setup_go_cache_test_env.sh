@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-plugin_dir="${1:?plugin directory is required}"
+app_dir="${1:?app directory is required}"
 
 cache_test_containers=()
 
@@ -42,7 +42,7 @@ start_valkey() {
   export GESTALT_TEST_VALKEY_ADDR="127.0.0.1:${port}"
 }
 
-case "$plugin_dir" in
+case "$app_dir" in
   cache/valkey)
     start_valkey
     trap cleanup_go_cache_test_env EXIT

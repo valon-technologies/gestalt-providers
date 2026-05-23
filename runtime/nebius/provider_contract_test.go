@@ -15,7 +15,7 @@ func TestRuntimeProviderContractPassesHostServiceEnv(t *testing.T) {
 	if !isHostServiceEnvVar(hostServiceEnv) {
 		t.Fatalf("%s should be accepted as a relay host service env", hostServiceEnv)
 	}
-	env := buildPluginEnv(gestalt.StartHostedPluginRequest{
+	env := buildPluginEnv(gestalt.StartHostedAppRequest{
 		Env: map[string]string{
 			"CUSTOM":       "value",
 			hostServiceEnv: "tls://host-service-relay.gestalt.example:443",

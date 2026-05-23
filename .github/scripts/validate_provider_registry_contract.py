@@ -308,11 +308,11 @@ def write_base_config(config_path: pathlib.Path, index_path: pathlib.Path) -> No
     config_path.write_text(
         "\n".join(
             [
-                "apiVersion: gestaltd.config/v5",
+                "apiVersion: gestaltd.config/v6",
                 "providerRepositories:",
                 "  local:",
                 f"    url: {file_url(index_path)}",
-                "plugins: {}",
+                "apps: {}",
                 "providers: {}",
                 "runtime:",
                 "  providers: {}",
@@ -328,8 +328,8 @@ def validate_cli(
 ) -> None:
     package_names = sorted(packages)
     search_output = run([gestaltd, "provider", "search", "--repo", "local", "--config", str(config_path)])
-    if SOURCE_PREFIX + "plugins/slack" not in search_output:
-        raise SystemExit("provider search output did not include plugins/slack")
+    if SOURCE_PREFIX + "apps/slack" not in search_output:
+        raise SystemExit("provider search output did not include apps/slack")
     for source in package_names:
         run([gestaltd, "provider", "info", "--repo", "local", "--config", str(config_path), source])
         run(
@@ -350,7 +350,7 @@ def validate_cli(
 def validate_mutations(
     gestaltd: str, config_path: pathlib.Path, packages: dict[str, Any]
 ) -> None:
-    plugin = require_package(packages, "plugins/httpbin")
+    plugin = require_package(packages, "apps/httpbin")
     indexeddb = require_package(packages, "indexeddb/mongodb")
     ui = require_package(packages, "ui/default")
     run(
@@ -363,7 +363,7 @@ def validate_mutations(
             "--config",
             str(config_path),
             "--name",
-            "registry-plugin",
+            "registry-app",
             "--no-lock",
             plugin,
         ]
@@ -406,10 +406,10 @@ def validate_mutations(
     )
     mutated = load_yaml(config_path)
     if (
-        (((mutated.get("plugins") or {}).get("registry-plugin") or {}).get("source") or {}).get("package")
+        (((mutated.get("apps") or {}).get("registry-app") or {}).get("source") or {}).get("package")
         != plugin
     ):
-        raise SystemExit("plugin provider add did not write top-level plugins entry")
+        raise SystemExit("app provider add did not write top-level apps entry")
     if (
         ((((mutated.get("providers") or {}).get("indexeddb") or {}).get("registry-indexeddb") or {}).get("source") or {}).get("package")
         != indexeddb

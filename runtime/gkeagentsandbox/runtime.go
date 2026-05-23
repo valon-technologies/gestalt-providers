@@ -72,7 +72,7 @@ var errStaleRuntimeSession = errors.New("stale gke agent sandbox runtime session
 
 type startSandboxRequest struct {
 	Name       string
-	PluginName string
+	AppName string
 	Namespace  string
 	Template   string
 	Image      string
@@ -81,7 +81,7 @@ type startSandboxRequest struct {
 
 type sandboxSession struct {
 	ID             string
-	PluginName     string
+	AppName     string
 	Template       string
 	Metadata       map[string]string
 	Handle         sandboxHandle
@@ -303,7 +303,7 @@ func (r *kubernetesSandboxRuntime) startClaim(ctx context.Context, req startSand
 		if err != nil {
 			return sandboxSession{}, errors.Join(err, r.cleanupCreatedSandbox(handle))
 		}
-		session := sandboxSessionFromRuntimeObject(attemptReq.Name, attemptReq.PluginName, attemptReq.Template, attemptReq.Metadata, objectMeta.Annotations, ready)
+		session := sandboxSessionFromRuntimeObject(attemptReq.Name, attemptReq.AppName, attemptReq.Template, attemptReq.Metadata, objectMeta.Annotations, ready)
 		if err := r.enrichSessionFromClaim(ctx, &session, claim); err != nil {
 			return sandboxSession{}, errors.Join(err, r.cleanupCreatedSandbox(ready))
 		}
@@ -333,7 +333,7 @@ func (r *kubernetesSandboxRuntime) startDirectSandbox(ctx context.Context, req s
 		return sandboxSession{}, err
 	}
 	objectMeta := runtimeObjectMeta(req)
-	podLabels := runtimeLabels(req.PluginName)
+	podLabels := runtimeLabels(req.AppName)
 	sessionLabel := sanitizeLabelValue(req.Name)
 	if sessionLabel != "" {
 		podLabels[runtimeSessionLabel] = sessionLabel
@@ -367,7 +367,7 @@ func (r *kubernetesSandboxRuntime) startDirectSandbox(ctx context.Context, req s
 	if err != nil {
 		return sandboxSession{}, errors.Join(err, r.cleanupCreatedSandbox(handle))
 	}
-	return sandboxSessionFromRuntimeObject(req.Name, req.PluginName, req.Template, req.Metadata, objectMeta.Annotations, ready), nil
+	return sandboxSessionFromRuntimeObject(req.Name, req.AppName, req.Template, req.Metadata, objectMeta.Annotations, ready), nil
 }
 
 func (r *kubernetesSandboxRuntime) directPodSpec(image string) (corev1.PodSpec, error) {
@@ -1095,7 +1095,7 @@ func (r *kubernetesSandboxRuntime) pluginStartLeaseActive(ctx context.Context, h
 	return pluginStartLeaseHeld(lease, time.Now().UTC()), nil
 }
 
-func (r *kubernetesSandboxRuntime) MarkPluginStarted(ctx context.Context, handle sandboxHandle, marker, pluginName string) error {
+func (r *kubernetesSandboxRuntime) MarkPluginStarted(ctx context.Context, handle sandboxHandle, marker, appName string) error {
 	marker = strings.TrimSpace(marker)
 	if marker == "" {
 		return fmt.Errorf("plugin start marker is required")
@@ -1105,8 +1105,8 @@ func (r *kubernetesSandboxRuntime) MarkPluginStarted(ctx context.Context, handle
 			return errPluginAlreadyStarted
 		}
 		annotations[pluginStartedAnnotation] = marker
-		if pluginName = strings.TrimSpace(pluginName); pluginName != "" {
-			annotations[startedPluginAnnotation] = pluginName
+		if appName = strings.TrimSpace(appName); appName != "" {
+			annotations[startedPluginAnnotation] = appName
 		}
 		return nil
 	})
@@ -1818,25 +1818,25 @@ const (
 	metadataImageMatch           = "runtime.imageMatch"
 )
 
-func runtimeLabels(pluginName string) map[string]string {
+func runtimeLabels(appName string) map[string]string {
 	labels := map[string]string{
 		"app.kubernetes.io/managed-by": "gestalt",
 		"gestalt.dev/runtime":          "gke-agent-sandbox",
 	}
-	if value := sanitizeLabelValue(pluginName); value != "" {
+	if value := sanitizeLabelValue(appName); value != "" {
 		labels["gestalt.dev/plugin"] = value
 	}
 	return labels
 }
 
 func runtimeObjectMeta(req startSandboxRequest) metav1.ObjectMeta {
-	labels := runtimeLabels(req.PluginName)
+	labels := runtimeLabels(req.AppName)
 	if sessionLabel := sanitizeLabelValue(req.Name); sessionLabel != "" {
 		labels[runtimeSessionLabel] = sessionLabel
 	}
 	annotations := map[string]string{}
-	if pluginName := strings.TrimSpace(req.PluginName); pluginName != "" {
-		annotations[sessionPluginAnnotation] = pluginName
+	if appName := strings.TrimSpace(req.AppName); appName != "" {
+		annotations[sessionPluginAnnotation] = appName
 	}
 	if template := strings.TrimSpace(req.Template); template != "" {
 		annotations[sessionTemplateAnnotation] = template
@@ -1859,13 +1859,13 @@ func runtimeObjectMeta(req startSandboxRequest) metav1.ObjectMeta {
 	}
 }
 
-func sandboxSessionFromRuntimeObject(id, pluginName, template string, metadata map[string]string, annotations map[string]string, handle sandboxHandle) sandboxSession {
+func sandboxSessionFromRuntimeObject(id, appName, template string, metadata map[string]string, annotations map[string]string, handle sandboxHandle) sandboxSession {
 	if annotations == nil {
 		annotations = map[string]string{}
 	}
 	out := sandboxSession{
 		ID:            strings.TrimSpace(id),
-		PluginName:    strings.TrimSpace(pluginName),
+		AppName:    strings.TrimSpace(appName),
 		Template:      strings.TrimSpace(template),
 		Metadata:      cloneStringMap(metadata),
 		Handle:        handle,
@@ -1874,8 +1874,8 @@ func sandboxSessionFromRuntimeObject(id, pluginName, template string, metadata m
 	if out.Metadata == nil {
 		out.Metadata = map[string]string{}
 	}
-	if out.PluginName == "" {
-		out.PluginName = strings.TrimSpace(annotations[sessionPluginAnnotation])
+	if out.AppName == "" {
+		out.AppName = strings.TrimSpace(annotations[sessionPluginAnnotation])
 	}
 	if out.Template == "" {
 		out.Template = strings.TrimSpace(annotations[sessionTemplateAnnotation])
@@ -2242,8 +2242,8 @@ func sanitizeLabelValue(value string) string {
 	return out
 }
 
-func sandboxResourceName(pluginName, instanceID, sessionID string) string {
-	name := sanitizeDNSLabelValue(pluginName)
+func sandboxResourceName(appName, instanceID, sessionID string) string {
+	name := sanitizeDNSLabelValue(appName)
 	if name == "" {
 		name = "plugin"
 	}

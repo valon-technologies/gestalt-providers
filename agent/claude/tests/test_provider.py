@@ -26,7 +26,7 @@ import provider as provider_module
 from gestalt import ENV_HOST_SERVICE_SOCKET, ENV_HOST_SERVICE_TOKEN, ProviderKind, _runtime
 from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
-from gestalt._gen.v1 import plugin_pb2 as _plugin_pb2
+from gestalt._gen.v1 import app_pb2 as _app_pb2
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.mcp_bridge import GestaltMCPBridge, _schema_from_json
@@ -36,7 +36,7 @@ from tests.fake_indexeddb import FakeIndexedDB, datastore_pb2_grpc
 agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
 empty_pb2: Any = _empty_pb2
-plugin_pb2: Any = cast(Any, _plugin_pb2)
+app_pb2: Any = cast(Any, _app_pb2)
 runtime_pb2: Any = _runtime_pb2
 runtime_pb2_grpc: Any = _runtime_pb2_grpc
 struct_pb2: Any = _struct_pb2
@@ -101,7 +101,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                         tool.tags.extend(["pr", "prs"])
                         tool.search_text = "github pull request repository owner number"
                 tool.input_schema = '{"type":"object","properties":{"query":{"type":"string"}}}'
-                setattr(tool.ref, "plugin", plugin)
+                setattr(tool.ref, "app", plugin)
                 setattr(tool.ref, "operation", f"operation{index}")
             return response
         if request.page_token == "":
@@ -112,7 +112,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
             tool.description = "List Ashby candidates"
             tool.input_schema = '{"type":"object"}'
             setattr(tool.annotations, "read_only_hint", True)
-            setattr(tool.ref, "plugin", "ashby")
+            setattr(tool.ref, "app", "ashby")
             setattr(tool.ref, "operation", "candidate.list")
             response.next_page_token = "page-2"
         elif request.page_token == "page-2":
@@ -124,7 +124,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 tool.description = "linear credentials expired or refresh failed"
                 tool.input_schema = '{"type":"object","properties":{},"additionalProperties":false}'
                 setattr(tool.annotations, "read_only_hint", True)
-                setattr(tool.ref, "plugin", "linear")
+                setattr(tool.ref, "app", "linear")
                 return response
             tool = response.tools.add()
             tool.id = "tool-linear-issues"
@@ -133,7 +133,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
             tool.description = "Search Linear issues by text"
             tool.input_schema = '{"type":"object","properties":{"query":{"type":"string"}}}'
             setattr(tool.annotations, "read_only_hint", True)
-            setattr(tool.ref, "plugin", "linear")
+            setattr(tool.ref, "app", "linear")
             setattr(tool.ref, "operation", "searchIssues")
             tool = response.tools.add()
             tool.id = "tool-github-pulls"
@@ -145,7 +145,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 tool.tags.extend(["pr", "prs"])
                 tool.search_text = "github pull request repository owner number"
             tool.input_schema = '{"type":"object"}'
-            setattr(tool.ref, "plugin", "github")
+            setattr(tool.ref, "app", "github")
             setattr(tool.ref, "operation", "pulls/list")
         return response
 
@@ -1761,7 +1761,7 @@ class ClaudeProviderTests(unittest.TestCase):
 
         global_ref = _turn_request(turn_id="turn-global-ref", session_id="session-broad-refs")
         del global_ref.tool_refs[:]
-        global_ref.tool_refs.add(plugin="*")
+        global_ref.tool_refs.add(app="*")
         self.assertEqual(provider_client.CreateTurn(global_ref).status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
 
         for turn_id in ("turn-empty-refs", "turn-plugin-only", "turn-global-ref"):
@@ -1804,7 +1804,7 @@ class ClaudeProviderTests(unittest.TestCase):
         for field in ("operation", "connection", "instance", "title", "description"):
             request = _turn_request(turn_id=f"turn-global-ref-{field}", session_id="session-invalid-refs")
             del request.tool_refs[:]
-            ref = request.tool_refs.add(plugin="*")
+            ref = request.tool_refs.add(app="*")
             setattr(ref, field, "value")
             _assert_invalid(provider_client, request, "global search ref cannot include")
 
@@ -2035,10 +2035,10 @@ def _turn_request(
         request.timeout_seconds = timeout_seconds
     if include_tool_refs:
         linear = request.tool_refs.add()
-        linear.plugin = "linear"
+        linear.app = "linear"
         linear.operation = "searchIssues"
         github = request.tool_refs.add()
-        github.plugin = "github"
+        github.app = "github"
         github.operation = "pulls/list"
     if response_schema is not None:
         request.response_schema.CopyFrom(response_schema)
@@ -2063,7 +2063,7 @@ def _create_owned_session(provider_client: Any, session_id: str, **kwargs: Any) 
 def _subject_context(subject_id: str, kind: str = "user") -> Any:
     if kind == "user" and subject_id.startswith("service_account:"):
         kind = "service_account"
-    return plugin_pb2.SubjectContext(id=subject_id, kind=kind)
+    return app_pb2.SubjectContext(id=subject_id, kind=kind)
 
 
 def _sdk_subject(subject_id: str, kind: str = "user") -> Any:

@@ -153,7 +153,7 @@ def merge_artifacts(output_dir: pathlib.Path, version: str) -> dict[str, dict[st
 def release_runtime(kind: str, artifacts: dict[str, dict[str, str]]) -> str:
     if kind == "ui":
         return RUNTIME_UI
-    if kind == "plugin":
+    if kind == "app":
         if any(target != GENERIC_TARGET for target in artifacts):
             return RUNTIME_EXECUTABLE
         return RUNTIME_DECLARATIVE

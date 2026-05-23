@@ -55,7 +55,7 @@ func hostnameEgressStatus(prefix string, err error) error {
 	return status.Errorf(codes.Internal, "%s: %v", prefix, err)
 }
 
-func requiresHostnameEgress(req gestalt.StartHostedPluginRequest, env map[string]string) bool {
+func requiresHostnameEgress(req gestalt.StartHostedAppRequest, env map[string]string) bool {
 	if strings.EqualFold(strings.TrimSpace(req.DefaultAction), "deny") {
 		return true
 	}

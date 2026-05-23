@@ -6,13 +6,13 @@ test.describe("Integrations", () => {
     await authenticate(page);
   });
 
-  test("shows empty state when no integrations configured", async ({
-    page,
-  }) => {
+  test("shows integrations catalog", async ({ page }) => {
     await page.goto("/integrations");
     await expect(
       page.getByRole("heading", { name: "Plugins" }),
     ).toBeVisible();
-    await expect(page.getByText(/no plugins/i)).toBeVisible();
+    await expect(
+      page.getByRole("combobox", { name: "Search plugins" }),
+    ).toBeVisible();
   });
 });

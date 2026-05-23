@@ -232,7 +232,7 @@ type workflowExecutionReferenceRecord struct {
 	PermissionsJSON     string
 	CreatedAt           time.Time
 	RevokedAt           *time.Time
-	CallerPluginName    string
+	CallerAppName       string
 }
 
 type scopedTarget struct {
@@ -1254,7 +1254,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := strings.TrimSpace(req.PluginName)
+	pluginName := strings.TrimSpace(req.AppName)
 	event, err := normalizeWorkflowEvent(req.Event, p.clock())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -2859,12 +2859,16 @@ func workflowRunRecoverablyStaleTx(ctx context.Context, claimStore *gestalt.Tran
 }
 
 func workflowRunExceededAgentDeadline(run workflowRunRecord, now time.Time) bool {
-	if run.StartedAt == nil || run.Target == nil || run.Target.Agent == nil {
+	if run.StartedAt == nil || run.Target == nil {
+		return false
+	}
+	_, step := firstWorkflowAgentStep(run.Target)
+	if step == nil {
 		return false
 	}
 	timeout := defaultAgentRunTimeout
-	if seconds := run.Target.Agent.TimeoutSeconds; seconds > 0 {
-		timeout = time.Duration(seconds) * time.Second
+	if step.TimeoutSeconds > 0 {
+		timeout = time.Duration(step.TimeoutSeconds) * time.Second
 	}
 	return !run.StartedAt.Add(timeout + agentRunStaleGrace).After(now)
 }
@@ -2947,162 +2951,157 @@ func normalizeTarget(target *gestalt.BoundWorkflowTarget) (scopedTarget, error) 
 	if target == nil {
 		return scopedTarget{}, errors.New("target is required")
 	}
-	if target.Agent != nil {
-		agent := *target.Agent
-		agentProvider := strings.TrimSpace(agent.ProviderName)
-		if agentProvider == "" {
-			return scopedTarget{}, errors.New("target.agent.provider_name is required")
-		}
-		agent.ProviderName = agentProvider
-		agent.Model = strings.TrimSpace(agent.Model)
-		agent.Prompt = strings.TrimSpace(agent.Prompt)
-		if agent.Prompt == "" && len(agent.Messages) == 0 {
-			return scopedTarget{}, errors.New("target.agent.prompt or messages is required")
-		}
-		if agent.TimeoutSeconds < 0 {
-			return scopedTarget{}, errors.New("target.agent.timeout_seconds must not be negative")
-		}
-		if err := normalizeAgentOutputDelivery(agent.OutputDelivery); err != nil {
-			return scopedTarget{}, err
-		}
-		if err := normalizeAgentSessionReadyDelivery(agent.SessionReadyDelivery); err != nil {
-			return scopedTarget{}, err
-		}
-		targetInput := &gestalt.BoundWorkflowTarget{Agent: &agent}
-		return scopedTarget{
-			OwnerKey: "agent:" + agentProvider,
-			Target:   cloneTarget(targetInput),
-		}, nil
+	if len(target.Steps) == 0 {
+		return scopedTarget{}, errors.New("target.steps is required")
 	}
-	if target.Plugin == nil {
-		return scopedTarget{}, errors.New("target.plugin.plugin_name is required")
+	steps := append([]gestalt.WorkflowStep(nil), target.Steps...)
+	seen := map[string]struct{}{}
+	ownerKey := ""
+	for i := range steps {
+		step := &steps[i]
+		stepPath := fmt.Sprintf("target.steps[%d]", i)
+		step.ID = strings.TrimSpace(step.ID)
+		if step.ID == "" {
+			return scopedTarget{}, fmt.Errorf("%s.id is required", stepPath)
+		}
+		if _, exists := seen[step.ID]; exists {
+			return scopedTarget{}, fmt.Errorf("%s.id duplicates %q", stepPath, step.ID)
+		}
+		if step.TimeoutSeconds < 0 {
+			return scopedTarget{}, fmt.Errorf("%s.timeout_seconds must not be negative", stepPath)
+		}
+		switch {
+		case step.App != nil && step.Agent != nil:
+			return scopedTarget{}, fmt.Errorf("%s must set exactly one of app or agent", stepPath)
+		case step.App != nil:
+			app, stepOwner, err := normalizeWorkflowStepApp(step.App, stepPath+".app")
+			if err != nil {
+				return scopedTarget{}, err
+			}
+			step.App = app
+			if ownerKey == "" {
+				ownerKey = stepOwner
+			}
+		case step.Agent != nil:
+			agent, stepOwner, err := normalizeWorkflowStepAgent(step.Agent, stepPath+".agent")
+			if err != nil {
+				return scopedTarget{}, err
+			}
+			step.Agent = agent
+			if ownerKey == "" {
+				ownerKey = stepOwner
+			}
+		default:
+			return scopedTarget{}, fmt.Errorf("%s must set app or agent", stepPath)
+		}
+		seen[step.ID] = struct{}{}
 	}
-	plugin := *target.Plugin
-	pluginName := strings.TrimSpace(plugin.PluginName)
-	operation := strings.TrimSpace(plugin.Operation)
-	if pluginName == "" {
-		return scopedTarget{}, errors.New("target.plugin.plugin_name is required")
+	if ownerKey == "" {
+		return scopedTarget{}, errors.New("target owner is required")
 	}
-	if operation == "" {
-		return scopedTarget{}, errors.New("target.plugin.operation is required")
-	}
-	credentialMode := strings.ToLower(strings.TrimSpace(plugin.CredentialMode))
-	switch credentialMode {
-	case "", "none", "user":
-	default:
-		return scopedTarget{}, fmt.Errorf("target.plugin.credential_mode %q is not supported", plugin.CredentialMode)
-	}
-	plugin.PluginName = pluginName
-	plugin.Operation = operation
-	plugin.Connection = strings.TrimSpace(plugin.Connection)
-	plugin.Instance = strings.TrimSpace(plugin.Instance)
-	plugin.CredentialMode = credentialMode
-	targetInput := &gestalt.BoundWorkflowTarget{Plugin: &plugin}
 	return scopedTarget{
-		OwnerKey: pluginName,
-		Target:   cloneTarget(targetInput),
+		OwnerKey: ownerKey,
+		Target:   cloneTarget(&gestalt.BoundWorkflowTarget{Steps: steps}),
 	}, nil
 }
 
+func normalizeWorkflowStepApp(app *gestalt.WorkflowStepAppCall, path string) (*gestalt.WorkflowStepAppCall, string, error) {
+	if app == nil {
+		return nil, "", fmt.Errorf("%s is required", path)
+	}
+	out := *app
+	appName := strings.TrimSpace(out.Name)
+	operation := strings.TrimSpace(out.Operation)
+	if appName == "" {
+		return nil, "", fmt.Errorf("%s.name is required", path)
+	}
+	if operation == "" {
+		return nil, "", fmt.Errorf("%s.operation is required", path)
+	}
+	credentialMode := strings.ToLower(strings.TrimSpace(out.CredentialMode))
+	switch credentialMode {
+	case "", "none", "user":
+	default:
+		return nil, "", fmt.Errorf("%s.credential_mode %q is not supported", path, out.CredentialMode)
+	}
+	out.Name = appName
+	out.Operation = operation
+	out.Connection = strings.TrimSpace(out.Connection)
+	out.Instance = strings.TrimSpace(out.Instance)
+	out.CredentialMode = credentialMode
+	return &out, appName, nil
+}
+
+func normalizeWorkflowStepAgent(agent *gestalt.WorkflowStepAgentTurn, path string) (*gestalt.WorkflowStepAgentTurn, string, error) {
+	if agent == nil {
+		return nil, "", fmt.Errorf("%s is required", path)
+	}
+	out := *agent
+	providerName := strings.TrimSpace(out.Provider)
+	out.Model = strings.TrimSpace(out.Model)
+	out.SessionKey = strings.TrimSpace(out.SessionKey)
+	out.Prompt = gestalt.WorkflowText{Template: strings.TrimSpace(out.Prompt.Template)}
+	if providerName == "" {
+		return nil, "", fmt.Errorf("%s.provider is required", path)
+	}
+	if out.Prompt.Template == "" && len(out.Messages) == 0 {
+		return nil, "", fmt.Errorf("%s.prompt or messages is required", path)
+	}
+	out.Provider = providerName
+	return &out, "agent:" + providerName, nil
+}
+
 func targetOwnerKey(target *gestalt.BoundWorkflowTarget) string {
-	if target == nil {
+	if target == nil || len(target.Steps) == 0 {
 		return ""
 	}
-	if agentTarget := target.Agent; agentTarget != nil {
-		if providerName := strings.TrimSpace(agentTarget.ProviderName); providerName != "" {
-			return "agent:" + providerName
+	for _, step := range target.Steps {
+		if step.App != nil {
+			if appName := strings.TrimSpace(step.App.Name); appName != "" {
+				return appName
+			}
 		}
-		return ""
-	}
-	if pluginTarget := target.Plugin; pluginTarget != nil {
-		return strings.TrimSpace(pluginTarget.PluginName)
+		if step.Agent != nil {
+			if provider := strings.TrimSpace(step.Agent.Provider); provider != "" {
+				return "agent:" + provider
+			}
+		}
 	}
 	return ""
 }
 
-func normalizeAgentOutputDelivery(delivery *gestalt.WorkflowOutputDelivery) error {
-	return normalizeAgentDelivery(delivery, "output_delivery", false)
-}
-
-func normalizeAgentSessionReadyDelivery(delivery *gestalt.WorkflowOutputDelivery) error {
-	return normalizeAgentDelivery(delivery, "session_ready_delivery", true)
-}
-
-func normalizeAgentDelivery(delivery *gestalt.WorkflowOutputDelivery, fieldName string, beforeTurn bool) error {
-	if delivery == nil {
+func firstWorkflowAppStep(target *gestalt.BoundWorkflowTarget) *gestalt.WorkflowStepAppCall {
+	if target == nil {
 		return nil
 	}
-	target := delivery.Target
-	if target == nil {
-		return fmt.Errorf("target.agent.%s.target.plugin_name is required", fieldName)
-	}
-	targetCopy := *target
-	pluginName := strings.TrimSpace(targetCopy.PluginName)
-	operation := strings.TrimSpace(targetCopy.Operation)
-	if pluginName == "" {
-		return fmt.Errorf("target.agent.%s.target.plugin_name is required", fieldName)
-	}
-	if operation == "" {
-		return fmt.Errorf("target.agent.%s.target.operation is required", fieldName)
-	}
-	targetCredentialMode := strings.ToLower(strings.TrimSpace(targetCopy.CredentialMode))
-	if targetCredentialMode != "" {
-		return fmt.Errorf("target.agent.%s.target.credential_mode %q is not supported", fieldName, targetCopy.CredentialMode)
-	}
-	credentialMode := strings.ToLower(strings.TrimSpace(delivery.CredentialMode))
-	switch credentialMode {
-	case "", "none", "user":
-	default:
-		return fmt.Errorf("target.agent.%s.credential_mode %q is not supported", fieldName, delivery.CredentialMode)
-	}
-	targetCopy.PluginName = pluginName
-	targetCopy.Operation = operation
-	targetCopy.Connection = strings.TrimSpace(targetCopy.Connection)
-	targetCopy.Instance = strings.TrimSpace(targetCopy.Instance)
-	targetCopy.CredentialMode = ""
-	delivery.CredentialMode = credentialMode
-	delivery.Target = &targetCopy
-	for i := range delivery.InputBindings {
-		binding := &delivery.InputBindings[i]
-		if binding.Value == nil {
-			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
-		}
-		binding.InputField = strings.TrimSpace(binding.InputField)
-		if binding.InputField == "" {
-			return fmt.Errorf("target.agent.%s.input_bindings.input_field is required", fieldName)
-		}
-		value := binding.Value
-		value.AgentOutput = strings.TrimSpace(value.AgentOutput)
-		value.SignalPayload = strings.TrimSpace(value.SignalPayload)
-		value.SignalMetadata = strings.TrimSpace(value.SignalMetadata)
-		value.AgentSession = strings.TrimSpace(value.AgentSession)
-		selected := 0
-		if value.AgentOutput != "" {
-			selected++
-			if beforeTurn {
-				return fmt.Errorf("target.agent.%s.input_bindings.value.agent_output is not available before the agent turn starts", fieldName)
-			}
-		}
-		if value.SignalPayload != "" {
-			selected++
-		}
-		if value.SignalMetadata != "" {
-			selected++
-		}
-		if value.AgentSession != "" {
-			selected++
-		}
-		if value.Literal != nil {
-			selected++
-		}
-		if selected == 0 {
-			return fmt.Errorf("target.agent.%s.input_bindings.value is required", fieldName)
-		}
-		if selected > 1 {
-			return fmt.Errorf("target.agent.%s.input_bindings.value must set exactly one source", fieldName)
+	for i := range target.Steps {
+		if target.Steps[i].App != nil {
+			return target.Steps[i].App
 		}
 	}
 	return nil
+}
+
+func firstWorkflowAgentStep(target *gestalt.BoundWorkflowTarget) (*gestalt.WorkflowStepAgentTurn, *gestalt.WorkflowStep) {
+	if target == nil {
+		return nil, nil
+	}
+	for i := range target.Steps {
+		if target.Steps[i].Agent != nil {
+			step := target.Steps[i]
+			return step.Agent, &step
+		}
+	}
+	return nil, nil
+}
+
+func targetHasAppStep(target *gestalt.BoundWorkflowTarget) bool {
+	return firstWorkflowAppStep(target) != nil
+}
+
+func targetHasAgentStep(target *gestalt.BoundWorkflowTarget) bool {
+	agent, _ := firstWorkflowAgentStep(target)
+	return agent != nil
 }
 
 func normalizeWorkflowEvent(event *gestalt.WorkflowEvent, now time.Time) (*gestalt.WorkflowEvent, error) {
@@ -3300,11 +3299,11 @@ func sortRunRecordsForDispatch(runs []workflowRunRecord) []workflowRunRecord {
 }
 
 func workflowRunDispatchPriority(run workflowRunRecord) int {
-	if run.TriggerKind == triggerKindEvent && run.Target != nil && run.Target.Plugin != nil {
+	if run.TriggerKind == triggerKindEvent && run.Target != nil && targetHasAppStep(run.Target) {
 		return 0
 	}
 	// Agent metadata may opt runs into a custom dispatch tier via
-	// _gestalt.workflow.dispatchPriority. Priority 0 is reserved for plugin
+	// _gestalt.workflow.dispatchPriority. Priority 0 is reserved for app
 	// event ingestion, so custom priorities start at 1.
 	if priority, ok := workflowRunMetadataDispatchPriority(run); ok {
 		return priority
@@ -3312,23 +3311,27 @@ func workflowRunDispatchPriority(run workflowRunRecord) int {
 	if strings.TrimSpace(run.WorkflowKey) != "" {
 		return 10
 	}
-	if run.Target != nil && run.Target.Plugin != nil {
+	if run.Target != nil && targetHasAppStep(run.Target) {
 		return 20
 	}
 	if run.TriggerKind == triggerKindEvent {
 		return 30
 	}
-	if run.Target != nil && run.Target.Agent != nil {
+	if run.Target != nil && targetHasAgentStep(run.Target) {
 		return 40
 	}
 	return 50
 }
 
 func workflowRunMetadataDispatchPriority(run workflowRunRecord) (int, bool) {
-	if run.Target == nil || run.Target.Agent == nil || run.Target.Agent.Metadata == nil {
+	if run.Target == nil {
 		return 0, false
 	}
-	metadata := anyMap(run.Target.Agent.Metadata)
+	_, step := firstWorkflowAgentStep(run.Target)
+	if step == nil || step.Metadata == nil {
+		return 0, false
+	}
+	metadata := anyMap(step.Metadata)
 	rawGestalt, ok := metadata[gestaltInputKey]
 	if !ok {
 		return 0, false
@@ -4240,7 +4243,7 @@ func eventExecutionReferencePermissions(trigger workflowEventTriggerRecord) ([]g
 	if !isConfigManagedActor(trigger.CreatedBy) {
 		return permissions, nil
 	}
-	extra, err := configuredEventRunPermissions(pluginTargetInput(trigger.Target))
+	extra, err := configuredEventRunPermissions(appTargetInput(trigger.Target))
 	if err != nil {
 		return nil, err
 	}
@@ -4260,60 +4263,39 @@ func executionReferencePermissionsForTarget(target *gestalt.BoundWorkflowTarget)
 	if target == nil {
 		return nil
 	}
-	if agent := target.Agent; agent != nil {
-		permissionsByPlugin := map[string]map[string]struct{}{}
-		for _, tool := range agent.ToolRefs {
-			pluginName := strings.TrimSpace(tool.Plugin)
-			operation := strings.TrimSpace(tool.Operation)
-			if pluginName == "" || operation == "" {
+	permissionsByApp := map[string]map[string]struct{}{}
+	for _, step := range target.Steps {
+		if step.App != nil {
+			appName := strings.TrimSpace(step.App.Name)
+			operation := strings.TrimSpace(step.App.Operation)
+			if appName == "" || operation == "" {
 				continue
 			}
-			ops := permissionsByPlugin[pluginName]
+			ops := permissionsByApp[appName]
 			if ops == nil {
 				ops = map[string]struct{}{}
-				permissionsByPlugin[pluginName] = ops
+				permissionsByApp[appName] = ops
 			}
 			ops[operation] = struct{}{}
 		}
-		if delivery := agent.OutputDelivery; delivery != nil {
-			addWorkflowDeliveryPermission(permissionsByPlugin, delivery)
+		if step.Agent == nil {
+			continue
 		}
-		if delivery := agent.SessionReadyDelivery; delivery != nil {
-			addWorkflowDeliveryPermission(permissionsByPlugin, delivery)
+		for _, tool := range step.Agent.Tools {
+			appName := strings.TrimSpace(tool.App)
+			operation := strings.TrimSpace(tool.Operation)
+			if appName == "" || operation == "" {
+				continue
+			}
+			ops := permissionsByApp[appName]
+			if ops == nil {
+				ops = map[string]struct{}{}
+				permissionsByApp[appName] = ops
+			}
+			ops[operation] = struct{}{}
 		}
-		return accessPermissionsFromSet(permissionsByPlugin)
 	}
-	plugin := target.Plugin
-	if plugin == nil {
-		return nil
-	}
-	pluginName := strings.TrimSpace(plugin.PluginName)
-	if pluginName == "" {
-		return nil
-	}
-	permission := gestalt.WorkflowAccessPermission{Plugin: pluginName}
-	if operation := strings.TrimSpace(plugin.Operation); operation != "" {
-		permission.Operations = []string{operation}
-	}
-	return []gestalt.WorkflowAccessPermission{permission}
-}
-
-func addWorkflowDeliveryPermission(permissionsByPlugin map[string]map[string]struct{}, delivery *gestalt.WorkflowOutputDelivery) {
-	if delivery == nil {
-		return
-	}
-	deliveryTarget := delivery.Target
-	pluginName := strings.TrimSpace(deliveryTarget.PluginName)
-	operation := strings.TrimSpace(deliveryTarget.Operation)
-	if pluginName == "" || operation == "" {
-		return
-	}
-	ops := permissionsByPlugin[pluginName]
-	if ops == nil {
-		ops = map[string]struct{}{}
-		permissionsByPlugin[pluginName] = ops
-	}
-	ops[operation] = struct{}{}
+	return accessPermissionsFromSet(permissionsByApp)
 }
 
 func configuredEventRunPermissions(input map[string]any) ([]gestalt.WorkflowAccessPermission, error) {
@@ -4339,9 +4321,12 @@ func configuredEventRunPermissions(input map[string]any) ([]gestalt.WorkflowAcce
 		if !ok {
 			return nil, fmt.Errorf("%s.%s[%d] must be an object", gestaltInputKey, eventRunPermissionsKey, i)
 		}
-		pluginName := strings.TrimSpace(stringField(value, "plugin"))
-		if pluginName == "" {
-			return nil, fmt.Errorf("%s.%s[%d].plugin is required", gestaltInputKey, eventRunPermissionsKey, i)
+		appName := strings.TrimSpace(stringField(value, "app"))
+		if appName == "" {
+			appName = strings.TrimSpace(stringField(value, "plugin"))
+		}
+		if appName == "" {
+			return nil, fmt.Errorf("%s.%s[%d].app is required", gestaltInputKey, eventRunPermissionsKey, i)
 		}
 		operations, err := stringListField(value, "operations")
 		if err != nil {
@@ -4351,7 +4336,7 @@ func configuredEventRunPermissions(input map[string]any) ([]gestalt.WorkflowAcce
 			return nil, fmt.Errorf("%s.%s[%d].operations is required", gestaltInputKey, eventRunPermissionsKey, i)
 		}
 		out = append(out, gestalt.WorkflowAccessPermission{
-			Plugin:     pluginName,
+			App:        appName,
 			Operations: operations,
 		})
 	}
@@ -4392,21 +4377,21 @@ func mergeAccessPermissions(groups ...[]gestalt.WorkflowAccessPermission) []gest
 }
 
 func addAccessPermission(set map[string]map[string]struct{}, permission gestalt.WorkflowAccessPermission) {
-	pluginName := strings.TrimSpace(permission.Plugin)
-	if pluginName == "" {
+	appName := strings.TrimSpace(permission.App)
+	if appName == "" {
 		return
 	}
 	if len(permission.Operations) == 0 {
-		set[pluginName] = nil
+		set[appName] = nil
 		return
 	}
-	if _, ok := set[pluginName]; ok && set[pluginName] == nil {
+	if _, ok := set[appName]; ok && set[appName] == nil {
 		return
 	}
-	ops := set[pluginName]
+	ops := set[appName]
 	if ops == nil {
 		ops = map[string]struct{}{}
-		set[pluginName] = ops
+		set[appName] = ops
 	}
 	for _, operation := range permission.Operations {
 		operation = strings.TrimSpace(operation)
@@ -4420,20 +4405,20 @@ func accessPermissionsFromSet(values map[string]map[string]struct{}) []gestalt.W
 	if len(values) == 0 {
 		return nil
 	}
-	plugins := make([]string, 0, len(values))
-	for pluginName := range values {
-		plugins = append(plugins, pluginName)
+	apps := make([]string, 0, len(values))
+	for appName := range values {
+		apps = append(apps, appName)
 	}
-	slices.Sort(plugins)
-	out := make([]gestalt.WorkflowAccessPermission, 0, len(plugins))
-	for _, pluginName := range plugins {
-		operations := make([]string, 0, len(values[pluginName]))
-		for operation := range values[pluginName] {
+	slices.Sort(apps)
+	out := make([]gestalt.WorkflowAccessPermission, 0, len(apps))
+	for _, appName := range apps {
+		operations := make([]string, 0, len(values[appName]))
+		for operation := range values[appName] {
 			operations = append(operations, operation)
 		}
 		slices.Sort(operations)
 		out = append(out, gestalt.WorkflowAccessPermission{
-			Plugin:     pluginName,
+			App:        appName,
 			Operations: operations,
 		})
 	}
@@ -4471,7 +4456,7 @@ func workflowPermissionInputs(in []gestalt.WorkflowAccessPermission) []gestalt.W
 	out := make([]gestalt.WorkflowAccessPermission, 0, len(in))
 	for _, permission := range in {
 		out = append(out, gestalt.WorkflowAccessPermission{
-			Plugin:     strings.TrimSpace(permission.Plugin),
+			App:        strings.TrimSpace(permission.App),
 			Operations: append([]string(nil), permission.Operations...),
 		})
 	}
@@ -4503,11 +4488,43 @@ func timePtr(value time.Time) *time.Time {
 	return &ts
 }
 
-func pluginTargetInput(target *gestalt.BoundWorkflowTarget) map[string]any {
-	if target == nil || target.Plugin == nil {
+func appTargetInput(target *gestalt.BoundWorkflowTarget) map[string]any {
+	app := firstWorkflowAppStep(target)
+	if app == nil {
 		return nil
 	}
-	return anyMap(target.Plugin.Input)
+	if app.Input.Object != nil {
+		out := make(map[string]any, len(app.Input.Object))
+		for key, value := range app.Input.Object {
+			out[key] = workflowValueToAny(value)
+		}
+		return out
+	}
+	if app.Input.LiteralSet {
+		return anyMap(app.Input.Literal)
+	}
+	return nil
+}
+
+func workflowValueToAny(value gestalt.WorkflowValue) any {
+	switch {
+	case value.LiteralSet:
+		return value.Literal
+	case value.Object != nil:
+		out := make(map[string]any, len(value.Object))
+		for key, nested := range value.Object {
+			out[key] = workflowValueToAny(nested)
+		}
+		return out
+	case value.Array != nil:
+		out := make([]any, 0, len(value.Array))
+		for _, nested := range value.Array {
+			out = append(out, workflowValueToAny(nested))
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func targetJSON(target *gestalt.BoundWorkflowTarget) string {
@@ -4570,11 +4587,11 @@ func targetFromRecordValue(recordKind, id string, raw any) (*gestalt.BoundWorkfl
 		return nil, fmt.Errorf("%s %q invalid target_json: trailing data", recordKind, id)
 	}
 	target = cloneTarget(target)
-	if target.Agent == nil && target.Plugin == nil {
-		return nil, fmt.Errorf("%s %q target_json must contain plugin or agent target", recordKind, id)
+	if len(target.Steps) == 0 {
+		return nil, fmt.Errorf("%s %q target_json must contain steps", recordKind, id)
 	}
 	if targetOwnerKey(target) == "" {
-		return nil, fmt.Errorf("%s %q target_json must contain plugin.plugin_name or agent.provider_name", recordKind, id)
+		return nil, fmt.Errorf("%s %q target_json must contain app.name or agent.provider", recordKind, id)
 	}
 	return target, nil
 }
@@ -5149,7 +5166,8 @@ func (r workflowSignalRecord) signalInput() *gestalt.WorkflowSignal {
 }
 
 type workflowAccessPermissionRecord struct {
-	Plugin     string   `json:"plugin"`
+	App        string   `json:"app"`
+	Plugin     string   `json:"plugin,omitempty"`
 	Operations []string `json:"operations,omitempty"`
 }
 
@@ -5170,7 +5188,7 @@ func executionReferenceRecordFromInput(ref *gestalt.WorkflowExecutionReference) 
 		DisplayName:         strings.TrimSpace(ref.DisplayName),
 		AuthSource:          strings.TrimSpace(ref.AuthSource),
 		CredentialSubjectID: strings.TrimSpace(ref.CredentialSubjectID),
-		CallerPluginName:    strings.TrimSpace(ref.CallerPluginName),
+		CallerAppName:       strings.TrimSpace(ref.CallerAppName),
 	}
 	if record.ID == "" {
 		return workflowExecutionReferenceRecord{}, errors.New("id is required")
@@ -5221,7 +5239,7 @@ func executionReferenceRecordFromRecord(record gestalt.Record) (workflowExecutio
 		CredentialSubjectID: stringField(value, "credential_subject_id"),
 		RunAsJSON:           stringField(value, "run_as_json"),
 		PermissionsJSON:     stringField(value, "permissions_json"),
-		CallerPluginName:    stringField(value, "caller_plugin_name"),
+		CallerAppName:       firstNonEmpty(stringField(value, "caller_app_name"), stringField(value, "caller_plugin_name")),
 	}
 	if createdAt := timeField(value, "created_at"); createdAt != nil {
 		out.CreatedAt = createdAt.UTC()
@@ -5242,7 +5260,7 @@ func (r workflowExecutionReferenceRecord) toRecord() gestalt.Record {
 		"credential_subject_id": r.CredentialSubjectID,
 		"run_as_json":           r.RunAsJSON,
 		"permissions_json":      r.PermissionsJSON,
-		"caller_plugin_name":    r.CallerPluginName,
+		"caller_app_name":       r.CallerAppName,
 		"created_at":            r.CreatedAt.UTC(),
 	}
 	if r.RevokedAt != nil {
@@ -5274,7 +5292,7 @@ func (r workflowExecutionReferenceRecord) toInput() (*gestalt.WorkflowExecutionR
 		SubjectKind:         r.SubjectKind,
 		DisplayName:         r.DisplayName,
 		AuthSource:          r.AuthSource,
-		CallerPluginName:    r.CallerPluginName,
+		CallerAppName:       r.CallerAppName,
 		RunAs:               workflowRunAsInput(runAs),
 	}), nil
 }
@@ -5290,7 +5308,7 @@ func executionReferenceRecordsEqual(left, right workflowExecutionReferenceRecord
 		left.CredentialSubjectID != right.CredentialSubjectID ||
 		left.RunAsJSON != right.RunAsJSON ||
 		left.PermissionsJSON != right.PermissionsJSON ||
-		left.CallerPluginName != right.CallerPluginName ||
+		left.CallerAppName != right.CallerAppName ||
 		!left.CreatedAt.Equal(right.CreatedAt) {
 		return false
 	}
@@ -5341,12 +5359,12 @@ func executionReferencePermissionsJSON(values []gestalt.WorkflowAccessPermission
 	}
 	records := make([]workflowAccessPermissionRecord, 0, len(values))
 	for _, value := range values {
-		pluginName := strings.TrimSpace(value.Plugin)
-		if pluginName == "" {
+		appName := strings.TrimSpace(value.App)
+		if appName == "" {
 			continue
 		}
 		records = append(records, workflowAccessPermissionRecord{
-			Plugin:     pluginName,
+			App:        appName,
 			Operations: append([]string(nil), value.Operations...),
 		})
 	}
@@ -5371,12 +5389,15 @@ func executionReferencePermissionsFromJSON(raw string) ([]gestalt.WorkflowAccess
 	}
 	out := make([]gestalt.WorkflowAccessPermission, 0, len(records))
 	for _, record := range records {
-		pluginName := strings.TrimSpace(record.Plugin)
-		if pluginName == "" {
+		appName := strings.TrimSpace(record.App)
+		if appName == "" {
+			appName = strings.TrimSpace(record.Plugin)
+		}
+		if appName == "" {
 			continue
 		}
 		out = append(out, gestalt.WorkflowAccessPermission{
-			Plugin:     pluginName,
+			App:        appName,
 			Operations: append([]string(nil), record.Operations...),
 		})
 	}

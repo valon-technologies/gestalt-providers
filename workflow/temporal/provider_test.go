@@ -78,8 +78,7 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 func TestBackendDefinitionCRUD(t *testing.T) {
 	ctx, state := newTestWorkflowStateStore(t)
 	backend := newRecordingTemporalBackend(&recordingTemporalClient{}, state)
-	createTarget := nativePluginTargetInput("slack", "postMessage")
-	createTarget.Plugin.Input = map[string]any{"mode": "full"}
+	createTarget := nativePluginTargetInputWithObject("slack", "postMessage", map[string]any{"mode": "full"})
 
 	created, err := backend.CreateDefinition(ctx, &gestalt.CreateWorkflowProviderDefinitionRequest{
 		IdempotencyKey: "definition-sync",
@@ -88,11 +87,11 @@ func TestBackendDefinitionCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateDefinition: %v", err)
 	}
-	createTarget.Plugin.Input.(map[string]any)["mode"] = "mutated"
+	createTarget.Steps[0].App.Input.Object["mode"] = gestalt.WorkflowValue{Literal: "mutated", LiteralSet: true}
 	if created.ID == "" || created.ProviderName != "temporal" {
 		t.Fatalf("created definition = %#v, want id and provider", created)
 	}
-	if got := created.Target.Plugin.Input.(map[string]any)["mode"]; got != "full" {
+	if got := workflowValueObjectField(created.Target, "mode"); got != "full" {
 		t.Fatalf("created definition input mode = %v, want isolated full", got)
 	}
 
@@ -113,7 +112,7 @@ func TestBackendDefinitionCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateDefinition(conflicting idempotent target): %v", err)
 	}
-	if conflicting.ID != created.ID || conflicting.Target.Plugin.Operation != "postMessage" {
+	if conflicting.ID != created.ID || firstWorkflowAppStep(conflicting.Target).Operation != "postMessage" {
 		t.Fatalf("conflicting idempotent definition = %#v, want original postMessage definition", conflicting)
 	}
 	created.CreatedBy = actor("creator-1")
@@ -131,8 +130,8 @@ func TestBackendDefinitionCRUD(t *testing.T) {
 	if updated.ID != created.ID || updated.CreatedAt != created.CreatedAt {
 		t.Fatalf("updated definition = %#v, want same id and created_at", updated)
 	}
-	if updated.Target.Plugin.Operation != "updateMessage" {
-		t.Fatalf("updated operation = %q, want updateMessage", updated.Target.Plugin.Operation)
+	if firstWorkflowAppStep(updated.Target).Operation != "updateMessage" {
+		t.Fatalf("updated operation = %q, want updateMessage", firstWorkflowAppStep(updated.Target).Operation)
 	}
 	if updated.CreatedBy == nil || updated.CreatedBy.SubjectID != "creator-1" {
 		t.Fatalf("updated created_by = %#v, want creator-1", updated.CreatedBy)
@@ -142,8 +141,8 @@ func TestBackendDefinitionCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDefinition: %v", err)
 	}
-	if got.Target.Plugin.Operation != "updateMessage" {
-		t.Fatalf("stored operation = %q, want updateMessage", got.Target.Plugin.Operation)
+	if firstWorkflowAppStep(got.Target).Operation != "updateMessage" {
+		t.Fatalf("stored operation = %q, want updateMessage", firstWorkflowAppStep(got.Target).Operation)
 	}
 	if got.CreatedBy == nil || got.CreatedBy.SubjectID != "creator-1" {
 		t.Fatalf("stored created_by = %#v, want creator-1", got.CreatedBy)
@@ -1827,7 +1826,7 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 		Data:   map[string]any{"channel": "C123"},
 	}
 	published, err := backend.PublishEvent(context.Background(), &gestalt.PublishWorkflowProviderEventRequest{
-		PluginName: "slack",
+		AppName: "slack",
 		Event:      requestEvent,
 	})
 	if err != nil {
@@ -1848,14 +1847,14 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 	metrictestAttrs := temporalWorkflowMetricAttrs(
 		gestalt.WorkflowOperationPublishEvent,
 		gestalt.WorkflowTriggerKindEvent,
-		gestalt.WorkflowTargetKindPlugin,
+		gestalt.WorkflowTargetKindSteps,
 		gestalt.WorkflowRunStatusUnknown,
 	)
 	requireTemporalInt64Sum(t, rm, "gestaltd.workflows.events.matched_triggers.count", 2, metrictestAttrs)
 	requireTemporalInt64Sum(t, rm, "gestaltd.workflows.runs.started.count", 2, temporalWorkflowMetricAttrs(
 		gestalt.WorkflowOperationPublishEvent,
 		gestalt.WorkflowTriggerKindEvent,
-		gestalt.WorkflowTargetKindPlugin,
+		gestalt.WorkflowTargetKindSteps,
 		gestalt.WorkflowRunStatusPending,
 	))
 }
@@ -1978,13 +1977,6 @@ func actor(subjectID string) *gestalt.WorkflowActor {
 	return &gestalt.WorkflowActor{SubjectID: strings.TrimSpace(subjectID)}
 }
 
-func nativePluginTargetInput(plugin, operation string) *gestalt.BoundWorkflowTarget {
-	return &gestalt.BoundWorkflowTarget{Plugin: &gestalt.BoundWorkflowPluginTarget{
-		PluginName: strings.TrimSpace(plugin),
-		Operation:  strings.TrimSpace(operation),
-	}}
-}
-
 func cloneSignalOrStartRequest(req *gestalt.SignalOrStartWorkflowProviderRunRequest) *gestalt.SignalOrStartWorkflowProviderRunRequest {
 	if req == nil {
 		return nil
@@ -2042,132 +2034,30 @@ func (h *blockingHost) InvokeOperation(ctx context.Context, req gestalt.InvokeWo
 
 func (h *blockingHost) Close() error { return nil }
 
-func pluginTarget(plugin, operation string) *gestalt.BoundWorkflowTarget {
-	return &gestalt.BoundWorkflowTarget{Plugin: &gestalt.BoundWorkflowPluginTarget{
-		PluginName: strings.TrimSpace(plugin),
-		Operation:  strings.TrimSpace(operation),
-		Input:      map[string]any{"text": "hello"},
-	}}
-}
-
 func TestNormalizeTargetPreservesPluginCredentialMode(t *testing.T) {
 	target := pluginTarget(" github ", " reviewPullRequest ")
-	target.Plugin.CredentialMode = " none "
+	target.Steps[0].App.CredentialMode = " none "
 
 	scoped, err := normalizeTarget(target)
 	if err != nil {
 		t.Fatalf("normalizeTarget: %v", err)
 	}
-	plugin := scoped.Target.Plugin
-	if plugin.PluginName != "github" || plugin.Operation != "reviewPullRequest" {
-		t.Fatalf("plugin target = %#v", plugin)
+	app := firstWorkflowAppStep(scoped.Target)
+	if app.Name != "github" || app.Operation != "reviewPullRequest" {
+		t.Fatalf("app target = %#v", app)
 	}
-	if got := plugin.CredentialMode; got != "none" {
+	if got := app.CredentialMode; got != "none" {
 		t.Fatalf("credential mode = %q, want none", got)
 	}
 }
 
 func TestNormalizeTargetRejectsInvalidPluginCredentialMode(t *testing.T) {
 	target := pluginTarget("github", "reviewPullRequest")
-	target.Plugin.CredentialMode = "platform"
+	target.Steps[0].App.CredentialMode = "platform"
 
 	_, err := normalizeTarget(target)
-	if err == nil || !strings.Contains(err.Error(), `target.plugin.credential_mode "platform" is not supported`) {
+	if err == nil || !strings.Contains(err.Error(), `target.steps[0].app.credential_mode "platform" is not supported`) {
 		t.Fatalf("normalizeTarget error = %v, want unsupported credential mode", err)
-	}
-}
-
-func TestNormalizeTargetRejectsOutputDeliveryTargetCredentialMode(t *testing.T) {
-	target := &gestalt.BoundWorkflowTarget{
-		Agent: &gestalt.BoundWorkflowAgentTarget{
-			ProviderName: "managed",
-			Prompt:       "review",
-			OutputDelivery: &gestalt.WorkflowOutputDelivery{
-				Target: &gestalt.BoundWorkflowPluginTarget{
-					PluginName:     "github",
-					Operation:      "reviewPullRequest",
-					CredentialMode: "none",
-				},
-				CredentialMode: "none",
-			},
-		},
-	}
-
-	_, err := normalizeTarget(target)
-	if err == nil || !strings.Contains(err.Error(), `target.agent.output_delivery.target.credential_mode "none" is not supported`) {
-		t.Fatalf("normalizeTarget error = %v, want unsupported output delivery target mode", err)
-	}
-}
-
-func TestNormalizeTargetPreservesSessionReadyDelivery(t *testing.T) {
-	target := temporalAgentTargetWithSessionReadyDelivery()
-
-	scoped, err := normalizeTarget(target)
-	if err != nil {
-		t.Fatalf("normalizeTarget: %v", err)
-	}
-	delivery := scoped.Target.Agent.SessionReadyDelivery
-	if delivery.Target.PluginName != "slack" || delivery.Target.Operation != "events.replySessionStarted" {
-		t.Fatalf("session ready delivery target = %#v", delivery.Target)
-	}
-	if delivery.CredentialMode != "none" {
-		t.Fatalf("session ready delivery credential mode = %q, want none", delivery.CredentialMode)
-	}
-	if got := delivery.InputBindings[0].Value.AgentSession; got != "id" {
-		t.Fatalf("agent session source = %q, want id", got)
-	}
-}
-
-func TestNormalizeTargetRejectsSessionReadyDeliveryAgentOutput(t *testing.T) {
-	target := temporalAgentTargetWithSessionReadyDelivery()
-	target.Agent.SessionReadyDelivery.InputBindings[0].Value = &gestalt.WorkflowOutputValueSource{AgentOutput: "text"}
-
-	_, err := normalizeTarget(target)
-	if err == nil || !strings.Contains(err.Error(), "target.agent.session_ready_delivery.input_bindings.value.agent_output is not available before the agent turn starts") {
-		t.Fatalf("normalizeTarget error = %v, want unsupported session ready delivery agent output", err)
-	}
-}
-
-func TestExecutionReferencePermissionsIncludeSessionReadyDelivery(t *testing.T) {
-	permissions := executionReferencePermissionsForTarget(temporalAgentTargetWithSessionReadyDelivery())
-	got := map[string]map[string]bool{}
-	for _, permission := range permissions {
-		ops := got[permission.Plugin]
-		if ops == nil {
-			ops = map[string]bool{}
-			got[permission.Plugin] = ops
-		}
-		for _, operation := range permission.Operations {
-			ops[operation] = true
-		}
-	}
-	if !got["slack"]["events.replySessionStarted"] {
-		t.Fatalf("permissions = %#v, missing slack/events.replySessionStarted", permissions)
-	}
-}
-
-func temporalAgentTargetWithSessionReadyDelivery() *gestalt.BoundWorkflowTarget {
-	return &gestalt.BoundWorkflowTarget{
-		Agent: &gestalt.BoundWorkflowAgentTarget{
-			ProviderName: "managed",
-			Prompt:       "review",
-			ToolRefs: []gestalt.AgentToolRef{
-				{Plugin: "slack", Operation: "chat.postMessage"},
-			},
-			SessionReadyDelivery: &gestalt.WorkflowOutputDelivery{
-				Target: &gestalt.BoundWorkflowPluginTarget{
-					PluginName: "slack",
-					Operation:  "events.replySessionStarted",
-				},
-				CredentialMode: "none",
-				InputBindings: []gestalt.WorkflowOutputBinding{
-					{
-						InputField: "session_id",
-						Value:      &gestalt.WorkflowOutputValueSource{AgentSession: "id"},
-					},
-				},
-			},
-		},
 	}
 }
 

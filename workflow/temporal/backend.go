@@ -744,12 +744,12 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := strings.TrimSpace(req.PluginName)
+	appName := strings.TrimSpace(req.AppName)
 	eventInput, err := normalizeWorkflowEvent(req.Event, time.Now)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	triggers, err := b.state.matchTriggers(ctx, pluginName, eventInput)
+	triggers, err := b.state.matchTriggers(ctx, appName, eventInput)
 	if err != nil {
 		return nil, err
 	}
@@ -826,14 +826,13 @@ func (b *temporalBackend) workflowTelemetryOptions(operationName, triggerKind, t
 }
 
 func workflowTelemetryTargetKindInput(target *gestalt.BoundWorkflowTarget) string {
-	switch {
-	case target != nil && target.Plugin != nil:
-		return gestalt.WorkflowTargetKindPlugin
-	case target != nil && target.Agent != nil:
-		return gestalt.WorkflowTargetKindAgent
-	default:
+	if target == nil {
 		return gestalt.WorkflowTargetKindUnknown
 	}
+	if len(target.Steps) > 0 {
+		return gestalt.WorkflowTargetKindSteps
+	}
+	return gestalt.WorkflowTargetKindUnknown
 }
 
 func workflowTelemetryRunStatus(run *gestalt.BoundWorkflowRun) string {

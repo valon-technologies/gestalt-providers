@@ -319,7 +319,7 @@ func TestRuntimeContractStartClaimStampsFreshLifecycleAndRuntimeMetadata(t *test
 
 	session, err := runtime.Start(ctx, startSandboxRequest{
 		Name:       "session-1",
-		PluginName: "agent-provider",
+		AppName: "agent-provider",
 		Namespace:  "runtime-system",
 		Template:   "agent-runtime",
 		Metadata:   map[string]string{"tenant": "dev"},
@@ -396,7 +396,7 @@ func TestRuntimeContractRejectsStaleSandboxPodImage(t *testing.T) {
 
 	_, err := runtime.Start(ctx, startSandboxRequest{
 		Name:       "session-2",
-		PluginName: "agent-provider",
+		AppName: "agent-provider",
 		Namespace:  "runtime-system",
 		Template:   "agent-runtime",
 	})
@@ -541,11 +541,11 @@ func TestRuntimeContractPluginStartLeaseIsExclusiveAndExpires(t *testing.T) {
 func TestRuntimeContractListsKubernetesBackedSessions(t *testing.T) {
 	t.Parallel()
 
-	managedLabels := func(sessionID, pluginName string) map[string]string {
+	managedLabels := func(sessionID, appName string) map[string]string {
 		return map[string]string{
 			"app.kubernetes.io/managed-by": "gestalt",
 			"gestalt.dev/runtime":          "gke-agent-sandbox",
-			"gestalt.dev/plugin":           pluginName,
+			"gestalt.dev/plugin":           appName,
 			runtimeSessionLabel:            sessionID,
 		}
 	}
@@ -663,7 +663,7 @@ func TestRuntimeContractListsKubernetesBackedSessions(t *testing.T) {
 	if got, want := claimSession.Metadata["tenant"], "claim"; got != want {
 		t.Fatalf("claim session tenant = %q, want %q", got, want)
 	}
-	if got, want := claimSession.PluginName, "linear"; got != want {
+	if got, want := claimSession.AppName, "linear"; got != want {
 		t.Fatalf("claim session plugin = %q, want %q", got, want)
 	}
 
@@ -887,11 +887,11 @@ func TestRuntimeContractListSessionsBulkPathIsBounded(t *testing.T) {
 	const namespace = "runtime-system"
 	const sessionCount = 50
 
-	managedLabels := func(sessionID, pluginName string) map[string]string {
+	managedLabels := func(sessionID, appName string) map[string]string {
 		return map[string]string{
 			"app.kubernetes.io/managed-by": "gestalt",
 			"gestalt.dev/runtime":          "gke-agent-sandbox",
-			"gestalt.dev/plugin":           pluginName,
+			"gestalt.dev/plugin":           appName,
 			runtimeSessionLabel:            sessionID,
 		}
 	}

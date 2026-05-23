@@ -21,7 +21,7 @@ import provider as provider_module
 from gestalt import ENV_HOST_SERVICE_SOCKET, ENV_HOST_SERVICE_TOKEN, ProviderKind, _runtime
 from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
-from gestalt._gen.v1 import plugin_pb2 as _plugin_pb2
+from gestalt._gen.v1 import app_pb2 as _app_pb2
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.codex_runner import normalize_codex_result
@@ -32,7 +32,7 @@ from internals.tool_bridge import MAX_LISTED_TOOLS, ToolBridgeError, list_tools,
 agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
 empty_pb2: Any = _empty_pb2
-plugin_pb2: Any = cast(Any, _plugin_pb2)
+app_pb2: Any = cast(Any, _app_pb2)
 runtime_pb2: Any = _runtime_pb2
 runtime_pb2_grpc: Any = _runtime_pb2_grpc
 struct_pb2: Any = _struct_pb2
@@ -526,7 +526,7 @@ class CodexProviderTests(unittest.TestCase):
         request = _turn_request(turn_id="turn-grant", session_id="session-grant")
         del request.tool_refs[:]
         ref = request.tool_refs.add()
-        ref.plugin = "notion"
+        ref.app = "notion"
         ref.operation = "search"
         provider_client.CreateTurn(request)
 
@@ -573,7 +573,7 @@ class CodexProviderTests(unittest.TestCase):
         _assert_invalid(provider_client, missing_refs, "tool_refs are required")
 
         wildcard_ref = _turn_request(turn_id="turn-wildcard", session_id="session-validation")
-        wildcard_ref.tool_refs[0].plugin = "*"
+        wildcard_ref.tool_refs[0].app = "*"
         _assert_invalid(provider_client, wildcard_ref, "wildcard tool_refs are not supported")
 
         response_schema = struct_pb2.Struct()
@@ -802,10 +802,10 @@ def _turn_request(
         subject=_subject_context("user-123"),
     )
     linear = request.tool_refs.add()
-    linear.plugin = "linear"
+    linear.app = "linear"
     linear.operation = "searchIssues"
     github = request.tool_refs.add()
-    github.plugin = "github"
+    github.app = "github"
     github.operation = "pulls/list"
     if response_schema is not None:
         request.response_schema.CopyFrom(response_schema)
@@ -830,7 +830,7 @@ def _create_owned_session(provider_client: Any, session_id: str, **kwargs: Any) 
 def _subject_context(subject_id: str, kind: str = "user") -> Any:
     if kind == "user" and subject_id.startswith("service_account:"):
         kind = "service_account"
-    return plugin_pb2.SubjectContext(id=subject_id, kind=kind)
+    return app_pb2.SubjectContext(id=subject_id, kind=kind)
 
 
 def _slack_session_metadata() -> dict[str, Any]:
@@ -919,7 +919,7 @@ def _add_tool(
     tool.description = description
     tool.input_schema = input_schema
     setattr(tool.annotations, "read_only_hint", True)
-    setattr(tool.ref, "plugin", "linear")
+    setattr(tool.ref, "app", "linear")
     setattr(tool.ref, "operation", "searchIssues")
 
 

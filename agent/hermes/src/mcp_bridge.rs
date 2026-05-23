@@ -732,16 +732,20 @@ fn agent_tool_ref_arg(value: &JsonValue) -> Result<AgentToolRef, ProxyError> {
             "ref entries must be objects",
         ));
     };
+    let mut app = string_field(object, "app")?;
+    if app.is_empty() {
+        app = string_field(object, "plugin")?;
+    }
     let out = AgentToolRef {
         system: string_field(object, "system")?,
-        plugin: string_field(object, "plugin")?,
+        app,
         operation: string_field(object, "operation")?,
         connection: string_field(object, "connection")?,
         instance: string_field(object, "instance")?,
         ..Default::default()
     };
     if out.system.is_empty()
-        && out.plugin.is_empty()
+        && out.app.is_empty()
         && out.operation.is_empty()
         && out.connection.is_empty()
         && out.instance.is_empty()
@@ -805,7 +809,7 @@ fn listed_tool_search_haystack(tool: &ListedAgentTool) -> String {
     if let Some(ref_value) = tool.r#ref.as_ref() {
         values.extend([
             ref_value.system.as_str(),
-            ref_value.plugin.as_str(),
+            ref_value.app.as_str(),
             ref_value.operation.as_str(),
             ref_value.connection.as_str(),
             ref_value.instance.as_str(),
@@ -821,7 +825,7 @@ fn listed_tool_ref_matches(candidate: Option<&AgentToolRef>, requested: &AgentTo
     let mut any_field = false;
     for (requested, actual) in [
         (&requested.system, &candidate.system),
-        (&requested.plugin, &candidate.plugin),
+        (&requested.app, &candidate.app),
         (&requested.operation, &candidate.operation),
         (&requested.connection, &candidate.connection),
         (&requested.instance, &candidate.instance),
@@ -867,7 +871,8 @@ fn listed_tool_json(tool: &ListedAgentTool, include_schema: bool) -> JsonValue {
 fn agent_tool_ref_json(ref_value: &AgentToolRef) -> JsonValue {
     let mut object = JsonMap::new();
     insert_nonempty(&mut object, "system", &ref_value.system);
-    insert_nonempty(&mut object, "plugin", &ref_value.plugin);
+    insert_nonempty(&mut object, "app", &ref_value.app);
+    insert_nonempty(&mut object, "plugin", &ref_value.app);
     insert_nonempty(&mut object, "operation", &ref_value.operation);
     insert_nonempty(&mut object, "connection", &ref_value.connection);
     insert_nonempty(&mut object, "instance", &ref_value.instance);

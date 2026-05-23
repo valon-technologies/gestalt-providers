@@ -29,7 +29,7 @@ SOURCE_PREFIX = f"github.com/{REPOSITORY}/"
 PACKAGE_ROOTS = (
     "agent",
     "runtime",
-    "plugins",
+    "apps",
     "auth",
     "authorization",
     "externalcredentials",
@@ -119,11 +119,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--release-tag",
-        help="Release tag, for example plugins/slack/v0.0.1-alpha.42",
+        help="Release tag, for example apps/slack/v0.0.1-alpha.42",
     )
     parser.add_argument(
         "--package-dir",
-        help="Provider directory, for example plugins/slack",
+        help="Provider directory, for example apps/slack",
     )
     return parser.parse_args()
 
@@ -152,6 +152,7 @@ def normalize_kind(kind: Any) -> str:
         "external_credentials": "externalcredentials",
         "externalcredentials": "externalcredentials",
         "external-credentials": "externalcredentials",
+        "plugin": "app",  # legacy manifest kind alias; remove after downstream manifests migrate
     }
     return aliases.get(value, value)
 
@@ -647,8 +648,8 @@ def render_index(packages: dict[str, dict[str, Any]]) -> str:
 
 
 def config_target(kind: str) -> dict[str, Any]:
-    if kind == "plugin":
-        return {"section": "plugins", "entryKind": "plugin"}
+    if kind == "app":
+        return {"section": "apps", "entryKind": "app"}
     if kind == "runtime":
         return {"section": "runtime.providers", "entryKind": "runtime"}
     if kind == "ui":

@@ -1,0 +1,16 @@
+kind: app
+source: github.com/valon-technologies/gestalt-providers/apps/planetscale
+version: 0.0.1-alpha.0
+displayName: PlanetScale
+description: Use the official PlanetScale insights-only MCP server for organizations, databases, branches, schema, Insights, documentation search, and schema recommendations.
+spec:
+  surfaces:
+    mcp:
+      connection: MCP
+      url: https://mcp.pscale.dev/mcp/planetscale-insights-only
+  connections:
+    MCP:
+      displayName: MCP
+      mode: user
+      auth:
+        type: mcp_oauth
