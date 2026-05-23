@@ -8,7 +8,7 @@ import gestalt
 
 from .config import (
     GitHubWebhookPolicy,
-    GitHubWorkflowPluginTarget,
+    GitHubWorkflowAppTarget,
     SELF_FIX_BRANCH_COMMIT,
     SELF_FIX_DISABLED,
     SELF_FIX_PULL_REQUEST,
@@ -92,11 +92,11 @@ def workflow_target(
     summary: dict[str, Any], policy: GitHubWebhookPolicy | None = None
 ) -> Any:
     if policy is not None and policy.workflow_target is not None:
-        return workflow_plugin_target(policy.workflow_target)
+        return workflow_app_target(policy.workflow_target)
     return workflow_agent_target(summary, policy)
 
 
-def workflow_plugin_target(target: GitHubWorkflowPluginTarget) -> Any:
+def workflow_app_target(target: GitHubWorkflowAppTarget) -> Any:
     step_type = getattr(gestalt, "WorkflowStep", None)
     app_type = getattr(gestalt, "WorkflowStepAppCall", None)
     value_type = getattr(gestalt, "WorkflowValue", None)
@@ -110,7 +110,7 @@ def workflow_plugin_target(target: GitHubWorkflowPluginTarget) -> Any:
             else target.input
         )
     app_call = app_type(
-        name=target.plugin_name,
+        name=target.app_name,
         operation=target.operation,
         connection=target.connection or "",
         instance=target.instance or "",

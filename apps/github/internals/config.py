@@ -117,8 +117,8 @@ class GitHubWebhookPolicyMatch:
 
 
 @dataclass(frozen=True, slots=True)
-class GitHubWorkflowPluginTarget:
-    plugin_name: str
+class GitHubWorkflowAppTarget:
+    app_name: str
     operation: str
     connection: str = ""
     instance: str = ""
@@ -161,7 +161,7 @@ class GitHubWebhookPolicy:
     agent_model: str = ""
     agent_system_prompt: str = ""
     agent_model_options: dict[str, Any] | None = None
-    workflow_target: GitHubWorkflowPluginTarget | None = None
+    workflow_target: GitHubWorkflowAppTarget | None = None
     action_mode: str = WEBHOOK_POLICY_OBSERVE_MODE
     allow_code_review_comments: bool = True
     allow_self_fix: bool = True
@@ -658,7 +658,7 @@ def effective_policy_operations(policy: GitHubWebhookPolicy) -> tuple[str, ...]:
 
 def _parse_workflow_app_call_config(
     app_config: dict[str, Any], path: str
-) -> GitHubWorkflowPluginTarget:
+) -> GitHubWorkflowAppTarget:
     if "credential_mode" in app_config:
         raise ValueError(f"{path}.credential_mode is not supported; use credentialMode")
 
@@ -678,11 +678,8 @@ def _parse_workflow_app_call_config(
             f'{path}.credentialMode "{credential_mode}" is not supported'
         )
 
-    app_name = optional_string(app_config, "name", f"{path}.name")
-    if not app_name:
-        app_name = required_string(app_config, "plugin", f"{path}.plugin")
-    return GitHubWorkflowPluginTarget(
-        plugin_name=app_name,
+    return GitHubWorkflowAppTarget(
+        app_name=required_string(app_config, "name", f"{path}.name"),
         operation=required_string(app_config, "operation", f"{path}.operation"),
         connection=optional_string(app_config, "connection", f"{path}.connection"),
         instance=optional_string(app_config, "instance", f"{path}.instance"),
@@ -693,44 +690,39 @@ def _parse_workflow_app_call_config(
 
 def parse_policy_workflow_target(
     workflow_config: dict[str, Any], policy_index: int
-) -> GitHubWorkflowPluginTarget | None:
+) -> GitHubWorkflowAppTarget | None:
     if "target" not in workflow_config:
         return None
     target_path = f"webhookPolicies[{policy_index}].workflow.target"
     target_config = required_config_object(workflow_config, "target", target_path)
 
-    if "steps" in target_config:
-        steps_config = target_config.get("steps")
-        steps_path = f"{target_path}.steps"
-        if not isinstance(steps_config, list) or not steps_config:
-            raise ValueError(f"{steps_path} must be a non-empty array")
-        for index, step_config in enumerate(steps_config):
-            step_path = f"{steps_path}[{index}]"
-            if not isinstance(step_config, dict):
-                raise ValueError(f"{step_path} must be an object")
-            step_map = cast(dict[str, Any], step_config)
-            app_config = step_map.get("app")
-            if app_config is None:
-                continue
-            if not isinstance(app_config, dict):
-                raise ValueError(f"{step_path}.app must be an object")
-            return _parse_workflow_app_call_config(app_config, f"{step_path}.app")
-        raise ValueError(f"{steps_path} must include an app step")
-
-    plugin_path = f"{target_path}.plugin"
-    plugin_config = required_config_object(target_config, "plugin", plugin_path)
-    return _parse_workflow_app_call_config(plugin_config, plugin_path)
+    steps_config = target_config.get("steps")
+    steps_path = f"{target_path}.steps"
+    if not isinstance(steps_config, list) or not steps_config:
+        raise ValueError(f"{steps_path} must be a non-empty array")
+    for index, step_config in enumerate(steps_config):
+        step_path = f"{steps_path}[{index}]"
+        if not isinstance(step_config, dict):
+            raise ValueError(f"{step_path} must be an object")
+        step_map = cast(dict[str, Any], step_config)
+        app_config = step_map.get("app")
+        if app_config is None:
+            continue
+        if not isinstance(app_config, dict):
+            raise ValueError(f"{step_path}.app must be an object")
+        return _parse_workflow_app_call_config(app_config, f"{step_path}.app")
+    raise ValueError(f"{steps_path} must include an app step")
 
 
 def validate_policy_comments_for_workflow_target(
-    target: GitHubWorkflowPluginTarget | None,
+    target: GitHubWorkflowAppTarget | None,
     comments: GitHubWebhookComments,
     policy_index: int,
 ) -> None:
     if target is None:
         return
     if (
-        target.plugin_name == "github"
+        target.app_name == "github"
         and target.operation == REVIEW_PULL_REQUEST_OPERATION
         and comments.inline_policy == WEBHOOK_INLINE_NEVER
     ):
@@ -741,14 +733,14 @@ def validate_policy_comments_for_workflow_target(
 
 
 def validate_policy_action_gates_for_workflow_target(
-    target: GitHubWorkflowPluginTarget | None,
+    target: GitHubWorkflowAppTarget | None,
     allow_code_review_comments: bool,
     policy_index: int,
 ) -> None:
     if target is None:
         return
     if (
-        target.plugin_name == "github"
+        target.app_name == "github"
         and target.operation == REVIEW_PULL_REQUEST_OPERATION
         and not allow_code_review_comments
     ):

@@ -191,102 +191,62 @@ properties:
             target:
               type: object
               additionalProperties: false
+              required:
+                - steps
               description: >-
                 Optional workflow target for this policy. If omitted, the
-                webhook starts or signals the generated agent target. Use
-                steps for gestaltd v6 config; plugin remains supported for
-                legacy deployments.
-              oneOf:
-                - required:
-                    - plugin
-                  properties:
-                    plugin:
-                      type: object
-                      additionalProperties: false
-                      required:
-                        - plugin
-                        - operation
-                      properties:
-                        plugin:
-                          type: string
-                          minLength: 1
-                          description: Workflow target app name (legacy field name).
-                        operation:
-                          type: string
-                          minLength: 1
-                          description: Workflow target operation.
-                        connection:
-                          type: string
-                          description: Optional workflow target connection.
-                        instance:
-                          type: string
-                          description: Optional workflow target instance.
-                        credentialMode:
-                          type: string
-                          enum:
-                            - none
-                            - user
-                          description: Optional workflow target credential mode.
-                        input:
-                          type: object
-                          description: >-
-                            Static workflow target input. Webhook event data is
-                            delivered in workflow signals, not merged into this
-                            object.
-                          additionalProperties: true
-                - required:
-                    - steps
-                  properties:
-                    steps:
-                      type: array
-                      minItems: 1
-                      description: >-
-                        gestaltd v6 step-based workflow target. The GitHub app
-                        reads the first step that defines app.
-                      items:
+                webhook starts or signals the generated agent target.
+              properties:
+                steps:
+                  type: array
+                  minItems: 1
+                  description: >-
+                    gestaltd v6 step-based workflow target. The GitHub app
+                    reads the first step that defines app.
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required:
+                      - id
+                    properties:
+                      id:
+                        type: string
+                        minLength: 1
+                        description: Stable step identifier.
+                      app:
                         type: object
                         additionalProperties: false
                         required:
-                          - id
+                          - name
+                          - operation
                         properties:
-                          id:
+                          name:
                             type: string
                             minLength: 1
-                            description: Stable step identifier.
-                          app:
+                            description: Workflow target app name.
+                          operation:
+                            type: string
+                            minLength: 1
+                            description: Workflow target operation.
+                          connection:
+                            type: string
+                            description: Optional workflow target connection.
+                          instance:
+                            type: string
+                            description: Optional workflow target instance.
+                          credentialMode:
+                            type: string
+                            enum:
+                              - none
+                              - user
+                            description: Optional workflow target credential mode.
+                          input:
                             type: object
-                            additionalProperties: false
-                            required:
-                              - name
-                              - operation
-                            properties:
-                              name:
-                                type: string
-                                minLength: 1
-                                description: Workflow target app name.
-                              operation:
-                                type: string
-                                minLength: 1
-                                description: Workflow target operation.
-                              connection:
-                                type: string
-                                description: Optional workflow target connection.
-                              instance:
-                                type: string
-                                description: Optional workflow target instance.
-                              credentialMode:
-                                type: string
-                                enum:
-                                  - none
-                                  - user
-                                description: Optional workflow target credential mode.
-                              input:
-                                type: object
-                                description: >-
-                                  Static workflow target input. Webhook event
-                                  data is delivered in workflow signals, not
-                                  merged into this object.
-                                additionalProperties: true
+                            description: >-
+                              Static workflow target input. Webhook event
+                              data is delivered in workflow signals, not
+                              merged into this object.
+                            additionalProperties: true
         agent:
           type: object
           additionalProperties: false
