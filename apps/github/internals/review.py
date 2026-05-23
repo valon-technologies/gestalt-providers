@@ -696,7 +696,7 @@ def review_policy_tool_ref_operations(signal: Mapping[str, Any]) -> list[str]:
 
 def review_policy_tool_refs(signal: Mapping[str, Any]) -> list[Any]:
     return [
-        gestalt.AgentToolRef(plugin="github", operation=operation)
+        gestalt.AgentToolRef(app="github", operation=operation)
         for operation in review_policy_tool_ref_operations(signal)
     ]
 

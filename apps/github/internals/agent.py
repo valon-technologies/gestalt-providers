@@ -97,33 +97,61 @@ def workflow_target(
 
 
 def workflow_plugin_target(target: GitHubWorkflowPluginTarget) -> Any:
-    plugin = gestalt.BoundWorkflowPluginTarget(
-        plugin_name=target.plugin_name,
+    step_type = getattr(gestalt, "WorkflowStep", None)
+    app_type = getattr(gestalt, "WorkflowStepAppCall", None)
+    value_type = getattr(gestalt, "WorkflowValue", None)
+    if step_type is None or app_type is None:
+        raise RuntimeError("Gestalt SDK with workflow step support is required")
+    app_input: Any = None
+    if target.input is not None:
+        app_input = (
+            value_type(object=target.input)
+            if value_type is not None
+            else target.input
+        )
+    app_call = app_type(
+        name=target.plugin_name,
         operation=target.operation,
-        connection=target.connection,
-        instance=target.instance,
-        credential_mode=target.credential_mode,
-        input=target.input,
+        connection=target.connection or "",
+        instance=target.instance or "",
+        credential_mode=target.credential_mode or "",
+        input=app_input,
     )
-    return gestalt.BoundWorkflowTarget(plugin=plugin)
+    return gestalt.BoundWorkflowTarget(steps=[step_type(id="run", app=app_call)])
 
 
 def workflow_agent_target(
     summary: dict[str, Any], policy: GitHubWebhookPolicy | None = None
 ) -> Any:
+    step_type = getattr(gestalt, "WorkflowStep", None)
+    agent_type = getattr(gestalt, "WorkflowStepAgentTurn", None)
+    if step_type is None or agent_type is None:
+        raise RuntimeError("Gestalt SDK with workflow step support is required")
     model_options = agent_model_options(policy)
-    agent = gestalt.BoundWorkflowAgentTarget(
-        provider_name=agent_provider(policy),
+    system_prompt = agent_system_prompt(policy)
+    text_type = getattr(gestalt, "WorkflowText", None)
+    message_type = getattr(gestalt, "WorkflowAgentMessage", None)
+    if message_type is not None and text_type is not None:
+        messages = [
+            message_type(role="system", text=text_type(template=system_prompt))
+        ]
+        prompt = text_type(template=workflow_agent_prompt())
+    else:
+        messages = [gestalt.AgentMessage(role="system", text=system_prompt)]
+        prompt = workflow_agent_prompt()
+    agent_turn = agent_type(
+        provider=agent_provider(policy),
         model=agent_model(policy),
-        prompt=workflow_agent_prompt(),
-        messages=[
-            gestalt.AgentMessage(role="system", text=agent_system_prompt(policy))
-        ],
-        tool_refs=agent_tool_refs(policy),
-        metadata=agent_session_metadata(summary, policy),
+        prompt=prompt,
+        messages=messages,
+        tools=agent_tool_refs(policy),
         model_options=model_options or None,
     )
-    return gestalt.BoundWorkflowTarget(agent=agent)
+    metadata = agent_session_metadata(summary, policy)
+    step_kwargs: dict[str, Any] = {"id": "run", "agent": agent_turn}
+    if metadata:
+        step_kwargs["metadata"] = metadata
+    return gestalt.BoundWorkflowTarget(steps=[step_type(**step_kwargs)])
 
 
 def workflow_signal_payload(
@@ -164,7 +192,7 @@ def workflow_agent_prompt() -> str:
 
 def agent_tool_refs(policy: GitHubWebhookPolicy | None = None) -> list[Any]:
     return [
-        gestalt.AgentToolRef(plugin="github", operation=operation)
+        gestalt.AgentToolRef(app="github", operation=operation)
         for operation in agent_operations(policy)
     ]
 

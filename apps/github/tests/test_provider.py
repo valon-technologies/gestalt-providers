@@ -39,6 +39,73 @@ def sdk_value_to_dict(value: Any) -> Any:
     return value
 
 
+def _workflow_message_text(message: Any) -> str:
+    text = getattr(message, "text", "")
+    template = getattr(text, "template", None)
+    if template is not None:
+        return str(template)
+    return str(text)
+
+
+class _WorkflowAgentView:
+    def __init__(self, step: Any, agent: Any) -> None:
+        self.provider_name = getattr(agent, "provider", "") or getattr(
+            agent, "provider_name", ""
+        )
+        self.model = getattr(agent, "model", "")
+        self.metadata = getattr(step, "metadata", None) or getattr(
+            agent, "metadata", None
+        )
+        self.model_options = getattr(agent, "model_options", None)
+        tools = getattr(agent, "tools", None) or getattr(agent, "tool_refs", None) or []
+        self.tool_refs = tools
+        self.messages = [
+            _WorkflowMessageView(message)
+            for message in (getattr(agent, "messages", None) or [])
+        ]
+
+
+class _WorkflowMessageView:
+    def __init__(self, message: Any) -> None:
+        self.role = getattr(message, "role", "")
+        self.text = _workflow_message_text(message)
+
+
+class _WorkflowAppView:
+    def __init__(self, app: Any) -> None:
+        self.plugin_name = getattr(app, "name", "") or getattr(app, "plugin_name", "")
+        self.operation = getattr(app, "operation", "")
+        self.connection = getattr(app, "connection", "")
+        self.instance = getattr(app, "instance", "")
+        self.credential_mode = getattr(app, "credential_mode", "")
+        input_value = getattr(app, "input", None)
+        if input_value is not None and hasattr(input_value, "object"):
+            input_value = getattr(input_value, "object", input_value)
+        self.input = input_value
+
+
+def workflow_target_agent(target: Any) -> _WorkflowAgentView:
+    legacy = getattr(target, "agent", None)
+    if legacy is not None:
+        return _WorkflowAgentView(SimpleNamespace(metadata=getattr(legacy, "metadata", None)), legacy)
+    for step in getattr(target, "steps", None) or []:
+        agent = getattr(step, "agent", None)
+        if agent is not None:
+            return _WorkflowAgentView(step, agent)
+    raise AssertionError("workflow target has no agent step")
+
+
+def workflow_target_app(target: Any) -> _WorkflowAppView:
+    legacy = getattr(target, "plugin", None)
+    if legacy is not None:
+        return _WorkflowAppView(legacy)
+    for step in getattr(target, "steps", None) or []:
+        app = getattr(step, "app", None)
+        if app is not None:
+            return _WorkflowAppView(app)
+    raise AssertionError("workflow target has no app step")
+
+
 class FakeHTTPResponse:
     def __init__(self, body: Any = None) -> None:
         self._body = json.dumps(body or {}).encode("utf-8")
@@ -1284,7 +1351,7 @@ class GitHubProviderTests(unittest.TestCase):
             )
         )
 
-        agent = request.target.agent
+        agent = workflow_target_agent(request.target)
         self.assertEqual(agent.provider_name, "simple")
         self.assertEqual(agent.model, "deep")
         self.assertNotIn("bot.createPullRequestReview", agent.messages[0].text)
@@ -1396,7 +1463,7 @@ class GitHubProviderTests(unittest.TestCase):
                     self.assertEqual(data["summary"]["number"], number)
                 self.assertIn(
                     event_type,
-                    sdk_value_to_dict(request.target.agent.metadata)["github"][
+                    sdk_value_to_dict(workflow_target_agent(request.target).metadata)["github"][
                         "session_ref"
                     ],
                 )
@@ -1636,7 +1703,7 @@ class GitHubProviderTests(unittest.TestCase):
         }
         inline_only = self._workflow_signal_request({**base, "action": "opened"})
         inline_operations = [
-            tool.operation for tool in inline_only.target.agent.tool_refs
+            tool.operation for tool in workflow_target_agent(inline_only.target).tool_refs
         ]
         self.assertEqual(
             inline_operations,
@@ -1646,7 +1713,7 @@ class GitHubProviderTests(unittest.TestCase):
                 provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
             ],
         )
-        system_prompt = inline_only.target.agent.messages[0].text
+        system_prompt = workflow_target_agent(inline_only.target).messages[0].text
         self.assertIn("line-anchored findings", system_prompt)
         self.assertNotIn("pull request timeline comments", system_prompt)
         data = cast(
@@ -1668,7 +1735,7 @@ class GitHubProviderTests(unittest.TestCase):
 
         timeline_only = self._workflow_signal_request({**base, "action": "synchronize"})
         timeline_operations = [
-            tool.operation for tool in timeline_only.target.agent.tool_refs
+            tool.operation for tool in workflow_target_agent(timeline_only.target).tool_refs
         ]
         self.assertNotIn(
             provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
@@ -1720,7 +1787,7 @@ class GitHubProviderTests(unittest.TestCase):
             }
         )
 
-        operations = [tool.operation for tool in request.target.agent.tool_refs]
+        operations = [tool.operation for tool in workflow_target_agent(request.target).tool_refs]
         self.assertEqual(
             operations,
             [
@@ -1729,7 +1796,7 @@ class GitHubProviderTests(unittest.TestCase):
                 provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
             ],
         )
-        system_prompt = request.target.agent.messages[0].text
+        system_prompt = workflow_target_agent(request.target).messages[0].text
         self.assertIn("disables code review comments", system_prompt)
         self.assertIn("disables self-fix tools", system_prompt)
         self.assertNotIn("bot.createPullRequestReview", system_prompt)
@@ -1776,7 +1843,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         disabled = self._workflow_signal_request(payload)
         disabled_operations = [
-            tool.operation for tool in disabled.target.agent.tool_refs
+            tool.operation for tool in workflow_target_agent(disabled.target).tool_refs
         ]
         self.assertNotIn(
             provider_module.BOT_COMMIT_FILES_OPERATION, disabled_operations
@@ -1802,7 +1869,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         branch_only = self._workflow_signal_request(payload)
         branch_operations = [
-            tool.operation for tool in branch_only.target.agent.tool_refs
+            tool.operation for tool in workflow_target_agent(branch_only.target).tool_refs
         ]
         self.assertIn(provider_module.BOT_COMMIT_FILES_OPERATION, branch_operations)
         self.assertNotIn(
@@ -1858,7 +1925,7 @@ class GitHubProviderTests(unittest.TestCase):
             request = self._workflow_signal_request(self._pr_issue_comment_payload())
 
         get_pull_request.assert_called_once()
-        operations = [tool.operation for tool in request.target.agent.tool_refs]
+        operations = [tool.operation for tool in workflow_target_agent(request.target).tool_refs]
         self.assertEqual(
             operations,
             [
@@ -1868,7 +1935,7 @@ class GitHubProviderTests(unittest.TestCase):
                 provider_module.BOT_COMMIT_FILES_OPERATION,
             ],
         )
-        system_prompt = request.target.agent.messages[0].text
+        system_prompt = workflow_target_agent(request.target).messages[0].text
         self.assertIn("Self-fix is same-PR mode", system_prompt)
         self.assertIn("pull_request.head_ref value as branch", system_prompt)
         self.assertNotIn("bot.createPullRequest ", system_prompt)
@@ -1939,7 +2006,7 @@ class GitHubProviderTests(unittest.TestCase):
             request = self._workflow_signal_request(self._pr_issue_comment_payload())
 
         get_pull_request.assert_called_once()
-        operations = [tool.operation for tool in request.target.agent.tool_refs]
+        operations = [tool.operation for tool in workflow_target_agent(request.target).tool_refs]
         self.assertIn(provider_module.BOT_COMMIT_FILES_OPERATION, operations)
         self.assertNotIn(provider_module.BOT_OPEN_PULL_REQUEST_OPERATION, operations)
         self.assertNotIn(provider_module.BOT_CREATE_PULL_REQUEST_OPERATION, operations)
@@ -2132,7 +2199,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn("action_preferences", data["webhook_policy"])
         self.assertIn(
             provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
-            [tool.operation for tool in request.target.agent.tool_refs],
+            [tool.operation for tool in workflow_target_agent(request.target).tool_refs],
         )
 
     def test_action_preferences_external_record_disables_inline_review_tool(
@@ -2184,7 +2251,7 @@ class GitHubProviderTests(unittest.TestCase):
         ):
             request = self._workflow_signal_request(self._preference_pr_payload())
 
-        operations = [tool.operation for tool in request.target.agent.tool_refs]
+        operations = [tool.operation for tool in workflow_target_agent(request.target).tool_refs]
         self.assertNotIn(
             provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION, operations
         )
@@ -2252,7 +2319,7 @@ class GitHubProviderTests(unittest.TestCase):
         ):
             request = self._workflow_signal_request(self._preference_pr_payload())
 
-        operations = [tool.operation for tool in request.target.agent.tool_refs]
+        operations = [tool.operation for tool in workflow_target_agent(request.target).tool_refs]
         self.assertNotIn(provider_module.BOT_COMMIT_FILES_OPERATION, operations)
         self.assertNotIn(provider_module.BOT_OPEN_PULL_REQUEST_OPERATION, operations)
         self.assertNotIn(provider_module.BOT_CREATE_PULL_REQUEST_OPERATION, operations)
@@ -2315,7 +2382,7 @@ class GitHubProviderTests(unittest.TestCase):
         ):
             request = self._workflow_signal_request(self._preference_pr_payload())
 
-        operations = [tool.operation for tool in request.target.agent.tool_refs]
+        operations = [tool.operation for tool in workflow_target_agent(request.target).tool_refs]
         self.assertNotIn(
             provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION, operations
         )
@@ -2372,7 +2439,7 @@ class GitHubProviderTests(unittest.TestCase):
                     )
                 self.assertIn(
                     provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
-                    [tool.operation for tool in request.target.agent.tool_refs],
+                    [tool.operation for tool in workflow_target_agent(request.target).tool_refs],
                 )
 
     def test_action_preferences_dynamic_false_ignores_builtin_review_target(
@@ -3302,7 +3369,7 @@ class GitHubProviderTests(unittest.TestCase):
             ":policy:failed-ci-comment:",
             request.idempotency_key,
         )
-        agent = request.target.agent
+        agent = workflow_target_agent(request.target)
         self.assertEqual(agent.model, "deep")
         self.assertIn("bot.getPullRequest", agent.messages[0].text)
         self.assertIn("bot.listPullRequestFiles", agent.messages[0].text)
@@ -3519,10 +3586,10 @@ class GitHubProviderTests(unittest.TestCase):
             sdk_value_to_dict(plugin_request.signal.metadata),
             sdk_value_to_dict(agent_request.signal.metadata),
         )
-        self.assertIsNotNone(agent_request.target.agent)
-        self.assertIsNotNone(plugin_request.target.plugin)
+        self.assertIsNotNone(workflow_target_agent(agent_request.target))
+        self.assertIsNotNone(workflow_target_app(plugin_request.target))
 
-        plugin = plugin_request.target.plugin
+        plugin = workflow_target_app(plugin_request.target)
         self.assertEqual(plugin.plugin_name, "github")
         self.assertEqual(plugin.operation, "reviewPullRequest")
         self.assertEqual(plugin.connection, "review-bot")
@@ -6273,7 +6340,7 @@ class GitHubProviderTests(unittest.TestCase):
             "github:99:acme/widgets:policy:push-observe",
         )
         self.assertEqual(
-            [tool.operation for tool in request.target.agent.tool_refs],
+            [tool.operation for tool in workflow_target_agent(request.target).tool_refs],
             [
                 provider_module.BOT_GET_REPOSITORY_OPERATION,
                 provider_module.BOT_SEARCH_CODE_OPERATION,
@@ -6696,7 +6763,7 @@ class GitHubProviderTests(unittest.TestCase):
                 "sender": {"login": "octocat"},
             }
         )
-        self.assertEqual([tool.operation for tool in empty.target.agent.tool_refs], [])
+        self.assertEqual([tool.operation for tool in workflow_target_agent(empty.target).tool_refs], [])
 
         ordered = self._workflow_signal_request(
             {
@@ -6709,7 +6776,7 @@ class GitHubProviderTests(unittest.TestCase):
             }
         )
         self.assertEqual(
-            [tool.operation for tool in ordered.target.agent.tool_refs],
+            [tool.operation for tool in workflow_target_agent(ordered.target).tool_refs],
             [
                 provider_module.BOT_GET_CHECK_RUN_OPERATION,
                 provider_module.BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
@@ -6751,7 +6818,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         defaults = self._workflow_signal_request(pull_request_payload)
         default_operations = [
-            tool.operation for tool in defaults.target.agent.tool_refs
+            tool.operation for tool in workflow_target_agent(defaults.target).tool_refs
         ]
         self.assertFalse(new_operations.intersection(default_operations))
 
@@ -6778,7 +6845,7 @@ class GitHubProviderTests(unittest.TestCase):
             },
         )
         explicit = self._workflow_signal_request(pull_request_payload)
-        agent = explicit.target.agent
+        agent = workflow_target_agent(explicit.target)
         self.assertEqual(
             [tool.operation for tool in agent.tool_refs],
             [
@@ -6814,7 +6881,7 @@ class GitHubProviderTests(unittest.TestCase):
             },
         )
         add_only = self._workflow_signal_request(pull_request_payload)
-        add_only_text = add_only.target.agent.messages[0].text
+        add_only_text = workflow_target_agent(add_only.target).messages[0].text
         self.assertIn("pull requests", add_only_text)
         self.assertIn("bot.addLabels", add_only_text)
         self.assertNotIn("bot.removeLabels", add_only_text)
@@ -6870,7 +6937,7 @@ class GitHubProviderTests(unittest.TestCase):
             request.workflow_key,
             "github:99:acme/widgets:7:policy:pr-review",
         )
-        agent = request.target.agent
+        agent = workflow_target_agent(request.target)
         self.assertIn(
             "inspect pull request metadata and diff patches",
             agent.messages[0].text,

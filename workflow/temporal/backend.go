@@ -829,11 +829,8 @@ func workflowTelemetryTargetKindInput(target *gestalt.BoundWorkflowTarget) strin
 	if target == nil {
 		return gestalt.WorkflowTargetKindUnknown
 	}
-	if targetHasAgentStep(target) {
-		return gestalt.WorkflowTargetKindAgent
-	}
-	if targetHasAppStep(target) {
-		return gestalt.WorkflowTargetKindApp
+	if len(target.Steps) > 0 {
+		return gestalt.WorkflowTargetKindSteps
 	}
 	return gestalt.WorkflowTargetKindUnknown
 }

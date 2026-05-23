@@ -980,7 +980,7 @@ async fn rejects_unsupported_tool_and_model_options() {
             }],
             tool_source: gestalt::AgentToolSourceMode::McpCatalog,
             tool_refs: vec![gestalt::AgentToolRef {
-                plugin: "*".to_string(),
+                app: "*".to_string(),
                 ..Default::default()
             }],
             created_by: Some(owner_actor()),
@@ -1569,7 +1569,7 @@ impl AgentHostRpc for TestAgentHostService {
                             r#"{"type":"object","properties":{"query":{"type":"string"}}}"#
                                 .to_string(),
                         r#ref: Some(proto::AgentToolRef {
-                            plugin: "linear".to_string(),
+                            app: "linear".to_string(),
                             operation: format!("partial-{index}"),
                             ..Default::default()
                         }),
@@ -1607,7 +1607,7 @@ impl AgentHostRpc for TestAgentHostService {
                             ..Default::default()
                         }),
                         r#ref: Some(proto::AgentToolRef {
-                            plugin: "linear".to_string(),
+                            app: "linear".to_string(),
                             ..Default::default()
                         }),
                         ..Default::default()
@@ -1629,7 +1629,7 @@ impl AgentHostRpc for TestAgentHostService {
                         description: "Unsafe MCP name".to_string(),
                         input_schema: r#"{"type":"object"}"#.to_string(),
                         r#ref: Some(proto::AgentToolRef {
-                            plugin: "linear".to_string(),
+                            app: "linear".to_string(),
                             operation: "issues".to_string(),
                             ..Default::default()
                         }),
@@ -1654,7 +1654,7 @@ impl AgentHostRpc for TestAgentHostService {
                             r#"{"type":"object","properties":{"schemaOnlySecret":{"type":"string"}}}"#
                                 .to_string(),
                         r#ref: Some(proto::AgentToolRef {
-                            plugin: "neutral".to_string(),
+                            app: "neutral".to_string(),
                             operation: "lookup".to_string(),
                             ..Default::default()
                         }),
@@ -1675,7 +1675,7 @@ impl AgentHostRpc for TestAgentHostService {
                             ..Default::default()
                         }),
                         r#ref: Some(proto::AgentToolRef {
-                            plugin: "linear".to_string(),
+                            app: "linear".to_string(),
                             operation: "issues".to_string(),
                             ..Default::default()
                         }),
@@ -1734,7 +1734,7 @@ fn listed_tool(id: &str, mcp_name: &str, title: &str) -> proto::ListedAgentTool 
             ..Default::default()
         }),
         r#ref: Some(proto::AgentToolRef {
-            plugin: "linear".to_string(),
+            app: "linear".to_string(),
             operation: "issues".to_string(),
             ..Default::default()
         }),
@@ -1983,7 +1983,7 @@ async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> gesta
             }],
             tool_source: gestalt::AgentToolSourceMode::McpCatalog,
             tool_refs: vec![gestalt::AgentToolRef {
-                plugin: "*".to_string(),
+                app: "*".to_string(),
                 ..Default::default()
             }],
             run_grant: "grant-mcp".to_string(),

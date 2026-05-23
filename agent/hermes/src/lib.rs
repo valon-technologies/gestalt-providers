@@ -926,18 +926,18 @@ fn validate_turn_request(req: &gestalt::CreateAgentProviderTurnRequest) -> gesta
 fn validate_mcp_catalog_tool_refs(refs: &[gestalt::AgentToolRef]) -> gestalt::Result<()> {
     for (index, tool_ref) in refs.iter().enumerate() {
         let system = tool_ref.system.trim();
-        let plugin = tool_ref.plugin.trim();
+        let app = tool_ref.app.trim();
         let operation = tool_ref.operation.trim();
         let connection = tool_ref.connection.trim();
         let instance = tool_ref.instance.trim();
         let title = tool_ref.title.trim();
         let description = tool_ref.description.trim();
-        if system.is_empty() && plugin.is_empty() {
+        if system.is_empty() && app.is_empty() {
             return Err(gestalt::Error::bad_request(format!(
                 "tool_refs[{index}].plugin or system is required"
             )));
         }
-        if !system.is_empty() && !plugin.is_empty() {
+        if !system.is_empty() && !app.is_empty() {
             return Err(gestalt::Error::bad_request(format!(
                 "tool_refs[{index}] must set exactly one of plugin or system"
             )));
@@ -974,7 +974,7 @@ fn validate_mcp_catalog_tool_refs(refs: &[gestalt::AgentToolRef]) -> gestalt::Re
                 "tool_refs[{index}] wildcard fields are not supported"
             )));
         }
-        if plugin == "*"
+        if app == "*"
             && (!operation.is_empty()
                 || !connection.is_empty()
                 || !instance.is_empty()

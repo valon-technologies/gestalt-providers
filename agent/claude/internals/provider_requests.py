@@ -218,7 +218,7 @@ def _validate_tool_refs(tool_refs: list[Any]) -> None:
 def _tool_ref_request(*, index: int, ref: Any) -> ToolRefRequest:
     return ToolRefRequest(
         index=index,
-        plugin=_text(getattr(ref, "plugin", "")),
+        plugin=_text(getattr(ref, "app", "") or getattr(ref, "plugin", "")),
         system=_text(getattr(ref, "system", "")),
         operation=_text(getattr(ref, "operation", "")),
         connection=_text(getattr(ref, "connection", "")),

@@ -526,7 +526,7 @@ class CodexProviderTests(unittest.TestCase):
         request = _turn_request(turn_id="turn-grant", session_id="session-grant")
         del request.tool_refs[:]
         ref = request.tool_refs.add()
-        ref.plugin = "notion"
+        ref.app = "notion"
         ref.operation = "search"
         provider_client.CreateTurn(request)
 
@@ -573,7 +573,7 @@ class CodexProviderTests(unittest.TestCase):
         _assert_invalid(provider_client, missing_refs, "tool_refs are required")
 
         wildcard_ref = _turn_request(turn_id="turn-wildcard", session_id="session-validation")
-        wildcard_ref.tool_refs[0].plugin = "*"
+        wildcard_ref.tool_refs[0].app = "*"
         _assert_invalid(provider_client, wildcard_ref, "wildcard tool_refs are not supported")
 
         response_schema = struct_pb2.Struct()
@@ -802,10 +802,10 @@ def _turn_request(
         subject=_subject_context("user-123"),
     )
     linear = request.tool_refs.add()
-    linear.plugin = "linear"
+    linear.app = "linear"
     linear.operation = "searchIssues"
     github = request.tool_refs.add()
-    github.plugin = "github"
+    github.app = "github"
     github.operation = "pulls/list"
     if response_schema is not None:
         request.response_schema.CopyFrom(response_schema)

@@ -590,7 +590,7 @@ function validateToolRefs(
     throw invalidArgument("tool_refs are required for mcp_catalog turns");
   }
   toolRefs.forEach((ref, index) => {
-    const plugin = (ref.plugin ?? "").trim();
+    const app = (ref.app ?? ref.plugin ?? "").trim();
     const system = (ref.system ?? "").trim();
     const operation = (ref.operation ?? "").trim();
     const connection = (ref.connection ?? "").trim();
@@ -599,12 +599,12 @@ function validateToolRefs(
     if (!operation) {
       throw invalidArgument(`${label}.operation is required`);
     }
-    if ([plugin, system, operation, connection, instance].includes("*")) {
+    if ([app, system, operation, connection, instance].includes("*")) {
       throw invalidArgument("wildcard tool_refs are not supported");
     }
-    if (Boolean(plugin) === Boolean(system)) {
+    if (Boolean(app) === Boolean(system)) {
       throw invalidArgument(
-        `${label} must set exactly one of plugin or system`,
+        `${label} must set exactly one of app or system`,
       );
     }
     if (system && system !== "workflow") {

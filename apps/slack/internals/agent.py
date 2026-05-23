@@ -4,7 +4,6 @@ import base64
 import binascii
 import hashlib
 import hmac
-import inspect
 import json
 import logging
 import time

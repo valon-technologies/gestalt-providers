@@ -2035,10 +2035,10 @@ def _turn_request(
         request.timeout_seconds = timeout_seconds
     if include_tool_refs:
         linear = request.tool_refs.add()
-        linear.plugin = "linear"
+        linear.app = "linear"
         linear.operation = "searchIssues"
         github = request.tool_refs.add()
-        github.plugin = "github"
+        github.app = "github"
         github.operation = "pulls/list"
     if response_schema is not None:
         request.response_schema.CopyFrom(response_schema)

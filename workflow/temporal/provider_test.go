@@ -1847,14 +1847,14 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 	metrictestAttrs := temporalWorkflowMetricAttrs(
 		gestalt.WorkflowOperationPublishEvent,
 		gestalt.WorkflowTriggerKindEvent,
-		gestalt.WorkflowTargetKindApp,
+		gestalt.WorkflowTargetKindSteps,
 		gestalt.WorkflowRunStatusUnknown,
 	)
 	requireTemporalInt64Sum(t, rm, "gestaltd.workflows.events.matched_triggers.count", 2, metrictestAttrs)
 	requireTemporalInt64Sum(t, rm, "gestaltd.workflows.runs.started.count", 2, temporalWorkflowMetricAttrs(
 		gestalt.WorkflowOperationPublishEvent,
 		gestalt.WorkflowTriggerKindEvent,
-		gestalt.WorkflowTargetKindApp,
+		gestalt.WorkflowTargetKindSteps,
 		gestalt.WorkflowRunStatusPending,
 	))
 }
