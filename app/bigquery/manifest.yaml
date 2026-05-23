@@ -1,0 +1,169 @@
+source: github.com/valon-technologies/gestalt-providers/app/bigquery
+version: 0.0.1-alpha.1
+displayName: BigQuery
+description: Google BigQuery data warehouse
+iconFile: assets/icon.svg
+kind: app
+spec:
+  surfaces:
+    rest:
+      connection: default
+      baseUrl: https://bigquery.googleapis.com/bigquery/v2
+      operations:
+      - name: list_datasets
+        description: List datasets in a project
+        method: GET
+        path: /projects/{project_id}/datasets
+        parameters:
+        - name: project_id
+          type: string
+          in: path
+          required: true
+        - name: maxResults
+          type: int
+          in: query
+      - name: get_dataset
+        description: Get dataset metadata
+        method: GET
+        path: /projects/{project_id}/datasets/{dataset_id}
+        parameters:
+        - name: project_id
+          type: string
+          in: path
+          required: true
+        - name: dataset_id
+          type: string
+          in: path
+          required: true
+      - name: insert_dataset
+        description: Create a dataset in a project
+        method: POST
+        path: /projects/{project_id}/datasets
+        parameters:
+        - name: project_id
+          type: string
+          in: path
+          required: true
+        - name: datasetReference
+          type: object
+          in: body
+          required: true
+        - name: location
+          type: string
+          in: body
+        - name: friendlyName
+          type: string
+          in: body
+        - name: description
+          type: string
+          in: body
+        - name: labels
+          type: object
+          in: body
+      - name: list_tables
+        description: List tables in a dataset
+        method: GET
+        path: /projects/{project_id}/datasets/{dataset_id}/tables
+        parameters:
+        - name: project_id
+          type: string
+          in: path
+          required: true
+        - name: dataset_id
+          type: string
+          in: path
+          required: true
+        - name: maxResults
+          type: int
+          in: query
+      - name: get_table
+        description: Get table metadata
+        method: GET
+        path: /projects/{project_id}/datasets/{dataset_id}/tables/{table_id}
+        parameters:
+        - name: project_id
+          type: string
+          in: path
+          required: true
+        - name: dataset_id
+          type: string
+          in: path
+          required: true
+        - name: table_id
+          type: string
+          in: path
+          required: true
+      - name: list_routines
+        description: List routines in a dataset
+        method: GET
+        path: /projects/{project_id}/datasets/{dataset_id}/routines
+        parameters:
+        - name: project_id
+          type: string
+          in: path
+          required: true
+        - name: dataset_id
+          type: string
+          in: path
+          required: true
+        - name: maxResults
+          type: int
+          in: query
+      - name: insert_job
+        description: Start a BigQuery job, including asynchronous query jobs
+        method: POST
+        path: /projects/{project_id}/jobs
+        parameters:
+        - name: project_id
+          type: string
+          in: path
+          required: true
+        - name: jobReference
+          type: object
+          in: body
+        - name: configuration
+          type: object
+          in: body
+          required: true
+        - name: labels
+          type: object
+          in: body
+      - name: get_query_results
+        description: Poll or page through BigQuery query job results
+        method: GET
+        path: /projects/{project_id}/queries/{job_id}
+        parameters:
+        - name: project_id
+          type: string
+          in: path
+          required: true
+        - name: job_id
+          type: string
+          in: path
+          required: true
+        - name: location
+          type: string
+          in: query
+        - name: maxResults
+          type: int
+          in: query
+        - name: pageToken
+          type: string
+          in: query
+        - name: startIndex
+          type: string
+          in: query
+        - name: timeoutMs
+          type: int
+          in: query
+  connections:
+    default:
+      auth:
+        type: oauth2
+        authorizationUrl: https://accounts.google.com/o/oauth2/v2/auth
+        tokenUrl: https://oauth2.googleapis.com/token
+        scopes:
+        - https://www.googleapis.com/auth/bigquery
+        authorizationParams:
+          access_type: offline
+          prompt: consent

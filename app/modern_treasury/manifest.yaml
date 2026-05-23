@@ -1,0 +1,100 @@
+source: github.com/valon-technologies/gestalt-providers/app/modern_treasury
+version: 0.0.1-alpha.1
+displayName: Modern Treasury
+description: Create payment orders, manage external accounts, and inspect treasury activity in Modern Treasury.
+iconFile: assets/icon.svg
+kind: app
+spec:
+  surfaces:
+    openapi:
+      connection: default
+      document: openapi.yaml
+  allowedOperations:
+    counterparties.list:
+      alias: listCounterparties
+      paginate: true
+    counterparties.get:
+      alias: getCounterparty
+    counterparties.create:
+      alias: createCounterparty
+    counterparties.update:
+      alias: updateCounterparty
+    externalAccounts.list:
+      alias: listExternalAccounts
+      paginate: true
+    externalAccounts.get:
+      alias: getExternalAccount
+    externalAccounts.create:
+      alias: createExternalAccount
+    externalAccounts.update:
+      alias: updateExternalAccount
+    internalAccounts.list:
+      alias: listInternalAccounts
+      paginate: true
+    internalAccounts.get:
+      alias: getInternalAccount
+    paymentOrders.list:
+      alias: listPaymentOrders
+      paginate: true
+    paymentOrders.get:
+      alias: getPaymentOrder
+    paymentOrders.create:
+      alias: createPaymentOrder
+    paymentOrders.update:
+      alias: updatePaymentOrder
+      description: Update a payment order. To cancel a payment order, set `status` to `cancelled`.
+    transactions.list:
+      alias: listTransactions
+      paginate: true
+    transactions.get:
+      alias: getTransaction
+    returns.list:
+      alias: listReturns
+      paginate: true
+    returns.get:
+      alias: getReturn
+    incomingPaymentDetails.list:
+      alias: listIncomingPaymentDetails
+      paginate: true
+    incomingPaymentDetails.get:
+      alias: getIncomingPaymentDetail
+    incomingPaymentDetails.update:
+      alias: updateIncomingPaymentDetail
+    balanceReports.list:
+      alias: listBalanceReports
+      paginate: true
+    balanceReports.get:
+      alias: getBalanceReport
+    routingNumbers.validate:
+      alias: validateRoutingNumber
+  connections:
+    default:
+      mode: user
+      auth:
+        type: manual
+        credentials:
+        - name: organization_id
+          label: Organization ID
+          description: Find this in Modern Treasury under Developers > API Keys.
+        - name: api_key
+          label: API Key
+          description: Create a key in [Settings > API keys](https://app.moderntreasury.com/settings/api_keys).
+        authMapping:
+          basic:
+            username:
+              valueFrom:
+                credentialFieldRef:
+                  name: organization_id
+            password:
+              valueFrom:
+                credentialFieldRef:
+                  name: api_key
+  pagination:
+    style: cursor
+    cursorParam: after_cursor
+    cursor:
+      source: header
+      path: X-After-Cursor
+    limitParam: per_page
+    resultsPath: ''
+    defaultLimit: 100

@@ -1,0 +1,16 @@
+source: github.com/valon-technologies/gestalt-providers/app/datadog
+version: 0.0.1-alpha.1
+displayName: Datadog
+description: Manage dashboards, monitors, incidents, logs, RUM, CI Visibility, Synthetics, users, and roles.
+iconFile: assets/icon.svg
+kind: app
+spec:
+  surfaces:
+    openapi:
+      connection: default
+      document: openapi.yaml
+  connections:
+    default:
+      mode: user
+      auth:
+        type: manual

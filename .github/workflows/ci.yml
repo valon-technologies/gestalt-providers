@@ -8,7 +8,7 @@ on:
       - 'registry/**'
       - 'agent/**'
       - 'runtime/**'
-      - 'apps/**'
+      - 'app/**'
       - 'auth/**'
       - 'authorization/**'
       - 'externalcredentials/**'
@@ -29,7 +29,7 @@ on:
       - 'registry/**'
       - 'agent/**'
       - 'runtime/**'
-      - 'apps/**'
+      - 'app/**'
       - 'auth/**'
       - 'authorization/**'
       - 'externalcredentials/**'
@@ -102,7 +102,7 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          package_roots = ("agent", "runtime", "apps", "auth", "authorization", "externalcredentials", "s3", "indexeddb", "workflow", "cache", "secrets")
+          package_roots = ("agent", "runtime", "app", "auth", "authorization", "externalcredentials", "s3", "indexeddb", "workflow", "cache", "secrets")
           all_apps = []
           for root_name in package_roots:
               root = repo / root_name

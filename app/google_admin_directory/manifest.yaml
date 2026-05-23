@@ -1,0 +1,159 @@
+source: github.com/valon-technologies/gestalt-providers/app/google_admin_directory
+version: 0.0.1-alpha.1
+displayName: Google Admin Directory
+description: Manage Google Workspace users, groups, organizational units, devices, roles, domains, and schemas via the Admin SDK Directory API.
+iconFile: assets/icon.svg
+kind: app
+spec:
+  configSchemaPath: schemas/config.schema.yaml
+  surfaces:
+    openapi:
+      document: https://api.apis.guru/v2/specs/googleapis.com/admin/directory_v1/openapi.json
+  allowedOperations:
+    admin.channels.stop: {}
+    admin.customer.devices.chromeos.commands.get: {}
+    admin.customer.devices.chromeos.issueCommand: {}
+    admin.customers.chrome.printServers.batchCreatePrintServers: {}
+    admin.customers.chrome.printServers.batchDeletePrintServers: {}
+    admin.customers.chrome.printServers.create: {}
+    admin.customers.chrome.printServers.delete: {}
+    admin.customers.chrome.printServers.get: {}
+    admin.customers.chrome.printServers.list: {}
+    admin.customers.chrome.printServers.patch: {}
+    admin.customers.chrome.printers.batchCreatePrinters: {}
+    admin.customers.chrome.printers.batchDeletePrinters: {}
+    admin.customers.chrome.printers.create: {}
+    admin.customers.chrome.printers.list: {}
+    admin.customers.chrome.printers.listPrinterModels: {}
+    directory.asps.delete: {}
+    directory.asps.get: {}
+    directory.asps.list: {}
+    directory.chromeosdevices.action: {}
+    directory.chromeosdevices.get: {}
+    directory.chromeosdevices.list: {}
+    directory.chromeosdevices.moveDevicesToOu: {}
+    directory.chromeosdevices.patch: {}
+    directory.chromeosdevices.update: {}
+    directory.customers.get: {}
+    directory.customers.patch: {}
+    directory.customers.update: {}
+    directory.domainAliases.delete: {}
+    directory.domainAliases.get: {}
+    directory.domainAliases.insert: {}
+    directory.domainAliases.list: {}
+    directory.domains.delete: {}
+    directory.domains.get: {}
+    directory.domains.insert: {}
+    directory.domains.list: {}
+    directory.groups.aliases.delete: {}
+    directory.groups.aliases.insert: {}
+    directory.groups.aliases.list: {}
+    directory.groups.delete: {}
+    directory.groups.get: {}
+    directory.groups.insert: {}
+    directory.groups.list: {}
+    directory.groups.patch: {}
+    directory.groups.update: {}
+    directory.members.delete: {}
+    directory.members.get: {}
+    directory.members.hasMember: {}
+    directory.members.insert: {}
+    directory.members.list: {}
+    directory.members.patch: {}
+    directory.members.update: {}
+    directory.mobiledevices.action: {}
+    directory.mobiledevices.delete: {}
+    directory.mobiledevices.get: {}
+    directory.mobiledevices.list: {}
+    directory.orgunits.delete: {}
+    directory.orgunits.get: {}
+    directory.orgunits.insert: {}
+    directory.orgunits.list: {}
+    directory.orgunits.patch: {}
+    directory.orgunits.update: {}
+    directory.privileges.list: {}
+    directory.resources.buildings.delete: {}
+    directory.resources.buildings.get: {}
+    directory.resources.buildings.insert: {}
+    directory.resources.buildings.list: {}
+    directory.resources.buildings.patch: {}
+    directory.resources.buildings.update: {}
+    directory.resources.calendars.delete: {}
+    directory.resources.calendars.get: {}
+    directory.resources.calendars.insert: {}
+    directory.resources.calendars.list: {}
+    directory.resources.calendars.patch: {}
+    directory.resources.calendars.update: {}
+    directory.resources.features.delete: {}
+    directory.resources.features.get: {}
+    directory.resources.features.insert: {}
+    directory.resources.features.list: {}
+    directory.resources.features.patch: {}
+    directory.resources.features.rename: {}
+    directory.resources.features.update: {}
+    directory.roleAssignments.delete: {}
+    directory.roleAssignments.get: {}
+    directory.roleAssignments.insert: {}
+    directory.roleAssignments.list: {}
+    directory.roles.delete: {}
+    directory.roles.get: {}
+    directory.roles.insert: {}
+    directory.roles.list: {}
+    directory.roles.patch: {}
+    directory.roles.update: {}
+    directory.schemas.delete: {}
+    directory.schemas.get: {}
+    directory.schemas.insert: {}
+    directory.schemas.list: {}
+    directory.schemas.patch: {}
+    directory.schemas.update: {}
+    directory.tokens.delete: {}
+    directory.tokens.get: {}
+    directory.tokens.list: {}
+    directory.twoStepVerification.turnOff: {}
+    directory.users.aliases.delete: {}
+    directory.users.aliases.insert: {}
+    directory.users.aliases.list: {}
+    directory.users.aliases.watch: {}
+    directory.users.delete: {}
+    directory.users.get: {}
+    directory.users.insert: {}
+    directory.users.list: {}
+    directory.users.makeAdmin: {}
+    directory.users.patch: {}
+    directory.users.photos.delete: {}
+    directory.users.photos.get: {}
+    directory.users.photos.patch: {}
+    directory.users.photos.update: {}
+    directory.users.signOut: {}
+    directory.users.undelete: {}
+    directory.users.update: {}
+    directory.users.watch: {}
+    directory.verificationCodes.generate: {}
+    directory.verificationCodes.invalidate: {}
+    directory.verificationCodes.list: {}
+  connections:
+    default:
+      auth:
+        type: oauth2
+        authorizationUrl: https://accounts.google.com/o/oauth2/v2/auth
+        tokenUrl: https://oauth2.googleapis.com/token
+        scopes:
+          - https://www.googleapis.com/auth/admin.directory.customer
+          - https://www.googleapis.com/auth/admin.directory.device.chromeos
+          - https://www.googleapis.com/auth/admin.directory.device.mobile
+          - https://www.googleapis.com/auth/admin.directory.device.mobile.action
+          - https://www.googleapis.com/auth/admin.directory.domain
+          - https://www.googleapis.com/auth/admin.directory.group
+          - https://www.googleapis.com/auth/admin.directory.group.member
+          - https://www.googleapis.com/auth/admin.directory.orgunit
+          - https://www.googleapis.com/auth/admin.directory.resource.calendar
+          - https://www.googleapis.com/auth/admin.directory.rolemanagement
+          - https://www.googleapis.com/auth/admin.directory.user
+          - https://www.googleapis.com/auth/admin.directory.user.alias
+          - https://www.googleapis.com/auth/admin.directory.user.security
+          - https://www.googleapis.com/auth/admin.directory.userschema
+          - https://www.googleapis.com/auth/admin.chrome.printers
+        authorizationParams:
+          access_type: offline
+          prompt: consent

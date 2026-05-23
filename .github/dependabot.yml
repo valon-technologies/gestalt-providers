@@ -39,9 +39,9 @@ updates:
 
   - package-ecosystem: "uv"
     directories:
-      - "/apps/bigquery"
-      - "/apps/gmail"
-      - "/apps/slack"
+      - "/app/bigquery"
+      - "/app/gmail"
+      - "/app/slack"
     groups:
       python-dependencies:
         patterns:

@@ -328,8 +328,8 @@ def validate_cli(
 ) -> None:
     package_names = sorted(packages)
     search_output = run([gestaltd, "provider", "search", "--repo", "local", "--config", str(config_path)])
-    if SOURCE_PREFIX + "apps/slack" not in search_output:
-        raise SystemExit("provider search output did not include apps/slack")
+    if SOURCE_PREFIX + "app/slack" not in search_output:
+        raise SystemExit("provider search output did not include app/slack")
     for source in package_names:
         run([gestaltd, "provider", "info", "--repo", "local", "--config", str(config_path), source])
         run(
@@ -350,7 +350,7 @@ def validate_cli(
 def validate_mutations(
     gestaltd: str, config_path: pathlib.Path, packages: dict[str, Any]
 ) -> None:
-    plugin = require_package(packages, "apps/httpbin")
+    plugin = require_package(packages, "app/httpbin")
     indexeddb = require_package(packages, "indexeddb/mongodb")
     ui = require_package(packages, "ui/default")
     run(

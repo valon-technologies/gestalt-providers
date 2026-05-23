@@ -5,7 +5,7 @@ on:
     tags:
       - 'agent/*/v*'
       - 'runtime/*/v*'
-      - 'apps/*/v*'
+      - 'app/*/v*'
       - 'auth/*/v*'
       - 'authorization/*/v*'
       - 'externalcredentials/*/v*'
@@ -63,7 +63,7 @@ jobs:
           fi
 
           case "$APP_ROOT" in
-            agent|runtime|apps|auth|authorization|externalcredentials|s3|indexeddb|workflow|cache|secrets|ui)
+            agent|runtime|app|auth|authorization|externalcredentials|s3|indexeddb|workflow|cache|secrets|ui)
               GESTALT_REF="main"
               ;;
             *)

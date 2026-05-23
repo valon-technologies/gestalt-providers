@@ -29,6 +29,7 @@ import {
   resumeWorkflowSchedule,
   updateWorkflowEventTrigger,
   updateWorkflowSchedule,
+  workflowTargetApp,
 } from "@/lib/api";
 import AuthGuard from "@/components/AuthGuard";
 import Nav from "@/components/Nav";
@@ -459,7 +460,7 @@ export default function WorkflowsPage() {
                       <input
                         value={runsQuery}
                         onChange={(event) => setRunsQuery(event.target.value)}
-                        placeholder="Search by run, plugin, provider, or trigger"
+                        placeholder="Search by run, app, provider, or trigger"
                         className="min-w-0 flex-1 rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
                       />
                       <select
@@ -480,7 +481,7 @@ export default function WorkflowsPage() {
                       <input
                         value={schedulesQuery}
                         onChange={(event) => setSchedulesQuery(event.target.value)}
-                        placeholder="Search by schedule, plugin, operation, or cadence"
+                        placeholder="Search by schedule, app, operation, or cadence"
                         className="min-w-0 flex-1 rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
                       />
                       <select
@@ -498,7 +499,7 @@ export default function WorkflowsPage() {
                       <input
                         value={triggersQuery}
                         onChange={(event) => setTriggersQuery(event.target.value)}
-                        placeholder="Search by trigger, event type, plugin, or provider"
+                        placeholder="Search by trigger, event type, app, or provider"
                         className="min-w-0 flex-1 rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
                       />
                       <select
@@ -1739,7 +1740,7 @@ function WorkflowTargetEditor({
       <div>
         <h3 className="text-xs font-medium uppercase tracking-[0.18em] text-faint">Target</h3>
         <p className="mt-2 text-sm text-muted">
-          Choose the plugin operation this workflow should invoke.
+          Choose the app operation this workflow should invoke.
         </p>
       </div>
 
@@ -1749,13 +1750,13 @@ function WorkflowTargetEditor({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="space-y-2 text-sm">
-          <span className="text-muted">Plugin</span>
+          <span className="text-muted">App</span>
           <select
             value={plugin}
             onChange={(event) => onPluginChange(event.target.value)}
             className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
           >
-            <option value="">Select a plugin</option>
+            <option value="">Select an app</option>
             {integrations.map((integration) => (
               <option key={integration.name} value={integration.name}>
                 {integrationLabel(integration)}
@@ -1774,7 +1775,7 @@ function WorkflowTargetEditor({
           >
             <option value="">
               {!plugin
-                ? "Select a plugin first"
+                ? "Select an app first"
                 : operationsLoading
                   ? "Loading operations..."
                   : operations.length === 0
@@ -1859,7 +1860,7 @@ function WorkflowTabButton({
 }
 
 function TargetDetails({ target }: { target: WorkflowTarget }) {
-  const plugin = target.plugin;
+  const app = workflowTargetApp(target);
   return (
     <section>
       <h3 className="text-xs font-medium uppercase tracking-[0.18em] text-faint">Target</h3>
@@ -1868,11 +1869,11 @@ function TargetDetails({ target }: { target: WorkflowTarget }) {
           {targetLabel(target)}
         </p>
         <p className="mt-2 text-xs text-muted">
-          Connection: {plugin.connection || "-"} · Instance: {plugin.instance || "-"}
+          Connection: {app.connection || "-"} · Instance: {app.instance || "-"}
         </p>
-        {plugin.input && Object.keys(plugin.input).length > 0 ? (
+        {app.input && Object.keys(app.input).length > 0 ? (
           <pre className="mt-3 overflow-x-auto text-xs text-primary">
-            {prettyJSON(plugin.input)}
+            {prettyJSON(app.input)}
           </pre>
         ) : (
           <p className="mt-3 text-xs text-faint">No target input configured.</p>
@@ -1925,8 +1926,8 @@ function filterRuns(runs: WorkflowRun[], query: string, status: string): Workflo
     return [
       run.id,
       run.provider,
-      run.target.plugin.name,
-      run.target.plugin.operation,
+      workflowTargetApp(run.target).name,
+      workflowTargetApp(run.target).operation,
       run.trigger?.scheduleId,
       run.trigger?.triggerId,
     ]
@@ -1954,10 +1955,10 @@ function filterSchedules(
       schedule.provider,
       schedule.cron,
       schedule.timezone,
-      schedule.target.plugin.name,
-      schedule.target.plugin.operation,
-      schedule.target.plugin.connection,
-      schedule.target.plugin.instance,
+      workflowTargetApp(schedule.target).name,
+      workflowTargetApp(schedule.target).operation,
+      workflowTargetApp(schedule.target).connection,
+      workflowTargetApp(schedule.target).instance,
       scheduleCadenceLabel(schedule.cron),
     ]
       .filter(Boolean)
@@ -1985,10 +1986,10 @@ function filterTriggers(
       trigger.match.type,
       trigger.match.source,
       trigger.match.subject,
-      trigger.target.plugin.name,
-      trigger.target.plugin.operation,
-      trigger.target.plugin.connection,
-      trigger.target.plugin.instance,
+      workflowTargetApp(trigger.target).name,
+      workflowTargetApp(trigger.target).operation,
+      workflowTargetApp(trigger.target).connection,
+      workflowTargetApp(trigger.target).instance,
     ]
       .filter(Boolean)
       .some((value) => value!.toLowerCase().includes(trimmedQuery));
@@ -2020,11 +2021,11 @@ function prettyJSON(value: Record<string, unknown>): string {
 }
 
 function targetLabel(target: WorkflowTarget): string {
-  const plugin = target.plugin;
-  if (plugin.name && plugin.operation) {
-    return `${plugin.name}.${plugin.operation}`;
+  const app = workflowTargetApp(target);
+  if (app.name && app.operation) {
+    return `${app.name}.${app.operation}`;
   }
-  return plugin.name || plugin.operation || "unknown";
+  return app.name || app.operation || "unknown";
 }
 
 function prettyResultBody(value: string): string {
@@ -2100,7 +2101,7 @@ function scheduleFormFromSchedule(
   browserTimezone: string,
 ): { form: ScheduleFormState; warning: string | null } {
   const preset = presetFromCron(schedule.cron);
-  const target = schedule.target.plugin;
+  const target = workflowTargetApp(schedule.target);
   return {
     form: {
       plugin: target.name,
@@ -2123,7 +2124,7 @@ function scheduleFormFromSchedule(
 }
 
 function triggerFormFromTrigger(trigger: WorkflowEventTrigger): TriggerFormState {
-  const target = trigger.target.plugin;
+  const target = workflowTargetApp(trigger.target);
   return {
     plugin: target.name,
     operation: target.operation,
@@ -2151,13 +2152,7 @@ function scheduleFormToUpsert(
     cron,
     timezone: form.timezoneMode === "utc" ? "UTC" : browserTimezone,
     target: {
-      plugin: {
-        name: form.plugin.trim(),
-        operation: form.operation.trim(),
-        connection: emptyToUndefined(form.connection),
-        instance: emptyToUndefined(form.instance),
-        input: parseInputJSONObject(form.inputJSON),
-      },
+      steps: [workflowAppStepFromForm(form)],
     },
     paused: form.paused,
   };
@@ -2175,15 +2170,24 @@ function triggerFormToUpsert(
       subject: emptyToUndefined(form.subject),
     },
     target: {
-      plugin: {
-        name: form.plugin.trim(),
-        operation: form.operation.trim(),
-        connection: emptyToUndefined(form.connection),
-        instance: emptyToUndefined(form.instance),
-        input: parseInputJSONObject(form.inputJSON),
-      },
+      steps: [workflowAppStepFromForm(form)],
     },
     paused: form.paused,
+  };
+}
+
+function workflowAppStepFromForm(
+  form: Pick<ScheduleFormState, "plugin" | "operation" | "connection" | "instance" | "inputJSON">,
+) {
+  return {
+    id: "run",
+    app: {
+      name: form.plugin.trim(),
+      operation: form.operation.trim(),
+      connection: emptyToUndefined(form.connection),
+      instance: emptyToUndefined(form.instance),
+      input: parseInputJSONObject(form.inputJSON),
+    },
   };
 }
 
