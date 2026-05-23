@@ -22,7 +22,7 @@ from internals.operations import (
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
 
-plugin = gestalt.Plugin("gmail")
+plugin = gestalt.App("gmail")
 
 
 @plugin.configure

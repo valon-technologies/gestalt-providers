@@ -118,20 +118,6 @@ class _CompatWorkflowAgentStepWhen:
     data: dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass(frozen=True, slots=True)
-class _CompatWorkflowAgentStep:
-    id: str = ""
-    prompt: str = ""
-    messages: list[Any] = field(default_factory=list)
-    tool_refs: list[Any] = field(default_factory=list)
-    response_schema: dict[str, Any] | None = None
-    model_options: dict[str, Any] | None = None
-    metadata: dict[str, Any] | None = None
-    timeout_seconds: int = 0
-    when: Any | None = None
-    output_delivery: Any | None = None
-
-
 def _request_subject_id(req: gestalt.Request) -> str:
     return str(getattr(getattr(req, "subject", None), "id", "") or "").strip()
 

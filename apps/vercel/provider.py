@@ -35,7 +35,7 @@ from internals.models import (
     VercelBlobPutRequest,
 )
 
-plugin = gestalt.Plugin("vercel")
+plugin = gestalt.App("vercel")
 
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse

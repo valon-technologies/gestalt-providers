@@ -50,4 +50,10 @@ vulture-ignore-names = [
   "Name",
   "WorkflowEvent",
   "WorkflowRunStatus",
+  "BoundWorkflowAgentTarget",
+  "WorkflowAgentStep",
+  "WorkflowAgentStepWhen",
+  "BoundWorkflowPluginTarget",
+  "WorkflowOutputBinding",
+  "WorkflowOutputValueSource",
 ]

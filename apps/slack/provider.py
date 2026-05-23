@@ -69,7 +69,7 @@ from internals.operations import (
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
 
-plugin = gestalt.Plugin("slack")
+plugin = gestalt.App("slack")
 SLACK_POST_MESSAGE_FOOTER_APP_NAME = "Gestalt"
 SLACK_MAX_BLOCKS = 50
 SLACK_MAX_SECTION_TEXT_CHARS = 3000

@@ -165,7 +165,7 @@ from internals.webhook import (
     webhook_subject_from_payload,
 )
 
-plugin = gestalt.Plugin("github")
+plugin = gestalt.App("github")
 logger = logging.getLogger(__name__)
 
 _ACTION_PREFERENCE_CONTROL_LABELS = {

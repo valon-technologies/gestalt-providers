@@ -590,7 +590,7 @@ function validateToolRefs(
     throw invalidArgument("tool_refs are required for mcp_catalog turns");
   }
   toolRefs.forEach((ref, index) => {
-    const app = (ref.app ?? ref.plugin ?? "").trim();
+    const app = (ref.app ?? "").trim();
     const system = (ref.system ?? "").trim();
     const operation = (ref.operation ?? "").trim();
     const connection = (ref.connection ?? "").trim();

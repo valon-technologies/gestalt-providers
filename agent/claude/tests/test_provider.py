@@ -101,7 +101,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                         tool.tags.extend(["pr", "prs"])
                         tool.search_text = "github pull request repository owner number"
                 tool.input_schema = '{"type":"object","properties":{"query":{"type":"string"}}}'
-                setattr(tool.ref, "plugin", plugin)
+                setattr(tool.ref, "app", plugin)
                 setattr(tool.ref, "operation", f"operation{index}")
             return response
         if request.page_token == "":
@@ -112,7 +112,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
             tool.description = "List Ashby candidates"
             tool.input_schema = '{"type":"object"}'
             setattr(tool.annotations, "read_only_hint", True)
-            setattr(tool.ref, "plugin", "ashby")
+            setattr(tool.ref, "app", "ashby")
             setattr(tool.ref, "operation", "candidate.list")
             response.next_page_token = "page-2"
         elif request.page_token == "page-2":
@@ -124,7 +124,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 tool.description = "linear credentials expired or refresh failed"
                 tool.input_schema = '{"type":"object","properties":{},"additionalProperties":false}'
                 setattr(tool.annotations, "read_only_hint", True)
-                setattr(tool.ref, "plugin", "linear")
+                setattr(tool.ref, "app", "linear")
                 return response
             tool = response.tools.add()
             tool.id = "tool-linear-issues"
@@ -133,7 +133,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
             tool.description = "Search Linear issues by text"
             tool.input_schema = '{"type":"object","properties":{"query":{"type":"string"}}}'
             setattr(tool.annotations, "read_only_hint", True)
-            setattr(tool.ref, "plugin", "linear")
+            setattr(tool.ref, "app", "linear")
             setattr(tool.ref, "operation", "searchIssues")
             tool = response.tools.add()
             tool.id = "tool-github-pulls"
@@ -145,7 +145,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 tool.tags.extend(["pr", "prs"])
                 tool.search_text = "github pull request repository owner number"
             tool.input_schema = '{"type":"object"}'
-            setattr(tool.ref, "plugin", "github")
+            setattr(tool.ref, "app", "github")
             setattr(tool.ref, "operation", "pulls/list")
         return response
 
