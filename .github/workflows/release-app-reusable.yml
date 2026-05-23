@@ -119,6 +119,8 @@ jobs:
         if: needs.metadata.outputs.source-language == 'python'
       - uses: oven-sh/setup-bun@v2
         if: needs.metadata.outputs.source-language == 'typescript'
+        with:
+          token: ''
       - uses: dtolnay/rust-toolchain@1.88.0
         if: needs.metadata.outputs.source-language == 'rust'
       - name: Install Rust musl target
@@ -219,6 +221,8 @@ jobs:
         if: needs.metadata.outputs.source-language == 'python'
       - uses: oven-sh/setup-bun@v2
         if: needs.metadata.outputs.source-language == 'typescript'
+        with:
+          token: ''
       - name: Install Python
         if: needs.metadata.outputs.source-language == 'python'
         run: uv python install "${{ needs.metadata.outputs.python-version }}"
@@ -374,6 +378,8 @@ jobs:
           go-version: '1.26'
       - uses: oven-sh/setup-bun@v2
         if: needs.metadata.outputs.source-language == 'typescript'
+        with:
+          token: ''
       - name: Install rcodesign
         run: |
           set -euo pipefail
@@ -420,6 +426,8 @@ jobs:
           go-version: '1.26'
       - uses: oven-sh/setup-bun@v2
         if: needs.metadata.outputs.source-language == 'typescript'
+        with:
+          token: ''
       - name: Install rcodesign
         run: |
           set -euo pipefail
