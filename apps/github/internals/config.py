@@ -708,7 +708,8 @@ def parse_policy_workflow_target(
             step_path = f"{steps_path}[{index}]"
             if not isinstance(step_config, dict):
                 raise ValueError(f"{step_path} must be an object")
-            app_config = step_config.get("app")
+            step_map = cast(dict[str, Any], step_config)
+            app_config = step_map.get("app")
             if app_config is None:
                 continue
             if not isinstance(app_config, dict):
