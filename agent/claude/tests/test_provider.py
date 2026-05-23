@@ -1761,7 +1761,7 @@ class ClaudeProviderTests(unittest.TestCase):
 
         global_ref = _turn_request(turn_id="turn-global-ref", session_id="session-broad-refs")
         del global_ref.tool_refs[:]
-        global_ref.tool_refs.add(plugin="*")
+        global_ref.tool_refs.add(app="*")
         self.assertEqual(provider_client.CreateTurn(global_ref).status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
 
         for turn_id in ("turn-empty-refs", "turn-plugin-only", "turn-global-ref"):
@@ -1804,7 +1804,7 @@ class ClaudeProviderTests(unittest.TestCase):
         for field in ("operation", "connection", "instance", "title", "description"):
             request = _turn_request(turn_id=f"turn-global-ref-{field}", session_id="session-invalid-refs")
             del request.tool_refs[:]
-            ref = request.tool_refs.add(plugin="*")
+            ref = request.tool_refs.add(app="*")
             setattr(ref, field, "value")
             _assert_invalid(provider_client, request, "global search ref cannot include")
 

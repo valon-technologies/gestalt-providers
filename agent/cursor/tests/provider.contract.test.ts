@@ -291,7 +291,7 @@ describe("Cursor agent provider contract", () => {
         messages: [{ role: "user", text: "hi" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
         runGrant: "grant",
-        toolRefs: [{ plugin: "linear", operation: "issues" }],
+        toolRefs: [{ app: "linear", operation: "issues" }],
       }),
     );
     await waitForTurn(
@@ -383,7 +383,7 @@ describe("Cursor agent provider contract", () => {
         messages: [{ role: "user", text: "hi" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
         runGrant: "grant",
-        toolRefs: [{ plugin: "p", operation: "o" }],
+        toolRefs: [{ app: "p", operation: "o" }],
         createdBy: SLACK_ACTOR,
         subject: SLACK_SUBJECT,
       }),
@@ -512,7 +512,7 @@ describe("Cursor agent provider contract", () => {
         messages: [{ role: "user", text: "hi" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
         runGrant: "grant",
-        toolRefs: [{ plugin: "p", operation: "o" }],
+        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
 
@@ -535,7 +535,7 @@ describe("Cursor agent provider contract", () => {
           messages: [{ role: "user", text: "nope" }],
           toolSource: AgentToolSourceMode.MCP_CATALOG,
           runGrant: "grant",
-          toolRefs: [{ plugin: "p", operation: "o" }],
+          toolRefs: [{ app: "p", operation: "o" }],
         }),
       ),
       Code.PermissionDenied,
@@ -670,7 +670,7 @@ describe("Cursor agent provider contract", () => {
         messages: [{ role: "user", text: "weather?" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
         runGrant: "grant-1",
-        toolRefs: [{ plugin: "weather-plugin", operation: "forecast" }],
+        toolRefs: [{ app: "weather-plugin", operation: "forecast" }],
       }),
     );
     const turn = await waitForTurn(
@@ -731,7 +731,7 @@ describe("Cursor agent provider contract", () => {
         messages: [{ role: "user", text: "inspect repo" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
         runGrant: "grant",
-        toolRefs: [{ plugin: "p", operation: "o" }],
+        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     await waitForTurn(
@@ -790,7 +790,7 @@ describe("Cursor agent provider contract", () => {
         messages: [{ role: "user", text: "hi" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
         runGrant: "grant",
-        toolRefs: [{ plugin: "p", operation: "o" }],
+        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     await waitForTurn(provider, "t", AgentExecutionStatus.SUCCEEDED);
@@ -831,7 +831,7 @@ describe("Cursor agent provider contract", () => {
       messages: [{ role: "user", text: "hi" }],
       toolSource: AgentToolSourceMode.MCP_CATALOG,
       runGrant: "grant",
-      toolRefs: [{ plugin: "p", operation: "o" }],
+      toolRefs: [{ app: "p", operation: "o" }],
     };
     const invalidCases: Array<[string, Record<string, unknown>, string]> = [
       [
@@ -843,12 +843,12 @@ describe("Cursor agent provider contract", () => {
       ["missing refs", { toolRefs: [] }, "tool_refs are required"],
       [
         "wildcard ref",
-        { toolRefs: [{ plugin: "p", operation: "*" }] },
+        { toolRefs: [{ app: "p", operation: "*" }] },
         "wildcard",
       ],
       [
         "missing operation",
-        { toolRefs: [{ plugin: "p" }] },
+        { toolRefs: [{ app: "p" }] },
         "operation is required",
       ],
       [
@@ -858,7 +858,7 @@ describe("Cursor agent provider contract", () => {
       ],
       [
         "both plugin system",
-        { toolRefs: [{ plugin: "p", system: "workflow", operation: "o" }] },
+        { toolRefs: [{ app: "p", system: "workflow", operation: "o" }] },
         "exactly one",
       ],
       [
@@ -917,7 +917,7 @@ describe("Cursor agent provider contract", () => {
         messages: [{ role: "user", text: "fail" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
         runGrant: "grant",
-        toolRefs: [{ plugin: "p", operation: "o" }],
+        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     const failed = await waitForTurn(
@@ -956,7 +956,7 @@ describe("Cursor agent provider contract", () => {
         messages: [{ role: "user", text: "timeout" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
         runGrant: "grant",
-        toolRefs: [{ plugin: "p", operation: "o" }],
+        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     const timedOut = await waitForTurn(
@@ -987,7 +987,7 @@ describe("Cursor agent provider contract", () => {
         messages: [{ role: "user", text: "cancel" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
         runGrant: "grant",
-        toolRefs: [{ plugin: "p", operation: "o" }],
+        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     await preRunProvider.cancelTurn(
@@ -1029,7 +1029,7 @@ describe("Cursor agent provider contract", () => {
         messages: [{ role: "user", text: "cancel while sending" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
         runGrant: "grant",
-        toolRefs: [{ plugin: "p", operation: "o" }],
+        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     await waitUntil(() => sendStarted);
@@ -1090,7 +1090,7 @@ describe("Cursor agent provider contract", () => {
         messages: [{ role: "user", text: "cancel" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
         runGrant: "grant",
-        toolRefs: [{ plugin: "p", operation: "o" }],
+        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     await waitUntil(() => liveCursor.runs.length === 1);
@@ -1144,7 +1144,7 @@ describe("Cursor agent provider contract", () => {
         messages: [{ role: "user", text: "close" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
         runGrant: "grant",
-        toolRefs: [{ plugin: "p", operation: "o" }],
+        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     await waitUntil(() => cursor.runs.length === 1);
@@ -1239,7 +1239,7 @@ describe("Cursor agent provider contract", () => {
           messages: [{ role: "user", text: "hi" }],
           toolSource: AgentToolSourceMode.MCP_CATALOG,
           runGrant: "grant",
-          toolRefs: [{ plugin: "p", operation: "o" }],
+          toolRefs: [{ app: "p", operation: "o" }],
         }),
       );
       const turn = await waitForTurn(
@@ -1336,7 +1336,7 @@ describe("Cursor agent provider contract", () => {
         messages: [{ role: "user", text: "hi" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
         runGrant: "grant",
-        toolRefs: [{ plugin: "p", operation: "o" }],
+        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     await waitForTurn(

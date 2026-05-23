@@ -919,7 +919,7 @@ def _add_tool(
     tool.description = description
     tool.input_schema = input_schema
     setattr(tool.annotations, "read_only_hint", True)
-    setattr(tool.ref, "plugin", "linear")
+    setattr(tool.ref, "app", "linear")
     setattr(tool.ref, "operation", "searchIssues")
 
 
