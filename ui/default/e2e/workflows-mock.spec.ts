@@ -8,7 +8,26 @@ import {
   mockWorkflowRuns,
   mockWorkflowSchedules,
 } from "./fixtures";
-import type { WorkflowEventTrigger, WorkflowRun, WorkflowSchedule } from "../src/lib/api";
+import type { WorkflowAppTarget, WorkflowEventTrigger, WorkflowRun, WorkflowSchedule, WorkflowTarget } from "../src/lib/api";
+
+function workflowAppTarget(
+  name: string,
+  operation: string,
+  options: Omit<WorkflowAppTarget, "name" | "operation"> = {},
+): WorkflowTarget {
+  return {
+    steps: [
+      {
+        id: "run",
+        app: {
+          name,
+          operation,
+          ...options,
+        },
+      },
+    ],
+  };
+}
 
 test.describe("Workflows", () => {
   test.beforeEach(async ({ authenticatedPage }) => {
@@ -32,10 +51,7 @@ test.describe("Workflows", () => {
         id: "run_initial",
         provider: "basic",
         status: "succeeded",
-        target: {
-          plugin: "slack",
-          operation: "chat.postMessage",
-        } as unknown as WorkflowRun["target"],
+        target: workflowAppTarget("slack", "chat.postMessage") as WorkflowRun["target"],
         trigger: {
           kind: "manual",
         },
@@ -52,12 +68,7 @@ test.describe("Workflows", () => {
         id: "run_refreshed",
         provider: "basic",
         status: "failed",
-        target: {
-          plugin: {
-            name: "github",
-            operation: "issues.create",
-          },
-        },
+        target: workflowAppTarget("github", "issues.create"),
         trigger: {
           kind: "schedule",
           scheduleId: "sched_456",
@@ -77,14 +88,10 @@ test.describe("Workflows", () => {
         id: "run_123",
         provider: "basic",
         status: "succeeded",
-        target: {
-          plugin: {
-            name: "slack",
-            operation: "chat.postMessage",
-            connection: "workspace",
-            input: { channel: "C123", text: "hello" },
-          },
-        },
+        target: workflowAppTarget("slack", "chat.postMessage", {
+          connection: "workspace",
+          input: { channel: "C123", text: "hello" },
+        }),
         trigger: {
           kind: "schedule",
           scheduleId: "sched_123",
@@ -103,12 +110,7 @@ test.describe("Workflows", () => {
         id: "run_456",
         provider: "advanced",
         status: "failed",
-        target: {
-          plugin: {
-            name: "github",
-            operation: "issues.create",
-          },
-        },
+        target: workflowAppTarget("github", "issues.create"),
         trigger: {
           kind: "event",
           triggerId: "evt_456",
@@ -141,12 +143,7 @@ test.describe("Workflows", () => {
         id: "run_inflight",
         provider: "basic",
         status: "pending",
-        target: {
-          plugin: {
-            name: "slack",
-            operation: "chat.postMessage",
-          },
-        },
+        target: workflowAppTarget("slack", "chat.postMessage"),
         trigger: {
           kind: "manual",
         },
@@ -174,12 +171,7 @@ test.describe("Workflows", () => {
           id: "run_pending",
           provider: "basic",
           status: "pending",
-          target: {
-            plugin: {
-              name: "slack",
-              operation: "chat.postMessage",
-            },
-          },
+          target: workflowAppTarget("slack", "chat.postMessage"),
           trigger: {
             kind: "manual",
           },
@@ -213,12 +205,7 @@ test.describe("Workflows", () => {
         id: "run_running",
         provider: "basic",
         status: "running",
-        target: {
-          plugin: {
-            name: "slack",
-            operation: "chat.postMessage",
-          },
-        },
+        target: workflowAppTarget("slack", "chat.postMessage"),
         trigger: {
           kind: "manual",
         },
@@ -239,11 +226,9 @@ test.describe("Workflows", () => {
         provider: "basic",
         cron: "0 */5 * * *",
         timezone: "UTC",
-        target: {
-          plugin: "slack",
-          operation: "chat.postMessage",
+        target: workflowAppTarget("slack", "chat.postMessage", {
           connection: "workspace",
-        } as unknown as WorkflowSchedule["target"],
+        }) as WorkflowSchedule["target"],
         nextRunAt: "2026-04-21T00:05:00Z",
         createdAt: "2026-04-20T00:00:00Z",
         updatedAt: "2026-04-20T01:00:00Z",
@@ -253,12 +238,7 @@ test.describe("Workflows", () => {
         provider: "advanced",
         cron: "0 9 * * 1-5",
         paused: true,
-        target: {
-          plugin: {
-            name: "github",
-            operation: "issues.create",
-          },
-        },
+        target: workflowAppTarget("github", "issues.create"),
         createdAt: "2026-04-19T00:00:00Z",
       },
     ]);
@@ -346,7 +326,7 @@ test.describe("Workflows", () => {
     await page.goto("/workflows");
     await page.getByRole("tab", { name: "Schedules" }).click();
     await page.getByRole("button", { name: "New schedule" }).click();
-    await page.getByLabel("Plugin").selectOption("slack");
+    await page.getByLabel("App").selectOption("slack");
     await expect(page.getByLabel("Operation")).toContainText("Post Message");
     await page.getByLabel("Operation").selectOption("chat.postMessage");
     await page.getByLabel("Input JSON").fill('{"channel":"C123"}');
@@ -355,33 +335,45 @@ test.describe("Workflows", () => {
     await expect(page.getByRole("button", { name: /slack\.chat\.postMessage/i })).toBeVisible();
     expect(createBodies[0]).toMatchObject({
       target: {
-        plugin: {
-          name: "slack",
-          operation: "chat.postMessage",
-          input: { channel: "C123" },
-        },
+        steps: [
+          {
+            id: "run",
+            app: {
+              name: "slack",
+              operation: "chat.postMessage",
+              input: { channel: "C123" },
+            },
+          },
+        ],
       },
     });
     expect((createBodies[0].target as Record<string, unknown>).operation).toBeUndefined();
+    expect((createBodies[0].target as Record<string, unknown>).plugin).toBeUndefined();
 
     await page.getByRole("button", { name: "Edit" }).click();
     await page.getByLabel("Input JSON").fill('{"channel":"C456"}');
     await page.getByRole("button", { name: "Save schedule" }).click();
     expect(updateBodies[0]).toMatchObject({
       target: {
-        plugin: {
-          name: "slack",
-          operation: "chat.postMessage",
-          input: { channel: "C456" },
-        },
+        steps: [
+          {
+            id: "run",
+            app: {
+              name: "slack",
+              operation: "chat.postMessage",
+              input: { channel: "C456" },
+            },
+          },
+        ],
       },
     });
     expect((updateBodies[0].target as Record<string, unknown>).operation).toBeUndefined();
+    expect((updateBodies[0].target as Record<string, unknown>).plugin).toBeUndefined();
 
     await page.getByRole("tab", { name: "Triggers" }).click();
     await page.getByRole("button", { name: "New trigger" }).click();
     await page.getByLabel("Event type").fill("slack.message.created");
-    await page.getByLabel("Plugin").selectOption("slack");
+    await page.getByLabel("App").selectOption("slack");
     await expect(page.getByLabel("Operation")).toContainText("Post Message");
     await page.getByLabel("Operation").selectOption("chat.postMessage");
     await page.getByLabel("Input JSON").fill('{"channel":"C789"}');
@@ -390,28 +382,40 @@ test.describe("Workflows", () => {
     await expect(page.getByRole("button", { name: /slack\.chat\.postMessage/i })).toBeVisible();
     expect(triggerCreateBodies[0]).toMatchObject({
       target: {
-        plugin: {
-          name: "slack",
-          operation: "chat.postMessage",
-          input: { channel: "C789" },
-        },
+        steps: [
+          {
+            id: "run",
+            app: {
+              name: "slack",
+              operation: "chat.postMessage",
+              input: { channel: "C789" },
+            },
+          },
+        ],
       },
     });
     expect((triggerCreateBodies[0].target as Record<string, unknown>).operation).toBeUndefined();
+    expect((triggerCreateBodies[0].target as Record<string, unknown>).plugin).toBeUndefined();
 
     await page.getByRole("button", { name: "Edit" }).click();
     await page.getByLabel("Input JSON").fill('{"channel":"C999"}');
     await page.getByRole("button", { name: "Save trigger" }).click();
     expect(triggerUpdateBodies[0]).toMatchObject({
       target: {
-        plugin: {
-          name: "slack",
-          operation: "chat.postMessage",
-          input: { channel: "C999" },
-        },
+        steps: [
+          {
+            id: "run",
+            app: {
+              name: "slack",
+              operation: "chat.postMessage",
+              input: { channel: "C999" },
+            },
+          },
+        ],
       },
     });
     expect((triggerUpdateBodies[0].target as Record<string, unknown>).operation).toBeUndefined();
+    expect((triggerUpdateBodies[0].target as Record<string, unknown>).plugin).toBeUndefined();
   });
 
   test("shows event trigger details in the triggers tab", async ({ authenticatedPage: page }) => {
@@ -425,11 +429,9 @@ test.describe("Workflows", () => {
           source: "github",
           subject: "repo:valon/gestalt",
         },
-        target: {
-          plugin: "slack",
-          operation: "chat.postMessage",
+        target: workflowAppTarget("slack", "chat.postMessage", {
           connection: "workspace",
-        } as unknown as WorkflowEventTrigger["target"],
+        }) as WorkflowEventTrigger["target"],
         createdAt: "2026-04-20T00:00:00Z",
         updatedAt: "2026-04-20T01:00:00Z",
       },
@@ -440,12 +442,7 @@ test.describe("Workflows", () => {
         match: {
           type: "linear.issue.created",
         },
-        target: {
-          plugin: {
-            name: "github",
-            operation: "issues.create",
-          },
-        },
+        target: workflowAppTarget("github", "issues.create"),
         createdAt: "2026-04-19T00:00:00Z",
       },
     ]);
