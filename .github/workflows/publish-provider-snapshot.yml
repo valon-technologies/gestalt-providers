@@ -126,7 +126,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         if: matrix.provider.has_typescript
         with:
-          token: ''
+          token: ${{ github.token }}
       - uses: dtolnay/rust-toolchain@1.88.0
         if: matrix.provider.has_rust
       - name: Install Rust linux/amd64 release target
@@ -197,7 +197,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         if: matrix.provider.has_typescript
         with:
-          token: ''
+          token: ${{ github.token }}
       - name: Install Python
         if: matrix.provider.has_python
         run: uv python install "${{ matrix.provider.python_version }}"

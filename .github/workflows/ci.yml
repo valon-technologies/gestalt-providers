@@ -268,7 +268,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         if: matrix.app.has_typescript
         with:
-          token: ''
+          token: ${{ github.token }}
       - name: Install Python
         if: matrix.app.has_python
         run: uv python install 3.13 3.14
