@@ -41,7 +41,7 @@ providers, and workflow host services are ready.
 ## Runtime Requirements
 
 - Gestalt host support for `ProviderLifecycle.StartProvider`
-- `GESTALT_INDEXEDDB_SOCKET` must point at an IndexedDB provider socket
+- `GESTALT_HOST_SERVICE_SOCKET` must point at the unified host service socket (IndexedDB binding)
 - `GESTALT_WORKFLOW_HOST_SOCKET` must point at the workflow host socket
 
 ## v1 Behavior

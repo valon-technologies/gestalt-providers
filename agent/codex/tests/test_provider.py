@@ -18,7 +18,7 @@ from google.protobuf import struct_pb2 as _struct_pb2
 from mcp import types as mcp_types
 
 import provider as provider_module
-from gestalt import ENV_AGENT_HOST_SOCKET, ENV_AGENT_HOST_SOCKET_TOKEN, ProviderKind, _runtime
+from gestalt import ENV_HOST_SERVICE_SOCKET, ENV_HOST_SERVICE_TOKEN, ProviderKind, _runtime
 from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt._gen.v1 import plugin_pb2 as _plugin_pb2
@@ -42,8 +42,8 @@ _host_server: grpc.Server | None = None
 _runtime_socket = ""
 _host_socket = ""
 _host_servicer: "_FakeAgentHost | None" = None
-_previous_agent_host_socket: str | None = None
-_previous_agent_host_token: str | None = None
+_previous_host_service_socket: str | None = None
+_previous_host_service_token: str | None = None
 _previous_openai_api_key: str | None = None
 
 
@@ -716,15 +716,15 @@ class CodexProviderTests(unittest.TestCase):
 
 def setUpModule() -> None:
     global _runtime_server, _host_server, _runtime_socket, _host_socket, _host_servicer
-    global _previous_agent_host_socket, _previous_agent_host_token, _previous_openai_api_key
+    global _previous_host_service_socket, _previous_host_service_token, _previous_openai_api_key
 
     _runtime_socket = _fresh_socket("codex-mcp-agent-runtime")
     _host_socket = _fresh_socket("codex-mcp-agent-host")
-    _previous_agent_host_socket = os.environ.get(ENV_AGENT_HOST_SOCKET)
-    _previous_agent_host_token = os.environ.get(ENV_AGENT_HOST_SOCKET_TOKEN)
+    _previous_host_service_socket = os.environ.get(ENV_HOST_SERVICE_SOCKET)
+    _previous_host_service_token = os.environ.get(ENV_HOST_SERVICE_TOKEN)
     _previous_openai_api_key = os.environ.get("OPENAI_API_KEY")
-    os.environ[ENV_AGENT_HOST_SOCKET] = _host_socket
-    os.environ[ENV_AGENT_HOST_SOCKET_TOKEN] = "relay-token"
+    os.environ[ENV_HOST_SERVICE_SOCKET] = _host_socket
+    os.environ[ENV_HOST_SERVICE_TOKEN] = "relay-token"
     os.environ.pop("OPENAI_API_KEY", None)
 
     _host_servicer = _FakeAgentHost()
@@ -751,8 +751,8 @@ def tearDownModule() -> None:
             os.unlink(path)
         except OSError:
             pass
-    _restore_env(ENV_AGENT_HOST_SOCKET, _previous_agent_host_socket)
-    _restore_env(ENV_AGENT_HOST_SOCKET_TOKEN, _previous_agent_host_token)
+    _restore_env(ENV_HOST_SERVICE_SOCKET, _previous_host_service_socket)
+    _restore_env(ENV_HOST_SERVICE_TOKEN, _previous_host_service_token)
     _restore_env("OPENAI_API_KEY", _previous_openai_api_key)
 
 

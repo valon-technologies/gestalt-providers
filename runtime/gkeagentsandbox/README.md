@@ -40,7 +40,7 @@ must contain the tools required to launch the plugin process.
 - `BindHostService` accepts relay-backed bindings only. This matches the public
   relay path that `gestaltd` uses for hosted runtimes without direct host
   sockets, including hosted agent bindings such as
-  `GESTALT_AGENT_HOST_SOCKET`.
+  `GESTALT_HOST_SERVICE_SOCKET`.
 - Capabilities advertise hostname-based egress when the runtime can enforce
   proxy-only outbound access, and no direct
   host-service sockets.

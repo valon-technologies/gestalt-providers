@@ -21,6 +21,7 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 	s3provider "github.com/valon-technologies/gestalt-providers/s3/s3"
+	"github.com/valon-technologies/gestalt-providers/internal/hostservicetest"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
@@ -66,20 +67,7 @@ func newTestClient(t *testing.T) *gestalt.S3Client {
 	}
 	t.Cleanup(func() { _ = provider.Close() })
 
-	socketPath := newSocketPath(t)
-	serveCtx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	t.Setenv("GESTALT_PLUGIN_SOCKET", socketPath)
-	t.Setenv(gestalt.EnvS3Socket, socketPath)
-	errCh := make(chan error, 1)
-	go func() { errCh <- gestalt.ServeS3Provider(serveCtx, provider) }()
-	t.Cleanup(func() {
-		cancel()
-		if err := <-errCh; err != nil {
-			t.Fatalf("ServeS3Provider: %v", err)
-		}
-	})
-	waitForSocket(t, socketPath)
+	hostservicetest.StartS3(t, provider)
 
 	client, err := gestalt.S3()
 	if err != nil {
@@ -87,18 +75,6 @@ func newTestClient(t *testing.T) *gestalt.S3Client {
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	return client
-}
-
-func waitForSocket(t *testing.T, socketPath string) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(socketPath); err == nil {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("timed out waiting for socket %s", socketPath)
 }
 
 type s3BackendConfig struct {
@@ -330,23 +306,6 @@ func rawS3Client(ctx context.Context, cfg s3BackendConfig) (*s3sdk.Client, error
 		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 		o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
 	}), nil
-}
-
-func newSocketPath(t *testing.T) string {
-	t.Helper()
-
-	tmpFile, err := os.CreateTemp("", "gs3-*.sock")
-	if err != nil {
-		t.Fatalf("CreateTemp(socket): %v", err)
-	}
-	socketPath := tmpFile.Name()
-	if err := tmpFile.Close(); err != nil {
-		t.Fatalf("Close(temp socket file): %v", err)
-	}
-	if err := os.Remove(socketPath); err != nil {
-		t.Fatalf("Remove(temp socket file): %v", err)
-	}
-	return socketPath
 }
 
 func envOrDefault(name, fallback string) string {
