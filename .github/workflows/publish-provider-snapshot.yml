@@ -162,7 +162,7 @@ jobs:
             python_image="python:${{ matrix.provider.python_version }}-alpine${{ env.PYTHON_ALPINE_VERSION }}"
             .github/scripts/package_python_docker.sh linux/amd64 "${python_image}" gestaltd GESTALT_PYTHON_LINUX_AMD64 linux/amd64 "$PROVIDER_DIR" "$SNAPSHOT_VERSION"
           else
-            (cd "$PROVIDER_DIR" && gestaltd provider release --version "$SNAPSHOT_VERSION" --platform linux/amd64)
+            (cd "$PROVIDER_DIR" && gestaltd provider package --version "$SNAPSHOT_VERSION" --platform linux/amd64)
           fi
       - uses: actions/upload-artifact@v4
         with:
@@ -230,9 +230,9 @@ jobs:
             cp -R "${GESTALT_SDK_HOST_DIR}" /tmp/gestalt-sdk
             uv pip install --python "$PWD/.venv/bin/python" --reinstall --no-deps /tmp/gestalt-sdk
             GESTALT_PYTHON_DARWIN_ARM64="$PWD/.venv/bin/python" \
-              gestaltd provider release --version "$SNAPSHOT_VERSION" --platform darwin/arm64
+              gestaltd provider package --version "$SNAPSHOT_VERSION" --platform darwin/arm64
           else
-            (cd "$PROVIDER_DIR" && gestaltd provider release --version "$SNAPSHOT_VERSION" --platform darwin/arm64)
+            (cd "$PROVIDER_DIR" && gestaltd provider package --version "$SNAPSHOT_VERSION" --platform darwin/arm64)
           fi
       - uses: actions/upload-artifact@v4
         with:

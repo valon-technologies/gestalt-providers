@@ -330,7 +330,8 @@ jobs:
 
           rm -rf "${OUTPUT_ROOT:?}/${app_name}"
           mkdir -p "${OUTPUT_ROOT}/${app_name}"
-          (cd "$app_dir" && gestaltd provider release --version "${VALIDATION_VERSION}" --output "${OUTPUT_ROOT}/${app_name}")
+          (cd "$app_dir" && gestaltd provider package --version "${VALIDATION_VERSION}" --output "${OUTPUT_ROOT}/${app_name}")
+          gestaltd provider release --dist-dir "${OUTPUT_ROOT}/${app_name}" --version "${VALIDATION_VERSION}"
 
           if [ ! -f "${OUTPUT_ROOT}/${app_name}/provider-release.yaml" ]; then
             echo "ERROR: ${app_name} did not produce provider-release.yaml"
@@ -427,9 +428,12 @@ jobs:
 
           # Package local providers as release metadata to avoid local-source fingerprint churn
           mkdir -p "${RUNNER_TEMP}/ui-default-release" "${RUNNER_TEMP}/indexeddb-relationaldb-release" "${RUNNER_TEMP}/external-credentials-default-release"
-          (cd ui/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/ui-default-release")
-          (cd indexeddb/relationaldb && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/indexeddb-relationaldb-release")
-          (cd externalcredentials/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/external-credentials-default-release")
+          (cd ui/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider package --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/ui-default-release")
+          "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --dist-dir "${RUNNER_TEMP}/ui-default-release" --version "${VALIDATION_VERSION}"
+          (cd indexeddb/relationaldb && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider package --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/indexeddb-relationaldb-release")
+          "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --dist-dir "${RUNNER_TEMP}/indexeddb-relationaldb-release" --version "${VALIDATION_VERSION}"
+          (cd externalcredentials/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider package --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/external-credentials-default-release")
+          "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --dist-dir "${RUNNER_TEMP}/external-credentials-default-release" --version "${VALIDATION_VERSION}"
 
           cat >"${RUNNER_TEMP}/gestaltd-web-e2e.yaml" <<EOF
           apiVersion: gestaltd.config/v6

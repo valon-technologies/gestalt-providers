@@ -68,6 +68,6 @@ docker run --rm --platform "${docker_platform}" \
       uv pip install --python "$PWD/.venv/bin/python" --reinstall --no-deps /tmp/gestalt-sdk
     fi
     export "${PYTHON_ENV_VAR}=$PWD/.venv/bin/python"
-    gestaltd provider release --version "${VERSION}" --platform "${RELEASE_PLATFORM}"
+    gestaltd provider package --version "${VERSION}" --platform "${RELEASE_PLATFORM}"
     chmod -R a+rwX dist
   '
