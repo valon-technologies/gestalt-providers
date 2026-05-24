@@ -72,13 +72,13 @@ func TestS3ProviderTransport_StreamedReadAndEmptyObject(t *testing.T) {
 		t.Fatalf("WriteString: %v", err)
 	}
 
-	meta, body, err := client.ReadObject(ctx, gestalt.ObjectRef{
-		Bucket: bucket,
-		Key:    blobKey,
-	}, nil)
+	readResult, err := client.ReadObject(ctx, gestalt.ReadRequest{
+		Ref: gestalt.ObjectRef{Bucket: bucket, Key: blobKey},
+	})
 	if err != nil {
 		t.Fatalf("ReadObject: %v", err)
 	}
+	meta, body := readResult.Meta, readResult.Body
 	defer func() { _ = body.Close() }()
 	if meta.Size != int64(len(blob)) {
 		t.Fatalf("ReadObject size = %d, want %d", meta.Size, len(blob))
@@ -154,13 +154,13 @@ func TestS3ProviderTransport_RangeReadAndEarlyClose(t *testing.T) {
 		t.Fatalf("Text(empty range) length = %d, want %d", len(got), len(payload))
 	}
 
-	_, body, err := client.ReadObject(ctx, gestalt.ObjectRef{
-		Bucket: bucket,
-		Key:    key,
-	}, nil)
+	readResult, err := client.ReadObject(ctx, gestalt.ReadRequest{
+		Ref: gestalt.ObjectRef{Bucket: bucket, Key: key},
+	})
 	if err != nil {
 		t.Fatalf("ReadObject: %v", err)
 	}
+	body := readResult.Body
 	buf := make([]byte, 1024)
 	n, err := body.Read(buf)
 	if err != nil {
@@ -256,11 +256,10 @@ func TestS3ProviderTransport_ListCopyDeletePresignAndExists(t *testing.T) {
 		t.Fatalf("WriteString(dest seed): %v", err)
 	}
 
-	meta, err := client.CopyObject(ctx, gestalt.ObjectRef{
-		Bucket: bucket,
-		Key:    sourceKey,
-	}, destRef, &gestalt.CopyOptions{
-		IfMatch: sourceMeta.ETag,
+	meta, err := client.CopyObject(ctx, gestalt.CopyRequest{
+		Source:      gestalt.ObjectRef{Bucket: bucket, Key: sourceKey},
+		Destination: destRef,
+		IfMatch:     sourceMeta.ETag,
 	})
 	if err != nil {
 		t.Fatalf("CopyObject: %v", err)
@@ -341,11 +340,8 @@ func TestS3ProviderTransport_ListCopyDeletePresignAndExists(t *testing.T) {
 		t.Fatalf("GET presign host header = %q, want omitted", got)
 	}
 
-	versioned, err := client.PresignObject(ctx, gestalt.ObjectRef{
-		Bucket:    bucket,
-		Key:       destRef.Key,
-		VersionID: "version id/1",
-	}, &gestalt.PresignOptions{
+	versioned, err := client.PresignObject(ctx, gestalt.PresignRequest{
+		Ref:    gestalt.ObjectRef{Bucket: bucket, Key: destRef.Key, VersionID: "version id/1"},
 		Method: gestalt.PresignMethodHead,
 	})
 	if err != nil {
@@ -434,39 +430,28 @@ func TestS3ProviderTransport_ErrorMapping(t *testing.T) {
 		t.Fatalf("IfNoneMatch(read) error = %v, want ErrS3PreconditionFailed", err)
 	}
 
-	_, err = client.CopyObject(ctx, gestalt.ObjectRef{
-		Bucket: bucket,
-		Key:    "errors/" + t.Name() + ".txt",
-	}, gestalt.ObjectRef{
-		Bucket: bucket,
-		Key:    "errors/" + t.Name() + "-copy.txt",
-	}, &gestalt.CopyOptions{
-		IfMatch: "wrong-etag",
+	_, err = client.CopyObject(ctx, gestalt.CopyRequest{
+		Source:      gestalt.ObjectRef{Bucket: bucket, Key: "errors/" + t.Name() + ".txt"},
+		Destination: gestalt.ObjectRef{Bucket: bucket, Key: "errors/" + t.Name() + "-copy.txt"},
+		IfMatch:     "wrong-etag",
 	})
 	if !errors.Is(err, gestalt.ErrS3PreconditionFailed) {
 		t.Fatalf("CopyObject IfMatch error = %v, want ErrS3PreconditionFailed", err)
 	}
 
-	_, err = client.CopyObject(ctx, gestalt.ObjectRef{
-		Bucket: bucket,
-		Key:    "errors/" + t.Name() + ".txt",
-	}, gestalt.ObjectRef{
-		Bucket: bucket,
-		Key:    "errors/" + t.Name() + "-copy-if-none-match.txt",
-	}, &gestalt.CopyOptions{
+	_, err = client.CopyObject(ctx, gestalt.CopyRequest{
+		Source:      gestalt.ObjectRef{Bucket: bucket, Key: "errors/" + t.Name() + ".txt"},
+		Destination: gestalt.ObjectRef{Bucket: bucket, Key: "errors/" + t.Name() + "-copy-if-none-match.txt"},
 		IfNoneMatch: meta.ETag,
 	})
 	if !errors.Is(err, gestalt.ErrS3PreconditionFailed) {
 		t.Fatalf("CopyObject IfNoneMatch error = %v, want ErrS3PreconditionFailed", err)
 	}
 
-	_, err = client.CopyObject(ctx, gestalt.ObjectRef{
-		Bucket: bucket,
-		Key:    "errors/absent-" + t.Name(),
-	}, gestalt.ObjectRef{
-		Bucket: bucket,
-		Key:    "errors/" + t.Name() + "-copy-2.txt",
-	}, nil)
+	_, err = client.CopyObject(ctx, gestalt.CopyRequest{
+		Source:      gestalt.ObjectRef{Bucket: bucket, Key: "errors/absent-" + t.Name()},
+		Destination: gestalt.ObjectRef{Bucket: bucket, Key: "errors/" + t.Name() + "-copy-2.txt"},
+	})
 	if !errors.Is(err, gestalt.ErrS3NotFound) {
 		t.Fatalf("CopyObject missing error = %v, want ErrS3NotFound", err)
 	}

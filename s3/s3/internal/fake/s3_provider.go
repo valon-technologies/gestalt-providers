@@ -4,65 +4,87 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
-	"strings"
 
-	"github.com/aws/smithy-go"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
-type ProviderS3Client struct {
+// ProviderClient implements the object-store test surface by calling gestalt.S3Provider directly.
+type ProviderClient struct {
 	Provider gestalt.S3Provider
 }
 
-func NewProviderS3Client(provider gestalt.S3Provider) ProviderS3Client {
-	return ProviderS3Client{Provider: provider}
+func NewProviderClient(provider gestalt.S3Provider) ProviderClient {
+	return ProviderClient{Provider: provider}
 }
 
-func (c ProviderS3Client) Close() error { return nil }
+func (c ProviderClient) Close() error { return nil }
 
-func (c ProviderS3Client) Object(bucket, key string) ProviderObject {
+func (c ProviderClient) Object(bucket, key string) ProviderObject {
 	return ProviderObject{provider: c.Provider, ref: gestalt.ObjectRef{Bucket: bucket, Key: key}}
 }
 
-func (c ProviderS3Client) HeadObject(ctx context.Context, ref gestalt.ObjectRef) (gestalt.ObjectMeta, error) {
+func (c ProviderClient) HeadObject(ctx context.Context, ref gestalt.ObjectRef) (gestalt.ObjectMeta, error) {
 	meta, err := c.Provider.HeadObject(ctx, ref)
-	return meta, MapClientError(err)
+	return meta, gestalt.MapProviderClientError(err)
 }
 
-func (c ProviderS3Client) ReadObject(ctx context.Context, ref gestalt.ObjectRef, opts *gestalt.ReadOptions) (gestalt.ObjectMeta, io.ReadCloser, error) {
-	meta, body, err := c.Provider.ReadObject(ctx, ref, opts)
-	if err != nil {
-		return gestalt.ObjectMeta{}, nil, MapClientError(err)
+func (c ProviderClient) ReadObject(ctx context.Context, req gestalt.ReadRequest) (gestalt.ReadResult, error) {
+	opts := &gestalt.ReadOptions{
+		Range:             req.Range,
+		IfMatch:           req.IfMatch,
+		IfNoneMatch:       req.IfNoneMatch,
+		IfModifiedSince:   req.IfModifiedSince,
+		IfUnmodifiedSince: req.IfUnmodifiedSince,
 	}
-	return meta, &EOFAfterCloseReader{ReadCloser: body}, nil
+	meta, body, err := c.Provider.ReadObject(ctx, req.Ref, opts)
+	if err != nil {
+		return gestalt.ReadResult{}, gestalt.MapProviderClientError(err)
+	}
+	return gestalt.ReadResult{Meta: meta, Body: &eofAfterCloseReader{ReadCloser: body}}, nil
 }
 
-func (c ProviderS3Client) WriteObject(ctx context.Context, ref gestalt.ObjectRef, body io.Reader, opts *gestalt.WriteOptions) (gestalt.ObjectMeta, error) {
-	meta, err := c.Provider.WriteObject(ctx, ref, body, opts)
-	return meta, MapClientError(err)
+func (c ProviderClient) WriteObject(ctx context.Context, req gestalt.WriteRequest) (gestalt.ObjectMeta, error) {
+	opts := &gestalt.WriteOptions{
+		ContentType:        req.ContentType,
+		CacheControl:       req.CacheControl,
+		ContentDisposition: req.ContentDisposition,
+		ContentEncoding:    req.ContentEncoding,
+		ContentLanguage:    req.ContentLanguage,
+		Metadata:           req.Metadata,
+		IfMatch:            req.IfMatch,
+		IfNoneMatch:        req.IfNoneMatch,
+	}
+	meta, err := c.Provider.WriteObject(ctx, req.Ref, req.Body, opts)
+	return meta, gestalt.MapProviderClientError(err)
 }
 
-func (c ProviderS3Client) DeleteObject(ctx context.Context, ref gestalt.ObjectRef) error {
-	return MapClientError(c.Provider.DeleteObject(ctx, ref))
+func (c ProviderClient) DeleteObject(ctx context.Context, ref gestalt.ObjectRef) error {
+	return gestalt.MapProviderClientError(c.Provider.DeleteObject(ctx, ref))
 }
 
-func (c ProviderS3Client) ListObjects(ctx context.Context, opts gestalt.ListOptions) (gestalt.ListPage, error) {
+func (c ProviderClient) ListObjects(ctx context.Context, opts gestalt.ListOptions) (gestalt.ListPage, error) {
 	page, err := c.Provider.ListObjects(ctx, opts)
-	return page, MapClientError(err)
+	return page, gestalt.MapProviderClientError(err)
 }
 
-func (c ProviderS3Client) CopyObject(ctx context.Context, source, destination gestalt.ObjectRef, opts *gestalt.CopyOptions) (gestalt.ObjectMeta, error) {
-	meta, err := c.Provider.CopyObject(ctx, source, destination, opts)
-	return meta, MapClientError(err)
+func (c ProviderClient) CopyObject(ctx context.Context, req gestalt.CopyRequest) (gestalt.ObjectMeta, error) {
+	meta, err := c.Provider.CopyObject(ctx, req.Source, req.Destination, &gestalt.CopyOptions{
+		IfMatch:     req.IfMatch,
+		IfNoneMatch: req.IfNoneMatch,
+	})
+	return meta, gestalt.MapProviderClientError(err)
 }
 
-func (c ProviderS3Client) PresignObject(ctx context.Context, ref gestalt.ObjectRef, opts *gestalt.PresignOptions) (gestalt.PresignResult, error) {
-	result, err := c.Provider.PresignObject(ctx, ref, opts)
-	return result, MapClientError(err)
+func (c ProviderClient) PresignObject(ctx context.Context, req gestalt.PresignRequest) (gestalt.PresignResult, error) {
+	result, err := c.Provider.PresignObject(ctx, req.Ref, &gestalt.PresignOptions{
+		Method:             req.Method,
+		Expires:            req.Expires,
+		ContentType:        req.ContentType,
+		ContentDisposition: req.ContentDisposition,
+		Headers:            req.Headers,
+	})
+	return result, gestalt.MapProviderClientError(err)
 }
 
 type ProviderObject struct {
@@ -72,7 +94,7 @@ type ProviderObject struct {
 
 func (o ProviderObject) Stat(ctx context.Context) (gestalt.ObjectMeta, error) {
 	meta, err := o.provider.HeadObject(ctx, o.ref)
-	return meta, MapClientError(err)
+	return meta, gestalt.MapProviderClientError(err)
 }
 
 func (o ProviderObject) Exists(ctx context.Context) (bool, error) {
@@ -89,9 +111,9 @@ func (o ProviderObject) Exists(ctx context.Context) (bool, error) {
 func (o ProviderObject) Stream(ctx context.Context, opts *gestalt.ReadOptions) (gestalt.ObjectMeta, io.ReadCloser, error) {
 	meta, body, err := o.provider.ReadObject(ctx, o.ref, opts)
 	if err != nil {
-		return gestalt.ObjectMeta{}, nil, MapClientError(err)
+		return gestalt.ObjectMeta{}, nil, gestalt.MapProviderClientError(err)
 	}
-	return meta, &EOFAfterCloseReader{ReadCloser: body}, nil
+	return meta, &eofAfterCloseReader{ReadCloser: body}, nil
 }
 
 func (o ProviderObject) Bytes(ctx context.Context, opts *gestalt.ReadOptions) ([]byte, error) {
@@ -125,7 +147,7 @@ func (o ProviderObject) JSON(ctx context.Context, opts *gestalt.ReadOptions) (an
 
 func (o ProviderObject) Write(ctx context.Context, body io.Reader, opts *gestalt.WriteOptions) (gestalt.ObjectMeta, error) {
 	meta, err := o.provider.WriteObject(ctx, o.ref, body, opts)
-	return meta, MapClientError(err)
+	return meta, gestalt.MapProviderClientError(err)
 }
 
 func (o ProviderObject) WriteBytes(ctx context.Context, body []byte, opts *gestalt.WriteOptions) (gestalt.ObjectMeta, error) {
@@ -150,96 +172,27 @@ func (o ProviderObject) WriteJSON(ctx context.Context, value any, opts *gestalt.
 }
 
 func (o ProviderObject) Delete(ctx context.Context) error {
-	return MapClientError(o.provider.DeleteObject(ctx, o.ref))
+	return gestalt.MapProviderClientError(o.provider.DeleteObject(ctx, o.ref))
 }
 
 func (o ProviderObject) Presign(ctx context.Context, opts *gestalt.PresignOptions) (gestalt.PresignResult, error) {
 	result, err := o.provider.PresignObject(ctx, o.ref, opts)
-	return result, MapClientError(err)
+	return result, gestalt.MapProviderClientError(err)
 }
 
-type EOFAfterCloseReader struct {
+type eofAfterCloseReader struct {
 	io.ReadCloser
 	closed bool
 }
 
-func (r *EOFAfterCloseReader) Read(p []byte) (int, error) {
+func (r *eofAfterCloseReader) Read(p []byte) (int, error) {
 	if r.closed {
 		return 0, io.EOF
 	}
 	return r.ReadCloser.Read(p)
 }
 
-func (r *EOFAfterCloseReader) Close() error {
+func (r *eofAfterCloseReader) Close() error {
 	r.closed = true
 	return r.ReadCloser.Close()
-}
-
-func MapClientError(err error) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, gestalt.ErrS3NotFound) {
-		return err
-	}
-	if errors.Is(err, gestalt.ErrS3PreconditionFailed) {
-		return err
-	}
-	if errors.Is(err, gestalt.ErrS3InvalidRange) {
-		return err
-	}
-	if isS3NotFound(err) {
-		return gestalt.ErrS3NotFound
-	}
-	if isS3PreconditionFailed(err) {
-		return gestalt.ErrS3PreconditionFailed
-	}
-	if isS3InvalidRange(err) {
-		return gestalt.ErrS3InvalidRange
-	}
-	if strings.Contains(err.Error(), "expires must be") {
-		return status.Error(codes.InvalidArgument, err.Error())
-	}
-	if strings.Contains(err.Error(), "s3: invalid range") {
-		return gestalt.ErrS3InvalidRange
-	}
-	return err
-}
-
-func isS3NotFound(err error) bool {
-	var apiErr smithy.APIError
-	if errors.As(err, &apiErr) {
-		switch apiErr.ErrorCode() {
-		case "NotFound", "NoSuchKey", "NoSuchBucket", "NoSuchVersion":
-			return true
-		}
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "NoSuchKey") || strings.Contains(msg, "StatusCode: 404")
-}
-
-func isS3PreconditionFailed(err error) bool {
-	var apiErr smithy.APIError
-	if errors.As(err, &apiErr) {
-		return apiErr.ErrorCode() == "PreconditionFailed"
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "PreconditionFailed") ||
-		strings.Contains(msg, "NotModified") ||
-		strings.Contains(msg, "StatusCode: 412") ||
-		strings.Contains(msg, "StatusCode: 304")
-}
-
-func isS3InvalidRange(err error) bool {
-	var apiErr smithy.APIError
-	if errors.As(err, &apiErr) {
-		switch apiErr.ErrorCode() {
-		case "InvalidRange", "InvalidArgument":
-			return strings.Contains(apiErr.ErrorMessage(), "range")
-		}
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "s3: invalid range") ||
-		strings.Contains(msg, "InvalidRange") ||
-		strings.Contains(msg, "StatusCode: 416")
 }

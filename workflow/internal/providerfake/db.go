@@ -1,63 +1,30 @@
-package fake
+package providerfake
 
 import (
 	"context"
-	"strings"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
-func MapProviderError(err error) error {
-	if err == nil {
-		return nil
-	}
-	st, ok := status.FromError(err)
-	if !ok {
-		return err
-	}
-	switch st.Code() {
-	case codes.NotFound:
-		return gestalt.ErrNotFound
-	case codes.AlreadyExists:
-		return gestalt.ErrAlreadyExists
-	case codes.InvalidArgument:
-		if strings.Contains(st.Message(), "invalid transaction") {
-			return gestalt.ErrInvalidTransaction
-		}
-		return err
-	case codes.FailedPrecondition:
-		if strings.Contains(st.Message(), "readonly") {
-			return gestalt.ErrReadOnly
-		}
-		if strings.Contains(st.Message(), "already finished") {
-			return gestalt.ErrTransactionDone
-		}
-		return err
-	default:
-		return err
-	}
-}
-
+// ProviderDB implements indexeddb.Database by delegating to gestalt.IndexedDBProvider.
 type ProviderDB struct {
 	provider gestalt.IndexedDBProvider
 }
 
-func (db ProviderDB) CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreSchema) (indexeddb.ObjectStore, error) {
-	if err := MapProviderError(db.provider.CreateObjectStore(ctx, name, schema)); err != nil {
+func NewProviderDB(provider gestalt.IndexedDBProvider) ProviderDB {
+	return ProviderDB{provider: provider}
+}
+
+func (db ProviderDB) CreateObjectStore(ctx context.Context, name string, schema indexeddb.ObjectStoreOptions) (indexeddb.ObjectStore, error) {
+	if err := indexeddb.RPCError(db.provider.CreateObjectStore(ctx, name, schema)); err != nil {
 		return nil, err
 	}
 	return db.ObjectStore(name), nil
 }
 
 func (db ProviderDB) DeleteObjectStore(ctx context.Context, name string) error {
-	return MapProviderError(db.provider.DeleteObjectStore(ctx, name))
-}
-
-func NewProviderDB(provider gestalt.IndexedDBProvider) ProviderDB {
-	return ProviderDB{provider: provider}
+	return indexeddb.RPCError(db.provider.DeleteObjectStore(ctx, name))
 }
 
 func (db ProviderDB) ObjectStore(name string) indexeddb.ObjectStore {
@@ -71,7 +38,7 @@ func (db ProviderDB) Transaction(ctx context.Context, stores []string, mode gest
 		DurabilityHint: opts.DurabilityHint,
 	})
 	if err != nil {
-		return nil, MapProviderError(err)
+		return nil, indexeddb.RPCError(err)
 	}
 	return ProviderTx{tx: tx}, nil
 }
@@ -85,7 +52,7 @@ type ProviderStore struct {
 
 func (s ProviderStore) Get(ctx context.Context, id string) (gestalt.Record, error) {
 	record, err := s.provider.Get(ctx, gestalt.IndexedDBObjectStoreRequest{Store: s.store, ID: id})
-	return record, MapProviderError(err)
+	return record, indexeddb.RPCError(err)
 }
 
 func (s ProviderStore) GetKey(ctx context.Context, id string) (string, error) {
@@ -96,36 +63,36 @@ func (s ProviderStore) GetKey(ctx context.Context, id string) (string, error) {
 }
 
 func (s ProviderStore) Put(ctx context.Context, record gestalt.Record) error {
-	return MapProviderError(s.provider.Put(ctx, gestalt.IndexedDBRecordRequest{Store: s.store, Record: record}))
+	return indexeddb.RPCError(s.provider.Put(ctx, gestalt.IndexedDBRecordRequest{Store: s.store, Record: record}))
 }
 
 func (s ProviderStore) Add(ctx context.Context, record gestalt.Record) error {
-	return MapProviderError(s.provider.Add(ctx, gestalt.IndexedDBRecordRequest{Store: s.store, Record: record}))
+	return indexeddb.RPCError(s.provider.Add(ctx, gestalt.IndexedDBRecordRequest{Store: s.store, Record: record}))
 }
 
 func (s ProviderStore) Delete(ctx context.Context, id string) error {
-	return MapProviderError(s.provider.Delete(ctx, gestalt.IndexedDBObjectStoreRequest{Store: s.store, ID: id}))
+	return indexeddb.RPCError(s.provider.Delete(ctx, gestalt.IndexedDBObjectStoreRequest{Store: s.store, ID: id}))
 }
 
-func (s ProviderStore) Clear(_ context.Context) error {
+func (s ProviderStore) Clear(ctx context.Context) error {
 	return indexeddb.ErrUnsupported
 }
 
 func (s ProviderStore) GetAll(ctx context.Context, r *gestalt.KeyRange) ([]gestalt.Record, error) {
 	records, err := s.provider.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: s.store, Range: r})
-	return records, MapProviderError(err)
+	return records, indexeddb.RPCError(err)
 }
 
-func (s ProviderStore) GetAllKeys(_ context.Context, _ *gestalt.KeyRange) ([]string, error) {
+func (s ProviderStore) GetAllKeys(ctx context.Context, r *gestalt.KeyRange) ([]string, error) {
 	return nil, indexeddb.ErrUnsupported
 }
 
 func (s ProviderStore) Count(ctx context.Context, r *gestalt.KeyRange) (int64, error) {
 	count, err := s.provider.Count(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: s.store, Range: r})
-	return count, MapProviderError(err)
+	return count, indexeddb.RPCError(err)
 }
 
-func (s ProviderStore) DeleteRange(_ context.Context, _ gestalt.KeyRange) (int64, error) {
+func (s ProviderStore) DeleteRange(ctx context.Context, r gestalt.KeyRange) (int64, error) {
 	return 0, indexeddb.ErrUnsupported
 }
 
@@ -140,7 +107,7 @@ func (s ProviderStore) OpenCursor(ctx context.Context, r *gestalt.KeyRange, dir 
 		Direction: dir,
 	})
 	if err != nil {
-		return nil, MapProviderError(err)
+		return nil, indexeddb.RPCError(err)
 	}
 	return &ProviderCursor{ctx: ctx, cur: cur}, nil
 }
@@ -153,7 +120,7 @@ func (s ProviderStore) OpenKeyCursor(ctx context.Context, r *gestalt.KeyRange, d
 		KeysOnly:  true,
 	})
 	if err != nil {
-		return nil, MapProviderError(err)
+		return nil, indexeddb.RPCError(err)
 	}
 	return &ProviderCursor{ctx: ctx, cur: cur}, nil
 }
@@ -164,11 +131,11 @@ type ProviderIndex struct {
 	index    string
 }
 
-func (idx ProviderIndex) Get(_ context.Context, _ ...any) (gestalt.Record, error) {
+func (idx ProviderIndex) Get(ctx context.Context, values ...any) (gestalt.Record, error) {
 	return nil, indexeddb.ErrUnsupported
 }
 
-func (idx ProviderIndex) GetKey(_ context.Context, _ ...any) (string, error) {
+func (idx ProviderIndex) GetKey(ctx context.Context, values ...any) (string, error) {
 	return "", indexeddb.ErrUnsupported
 }
 
@@ -179,10 +146,10 @@ func (idx ProviderIndex) GetAll(ctx context.Context, r *gestalt.KeyRange, values
 		Values: values,
 		Range:  r,
 	})
-	return records, MapProviderError(err)
+	return records, indexeddb.RPCError(err)
 }
 
-func (idx ProviderIndex) GetAllKeys(_ context.Context, _ *gestalt.KeyRange, _ ...any) ([]string, error) {
+func (idx ProviderIndex) GetAllKeys(ctx context.Context, r *gestalt.KeyRange, values ...any) ([]string, error) {
 	return nil, indexeddb.ErrUnsupported
 }
 
@@ -193,18 +160,23 @@ func (idx ProviderIndex) Count(ctx context.Context, r *gestalt.KeyRange, values 
 		Values: values,
 		Range:  r,
 	})
-	return count, MapProviderError(err)
+	return count, indexeddb.RPCError(err)
 }
 
-func (idx ProviderIndex) Delete(_ context.Context, _ ...any) (int64, error) {
+func (idx ProviderIndex) Delete(ctx context.Context, values ...any) (int64, error) {
+	deleted, err := idx.provider.IndexDelete(ctx, gestalt.IndexedDBIndexQueryRequest{
+		Store:  idx.store,
+		Index:  idx.index,
+		Values: values,
+	})
+	return deleted, indexeddb.RPCError(err)
+}
+
+func (idx ProviderIndex) DeleteRange(ctx context.Context, r *gestalt.KeyRange, values ...any) (int64, error) {
 	return 0, indexeddb.ErrUnsupported
 }
 
-func (idx ProviderIndex) DeleteRange(_ context.Context, _ *gestalt.KeyRange, _ ...any) (int64, error) {
-	return 0, indexeddb.ErrUnsupported
-}
-
-func (idx ProviderIndex) OpenCursor(_ context.Context, _ *gestalt.KeyRange, _ gestalt.CursorDirection, _ ...any) (indexeddb.Cursor, error) {
+func (idx ProviderIndex) OpenCursor(ctx context.Context, r *gestalt.KeyRange, dir gestalt.CursorDirection, values ...any) (indexeddb.Cursor, error) {
 	return nil, indexeddb.ErrUnsupported
 }
 
@@ -218,7 +190,7 @@ func (idx ProviderIndex) OpenKeyCursor(ctx context.Context, r *gestalt.KeyRange,
 		Values:    values,
 	})
 	if err != nil {
-		return nil, MapProviderError(err)
+		return nil, indexeddb.RPCError(err)
 	}
 	return &ProviderCursor{ctx: ctx, cur: cur}, nil
 }
@@ -231,9 +203,19 @@ type ProviderCursor struct {
 	done  bool
 }
 
-func (c *ProviderCursor) ContinueToKey(_ any) bool { return false }
+func (c *ProviderCursor) ContinueToKey(key any) bool {
+	_ = key
+	return false
+}
 
-func (c *ProviderCursor) Advance(_ int) bool { return false }
+func (c *ProviderCursor) Advance(count int) bool {
+	for i := 0; i < count; i++ {
+		if !c.Continue() {
+			return false
+		}
+	}
+	return true
+}
 
 func (c *ProviderCursor) Key() any {
 	if c.entry == nil {
@@ -244,7 +226,10 @@ func (c *ProviderCursor) Key() any {
 
 func (c *ProviderCursor) Delete() error { return indexeddb.ErrUnsupported }
 
-func (c *ProviderCursor) Update(_ gestalt.Record) error { return indexeddb.ErrUnsupported }
+func (c *ProviderCursor) Update(value gestalt.Record) error {
+	_ = value
+	return indexeddb.ErrUnsupported
+}
 
 func (c *ProviderCursor) Continue() bool {
 	if c.done || c.err != nil {
@@ -252,7 +237,7 @@ func (c *ProviderCursor) Continue() bool {
 	}
 	entry, err := c.cur.Next(c.ctx)
 	if err != nil {
-		c.err = MapProviderError(err)
+		c.err = indexeddb.RPCError(err)
 		return false
 	}
 	if entry == nil {
@@ -290,11 +275,11 @@ type ProviderTx struct {
 }
 
 func (tx ProviderTx) Commit(ctx context.Context) error {
-	return MapProviderError(tx.tx.Commit(ctx))
+	return indexeddb.RPCError(tx.tx.Commit(ctx))
 }
 
 func (tx ProviderTx) Abort(ctx context.Context) error {
-	return MapProviderError(tx.tx.Abort(ctx))
+	return indexeddb.RPCError(tx.tx.Abort(ctx))
 }
 
 func (tx ProviderTx) ObjectStore(name string) indexeddb.TransactionObjectStore {
@@ -308,7 +293,7 @@ type ProviderTxStore struct {
 
 func (s ProviderTxStore) Get(ctx context.Context, id string) (gestalt.Record, error) {
 	record, err := s.tx.Get(ctx, gestalt.IndexedDBObjectStoreRequest{Store: s.store, ID: id})
-	return record, MapProviderError(err)
+	return record, indexeddb.RPCError(err)
 }
 
 func (s ProviderTxStore) GetKey(ctx context.Context, id string) (string, error) {
@@ -319,35 +304,35 @@ func (s ProviderTxStore) GetKey(ctx context.Context, id string) (string, error) 
 }
 
 func (s ProviderTxStore) Put(ctx context.Context, record gestalt.Record) error {
-	return MapProviderError(s.tx.Put(ctx, gestalt.IndexedDBRecordRequest{Store: s.store, Record: record}))
+	return indexeddb.RPCError(s.tx.Put(ctx, gestalt.IndexedDBRecordRequest{Store: s.store, Record: record}))
 }
 
 func (s ProviderTxStore) Add(ctx context.Context, record gestalt.Record) error {
-	return MapProviderError(s.tx.Add(ctx, gestalt.IndexedDBRecordRequest{Store: s.store, Record: record}))
+	return indexeddb.RPCError(s.tx.Add(ctx, gestalt.IndexedDBRecordRequest{Store: s.store, Record: record}))
 }
 
 func (s ProviderTxStore) Delete(ctx context.Context, id string) error {
-	return MapProviderError(s.tx.Delete(ctx, gestalt.IndexedDBObjectStoreRequest{Store: s.store, ID: id}))
+	return indexeddb.RPCError(s.tx.Delete(ctx, gestalt.IndexedDBObjectStoreRequest{Store: s.store, ID: id}))
 }
 
-func (s ProviderTxStore) Clear(_ context.Context) error {
+func (s ProviderTxStore) Clear(ctx context.Context) error {
 	return indexeddb.ErrUnsupported
 }
 
 func (s ProviderTxStore) GetAll(ctx context.Context, r *gestalt.KeyRange) ([]gestalt.Record, error) {
 	records, err := s.tx.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: s.store, Range: r})
-	return records, MapProviderError(err)
+	return records, indexeddb.RPCError(err)
 }
 
-func (s ProviderTxStore) GetAllKeys(_ context.Context, _ *gestalt.KeyRange) ([]string, error) {
+func (s ProviderTxStore) GetAllKeys(ctx context.Context, r *gestalt.KeyRange) ([]string, error) {
 	return nil, indexeddb.ErrUnsupported
 }
 
-func (s ProviderTxStore) Count(_ context.Context, _ *gestalt.KeyRange) (int64, error) {
+func (s ProviderTxStore) Count(ctx context.Context, r *gestalt.KeyRange) (int64, error) {
 	return 0, indexeddb.ErrUnsupported
 }
 
-func (s ProviderTxStore) DeleteRange(_ context.Context, _ gestalt.KeyRange) (int64, error) {
+func (s ProviderTxStore) DeleteRange(ctx context.Context, r gestalt.KeyRange) (int64, error) {
 	return 0, indexeddb.ErrUnsupported
 }
 
@@ -361,11 +346,11 @@ type ProviderTxIndex struct {
 	index string
 }
 
-func (idx ProviderTxIndex) Get(_ context.Context, _ ...any) (gestalt.Record, error) {
+func (idx ProviderTxIndex) Get(ctx context.Context, values ...any) (gestalt.Record, error) {
 	return nil, indexeddb.ErrUnsupported
 }
 
-func (idx ProviderTxIndex) GetKey(_ context.Context, _ ...any) (string, error) {
+func (idx ProviderTxIndex) GetKey(ctx context.Context, values ...any) (string, error) {
 	return "", indexeddb.ErrUnsupported
 }
 
@@ -376,7 +361,7 @@ func (idx ProviderTxIndex) GetAll(ctx context.Context, r *gestalt.KeyRange, valu
 		Values: values,
 		Range:  r,
 	})
-	return records, MapProviderError(err)
+	return records, indexeddb.RPCError(err)
 }
 
 func (idx ProviderTxIndex) Count(ctx context.Context, r *gestalt.KeyRange, values ...any) (int64, error) {
@@ -386,10 +371,10 @@ func (idx ProviderTxIndex) Count(ctx context.Context, r *gestalt.KeyRange, value
 		Values: values,
 		Range:  r,
 	})
-	return count, MapProviderError(err)
+	return count, indexeddb.RPCError(err)
 }
 
-func (idx ProviderTxIndex) GetAllKeys(_ context.Context, _ *gestalt.KeyRange, _ ...any) ([]string, error) {
+func (idx ProviderTxIndex) GetAllKeys(ctx context.Context, r *gestalt.KeyRange, values ...any) ([]string, error) {
 	return nil, indexeddb.ErrUnsupported
 }
 
@@ -399,9 +384,9 @@ func (idx ProviderTxIndex) Delete(ctx context.Context, values ...any) (int64, er
 		Index:  idx.index,
 		Values: values,
 	})
-	return deleted, MapProviderError(err)
+	return deleted, indexeddb.RPCError(err)
 }
 
-func (idx ProviderTxIndex) DeleteRange(_ context.Context, _ *gestalt.KeyRange, _ ...any) (int64, error) {
+func (idx ProviderTxIndex) DeleteRange(ctx context.Context, r *gestalt.KeyRange, values ...any) (int64, error) {
 	return 0, indexeddb.ErrUnsupported
 }

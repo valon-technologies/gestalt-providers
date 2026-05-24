@@ -6,6 +6,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.11.1
 	github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb v0.0.0-00010101000000-000000000000
+	github.com/valon-technologies/gestalt-providers/workflow/internal v0.0.0-00010101000000-000000000000
 	github.com/valon-technologies/gestalt/sdk/go v0.0.0-00010101000000-000000000000
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/sdk/metric v1.43.0
@@ -69,6 +70,8 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.48.2 // indirect
 )
+
+replace github.com/valon-technologies/gestalt-providers/workflow/internal => ../internal
 
 replace github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb => ../../indexeddb/relationaldb
 

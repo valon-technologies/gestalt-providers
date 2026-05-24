@@ -15,7 +15,8 @@ import (
 	"testing"
 	"time"
 
-	idbfake "github.com/valon-technologies/gestalt-providers/externalcredentials/default/internal/fake"
+	extfake "github.com/valon-technologies/gestalt-providers/externalcredentials/default/internal/fake"
+	idbfake "github.com/valon-technologies/gestalt-providers/indexeddb/memoryfake"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
@@ -45,7 +46,6 @@ func TestExternalCredentialProviderRoundTrip(t *testing.T) {
 	if meta.Name != "default" {
 		t.Fatalf("name = %q, want %q", meta.Name, "default")
 	}
-
 
 	client, err := connectExternalCredentials()
 	if err != nil {
@@ -214,7 +214,6 @@ func TestExternalCredentialProviderManualTokenExchange(t *testing.T) {
 	}))
 	defer tokenServer.Close()
 
-
 	client, err := connectExternalCredentials()
 	if err != nil {
 		t.Fatalf("ExternalCredentials: %v", err)
@@ -261,7 +260,6 @@ func TestExternalCredentialProviderRejectsPlatformCredentialMode(t *testing.T) {
 	configureProvider(t, provider, map[string]any{
 		"encryptionKey": "provider-platform-mode-unsupported-key",
 	})
-
 
 	client, err := connectExternalCredentials()
 	if err != nil {
@@ -329,7 +327,6 @@ func TestExternalCredentialProviderResolveRefreshesStoredManualCredential(t *tes
 		_, _ = w.Write([]byte(`{"access_token":"refreshed-access-token","expires_in":1800}`))
 	}))
 	defer tokenServer.Close()
-
 
 	client, err := connectExternalCredentials()
 	if err != nil {
@@ -430,7 +427,6 @@ func TestExternalCredentialProviderResolveInvalidGrantDeletesStoredCredential(t 
 			}))
 			defer tokenServer.Close()
 
-
 			client, err := connectExternalCredentials()
 			if err != nil {
 				t.Fatalf("ExternalCredentials: %v", err)
@@ -510,7 +506,6 @@ func TestExternalCredentialProviderResolveTransientRefreshFailureRetainsStoredCr
 			}))
 			defer tokenServer.Close()
 
-
 			client, err := connectExternalCredentials()
 			if err != nil {
 				t.Fatalf("ExternalCredentials: %v", err)
@@ -578,7 +573,6 @@ func TestExternalCredentialProviderCredentialMaintenanceRefreshesDueTargets(t *t
 	provider := New()
 	startTestProvider(t, provider, testHostServiceOptions{seedStore: true})
 
-
 	var refreshCalls int
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		refreshCalls++
@@ -600,7 +594,6 @@ func TestExternalCredentialProviderCredentialMaintenanceRefreshesDueTargets(t *t
 	defer tokenServer.Close()
 
 	configureProvider(t, provider, credentialRefreshProviderConfig("maintenance-refresh-key", tokenServer.URL))
-
 
 	client, err := connectExternalCredentials()
 	if err != nil {
@@ -900,7 +893,6 @@ func TestExternalCredentialProviderCredentialMaintenancePreservesTransientFailur
 	provider := New()
 	startTestProvider(t, provider, testHostServiceOptions{seedStore: true})
 
-
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -935,7 +927,6 @@ func TestExternalCredentialProviderCredentialMaintenancePreservesTransientFailur
 func TestExternalCredentialProviderCredentialMaintenanceDeletesInvalidGrant(t *testing.T) {
 	provider := New()
 	startTestProvider(t, provider, testHostServiceOptions{seedStore: true})
-
 
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1057,7 +1048,6 @@ func TestExternalCredentialProviderTokenEndpointErrorsAreSanitized(t *testing.T)
 			}))
 			defer tokenServer.Close()
 
-
 			client, err := connectExternalCredentials()
 			if err != nil {
 				t.Fatalf("ExternalCredentials: %v", err)
@@ -1097,7 +1087,6 @@ func TestExternalCredentialProviderRestorePreservesTimestamps(t *testing.T) {
 	configureProvider(t, provider, map[string]any{
 		"encryptionKey": "provider-restore-key",
 	})
-
 
 	client, err := connectExternalCredentials()
 	if err != nil {
@@ -1168,7 +1157,6 @@ func TestExternalCredentialProviderReadsExistingCiphertextFormat(t *testing.T) {
 		t.Fatalf("Put(seed raw record): %v", err)
 	}
 
-
 	client, err := connectExternalCredentials()
 	if err != nil {
 		t.Fatalf("ExternalCredentials: %v", err)
@@ -1199,7 +1187,6 @@ func TestExternalCredentialProviderValidation(t *testing.T) {
 	configureProvider(t, provider, map[string]any{
 		"encryptionKey": "provider-validation-key",
 	})
-
 
 	client, err := connectExternalCredentials()
 	if err != nil {
@@ -1286,7 +1273,7 @@ func startTestProvider(t *testing.T, provider *Provider, opts testHostServiceOpt
 }
 
 func wrapProviderExternalCredClient(provider *Provider) externalCredClient {
-	return idbfake.NewProviderExternalCredClient(provider)
+	return extfake.NewProviderExternalCredClient(provider)
 }
 
 func seedExternalCredentialStoreOnClient(ctx context.Context, client indexeddb.Database) error {

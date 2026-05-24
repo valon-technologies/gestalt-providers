@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	idbfake "github.com/valon-technologies/gestalt-providers/authorization/indexeddb/internal/fake"
+	idbfake "github.com/valon-technologies/gestalt-providers/indexeddb/memoryfake"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
