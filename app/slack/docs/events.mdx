@@ -18,41 +18,41 @@ apps:
     source: https://github.com/valon-technologies/gestalt-providers/releases/download/app/slack/v0.0.1-alpha.N/provider-release.yaml
     authorizationPolicy: platform
     invokes:
-      - plugin: slack
+      - app: slack
         operation: events.reply
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.setStatus
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.deleteStatus
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.addReaction
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.removeReaction
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.setAssistantStatus
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.clearAssistantStatus
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.setThreadTitle
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.setSuggestedPrompts
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: interactions.request
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: conversations.getThreadContext
-      - plugin: slack
+      - app: slack
         operation: files.get
-      - plugin: companyDirectory
+      - app: companyDirectory
         operation: lookupProfile
     config:
       bot:
@@ -70,7 +70,7 @@ apps:
           enabled: true
           maxMessages: 200
         tools:
-          - plugin: companyDirectory
+          - app: companyDirectory
             operation: lookupProfile
       assistant:
         enabled: true
@@ -223,15 +223,15 @@ apps:
         timeoutSeconds: 1800
         toolSets:
           directory:
-            - plugin: companyDirectory
+            - app: companyDirectory
               operation: lookupProfile
           status:
-            - plugin: statusPage
+            - app: statusPage
               operation: getStatus
         toolSetRefs:
           - directory
         tools:
-          - plugin: tickets
+          - app: tickets
             operation: search
         routes:
           - id: team-help-new-messages
@@ -318,7 +318,7 @@ Slack interaction callbacks generated from that route use `runAs.subject` only
 when the signed ref subject ID already equals the configured runAs subject.
 
 Tool sets are named groups under `agent.toolSets`. Tool references expand in
-this order and deduplicate by exact plugin/operation/connection/instance with
+this order and deduplicate by exact app/operation/connection/instance with
 first reference winning: top-level `agent.toolSetRefs`, top-level
 `agent.tools`, route `agent.toolSetRefs`, route `agent.tools`, then Slack
 helper operations.

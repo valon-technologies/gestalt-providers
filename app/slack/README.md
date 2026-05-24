@@ -82,44 +82,44 @@ apps:
     source: https://github.com/valon-technologies/gestalt-providers/releases/download/app/slack/v0.0.1-alpha.N/provider-release.yaml
     authorizationPolicy: platform
     invokes:
-      - plugin: slack
+      - app: slack
         operation: events.reply
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.replySessionStarted
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.setStatus
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.deleteStatus
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.addReaction
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.removeReaction
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.setAssistantStatus
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.clearAssistantStatus
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.setThreadTitle
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.setSuggestedPrompts
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: interactions.request
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: conversations.getThreadContext
-      - plugin: slack
+      - app: slack
         operation: files.get
-      - plugin: companyDirectory
+      - app: companyDirectory
         operation: lookupProfile
     config:
       bot:
@@ -137,7 +137,7 @@ apps:
           enabled: true
           maxMessages: 200
         tools:
-          - plugin: companyDirectory
+          - app: companyDirectory
             operation: lookupProfile
       assistant:
         enabled: true
@@ -403,46 +403,46 @@ apps:
     source: https://github.com/valon-technologies/gestalt-providers/releases/download/app/slack/v0.0.1-alpha.N/provider-release.yaml
     authorizationPolicy: platform
     invokes:
-      - plugin: slack
+      - app: slack
         operation: events.reply
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.replySessionStarted
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.setStatus
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.deleteStatus
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.addReaction
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.removeReaction
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.setAssistantStatus
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.clearAssistantStatus
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.setThreadTitle
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: events.setSuggestedPrompts
         credentialMode: none
-      - plugin: slack
+      - app: slack
         operation: conversations.getThreadContext
-      - plugin: slack
+      - app: slack
         operation: files.get
-      - plugin: slack
+      - app: slack
         operation: interactions.request
         credentialMode: none
-      - plugin: companyDirectory
+      - app: companyDirectory
         operation: lookupProfile
-      - plugin: statusPage
+      - app: statusPage
         operation: getStatus
     config:
       bot:
@@ -458,17 +458,17 @@ apps:
         systemPrompt: Use Slack formatting and keep replies concise.
         toolSets:
           directory:
-            - plugin: companyDirectory
+            - app: companyDirectory
               operation: lookupProfile
           status:
-            - plugin: statusPage
+            - app: statusPage
               operation: getStatus
         toolSetRefs:
           - directory
         tools:
-          - plugin: tickets
+          - app: tickets
             operation: search
-          - plugin: notion
+          - app: notion
             operation: search
             runAs:
               subject:
@@ -566,7 +566,7 @@ service-account delegation; route `runAs` changes the Slack invocation subject.
 
 Tool sets are named groups under `agent.toolSets`. The workflow agent target
 expands tool references in this order and deduplicates by exact
-plugin/operation/connection/instance with first reference winning:
+app/operation/connection/instance with first reference winning:
 
 1. top-level `agent.toolSetRefs`
 2. top-level `agent.tools`
@@ -574,9 +574,9 @@ plugin/operation/connection/instance with first reference winning:
 4. route `agent.tools`
 5. Slack helper operations
 
-Tool references must name exact plugin and operation IDs. Wildcards and
+Tool references must name exact app and operation IDs. Wildcards and
 host-invoke input bindings are rejected in provider configuration. A tool
-reference may include `runAs.subject.id` to request one of the caller plugin's
+reference may include `runAs.subject.id` to request one of the caller app's
 declared invoke delegations for that exact tool. The deployment's invoke policy
 must still declare the matching delegation; Slack configuration only selects it.
 
@@ -661,13 +661,13 @@ Representative operations include:
 
 ## Usage Examples
 
-Grant another provider or workflow permission to invoke this plugin before calling it:
+Grant another app or workflow permission to invoke this app before calling it:
 
 ```yaml
 apps:
   example_consumer:
     invokes:
-      - plugin: slack
+      - app: slack
         operation: conversations.getThreadContext
 ```
 
@@ -689,4 +689,4 @@ await invoker.invoke("slack", "events.startStream", { reply_ref: "...", markdown
 
 ## Documentation
 - [Provider Development](https://gestaltd.ai/providers)
-- [Manifest Reference](https://gestaltd.ai/reference/plugin-manifests)
+- [Manifest Reference](https://gestaltd.ai/reference/app-manifests)

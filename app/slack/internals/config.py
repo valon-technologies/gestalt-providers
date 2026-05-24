@@ -27,7 +27,7 @@ MAX_WORKFLOW_AGENT_TIMEOUT_SECONDS = 2_147_483_647
 
 
 def agent_config_from_provider_config(
-    plugin_name: str, config: dict[str, Any]
+    app_name: str, config: dict[str, Any]
 ) -> SlackAgentConfig:
     agent = _config_dict(config, "agent")
     provider = _config_string(agent, "provider", "agentProvider", "agent_provider")
@@ -61,7 +61,7 @@ def agent_config_from_provider_config(
     _validate_agent_tool_set_refs(agent_tool_sets, agent_tool_set_refs, routes)
 
     return SlackAgentConfig(
-        plugin_name=plugin_name.strip() or "slack",
+        app_name=app_name.strip() or "slack",
         bot=SlackBotConfig(
             token=_config_string(
                 bot, "token", "botToken", "bot_token", "accessToken", "access_token"
@@ -792,7 +792,7 @@ def _agent_tool_refs_from_config(
         if "system" in tool and not isinstance(tool.get("system"), str):
             raise ValueError(f"{ref_path}.system must be an exact system name")
         system = _config_string(tool, "system")
-        plugin = _config_string(tool, "plugin", "pluginName", "plugin_name")
+        app = _config_string(tool, "app", "appName", "app_name")
         operation = _config_string(tool, "operation", "operationName", "operation_name")
         connection = _config_string(tool, "connection", "connectionName")
         instance = _config_string(tool, "instance", "instanceName")
@@ -802,35 +802,29 @@ def _agent_tool_refs_from_config(
             tool, ref_path
         )
         if system:
-            if plugin:
-                raise ValueError(f"{ref_path} must set exactly one of plugin or system")
+            if app:
+                raise ValueError(f"{ref_path} must set exactly one of app or system")
             if system != "workflow":
                 raise ValueError(f"{ref_path}.system must be workflow")
             if not operation or operation == "*":
                 raise ValueError(
                     f"{ref_path}.operation must be an exact operation name"
                 )
-            if (
-                connection
-                or instance
-                or title
-                or description
-                or run_as_subject_id
-            ):
+            if connection or instance or title or description or run_as_subject_id:
                 raise ValueError(
                     f"{ref_path} system refs cannot include connection, instance, title, description, or runAs"
                 )
             refs.append(SlackAgentToolRef(system=system, operation=operation))
             continue
-        if not plugin or plugin == "*" or plugin.lower() == "system":
-            raise ValueError(f"{ref_path}.plugin must be an exact plugin name")
+        if not app or app == "*" or app.lower() == "system":
+            raise ValueError(f"{ref_path}.app must be an exact app name")
         if not operation or operation == "*":
             raise ValueError(f"{ref_path}.operation must be an exact operation name")
         if connection == "*" or instance == "*":
             raise ValueError(f"{ref_path} connection and instance must be exact")
         refs.append(
             SlackAgentToolRef(
-                plugin=plugin,
+                app=app,
                 operation=operation,
                 connection=connection,
                 instance=instance,
@@ -869,6 +863,7 @@ def _config_object(
                 raise ValueError(f"{path}.{key} must be an object")
             return dict(value)
     return None
+
 
 def _agent_route_match_from_config(config: dict[str, Any]) -> SlackAgentRouteMatch:
     return SlackAgentRouteMatch(
