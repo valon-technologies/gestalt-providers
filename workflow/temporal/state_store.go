@@ -12,7 +12,7 @@ import (
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	idb "github.com/valon-technologies/gestalt/sdk/go/indexeddb"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -33,30 +33,22 @@ const (
 	indexByTriggerID = "by_trigger_id"
 )
 
-type workflowDB = idb.Database
-type workflowObjectStore = idb.ObjectStore
-type workflowIndex = idb.Index
-type workflowCursor = idb.Cursor
-type workflowTx = idb.Transaction
-type workflowTxObjectStore = idb.TransactionObjectStore
-type workflowTxIndex = idb.TransactionIndex
-
 type workflowStateStore struct {
-	db      workflowDB
+	db      indexeddb.Database
 	scopeID string
 
-	schedules         workflowObjectStore
-	eventTriggers     workflowObjectStore
-	eventTriggerKeys  workflowObjectStore
-	definitions       workflowObjectStore
-	executionRefs     workflowObjectStore
-	runProjections    workflowObjectStore
-	runIdempotency    workflowObjectStore
-	signalIdempotency workflowObjectStore
-	workflowKeys      workflowObjectStore
+	schedules         indexeddb.ObjectStore
+	eventTriggers     indexeddb.ObjectStore
+	eventTriggerKeys  indexeddb.ObjectStore
+	definitions       indexeddb.ObjectStore
+	executionRefs     indexeddb.ObjectStore
+	runProjections    indexeddb.ObjectStore
+	runIdempotency    indexeddb.ObjectStore
+	signalIdempotency indexeddb.ObjectStore
+	workflowKeys      indexeddb.ObjectStore
 }
 
-func openWorkflowStateStore(ctx context.Context, scopeID string, db workflowDB) (*workflowStateStore, error) {
+func openWorkflowStateStore(ctx context.Context, scopeID string, db indexeddb.Database) (*workflowStateStore, error) {
 	scopeID = strings.TrimSpace(scopeID)
 	if scopeID == "" {
 		return nil, fmt.Errorf("scopeID is required")
@@ -83,7 +75,7 @@ func openWorkflowStateStore(ctx context.Context, scopeID string, db workflowDB) 
 	return store, nil
 }
 
-func ensureWorkflowStateStores(ctx context.Context, db workflowDB) error {
+func ensureWorkflowStateStores(ctx context.Context, db indexeddb.Database) error {
 	if db == nil {
 		return nil
 	}
@@ -341,7 +333,7 @@ func (s *workflowStateStore) putRun(ctx context.Context, run *gestalt.BoundWorkf
 	return nil
 }
 
-func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store workflowTxObjectStore, run *gestalt.BoundWorkflowRun) (*gestalt.BoundWorkflowRun, error) {
+func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store indexeddb.TransactionObjectStore, run *gestalt.BoundWorkflowRun) (*gestalt.BoundWorkflowRun, error) {
 	if run == nil || strings.TrimSpace(run.ID) == "" {
 		return nil, nil
 	}
@@ -377,7 +369,7 @@ func (s *workflowStateStore) getRun(ctx context.Context, id string) (*gestalt.Bo
 	return run, err == nil && strings.TrimSpace(run.ID) != "", err
 }
 
-func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store workflowTxObjectStore, id string) (*gestalt.BoundWorkflowRun, bool, error) {
+func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store indexeddb.TransactionObjectStore, id string) (*gestalt.BoundWorkflowRun, bool, error) {
 	record, found, err := transactionGetRecord(ctx, store, s.scopedID(strings.TrimSpace(id)))
 	if err != nil || !found {
 		return nil, false, err
@@ -1740,7 +1732,7 @@ func optionalTime(value *time.Time) *time.Time {
 	return &asTime
 }
 
-func transactionGetRecord(ctx context.Context, store workflowTxObjectStore, id string) (gestalt.Record, bool, error) {
+func transactionGetRecord(ctx context.Context, store indexeddb.TransactionObjectStore, id string) (gestalt.Record, bool, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, false, nil

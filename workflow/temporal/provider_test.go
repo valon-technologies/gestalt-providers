@@ -16,6 +16,7 @@ import (
 	relationaldb "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb"
 	providerfake "github.com/valon-technologies/gestalt-providers/workflow/internal/providerfake"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -2537,7 +2538,7 @@ func temporalMetricAttrsMatch(set attribute.Set, want map[string]string) bool {
 	return true
 }
 
-func startTestIndexedDBBackend(t *testing.T) workflowDB {
+func startTestIndexedDBBackend(t *testing.T) indexeddb.Database {
 	t.Helper()
 
 	store := relationaldb.New()
