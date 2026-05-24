@@ -2,9 +2,13 @@ package providerfake
 
 import (
 	"context"
+	"errors"
+	"strings"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // ProviderDB implements indexeddb.Database by delegating to gestalt.IndexedDBProvider.
@@ -16,15 +20,83 @@ func NewProviderDB(provider gestalt.IndexedDBProvider) ProviderDB {
 	return ProviderDB{provider: provider}
 }
 
+func rpcError(err error) error {
+	if err == nil {
+		return nil
+	}
+	switch {
+	case errors.Is(err, indexeddb.ErrNotFound):
+		return indexeddb.ErrNotFound
+	case errors.Is(err, indexeddb.ErrAlreadyExists):
+		return indexeddb.ErrAlreadyExists
+	case errors.Is(err, indexeddb.ErrInvalidTransaction):
+		return indexeddb.ErrInvalidTransaction
+	case errors.Is(err, indexeddb.ErrReadOnly):
+		return indexeddb.ErrReadOnly
+	case errors.Is(err, indexeddb.ErrTransactionDone):
+		return indexeddb.ErrTransactionDone
+	}
+	if code, ok := gestalt.StatusCodeOf(err); ok {
+		if mapped := statusCodeError(code, err.Error()); mapped != nil {
+			return mapped
+		}
+		return err
+	}
+	if st, ok := status.FromError(err); ok {
+		if mapped := statusCodeError(statusCodeFromGRPC(st.Code()), st.Message()); mapped != nil {
+			return mapped
+		}
+		return err
+	}
+	return err
+}
+
+func statusCodeError(code gestalt.StatusCode, message string) error {
+	normalized := strings.ToLower(message)
+	switch code {
+	case gestalt.CodeNotFound:
+		return indexeddb.ErrNotFound
+	case gestalt.CodeAlreadyExists:
+		return indexeddb.ErrAlreadyExists
+	case gestalt.CodeInvalidArgument:
+		if strings.Contains(normalized, "invalid transaction") {
+			return indexeddb.ErrInvalidTransaction
+		}
+	case gestalt.CodeFailedPrecondition:
+		if strings.Contains(normalized, "readonly") {
+			return indexeddb.ErrReadOnly
+		}
+		if strings.Contains(normalized, "already finished") {
+			return indexeddb.ErrTransactionDone
+		}
+	}
+	return nil
+}
+
+func statusCodeFromGRPC(code codes.Code) gestalt.StatusCode {
+	switch code {
+	case codes.NotFound:
+		return gestalt.CodeNotFound
+	case codes.AlreadyExists:
+		return gestalt.CodeAlreadyExists
+	case codes.InvalidArgument:
+		return gestalt.CodeInvalidArgument
+	case codes.FailedPrecondition:
+		return gestalt.CodeFailedPrecondition
+	default:
+		return gestalt.CodeUnknown
+	}
+}
+
 func (db ProviderDB) CreateObjectStore(ctx context.Context, name string, schema indexeddb.ObjectStoreOptions) (indexeddb.ObjectStore, error) {
-	if err := indexeddb.RPCError(db.provider.CreateObjectStore(ctx, name, schema)); err != nil {
+	if err := rpcError(db.provider.CreateObjectStore(ctx, name, schema)); err != nil {
 		return nil, err
 	}
 	return db.ObjectStore(name), nil
 }
 
 func (db ProviderDB) DeleteObjectStore(ctx context.Context, name string) error {
-	return indexeddb.RPCError(db.provider.DeleteObjectStore(ctx, name))
+	return rpcError(db.provider.DeleteObjectStore(ctx, name))
 }
 
 func (db ProviderDB) ObjectStore(name string) indexeddb.ObjectStore {
@@ -38,7 +110,7 @@ func (db ProviderDB) Transaction(ctx context.Context, stores []string, mode gest
 		DurabilityHint: opts.DurabilityHint,
 	})
 	if err != nil {
-		return nil, indexeddb.RPCError(err)
+		return nil, rpcError(err)
 	}
 	return ProviderTx{tx: tx}, nil
 }
@@ -52,7 +124,7 @@ type ProviderStore struct {
 
 func (s ProviderStore) Get(ctx context.Context, id string) (gestalt.Record, error) {
 	record, err := s.provider.Get(ctx, gestalt.IndexedDBObjectStoreRequest{Store: s.store, ID: id})
-	return record, indexeddb.RPCError(err)
+	return record, rpcError(err)
 }
 
 func (s ProviderStore) GetKey(ctx context.Context, id string) (string, error) {
@@ -63,15 +135,15 @@ func (s ProviderStore) GetKey(ctx context.Context, id string) (string, error) {
 }
 
 func (s ProviderStore) Put(ctx context.Context, record gestalt.Record) error {
-	return indexeddb.RPCError(s.provider.Put(ctx, gestalt.IndexedDBRecordRequest{Store: s.store, Record: record}))
+	return rpcError(s.provider.Put(ctx, gestalt.IndexedDBRecordRequest{Store: s.store, Record: record}))
 }
 
 func (s ProviderStore) Add(ctx context.Context, record gestalt.Record) error {
-	return indexeddb.RPCError(s.provider.Add(ctx, gestalt.IndexedDBRecordRequest{Store: s.store, Record: record}))
+	return rpcError(s.provider.Add(ctx, gestalt.IndexedDBRecordRequest{Store: s.store, Record: record}))
 }
 
 func (s ProviderStore) Delete(ctx context.Context, id string) error {
-	return indexeddb.RPCError(s.provider.Delete(ctx, gestalt.IndexedDBObjectStoreRequest{Store: s.store, ID: id}))
+	return rpcError(s.provider.Delete(ctx, gestalt.IndexedDBObjectStoreRequest{Store: s.store, ID: id}))
 }
 
 func (s ProviderStore) Clear(ctx context.Context) error {
@@ -80,7 +152,7 @@ func (s ProviderStore) Clear(ctx context.Context) error {
 
 func (s ProviderStore) GetAll(ctx context.Context, r *gestalt.KeyRange) ([]gestalt.Record, error) {
 	records, err := s.provider.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: s.store, Range: r})
-	return records, indexeddb.RPCError(err)
+	return records, rpcError(err)
 }
 
 func (s ProviderStore) GetAllKeys(ctx context.Context, r *gestalt.KeyRange) ([]string, error) {
@@ -89,7 +161,7 @@ func (s ProviderStore) GetAllKeys(ctx context.Context, r *gestalt.KeyRange) ([]s
 
 func (s ProviderStore) Count(ctx context.Context, r *gestalt.KeyRange) (int64, error) {
 	count, err := s.provider.Count(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: s.store, Range: r})
-	return count, indexeddb.RPCError(err)
+	return count, rpcError(err)
 }
 
 func (s ProviderStore) DeleteRange(ctx context.Context, r gestalt.KeyRange) (int64, error) {
@@ -107,7 +179,7 @@ func (s ProviderStore) OpenCursor(ctx context.Context, r *gestalt.KeyRange, dir 
 		Direction: dir,
 	})
 	if err != nil {
-		return nil, indexeddb.RPCError(err)
+		return nil, rpcError(err)
 	}
 	return &ProviderCursor{ctx: ctx, cur: cur}, nil
 }
@@ -120,7 +192,7 @@ func (s ProviderStore) OpenKeyCursor(ctx context.Context, r *gestalt.KeyRange, d
 		KeysOnly:  true,
 	})
 	if err != nil {
-		return nil, indexeddb.RPCError(err)
+		return nil, rpcError(err)
 	}
 	return &ProviderCursor{ctx: ctx, cur: cur}, nil
 }
@@ -146,7 +218,7 @@ func (idx ProviderIndex) GetAll(ctx context.Context, r *gestalt.KeyRange, values
 		Values: values,
 		Range:  r,
 	})
-	return records, indexeddb.RPCError(err)
+	return records, rpcError(err)
 }
 
 func (idx ProviderIndex) GetAllKeys(ctx context.Context, r *gestalt.KeyRange, values ...any) ([]string, error) {
@@ -160,7 +232,7 @@ func (idx ProviderIndex) Count(ctx context.Context, r *gestalt.KeyRange, values 
 		Values: values,
 		Range:  r,
 	})
-	return count, indexeddb.RPCError(err)
+	return count, rpcError(err)
 }
 
 func (idx ProviderIndex) Delete(ctx context.Context, values ...any) (int64, error) {
@@ -169,7 +241,7 @@ func (idx ProviderIndex) Delete(ctx context.Context, values ...any) (int64, erro
 		Index:  idx.index,
 		Values: values,
 	})
-	return deleted, indexeddb.RPCError(err)
+	return deleted, rpcError(err)
 }
 
 func (idx ProviderIndex) DeleteRange(ctx context.Context, r *gestalt.KeyRange, values ...any) (int64, error) {
@@ -190,7 +262,7 @@ func (idx ProviderIndex) OpenKeyCursor(ctx context.Context, r *gestalt.KeyRange,
 		Values:    values,
 	})
 	if err != nil {
-		return nil, indexeddb.RPCError(err)
+		return nil, rpcError(err)
 	}
 	return &ProviderCursor{ctx: ctx, cur: cur}, nil
 }
@@ -237,7 +309,7 @@ func (c *ProviderCursor) Continue() bool {
 	}
 	entry, err := c.cur.Next(c.ctx)
 	if err != nil {
-		c.err = indexeddb.RPCError(err)
+		c.err = rpcError(err)
 		return false
 	}
 	if entry == nil {
@@ -275,11 +347,11 @@ type ProviderTx struct {
 }
 
 func (tx ProviderTx) Commit(ctx context.Context) error {
-	return indexeddb.RPCError(tx.tx.Commit(ctx))
+	return rpcError(tx.tx.Commit(ctx))
 }
 
 func (tx ProviderTx) Abort(ctx context.Context) error {
-	return indexeddb.RPCError(tx.tx.Abort(ctx))
+	return rpcError(tx.tx.Abort(ctx))
 }
 
 func (tx ProviderTx) ObjectStore(name string) indexeddb.TransactionObjectStore {
@@ -293,7 +365,7 @@ type ProviderTxStore struct {
 
 func (s ProviderTxStore) Get(ctx context.Context, id string) (gestalt.Record, error) {
 	record, err := s.tx.Get(ctx, gestalt.IndexedDBObjectStoreRequest{Store: s.store, ID: id})
-	return record, indexeddb.RPCError(err)
+	return record, rpcError(err)
 }
 
 func (s ProviderTxStore) GetKey(ctx context.Context, id string) (string, error) {
@@ -304,15 +376,15 @@ func (s ProviderTxStore) GetKey(ctx context.Context, id string) (string, error) 
 }
 
 func (s ProviderTxStore) Put(ctx context.Context, record gestalt.Record) error {
-	return indexeddb.RPCError(s.tx.Put(ctx, gestalt.IndexedDBRecordRequest{Store: s.store, Record: record}))
+	return rpcError(s.tx.Put(ctx, gestalt.IndexedDBRecordRequest{Store: s.store, Record: record}))
 }
 
 func (s ProviderTxStore) Add(ctx context.Context, record gestalt.Record) error {
-	return indexeddb.RPCError(s.tx.Add(ctx, gestalt.IndexedDBRecordRequest{Store: s.store, Record: record}))
+	return rpcError(s.tx.Add(ctx, gestalt.IndexedDBRecordRequest{Store: s.store, Record: record}))
 }
 
 func (s ProviderTxStore) Delete(ctx context.Context, id string) error {
-	return indexeddb.RPCError(s.tx.Delete(ctx, gestalt.IndexedDBObjectStoreRequest{Store: s.store, ID: id}))
+	return rpcError(s.tx.Delete(ctx, gestalt.IndexedDBObjectStoreRequest{Store: s.store, ID: id}))
 }
 
 func (s ProviderTxStore) Clear(ctx context.Context) error {
@@ -321,7 +393,7 @@ func (s ProviderTxStore) Clear(ctx context.Context) error {
 
 func (s ProviderTxStore) GetAll(ctx context.Context, r *gestalt.KeyRange) ([]gestalt.Record, error) {
 	records, err := s.tx.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{Store: s.store, Range: r})
-	return records, indexeddb.RPCError(err)
+	return records, rpcError(err)
 }
 
 func (s ProviderTxStore) GetAllKeys(ctx context.Context, r *gestalt.KeyRange) ([]string, error) {
@@ -361,7 +433,7 @@ func (idx ProviderTxIndex) GetAll(ctx context.Context, r *gestalt.KeyRange, valu
 		Values: values,
 		Range:  r,
 	})
-	return records, indexeddb.RPCError(err)
+	return records, rpcError(err)
 }
 
 func (idx ProviderTxIndex) Count(ctx context.Context, r *gestalt.KeyRange, values ...any) (int64, error) {
@@ -371,7 +443,7 @@ func (idx ProviderTxIndex) Count(ctx context.Context, r *gestalt.KeyRange, value
 		Values: values,
 		Range:  r,
 	})
-	return count, indexeddb.RPCError(err)
+	return count, rpcError(err)
 }
 
 func (idx ProviderTxIndex) GetAllKeys(ctx context.Context, r *gestalt.KeyRange, values ...any) ([]string, error) {
@@ -384,7 +456,7 @@ func (idx ProviderTxIndex) Delete(ctx context.Context, values ...any) (int64, er
 		Index:  idx.index,
 		Values: values,
 	})
-	return deleted, indexeddb.RPCError(err)
+	return deleted, rpcError(err)
 }
 
 func (idx ProviderTxIndex) DeleteRange(ctx context.Context, r *gestalt.KeyRange, values ...any) (int64, error) {
