@@ -16,7 +16,6 @@ import (
 	"time"
 
 	extfake "github.com/valon-technologies/gestalt-providers/externalcredentials/default/internal/fake"
-	idbfake "github.com/valon-technologies/gestalt-providers/indexeddb/memoryfake"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
@@ -1245,8 +1244,8 @@ func TestExternalCredentialProviderUsesNamedIndexedDBBinding(t *testing.T) {
 func startTestProvider(t *testing.T, provider *Provider, opts testHostServiceOptions) {
 	t.Helper()
 
-	defaultDB := idbfake.New()
-	archiveDB := idbfake.New()
+	defaultDB := extfake.NewIndexedDB()
+	archiveDB := extfake.NewIndexedDB()
 	if opts.seedStore {
 		if err := seedExternalCredentialStoreOnClient(context.Background(), defaultDB); err != nil {
 			t.Fatalf("seedExternalCredentialStoreOnClient: %v", err)

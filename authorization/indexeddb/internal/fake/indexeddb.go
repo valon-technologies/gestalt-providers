@@ -1,4 +1,4 @@
-package memoryfake
+package fake
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 )
 
-// IndexedDB is an in-memory indexeddb.Database for provider unit tests.
+// IndexedDB is an in-memory indexeddb.Database for authorization provider tests.
 type IndexedDB struct {
 	mu            sync.Mutex
 	stores        map[string]*ObjectStore
@@ -22,8 +22,7 @@ type ObjectStore struct {
 	schema  gestalt.ObjectStoreSchema
 }
 
-// New returns an empty in-memory database.
-func New() *IndexedDB {
+func NewIndexedDB() *IndexedDB {
 	return &IndexedDB{stores: make(map[string]*ObjectStore)}
 }
 
@@ -58,14 +57,12 @@ func (db *IndexedDB) ObjectStore(name string) indexeddb.ObjectStore {
 
 func (db *IndexedDB) Close() error { return nil }
 
-// CreatedStoreNames returns object stores created via CreateObjectStore, in order.
 func (db *IndexedDB) CreatedStoreNames() []string {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	return append([]string(nil), db.createdStores...)
 }
 
-// StoreSchema returns the schema recorded at CreateObjectStore time.
 func (db *IndexedDB) StoreSchema(name string) (gestalt.ObjectStoreSchema, bool) {
 	db.mu.Lock()
 	defer db.mu.Unlock()

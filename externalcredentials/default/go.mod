@@ -4,7 +4,6 @@ go 1.26
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/valon-technologies/gestalt-providers/indexeddb/memoryfake v0.0.0-00010101000000-000000000000
 	github.com/valon-technologies/gestalt/sdk/go v0.0.0-00010101000000-000000000000
 	golang.org/x/crypto v0.49.0
 	golang.org/x/sync v0.20.0
@@ -38,7 +37,4 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-replace (
-	github.com/valon-technologies/gestalt-providers/indexeddb/memoryfake => ../../indexeddb/memoryfake
-	github.com/valon-technologies/gestalt/sdk/go => ../../../gestalt/sdk/go
-)
+replace github.com/valon-technologies/gestalt/sdk/go => ../../../gestalt/sdk/go

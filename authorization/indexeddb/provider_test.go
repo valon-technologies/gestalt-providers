@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	idbfake "github.com/valon-technologies/gestalt-providers/indexeddb/memoryfake"
+	idbfake "github.com/valon-technologies/gestalt-providers/authorization/indexeddb/internal/fake"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
@@ -667,7 +667,7 @@ func newProviderSession(t *testing.T) *providerSession {
 func newProviderSessionWithSeed(t *testing.T, seedStores bool) *providerSession {
 	t.Helper()
 
-	fakeDB := idbfake.New()
+	fakeDB := idbfake.NewIndexedDB()
 	if seedStores {
 		if err := seedAuthorizationStoresOnClient(context.Background(), fakeDB); err != nil {
 			t.Fatalf("seedAuthorizationStoresOnClient: %v", err)
