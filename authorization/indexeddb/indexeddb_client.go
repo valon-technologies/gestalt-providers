@@ -1,4 +1,4 @@
-package externalcredentials
+package indexeddb
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
-type indexedDBConn interface {
+type indexedDBClient interface {
 	CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreSchema) error
 	ObjectStore(name string) objectStore
 	Close() error
@@ -26,31 +26,31 @@ type index interface {
 	GetAll(ctx context.Context, r *gestalt.KeyRange, values ...any) ([]gestalt.Record, error)
 }
 
-var connectIndexedDB = func(binding string) (indexedDBConn, error) {
+var connectIndexedDB = func(binding string) (indexedDBClient, error) {
 	if binding == "" {
 		client, err := gestalt.IndexedDB()
-		return sdkDB{client}, err
+		return sdkIndexedDBClient{client}, err
 	}
 	client, err := gestalt.IndexedDB(binding)
-	return sdkDB{client}, err
+	return sdkIndexedDBClient{client}, err
 }
 
-type sdkDB struct {
+type sdkIndexedDBClient struct {
 	*gestalt.IndexedDBClient
 }
 
-func (db sdkDB) ObjectStore(name string) objectStore {
+func (db sdkIndexedDBClient) ObjectStore(name string) objectStore {
 	if db.IndexedDBClient == nil {
 		return nil
 	}
-	return sdkStore{db.IndexedDBClient.ObjectStore(name)}
+	return sdkObjectStore{db.IndexedDBClient.ObjectStore(name)}
 }
 
-type sdkStore struct {
+type sdkObjectStore struct {
 	*gestalt.ObjectStoreClient
 }
 
-func (s sdkStore) Index(name string) index {
+func (s sdkObjectStore) Index(name string) index {
 	if s.ObjectStoreClient == nil {
 		return nil
 	}

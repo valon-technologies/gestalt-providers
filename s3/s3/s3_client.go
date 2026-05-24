@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type s3Conn interface {
+type s3Client interface {
 	Close() error
 	Object(bucket, key string) s3Object
 	HeadObject(ctx context.Context, ref gestalt.ObjectRef) (gestalt.ObjectMeta, error)
@@ -41,22 +41,22 @@ type s3Object interface {
 	Presign(ctx context.Context, opts *gestalt.PresignOptions) (gestalt.PresignResult, error)
 }
 
-var connectS3 = func(provider *Provider) (s3Conn, error) {
+var connectS3 = func(provider *Provider) (s3Client, error) {
 	if provider == nil {
 		client, err := gestalt.S3()
 		if err != nil {
 			return nil, err
 		}
-		return sdkS3Conn{client}, nil
+		return sdkS3Client{client}, nil
 	}
-	return providerS3Conn{provider: provider}, nil
+	return providerS3Client{provider: provider}, nil
 }
 
-type sdkS3Conn struct {
+type sdkS3Client struct {
 	*gestalt.S3Client
 }
 
-func (c sdkS3Conn) Object(bucket, key string) s3Object {
+func (c sdkS3Client) Object(bucket, key string) s3Object {
 	return sdkS3Object{client: c.S3Client, ref: gestalt.ObjectRef{Bucket: bucket, Key: key}}
 }
 
@@ -113,22 +113,22 @@ func (o sdkS3Object) Presign(ctx context.Context, opts *gestalt.PresignOptions) 
 	return o.client.PresignObject(ctx, o.ref, opts)
 }
 
-type providerS3Conn struct {
+type providerS3Client struct {
 	provider *Provider
 }
 
-func (c providerS3Conn) Close() error { return nil }
+func (c providerS3Client) Close() error { return nil }
 
-func (c providerS3Conn) Object(bucket, key string) s3Object {
+func (c providerS3Client) Object(bucket, key string) s3Object {
 	return providerS3Object{provider: c.provider, ref: gestalt.ObjectRef{Bucket: bucket, Key: key}}
 }
 
-func (c providerS3Conn) HeadObject(ctx context.Context, ref gestalt.ObjectRef) (gestalt.ObjectMeta, error) {
+func (c providerS3Client) HeadObject(ctx context.Context, ref gestalt.ObjectRef) (gestalt.ObjectMeta, error) {
 	meta, err := c.provider.HeadObject(ctx, ref)
 	return meta, providerClientErr(err)
 }
 
-func (c providerS3Conn) ReadObject(ctx context.Context, ref gestalt.ObjectRef, opts *gestalt.ReadOptions) (gestalt.ObjectMeta, io.ReadCloser, error) {
+func (c providerS3Client) ReadObject(ctx context.Context, ref gestalt.ObjectRef, opts *gestalt.ReadOptions) (gestalt.ObjectMeta, io.ReadCloser, error) {
 	meta, body, err := c.provider.ReadObject(ctx, ref, opts)
 	if err != nil {
 		return gestalt.ObjectMeta{}, nil, providerClientErr(err)
@@ -136,26 +136,26 @@ func (c providerS3Conn) ReadObject(ctx context.Context, ref gestalt.ObjectRef, o
 	return meta, &eofAfterCloseReader{ReadCloser: body}, nil
 }
 
-func (c providerS3Conn) WriteObject(ctx context.Context, ref gestalt.ObjectRef, body io.Reader, opts *gestalt.WriteOptions) (gestalt.ObjectMeta, error) {
+func (c providerS3Client) WriteObject(ctx context.Context, ref gestalt.ObjectRef, body io.Reader, opts *gestalt.WriteOptions) (gestalt.ObjectMeta, error) {
 	meta, err := c.provider.WriteObject(ctx, ref, body, opts)
 	return meta, providerClientErr(err)
 }
 
-func (c providerS3Conn) DeleteObject(ctx context.Context, ref gestalt.ObjectRef) error {
+func (c providerS3Client) DeleteObject(ctx context.Context, ref gestalt.ObjectRef) error {
 	return providerClientErr(c.provider.DeleteObject(ctx, ref))
 }
 
-func (c providerS3Conn) ListObjects(ctx context.Context, opts gestalt.ListOptions) (gestalt.ListPage, error) {
+func (c providerS3Client) ListObjects(ctx context.Context, opts gestalt.ListOptions) (gestalt.ListPage, error) {
 	page, err := c.provider.ListObjects(ctx, opts)
 	return page, providerClientErr(err)
 }
 
-func (c providerS3Conn) CopyObject(ctx context.Context, source, destination gestalt.ObjectRef, opts *gestalt.CopyOptions) (gestalt.ObjectMeta, error) {
+func (c providerS3Client) CopyObject(ctx context.Context, source, destination gestalt.ObjectRef, opts *gestalt.CopyOptions) (gestalt.ObjectMeta, error) {
 	meta, err := c.provider.CopyObject(ctx, source, destination, opts)
 	return meta, providerClientErr(err)
 }
 
-func (c providerS3Conn) PresignObject(ctx context.Context, ref gestalt.ObjectRef, opts *gestalt.PresignOptions) (gestalt.PresignResult, error) {
+func (c providerS3Client) PresignObject(ctx context.Context, ref gestalt.ObjectRef, opts *gestalt.PresignOptions) (gestalt.PresignResult, error) {
 	result, err := c.provider.PresignObject(ctx, ref, opts)
 	return result, providerClientErr(err)
 }

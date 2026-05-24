@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	idbfake "github.com/valon-technologies/gestalt-providers/authorization/indexeddb/internal/fake"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -237,10 +238,10 @@ func TestAuthorizationProviderInitializesObjectStores(t *testing.T) {
 		"indexeddb": "test",
 	})
 
-	if got, want := sess.idb.createdStoreNames(), []string{stateStoreName, modelsStoreName, relationsStoreName}; !reflect.DeepEqual(got, want) {
+	if got, want := sess.idb.CreatedStoreNames(), []string{stateStoreName, modelsStoreName, relationsStoreName}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("created stores = %v, want %v", got, want)
 	}
-	schema, ok := sess.idb.storeSchema(relationsStoreName)
+	schema, ok := sess.idb.StoreSchema(relationsStoreName)
 	if !ok {
 		t.Fatalf("relationships store was not created")
 	}
@@ -654,7 +655,7 @@ type providerSession struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	provider *Provider
-	idb      *fakeIndexedDB
+	idb      *idbfake.IndexedDB
 }
 
 func newProviderSession(t *testing.T) *providerSession {
@@ -665,19 +666,19 @@ func newProviderSession(t *testing.T) *providerSession {
 func newProviderSessionWithSeed(t *testing.T, seedStores bool) *providerSession {
 	t.Helper()
 
-	fakeDB := newFakeIndexedDB()
+	fakeDB := idbfake.New()
 	if seedStores {
-		if err := seedAuthorizationStoresOnConn(context.Background(), fakeDB); err != nil {
-			t.Fatalf("seedAuthorizationStoresOnConn: %v", err)
+		if err := seedAuthorizationStoresOnClient(context.Background(), wrapFakeIndexedDB(fakeDB)); err != nil {
+			t.Fatalf("seedAuthorizationStoresOnClient: %v", err)
 		}
 	}
 
 	origConnect := connectIndexedDB
-	connectIndexedDB = func(binding string) (indexedDBConn, error) {
+	connectIndexedDB = func(binding string) (indexedDBClient, error) {
 		if binding != "" && binding != "test" {
 			return nil, fmt.Errorf("unexpected indexeddb binding %q", binding)
 		}
-		return fakeDB, nil
+		return wrapFakeIndexedDB(fakeDB), nil
 	}
 	t.Cleanup(func() { connectIndexedDB = origConnect })
 
@@ -695,6 +696,22 @@ func newProviderSessionWithSeed(t *testing.T, seedStores bool) *providerSession 
 		_ = authzProvider.Close()
 	})
 	return session
+}
+
+func seedAuthorizationStoresOnClient(ctx context.Context, client indexedDBClient) error {
+	for _, def := range []struct {
+		name   string
+		schema gestalt.ObjectStoreSchema
+	}{
+		{name: stateStoreName, schema: gestalt.ObjectStoreSchema{}},
+		{name: modelsStoreName, schema: gestalt.ObjectStoreSchema{}},
+		{name: relationsStoreName, schema: authorizationRelationshipsSchema()},
+	} {
+		if err := client.CreateObjectStore(ctx, def.name, def.schema); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *providerSession) configure(t *testing.T, config map[string]any) {

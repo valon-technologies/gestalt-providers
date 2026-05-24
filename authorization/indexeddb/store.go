@@ -28,7 +28,7 @@ const (
 )
 
 type store struct {
-	client        indexedDBConn
+	client        indexedDBClient
 	stateName     string
 	modelsName    string
 	relationsName string
@@ -51,7 +51,7 @@ func openStore(ctx context.Context, cfg config) (*store, error) {
 	return openStoreWithConn(ctx, client)
 }
 
-func openStoreWithConn(ctx context.Context, client indexedDBConn) (*store, error) {
+func openStoreWithConn(ctx context.Context, client indexedDBClient) (*store, error) {
 	if err := ensureAuthorizationStores(ctx, client); err != nil {
 		_ = client.Close()
 		return nil, err
@@ -69,7 +69,7 @@ func openStoreWithConn(ctx context.Context, client indexedDBConn) (*store, error
 	return st, nil
 }
 
-func ensureAuthorizationStores(ctx context.Context, client indexedDBConn) error {
+func ensureAuthorizationStores(ctx context.Context, client indexedDBClient) error {
 	if client == nil {
 		return nil
 	}

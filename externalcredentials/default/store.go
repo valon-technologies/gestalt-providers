@@ -20,7 +20,7 @@ const (
 )
 
 type store struct {
-	client      indexedDBConn
+	client      indexedDBClient
 	credentials objectStore
 	encryptor   *aesgcmEncryptor
 }
@@ -49,7 +49,7 @@ func openStore(ctx context.Context, cfg config) (*store, error) {
 	return st, nil
 }
 
-func ensureExternalCredentialStore(ctx context.Context, client indexedDBConn) error {
+func ensureExternalCredentialStore(ctx context.Context, client indexedDBClient) error {
 	if client == nil {
 		return nil
 	}

@@ -48,7 +48,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func newTestClient(t *testing.T) s3provider.S3Conn {
+func newTestClient(t *testing.T) s3provider.S3Client {
 	t.Helper()
 
 	backend := testBackend(t)
