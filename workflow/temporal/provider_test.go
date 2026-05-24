@@ -14,8 +14,9 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	relationaldb "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb"
-	"github.com/valon-technologies/gestalt-providers/internal/hostservicetest"
+	workflowfake "github.com/valon-technologies/gestalt-providers/workflow/internal/fake"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -1342,14 +1343,14 @@ func TestWorkflowStateStoreWorkflowKeyClaimReplacesTerminalOrMissingProjection(t
 }
 
 func TestWorkflowStateStoreWorkflowKeyClaimValidationAndScopeIsolation(t *testing.T) {
-	startTestIndexedDBBackend(t)
+	db := startTestIndexedDBBackend(t)
 	ctx := context.Background()
-	scopeA, err := openWorkflowStateStore(ctx, "scope-a")
+	scopeA, err := openWorkflowStateStore(ctx, "scope-a", db)
 	if err != nil {
 		t.Fatalf("open scope-a: %v", err)
 	}
 	t.Cleanup(func() { _ = scopeA.Close() })
-	scopeB, err := openWorkflowStateStore(ctx, "scope-b")
+	scopeB, err := openWorkflowStateStore(ctx, "scope-b", db)
 	if err != nil {
 		t.Fatalf("open scope-b: %v", err)
 	}
@@ -1860,14 +1861,14 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 }
 
 func TestWorkflowStateStoreScopesMetadataByScopeID(t *testing.T) {
-	startTestIndexedDBBackend(t)
+	db := startTestIndexedDBBackend(t)
 	ctx := context.Background()
-	scopeA, err := openWorkflowStateStore(ctx, "scope-a")
+	scopeA, err := openWorkflowStateStore(ctx, "scope-a", db)
 	if err != nil {
 		t.Fatalf("open scope-a: %v", err)
 	}
 	t.Cleanup(func() { _ = scopeA.Close() })
-	scopeB, err := openWorkflowStateStore(ctx, "scope-b")
+	scopeB, err := openWorkflowStateStore(ctx, "scope-b", db)
 	if err != nil {
 		t.Fatalf("open scope-b: %v", err)
 	}
@@ -2129,9 +2130,9 @@ func baseTemporalConfig() config {
 
 func newTestWorkflowStateStore(t *testing.T) (context.Context, *workflowStateStore) {
 	t.Helper()
-	startTestIndexedDBBackend(t)
+	db := startTestIndexedDBBackend(t)
 	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "scope")
+	state, err := openWorkflowStateStore(ctx, "scope", db)
 	if err != nil {
 		t.Fatalf("openWorkflowStateStore: %v", err)
 	}
@@ -2537,7 +2538,7 @@ func temporalMetricAttrsMatch(set attribute.Set, want map[string]string) bool {
 	return true
 }
 
-func startTestIndexedDBBackend(t *testing.T) {
+func startTestIndexedDBBackend(t *testing.T) indexeddb.Database {
 	t.Helper()
 
 	store := relationaldb.New()
@@ -2547,5 +2548,6 @@ func startTestIndexedDBBackend(t *testing.T) {
 		t.Fatalf("relationaldb.Configure: %v", err)
 	}
 
-	hostservicetest.StartIndexedDB(t, store)
+	t.Cleanup(func() { _ = store.Close() })
+	return workflowfake.NewProviderDB(store)
 }

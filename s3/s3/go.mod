@@ -8,7 +8,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.14
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.101.0
 	github.com/aws/smithy-go v1.25.1
-	github.com/valon-technologies/gestalt-providers/internal/hostservicetest v0.0.0-00010101000000-000000000000
 	github.com/valon-technologies/gestalt/sdk/go v0.0.0-00010101000000-000000000000
 	google.golang.org/grpc v1.81.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -55,7 +54,5 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260406210006-6f92a3bedf2d // indirect
 )
-
-replace github.com/valon-technologies/gestalt-providers/internal/hostservicetest => ../../internal/hostservicetest
 
 replace github.com/valon-technologies/gestalt/sdk/go => ../../../gestalt/sdk/go

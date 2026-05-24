@@ -34,11 +34,25 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 		return fmt.Errorf("default external credentials: %w", err)
 	}
 
-	st, err := openStore(ctx, cfg)
+	db, err := gestalt.IndexedDB(ctx)
+	if cfg.IndexedDB != "" {
+		db, err = gestalt.IndexedDB(ctx, cfg.IndexedDB)
+	}
 	if err != nil {
+		return fmt.Errorf("default external credentials: connect indexeddb: %w", err)
+	}
+
+	st, err := openStore(ctx, cfg, db)
+	if err != nil {
+		_ = db.Close()
 		return fmt.Errorf("default external credentials: %w", err)
 	}
 
+	p.configureStore(cfg, st)
+	return nil
+}
+
+func (p *Provider) configureStore(cfg config, st *store) {
 	p.mu.Lock()
 	oldCancel := p.refreshCancel
 	oldDone := p.refreshDone
@@ -64,7 +78,6 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 	if oldStore != nil {
 		_ = oldStore.Close()
 	}
-	return nil
 }
 
 func (p *Provider) Metadata() gestalt.ProviderMetadata {
@@ -177,12 +190,16 @@ func (p *Provider) GetCredential(ctx context.Context, req *gestalt.GetExternalCr
 	}
 
 	lookup := req.GetLookup()
-	return st.getCredential(
+	credential, err := st.getCredential(
 		ctx,
 		strings.TrimSpace(lookup.GetSubjectId()),
 		strings.TrimSpace(lookup.GetConnectionId()),
 		strings.TrimSpace(lookup.GetInstance()),
 	)
+	if err != nil {
+		return nil, credentialLookupError(err)
+	}
+	return credential, nil
 }
 
 func (p *Provider) ListCredentials(ctx context.Context, req *gestalt.ListExternalCredentialsRequest) (*gestalt.ListExternalCredentialsResponse, error) {

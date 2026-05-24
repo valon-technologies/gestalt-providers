@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 )
 
 const (
@@ -20,32 +21,21 @@ const (
 )
 
 type store struct {
-	client      *gestalt.IndexedDBClient
-	credentials *gestalt.ObjectStoreClient
+	client      indexeddb.Database
+	credentials indexeddb.ObjectStore
 	encryptor   *aesgcmEncryptor
 }
 
-func openStore(ctx context.Context, cfg config) (*store, error) {
-	var (
-		client *gestalt.IndexedDBClient
-		err    error
-	)
-	if cfg.IndexedDB == "" {
-		client, err = gestalt.IndexedDB()
-	} else {
-		client, err = gestalt.IndexedDB(cfg.IndexedDB)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("connect indexeddb: %w", err)
+func openStore(ctx context.Context, cfg config, client indexeddb.Database) (*store, error) {
+	if client == nil {
+		return nil, fmt.Errorf("indexeddb database is required")
 	}
 	if err := ensureExternalCredentialStore(ctx, client); err != nil {
-		_ = client.Close()
 		return nil, err
 	}
 
 	encryptor, err := newEncryptorFromConfig(cfg.EncryptionKey)
 	if err != nil {
-		_ = client.Close()
 		return nil, fmt.Errorf("build encryptor: %w", err)
 	}
 
@@ -57,11 +47,11 @@ func openStore(ctx context.Context, cfg config) (*store, error) {
 	return st, nil
 }
 
-func ensureExternalCredentialStore(ctx context.Context, client *gestalt.IndexedDBClient) error {
+func ensureExternalCredentialStore(ctx context.Context, client indexeddb.Database) error {
 	if client == nil {
 		return nil
 	}
-	if err := client.CreateObjectStore(ctx, storeName, externalCredentialSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := client.CreateObjectStore(ctx, storeName, externalCredentialSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create external credential store: %w", err)
 	}
 	return nil

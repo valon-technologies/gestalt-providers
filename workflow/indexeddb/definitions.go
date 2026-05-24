@@ -182,7 +182,7 @@ func (p *Provider) DeleteDefinition(ctx context.Context, req *gestalt.DeleteWork
 	return nil
 }
 
-func loadDefinitionRecord(ctx context.Context, store *gestalt.ObjectStoreClient, definitionID string) (workflowDefinitionRecord, bool, error) {
+func loadDefinitionRecord(ctx context.Context, store workflowObjectStore, definitionID string) (workflowDefinitionRecord, bool, error) {
 	record, err := store.Get(ctx, strings.TrimSpace(definitionID))
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {

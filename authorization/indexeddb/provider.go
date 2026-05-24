@@ -31,11 +31,26 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 	if err != nil {
 		return fmt.Errorf("indexeddb authorization: %w", err)
 	}
-	st, err := openStore(ctx, cfg)
+
+	db, err := gestalt.IndexedDB(ctx)
+	if cfg.IndexedDB != "" {
+		db, err = gestalt.IndexedDB(ctx, cfg.IndexedDB)
+	}
 	if err != nil {
+		return fmt.Errorf("indexeddb authorization: connect indexeddb: %w", err)
+	}
+
+	st, err := openStore(ctx, db)
+	if err != nil {
+		_ = db.Close()
 		return fmt.Errorf("indexeddb authorization: %w", err)
 	}
 
+	p.configureStore(cfg, st)
+	return nil
+}
+
+func (p *Provider) configureStore(cfg config, st *store) {
 	p.mu.Lock()
 	oldStore := p.store
 	p.cfg = cfg
@@ -45,7 +60,6 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 	if oldStore != nil {
 		_ = oldStore.Close()
 	}
-	return nil
 }
 
 func (p *Provider) Metadata() gestalt.ProviderMetadata {

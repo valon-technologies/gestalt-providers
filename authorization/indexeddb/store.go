@@ -12,6 +12,7 @@ import (
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -28,13 +29,13 @@ const (
 )
 
 type store struct {
-	client        *gestalt.IndexedDBClient
+	client        indexeddb.Database
 	stateName     string
 	modelsName    string
 	relationsName string
-	state         *gestalt.ObjectStoreClient
-	models        *gestalt.ObjectStoreClient
-	relationships *gestalt.ObjectStoreClient
+	state         indexeddb.ObjectStore
+	models        indexeddb.ObjectStore
+	relationships indexeddb.ObjectStore
 }
 
 type storedModel struct {
@@ -43,21 +44,11 @@ type storedModel struct {
 	compiled *compiledModel
 }
 
-func openStore(ctx context.Context, cfg config) (*store, error) {
-	var (
-		client *gestalt.IndexedDBClient
-		err    error
-	)
-	if cfg.IndexedDB == "" {
-		client, err = gestalt.IndexedDB()
-	} else {
-		client, err = gestalt.IndexedDB(cfg.IndexedDB)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("connect indexeddb: %w", err)
+func openStore(ctx context.Context, client indexeddb.Database) (*store, error) {
+	if client == nil {
+		return nil, fmt.Errorf("indexeddb database is required")
 	}
 	if err := ensureAuthorizationStores(ctx, client); err != nil {
-		_ = client.Close()
 		return nil, err
 	}
 
@@ -73,17 +64,17 @@ func openStore(ctx context.Context, cfg config) (*store, error) {
 	return st, nil
 }
 
-func ensureAuthorizationStores(ctx context.Context, client *gestalt.IndexedDBClient) error {
+func ensureAuthorizationStores(ctx context.Context, client indexeddb.Database) error {
 	if client == nil {
 		return nil
 	}
-	if err := client.CreateObjectStore(ctx, stateStoreName, gestalt.ObjectStoreSchema{}); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := client.CreateObjectStore(ctx, stateStoreName, gestalt.ObjectStoreSchema{}); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create authorization state store: %w", err)
 	}
-	if err := client.CreateObjectStore(ctx, modelsStoreName, gestalt.ObjectStoreSchema{}); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := client.CreateObjectStore(ctx, modelsStoreName, gestalt.ObjectStoreSchema{}); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create authorization models store: %w", err)
 	}
-	if err := client.CreateObjectStore(ctx, relationsStoreName, authorizationRelationshipsSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := client.CreateObjectStore(ctx, relationsStoreName, authorizationRelationshipsSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create authorization relationships store: %w", err)
 	}
 	return nil

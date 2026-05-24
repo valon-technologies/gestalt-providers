@@ -6,7 +6,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb v0.0.0-00010101000000-000000000000
-	github.com/valon-technologies/gestalt-providers/internal/hostservicetest v0.0.0-00010101000000-000000000000
+	github.com/valon-technologies/gestalt-providers/workflow/internal v0.0.0-00010101000000-000000000000
 	github.com/valon-technologies/gestalt/sdk/go v0.0.0-00010101000000-000000000000
 	google.golang.org/grpc v1.80.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -59,9 +59,9 @@ require (
 	modernc.org/sqlite v1.48.2 // indirect
 )
 
-replace github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb => ../../indexeddb/relationaldb
+replace github.com/valon-technologies/gestalt-providers/workflow/internal => ../internal
 
-replace github.com/valon-technologies/gestalt-providers/internal/hostservicetest => ../../internal/hostservicetest
+replace github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb => ../../indexeddb/relationaldb
 
 replace github.com/valon-technologies/gestalt-providers/indexeddb/internal => ../../indexeddb/internal
 

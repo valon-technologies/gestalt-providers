@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/valon-technologies/gestalt-providers/internal/hostservicetest"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 )
 
 const (
@@ -35,7 +35,7 @@ type Harness interface {
 
 type session struct {
 	harness Harness
-	client  *gestalt.IndexedDBClient
+	client  indexeddb.Database
 	close   func()
 }
 
@@ -805,9 +805,9 @@ func newSession(t *testing.T, harness Harness) *session {
 	t.Helper()
 
 	provider, providerClose := harness.NewProvider(t)
-	hostservicetest.StartIndexedDB(t, provider)
+	startIndexedDBHost(t, provider)
 
-	client, err := gestalt.IndexedDB()
+	client, err := gestalt.IndexedDB(context.Background())
 	if err != nil {
 		providerClose()
 		t.Fatalf("IndexedDB connect: %v", err)
@@ -893,7 +893,7 @@ func typedPrimaryKeySchema(columnType gestalt.ColumnType) gestalt.ObjectStoreSch
 	}
 }
 
-func mustSeedBulkItems(t *testing.T, client *gestalt.IndexedDBClient, store string) {
+func mustSeedBulkItems(t *testing.T, client indexeddb.Database, store string) {
 	t.Helper()
 
 	mustCreateObjectStore(t, client, store, bulkItemsSchema())
@@ -907,7 +907,7 @@ func mustSeedBulkItems(t *testing.T, client *gestalt.IndexedDBClient, store stri
 	}
 }
 
-func mustSeedNumericIndexItems(t *testing.T, client *gestalt.IndexedDBClient, store string) {
+func mustSeedNumericIndexItems(t *testing.T, client indexeddb.Database, store string) {
 	t.Helper()
 
 	mustCreateObjectStore(t, client, store, numericIndexSchema())
@@ -921,21 +921,21 @@ func mustSeedNumericIndexItems(t *testing.T, client *gestalt.IndexedDBClient, st
 	}
 }
 
-func mustCreateObjectStore(t *testing.T, client *gestalt.IndexedDBClient, store string, schema gestalt.ObjectStoreSchema) {
+func mustCreateObjectStore(t *testing.T, client indexeddb.Database, store string, schema gestalt.ObjectStoreSchema) {
 	t.Helper()
-	if err := client.CreateObjectStore(context.Background(), store, schema); err != nil {
+	if _, err := client.CreateObjectStore(context.Background(), store, schema); err != nil {
 		t.Fatalf("CreateObjectStore(%s): %v", store, err)
 	}
 }
 
-func mustAddRecord(t *testing.T, client *gestalt.IndexedDBClient, store string, record gestalt.Record) {
+func mustAddRecord(t *testing.T, client indexeddb.Database, store string, record gestalt.Record) {
 	t.Helper()
 	if err := client.ObjectStore(store).Add(context.Background(), record); err != nil {
 		t.Fatalf("Add(%s): %v", store, err)
 	}
 }
 
-func mustGet(t *testing.T, client *gestalt.IndexedDBClient, store, id string) gestalt.Record {
+func mustGet(t *testing.T, client indexeddb.Database, store, id string) gestalt.Record {
 	t.Helper()
 	record, err := client.ObjectStore(store).Get(context.Background(), id)
 	if err != nil {
@@ -944,7 +944,7 @@ func mustGet(t *testing.T, client *gestalt.IndexedDBClient, store, id string) ge
 	return record
 }
 
-func mustGetNotFound(t *testing.T, client *gestalt.IndexedDBClient, store, id string) {
+func mustGetNotFound(t *testing.T, client indexeddb.Database, store, id string) {
 	t.Helper()
 	_, err := client.ObjectStore(store).Get(context.Background(), id)
 	if !errors.Is(err, gestalt.ErrNotFound) {
@@ -952,7 +952,7 @@ func mustGetNotFound(t *testing.T, client *gestalt.IndexedDBClient, store, id st
 	}
 }
 
-func mustBeginTransaction(t *testing.T, client *gestalt.IndexedDBClient, stores []string, mode gestalt.TransactionMode) *gestalt.Transaction {
+func mustBeginTransaction(t *testing.T, client indexeddb.Database, stores []string, mode gestalt.TransactionMode) indexeddb.Transaction {
 	t.Helper()
 	tx, err := client.Transaction(context.Background(), stores, mode, gestalt.TransactionOptions{})
 	if err != nil {
@@ -961,22 +961,22 @@ func mustBeginTransaction(t *testing.T, client *gestalt.IndexedDBClient, stores 
 	return tx
 }
 
-func txAdd(t *testing.T, tx *gestalt.Transaction, store string, record gestalt.Record) error {
+func txAdd(t *testing.T, tx indexeddb.Transaction, store string, record gestalt.Record) error {
 	t.Helper()
 	return tx.ObjectStore(store).Add(context.Background(), record)
 }
 
-func txPut(t *testing.T, tx *gestalt.Transaction, store string, record gestalt.Record) error {
+func txPut(t *testing.T, tx indexeddb.Transaction, store string, record gestalt.Record) error {
 	t.Helper()
 	return tx.ObjectStore(store).Put(context.Background(), record)
 }
 
-func txDelete(t *testing.T, tx *gestalt.Transaction, store, id string) error {
+func txDelete(t *testing.T, tx indexeddb.Transaction, store, id string) error {
 	t.Helper()
 	return tx.ObjectStore(store).Delete(context.Background(), id)
 }
 
-func mustTxGet(t *testing.T, tx *gestalt.Transaction, store, id string) gestalt.Record {
+func mustTxGet(t *testing.T, tx indexeddb.Transaction, store, id string) gestalt.Record {
 	t.Helper()
 	record, err := tx.ObjectStore(store).Get(context.Background(), id)
 	if err != nil {
@@ -985,7 +985,7 @@ func mustTxGet(t *testing.T, tx *gestalt.Transaction, store, id string) gestalt.
 	return record
 }
 
-func mustTxIndexCount(t *testing.T, tx *gestalt.Transaction, store, index string, values ...any) int64 {
+func mustTxIndexCount(t *testing.T, tx indexeddb.Transaction, store, index string, values ...any) int64 {
 	t.Helper()
 	count, err := tx.ObjectStore(store).Index(index).Count(context.Background(), nil, values...)
 	if err != nil {
@@ -994,7 +994,7 @@ func mustTxIndexCount(t *testing.T, tx *gestalt.Transaction, store, index string
 	return count
 }
 
-func mustGetAll(t *testing.T, client *gestalt.IndexedDBClient, store string, keyRange *gestalt.KeyRange) []gestalt.Record {
+func mustGetAll(t *testing.T, client indexeddb.Database, store string, keyRange *gestalt.KeyRange) []gestalt.Record {
 	t.Helper()
 	records, err := client.ObjectStore(store).GetAll(context.Background(), keyRange)
 	if err != nil {
@@ -1003,7 +1003,7 @@ func mustGetAll(t *testing.T, client *gestalt.IndexedDBClient, store string, key
 	return records
 }
 
-func mustGetAllKeys(t *testing.T, client *gestalt.IndexedDBClient, store string, keyRange *gestalt.KeyRange) []string {
+func mustGetAllKeys(t *testing.T, client indexeddb.Database, store string, keyRange *gestalt.KeyRange) []string {
 	t.Helper()
 	keys, err := client.ObjectStore(store).GetAllKeys(context.Background(), keyRange)
 	if err != nil {
@@ -1012,7 +1012,7 @@ func mustGetAllKeys(t *testing.T, client *gestalt.IndexedDBClient, store string,
 	return keys
 }
 
-func mustCount(t *testing.T, client *gestalt.IndexedDBClient, store string, keyRange *gestalt.KeyRange) int64 {
+func mustCount(t *testing.T, client indexeddb.Database, store string, keyRange *gestalt.KeyRange) int64 {
 	t.Helper()
 	count, err := client.ObjectStore(store).Count(context.Background(), keyRange)
 	if err != nil {
@@ -1021,7 +1021,7 @@ func mustCount(t *testing.T, client *gestalt.IndexedDBClient, store string, keyR
 	return count
 }
 
-func mustDeleteRange(t *testing.T, client *gestalt.IndexedDBClient, store string, keyRange *gestalt.KeyRange) int64 {
+func mustDeleteRange(t *testing.T, client indexeddb.Database, store string, keyRange *gestalt.KeyRange) int64 {
 	t.Helper()
 	if keyRange == nil {
 		t.Fatalf("DeleteRange(%s) requires a key range", store)
@@ -1033,12 +1033,12 @@ func mustDeleteRange(t *testing.T, client *gestalt.IndexedDBClient, store string
 	return deleted
 }
 
-func mustIndexGetAll(t *testing.T, client *gestalt.IndexedDBClient, store, index string, values []any) []gestalt.Record {
+func mustIndexGetAll(t *testing.T, client indexeddb.Database, store, index string, values []any) []gestalt.Record {
 	t.Helper()
 	return mustIndexGetAllWithRange(t, client, store, index, nil, values...)
 }
 
-func mustIndexGetAllWithRange(t *testing.T, client *gestalt.IndexedDBClient, store, index string, keyRange *gestalt.KeyRange, values ...any) []gestalt.Record {
+func mustIndexGetAllWithRange(t *testing.T, client indexeddb.Database, store, index string, keyRange *gestalt.KeyRange, values ...any) []gestalt.Record {
 	t.Helper()
 	records, err := client.ObjectStore(store).Index(index).GetAll(context.Background(), keyRange, values...)
 	if err != nil {
@@ -1047,12 +1047,12 @@ func mustIndexGetAllWithRange(t *testing.T, client *gestalt.IndexedDBClient, sto
 	return records
 }
 
-func mustIndexGetAllKeys(t *testing.T, client *gestalt.IndexedDBClient, store, index string, values []any) []string {
+func mustIndexGetAllKeys(t *testing.T, client indexeddb.Database, store, index string, values []any) []string {
 	t.Helper()
 	return mustIndexGetAllKeysWithRange(t, client, store, index, nil, values...)
 }
 
-func mustIndexGetAllKeysWithRange(t *testing.T, client *gestalt.IndexedDBClient, store, index string, keyRange *gestalt.KeyRange, values ...any) []string {
+func mustIndexGetAllKeysWithRange(t *testing.T, client indexeddb.Database, store, index string, keyRange *gestalt.KeyRange, values ...any) []string {
 	t.Helper()
 	keys, err := client.ObjectStore(store).Index(index).GetAllKeys(context.Background(), keyRange, values...)
 	if err != nil {
@@ -1061,12 +1061,12 @@ func mustIndexGetAllKeysWithRange(t *testing.T, client *gestalt.IndexedDBClient,
 	return keys
 }
 
-func mustIndexCount(t *testing.T, client *gestalt.IndexedDBClient, store, index string, values []any) int64 {
+func mustIndexCount(t *testing.T, client indexeddb.Database, store, index string, values []any) int64 {
 	t.Helper()
 	return mustIndexCountWithRange(t, client, store, index, nil, values...)
 }
 
-func mustIndexCountWithRange(t *testing.T, client *gestalt.IndexedDBClient, store, index string, keyRange *gestalt.KeyRange, values ...any) int64 {
+func mustIndexCountWithRange(t *testing.T, client indexeddb.Database, store, index string, keyRange *gestalt.KeyRange, values ...any) int64 {
 	t.Helper()
 	count, err := client.ObjectStore(store).Index(index).Count(context.Background(), keyRange, values...)
 	if err != nil {
@@ -1075,12 +1075,12 @@ func mustIndexCountWithRange(t *testing.T, client *gestalt.IndexedDBClient, stor
 	return count
 }
 
-func mustIndexDelete(t *testing.T, client *gestalt.IndexedDBClient, store, index string, values []any) int64 {
+func mustIndexDelete(t *testing.T, client indexeddb.Database, store, index string, values []any) int64 {
 	t.Helper()
 	return mustIndexDeleteWithRange(t, client, store, index, nil, values...)
 }
 
-func mustIndexDeleteWithRange(t *testing.T, client *gestalt.IndexedDBClient, store, index string, keyRange *gestalt.KeyRange, values ...any) int64 {
+func mustIndexDeleteWithRange(t *testing.T, client indexeddb.Database, store, index string, keyRange *gestalt.KeyRange, values ...any) int64 {
 	t.Helper()
 	deleted, err := client.ObjectStore(store).Index(index).DeleteRange(context.Background(), keyRange, values...)
 	if err != nil {
@@ -1089,7 +1089,7 @@ func mustIndexDeleteWithRange(t *testing.T, client *gestalt.IndexedDBClient, sto
 	return deleted
 }
 
-func mustOpenCursor(t *testing.T, client *gestalt.IndexedDBClient, req *cursorRequest) *gestalt.Cursor {
+func mustOpenCursor(t *testing.T, client indexeddb.Database, req *cursorRequest) indexeddb.Cursor {
 	t.Helper()
 	direction := req.Direction
 	if direction == "" {
@@ -1098,7 +1098,7 @@ func mustOpenCursor(t *testing.T, client *gestalt.IndexedDBClient, req *cursorRe
 
 	store := client.ObjectStore(req.Store)
 	var (
-		cursor *gestalt.Cursor
+		cursor indexeddb.Cursor
 		err    error
 	)
 	if req.Index != "" {
@@ -1119,7 +1119,7 @@ func mustOpenCursor(t *testing.T, client *gestalt.IndexedDBClient, req *cursorRe
 	return cursor
 }
 
-func collectCursorEntries(t *testing.T, client *gestalt.IndexedDBClient, req *cursorRequest) []cursorEntry {
+func collectCursorEntries(t *testing.T, client indexeddb.Database, req *cursorRequest) []cursorEntry {
 	t.Helper()
 
 	cursor := mustOpenCursor(t, client, req)
@@ -1135,7 +1135,7 @@ func collectCursorEntries(t *testing.T, client *gestalt.IndexedDBClient, req *cu
 	return entries
 }
 
-func cursorEntryFromCursor(t *testing.T, cursor *gestalt.Cursor, keysOnly bool) cursorEntry {
+func cursorEntryFromCursor(t *testing.T, cursor indexeddb.Cursor, keysOnly bool) cursorEntry {
 	t.Helper()
 
 	var record gestalt.Record

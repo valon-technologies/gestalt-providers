@@ -12,6 +12,7 @@ import (
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -33,31 +34,29 @@ const (
 )
 
 type workflowStateStore struct {
-	db      *gestalt.IndexedDBClient
+	db      indexeddb.Database
 	scopeID string
 
-	schedules         *gestalt.ObjectStoreClient
-	eventTriggers     *gestalt.ObjectStoreClient
-	eventTriggerKeys  *gestalt.ObjectStoreClient
-	definitions       *gestalt.ObjectStoreClient
-	executionRefs     *gestalt.ObjectStoreClient
-	runProjections    *gestalt.ObjectStoreClient
-	runIdempotency    *gestalt.ObjectStoreClient
-	signalIdempotency *gestalt.ObjectStoreClient
-	workflowKeys      *gestalt.ObjectStoreClient
+	schedules         indexeddb.ObjectStore
+	eventTriggers     indexeddb.ObjectStore
+	eventTriggerKeys  indexeddb.ObjectStore
+	definitions       indexeddb.ObjectStore
+	executionRefs     indexeddb.ObjectStore
+	runProjections    indexeddb.ObjectStore
+	runIdempotency    indexeddb.ObjectStore
+	signalIdempotency indexeddb.ObjectStore
+	workflowKeys      indexeddb.ObjectStore
 }
 
-func openWorkflowStateStore(ctx context.Context, scopeID string) (*workflowStateStore, error) {
+func openWorkflowStateStore(ctx context.Context, scopeID string, db indexeddb.Database) (*workflowStateStore, error) {
 	scopeID = strings.TrimSpace(scopeID)
 	if scopeID == "" {
 		return nil, fmt.Errorf("scopeID is required")
 	}
-	db, err := gestalt.IndexedDB()
-	if err != nil {
-		return nil, fmt.Errorf("connect indexeddb: %w", err)
+	if db == nil {
+		return nil, fmt.Errorf("indexeddb database is required")
 	}
 	if err := ensureWorkflowStateStores(ctx, db); err != nil {
-		_ = db.Close()
 		return nil, err
 	}
 	store := &workflowStateStore{
@@ -76,35 +75,35 @@ func openWorkflowStateStore(ctx context.Context, scopeID string) (*workflowState
 	return store, nil
 }
 
-func ensureWorkflowStateStores(ctx context.Context, db *gestalt.IndexedDBClient) error {
+func ensureWorkflowStateStores(ctx context.Context, db indexeddb.Database) error {
 	if db == nil {
 		return nil
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalSchedules, temporalScheduleSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalSchedules, temporalScheduleSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow schedule store: %w", err)
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalEventTriggers, temporalEventTriggerSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalEventTriggers, temporalEventTriggerSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow event trigger store: %w", err)
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalEventTriggerKeys, temporalEventTriggerKeySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalEventTriggerKeys, temporalEventTriggerKeySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow event trigger key store: %w", err)
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalDefinitions, temporalDefinitionSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalDefinitions, temporalDefinitionSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow definition store: %w", err)
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalExecutionRefs, temporalExecutionRefSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalExecutionRefs, temporalExecutionRefSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow execution reference store: %w", err)
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalRunProjections, temporalRunProjectionSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalRunProjections, temporalRunProjectionSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow run projection store: %w", err)
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalRunIdempotency, temporalRunIdempotencySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalRunIdempotency, temporalRunIdempotencySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow run idempotency store: %w", err)
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalSignalIdempotency, temporalSignalIdempotencySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalSignalIdempotency, temporalSignalIdempotencySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow signal idempotency store: %w", err)
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalWorkflowKeys, temporalWorkflowKeySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalWorkflowKeys, temporalWorkflowKeySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow key store: %w", err)
 	}
 	return nil
@@ -334,7 +333,7 @@ func (s *workflowStateStore) putRun(ctx context.Context, run *gestalt.BoundWorkf
 	return nil
 }
 
-func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store *gestalt.TransactionObjectStore, run *gestalt.BoundWorkflowRun) (*gestalt.BoundWorkflowRun, error) {
+func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store indexeddb.TransactionObjectStore, run *gestalt.BoundWorkflowRun) (*gestalt.BoundWorkflowRun, error) {
 	if run == nil || strings.TrimSpace(run.ID) == "" {
 		return nil, nil
 	}
@@ -370,7 +369,7 @@ func (s *workflowStateStore) getRun(ctx context.Context, id string) (*gestalt.Bo
 	return run, err == nil && strings.TrimSpace(run.ID) != "", err
 }
 
-func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store *gestalt.TransactionObjectStore, id string) (*gestalt.BoundWorkflowRun, bool, error) {
+func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store indexeddb.TransactionObjectStore, id string) (*gestalt.BoundWorkflowRun, bool, error) {
 	record, found, err := transactionGetRecord(ctx, store, s.scopedID(strings.TrimSpace(id)))
 	if err != nil || !found {
 		return nil, false, err
@@ -1733,7 +1732,7 @@ func optionalTime(value *time.Time) *time.Time {
 	return &asTime
 }
 
-func transactionGetRecord(ctx context.Context, store *gestalt.TransactionObjectStore, id string) (gestalt.Record, bool, error) {
+func transactionGetRecord(ctx context.Context, store indexeddb.TransactionObjectStore, id string) (gestalt.Record, bool, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, false, nil

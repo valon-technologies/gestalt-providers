@@ -1,4 +1,4 @@
-module github.com/valon-technologies/gestalt-providers/internal/hostservicetest
+module github.com/valon-technologies/gestalt-providers/workflow/internal
 
 go 1.26
 
