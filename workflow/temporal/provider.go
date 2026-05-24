@@ -33,8 +33,13 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	if err != nil {
 		return fmt.Errorf("temporal workflow: %w", err)
 	}
-	state, err := openWorkflowStateStore(ctx, cfg.ScopeID)
+	db, err := gestalt.IndexedDB(ctx)
 	if err != nil {
+		return fmt.Errorf("temporal workflow: connect indexeddb: %w", err)
+	}
+	state, err := openWorkflowStateStore(ctx, cfg.ScopeID, db)
+	if err != nil {
+		_ = db.Close()
 		return fmt.Errorf("temporal workflow: open state store: %w", err)
 	}
 	host, err := gestalt.WorkflowHost()

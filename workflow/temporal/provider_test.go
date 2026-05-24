@@ -1342,14 +1342,14 @@ func TestWorkflowStateStoreWorkflowKeyClaimReplacesTerminalOrMissingProjection(t
 }
 
 func TestWorkflowStateStoreWorkflowKeyClaimValidationAndScopeIsolation(t *testing.T) {
-	startTestIndexedDBBackend(t)
+	db := startTestIndexedDBBackend(t)
 	ctx := context.Background()
-	scopeA, err := openWorkflowStateStore(ctx, "scope-a")
+	scopeA, err := openWorkflowStateStore(ctx, "scope-a", db)
 	if err != nil {
 		t.Fatalf("open scope-a: %v", err)
 	}
 	t.Cleanup(func() { _ = scopeA.Close() })
-	scopeB, err := openWorkflowStateStore(ctx, "scope-b")
+	scopeB, err := openWorkflowStateStore(ctx, "scope-b", db)
 	if err != nil {
 		t.Fatalf("open scope-b: %v", err)
 	}
@@ -1860,14 +1860,14 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 }
 
 func TestWorkflowStateStoreScopesMetadataByScopeID(t *testing.T) {
-	startTestIndexedDBBackend(t)
+	db := startTestIndexedDBBackend(t)
 	ctx := context.Background()
-	scopeA, err := openWorkflowStateStore(ctx, "scope-a")
+	scopeA, err := openWorkflowStateStore(ctx, "scope-a", db)
 	if err != nil {
 		t.Fatalf("open scope-a: %v", err)
 	}
 	t.Cleanup(func() { _ = scopeA.Close() })
-	scopeB, err := openWorkflowStateStore(ctx, "scope-b")
+	scopeB, err := openWorkflowStateStore(ctx, "scope-b", db)
 	if err != nil {
 		t.Fatalf("open scope-b: %v", err)
 	}
@@ -2129,9 +2129,9 @@ func baseTemporalConfig() config {
 
 func newTestWorkflowStateStore(t *testing.T) (context.Context, *workflowStateStore) {
 	t.Helper()
-	startTestIndexedDBBackend(t)
+	db := startTestIndexedDBBackend(t)
 	ctx := context.Background()
-	state, err := openWorkflowStateStore(ctx, "scope")
+	state, err := openWorkflowStateStore(ctx, "scope", db)
 	if err != nil {
 		t.Fatalf("openWorkflowStateStore: %v", err)
 	}
@@ -2537,7 +2537,7 @@ func temporalMetricAttrsMatch(set attribute.Set, want map[string]string) bool {
 	return true
 }
 
-func startTestIndexedDBBackend(t *testing.T) {
+func startTestIndexedDBBackend(t *testing.T) workflowDB {
 	t.Helper()
 
 	store := relationaldb.New()
@@ -2547,9 +2547,6 @@ func startTestIndexedDBBackend(t *testing.T) {
 		t.Fatalf("relationaldb.Configure: %v", err)
 	}
 
-	prev := connectIndexedDB
-	connectIndexedDB = func() (workflowDB, error) {
-		return providerfake.NewProviderDB(store), nil
-	}
-	t.Cleanup(func() { connectIndexedDB = prev })
+	t.Cleanup(func() { _ = store.Close() })
+	return providerfake.NewProviderDB(store)
 }

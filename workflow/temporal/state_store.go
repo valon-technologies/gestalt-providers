@@ -12,6 +12,7 @@ import (
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	idb "github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -32,6 +33,14 @@ const (
 	indexByTriggerID = "by_trigger_id"
 )
 
+type workflowDB = idb.Database
+type workflowObjectStore = idb.ObjectStore
+type workflowIndex = idb.Index
+type workflowCursor = idb.Cursor
+type workflowTx = idb.Transaction
+type workflowTxObjectStore = idb.TransactionObjectStore
+type workflowTxIndex = idb.TransactionIndex
+
 type workflowStateStore struct {
 	db      workflowDB
 	scopeID string
@@ -47,17 +56,15 @@ type workflowStateStore struct {
 	workflowKeys      workflowObjectStore
 }
 
-func openWorkflowStateStore(ctx context.Context, scopeID string) (*workflowStateStore, error) {
+func openWorkflowStateStore(ctx context.Context, scopeID string, db workflowDB) (*workflowStateStore, error) {
 	scopeID = strings.TrimSpace(scopeID)
 	if scopeID == "" {
 		return nil, fmt.Errorf("scopeID is required")
 	}
-	db, err := connectIndexedDB()
-	if err != nil {
-		return nil, fmt.Errorf("connect indexeddb: %w", err)
+	if db == nil {
+		return nil, fmt.Errorf("indexeddb database is required")
 	}
 	if err := ensureWorkflowStateStores(ctx, db); err != nil {
-		_ = db.Close()
 		return nil, err
 	}
 	store := &workflowStateStore{
