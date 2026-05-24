@@ -62,7 +62,7 @@ async function wireAdminRoutes(
     });
   });
 
-  await page.route("**/admin/api/v1/authorization/plugins", async (route, request) => {
+  await page.route("**/admin/api/v1/authorization/apps", async (route, request) => {
     if (request.method() !== "GET") {
       await route.fallback();
       return;
@@ -70,7 +70,7 @@ async function wireAdminRoutes(
     await route.fulfill({ json: state.plugins });
   });
 
-  await page.route("**/admin/api/v1/authorization/plugins/**", async (route, request) => {
+  await page.route("**/admin/api/v1/authorization/apps/**", async (route, request) => {
     const url = new URL(request.url());
     const parts = url.pathname.split("/").filter(Boolean);
     const plugin = decodeURIComponent(parts[5] || "");
@@ -242,7 +242,7 @@ test.describe("Admin Shell", () => {
     await expect(page.locator("#summary-errors")).toHaveText("4");
 
     await page.getByRole("button", { name: "Authorization" }).click();
-    await expect(page.getByRole("heading", { name: "Plugin members" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "App members" })).toBeVisible();
     await expect(page.locator("#authorization-plugin-select")).toHaveValue("sample_plugin");
     await expect(page.locator("#authorization-members-body")).toContainText("seed@gestalt.dev");
 
@@ -251,7 +251,7 @@ test.describe("Admin Shell", () => {
     await expect(page.locator("#admin-members-body")).toContainText("admin@gestalt.dev");
   });
 
-  test("creates and removes plugin and built-in admin grants through the admin APIs", async ({
+  test("creates and removes app and built-in admin grants through the admin APIs", async ({
     page,
   }) => {
     const state = baseState();

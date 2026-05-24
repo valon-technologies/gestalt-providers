@@ -33,7 +33,7 @@ async function wireIdentityRoutes(
     wrapGrantResponse?: boolean;
   },
 ) {
-  await page.route("**/api/v1/integrations", async (route, request) => {
+  await page.route("**/api/v1/apps", async (route, request) => {
     if (request.method() === "GET") {
       await route.fulfill({ json: state.visibleIntegrations });
       return;
@@ -205,7 +205,7 @@ async function wireIdentityRoutes(
       }
     }
 
-    if (parts[5] === "integrations") {
+    if (parts[5] === "apps") {
       if (parts.length === 6 && request.method() === "GET") {
         await route.fulfill({ json: state.managedIntegrationsByIdentityID[identityID] || [] });
         return;
@@ -384,7 +384,7 @@ test.describe("Managed identities", () => {
     await expect(page.getByRole("heading", { name: "Deploy Bot" })).toBeVisible();
   });
 
-  test("connects and disconnects managed identity plugin credentials", async ({ authenticatedPage: page }) => {
+  test("connects and disconnects managed identity app credentials", async ({ authenticatedPage: page }) => {
     const state = createBaseState("admin");
     const managedConnectBodies: Record<string, unknown>[] = [];
     const managedDisconnects: string[] = [];
@@ -439,7 +439,7 @@ test.describe("Managed identities", () => {
       ],
     );
 
-    await page.goto("/integrations?connected=slack");
+    await page.goto("/apps?connected=slack");
 
     await expect(page).toHaveURL(/\/identities\?id=service_account%3Aagent-1$/);
     await expect(page.getByRole("heading", { name: "Release Bot" })).toBeVisible();
@@ -479,7 +479,7 @@ test.describe("Managed identities", () => {
     await expect(page.getByRole("button", { name: "Create Token" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Delete Identity" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Add or Update Member" })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Save Plugin Access" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Save App Access" })).toHaveCount(0);
     await expect(page.getByRole("cell", { name: "github: actions: provider_dev.attach" })).toBeVisible();
     await expect(page.getByRole("cell", { name: "github: issues.read; actions: provider_dev.attach" })).toBeVisible();
     await page.getByRole("button", { name: "Slack settings" }).click();
@@ -493,7 +493,7 @@ test.describe("Managed identities", () => {
     await wireIdentityRoutes(page, state);
 
     await page.goto("/identities?id=agent-1");
-    await expect(page.getByRole("heading", { name: "Identity Plugin Access" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Identity App Access" })).toBeVisible();
     await expect(page.getByText(/Grants are identity-level roles/)).toBeVisible();
     await expect(page.getByText(/Connections store OAuth or manual credentials/)).toBeVisible();
     await expect(page.getByRole("heading", { name: "Identity API Keys" })).toBeVisible();
@@ -508,10 +508,10 @@ test.describe("Managed identities", () => {
     await page.getByRole("button", { name: "Add or Update Member" }).click();
     await expect(page.getByRole("cell", { name: "viewer@example.test", exact: true })).toBeVisible();
 
-    await page.getByRole("combobox", { name: "Plugin" }).fill("git");
+    await page.getByRole("combobox", { name: "App" }).fill("git");
     await page.getByRole("option", { name: /GitHub/ }).click();
     await page.getByLabel("Grant role").selectOption("viewer");
-    await page.getByRole("button", { name: "Save Plugin Access" }).click();
+    await page.getByRole("button", { name: "Save App Access" }).click();
     await expect(page.getByRole("cell", { name: "github" })).toBeVisible();
     const githubGrantRow = page.getByRole("row").filter({
       has: page.getByRole("cell", { name: "github" }),
@@ -577,7 +577,7 @@ test.describe("Managed identities", () => {
     await expect(page.getByText("Release Bot")).toHaveCount(0);
   });
 
-  test("creates all-authorized tokens without visible plugin grants", async ({ authenticatedPage: page }) => {
+  test("creates all-authorized tokens without visible app grants", async ({ authenticatedPage: page }) => {
     const state = createBaseState("admin");
     state.grantsByIdentityID["service_account:agent-1"] = [];
     let createTokenBody: Record<string, unknown> | null = null;
@@ -590,7 +590,7 @@ test.describe("Managed identities", () => {
     });
 
     await page.goto("/identities?id=agent-1");
-    await expect(page.getByText(/No identity-level plugin access grants/)).toBeVisible();
+    await expect(page.getByText(/No identity-level app access grants/)).toBeVisible();
     await expect(page.getByRole("radio", { name: /All authorized access/ })).toBeChecked();
     await page.getByLabel("Token name").fill("brain-ingest");
     await page.getByRole("button", { name: "Create Token" }).click();
@@ -647,7 +647,7 @@ test.describe("Managed identities", () => {
     expect(createTokenBody).toBeNull();
   });
 
-  test("allows operation-scoped tokens from role-based plugin grants", async ({ authenticatedPage: page }) => {
+  test("allows operation-scoped tokens from role-based app grants", async ({ authenticatedPage: page }) => {
     const state = createBaseState("admin");
     state.grantsByIdentityID["service_account:agent-1"] = [
       {
@@ -684,7 +684,7 @@ test.describe("Managed identities", () => {
     await expect(page.getByText("gst_api_identity_secret")).toBeVisible();
   });
 
-  test("allows plugin-level tokens from role-based plugin grants", async ({ authenticatedPage: page }) => {
+  test("allows app-level tokens from role-based app grants", async ({ authenticatedPage: page }) => {
     const state = createBaseState("admin");
     let createTokenBody: Record<string, unknown> | null = null;
 

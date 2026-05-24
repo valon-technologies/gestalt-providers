@@ -85,7 +85,7 @@ export default function AuthorizationPageClient() {
             <AuthorizationSectionIntro
               eyebrow="Service Accounts"
               title="Managed Identities"
-              description="Create shared service-account subjects, grant plugin roles, and mint subject-owned API tokens for automation."
+              description="Create shared service-account subjects, grant app roles, and mint subject-owned API tokens for automation."
             />
             <Link
               href="/identities"
