@@ -15,6 +15,7 @@ import (
 	relationaldb "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb"
 	workflowfake "github.com/valon-technologies/gestalt-providers/workflow/internal/fake"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -23,9 +24,9 @@ func TestProviderStartRunUsesIdempotencyAndExecutesHostCallbacks(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -88,9 +89,9 @@ func TestProviderStartRunUsesIdempotencyAndExecutesHostCallbacks(t *testing.T) {
 func TestProviderDefinitionCRUD(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(200, "ok"))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(200, "ok"))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -176,9 +177,9 @@ func TestProviderStartControlsPollLoopLifecycle(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -253,9 +254,9 @@ func TestProviderConfigureDoesNotStartPollLoopBeforeStart(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -294,9 +295,9 @@ func TestProviderStartRunRepairsMissingIdempotencyRecord(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -364,9 +365,9 @@ func TestProviderSignalOrStartRunReinvokesSameRunForQueuedSignals(t *testing.T) 
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	host.releaseCh = make(chan struct{})
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -515,9 +516,9 @@ func TestProviderSignalOrStartRunFailsQueuedSignalsWhenRunFails(t *testing.T) {
 			host.errs = tc.errs
 			host.releaseCh = make(chan struct{})
 			db := startTestIndexedDBBackend(t)
-			startTestWorkflowHost(t, host)
+			newTestProvider := newTestProviderFactory(t, host)
 
-			provider := newProviderCoreWithDB(db)
+			provider := newTestProvider(db)
 			if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
 				t.Fatalf("Configure: %v", err)
 			}
@@ -594,9 +595,9 @@ func TestProviderSignalOrStartRunDoesNotScanSignalsForOtherRuns(t *testing.T) {
 	db := startTestIndexedDBBackendWithWrapper(t, func(inner gestalt.IndexedDBProvider) gestalt.IndexedDBProvider {
 		return &indexedDBServerSpy{IndexedDBProvider: inner, failUnscopedSignalGetAll: true}
 	})
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -649,9 +650,9 @@ func TestProviderListRunsDoesNotLoadEachRunByKey(t *testing.T) {
 		spy = &indexedDBServerSpy{IndexedDBProvider: inner}
 		return spy
 	})
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -684,14 +685,14 @@ func TestProviderListRunsDoesNotLoadEachRunByKey(t *testing.T) {
 func TestProviderSignalOrStartRunConcurrentSignalsShareWorkflowKeyRun(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
 	t.Cleanup(func() { _ = provider.Close() })
-	secondProvider := newProviderCoreWithDB(db)
+	secondProvider := newTestProvider(db)
 	if err := secondProvider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure(second): %v", err)
 	}
@@ -772,9 +773,9 @@ func TestProviderSignalOrStartRunConcurrentSignalsShareWorkflowKeyRun(t *testing
 func TestProviderSignalOrStartRunRejectsExplicitSignalIDFromOtherWorkflowKey(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -809,9 +810,9 @@ func TestProviderTerminalKeyedRunWithPendingSignalIsRunnable(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -866,14 +867,14 @@ func TestProviderProcessNextPendingRunClaimsRunAcrossProviders(t *testing.T) {
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	host.releaseCh = make(chan struct{})
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	first := newProviderCoreWithDB(db)
+	first := newTestProvider(db)
 	if err := first.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure(first): %v", err)
 	}
 	t.Cleanup(func() { _ = first.Close() })
-	second := newProviderCoreWithDB(db)
+	second := newTestProvider(db)
 	if err := second.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure(second): %v", err)
 	}
@@ -944,9 +945,9 @@ func TestProviderProcessNextPendingRunStartsUnkeyedRunWithClaim(t *testing.T) {
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	host.releaseCh = make(chan struct{})
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -1020,9 +1021,9 @@ func TestProviderProcessNextPendingRunSkipsFreshClaimedRun(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -1083,9 +1084,9 @@ func TestProviderProcessNextPendingRunSkipsFreshClaimedRun(t *testing.T) {
 func TestProviderSignalOrStartRunReplacesStaleWorkflowKey(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -1113,11 +1114,11 @@ func TestProviderSignalOrStartRunReplacesStaleWorkflowKey(t *testing.T) {
 func TestProviderSignalOrStartRunRecoversStaleRunningWorkflowKey(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
 	base := time.Date(2026, 4, 30, 12, 0, 0, 0, time.UTC)
 	now := base
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	provider.now = func() time.Time { return now }
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
@@ -1201,9 +1202,9 @@ func TestProviderFinalizingOldTerminalRunDoesNotDeleteNewerWorkflowKey(t *testin
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -1273,14 +1274,14 @@ func TestProviderFinalizingOldTerminalRunDoesNotDeleteNewerWorkflowKey(t *testin
 func TestProviderSignalRunConcurrentSignalsUseUniqueSequences(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
 	t.Cleanup(func() { _ = provider.Close() })
-	secondProvider := newProviderCoreWithDB(db)
+	secondProvider := newTestProvider(db)
 	if err := secondProvider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure(second): %v", err)
 	}
@@ -1346,9 +1347,9 @@ func TestProviderSignalWakePrefersRunAndBatchesSignals(t *testing.T) {
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	host.releaseCh = make(chan struct{})
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -1441,9 +1442,9 @@ func TestProviderConfigureFailsWhenSignalSequenceIndexMissing(t *testing.T) {
 	db := startTestIndexedDBBackendWithWrapper(t, func(inner gestalt.IndexedDBProvider) gestalt.IndexedDBProvider {
 		return &indexedDBServerSpy{IndexedDBProvider: inner, missingSignalIndex: "by_run_sequence"}
 	})
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"})
 	if err == nil {
 		t.Fatal("Configure succeeded, want missing signal index error")
@@ -1456,9 +1457,9 @@ func TestProviderConfigureFailsWhenSignalSequenceIndexMissing(t *testing.T) {
 func TestProviderCancelRunOnlyWhilePending(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -1509,9 +1510,9 @@ func TestProviderCancelRunOnlyWhilePending(t *testing.T) {
 func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -1672,9 +1673,9 @@ func TestNormalizeTargetRejectsInvalidAppCredentialMode(t *testing.T) {
 func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -1716,9 +1717,9 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -1795,9 +1796,9 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	start := time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC)
 	clock := newFakeClock(start)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	provider.now = clock.Now
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "100ms"}); err != nil {
 		t.Fatalf("Configure: %v", err)
@@ -1936,9 +1937,9 @@ func TestProviderPublishEventDoesNotWaitForConcurrentScheduleList(t *testing.T) 
 		blocker.IndexedDBProvider = inner
 		return blocker
 	})
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	provider.now = func() time.Time {
 		return time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC)
 	}
@@ -2025,9 +2026,9 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	provider.now = func() time.Time {
 		return time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC)
 	}
@@ -2186,9 +2187,9 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 	start := time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC)
 	clock := newFakeClock(start)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	provider.now = clock.Now
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "100ms"}); err != nil {
 		t.Fatalf("Configure: %v", err)
@@ -2263,9 +2264,9 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 func TestProviderLeavesAgentToolValidationToHost(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -2335,9 +2336,9 @@ func TestProviderLeavesAgentToolValidationToHost(t *testing.T) {
 func TestProviderRequiresStoredTargetJSON(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -2454,9 +2455,9 @@ func TestProviderPublishEventDoesNotCoalesceDifferentSources(t *testing.T) {
 	ctx := context.Background()
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "10ms"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -2519,9 +2520,9 @@ func TestProviderEnqueueDueSchedulesReusesDeterministicRunID(t *testing.T) {
 	start := time.Date(2026, time.April, 16, 12, 17, 0, 0, time.UTC)
 	clock := newFakeClock(start)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	provider.now = clock.Now
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
@@ -2579,9 +2580,9 @@ func TestProviderEnqueueDueSchedulesReusesDeterministicRunID(t *testing.T) {
 func TestProviderRejectsCrossAppScheduleAndTriggerIDCollisions(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -2623,9 +2624,9 @@ func TestProviderRejectsCrossAppScheduleAndTriggerIDCollisions(t *testing.T) {
 func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	first := newProviderCoreWithDB(db)
+	first := newTestProvider(db)
 	if err := first.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure(first): %v", err)
 	}
@@ -2691,7 +2692,7 @@ func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 		t.Fatalf("Close(first): %v", err)
 	}
 
-	second := newProviderCoreWithDB(db)
+	second := newTestProvider(db)
 	if err := second.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure(second): %v", err)
 	}
@@ -2742,9 +2743,9 @@ func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 func TestRecoverStaleWorkflowRunsDeletesOrphanPendingClaims(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -2790,9 +2791,9 @@ func TestRecoverStaleWorkflowRunsDeletesOrphanPendingClaims(t *testing.T) {
 func TestRecoverStaleWorkflowRunsPreservesFreshAndKeyedPendingClaims(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -2856,9 +2857,9 @@ func TestRecoverStaleWorkflowRunsPreservesFreshAndKeyedPendingClaims(t *testing.
 func TestRecoverStaleWorkflowRunsFailsExpiredAgentRunWithUnexpiredClaim(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -2905,9 +2906,9 @@ func TestRecoverStaleWorkflowRunsFailsExpiredAgentRunWithUnexpiredClaim(t *testi
 func TestRecoverStaleWorkflowRunsPreservesAgentRunWithinConfiguredTimeout(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -2956,9 +2957,9 @@ func TestRecoverStaleWorkflowRunsPreservesAgentRunWithinConfiguredTimeout(t *tes
 func TestDeleteInactiveRunClaimSkipsReplacedClaim(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -3014,9 +3015,9 @@ func TestProviderTickProcessesPreferredRunBeforeStaleRecovery(t *testing.T) {
 	clock := newFakeClock(start)
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	provider.now = clock.Now
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
@@ -3073,9 +3074,9 @@ func TestProviderTickPrioritizesAppEventWhenPreferredWakeLost(t *testing.T) {
 	clock := newFakeClock(start)
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	provider.now = clock.Now
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
@@ -3202,9 +3203,9 @@ func TestProviderTickPreservesFIFOWithinDispatchPriority(t *testing.T) {
 	start := time.Date(2026, time.May, 3, 17, 30, 0, 0, time.UTC)
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -3261,9 +3262,9 @@ func TestProviderTickPreferredWakeDoesNotBypassDispatchPriority(t *testing.T) {
 	start := time.Date(2026, time.May, 3, 18, 0, 0, 0, time.UTC)
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -3306,9 +3307,9 @@ func TestProviderTickPreferredWakePreservesFIFOWithinDispatchPriority(t *testing
 	start := time.Date(2026, time.May, 3, 18, 15, 0, 0, time.UTC)
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -3378,9 +3379,9 @@ func TestProviderTickPrioritizesKeyedSignalContinuation(t *testing.T) {
 	start := time.Date(2026, time.May, 3, 18, 30, 0, 0, time.UTC)
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -3446,9 +3447,9 @@ func TestProviderRunClaimTTLConfigAppliesToClaimAndRenewal(t *testing.T) {
 	host := newWorkflowHostStub(202, `{"ok":true}`)
 	host.releaseCh = make(chan struct{})
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, host)
+	newTestProvider := newTestProviderFactory(t, host)
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	provider.now = clock.Now
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{
 		"pollInterval":       "1h",
@@ -3527,9 +3528,9 @@ func TestProviderTickRecoversRunningRunAfterClaimExpires(t *testing.T) {
 	start := time.Date(2026, time.April, 30, 12, 0, 0, 0, time.UTC)
 	clock := newFakeClock(start)
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	provider.now = clock.Now
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
@@ -3588,9 +3589,9 @@ func TestProviderTickRecoversRunningRunAfterClaimExpires(t *testing.T) {
 func TestProviderCompleteRunDoesNotOverwriteLostClaim(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -3630,9 +3631,9 @@ func TestProviderCompleteRunDoesNotOverwriteLostClaim(t *testing.T) {
 func TestProviderStartDoesNotBlockOnStaleRunRecoveryFailure(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
-	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
+	newTestProvider := newTestProviderFactory(t, newWorkflowHostStub(202, `{"ok":true}`))
 
-	provider := newProviderCoreWithDB(db)
+	provider := newTestProvider(db)
 	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
@@ -3690,7 +3691,7 @@ func newWorkflowHostStub(status int32, body string) *workflowHostStub {
 	}
 }
 
-func putExpiredRunClaim(t *testing.T, ctx context.Context, store workflowObjectStore, runID string, claimedAt time.Time) {
+func putExpiredRunClaim(t *testing.T, ctx context.Context, store indexeddb.ObjectStore, runID string, claimedAt time.Time) {
 	t.Helper()
 	putRunClaim(t, ctx, store, workflowRunClaimRecord{
 		ID:        runID,
@@ -3701,7 +3702,7 @@ func putExpiredRunClaim(t *testing.T, ctx context.Context, store workflowObjectS
 	})
 }
 
-func putRunClaim(t *testing.T, ctx context.Context, store workflowObjectStore, claim workflowRunClaimRecord) {
+func putRunClaim(t *testing.T, ctx context.Context, store indexeddb.ObjectStore, claim workflowRunClaimRecord) {
 	t.Helper()
 	if err := store.Put(ctx, claim.toRecord()); err != nil {
 		t.Fatalf("Put(%s claim): %v", claim.ID, err)
@@ -3773,16 +3774,16 @@ func (c *fakeClock) Set(now time.Time) {
 	c.now = now.UTC()
 }
 
-func startTestIndexedDBBackend(t *testing.T) workflowDB {
+func startTestIndexedDBBackend(t *testing.T) indexeddb.Database {
 	t.Helper()
 	return startTestIndexedDBBackendWithWrapper(t, nil)
 }
 
-func wrapProviderWorkflowDB(provider gestalt.IndexedDBProvider) workflowDB {
+func wrapProviderWorkflowDB(provider gestalt.IndexedDBProvider) indexeddb.Database {
 	return workflowfake.NewProviderDB(provider)
 }
 
-func startTestIndexedDBBackendWithWrapper(t *testing.T, wrap func(gestalt.IndexedDBProvider) gestalt.IndexedDBProvider) workflowDB {
+func startTestIndexedDBBackendWithWrapper(t *testing.T, wrap func(gestalt.IndexedDBProvider) gestalt.IndexedDBProvider) indexeddb.Database {
 	t.Helper()
 	store := relationaldb.New()
 	if err := store.Configure(context.Background(), "workflow_state", map[string]any{
@@ -3953,13 +3954,13 @@ func (s *indexedDBServerSpy) IndexCount(ctx context.Context, req gestalt.Indexed
 	return s.IndexedDBProvider.IndexCount(ctx, req)
 }
 
-func startTestWorkflowHost(t *testing.T, host workflowHostClient) {
+func newTestProviderFactory(t *testing.T, host workflowHostClient) func(indexeddb.Database) *Provider {
 	t.Helper()
-	previous := openWorkflowHost
-	openWorkflowHost = func() (workflowHostClient, error) { return host, nil }
-	t.Cleanup(func() {
-		openWorkflowHost = previous
-	})
+	return func(db indexeddb.Database) *Provider {
+		provider := newProviderCoreWithDB(db)
+		provider.workflowHost = host
+		return provider
+	}
 }
 
 func workflowSignal(t *testing.T, id, idempotencyKey, text string) *gestalt.WorkflowSignal {

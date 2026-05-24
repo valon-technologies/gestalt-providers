@@ -21,7 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	idb "github.com/valon-technologies/gestalt/sdk/go/indexeddb"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gopkg.in/yaml.v3"
@@ -85,18 +85,6 @@ type workflowHostClient interface {
 	Close() error
 }
 
-type workflowDB = idb.Database
-type workflowObjectStore = idb.ObjectStore
-type workflowIndex = idb.Index
-type workflowCursor = idb.Cursor
-type workflowTx = idb.Transaction
-type workflowTxObjectStore = idb.TransactionObjectStore
-type workflowTxIndex = idb.TransactionIndex
-
-var openWorkflowHost = func() (workflowHostClient, error) {
-	return gestalt.WorkflowHost()
-}
-
 type Provider struct {
 	mu sync.RWMutex
 	// workerMu serializes scheduler and worker claim work without blocking
@@ -108,18 +96,19 @@ type Provider struct {
 
 	name              string
 	cfg               config
-	db                workflowDB
+	db                indexeddb.Database
 	host              workflowHostClient
-	scheduleStore     workflowObjectStore
-	eventTriggerStore workflowObjectStore
-	definitionStore   workflowObjectStore
-	runStore          workflowObjectStore
-	runClaimStore     workflowObjectStore
-	idempotencyStore  workflowObjectStore
-	executionRefStore workflowObjectStore
-	workflowKeyStore  workflowObjectStore
-	signalStore       workflowObjectStore
-	indexedDB         workflowDB
+	scheduleStore     indexeddb.ObjectStore
+	eventTriggerStore indexeddb.ObjectStore
+	definitionStore   indexeddb.ObjectStore
+	runStore          indexeddb.ObjectStore
+	runClaimStore     indexeddb.ObjectStore
+	idempotencyStore  indexeddb.ObjectStore
+	executionRefStore indexeddb.ObjectStore
+	workflowKeyStore  indexeddb.ObjectStore
+	signalStore       indexeddb.ObjectStore
+	indexedDB         indexeddb.Database
+	workflowHost      workflowHostClient
 	claimOwnerID      string
 	startedAt         time.Time
 	pollCancel        context.CancelFunc
@@ -258,7 +247,7 @@ func newProviderCore() *Provider {
 	return newProviderCoreWithDB(nil)
 }
 
-func newProviderCoreWithDB(db workflowDB) *Provider {
+func newProviderCoreWithDB(db indexeddb.Database) *Provider {
 	return &Provider{now: time.Now, claimOwnerID: uuid.NewString(), indexedDB: db}
 }
 
@@ -280,10 +269,13 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 		}
 	}
 
-	host, err := openWorkflowHost()
-	if err != nil {
-		_ = db.Close()
-		return fmt.Errorf("indexeddb workflow: connect workflow host: %w", err)
+	host := p.workflowHost
+	if host == nil {
+		host, err = gestalt.WorkflowHost()
+		if err != nil {
+			_ = db.Close()
+			return fmt.Errorf("indexeddb workflow: connect workflow host: %w", err)
+		}
 	}
 
 	cleanup := func() {
@@ -1617,7 +1609,7 @@ func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrS
 	return enqueueSignalInTransaction(ctx, stores.runStore, stores.idempotencyStore, stores.signalStore, run, enqueueSignal, startedRun)
 }
 
-func enqueueSignalInTransaction(ctx context.Context, runStore recordPutter, idempotencyStore recordPutter, signalStore workflowTxObjectStore, run workflowRunRecord, signal *gestalt.WorkflowSignal, startedRun bool) (*gestalt.SignalWorkflowRunResponse, string, error) {
+func enqueueSignalInTransaction(ctx context.Context, runStore recordPutter, idempotencyStore recordPutter, signalStore indexeddb.TransactionObjectStore, run workflowRunRecord, signal *gestalt.WorkflowSignal, startedRun bool) (*gestalt.SignalWorkflowRunResponse, string, error) {
 	signal = cloneSignal(signal)
 	if strings.TrimSpace(signal.ID) == "" {
 		signal.ID = workflowSignalID(run, signal)
@@ -1683,7 +1675,7 @@ func enqueueSignalInTransaction(ctx context.Context, runStore recordPutter, idem
 	}, record.ID, nil
 }
 
-func signalIdempotencyResponseTx(ctx context.Context, runStore, signalStore workflowTxObjectStore, appName, workflowKey string, record workflowIdempotencyRecord) (*gestalt.SignalWorkflowRunResponse, bool, error) {
+func signalIdempotencyResponseTx(ctx context.Context, runStore, signalStore indexeddb.TransactionObjectStore, appName, workflowKey string, record workflowIdempotencyRecord) (*gestalt.SignalWorkflowRunResponse, bool, error) {
 	run, found, err := loadRunRecordTx(ctx, runStore, appName, record.RunID)
 	if err != nil {
 		return nil, false, status.Errorf(codes.Internal, "load idempotent signal run: %v", err)
@@ -2315,17 +2307,17 @@ func (p *Provider) providerName() string {
 }
 
 type configuredState struct {
-	db                 workflowDB
+	db                 indexeddb.Database
 	host               workflowHostClient
-	scheduleStore      workflowObjectStore
-	eventTriggerStore  workflowObjectStore
-	definitionStore    workflowObjectStore
-	runStore           workflowObjectStore
-	runClaimStore      workflowObjectStore
-	idempotencyStore   workflowObjectStore
-	executionRefStore  workflowObjectStore
-	workflowKeyStore   workflowObjectStore
-	signalStore        workflowObjectStore
+	scheduleStore      indexeddb.ObjectStore
+	eventTriggerStore  indexeddb.ObjectStore
+	definitionStore    indexeddb.ObjectStore
+	runStore           indexeddb.ObjectStore
+	runClaimStore      indexeddb.ObjectStore
+	idempotencyStore   indexeddb.ObjectStore
+	executionRefStore  indexeddb.ObjectStore
+	workflowKeyStore   indexeddb.ObjectStore
+	signalStore        indexeddb.ObjectStore
 	claimOwnerID       string
 	startedAt          time.Time
 	workerCount        int
@@ -2349,7 +2341,7 @@ type recordDeleter interface {
 	Delete(context.Context, string) error
 }
 
-func transactionGetRecord(ctx context.Context, store workflowTxObjectStore, id string) (gestalt.Record, bool, error) {
+func transactionGetRecord(ctx context.Context, store indexeddb.TransactionObjectStore, id string) (gestalt.Record, bool, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, false, nil
@@ -2367,14 +2359,14 @@ func transactionGetRecord(ctx context.Context, store workflowTxObjectStore, id s
 }
 
 type workflowSignalOrStartTxStores struct {
-	runStore         workflowTxObjectStore
-	runClaimStore    workflowTxObjectStore
-	idempotencyStore workflowTxObjectStore
-	workflowKeyStore workflowTxObjectStore
-	signalStore      workflowTxObjectStore
+	runStore         indexeddb.TransactionObjectStore
+	runClaimStore    indexeddb.TransactionObjectStore
+	idempotencyStore indexeddb.TransactionObjectStore
+	workflowKeyStore indexeddb.TransactionObjectStore
+	signalStore      indexeddb.TransactionObjectStore
 }
 
-func (s *configuredState) signalOrStartTransaction(ctx context.Context) (workflowTx, workflowSignalOrStartTxStores, error) {
+func (s *configuredState) signalOrStartTransaction(ctx context.Context) (indexeddb.Transaction, workflowSignalOrStartTxStores, error) {
 	tx, err := s.db.Transaction(ctx, []string{
 		storeRuns,
 		storeRunClaims,
@@ -2395,12 +2387,12 @@ func (s *configuredState) signalOrStartTransaction(ctx context.Context) (workflo
 }
 
 type workflowSignalTxStores struct {
-	runStore         workflowTxObjectStore
-	idempotencyStore workflowTxObjectStore
-	signalStore      workflowTxObjectStore
+	runStore         indexeddb.TransactionObjectStore
+	idempotencyStore indexeddb.TransactionObjectStore
+	signalStore      indexeddb.TransactionObjectStore
 }
 
-func (s *configuredState) signalTransaction(ctx context.Context) (workflowTx, workflowSignalTxStores, error) {
+func (s *configuredState) signalTransaction(ctx context.Context) (indexeddb.Transaction, workflowSignalTxStores, error) {
 	tx, err := s.db.Transaction(ctx, []string{
 		storeRuns,
 		storeIdempotency,
@@ -2417,13 +2409,13 @@ func (s *configuredState) signalTransaction(ctx context.Context) (workflowTx, wo
 }
 
 type workflowRunCompletionTxStores struct {
-	runStore         workflowTxObjectStore
-	runClaimStore    workflowTxObjectStore
-	workflowKeyStore workflowTxObjectStore
-	signalStore      workflowTxObjectStore
+	runStore         indexeddb.TransactionObjectStore
+	runClaimStore    indexeddb.TransactionObjectStore
+	workflowKeyStore indexeddb.TransactionObjectStore
+	signalStore      indexeddb.TransactionObjectStore
 }
 
-func (s *configuredState) runCompletionTransaction(ctx context.Context) (workflowTx, workflowRunCompletionTxStores, error) {
+func (s *configuredState) runCompletionTransaction(ctx context.Context) (indexeddb.Transaction, workflowRunCompletionTxStores, error) {
 	tx, err := s.db.Transaction(ctx, []string{
 		storeRuns,
 		storeRunClaims,
@@ -2441,7 +2433,7 @@ func (s *configuredState) runCompletionTransaction(ctx context.Context) (workflo
 	}, nil
 }
 
-func claimWorkflowRun(ctx context.Context, db workflowDB, runID, ownerID string, now time.Time, runClaimTTL time.Duration) (bool, error) {
+func claimWorkflowRun(ctx context.Context, db indexeddb.Database, runID, ownerID string, now time.Time, runClaimTTL time.Duration) (bool, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return false, errors.New("workflow run claim requires run id")
@@ -2510,7 +2502,7 @@ func claimWorkflowRun(ctx context.Context, db workflowDB, runID, ownerID string,
 	return true, nil
 }
 
-func claimAndStartPendingRun(ctx context.Context, db workflowDB, expected workflowRunRecord, ownerID string, now time.Time, runClaimTTL time.Duration) (workflowRunRecord, bool, error) {
+func claimAndStartPendingRun(ctx context.Context, db indexeddb.Database, expected workflowRunRecord, ownerID string, now time.Time, runClaimTTL time.Duration) (workflowRunRecord, bool, error) {
 	runID := strings.TrimSpace(expected.ID)
 	if runID == "" {
 		return workflowRunRecord{}, false, errors.New("workflow run claim requires run id")
@@ -2606,7 +2598,7 @@ func claimAndStartPendingRun(ctx context.Context, db workflowDB, expected workfl
 	return run, true, nil
 }
 
-func renewWorkflowRunClaim(ctx context.Context, db workflowDB, runID, ownerID string, now time.Time, runClaimTTL time.Duration) (bool, error) {
+func renewWorkflowRunClaim(ctx context.Context, db indexeddb.Database, runID, ownerID string, now time.Time, runClaimTTL time.Duration) (bool, error) {
 	runID = strings.TrimSpace(runID)
 	ownerID = strings.TrimSpace(ownerID)
 	if runID == "" || ownerID == "" {
@@ -2696,14 +2688,14 @@ func normalizeRunClaimRenewEvery(ttl, renewEvery time.Duration) time.Duration {
 	return renewEvery
 }
 
-func validateWorkflowExecutionReferenceIndexes(ctx context.Context, store workflowObjectStore) error {
+func validateWorkflowExecutionReferenceIndexes(ctx context.Context, store indexeddb.ObjectStore) error {
 	if _, err := store.Index("by_subject").Count(ctx, nil, "__workflow_schema_probe__"); err != nil {
 		return fmt.Errorf("by_subject: %w", err)
 	}
 	return nil
 }
 
-func validateWorkflowSignalIndexes(ctx context.Context, store workflowObjectStore) error {
+func validateWorkflowSignalIndexes(ctx context.Context, store indexeddb.ObjectStore) error {
 	probes := []struct {
 		name   string
 		values []any
@@ -2720,11 +2712,11 @@ func validateWorkflowSignalIndexes(ctx context.Context, store workflowObjectStor
 	return nil
 }
 
-func recoverStaleWorkflowRuns(ctx context.Context, db workflowDB, runStore, runClaimStore, workflowKeyStore, signalStore workflowObjectStore, now time.Time) error {
+func recoverStaleWorkflowRuns(ctx context.Context, db indexeddb.Database, runStore, runClaimStore, workflowKeyStore, signalStore indexeddb.ObjectStore, now time.Time) error {
 	return recoverStaleWorkflowRunsWithTTL(ctx, db, runStore, runClaimStore, workflowKeyStore, signalStore, now, defaultRunClaimTTL)
 }
 
-func recoverStaleWorkflowRunsWithTTL(ctx context.Context, db workflowDB, runStore, runClaimStore, workflowKeyStore, signalStore workflowObjectStore, now time.Time, runClaimTTL time.Duration) error {
+func recoverStaleWorkflowRunsWithTTL(ctx context.Context, db indexeddb.Database, runStore, runClaimStore, workflowKeyStore, signalStore indexeddb.ObjectStore, now time.Time, runClaimTTL time.Duration) error {
 	runClaimTTL = normalizeRunClaimTTL(runClaimTTL)
 	cursor, err := runStore.OpenKeyCursor(ctx, nil, gestalt.CursorNext)
 	if err != nil {
@@ -2780,7 +2772,7 @@ func recoverStaleWorkflowRunsWithTTL(ctx context.Context, db workflowDB, runStor
 	return errors.Join(errs...)
 }
 
-func deleteInactiveRunClaimIfRecoverable(ctx context.Context, db workflowDB, observedRun workflowRunRecord, observedClaim workflowRunClaimRecord, now time.Time) (bool, error) {
+func deleteInactiveRunClaimIfRecoverable(ctx context.Context, db indexeddb.Database, observedRun workflowRunRecord, observedClaim workflowRunClaimRecord, now time.Time) (bool, error) {
 	tx, err := db.Transaction(ctx, []string{storeRuns, storeRunClaims}, gestalt.TransactionReadwrite, gestalt.TransactionOptions{DurabilityHint: gestalt.TransactionDurabilityStrict})
 	if err != nil {
 		return false, err
@@ -2857,7 +2849,7 @@ func workflowRunRecoverablyStale(ctx context.Context, claimStore recordGetter, r
 	return workflowRunMissingClaimExpired(run, now, runClaimTTL), nil
 }
 
-func workflowRunRecoverablyStaleTx(ctx context.Context, claimStore workflowTxObjectStore, run workflowRunRecord, now time.Time, runClaimTTL time.Duration) (bool, error) {
+func workflowRunRecoverablyStaleTx(ctx context.Context, claimStore indexeddb.TransactionObjectStore, run workflowRunRecord, now time.Time, runClaimTTL time.Duration) (bool, error) {
 	if run.Status != gestalt.WorkflowRunStatusValueRunning {
 		return false, nil
 	}
@@ -2916,7 +2908,7 @@ func workflowInvokeMetadataInput(workflowKey string) any {
 	}
 }
 
-func failStaleRunningRun(ctx context.Context, runStore recordPutter, workflowKeyStore workflowObjectStore, signalStore workflowObjectStore, run workflowRunRecord, workflowKey string, now time.Time) error {
+func failStaleRunningRun(ctx context.Context, runStore recordPutter, workflowKeyStore indexeddb.ObjectStore, signalStore indexeddb.ObjectStore, run workflowRunRecord, workflowKey string, now time.Time) error {
 	run.Status = gestalt.WorkflowRunStatusValueFailed
 	run.CompletedAt = &now
 	run.StatusMessage = staleRunStatusMessage
@@ -2940,7 +2932,7 @@ func failStaleRunningRun(ctx context.Context, runStore recordPutter, workflowKey
 	return markSignalsFailed(ctx, signalStore, signals, now, run.StatusMessage)
 }
 
-func failStaleRunningRunTx(ctx context.Context, runStore recordPutter, workflowKeyStore workflowTxObjectStore, signalStore workflowTxObjectStore, run workflowRunRecord, workflowKey string, now time.Time) error {
+func failStaleRunningRunTx(ctx context.Context, runStore recordPutter, workflowKeyStore indexeddb.TransactionObjectStore, signalStore indexeddb.TransactionObjectStore, run workflowRunRecord, workflowKey string, now time.Time) error {
 	run.Status = gestalt.WorkflowRunStatusValueFailed
 	run.CompletedAt = &now
 	run.StatusMessage = staleRunStatusMessage
@@ -3247,7 +3239,7 @@ func collapseCron(parser cron.Parser, spec string, location *time.Location, star
 	}
 }
 
-func nextPendingRun(ctx context.Context, store workflowObjectStore) (workflowRunRecord, bool, error) {
+func nextPendingRun(ctx context.Context, store indexeddb.ObjectStore) (workflowRunRecord, bool, error) {
 	runs, err := listRunRecords(ctx, store, "")
 	if err != nil {
 		return workflowRunRecord{}, false, err
@@ -3406,7 +3398,7 @@ func claimRunnableRun(ctx context.Context, state *configuredState, run workflowR
 	return run, true, nil
 }
 
-func nextRunnableRun(ctx context.Context, runStore, signalStore workflowObjectStore, preferredRunID string) (workflowRunRecord, bool, error) {
+func nextRunnableRun(ctx context.Context, runStore, signalStore indexeddb.ObjectStore, preferredRunID string) (workflowRunRecord, bool, error) {
 	if preferredRunID = strings.TrimSpace(preferredRunID); preferredRunID != "" {
 		run, found, err := loadRunRecord(ctx, runStore, "", preferredRunID)
 		if err != nil {
@@ -3439,7 +3431,7 @@ func nextRunnableRun(ctx context.Context, runStore, signalStore workflowObjectSt
 	return workflowRunRecord{}, false, nil
 }
 
-func workflowRunRunnable(ctx context.Context, signalStore workflowObjectStore, run workflowRunRecord) (bool, error) {
+func workflowRunRunnable(ctx context.Context, signalStore indexeddb.ObjectStore, run workflowRunRecord) (bool, error) {
 	if run.Status == gestalt.WorkflowRunStatusValuePending {
 		if strings.TrimSpace(run.WorkflowKey) == "" {
 			return true, nil
@@ -3460,11 +3452,11 @@ func workflowRunRunnable(ctx context.Context, signalStore workflowObjectStore, r
 	return hasPending, nil
 }
 
-func hasPendingSignals(ctx context.Context, store workflowObjectStore, runID string) (bool, error) {
+func hasPendingSignals(ctx context.Context, store indexeddb.ObjectStore, runID string) (bool, error) {
 	return hasSignalsInState(ctx, store, runID, signalStatePending)
 }
 
-func hasPendingSignalsTx(ctx context.Context, store workflowTxObjectStore, runID string) (bool, error) {
+func hasPendingSignalsTx(ctx context.Context, store indexeddb.TransactionObjectStore, runID string) (bool, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return false, nil
@@ -3476,7 +3468,7 @@ func hasPendingSignalsTx(ctx context.Context, store workflowTxObjectStore, runID
 	return count > 0, nil
 }
 
-func hasSignalsInState(ctx context.Context, store workflowObjectStore, runID, state string) (bool, error) {
+func hasSignalsInState(ctx context.Context, store indexeddb.ObjectStore, runID, state string) (bool, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return false, nil
@@ -3499,7 +3491,7 @@ func signalInputs(records []workflowSignalRecord) []gestalt.WorkflowSignal {
 	return out
 }
 
-func markRunSignalsFailed(ctx context.Context, store workflowObjectStore, runID string, claimed []workflowSignalRecord, failedAt time.Time, message string) error {
+func markRunSignalsFailed(ctx context.Context, store indexeddb.ObjectStore, runID string, claimed []workflowSignalRecord, failedAt time.Time, message string) error {
 	runID = strings.TrimSpace(runID)
 	if runID == "" && len(claimed) > 0 {
 		runID = strings.TrimSpace(claimed[0].RunID)
@@ -3534,7 +3526,7 @@ func markRunSignalsFailed(ctx context.Context, store workflowObjectStore, runID 
 	return markSignalsFailed(ctx, store, records, failedAt, message)
 }
 
-func markSignalsDelivered(ctx context.Context, store workflowObjectStore, records []workflowSignalRecord, deliveredAt time.Time) error {
+func markSignalsDelivered(ctx context.Context, store indexeddb.ObjectStore, records []workflowSignalRecord, deliveredAt time.Time) error {
 	for _, record := range records {
 		record.State = signalStateDelivered
 		record.DeliveredAt = &deliveredAt
@@ -3546,7 +3538,7 @@ func markSignalsDelivered(ctx context.Context, store workflowObjectStore, record
 	return nil
 }
 
-func markSignalsDeliveredTx(ctx context.Context, store workflowTxObjectStore, records []workflowSignalRecord, deliveredAt time.Time) error {
+func markSignalsDeliveredTx(ctx context.Context, store indexeddb.TransactionObjectStore, records []workflowSignalRecord, deliveredAt time.Time) error {
 	for _, record := range records {
 		record.State = signalStateDelivered
 		record.DeliveredAt = &deliveredAt
@@ -3558,7 +3550,7 @@ func markSignalsDeliveredTx(ctx context.Context, store workflowTxObjectStore, re
 	return nil
 }
 
-func markSignalsFailed(ctx context.Context, store workflowObjectStore, records []workflowSignalRecord, failedAt time.Time, message string) error {
+func markSignalsFailed(ctx context.Context, store indexeddb.ObjectStore, records []workflowSignalRecord, failedAt time.Time, message string) error {
 	for _, record := range records {
 		record.State = signalStateFailed
 		record.FailedAt = &failedAt
@@ -3570,7 +3562,7 @@ func markSignalsFailed(ctx context.Context, store workflowObjectStore, records [
 	return nil
 }
 
-func markRunSignalsFailedTx(ctx context.Context, store workflowTxObjectStore, runID string, claimed []workflowSignalRecord, failedAt time.Time, message string) error {
+func markRunSignalsFailedTx(ctx context.Context, store indexeddb.TransactionObjectStore, runID string, claimed []workflowSignalRecord, failedAt time.Time, message string) error {
 	runID = strings.TrimSpace(runID)
 	if runID == "" && len(claimed) > 0 {
 		runID = strings.TrimSpace(claimed[0].RunID)
@@ -3605,7 +3597,7 @@ func markRunSignalsFailedTx(ctx context.Context, store workflowTxObjectStore, ru
 	return markSignalsFailedTx(ctx, store, records, failedAt, message)
 }
 
-func markSignalsFailedTx(ctx context.Context, store workflowTxObjectStore, records []workflowSignalRecord, failedAt time.Time, message string) error {
+func markSignalsFailedTx(ctx context.Context, store indexeddb.TransactionObjectStore, records []workflowSignalRecord, failedAt time.Time, message string) error {
 	for _, record := range records {
 		record.State = signalStateFailed
 		record.FailedAt = &failedAt
@@ -3633,7 +3625,7 @@ func activeWorkflowKeyRunFromStores(ctx context.Context, workflowKeyStore record
 	return run, true, nil
 }
 
-func activeWorkflowKeyRunInTransaction(ctx context.Context, workflowKeyStore, runStore workflowTxObjectStore, workflowKey string) (workflowRunRecord, bool, error) {
+func activeWorkflowKeyRunInTransaction(ctx context.Context, workflowKeyStore, runStore indexeddb.TransactionObjectStore, workflowKey string) (workflowRunRecord, bool, error) {
 	key, found, err := loadWorkflowKeyRecordTx(ctx, workflowKeyStore, workflowKey)
 	if err != nil || !found {
 		return workflowRunRecord{}, false, err
@@ -3662,7 +3654,7 @@ func loadWorkflowKeyRecord(ctx context.Context, store recordGetter, workflowKey 
 	return workflowKeyRecordFromRecord(record), true, nil
 }
 
-func loadWorkflowKeyRecordTx(ctx context.Context, store workflowTxObjectStore, workflowKey string) (workflowKeyRecord, bool, error) {
+func loadWorkflowKeyRecordTx(ctx context.Context, store indexeddb.TransactionObjectStore, workflowKey string) (workflowKeyRecord, bool, error) {
 	record, found, err := transactionGetRecord(ctx, store, workflowKeyID(workflowKey))
 	if err != nil || !found {
 		return workflowKeyRecord{}, false, err
@@ -3681,7 +3673,7 @@ func loadRunClaimRecord(ctx context.Context, store recordGetter, runID string) (
 	return workflowRunClaimRecordFromRecord(record), true, nil
 }
 
-func loadRunClaimRecordTx(ctx context.Context, store workflowTxObjectStore, runID string) (workflowRunClaimRecord, bool, error) {
+func loadRunClaimRecordTx(ctx context.Context, store indexeddb.TransactionObjectStore, runID string) (workflowRunClaimRecord, bool, error) {
 	record, found, err := transactionGetRecord(ctx, store, strings.TrimSpace(runID))
 	if err != nil || !found {
 		return workflowRunClaimRecord{}, false, err
@@ -3714,7 +3706,7 @@ func deleteWorkflowKeyRecord(ctx context.Context, store recordDeleter, workflowK
 	return nil
 }
 
-func deleteWorkflowKeyRecordForRun(ctx context.Context, store workflowObjectStore, workflowKey, runID string) error {
+func deleteWorkflowKeyRecordForRun(ctx context.Context, store indexeddb.ObjectStore, workflowKey, runID string) error {
 	key, found, err := loadWorkflowKeyRecord(ctx, store, workflowKey)
 	if err != nil || !found {
 		return err
@@ -3725,7 +3717,7 @@ func deleteWorkflowKeyRecordForRun(ctx context.Context, store workflowObjectStor
 	return deleteWorkflowKeyRecord(ctx, store, workflowKey)
 }
 
-func deleteWorkflowKeyRecordForRunTx(ctx context.Context, store workflowTxObjectStore, workflowKey, runID string) error {
+func deleteWorkflowKeyRecordForRunTx(ctx context.Context, store indexeddb.TransactionObjectStore, workflowKey, runID string) error {
 	key, found, err := loadWorkflowKeyRecordTx(ctx, store, workflowKey)
 	if err != nil || !found {
 		return err
@@ -3769,7 +3761,7 @@ func loadSignalRecord(ctx context.Context, store recordGetter, signalID string) 
 	return signal, true, nil
 }
 
-func loadSignalRecordTx(ctx context.Context, store workflowTxObjectStore, signalID string) (workflowSignalRecord, bool, error) {
+func loadSignalRecordTx(ctx context.Context, store indexeddb.TransactionObjectStore, signalID string) (workflowSignalRecord, bool, error) {
 	record, found, err := transactionGetRecord(ctx, store, strings.TrimSpace(signalID))
 	if err != nil || !found {
 		return workflowSignalRecord{}, false, err
@@ -3781,7 +3773,7 @@ func loadSignalRecordTx(ctx context.Context, store workflowTxObjectStore, signal
 	return signal, true, nil
 }
 
-func listSignalRecords(ctx context.Context, store workflowObjectStore, runID, state string) ([]workflowSignalRecord, error) {
+func listSignalRecords(ctx context.Context, store indexeddb.ObjectStore, runID, state string) ([]workflowSignalRecord, error) {
 	runID = strings.TrimSpace(runID)
 	state = strings.TrimSpace(state)
 	var (
@@ -3832,7 +3824,7 @@ func signalRecordsFromRecords(records []gestalt.Record, runID, state string) ([]
 	return out, nil
 }
 
-func listSignalRecordsTx(ctx context.Context, store workflowTxObjectStore, runID, state string) ([]workflowSignalRecord, error) {
+func listSignalRecordsTx(ctx context.Context, store indexeddb.TransactionObjectStore, runID, state string) ([]workflowSignalRecord, error) {
 	runID = strings.TrimSpace(runID)
 	state = strings.TrimSpace(state)
 	var (
@@ -3853,7 +3845,7 @@ func listSignalRecordsTx(ctx context.Context, store workflowTxObjectStore, runID
 	return signalRecordsFromRecords(records, runID, state)
 }
 
-func listSignalRecordsLimit(ctx context.Context, store workflowObjectStore, runID, state string, limit int) ([]workflowSignalRecord, error) {
+func listSignalRecordsLimit(ctx context.Context, store indexeddb.ObjectStore, runID, state string, limit int) ([]workflowSignalRecord, error) {
 	runID = strings.TrimSpace(runID)
 	state = strings.TrimSpace(state)
 	if runID == "" || limit <= 0 {
@@ -3924,7 +3916,7 @@ func yieldIndexedDBRetry(ctx context.Context) error {
 	}
 }
 
-func loadScheduleRecord(ctx context.Context, store workflowObjectStore, ownerKey, scheduleID string) (workflowScheduleRecord, bool, error) {
+func loadScheduleRecord(ctx context.Context, store indexeddb.ObjectStore, ownerKey, scheduleID string) (workflowScheduleRecord, bool, error) {
 	record, err := store.Get(ctx, scheduleID)
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {
@@ -3942,7 +3934,7 @@ func loadScheduleRecord(ctx context.Context, store workflowObjectStore, ownerKey
 	return schedule, true, nil
 }
 
-func listScheduleRecords(ctx context.Context, store workflowObjectStore, ownerKey string) ([]workflowScheduleRecord, error) {
+func listScheduleRecords(ctx context.Context, store indexeddb.ObjectStore, ownerKey string) ([]workflowScheduleRecord, error) {
 	records, err := store.GetAll(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -3967,7 +3959,7 @@ func listScheduleRecords(ctx context.Context, store workflowObjectStore, ownerKe
 	return out, nil
 }
 
-func loadEventTriggerRecord(ctx context.Context, store workflowObjectStore, ownerKey, triggerID string) (workflowEventTriggerRecord, bool, error) {
+func loadEventTriggerRecord(ctx context.Context, store indexeddb.ObjectStore, ownerKey, triggerID string) (workflowEventTriggerRecord, bool, error) {
 	record, err := store.Get(ctx, triggerID)
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {
@@ -3985,7 +3977,7 @@ func loadEventTriggerRecord(ctx context.Context, store workflowObjectStore, owne
 	return trigger, true, nil
 }
 
-func listEventTriggerRecords(ctx context.Context, store workflowObjectStore, ownerKey string) ([]workflowEventTriggerRecord, error) {
+func listEventTriggerRecords(ctx context.Context, store indexeddb.ObjectStore, ownerKey string) ([]workflowEventTriggerRecord, error) {
 	records, err := store.GetAll(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -4028,7 +4020,7 @@ func loadRunRecord(ctx context.Context, store recordGetter, ownerKey, runID stri
 	return run, true, nil
 }
 
-func loadRunRecordTx(ctx context.Context, store workflowTxObjectStore, ownerKey, runID string) (workflowRunRecord, bool, error) {
+func loadRunRecordTx(ctx context.Context, store indexeddb.TransactionObjectStore, ownerKey, runID string) (workflowRunRecord, bool, error) {
 	record, found, err := transactionGetRecord(ctx, store, strings.TrimSpace(runID))
 	if err != nil || !found {
 		return workflowRunRecord{}, false, err
@@ -4043,7 +4035,7 @@ func loadRunRecordTx(ctx context.Context, store workflowTxObjectStore, ownerKey,
 	return run, true, nil
 }
 
-func listRunRecords(ctx context.Context, store workflowObjectStore, ownerKey string) ([]workflowRunRecord, error) {
+func listRunRecords(ctx context.Context, store indexeddb.ObjectStore, ownerKey string) ([]workflowRunRecord, error) {
 	cursor, err := store.OpenCursor(ctx, nil, gestalt.CursorNext)
 	if err != nil {
 		return nil, err
@@ -4092,7 +4084,7 @@ func loadIdempotencyRecord(ctx context.Context, store recordGetter, ownerKey, ke
 	return value, true, nil
 }
 
-func loadIdempotencyRecordTx(ctx context.Context, store workflowTxObjectStore, ownerKey, key string) (workflowIdempotencyRecord, bool, error) {
+func loadIdempotencyRecordTx(ctx context.Context, store indexeddb.TransactionObjectStore, ownerKey, key string) (workflowIdempotencyRecord, bool, error) {
 	record, found, err := transactionGetRecord(ctx, store, idempotencyID(ownerKey, key))
 	if err != nil || !found {
 		return workflowIdempotencyRecord{}, false, err
@@ -4142,7 +4134,7 @@ func loadExecutionReferenceRecord(ctx context.Context, store recordGetter, refID
 	return ref, true, nil
 }
 
-func listExecutionReferenceRecords(ctx context.Context, store workflowObjectStore, subjectID string) ([]workflowExecutionReferenceRecord, error) {
+func listExecutionReferenceRecords(ctx context.Context, store indexeddb.ObjectStore, subjectID string) ([]workflowExecutionReferenceRecord, error) {
 	subjectID = strings.TrimSpace(subjectID)
 	var records []gestalt.Record
 	var err error
