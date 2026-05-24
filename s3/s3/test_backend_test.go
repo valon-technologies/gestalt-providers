@@ -21,7 +21,6 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 	s3provider "github.com/valon-technologies/gestalt-providers/s3/s3"
-	s3fake "github.com/valon-technologies/gestalt-providers/s3/s3/internal/fake"
 )
 
 const minIOImage = "minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
@@ -49,7 +48,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func newTestClient(t *testing.T) s3fake.ProviderClient {
+func newTestProvider(t *testing.T) *s3provider.Provider {
 	t.Helper()
 
 	backend := testBackend(t)
@@ -65,10 +64,7 @@ func newTestClient(t *testing.T) s3fake.ProviderClient {
 		t.Fatalf("Configure: %v", err)
 	}
 	t.Cleanup(func() { _ = provider.Close() })
-
-	client := s3fake.NewProviderClient(provider)
-	t.Cleanup(func() { _ = client.Close() })
-	return client
+	return provider
 }
 
 type s3BackendConfig struct {
