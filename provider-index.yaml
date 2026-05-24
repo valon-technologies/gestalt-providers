@@ -680,34 +680,6 @@ packages:
           - "linux/amd64"
           - "linux/arm64"
           - "linux/arm"
-  github.com/valon-technologies/gestalt-providers/runtime/modal:
-    displayName: "Modal Runtime"
-    description: "Hosted executable-plugin runtime backed by Modal Sandboxes."
-    versions:
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/modal/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "runtime"
-        runtime: "executable"
-        platforms:
-          - "darwin/amd64"
-          - "darwin/arm64"
-          - "linux/amd64"
-          - "linux/arm64"
-          - "linux/arm"
-  github.com/valon-technologies/gestalt-providers/runtime/nebius:
-    displayName: "Nebius Runtime"
-    description: "Hosted executable-plugin runtime backed by Nebius Compute VMs."
-    versions:
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/nebius/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "runtime"
-        runtime: "executable"
-        platforms:
-          - "darwin/amd64"
-          - "darwin/arm64"
-          - "linux/amd64"
-          - "linux/arm64"
-          - "linux/arm"
   github.com/valon-technologies/gestalt-providers/s3/s3:
     displayName: "S3"
     description: "S3 provider for AWS S3, GCS XML interoperability, MinIO, and similar backends."

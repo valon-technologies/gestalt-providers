@@ -152,7 +152,6 @@ def normalize_kind(kind: Any) -> str:
         "external_credentials": "externalcredentials",
         "externalcredentials": "externalcredentials",
         "external-credentials": "externalcredentials",
-        "plugin": "app",  # legacy manifest kind alias; remove after downstream manifests migrate
     }
     return aliases.get(value, value)
 
