@@ -47,7 +47,7 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
 		ExecutionRef:                  "ref-1",
 		ActivityStartToCloseTimeoutNS: time.Minute,
-		Target:                        nativePluginTargetInput("slack", "postMessage"),
+		Target:                        nativeAppTargetInput("slack", "postMessage"),
 		Trigger:                       &gestalt.WorkflowRunTrigger{Manual: true},
 		CreatedBy:                     actor("user-1"),
 	})
@@ -78,7 +78,7 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 func TestBackendDefinitionCRUD(t *testing.T) {
 	ctx, state := newTestWorkflowStateStore(t)
 	backend := newRecordingTemporalBackend(&recordingTemporalClient{}, state)
-	createTarget := nativePluginTargetInputWithObject("slack", "postMessage", map[string]any{"mode": "full"})
+	createTarget := nativeAppTargetInputWithObject("slack", "postMessage", map[string]any{"mode": "full"})
 
 	created, err := backend.CreateDefinition(ctx, &gestalt.CreateWorkflowProviderDefinitionRequest{
 		IdempotencyKey: "definition-sync",
@@ -97,7 +97,7 @@ func TestBackendDefinitionCRUD(t *testing.T) {
 
 	again, err := backend.CreateDefinition(ctx, &gestalt.CreateWorkflowProviderDefinitionRequest{
 		IdempotencyKey: "definition-sync",
-		Target:         nativePluginTargetInput("slack", "postMessage"),
+		Target:         nativeAppTargetInput("slack", "postMessage"),
 	})
 	if err != nil {
 		t.Fatalf("CreateDefinition(idempotent): %v", err)
@@ -107,7 +107,7 @@ func TestBackendDefinitionCRUD(t *testing.T) {
 	}
 	conflicting, err := backend.CreateDefinition(ctx, &gestalt.CreateWorkflowProviderDefinitionRequest{
 		IdempotencyKey: "definition-sync",
-		Target:         nativePluginTargetInput("slack", "conflictingMessage"),
+		Target:         nativeAppTargetInput("slack", "conflictingMessage"),
 	})
 	if err != nil {
 		t.Fatalf("CreateDefinition(conflicting idempotent target): %v", err)
@@ -122,7 +122,7 @@ func TestBackendDefinitionCRUD(t *testing.T) {
 
 	updated, err := backend.UpdateDefinition(ctx, &gestalt.UpdateWorkflowProviderDefinitionRequest{
 		DefinitionID: created.ID,
-		Target:       nativePluginTargetInput("slack", "updateMessage"),
+		Target:       nativeAppTargetInput("slack", "updateMessage"),
 	})
 	if err != nil {
 		t.Fatalf("UpdateDefinition: %v", err)
@@ -181,7 +181,7 @@ func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 		ActivityStartToCloseTimeoutNS: time.Minute,
 		WorkflowKey:                   "thread-1",
 		OwnerKey:                      "slack",
-		Target:                        nativePluginTargetInput("slack", "postMessage"),
+		Target:                        nativeAppTargetInput("slack", "postMessage"),
 		Trigger:                       &gestalt.WorkflowRunTrigger{Manual: true},
 		CreatedBy:                     actor("user-1"),
 		RequireSignal:                 true,
@@ -222,7 +222,7 @@ func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
 		ActivityStartToCloseTimeoutNS: time.Minute,
 		WorkflowKey:                   "thread-1",
 		OwnerKey:                      "slack",
-		Target:                        nativePluginTargetInput("slack", "postMessage"),
+		Target:                        nativeAppTargetInput("slack", "postMessage"),
 		Trigger:                       &gestalt.WorkflowRunTrigger{Manual: true},
 		CreatedBy:                     actor("user-1"),
 		InitialSignal:                 &gestalt.WorkflowSignal{Name: "slack.event", CreatedAt: time.Now().UTC()},
@@ -269,7 +269,7 @@ func TestGestaltRunWorkflowV4AddSignalUpdateDoesNotWaitForProjection(t *testing.
 		ActivityStartToCloseTimeoutNS: time.Minute,
 		WorkflowKey:                   "thread-1",
 		OwnerKey:                      "slack",
-		Target:                        nativePluginTargetInput("slack", "postMessage"),
+		Target:                        nativeAppTargetInput("slack", "postMessage"),
 		Trigger:                       &gestalt.WorkflowRunTrigger{Manual: true},
 		CreatedBy:                     actor("user-1"),
 		RequireSignal:                 true,
@@ -303,7 +303,7 @@ func TestGestaltRunWorkflowV4ContinuesWhenProjectionFails(t *testing.T) {
 	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
 		ExecutionRef:                  "ref-1",
 		ActivityStartToCloseTimeoutNS: time.Minute,
-		Target:                        nativePluginTargetInput("slack", "postMessage"),
+		Target:                        nativeAppTargetInput("slack", "postMessage"),
 		Trigger:                       &gestalt.WorkflowRunTrigger{Manual: true},
 		CreatedBy:                     actor("user-1"),
 	})
@@ -429,7 +429,7 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	trigger := &gestalt.BoundWorkflowEventTrigger{
 		ID:        "trigger-1",
 		Match:     &gestalt.WorkflowEventMatch{Type: "message.created"},
-		Target:    nativePluginTargetInput("slack", "postMessage"),
+		Target:    nativeAppTargetInput("slack", "postMessage"),
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
@@ -450,7 +450,7 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	ref := &gestalt.WorkflowExecutionReference{
 		ID:           "ref-1",
 		ProviderName: "temporal",
-		Target:       nativePluginTargetInput("slack", "postMessage"),
+		Target:       nativeAppTargetInput("slack", "postMessage"),
 		SubjectID:    "user-1",
 		CreatedAt:    time.Now().UTC(),
 		RunAs: &gestalt.WorkflowRunAsSubject{
@@ -489,7 +489,7 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 		ScheduleID: "schedule-1",
 		Cron:       "0 * * * *",
 		Timezone:   "America/New_York",
-		Target:     nativePluginTargetInput("slack", "postMessage"),
+		Target:     nativeAppTargetInput("slack", "postMessage"),
 		RequestedBy: &gestalt.WorkflowActor{
 			SubjectID:   "system:config",
 			SubjectKind: "system",
@@ -524,7 +524,7 @@ func TestListSchedulesUsesIndexedDBMetadata(t *testing.T) {
 		ID:        "schedule-1",
 		Cron:      "0 * * * *",
 		Timezone:  "America/New_York",
-		Target:    nativePluginTargetInput("slack", "postMessage"),
+		Target:    nativeAppTargetInput("slack", "postMessage"),
 		CreatedAt: time.Unix(100, 0).UTC(),
 		UpdatedAt: time.Unix(100, 0).UTC(),
 	}); err != nil {
@@ -556,7 +556,7 @@ func TestStartRunUsesV4WorkflowAndStoresRunProjection(t *testing.T) {
 	backend := newRecordingTemporalBackend(tc, state)
 
 	run, err := backend.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
-		Target:    nativePluginTargetInput("slack", "postMessage"),
+		Target:    nativeAppTargetInput("slack", "postMessage"),
 		CreatedBy: actor("user-1"),
 	})
 	if err != nil {
@@ -585,7 +585,7 @@ func TestStartRunWithWorkflowKeyUsesV4AndStoresOwnership(t *testing.T) {
 
 	run, err := backend.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
-		Target:      nativePluginTargetInput("slack", "postMessage"),
+		Target:      nativeAppTargetInput("slack", "postMessage"),
 		CreatedBy:   actor("user-1"),
 	})
 	if err != nil {
@@ -627,14 +627,14 @@ func TestStartRunWithWorkflowKeyRejectsActiveOwnerBeforeExecuting(t *testing.T) 
 	backend := newRecordingTemporalBackend(tc, state)
 	if _, err := backend.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
-		Target:      nativePluginTargetInput("slack", "postMessage"),
+		Target:      nativeAppTargetInput("slack", "postMessage"),
 		CreatedBy:   actor("user-1"),
 	}); err != nil {
 		t.Fatalf("StartRun(first): %v", err)
 	}
 	_, err := backend.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
-		Target:      nativePluginTargetInput("slack", "sendMessage"),
+		Target:      nativeAppTargetInput("slack", "sendMessage"),
 		CreatedBy:   actor("user-2"),
 	})
 	if status.Code(err) != codes.FailedPrecondition {
@@ -653,7 +653,7 @@ func TestStartRunWithWorkflowKeyUsesIndexedDBIdempotency(t *testing.T) {
 	req := &gestalt.StartWorkflowProviderRunRequest{
 		IdempotencyKey: "start-1",
 		WorkflowKey:    "thread-1",
-		Target:         nativePluginTargetInput("slack", "postMessage"),
+		Target:         nativeAppTargetInput("slack", "postMessage"),
 		CreatedBy:      actor("user-1"),
 	}
 	first, err := backend.StartRun(ctx, req)
@@ -676,7 +676,7 @@ func TestStartRunWithWorkflowKeyUsesIndexedDBIdempotency(t *testing.T) {
 	_, err = backend.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
 		IdempotencyKey: "start-1",
 		WorkflowKey:    "thread-1",
-		Target:         nativePluginTargetInput("slack", "sendMessage"),
+		Target:         nativeAppTargetInput("slack", "sendMessage"),
 		CreatedBy:      actor("user-1"),
 	})
 	if status.Code(err) != codes.FailedPrecondition {
@@ -692,7 +692,7 @@ func TestStartRunWithWorkflowKeyCompletesReservedIndexedDBIdempotency(t *testing
 
 	workflowKey := "thread-1"
 	key := "start-1"
-	target := nativePluginTargetInput("slack", "postMessage")
+	target := nativeAppTargetInput("slack", "postMessage")
 	createdBy := actor("user-1")
 	fingerprint := startFingerprint("slack", key, workflowKey, "", target, createdBy)
 	if _, _, err := state.reserveRunIdempotency(ctx, "slack", key, fingerprint, time.Hour, time.Unix(100, 0).UTC()); err != nil {
@@ -756,7 +756,7 @@ func TestStartRunContinuesWhenInitialRunProjectionWriteFails(t *testing.T) {
 	backend := newRecordingTemporalBackend(tc, state)
 
 	run, err := backend.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
-		Target:    nativePluginTargetInput("slack", "postMessage"),
+		Target:    nativeAppTargetInput("slack", "postMessage"),
 		CreatedBy: actor("user-1"),
 	})
 	if err != nil {
@@ -774,7 +774,7 @@ func TestStartRunUsesIndexedDBIdempotencyForUnkeyedRuns(t *testing.T) {
 	backend := newRecordingTemporalBackend(tc, state)
 	req := &gestalt.StartWorkflowProviderRunRequest{
 		IdempotencyKey: "start-1",
-		Target:         nativePluginTargetInput("slack", "postMessage"),
+		Target:         nativeAppTargetInput("slack", "postMessage"),
 		CreatedBy:      actor("user-1"),
 	}
 	first, err := backend.StartRun(ctx, req)
@@ -803,7 +803,7 @@ func TestStartRunRejectsConflictingIndexedDBIdempotency(t *testing.T) {
 	backend := newRecordingTemporalBackend(tc, state)
 	_, err := backend.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
 		IdempotencyKey: "start-1",
-		Target:         nativePluginTargetInput("slack", "postMessage"),
+		Target:         nativeAppTargetInput("slack", "postMessage"),
 		CreatedBy:      actor("user-1"),
 	})
 	if err != nil {
@@ -811,7 +811,7 @@ func TestStartRunRejectsConflictingIndexedDBIdempotency(t *testing.T) {
 	}
 	_, err = backend.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
 		IdempotencyKey: "start-1",
-		Target:         nativePluginTargetInput("slack", "sendMessage"),
+		Target:         nativeAppTargetInput("slack", "sendMessage"),
 		CreatedBy:      actor("user-1"),
 	})
 	if status.Code(err) != codes.FailedPrecondition {
@@ -835,7 +835,7 @@ func TestStartRunReturnsErrorWhenIdempotencyCompletionFails(t *testing.T) {
 
 	_, err := backend.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
 		IdempotencyKey: "start-1",
-		Target:         nativePluginTargetInput("slack", "postMessage"),
+		Target:         nativeAppTargetInput("slack", "postMessage"),
 		CreatedBy:      actor("user-1"),
 	})
 	if status.Code(err) != codes.Internal {
@@ -880,7 +880,7 @@ func TestSignalOrStartRunStartsV4WorkflowAndStoresOwnership(t *testing.T) {
 	backend := newRecordingTemporalBackend(tc, state)
 	resp, err := backend.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
-		Target:      nativePluginTargetInput("slack", "postMessage"),
+		Target:      nativeAppTargetInput("slack", "postMessage"),
 		CreatedBy:   actor("user-1"),
 		Signal:      &gestalt.WorkflowSignal{Name: "slack.event"},
 	})
@@ -936,7 +936,7 @@ func TestSignalOrStartRunUsesIndexedDBSignalIdempotency(t *testing.T) {
 	backend := newRecordingTemporalBackend(tc, state)
 	req := &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
-		Target:      nativePluginTargetInput("slack", "postMessage"),
+		Target:      nativeAppTargetInput("slack", "postMessage"),
 		CreatedBy:   actor("user-1"),
 		Signal:      &gestalt.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1"},
 	}
@@ -983,7 +983,7 @@ func TestSignalOrStartRunUsesExplicitSignalIDForStartWorkflowID(t *testing.T) {
 	signal := &gestalt.WorkflowSignal{ID: "signal-id-1", Name: "slack.event"}
 	if _, err := backend.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
-		Target:      nativePluginTargetInput("slack", "postMessage"),
+		Target:      nativeAppTargetInput("slack", "postMessage"),
 		CreatedBy:   actor("user-1"),
 		Signal:      signal,
 	}); err != nil {
@@ -1002,7 +1002,7 @@ func TestSignalOrStartRunRejectsExplicitSignalIDPayloadMismatchWithOwnerKey(t *t
 	backend := newRecordingTemporalBackend(tc, state)
 	req := &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
-		Target:      nativePluginTargetInput("slack", "postMessage"),
+		Target:      nativeAppTargetInput("slack", "postMessage"),
 		CreatedBy:   actor("user-1"),
 		Signal:      &gestalt.WorkflowSignal{ID: "signal-id-1", Name: "slack.event", IdempotencyKey: "owner-key-1"},
 	}
@@ -1028,7 +1028,7 @@ func TestSignalOrStartRunSignalsExistingV4Workflow(t *testing.T) {
 	backend := newRecordingTemporalBackend(tc, state)
 	run, err := backend.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
-		Target:      nativePluginTargetInput("slack", "postMessage"),
+		Target:      nativeAppTargetInput("slack", "postMessage"),
 		CreatedBy:   actor("user-1"),
 	})
 	if err != nil {
@@ -1042,7 +1042,7 @@ func TestSignalOrStartRunSignalsExistingV4Workflow(t *testing.T) {
 
 	resp, err := backend.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
-		Target:      nativePluginTargetInput("slack", "sendMessage"),
+		Target:      nativeAppTargetInput("slack", "sendMessage"),
 		CreatedBy:   actor("user-2"),
 		Signal:      &gestalt.WorkflowSignal{Name: "slack.event"},
 	})
@@ -1074,7 +1074,7 @@ func TestSignalOrStartRunReplacesTerminalWorkflowKeyOwner(t *testing.T) {
 	backend := newRecordingTemporalBackend(tc, state)
 	first, err := backend.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
-		Target:      nativePluginTargetInput("slack", "postMessage"),
+		Target:      nativeAppTargetInput("slack", "postMessage"),
 		CreatedBy:   actor("user-1"),
 	})
 	if err != nil {
@@ -1092,7 +1092,7 @@ func TestSignalOrStartRunReplacesTerminalWorkflowKeyOwner(t *testing.T) {
 
 	resp, err := backend.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
-		Target:      nativePluginTargetInput("slack", "sendMessage"),
+		Target:      nativeAppTargetInput("slack", "sendMessage"),
 		CreatedBy:   actor("user-2"),
 		Signal:      &gestalt.WorkflowSignal{Name: "slack.event"},
 	})
@@ -1122,7 +1122,7 @@ func TestSignalOrStartRunReplacesMissingWorkflowKeyOwner(t *testing.T) {
 	backend := newRecordingTemporalBackend(tc, state)
 	resp, err := backend.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey: "thread-1",
-		Target:      nativePluginTargetInput("slack", "sendMessage"),
+		Target:      nativeAppTargetInput("slack", "sendMessage"),
 		CreatedBy:   actor("user-2"),
 		Signal:      &gestalt.WorkflowSignal{Name: "slack.event"},
 	})
@@ -1363,13 +1363,13 @@ func TestWorkflowStateStoreWorkflowKeyClaimValidationAndScopeIsolation(t *testin
 		"empty workflow key": {workflowKey: "", run: valid},
 		"nil run":            {workflowKey: "thread", run: nil},
 		"empty run id":       {workflowKey: "thread", run: &gestalt.BoundWorkflowRun{}},
-		"malformed run id":   {workflowKey: "thread", run: &gestalt.BoundWorkflowRun{ID: "not-a-handle", WorkflowKey: "thread", Target: nativePluginTargetInput("slack", "postMessage")}},
+		"malformed run id":   {workflowKey: "thread", run: &gestalt.BoundWorkflowRun{ID: "not-a-handle", WorkflowKey: "thread", Target: nativeAppTargetInput("slack", "postMessage")}},
 		"missing temporal run id": {
 			workflowKey: "thread",
 			run: &gestalt.BoundWorkflowRun{
 				ID:          encodeTemporalRunHandle(temporalRunHandle{RunWorkflowID: "workflow-without-run-id", WorkflowKey: "thread", OwnerKey: "slack"}),
 				WorkflowKey: "thread",
-				Target:      nativePluginTargetInput("slack", "postMessage"),
+				Target:      nativeAppTargetInput("slack", "postMessage"),
 			},
 		},
 	} {
@@ -1461,8 +1461,8 @@ func TestWorkflowStateStoreIgnoresUnsupportedRunHandleRecords(t *testing.T) {
 		WorkflowKey:      "current-thread",
 		OwnerKey:         "slack",
 	})
-	legacyRun := &gestalt.BoundWorkflowRun{ID: legacyID, Status: gestalt.WorkflowRunStatusValuePending, Target: nativePluginTargetInput("slack", "postMessage"), WorkflowKey: "legacy-thread"}
-	currentRun := &gestalt.BoundWorkflowRun{ID: currentID, Status: gestalt.WorkflowRunStatusValuePending, Target: nativePluginTargetInput("slack", "postMessage"), WorkflowKey: "current-thread"}
+	legacyRun := &gestalt.BoundWorkflowRun{ID: legacyID, Status: gestalt.WorkflowRunStatusValuePending, Target: nativeAppTargetInput("slack", "postMessage"), WorkflowKey: "legacy-thread"}
+	currentRun := &gestalt.BoundWorkflowRun{ID: currentID, Status: gestalt.WorkflowRunStatusValuePending, Target: nativeAppTargetInput("slack", "postMessage"), WorkflowKey: "current-thread"}
 	if err := state.runProjections.Put(ctx, state.runRecord(legacyRun)); err != nil {
 		t.Fatalf("put legacy run projection: %v", err)
 	}
@@ -1514,7 +1514,7 @@ func TestWorkflowStateStoreIgnoresUnsupportedRunHandleRecords(t *testing.T) {
 		WorkflowKey:      "legacy-thread",
 		OwnerKey:         "slack",
 	})
-	replacementRun := &gestalt.BoundWorkflowRun{ID: replacementID, Status: gestalt.WorkflowRunStatusValuePending, Target: nativePluginTargetInput("slack", "postMessage"), WorkflowKey: "legacy-thread"}
+	replacementRun := &gestalt.BoundWorkflowRun{ID: replacementID, Status: gestalt.WorkflowRunStatusValuePending, Target: nativeAppTargetInput("slack", "postMessage"), WorkflowKey: "legacy-thread"}
 	owner, claimed, err := state.claimWorkflowKeyRun(ctx, "legacy-thread", replacementRun, time.Unix(200, 0).UTC())
 	if err != nil {
 		t.Fatalf("claim replacement over unsupported owner: %v", err)
@@ -1561,7 +1561,7 @@ func TestListRunsIncludesIndexedDBRunProjections(t *testing.T) {
 			OwnerKey:         "slack",
 		}),
 		Status:    gestalt.WorkflowRunStatusValueSucceeded,
-		Target:    nativePluginTargetInput("slack", "postMessage"),
+		Target:    nativeAppTargetInput("slack", "postMessage"),
 		Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
 		CreatedAt: time.Unix(100, 0).UTC(),
 	}
@@ -1593,7 +1593,7 @@ func TestListRunsPaginatesAndFiltersIndexedDBRunProjections(t *testing.T) {
 				OwnerKey:         "slack",
 			}),
 			Status:    gestalt.WorkflowRunStatusValueSucceeded,
-			Target:    nativePluginTargetInput("slack", "postMessage"),
+			Target:    nativeAppTargetInput("slack", "postMessage"),
 			Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
 			CreatedAt: time.Unix(100, 0).UTC(),
 		},
@@ -1604,7 +1604,7 @@ func TestListRunsPaginatesAndFiltersIndexedDBRunProjections(t *testing.T) {
 				OwnerKey:         "github",
 			}),
 			Status:    gestalt.WorkflowRunStatusValueSucceeded,
-			Target:    nativePluginTargetInput("github", "createIssue"),
+			Target:    nativeAppTargetInput("github", "createIssue"),
 			Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
 			CreatedAt: time.Unix(200, 0).UTC(),
 		},
@@ -1615,7 +1615,7 @@ func TestListRunsPaginatesAndFiltersIndexedDBRunProjections(t *testing.T) {
 				OwnerKey:         "slack",
 			}),
 			Status:    gestalt.WorkflowRunStatusValueSucceeded,
-			Target:    nativePluginTargetInput("slack", "postMessage"),
+			Target:    nativeAppTargetInput("slack", "postMessage"),
 			Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
 			CreatedAt: time.Unix(300, 0).UTC(),
 		},
@@ -1626,7 +1626,7 @@ func TestListRunsPaginatesAndFiltersIndexedDBRunProjections(t *testing.T) {
 				OwnerKey:         "slack",
 			}),
 			Status:    gestalt.WorkflowRunStatusValueSucceeded,
-			Target:    nativePluginTargetInput("slack", "postMessage"),
+			Target:    nativeAppTargetInput("slack", "postMessage"),
 			Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
 			CreatedAt: time.Unix(400, 0).UTC(),
 		},
@@ -1726,7 +1726,7 @@ func TestWorkflowStateStoreWritesNativeRunPayloads(t *testing.T) {
 	nativeRun := &gestalt.BoundWorkflowRun{
 		ID:        nativeID,
 		Status:    gestalt.WorkflowRunStatusValuePending,
-		Target:    nativePluginTargetInput("slack", "postMessage"),
+		Target:    nativeAppTargetInput("slack", "postMessage"),
 		Trigger:   &gestalt.WorkflowRunTrigger{Manual: true},
 		CreatedAt: time.Unix(200, 0).UTC(),
 	}
@@ -1749,7 +1749,7 @@ func TestTriggerMatchKeysAreReplacedAtomically(t *testing.T) {
 	trigger := &gestalt.BoundWorkflowEventTrigger{
 		ID:        "trigger-1",
 		Match:     &gestalt.WorkflowEventMatch{Type: "message.created"},
-		Target:    nativePluginTargetInput("slack", "postMessage"),
+		Target:    nativeAppTargetInput("slack", "postMessage"),
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
@@ -1792,23 +1792,23 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 	backend := newRecordingTemporalBackend(tc, state)
 	for _, trigger := range []*gestalt.BoundWorkflowEventTrigger{
 		{
-			ID:        "trigger-plugin-1",
+			ID:        "trigger-app-1",
 			Match:     &gestalt.WorkflowEventMatch{Type: "message.created"},
-			Target:    nativePluginTargetInput("slack", "postMessage"),
+			Target:    nativeAppTargetInput("slack", "postMessage"),
 			CreatedAt: time.Now().UTC(),
 			UpdatedAt: time.Now().UTC(),
 		},
 		{
-			ID:        "trigger-plugin-2",
+			ID:        "trigger-app-2",
 			Match:     &gestalt.WorkflowEventMatch{Type: "message.created"},
-			Target:    nativePluginTargetInput("slack", "sendMessage"),
+			Target:    nativeAppTargetInput("slack", "sendMessage"),
 			CreatedAt: time.Now().UTC(),
 			UpdatedAt: time.Now().UTC(),
 		},
 		{
 			ID:        "trigger-paused",
 			Match:     &gestalt.WorkflowEventMatch{Type: "message.created"},
-			Target:    nativePluginTargetInput("slack", "archiveMessage"),
+			Target:    nativeAppTargetInput("slack", "archiveMessage"),
 			Paused:    true,
 			CreatedAt: time.Now().UTC(),
 			UpdatedAt: time.Now().UTC(),
@@ -1827,7 +1827,7 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 	}
 	published, err := backend.PublishEvent(context.Background(), &gestalt.PublishWorkflowProviderEventRequest{
 		AppName: "slack",
-		Event:      requestEvent,
+		Event:   requestEvent,
 	})
 	if err != nil {
 		t.Fatalf("PublishEvent: %v", err)
@@ -1876,7 +1876,7 @@ func TestWorkflowStateStoreScopesMetadataByScopeID(t *testing.T) {
 	refA := &gestalt.WorkflowExecutionReference{
 		ID:           "ref-1",
 		ProviderName: "temporal",
-		Target:       nativePluginTargetInput("slack", "postMessage"),
+		Target:       nativeAppTargetInput("slack", "postMessage"),
 		SubjectID:    "user-1",
 		CreatedAt:    time.Now().UTC(),
 		RunAs: &gestalt.WorkflowRunAsSubject{
@@ -1909,7 +1909,7 @@ func TestWorkflowStateStoreScopesMetadataByScopeID(t *testing.T) {
 		t.Fatalf("scoped ref run_as lost: scopeA=%#v scopeB=%#v", gotA.RunAs, gotB.RunAs)
 	}
 
-	trigger := &gestalt.BoundWorkflowEventTrigger{ID: "trigger-1", Match: &gestalt.WorkflowEventMatch{Type: "message.created"}, Target: nativePluginTargetInput("slack", "postMessage"), CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	trigger := &gestalt.BoundWorkflowEventTrigger{ID: "trigger-1", Match: &gestalt.WorkflowEventMatch{Type: "message.created"}, Target: nativeAppTargetInput("slack", "postMessage"), CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 	if err := scopeA.putTrigger(ctx, trigger); err != nil {
 		t.Fatalf("scopeA put trigger: %v", err)
 	}
@@ -1967,7 +1967,7 @@ func workflowKeyClaimRun(suffix, workflowKey string, status gestalt.WorkflowRunS
 			OwnerKey:         "slack",
 		}),
 		Status:      status,
-		Target:      nativePluginTargetInput("slack", "postMessage"),
+		Target:      nativeAppTargetInput("slack", "postMessage"),
 		WorkflowKey: strings.TrimSpace(workflowKey),
 		CreatedAt:   time.Unix(100, 0).UTC(),
 	}
@@ -2034,8 +2034,8 @@ func (h *blockingHost) InvokeOperation(ctx context.Context, req gestalt.InvokeWo
 
 func (h *blockingHost) Close() error { return nil }
 
-func TestNormalizeTargetPreservesPluginCredentialMode(t *testing.T) {
-	target := pluginTarget(" github ", " reviewPullRequest ")
+func TestNormalizeTargetPreservesAppCredentialMode(t *testing.T) {
+	target := appTarget(" github ", " reviewPullRequest ")
 	target.Steps[0].App.CredentialMode = " none "
 
 	scoped, err := normalizeTarget(target)
@@ -2051,13 +2051,29 @@ func TestNormalizeTargetPreservesPluginCredentialMode(t *testing.T) {
 	}
 }
 
-func TestNormalizeTargetRejectsInvalidPluginCredentialMode(t *testing.T) {
-	target := pluginTarget("github", "reviewPullRequest")
+func TestNormalizeTargetRejectsInvalidAppCredentialMode(t *testing.T) {
+	target := appTarget("github", "reviewPullRequest")
 	target.Steps[0].App.CredentialMode = "platform"
 
 	_, err := normalizeTarget(target)
 	if err == nil || !strings.Contains(err.Error(), `target.steps[0].app.credential_mode "platform" is not supported`) {
 		t.Fatalf("normalizeTarget error = %v, want unsupported credential mode", err)
+	}
+}
+
+func TestConfiguredEventRunPermissionsRejectsLegacyPluginField(t *testing.T) {
+	_, err := configuredEventRunPermissions(map[string]any{
+		gestaltInputKey: map[string]any{
+			eventRunPermissionsKey: []any{
+				map[string]any{
+					"plugin":     "github",
+					"operations": []any{"bot.createPullRequest"},
+				},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), ".app is required") {
+		t.Fatalf("configuredEventRunPermissions error = %v, want app required", err)
 	}
 }
 

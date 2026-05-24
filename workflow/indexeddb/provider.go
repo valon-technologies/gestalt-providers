@@ -588,7 +588,7 @@ func (p *Provider) GetRun(ctx context.Context, req *gestalt.GetWorkflowProviderR
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := ""
+	appName := ""
 	runID := strings.TrimSpace(req.RunID)
 	if runID == "" {
 		return nil, status.Error(codes.InvalidArgument, "run_id is required")
@@ -600,7 +600,7 @@ func (p *Provider) GetRun(ctx context.Context, req *gestalt.GetWorkflowProviderR
 		p.mu.RUnlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	run, found, err := loadRunRecord(ctx, state.runStore, pluginName, runID)
+	run, found, err := loadRunRecord(ctx, state.runStore, appName, runID)
 	p.mu.RUnlock()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get run: %v", err)
@@ -619,7 +619,7 @@ func (p *Provider) ListRuns(ctx context.Context, req *gestalt.ListWorkflowProvid
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := ""
+	appName := ""
 
 	p.mu.RLock()
 	state, err := p.requireConfiguredLocked()
@@ -627,7 +627,7 @@ func (p *Provider) ListRuns(ctx context.Context, req *gestalt.ListWorkflowProvid
 		p.mu.RUnlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	runs, err := listRunRecords(ctx, state.runStore, pluginName)
+	runs, err := listRunRecords(ctx, state.runStore, appName)
 	p.mu.RUnlock()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list runs: %v", err)
@@ -647,7 +647,7 @@ func (p *Provider) CancelRun(ctx context.Context, req *gestalt.CancelWorkflowPro
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := ""
+	appName := ""
 	runID := strings.TrimSpace(req.RunID)
 	if runID == "" {
 		return nil, status.Error(codes.InvalidArgument, "run_id is required")
@@ -663,7 +663,7 @@ func (p *Provider) CancelRun(ctx context.Context, req *gestalt.CancelWorkflowPro
 		p.mu.Unlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	run, found, err := loadRunRecord(ctx, state.runStore, pluginName, runID)
+	run, found, err := loadRunRecord(ctx, state.runStore, appName, runID)
 	if err != nil {
 		p.mu.Unlock()
 		return nil, status.Errorf(codes.Internal, "load run: %v", err)
@@ -971,7 +971,7 @@ func (p *Provider) GetSchedule(ctx context.Context, req *gestalt.GetWorkflowProv
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := ""
+	appName := ""
 	scheduleID := strings.TrimSpace(req.ScheduleID)
 	if scheduleID == "" {
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
@@ -983,7 +983,7 @@ func (p *Provider) GetSchedule(ctx context.Context, req *gestalt.GetWorkflowProv
 		p.mu.RUnlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	record, found, err := loadScheduleRecord(ctx, state.scheduleStore, pluginName, scheduleID)
+	record, found, err := loadScheduleRecord(ctx, state.scheduleStore, appName, scheduleID)
 	p.mu.RUnlock()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get schedule: %v", err)
@@ -1002,7 +1002,7 @@ func (p *Provider) ListSchedules(ctx context.Context, req *gestalt.ListWorkflowP
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := ""
+	appName := ""
 
 	p.mu.RLock()
 	state, err := p.requireConfiguredLocked()
@@ -1010,7 +1010,7 @@ func (p *Provider) ListSchedules(ctx context.Context, req *gestalt.ListWorkflowP
 		p.mu.RUnlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	records, err := listScheduleRecords(ctx, state.scheduleStore, pluginName)
+	records, err := listScheduleRecords(ctx, state.scheduleStore, appName)
 	p.mu.RUnlock()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list schedules: %v", err)
@@ -1030,7 +1030,7 @@ func (p *Provider) DeleteSchedule(ctx context.Context, req *gestalt.DeleteWorkfl
 	if req == nil {
 		return status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := ""
+	appName := ""
 	scheduleID := strings.TrimSpace(req.ScheduleID)
 	if scheduleID == "" {
 		return status.Error(codes.InvalidArgument, "schedule_id is required")
@@ -1042,7 +1042,7 @@ func (p *Provider) DeleteSchedule(ctx context.Context, req *gestalt.DeleteWorkfl
 		p.mu.Unlock()
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}
-	_, found, err := loadScheduleRecord(ctx, state.scheduleStore, pluginName, scheduleID)
+	_, found, err := loadScheduleRecord(ctx, state.scheduleStore, appName, scheduleID)
 	if err != nil {
 		p.mu.Unlock()
 		return status.Errorf(codes.Internal, "load schedule: %v", err)
@@ -1148,7 +1148,7 @@ func (p *Provider) GetEventTrigger(ctx context.Context, req *gestalt.GetWorkflow
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := ""
+	appName := ""
 	triggerID := strings.TrimSpace(req.TriggerID)
 	if triggerID == "" {
 		return nil, status.Error(codes.InvalidArgument, "trigger_id is required")
@@ -1160,7 +1160,7 @@ func (p *Provider) GetEventTrigger(ctx context.Context, req *gestalt.GetWorkflow
 		p.mu.RUnlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	record, found, err := loadEventTriggerRecord(ctx, state.eventTriggerStore, pluginName, triggerID)
+	record, found, err := loadEventTriggerRecord(ctx, state.eventTriggerStore, appName, triggerID)
 	p.mu.RUnlock()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "get event trigger: %v", err)
@@ -1179,7 +1179,7 @@ func (p *Provider) ListEventTriggers(ctx context.Context, req *gestalt.ListWorkf
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := ""
+	appName := ""
 
 	p.mu.RLock()
 	state, err := p.requireConfiguredLocked()
@@ -1187,7 +1187,7 @@ func (p *Provider) ListEventTriggers(ctx context.Context, req *gestalt.ListWorkf
 		p.mu.RUnlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	records, err := listEventTriggerRecords(ctx, state.eventTriggerStore, pluginName)
+	records, err := listEventTriggerRecords(ctx, state.eventTriggerStore, appName)
 	p.mu.RUnlock()
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "list event triggers: %v", err)
@@ -1207,7 +1207,7 @@ func (p *Provider) DeleteEventTrigger(ctx context.Context, req *gestalt.DeleteWo
 	if req == nil {
 		return status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := ""
+	appName := ""
 	triggerID := strings.TrimSpace(req.TriggerID)
 	if triggerID == "" {
 		return status.Error(codes.InvalidArgument, "trigger_id is required")
@@ -1219,7 +1219,7 @@ func (p *Provider) DeleteEventTrigger(ctx context.Context, req *gestalt.DeleteWo
 		p.mu.Unlock()
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}
-	_, found, err := loadEventTriggerRecord(ctx, state.eventTriggerStore, pluginName, triggerID)
+	_, found, err := loadEventTriggerRecord(ctx, state.eventTriggerStore, appName, triggerID)
 	if err != nil {
 		p.mu.Unlock()
 		return status.Errorf(codes.Internal, "load event trigger: %v", err)
@@ -1254,7 +1254,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	pluginName := strings.TrimSpace(req.AppName)
+	appName := strings.TrimSpace(req.AppName)
 	event, err := normalizeWorkflowEvent(req.Event, p.clock())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -1269,7 +1269,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 		p.mu.RUnlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	triggers, err := listEventTriggerRecords(ctx, state.eventTriggerStore, pluginName)
+	triggers, err := listEventTriggerRecords(ctx, state.eventTriggerStore, appName)
 	if err != nil {
 		p.mu.RUnlock()
 		return nil, status.Errorf(codes.Internal, "list event triggers: %v", err)
@@ -1666,8 +1666,8 @@ func enqueueSignalInTransaction(ctx context.Context, runStore recordPutter, idem
 	}, record.ID, nil
 }
 
-func signalIdempotencyResponseTx(ctx context.Context, runStore, signalStore workflowTxObjectStore, pluginName, workflowKey string, record workflowIdempotencyRecord) (*gestalt.SignalWorkflowRunResponse, bool, error) {
-	run, found, err := loadRunRecordTx(ctx, runStore, pluginName, record.RunID)
+func signalIdempotencyResponseTx(ctx context.Context, runStore, signalStore workflowTxObjectStore, appName, workflowKey string, record workflowIdempotencyRecord) (*gestalt.SignalWorkflowRunResponse, bool, error) {
+	run, found, err := loadRunRecordTx(ctx, runStore, appName, record.RunID)
 	if err != nil {
 		return nil, false, status.Errorf(codes.Internal, "load idempotent signal run: %v", err)
 	}
@@ -1738,7 +1738,7 @@ func signalRecordResponse(ctx context.Context, runStore recordGetter, signal wor
 	}, nil
 }
 
-func (p *Provider) updateSchedulePaused(ctx context.Context, pluginName, scheduleID string, paused bool) (*gestalt.BoundWorkflowSchedule, error) {
+func (p *Provider) updateSchedulePaused(ctx context.Context, appName, scheduleID string, paused bool) (*gestalt.BoundWorkflowSchedule, error) {
 	if scheduleID == "" {
 		return nil, status.Error(codes.InvalidArgument, "schedule_id is required")
 	}
@@ -1749,7 +1749,7 @@ func (p *Provider) updateSchedulePaused(ctx context.Context, pluginName, schedul
 		p.mu.Unlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	record, found, err := loadScheduleRecord(ctx, state.scheduleStore, pluginName, scheduleID)
+	record, found, err := loadScheduleRecord(ctx, state.scheduleStore, appName, scheduleID)
 	if err != nil {
 		p.mu.Unlock()
 		return nil, status.Errorf(codes.Internal, "load schedule: %v", err)
@@ -1786,7 +1786,7 @@ func (p *Provider) updateSchedulePaused(ctx context.Context, pluginName, schedul
 	return resp, nil
 }
 
-func (p *Provider) updateEventTriggerPaused(ctx context.Context, pluginName, triggerID string, paused bool) (*gestalt.BoundWorkflowEventTrigger, error) {
+func (p *Provider) updateEventTriggerPaused(ctx context.Context, appName, triggerID string, paused bool) (*gestalt.BoundWorkflowEventTrigger, error) {
 	if triggerID == "" {
 		return nil, status.Error(codes.InvalidArgument, "trigger_id is required")
 	}
@@ -1797,7 +1797,7 @@ func (p *Provider) updateEventTriggerPaused(ctx context.Context, pluginName, tri
 		p.mu.Unlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	record, found, err := loadEventTriggerRecord(ctx, state.eventTriggerStore, pluginName, triggerID)
+	record, found, err := loadEventTriggerRecord(ctx, state.eventTriggerStore, appName, triggerID)
 	if err != nil {
 		p.mu.Unlock()
 		return nil, status.Errorf(codes.Internal, "load event trigger: %v", err)
@@ -4323,9 +4323,6 @@ func configuredEventRunPermissions(input map[string]any) ([]gestalt.WorkflowAcce
 		}
 		appName := strings.TrimSpace(stringField(value, "app"))
 		if appName == "" {
-			appName = strings.TrimSpace(stringField(value, "plugin"))
-		}
-		if appName == "" {
 			return nil, fmt.Errorf("%s.%s[%d].app is required", gestaltInputKey, eventRunPermissionsKey, i)
 		}
 		operations, err := stringListField(value, "operations")
@@ -5167,7 +5164,6 @@ func (r workflowSignalRecord) signalInput() *gestalt.WorkflowSignal {
 
 type workflowAccessPermissionRecord struct {
 	App        string   `json:"app"`
-	Plugin     string   `json:"plugin,omitempty"`
 	Operations []string `json:"operations,omitempty"`
 }
 
@@ -5239,7 +5235,7 @@ func executionReferenceRecordFromRecord(record gestalt.Record) (workflowExecutio
 		CredentialSubjectID: stringField(value, "credential_subject_id"),
 		RunAsJSON:           stringField(value, "run_as_json"),
 		PermissionsJSON:     stringField(value, "permissions_json"),
-		CallerAppName:       firstNonEmpty(stringField(value, "caller_app_name"), stringField(value, "caller_plugin_name")),
+		CallerAppName:       stringField(value, "caller_app_name"),
 	}
 	if createdAt := timeField(value, "created_at"); createdAt != nil {
 		out.CreatedAt = createdAt.UTC()
@@ -5390,9 +5386,6 @@ func executionReferencePermissionsFromJSON(raw string) ([]gestalt.WorkflowAccess
 	out := make([]gestalt.WorkflowAccessPermission, 0, len(records))
 	for _, record := range records {
 		appName := strings.TrimSpace(record.App)
-		if appName == "" {
-			appName = strings.TrimSpace(record.Plugin)
-		}
 		if appName == "" {
 			continue
 		}

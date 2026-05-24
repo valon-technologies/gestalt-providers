@@ -204,34 +204,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Manage tasks, projects, and workspaces.",
       "displayName": "Asana",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/asana/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/asana/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/asana/README.md",
-          "sourcePath": "apps/asana/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/asana/README.md",
+          "sourcePath": "app/asana/README.md",
           "title": "Asana"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/asana/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/asana/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/asana/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/asana/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "asana",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/asana",
-      "packagePath": "apps/asana",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/asana/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/asana",
+      "packagePath": "app/asana",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/asana/README.md",
       "registryPath": "/providers/app/asana/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/asana",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/asana",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/asana/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/asana/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -243,34 +243,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Candidates, applications, jobs, offers, interviews, departments, locations, users, and reports.",
       "displayName": "Ashby",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/ashby/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/ashby/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/ashby/README.md",
-          "sourcePath": "apps/ashby/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/ashby/README.md",
+          "sourcePath": "app/ashby/README.md",
           "title": "Ashby"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/ashby/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/ashby/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/ashby/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/ashby/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "ashby",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/ashby",
-      "packagePath": "apps/ashby",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/ashby/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/ashby",
+      "packagePath": "app/ashby",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/ashby/README.md",
       "registryPath": "/providers/app/ashby/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/ashby",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/ashby",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/ashby/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/ashby/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -282,34 +282,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Google BigQuery data warehouse",
       "displayName": "BigQuery",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/bigquery/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/bigquery/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/bigquery/README.md",
-          "sourcePath": "apps/bigquery/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/bigquery/README.md",
+          "sourcePath": "app/bigquery/README.md",
           "title": "BigQuery"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/bigquery/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/bigquery/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/bigquery/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/bigquery/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "bigquery",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/bigquery",
-      "packagePath": "apps/bigquery",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/bigquery/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/bigquery",
+      "packagePath": "app/bigquery",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/bigquery/README.md",
       "registryPath": "/providers/app/bigquery/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/bigquery",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/bigquery",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/bigquery/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/bigquery/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "darwin/amd64",
             "darwin/arm64",
@@ -326,34 +326,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Access Carta Launch, Investor, Issuer, Portfolio, corporation, compensation, open cap table, file upload, and user APIs.",
       "displayName": "Carta",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/carta/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/carta/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/carta/README.md",
-          "sourcePath": "apps/carta/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/carta/README.md",
+          "sourcePath": "app/carta/README.md",
           "title": "Carta"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/carta/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/carta/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/carta/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/carta/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "carta",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/carta",
-      "packagePath": "apps/carta",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/carta/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/carta",
+      "packagePath": "app/carta",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/carta/README.md",
       "registryPath": "/providers/app/carta/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/carta",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/carta",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/carta/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/carta/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -365,34 +365,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Query and manage analytical databases.",
       "displayName": "ClickHouse",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/clickhouse/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/clickhouse/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/clickhouse/README.md",
-          "sourcePath": "apps/clickhouse/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/clickhouse/README.md",
+          "sourcePath": "app/clickhouse/README.md",
           "title": "ClickHouse"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/clickhouse/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/clickhouse/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/clickhouse/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/clickhouse/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "clickhouse",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/clickhouse",
-      "packagePath": "apps/clickhouse",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/clickhouse/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/clickhouse",
+      "packagePath": "app/clickhouse",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/clickhouse/README.md",
       "registryPath": "/providers/app/clickhouse/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/clickhouse",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/clickhouse",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/clickhouse/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/clickhouse/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -404,34 +404,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Atlassian Confluence Cloud pages, spaces, and content search.",
       "displayName": "Confluence Cloud",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/confluence/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/confluence/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/confluence/README.md",
-          "sourcePath": "apps/confluence/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/confluence/README.md",
+          "sourcePath": "app/confluence/README.md",
           "title": "Confluence Cloud"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/confluence/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/confluence/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/confluence/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/confluence/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "confluence",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/confluence",
-      "packagePath": "apps/confluence",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/confluence/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/confluence",
+      "packagePath": "app/confluence",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/confluence/README.md",
       "registryPath": "/providers/app/confluence/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/confluence",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/confluence",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/confluence/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/confluence/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -443,34 +443,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Manage dashboards, monitors, incidents, logs, RUM, CI Visibility, Synthetics, users, and roles.",
       "displayName": "Datadog",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/datadog/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/datadog/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/datadog/README.md",
-          "sourcePath": "apps/datadog/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/datadog/README.md",
+          "sourcePath": "app/datadog/README.md",
           "title": "Datadog"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/datadog/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/datadog/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/datadog/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/datadog/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "datadog",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/datadog",
-      "packagePath": "apps/datadog",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/datadog/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/datadog",
+      "packagePath": "app/datadog",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/datadog/README.md",
       "registryPath": "/providers/app/datadog/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/datadog",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/datadog",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/datadog/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/datadog/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -482,34 +482,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Manage accounts, projects, jobs, and runs.",
       "displayName": "dbt Cloud",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/dbt_cloud/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/dbt_cloud/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/dbt_cloud/README.md",
-          "sourcePath": "apps/dbt_cloud/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/dbt_cloud/README.md",
+          "sourcePath": "app/dbt_cloud/README.md",
           "title": "dbt Cloud"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/dbt_cloud/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/dbt_cloud/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/dbt_cloud/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/dbt_cloud/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "dbt_cloud",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/dbt_cloud",
-      "packagePath": "apps/dbt_cloud",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/dbt_cloud/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/dbt_cloud",
+      "packagePath": "app/dbt_cloud",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/dbt_cloud/README.md",
       "registryPath": "/providers/app/dbt_cloud/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/dbt_cloud",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/dbt_cloud",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/dbt_cloud/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/dbt_cloud/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -521,34 +521,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Document processing and extraction with Extend.",
       "displayName": "Extend",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/extend/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/extend/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/extend/README.md",
-          "sourcePath": "apps/extend/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/extend/README.md",
+          "sourcePath": "app/extend/README.md",
           "title": "Extend"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/extend/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/extend/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/extend/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/extend/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "extend",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/extend",
-      "packagePath": "apps/extend",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/extend/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/extend",
+      "packagePath": "app/extend",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/extend/README.md",
       "registryPath": "/providers/app/extend/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/extend",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/extend",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/extend/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/extend/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -560,34 +560,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Access files, components, comments, and team projects.",
       "displayName": "Figma",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/figma/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/figma/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/figma/README.md",
-          "sourcePath": "apps/figma/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/figma/README.md",
+          "sourcePath": "app/figma/README.md",
           "title": "Figma"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/figma/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/figma/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/figma/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/figma/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "figma",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/figma",
-      "packagePath": "apps/figma",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/figma/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/figma",
+      "packagePath": "app/figma",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/figma/README.md",
       "registryPath": "/providers/app/figma/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/figma",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/figma",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/figma/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/figma/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -599,92 +599,92 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Google Cloud Batch job management",
       "displayName": "GCP Batch",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/gcp_batch/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gcp_batch/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/gcp_batch/README.md",
-          "sourcePath": "apps/gcp_batch/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/gcp_batch/README.md",
+          "sourcePath": "app/gcp_batch/README.md",
           "title": "GCP Batch"
         }
       ],
       "iconUrl": null,
       "kind": "app",
       "latestInstallableVersion": null,
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/gcp_batch/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gcp_batch/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "gcp_batch",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/gcp_batch",
-      "packagePath": "apps/gcp_batch",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/gcp_batch/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/gcp_batch",
+      "packagePath": "app/gcp_batch",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gcp_batch/README.md",
       "registryPath": "/providers/app/gcp_batch/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/gcp_batch",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/gcp_batch",
       "versions": []
     },
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Google Cloud Storage object management",
       "displayName": "Google Cloud Storage",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/gcs/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gcs/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/gcs/README.md",
-          "sourcePath": "apps/gcs/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/gcs/README.md",
+          "sourcePath": "app/gcs/README.md",
           "title": "Google Cloud Storage"
         }
       ],
       "iconUrl": null,
       "kind": "app",
       "latestInstallableVersion": null,
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/gcs/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gcs/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "gcs",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/gcs",
-      "packagePath": "apps/gcs",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/gcs/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/gcs",
+      "packagePath": "app/gcs",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gcs/README.md",
       "registryPath": "/providers/app/gcs/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/gcs",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/gcs",
       "versions": []
     },
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Repository, issue, pull request, workflow, and code search operations.",
       "displayName": "GitHub",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/github/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/github/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/github/README.md",
-          "sourcePath": "apps/github/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/github/README.md",
+          "sourcePath": "app/github/README.md",
           "title": "GitHub"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/github/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/github/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/github/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/github/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.2",
       "name": "github",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/github",
-      "packagePath": "apps/github",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/github/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/github",
+      "packagePath": "app/github",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/github/README.md",
       "registryPath": "/providers/app/github/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/github",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/github",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/github/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/github/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "darwin/amd64",
             "darwin/arm64",
@@ -701,34 +701,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Repository, issue, merge request, and pipeline operations.",
       "displayName": "GitLab",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/gitlab/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gitlab/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/gitlab/README.md",
-          "sourcePath": "apps/gitlab/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/gitlab/README.md",
+          "sourcePath": "app/gitlab/README.md",
           "title": "GitLab"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/gitlab/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/gitlab/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/gitlab/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gitlab/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "gitlab",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/gitlab",
-      "packagePath": "apps/gitlab",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/gitlab/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/gitlab",
+      "packagePath": "app/gitlab",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gitlab/README.md",
       "registryPath": "/providers/app/gitlab/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/gitlab",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/gitlab",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/gitlab/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/gitlab/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -740,34 +740,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Read, send, and manage Gmail messages, threads, drafts, and labels.",
       "displayName": "Gmail",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/gmail/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gmail/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/gmail/README.md",
-          "sourcePath": "apps/gmail/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/gmail/README.md",
+          "sourcePath": "app/gmail/README.md",
           "title": "Gmail"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/gmail/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/gmail/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/gmail/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gmail/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "gmail",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/gmail",
-      "packagePath": "apps/gmail",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/gmail/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/gmail",
+      "packagePath": "app/gmail",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gmail/README.md",
       "registryPath": "/providers/app/gmail/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/gmail",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/gmail",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/gmail/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/gmail/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "darwin/amd64",
             "darwin/arm64",
@@ -784,34 +784,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Access the Gong public API v2 for calls, users, stats, settings, CRM, library, coaching, and data privacy workflows.",
       "displayName": "Gong",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/gong/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gong/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/gong/README.md",
-          "sourcePath": "apps/gong/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/gong/README.md",
+          "sourcePath": "app/gong/README.md",
           "title": "Gong"
         }
       ],
       "iconUrl": null,
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/gong/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gong/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "gong",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/gong",
-      "packagePath": "apps/gong",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/gong/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/gong",
+      "packagePath": "app/gong",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gong/README.md",
       "registryPath": "/providers/app/gong/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/gong",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/gong",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/gong/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/gong/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -823,34 +823,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Transfer data between Google Workspace users using the Admin SDK Data Transfer API.",
       "displayName": "Google Admin Data Transfer",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_admin_datatransfer/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_admin_datatransfer/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/google_admin_datatransfer/README.md",
-          "sourcePath": "apps/google_admin_datatransfer/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_admin_datatransfer/README.md",
+          "sourcePath": "app/google_admin_datatransfer/README.md",
           "title": "Google Admin Data Transfer"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/google_admin_datatransfer/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_admin_datatransfer/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_admin_datatransfer/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_admin_datatransfer/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "google_admin_datatransfer",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/google_admin_datatransfer",
-      "packagePath": "apps/google_admin_datatransfer",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_admin_datatransfer/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/google_admin_datatransfer",
+      "packagePath": "app/google_admin_datatransfer",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_admin_datatransfer/README.md",
       "registryPath": "/providers/app/google_admin_datatransfer/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/google_admin_datatransfer",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/google_admin_datatransfer",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/google_admin_datatransfer/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_admin_datatransfer/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -862,34 +862,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Manage Google Workspace users, groups, organizational units, devices, roles, domains, and schemas via the Admin SDK Directory API.",
       "displayName": "Google Admin Directory",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_admin_directory/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_admin_directory/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/google_admin_directory/README.md",
-          "sourcePath": "apps/google_admin_directory/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_admin_directory/README.md",
+          "sourcePath": "app/google_admin_directory/README.md",
           "title": "Google Admin Directory"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/google_admin_directory/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_admin_directory/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_admin_directory/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_admin_directory/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "google_admin_directory",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/google_admin_directory",
-      "packagePath": "apps/google_admin_directory",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_admin_directory/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/google_admin_directory",
+      "packagePath": "app/google_admin_directory",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_admin_directory/README.md",
       "registryPath": "/providers/app/google_admin_directory/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/google_admin_directory",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/google_admin_directory",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/google_admin_directory/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_admin_directory/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -901,34 +901,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Read and manage Google calendars and events.",
       "displayName": "Google Calendar",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_calendar/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_calendar/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/google_calendar/README.md",
-          "sourcePath": "apps/google_calendar/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_calendar/README.md",
+          "sourcePath": "app/google_calendar/README.md",
           "title": "Google Calendar"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/google_calendar/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_calendar/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_calendar/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_calendar/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "google_calendar",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/google_calendar",
-      "packagePath": "apps/google_calendar",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_calendar/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/google_calendar",
+      "packagePath": "app/google_calendar",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_calendar/README.md",
       "registryPath": "/providers/app/google_calendar/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/google_calendar",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/google_calendar",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/google_calendar/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_calendar/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -940,34 +940,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Read, create, and edit Google Docs documents.",
       "displayName": "Google Docs",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_docs/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_docs/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/google_docs/README.md",
-          "sourcePath": "apps/google_docs/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_docs/README.md",
+          "sourcePath": "app/google_docs/README.md",
           "title": "Google Docs"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/google_docs/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_docs/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_docs/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_docs/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "google_docs",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/google_docs",
-      "packagePath": "apps/google_docs",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_docs/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/google_docs",
+      "packagePath": "app/google_docs",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_docs/README.md",
       "registryPath": "/providers/app/google_docs/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/google_docs",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/google_docs",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/google_docs/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_docs/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -979,34 +979,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Read, create, update, and share files in Google Drive.",
       "displayName": "Google Drive",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_drive/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_drive/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/google_drive/README.md",
-          "sourcePath": "apps/google_drive/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_drive/README.md",
+          "sourcePath": "app/google_drive/README.md",
           "title": "Google Drive"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/google_drive/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_drive/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_drive/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_drive/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "google_drive",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/google_drive",
-      "packagePath": "apps/google_drive",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_drive/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/google_drive",
+      "packagePath": "app/google_drive",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_drive/README.md",
       "registryPath": "/providers/app/google_drive/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/google_drive",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/google_drive",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/google_drive/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_drive/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1018,34 +1018,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Read and manage Google Forms and responses.",
       "displayName": "Google Forms",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_forms/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_forms/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/google_forms/README.md",
-          "sourcePath": "apps/google_forms/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_forms/README.md",
+          "sourcePath": "app/google_forms/README.md",
           "title": "Google Forms"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/google_forms/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_forms/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_forms/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_forms/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "google_forms",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/google_forms",
-      "packagePath": "apps/google_forms",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_forms/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/google_forms",
+      "packagePath": "app/google_forms",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_forms/README.md",
       "registryPath": "/providers/app/google_forms/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/google_forms",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/google_forms",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/google_forms/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_forms/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1057,34 +1057,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Read and update Google Sheets spreadsheets and values.",
       "displayName": "Google Sheets",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_sheets/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_sheets/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/google_sheets/README.md",
-          "sourcePath": "apps/google_sheets/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_sheets/README.md",
+          "sourcePath": "app/google_sheets/README.md",
           "title": "Google Sheets"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/google_sheets/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_sheets/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_sheets/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_sheets/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "google_sheets",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/google_sheets",
-      "packagePath": "apps/google_sheets",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_sheets/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/google_sheets",
+      "packagePath": "app/google_sheets",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_sheets/README.md",
       "registryPath": "/providers/app/google_sheets/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/google_sheets",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/google_sheets",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/google_sheets/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_sheets/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1096,34 +1096,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Create and update Google Slides presentations.",
       "displayName": "Google Slides",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_slides/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_slides/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/google_slides/README.md",
-          "sourcePath": "apps/google_slides/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_slides/README.md",
+          "sourcePath": "app/google_slides/README.md",
           "title": "Google Slides"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/google_slides/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_slides/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_slides/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_slides/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "google_slides",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/google_slides",
-      "packagePath": "apps/google_slides",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/google_slides/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/google_slides",
+      "packagePath": "app/google_slides",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_slides/README.md",
       "registryPath": "/providers/app/google_slides/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/google_slides",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/google_slides",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/google_slides/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_slides/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1135,34 +1135,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Read Granola meeting notes over REST and use the official Granola MCP server.",
       "displayName": "Granola",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/granola/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/granola/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/granola/README.md",
-          "sourcePath": "apps/granola/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/granola/README.md",
+          "sourcePath": "app/granola/README.md",
           "title": "Granola"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/granola/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/granola/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/granola/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/granola/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "granola",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/granola",
-      "packagePath": "apps/granola",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/granola/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/granola",
+      "packagePath": "app/granola",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/granola/README.md",
       "registryPath": "/providers/app/granola/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/granola",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/granola",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/granola/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/granola/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1174,34 +1174,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Hex Public API plus CLI-only draft notebook, YAML import/export, cell run, and Context Studio operations.",
       "displayName": "Hex",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/hex/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/hex/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/hex/README.md",
-          "sourcePath": "apps/hex/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/hex/README.md",
+          "sourcePath": "app/hex/README.md",
           "title": "Hex"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/hex/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/hex/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/hex/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/hex/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "hex",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/hex",
-      "packagePath": "apps/hex",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/hex/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/hex",
+      "packagePath": "app/hex",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/hex/README.md",
       "registryPath": "/providers/app/hex/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/hex",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/hex",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/hex/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/hex/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "darwin/amd64",
             "darwin/arm64",
@@ -1218,34 +1218,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Development/testing-only HTTP request and response service. Do not use with production or sensitive data.",
       "displayName": "HTTPBin",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/httpbin/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/httpbin/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/httpbin/README.md",
-          "sourcePath": "apps/httpbin/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/httpbin/README.md",
+          "sourcePath": "app/httpbin/README.md",
           "title": "HTTPBin"
         }
       ],
       "iconUrl": null,
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/httpbin/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/httpbin/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "httpbin",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/httpbin",
-      "packagePath": "apps/httpbin",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/httpbin/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/httpbin",
+      "packagePath": "app/httpbin",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/httpbin/README.md",
       "registryPath": "/providers/app/httpbin/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/httpbin",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/httpbin",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/httpbin/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/httpbin/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1257,34 +1257,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Manage incidents, schedules, users, severities, statuses, and incident.io MCP tools.",
       "displayName": "incident.io",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/incident_io/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/incident_io/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/incident_io/README.md",
-          "sourcePath": "apps/incident_io/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/incident_io/README.md",
+          "sourcePath": "app/incident_io/README.md",
           "title": "incident.io"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/incident_io/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/incident_io/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/incident_io/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/incident_io/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "incident_io",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/incident_io",
-      "packagePath": "apps/incident_io",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/incident_io/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/incident_io",
+      "packagePath": "app/incident_io",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/incident_io/README.md",
       "registryPath": "/providers/app/incident_io/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/incident_io",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/incident_io",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/incident_io/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/incident_io/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1296,34 +1296,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Read and update contacts, companies, conversations, and notes.",
       "displayName": "Intercom",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/intercom/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/intercom/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/intercom/README.md",
-          "sourcePath": "apps/intercom/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/intercom/README.md",
+          "sourcePath": "app/intercom/README.md",
           "title": "Intercom"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/intercom/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/intercom/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/intercom/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/intercom/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "intercom",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/intercom",
-      "packagePath": "apps/intercom",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/intercom/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/intercom",
+      "packagePath": "app/intercom",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/intercom/README.md",
       "registryPath": "/providers/app/intercom/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/intercom",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/intercom",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/intercom/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/intercom/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1335,34 +1335,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Atlassian Jira Cloud project and issue management",
       "displayName": "Jira Cloud",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/jira/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/jira/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/jira/README.md",
-          "sourcePath": "apps/jira/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/jira/README.md",
+          "sourcePath": "app/jira/README.md",
           "title": "Jira Cloud"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/jira/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/jira/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/jira/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/jira/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "jira",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/jira",
-      "packagePath": "apps/jira",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/jira/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/jira",
+      "packagePath": "app/jira",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/jira/README.md",
       "registryPath": "/providers/app/jira/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/jira",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/jira",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/jira/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/jira/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1374,34 +1374,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Manage feature flags and targeting rules.",
       "displayName": "LaunchDarkly",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/launchdarkly/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/launchdarkly/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/launchdarkly/README.md",
-          "sourcePath": "apps/launchdarkly/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/launchdarkly/README.md",
+          "sourcePath": "app/launchdarkly/README.md",
           "title": "LaunchDarkly"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/launchdarkly/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/launchdarkly/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/launchdarkly/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/launchdarkly/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "launchdarkly",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/launchdarkly",
-      "packagePath": "apps/launchdarkly",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/launchdarkly/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/launchdarkly",
+      "packagePath": "app/launchdarkly",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/launchdarkly/README.md",
       "registryPath": "/providers/app/launchdarkly/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/launchdarkly",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/launchdarkly",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/launchdarkly/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/launchdarkly/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1413,34 +1413,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Manage issues, projects, and teams.",
       "displayName": "Linear",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/linear/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/linear/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/linear/README.md",
-          "sourcePath": "apps/linear/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/linear/README.md",
+          "sourcePath": "app/linear/README.md",
           "title": "Linear"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/linear/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/linear/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/linear/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/linear/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "linear",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/linear",
-      "packagePath": "apps/linear",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/linear/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/linear",
+      "packagePath": "app/linear",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/linear/README.md",
       "registryPath": "/providers/app/linear/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/linear",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/linear",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/linear/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/linear/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1452,34 +1452,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Run queries, manage dashboards, looks, folders, users, groups, schedules, projects, content validation, and instance configuration in Looker.",
       "displayName": "Looker",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/looker/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/looker/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/looker/README.md",
-          "sourcePath": "apps/looker/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/looker/README.md",
+          "sourcePath": "app/looker/README.md",
           "title": "Looker"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/looker/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/looker/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/looker/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/looker/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "looker",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/looker",
-      "packagePath": "apps/looker",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/looker/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/looker",
+      "packagePath": "app/looker",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/looker/README.md",
       "registryPath": "/providers/app/looker/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/looker",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/looker",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/looker/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/looker/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1491,34 +1491,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Create payment orders, manage external accounts, and inspect treasury activity in Modern Treasury.",
       "displayName": "Modern Treasury",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/modern_treasury/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/modern_treasury/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/modern_treasury/README.md",
-          "sourcePath": "apps/modern_treasury/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/modern_treasury/README.md",
+          "sourcePath": "app/modern_treasury/README.md",
           "title": "Modern Treasury"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/modern_treasury/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/modern_treasury/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/modern_treasury/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/modern_treasury/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "modern_treasury",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/modern_treasury",
-      "packagePath": "apps/modern_treasury",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/modern_treasury/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/modern_treasury",
+      "packagePath": "app/modern_treasury",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/modern_treasury/README.md",
       "registryPath": "/providers/app/modern_treasury/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/modern_treasury",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/modern_treasury",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/modern_treasury/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/modern_treasury/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1530,34 +1530,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Access NICE CXone / NICE inContact Admin, Agent, Reporting, Digital Engagement, WFM, and related public REST APIs.",
       "displayName": "NICE CXone",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/nice_incontact/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/nice_incontact/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/nice_incontact/README.md",
-          "sourcePath": "apps/nice_incontact/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/nice_incontact/README.md",
+          "sourcePath": "app/nice_incontact/README.md",
           "title": "NICE CXone"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/nice_incontact/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/nice_incontact/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/nice_incontact/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/nice_incontact/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "nice_incontact",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/nice_incontact",
-      "packagePath": "apps/nice_incontact",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/nice_incontact/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/nice_incontact",
+      "packagePath": "app/nice_incontact",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/nice_incontact/README.md",
       "registryPath": "/providers/app/nice_incontact/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/nice_incontact",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/nice_incontact",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/nice_incontact/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/nice_incontact/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1569,34 +1569,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Current Notion REST operations plus the official Notion MCP tool surface.",
       "displayName": "Notion",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/notion/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/notion/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/notion/README.md",
-          "sourcePath": "apps/notion/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/notion/README.md",
+          "sourcePath": "app/notion/README.md",
           "title": "Notion"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/notion/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/notion/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/notion/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/notion/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "notion",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/notion",
-      "packagePath": "apps/notion",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/notion/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/notion",
+      "packagePath": "app/notion",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/notion/README.md",
       "registryPath": "/providers/app/notion/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/notion",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/notion",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/notion/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/notion/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1608,34 +1608,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Manage incidents, services, and on-call schedules.",
       "displayName": "PagerDuty",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/pagerduty/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/pagerduty/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/pagerduty/README.md",
-          "sourcePath": "apps/pagerduty/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/pagerduty/README.md",
+          "sourcePath": "app/pagerduty/README.md",
           "title": "PagerDuty"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/pagerduty/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/pagerduty/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/pagerduty/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/pagerduty/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "pagerduty",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/pagerduty",
-      "packagePath": "apps/pagerduty",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/pagerduty/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/pagerduty",
+      "packagePath": "app/pagerduty",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/pagerduty/README.md",
       "registryPath": "/providers/app/pagerduty/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/pagerduty",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/pagerduty",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/pagerduty/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/pagerduty/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1647,63 +1647,63 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Use the official PlanetScale insights-only MCP server for organizations, databases, branches, schema, Insights, documentation search, and schema recommendations.",
       "displayName": "PlanetScale",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/planetscale/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/planetscale/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/planetscale/README.md",
-          "sourcePath": "apps/planetscale/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/planetscale/README.md",
+          "sourcePath": "app/planetscale/README.md",
           "title": "PlanetScale Plugin"
         }
       ],
       "iconUrl": null,
       "kind": "app",
       "latestInstallableVersion": null,
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/planetscale/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/planetscale/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.0",
       "name": "planetscale",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/planetscale",
-      "packagePath": "apps/planetscale",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/planetscale/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/planetscale",
+      "packagePath": "app/planetscale",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/planetscale/README.md",
       "registryPath": "/providers/app/planetscale/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/planetscale",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/planetscale",
       "versions": []
     },
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Manage customers, invoices, bills, payments, accounts, and reports in QuickBooks Online.",
       "displayName": "QuickBooks Online",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/quickbooks/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/quickbooks/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/quickbooks/README.md",
-          "sourcePath": "apps/quickbooks/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/quickbooks/README.md",
+          "sourcePath": "app/quickbooks/README.md",
           "title": "QuickBooks Online"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/quickbooks/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/quickbooks/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/quickbooks/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/quickbooks/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "quickbooks",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/quickbooks",
-      "packagePath": "apps/quickbooks",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/quickbooks/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/quickbooks",
+      "packagePath": "app/quickbooks",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/quickbooks/README.md",
       "registryPath": "/providers/app/quickbooks/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/quickbooks",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/quickbooks",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/quickbooks/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/quickbooks/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1715,34 +1715,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Manage corporate cards, transactions, and reimbursements.",
       "displayName": "Ramp",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/ramp/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/ramp/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/ramp/README.md",
-          "sourcePath": "apps/ramp/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/ramp/README.md",
+          "sourcePath": "app/ramp/README.md",
           "title": "Ramp"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/ramp/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/ramp/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/ramp/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/ramp/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "ramp",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/ramp",
-      "packagePath": "apps/ramp",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/ramp/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/ramp",
+      "packagePath": "app/ramp",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/ramp/README.md",
       "registryPath": "/providers/app/ramp/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/ramp",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/ramp",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/ramp/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/ramp/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1754,34 +1754,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Access company, employee, org structure, payroll, identity, leave, and time data from Rippling's REST API.",
       "displayName": "Rippling",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/rippling/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/rippling/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/rippling/README.md",
-          "sourcePath": "apps/rippling/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/rippling/README.md",
+          "sourcePath": "app/rippling/README.md",
           "title": "Rippling"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/rippling/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/rippling/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/rippling/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/rippling/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "rippling",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/rippling",
-      "packagePath": "apps/rippling",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/rippling/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/rippling",
+      "packagePath": "app/rippling",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/rippling/README.md",
       "registryPath": "/providers/app/rippling/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/rippling",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/rippling",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/rippling/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/rippling/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1793,34 +1793,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Browse SharePoint sites, document libraries, lists, pages, and file content through Microsoft Graph.",
       "displayName": "Microsoft SharePoint",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/sharepoint/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/sharepoint/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/sharepoint/README.md",
-          "sourcePath": "apps/sharepoint/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/sharepoint/README.md",
+          "sourcePath": "app/sharepoint/README.md",
           "title": "Microsoft SharePoint"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/sharepoint/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/sharepoint/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/sharepoint/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/sharepoint/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "sharepoint",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/sharepoint",
-      "packagePath": "apps/sharepoint",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/sharepoint/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/sharepoint",
+      "packagePath": "app/sharepoint",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/sharepoint/README.md",
       "registryPath": "/providers/app/sharepoint/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/sharepoint",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/sharepoint",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/sharepoint/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/sharepoint/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1832,41 +1832,41 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Read public and private conversations, DMs, and group DMs; send messages; and manage channels.",
       "displayName": "Slack",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/slack/docs/index.mdx",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/slack/docs/index.mdx",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/slack/docs/index.mdx",
-          "sourcePath": "apps/slack/docs/index.mdx",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/slack/docs/index.mdx",
+          "sourcePath": "app/slack/docs/index.mdx",
           "title": "Overview"
         },
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/slack/docs/events.mdx",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/slack/docs/events.mdx",
           "path": "/events/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/slack/docs/events.mdx",
-          "sourcePath": "apps/slack/docs/events.mdx",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/slack/docs/events.mdx",
+          "sourcePath": "app/slack/docs/events.mdx",
           "title": "Events"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/slack/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/slack/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/slack/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/slack/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "slack",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/slack",
-      "packagePath": "apps/slack",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/slack/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/slack",
+      "packagePath": "app/slack",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/slack/README.md",
       "registryPath": "/providers/app/slack/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/slack",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/slack",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/slack/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/slack/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "darwin/amd64",
             "darwin/arm64",
@@ -1883,34 +1883,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Browse Microsoft Teams teams, channels, chats, members, and messages through Microsoft Graph.",
       "displayName": "Microsoft Teams",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/teams/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/teams/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/teams/README.md",
-          "sourcePath": "apps/teams/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/teams/README.md",
+          "sourcePath": "app/teams/README.md",
           "title": "Microsoft Teams"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/teams/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/teams/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/teams/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/teams/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "teams",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/teams",
-      "packagePath": "apps/teams",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/teams/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/teams",
+      "packagePath": "app/teams",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/teams/README.md",
       "registryPath": "/providers/app/teams/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/teams",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/teams",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/teams/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/teams/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1922,34 +1922,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Manage Trunk Merge Queue and Flaky Tests APIs with an API token.",
       "displayName": "Trunk",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/trunk/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/trunk/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/trunk/README.md",
-          "sourcePath": "apps/trunk/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/trunk/README.md",
+          "sourcePath": "app/trunk/README.md",
           "title": "Trunk"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/trunk/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/trunk/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/trunk/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/trunk/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "trunk",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/trunk",
-      "packagePath": "apps/trunk",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/trunk/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/trunk",
+      "packagePath": "app/trunk",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/trunk/README.md",
       "registryPath": "/providers/app/trunk/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/trunk",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/trunk",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/trunk/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/trunk/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -1961,34 +1961,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Send and receive SMS, voice calls, and messaging operations.",
       "displayName": "Twilio",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/twilio/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/twilio/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/twilio/README.md",
-          "sourcePath": "apps/twilio/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/twilio/README.md",
+          "sourcePath": "app/twilio/README.md",
           "title": "Twilio"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/twilio/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/twilio/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/twilio/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/twilio/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "twilio",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/twilio",
-      "packagePath": "apps/twilio",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/twilio/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/twilio",
+      "packagePath": "app/twilio",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/twilio/README.md",
       "registryPath": "/providers/app/twilio/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/twilio",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/twilio",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/twilio/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/twilio/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -2000,34 +2000,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Query and mutate security, compliance, audit, and vendor data via the Vanta REST API.",
       "displayName": "Vanta",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/vanta/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/vanta/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/vanta/README.md",
-          "sourcePath": "apps/vanta/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/vanta/README.md",
+          "sourcePath": "app/vanta/README.md",
           "title": "Vanta"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/vanta/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/vanta/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/vanta/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/vanta/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "vanta",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/vanta",
-      "packagePath": "apps/vanta",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/vanta/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/vanta",
+      "packagePath": "app/vanta",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/vanta/README.md",
       "registryPath": "/providers/app/vanta/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/vanta",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/vanta",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/vanta/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/vanta/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -2039,34 +2039,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Manage Vercel projects and deployments, and read or write Vercel Blob storage.",
       "displayName": "Vercel",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/vercel/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/vercel/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/vercel/README.md",
-          "sourcePath": "apps/vercel/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/vercel/README.md",
+          "sourcePath": "app/vercel/README.md",
           "title": "Vercel"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/vercel/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/vercel/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/vercel/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/vercel/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "vercel",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/vercel",
-      "packagePath": "apps/vercel",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/vercel/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/vercel",
+      "packagePath": "app/vercel",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/vercel/README.md",
       "registryPath": "/providers/app/vercel/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/vercel",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/vercel",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/vercel/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/vercel/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "darwin/amd64",
             "darwin/arm64",
@@ -2083,34 +2083,34 @@
     {
       "configTarget": {
         "entryKind": "app",
-        "section": "apps"
+        "section": "app"
       },
       "description": "Support tickets, users, organizations, macros, automations, triggers, and SLA policies.",
       "displayName": "Zendesk",
       "docs": [
         {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/zendesk/README.md",
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/zendesk/README.md",
           "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/zendesk/README.md",
-          "sourcePath": "apps/zendesk/README.md",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/zendesk/README.md",
+          "sourcePath": "app/zendesk/README.md",
           "title": "Zendesk"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/apps/zendesk/assets/icon.svg",
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/zendesk/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/zendesk/manifest.yaml",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/zendesk/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "zendesk",
-      "package": "github.com/valon-technologies/gestalt-providers/apps/zendesk",
-      "packagePath": "apps/zendesk",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/apps/zendesk/README.md",
+      "package": "github.com/valon-technologies/gestalt-providers/app/zendesk",
+      "packagePath": "app/zendesk",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/zendesk/README.md",
       "registryPath": "/providers/app/zendesk/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/apps/zendesk",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/zendesk",
       "versions": [
         {
           "kind": "app",
-          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/apps/zendesk/v0.0.1-alpha.1/provider-release.yaml",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/zendesk/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],

@@ -29,6 +29,7 @@ import {
   resumeWorkflowSchedule,
   updateWorkflowEventTrigger,
   updateWorkflowSchedule,
+  workflowTargetApp,
 } from "@/lib/api";
 import AuthGuard from "@/components/AuthGuard";
 import Nav from "@/components/Nav";
@@ -39,7 +40,7 @@ type WorkflowFormMode = "create" | "edit" | null;
 type TimezoneMode = "local" | "utc";
 
 interface ScheduleFormState {
-  plugin: string;
+  app: string;
   operation: string;
   connection: string;
   instance: string;
@@ -54,7 +55,7 @@ interface ScheduleFormState {
 }
 
 interface TriggerFormState {
-  plugin: string;
+  app: string;
   operation: string;
   connection: string;
   instance: string;
@@ -71,12 +72,12 @@ interface TargetEditorProps {
   operations: IntegrationOperation[];
   operationsLoading: boolean;
   operationsError: string | null;
-  plugin: string;
+  app: string;
   operation: string;
   connection: string;
   instance: string;
   inputJSON: string;
-  onPluginChange: (value: string) => void;
+  onAppChange: (value: string) => void;
   onOperationChange: (value: string) => void;
   onConnectionChange: (value: string) => void;
   onInstanceChange: (value: string) => void;
@@ -147,13 +148,13 @@ export default function WorkflowsPage() {
   const [triggerStatus, setTriggerStatus] = useState("all");
 
   const [browserTimezone, setBrowserTimezone] = useState("UTC");
-  const [operationsByPlugin, setOperationsByPlugin] = useState<
+  const [operationsByApp, setOperationsByApp] = useState<
     Record<string, IntegrationOperation[]>
   >({});
-  const [operationsLoadingByPlugin, setOperationsLoadingByPlugin] = useState<
+  const [operationsLoadingByApp, setOperationsLoadingByApp] = useState<
     Record<string, boolean>
   >({});
-  const [operationErrorsByPlugin, setOperationErrorsByPlugin] = useState<
+  const [operationErrorsByApp, setOperationErrorsByApp] = useState<
     Record<string, string | undefined>
   >({});
 
@@ -299,29 +300,29 @@ export default function WorkflowsPage() {
     };
   }, [runs, selectedRunID]);
 
-  async function ensureOperationsLoaded(pluginName: string): Promise<void> {
-    const normalized = pluginName.trim();
+  async function ensureOperationsLoaded(appName: string): Promise<void> {
+    const normalized = appName.trim();
     if (!normalized) return;
-    if (operationsByPlugin[normalized] || operationsLoadingByPlugin[normalized]) {
+    if (operationsByApp[normalized] || operationsLoadingByApp[normalized]) {
       return;
     }
 
-    setOperationsLoadingByPlugin((current) => ({ ...current, [normalized]: true }));
-    setOperationErrorsByPlugin((current) => ({ ...current, [normalized]: undefined }));
+    setOperationsLoadingByApp((current) => ({ ...current, [normalized]: true }));
+    setOperationErrorsByApp((current) => ({ ...current, [normalized]: undefined }));
 
     try {
       const operations = await getIntegrationOperations(normalized);
-      setOperationsByPlugin((current) => ({
+      setOperationsByApp((current) => ({
         ...current,
         [normalized]: sortOperations(operations),
       }));
     } catch (err) {
-      setOperationErrorsByPlugin((current) => ({
+      setOperationErrorsByApp((current) => ({
         ...current,
-        [normalized]: errorMessage(err, "Failed to load plugin operations"),
+        [normalized]: errorMessage(err, "Failed to load app operations"),
       }));
     } finally {
-      setOperationsLoadingByPlugin((current) => ({ ...current, [normalized]: false }));
+      setOperationsLoadingByApp((current) => ({ ...current, [normalized]: false }));
     }
   }
 
@@ -459,7 +460,7 @@ export default function WorkflowsPage() {
                       <input
                         value={runsQuery}
                         onChange={(event) => setRunsQuery(event.target.value)}
-                        placeholder="Search by run, plugin, provider, or trigger"
+                        placeholder="Search by run, app, provider, or trigger"
                         className="min-w-0 flex-1 rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
                       />
                       <select
@@ -480,7 +481,7 @@ export default function WorkflowsPage() {
                       <input
                         value={schedulesQuery}
                         onChange={(event) => setSchedulesQuery(event.target.value)}
-                        placeholder="Search by schedule, plugin, operation, or cadence"
+                        placeholder="Search by schedule, app, operation, or cadence"
                         className="min-w-0 flex-1 rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
                       />
                       <select
@@ -498,7 +499,7 @@ export default function WorkflowsPage() {
                       <input
                         value={triggersQuery}
                         onChange={(event) => setTriggersQuery(event.target.value)}
-                        placeholder="Search by trigger, event type, plugin, or provider"
+                        placeholder="Search by trigger, event type, app, or provider"
                         className="min-w-0 flex-1 rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
                       />
                       <select
@@ -538,9 +539,9 @@ export default function WorkflowsPage() {
                   integrations={workflowIntegrations}
                   integrationsError={integrationsError}
                   browserTimezone={browserTimezone}
-                  operationsByPlugin={operationsByPlugin}
-                  operationsLoadingByPlugin={operationsLoadingByPlugin}
-                  operationErrorsByPlugin={operationErrorsByPlugin}
+                  operationsByApp={operationsByApp}
+                  operationsLoadingByApp={operationsLoadingByApp}
+                  operationErrorsByApp={operationErrorsByApp}
                   ensureOperationsLoaded={ensureOperationsLoaded}
                   onSelectSchedule={setSelectedScheduleID}
                   onScheduleUpsert={upsertSchedule}
@@ -554,9 +555,9 @@ export default function WorkflowsPage() {
                   selectedTrigger={selectedTrigger}
                   integrations={workflowIntegrations}
                   integrationsError={integrationsError}
-                  operationsByPlugin={operationsByPlugin}
-                  operationsLoadingByPlugin={operationsLoadingByPlugin}
-                  operationErrorsByPlugin={operationErrorsByPlugin}
+                  operationsByApp={operationsByApp}
+                  operationsLoadingByApp={operationsLoadingByApp}
+                  operationErrorsByApp={operationErrorsByApp}
                   ensureOperationsLoaded={ensureOperationsLoaded}
                   onSelectTrigger={setSelectedTriggerID}
                   onTriggerUpsert={upsertTrigger}
@@ -731,9 +732,9 @@ function SchedulesPanel({
   integrations,
   integrationsError,
   browserTimezone,
-  operationsByPlugin,
-  operationsLoadingByPlugin,
-  operationErrorsByPlugin,
+  operationsByApp,
+  operationsLoadingByApp,
+  operationErrorsByApp,
   ensureOperationsLoaded,
   onSelectSchedule,
   onScheduleUpsert,
@@ -746,10 +747,10 @@ function SchedulesPanel({
   integrations: Integration[];
   integrationsError: string | null;
   browserTimezone: string;
-  operationsByPlugin: Record<string, IntegrationOperation[]>;
-  operationsLoadingByPlugin: Record<string, boolean>;
-  operationErrorsByPlugin: Record<string, string | undefined>;
-  ensureOperationsLoaded: (pluginName: string) => Promise<void>;
+  operationsByApp: Record<string, IntegrationOperation[]>;
+  operationsLoadingByApp: Record<string, boolean>;
+  operationErrorsByApp: Record<string, string | undefined>;
+  ensureOperationsLoaded: (appName: string) => Promise<void>;
   onSelectSchedule: (id: string | null) => void;
   onScheduleUpsert: (schedule: WorkflowSchedule) => void;
   onScheduleDeleted: (scheduleID: string) => void;
@@ -765,15 +766,15 @@ function SchedulesPanel({
   const [deleting, setDeleting] = useState(false);
   const [togglingPause, setTogglingPause] = useState(false);
 
-  const ensureOperationsLoadedEvent = useEffectEvent((pluginName: string) => {
-    void ensureOperationsLoaded(pluginName);
+  const ensureOperationsLoadedEvent = useEffectEvent((appName: string) => {
+    void ensureOperationsLoaded(appName);
   });
 
-  const operationOptions = form.plugin
-    ? operationsByPlugin[form.plugin] ?? EMPTY_OPERATIONS
+  const operationOptions = form.app
+    ? operationsByApp[form.app] ?? EMPTY_OPERATIONS
     : EMPTY_OPERATIONS;
-  const operationsLoading = form.plugin ? Boolean(operationsLoadingByPlugin[form.plugin]) : false;
-  const operationsError = form.plugin ? operationErrorsByPlugin[form.plugin] ?? null : null;
+  const operationsLoading = form.app ? Boolean(operationsLoadingByApp[form.app]) : false;
+  const operationsError = form.app ? operationErrorsByApp[form.app] ?? null : null;
 
   function updatePresetControls(
     recipe: (current: ScheduleFormState) => Omit<ScheduleFormState, "cronDefinition">,
@@ -807,18 +808,18 @@ function SchedulesPanel({
 
   useEffect(() => {
     if (!formMode) return;
-    if (!form.plugin && integrations[0]) {
-      setForm((current) => ({ ...current, plugin: integrations[0].name }));
+    if (!form.app && integrations[0]) {
+      setForm((current) => ({ ...current, app: integrations[0].name }));
     }
-  }, [formMode, form.plugin, integrations]);
+  }, [formMode, form.app, integrations]);
 
   useEffect(() => {
-    if (!formMode || !form.plugin) return;
-    ensureOperationsLoadedEvent(form.plugin);
-  }, [formMode, form.plugin]);
+    if (!formMode || !form.app) return;
+    ensureOperationsLoadedEvent(form.app);
+  }, [formMode, form.app]);
 
   useEffect(() => {
-    if (!formMode || !form.plugin || operationsLoading) return;
+    if (!formMode || !form.app || operationsLoading) return;
     if (operationOptions.length === 0) {
       if (form.operation) {
         setForm((current) => ({ ...current, operation: "" }));
@@ -828,7 +829,7 @@ function SchedulesPanel({
     if (!operationOptions.some((operation) => operation.id === form.operation)) {
       setForm((current) => ({ ...current, operation: operationOptions[0].id }));
     }
-  }, [formMode, form.plugin, form.operation, operationOptions, operationsLoading]);
+  }, [formMode, form.app, form.operation, operationOptions, operationsLoading]);
 
   function beginCreate() {
     setForm(defaultScheduleForm(browserTimezone, integrations[0]?.name ?? ""));
@@ -1184,15 +1185,15 @@ function SchedulesPanel({
               operations={operationOptions}
               operationsLoading={operationsLoading}
               operationsError={operationsError}
-              plugin={form.plugin}
+              app={form.app}
               operation={form.operation}
               connection={form.connection}
               instance={form.instance}
               inputJSON={form.inputJSON}
-              onPluginChange={(value) =>
+              onAppChange={(value) =>
                 setForm((current) => ({
                   ...current,
-                  plugin: value,
+                  app: value,
                   operation: "",
                 }))
               }
@@ -1290,9 +1291,9 @@ function TriggersPanel({
   selectedTrigger,
   integrations,
   integrationsError,
-  operationsByPlugin,
-  operationsLoadingByPlugin,
-  operationErrorsByPlugin,
+  operationsByApp,
+  operationsLoadingByApp,
+  operationErrorsByApp,
   ensureOperationsLoaded,
   onSelectTrigger,
   onTriggerUpsert,
@@ -1304,10 +1305,10 @@ function TriggersPanel({
   selectedTrigger: WorkflowEventTrigger | null;
   integrations: Integration[];
   integrationsError: string | null;
-  operationsByPlugin: Record<string, IntegrationOperation[]>;
-  operationsLoadingByPlugin: Record<string, boolean>;
-  operationErrorsByPlugin: Record<string, string | undefined>;
-  ensureOperationsLoaded: (pluginName: string) => Promise<void>;
+  operationsByApp: Record<string, IntegrationOperation[]>;
+  operationsLoadingByApp: Record<string, boolean>;
+  operationErrorsByApp: Record<string, string | undefined>;
+  ensureOperationsLoaded: (appName: string) => Promise<void>;
   onSelectTrigger: (id: string | null) => void;
   onTriggerUpsert: (trigger: WorkflowEventTrigger) => void;
   onTriggerDeleted: (triggerID: string) => void;
@@ -1320,30 +1321,30 @@ function TriggersPanel({
   const [deleting, setDeleting] = useState(false);
   const [togglingPause, setTogglingPause] = useState(false);
 
-  const ensureOperationsLoadedEvent = useEffectEvent((pluginName: string) => {
-    void ensureOperationsLoaded(pluginName);
+  const ensureOperationsLoadedEvent = useEffectEvent((appName: string) => {
+    void ensureOperationsLoaded(appName);
   });
 
-  const operationOptions = form.plugin
-    ? operationsByPlugin[form.plugin] ?? EMPTY_OPERATIONS
+  const operationOptions = form.app
+    ? operationsByApp[form.app] ?? EMPTY_OPERATIONS
     : EMPTY_OPERATIONS;
-  const operationsLoading = form.plugin ? Boolean(operationsLoadingByPlugin[form.plugin]) : false;
-  const operationsError = form.plugin ? operationErrorsByPlugin[form.plugin] ?? null : null;
+  const operationsLoading = form.app ? Boolean(operationsLoadingByApp[form.app]) : false;
+  const operationsError = form.app ? operationErrorsByApp[form.app] ?? null : null;
 
   useEffect(() => {
     if (!formMode) return;
-    if (!form.plugin && integrations[0]) {
-      setForm((current) => ({ ...current, plugin: integrations[0].name }));
+    if (!form.app && integrations[0]) {
+      setForm((current) => ({ ...current, app: integrations[0].name }));
     }
-  }, [formMode, form.plugin, integrations]);
+  }, [formMode, form.app, integrations]);
 
   useEffect(() => {
-    if (!formMode || !form.plugin) return;
-    ensureOperationsLoadedEvent(form.plugin);
-  }, [formMode, form.plugin]);
+    if (!formMode || !form.app) return;
+    ensureOperationsLoadedEvent(form.app);
+  }, [formMode, form.app]);
 
   useEffect(() => {
-    if (!formMode || !form.plugin || operationsLoading) return;
+    if (!formMode || !form.app || operationsLoading) return;
     if (operationOptions.length === 0) {
       if (form.operation) {
         setForm((current) => ({ ...current, operation: "" }));
@@ -1353,7 +1354,7 @@ function TriggersPanel({
     if (!operationOptions.some((operation) => operation.id === form.operation)) {
       setForm((current) => ({ ...current, operation: operationOptions[0].id }));
     }
-  }, [formMode, form.plugin, form.operation, operationOptions, operationsLoading]);
+  }, [formMode, form.app, form.operation, operationOptions, operationsLoading]);
 
   function beginCreate() {
     setForm(defaultTriggerForm(integrations[0]?.name ?? ""));
@@ -1613,15 +1614,15 @@ function TriggersPanel({
               operations={operationOptions}
               operationsLoading={operationsLoading}
               operationsError={operationsError}
-              plugin={form.plugin}
+              app={form.app}
               operation={form.operation}
               connection={form.connection}
               instance={form.instance}
               inputJSON={form.inputJSON}
-              onPluginChange={(value) =>
+              onAppChange={(value) =>
                 setForm((current) => ({
                   ...current,
-                  plugin: value,
+                  app: value,
                   operation: "",
                 }))
               }
@@ -1723,12 +1724,12 @@ function WorkflowTargetEditor({
   operations,
   operationsLoading,
   operationsError,
-  plugin,
+  app,
   operation,
   connection,
   instance,
   inputJSON,
-  onPluginChange,
+  onAppChange,
   onOperationChange,
   onConnectionChange,
   onInstanceChange,
@@ -1739,7 +1740,7 @@ function WorkflowTargetEditor({
       <div>
         <h3 className="text-xs font-medium uppercase tracking-[0.18em] text-faint">Target</h3>
         <p className="mt-2 text-sm text-muted">
-          Choose the plugin operation this workflow should invoke.
+          Choose the app operation this workflow should invoke.
         </p>
       </div>
 
@@ -1749,13 +1750,13 @@ function WorkflowTargetEditor({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="space-y-2 text-sm">
-          <span className="text-muted">Plugin</span>
+          <span className="text-muted">App</span>
           <select
-            value={plugin}
-            onChange={(event) => onPluginChange(event.target.value)}
+            value={app}
+            onChange={(event) => onAppChange(event.target.value)}
             className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
           >
-            <option value="">Select a plugin</option>
+            <option value="">Select an app</option>
             {integrations.map((integration) => (
               <option key={integration.name} value={integration.name}>
                 {integrationLabel(integration)}
@@ -1769,12 +1770,12 @@ function WorkflowTargetEditor({
           <select
             value={operation}
             onChange={(event) => onOperationChange(event.target.value)}
-            disabled={!plugin || operationsLoading}
+            disabled={!app || operationsLoading}
             className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60 dark:bg-surface"
           >
             <option value="">
-              {!plugin
-                ? "Select a plugin first"
+              {!app
+                ? "Select an app first"
                 : operationsLoading
                   ? "Loading operations..."
                   : operations.length === 0
@@ -1859,7 +1860,7 @@ function WorkflowTabButton({
 }
 
 function TargetDetails({ target }: { target: WorkflowTarget }) {
-  const plugin = target.plugin;
+  const app = workflowTargetApp(target);
   return (
     <section>
       <h3 className="text-xs font-medium uppercase tracking-[0.18em] text-faint">Target</h3>
@@ -1868,11 +1869,11 @@ function TargetDetails({ target }: { target: WorkflowTarget }) {
           {targetLabel(target)}
         </p>
         <p className="mt-2 text-xs text-muted">
-          Connection: {plugin.connection || "-"} · Instance: {plugin.instance || "-"}
+          Connection: {app.connection || "-"} · Instance: {app.instance || "-"}
         </p>
-        {plugin.input && Object.keys(plugin.input).length > 0 ? (
+        {app.input && Object.keys(app.input).length > 0 ? (
           <pre className="mt-3 overflow-x-auto text-xs text-primary">
-            {prettyJSON(plugin.input)}
+            {prettyJSON(app.input)}
           </pre>
         ) : (
           <p className="mt-3 text-xs text-faint">No target input configured.</p>
@@ -1925,8 +1926,8 @@ function filterRuns(runs: WorkflowRun[], query: string, status: string): Workflo
     return [
       run.id,
       run.provider,
-      run.target.plugin.name,
-      run.target.plugin.operation,
+      workflowTargetApp(run.target).name,
+      workflowTargetApp(run.target).operation,
       run.trigger?.scheduleId,
       run.trigger?.triggerId,
     ]
@@ -1954,10 +1955,10 @@ function filterSchedules(
       schedule.provider,
       schedule.cron,
       schedule.timezone,
-      schedule.target.plugin.name,
-      schedule.target.plugin.operation,
-      schedule.target.plugin.connection,
-      schedule.target.plugin.instance,
+      workflowTargetApp(schedule.target).name,
+      workflowTargetApp(schedule.target).operation,
+      workflowTargetApp(schedule.target).connection,
+      workflowTargetApp(schedule.target).instance,
       scheduleCadenceLabel(schedule.cron),
     ]
       .filter(Boolean)
@@ -1985,10 +1986,10 @@ function filterTriggers(
       trigger.match.type,
       trigger.match.source,
       trigger.match.subject,
-      trigger.target.plugin.name,
-      trigger.target.plugin.operation,
-      trigger.target.plugin.connection,
-      trigger.target.plugin.instance,
+      workflowTargetApp(trigger.target).name,
+      workflowTargetApp(trigger.target).operation,
+      workflowTargetApp(trigger.target).connection,
+      workflowTargetApp(trigger.target).instance,
     ]
       .filter(Boolean)
       .some((value) => value!.toLowerCase().includes(trimmedQuery));
@@ -2020,11 +2021,11 @@ function prettyJSON(value: Record<string, unknown>): string {
 }
 
 function targetLabel(target: WorkflowTarget): string {
-  const plugin = target.plugin;
-  if (plugin.name && plugin.operation) {
-    return `${plugin.name}.${plugin.operation}`;
+  const app = workflowTargetApp(target);
+  if (app.name && app.operation) {
+    return `${app.name}.${app.operation}`;
   }
-  return plugin.name || plugin.operation || "unknown";
+  return app.name || app.operation || "unknown";
 }
 
 function prettyResultBody(value: string): string {
@@ -2059,10 +2060,10 @@ function pausedStateClassName(paused?: boolean): string {
   return "rounded-full bg-grove-100 px-2 py-1 text-[11px] font-medium text-grove-700 dark:bg-grove-700/20 dark:text-grove-200";
 }
 
-function defaultScheduleForm(browserTimezone: string, plugin = ""): ScheduleFormState {
+function defaultScheduleForm(browserTimezone: string, app = ""): ScheduleFormState {
   const timezoneMode: TimezoneMode = browserTimezone === "UTC" ? "utc" : "local";
   const form: ScheduleFormState = {
-    plugin,
+    app,
     operation: "",
     connection: "",
     instance: "",
@@ -2081,9 +2082,9 @@ function defaultScheduleForm(browserTimezone: string, plugin = ""): ScheduleForm
   };
 }
 
-function defaultTriggerForm(plugin = ""): TriggerFormState {
+function defaultTriggerForm(app = ""): TriggerFormState {
   return {
-    plugin,
+    app,
     operation: "",
     connection: "",
     instance: "",
@@ -2100,10 +2101,10 @@ function scheduleFormFromSchedule(
   browserTimezone: string,
 ): { form: ScheduleFormState; warning: string | null } {
   const preset = presetFromCron(schedule.cron);
-  const target = schedule.target.plugin;
+  const target = workflowTargetApp(schedule.target);
   return {
     form: {
-      plugin: target.name,
+      app: target.name,
       operation: target.operation,
       connection: target.connection || "",
       instance: target.instance || "",
@@ -2123,9 +2124,9 @@ function scheduleFormFromSchedule(
 }
 
 function triggerFormFromTrigger(trigger: WorkflowEventTrigger): TriggerFormState {
-  const target = trigger.target.plugin;
+  const target = workflowTargetApp(trigger.target);
   return {
-    plugin: target.name,
+    app: target.name,
     operation: target.operation,
     connection: target.connection || "",
     instance: target.instance || "",
@@ -2151,13 +2152,7 @@ function scheduleFormToUpsert(
     cron,
     timezone: form.timezoneMode === "utc" ? "UTC" : browserTimezone,
     target: {
-      plugin: {
-        name: form.plugin.trim(),
-        operation: form.operation.trim(),
-        connection: emptyToUndefined(form.connection),
-        instance: emptyToUndefined(form.instance),
-        input: parseInputJSONObject(form.inputJSON),
-      },
+      steps: [workflowAppStepFromForm(form)],
     },
     paused: form.paused,
   };
@@ -2175,15 +2170,24 @@ function triggerFormToUpsert(
       subject: emptyToUndefined(form.subject),
     },
     target: {
-      plugin: {
-        name: form.plugin.trim(),
-        operation: form.operation.trim(),
-        connection: emptyToUndefined(form.connection),
-        instance: emptyToUndefined(form.instance),
-        input: parseInputJSONObject(form.inputJSON),
-      },
+      steps: [workflowAppStepFromForm(form)],
     },
     paused: form.paused,
+  };
+}
+
+function workflowAppStepFromForm(
+  form: Pick<ScheduleFormState, "app" | "operation" | "connection" | "instance" | "inputJSON">,
+) {
+  return {
+    id: "run",
+    app: {
+      name: form.app.trim(),
+      operation: form.operation.trim(),
+      connection: emptyToUndefined(form.connection),
+      instance: emptyToUndefined(form.instance),
+      input: parseInputJSONObject(form.inputJSON),
+    },
   };
 }
 

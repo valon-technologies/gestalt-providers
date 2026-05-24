@@ -119,7 +119,7 @@ export interface CreateTokenResponse {
   expiresAt?: string;
 }
 
-export interface WorkflowPluginTarget {
+export interface WorkflowAppTarget {
   name: string;
   operation: string;
   connection?: string;
@@ -127,8 +127,13 @@ export interface WorkflowPluginTarget {
   input?: Record<string, unknown>;
 }
 
+export interface WorkflowStepTarget {
+  id?: string;
+  app?: WorkflowAppTarget;
+}
+
 export interface WorkflowTarget {
-  plugin: WorkflowPluginTarget;
+  steps: WorkflowStepTarget[];
 }
 
 export interface WorkflowEvent {
@@ -250,31 +255,45 @@ function normalizeWorkflowEventTrigger(
 
 function normalizeWorkflowTarget(target: unknown): WorkflowTarget {
   if (!isRecord(target)) {
-    return { plugin: { name: "", operation: "" } };
+    return { steps: [] };
   }
 
-  const rawPlugin = target.plugin;
-  if (isRecord(rawPlugin)) {
-    return {
-      plugin: {
-        name: stringValue(rawPlugin.name),
-        operation: stringValue(rawPlugin.operation),
-        connection: optionalString(rawPlugin.connection),
-        instance: optionalString(rawPlugin.instance),
-        input: optionalRecord(rawPlugin.input),
-      },
-    };
+  const rawSteps = target.steps;
+  if (!Array.isArray(rawSteps)) {
+    return { steps: [] };
   }
 
   return {
-    plugin: {
-      name: stringValue(rawPlugin),
-      operation: stringValue(target.operation),
-      connection: optionalString(target.connection),
-      instance: optionalString(target.instance),
-      input: optionalRecord(target.input),
-    },
+    steps: rawSteps.flatMap((rawStep) => {
+      if (!isRecord(rawStep)) {
+        return [];
+      }
+      const rawApp = rawStep.app;
+      return [
+        {
+          id: optionalString(rawStep.id),
+          app: isRecord(rawApp)
+            ? {
+                name: stringValue(rawApp.name),
+                operation: stringValue(rawApp.operation),
+                connection: optionalString(rawApp.connection),
+                instance: optionalString(rawApp.instance),
+                input: optionalRecord(rawApp.input),
+              }
+            : undefined,
+        },
+      ];
+    }),
   };
+}
+
+export function workflowTargetApp(target: WorkflowTarget): WorkflowAppTarget {
+  return (
+    target.steps.find((step) => step.app)?.app ?? {
+      name: "",
+      operation: "",
+    }
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

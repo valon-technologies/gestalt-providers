@@ -1,7 +1,7 @@
 # IndexedDB Workflow Provider
 
 This provider implements the `workflow` base primitive using IndexedDB for
-persistence and Gestalt's unified host-service socket for plugin callbacks.
+persistence and Gestalt's unified host-service socket for app callbacks.
 
 ## Configuration
 
@@ -35,8 +35,8 @@ renewing; live workers renew claims every `runClaimRenewEvery`, which defaults
 to one third of `runClaimTTL`.
 
 Poll workers start only when the host calls
-`ProviderLifecycle.StartProvider`, after agents, authorization, plugin
-providers, and workflow host services are ready.
+`ProviderLifecycle.StartProvider`, after agents, authorization, app providers,
+and workflow host services are ready.
 
 ## Runtime Requirements
 
@@ -53,7 +53,7 @@ providers, and workflow host services are ready.
 - missed cron ticks collapse to one run
 - `PublishEvent` enqueues runs for matching event triggers; the local
   preferred wake is an optimization, and fallback dispatch durably prioritizes
-  plugin event ingress ahead of generic agent backlog when the wake is lost
+  app event ingress ahead of generic agent backlog when the wake is lost
 - `SignalOrStartRun` keeps one active run per workflow key and appends durable
   signal records for same-run re-invocation; keyed continuations are also
   prioritized ahead of generic agent backlog

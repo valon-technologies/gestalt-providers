@@ -37,7 +37,7 @@ python3 .github/scripts/generate_provider_index.py
 ### Repository Layout
 
 ```
-apps/<name>/       Integration app packages (Go, Python)
+app/<name>/       Integration app packages (Go, Python)
 agent/<name>/         Agent providers (Python, Go)
 runtime/<name>/       Hosted runtime backend packages (Go)
 auth/<name>/          Authentication providers (Go)
@@ -67,8 +67,8 @@ All providers are packaged with `gestaltd provider package` and finalized with
 Push a tag in the format `<kind>/<name>/v<version>`:
 
 ```sh
-git tag apps/slack/v0.0.1-alpha.1
-git push origin apps/slack/v0.0.1-alpha.1
+git tag app/slack/v0.0.1-alpha.1
+git push origin app/slack/v0.0.1-alpha.1
 ```
 
 Runtime providers use the same release flow:

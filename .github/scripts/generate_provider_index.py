@@ -29,7 +29,7 @@ SOURCE_PREFIX = f"github.com/{REPOSITORY}/"
 PACKAGE_ROOTS = (
     "agent",
     "runtime",
-    "apps",
+    "app",
     "auth",
     "authorization",
     "externalcredentials",
@@ -119,11 +119,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--release-tag",
-        help="Release tag, for example apps/slack/v0.0.1-alpha.42",
+        help="Release tag, for example app/slack/v0.0.1-alpha.42",
     )
     parser.add_argument(
         "--package-dir",
-        help="Provider directory, for example apps/slack",
+        help="Provider directory, for example app/slack",
     )
     return parser.parse_args()
 
@@ -649,7 +649,7 @@ def render_index(packages: dict[str, dict[str, Any]]) -> str:
 
 def config_target(kind: str) -> dict[str, Any]:
     if kind == "app":
-        return {"section": "apps", "entryKind": "app"}
+        return {"section": "app", "entryKind": "app"}
     if kind == "runtime":
         return {"section": "runtime.providers", "entryKind": "runtime"}
     if kind == "ui":

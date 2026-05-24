@@ -59,7 +59,7 @@ jobs:
           import re
           import tomllib
 
-          roots = {"agent", "runtime", "apps", "auth", "authorization", "externalcredentials", "s3", "indexeddb", "workflow", "cache", "secrets", "ui"}
+          roots = {"agent", "runtime", "app", "auth", "authorization", "externalcredentials", "s3", "indexeddb", "workflow", "cache", "secrets", "ui"}
           requested = [part.strip() for part in re.split(r"[\n,]+", os.environ["PROVIDER_DIRS"]) if part.strip()]
           providers = []
           for raw in requested:

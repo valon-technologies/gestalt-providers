@@ -1,0 +1,406 @@
+type: object
+properties:
+  clientId:
+    type: string
+    description: GitHub OAuth client ID.
+  clientSecret:
+    type: string
+    description: GitHub OAuth client secret.
+  appId:
+    type: string
+    description: GitHub App ID used for bot webhooks and installation-token API calls.
+  appPrivateKey:
+    type: string
+    description: PEM-encoded GitHub App private key. GITHUB_APP_PRIVATE_KEY is also supported.
+  appPrivateKeyEnv:
+    type: string
+    description: Environment variable containing the PEM-encoded GitHub App private key.
+  appPrivateKeyPath:
+    type: string
+    description: >-
+      Filesystem path to the PEM-encoded GitHub App private key.
+      GITHUB_APP_PRIVATE_KEY_PATH is also supported.
+  apiBaseUrl:
+    type: string
+    description: GitHub REST API base URL. Defaults to https://api.github.com.
+  graphqlBaseUrl:
+    type: string
+    description: >-
+      GitHub GraphQL API URL for GitHub App bot operations. Defaults to
+      https://api.github.com/graphql. For GitHub Enterprise Server, it is
+      derived from apiBaseUrl when omitted.
+  webBaseUrl:
+    type: string
+    description: GitHub web base URL used to build commit links. Defaults to https://github.com.
+  webhookEvents:
+    type: array
+    description: >-
+      GitHub webhook event types that should signal workflow runs. Defaults to
+      check_run, check_suite, issue_comment, issues, pull_request,
+      pull_request_review, pull_request_review_comment, and workflow_run.
+    items:
+      type: string
+  webhookPolicies:
+    type: array
+    description: >-
+      Ordered webhook policies. When present, the first matching policy selects
+      the workflow provider, optional workflow target, and GitHub bot operations
+      exposed to fallback agent targets. If no policy matches, the webhook is
+      acknowledged and ignored.
+    items:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          pattern: '^[A-Za-z0-9._-]+$'
+          minLength: 1
+          description: Stable policy identifier used in workflow keys.
+        displayName:
+          type: string
+          description: Human-readable label for configurable policy controls.
+        description:
+          type: string
+          description: Human-readable detail shown beside configurable policy controls.
+        match:
+          type: object
+          additionalProperties: false
+          description: >-
+            GitHub-shaped match fields. Empty fields are wildcards; values within
+            a field are ORed and fields are ANDed.
+          properties:
+            events:
+              type: array
+              items:
+                type: string
+            actions:
+              type: array
+              items:
+                type: string
+            statuses:
+              type: array
+              items:
+                type: string
+            conclusions:
+              type: array
+              items:
+                type: string
+            repositories:
+              type: array
+              items:
+                type: string
+            branches:
+              type: array
+              items:
+                type: string
+            checkNames:
+              type: array
+              items:
+                type: string
+            workflowNames:
+              type: array
+              items:
+                type: string
+        trigger:
+          type: object
+          additionalProperties: false
+          description: >-
+            Controls whether a matched webhook delivery is eligible to start an
+            agent turn and how often equivalent turns may run.
+          properties:
+            frequency:
+              type: string
+              enum:
+                - every_delivery
+                - once_per_pr
+                - once_per_head_sha
+                - once_per_ci_incident
+                - manual_only
+              description: Defaults to every_delivery.
+            includeDrafts:
+              type: boolean
+              description: >-
+                Whether direct pull_request webhook payloads for draft PRs are
+                eligible for this policy. Defaults to true.
+            manualCommands:
+              type: array
+              description: >-
+                Case-sensitive substrings that must appear in issue_comment or
+                pull_request_review_comment bodies when frequency is manual_only.
+              items:
+                type: string
+            manualCommandMatch:
+              type: string
+              enum:
+                - contains
+                - exact
+              description: >-
+                How manualCommands are matched. contains preserves legacy
+                substring matching; exact trims and case-folds the whole comment.
+            requireAppMention:
+              type: boolean
+              description: >-
+                When frequency is manual_only, require a GitHub mention of the
+                configured GitHub App instead of matching manualCommands.
+        dedupe:
+          type: object
+          additionalProperties: false
+          description: Controls the workflow key used for matched deliveries.
+          properties:
+            scope:
+              type: string
+              enum:
+                - delivery
+                - pull_request
+                - pr_head
+                - ci_incident
+              description: Defaults to delivery.
+        comments:
+          type: object
+          additionalProperties: false
+          description: Controls which comment surfaces the policy may use.
+          properties:
+            timelinePolicy:
+              type: string
+              enum:
+                - allow
+                - never
+                - actionable_only
+              description: Defaults to allow.
+            inlinePolicy:
+              type: string
+              enum:
+                - allow
+                - never
+                - findings_only
+              description: Defaults to allow.
+            suppressStaleHead:
+              type: boolean
+              description: >-
+                For CI events, ignore a matched webhook when its head SHA no
+                longer matches the current pull request head SHA.
+        workflow:
+          type: object
+          additionalProperties: false
+          properties:
+            provider:
+              type: string
+              description: Workflow provider override for this policy.
+            target:
+              type: object
+              additionalProperties: false
+              required:
+                - steps
+              description: >-
+                Optional workflow target for this policy. If omitted, the
+                webhook starts or signals the generated agent target.
+              properties:
+                steps:
+                  type: array
+                  minItems: 1
+                  description: >-
+                    gestaltd v6 step-based workflow target. The GitHub app
+                    reads the first step that defines app.
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required:
+                      - id
+                    properties:
+                      id:
+                        type: string
+                        minLength: 1
+                        description: Stable step identifier.
+                      app:
+                        type: object
+                        additionalProperties: false
+                        required:
+                          - name
+                          - operation
+                        properties:
+                          name:
+                            type: string
+                            minLength: 1
+                            description: Workflow target app name.
+                          operation:
+                            type: string
+                            minLength: 1
+                            description: Workflow target operation.
+                          connection:
+                            type: string
+                            description: Optional workflow target connection.
+                          instance:
+                            type: string
+                            description: Optional workflow target instance.
+                          credentialMode:
+                            type: string
+                            enum:
+                              - none
+                              - user
+                            description: Optional workflow target credential mode.
+                          input:
+                            type: object
+                            description: >-
+                              Static workflow target input. Webhook event
+                              data is delivered in workflow signals, not
+                              merged into this object.
+                            additionalProperties: true
+        agent:
+          type: object
+          additionalProperties: false
+          properties:
+            provider:
+              type: string
+              description: Agent provider override for this policy.
+            model:
+              type: string
+              description: Agent model override for this policy.
+            systemPrompt:
+              type: string
+              description: Additional system prompt for this policy.
+            modelOptions:
+              type: object
+              description: Provider-specific options for this policy.
+              additionalProperties: true
+        action:
+          type: object
+          additionalProperties: false
+          properties:
+            mode:
+              type: string
+              enum:
+                - observe
+                - comment
+                - branch_commit
+                - pull_request
+              description: Semantic remediation mode for this policy.
+            allowCodeReviewComments:
+              type: boolean
+              description: >-
+                Whether this policy may expose pull request code review comment
+                tools such as bot.createPullRequestReview. Defaults to true.
+            allowSelfFix:
+              type: boolean
+              description: >-
+                Deprecated ceiling for code-changing self-fix tools. False
+                disables self-fix even when selfFixMode allows it.
+            selfFixMode:
+              type: string
+              enum:
+                - disabled
+                - suggest
+                - branch_commit
+                - pull_request
+              description: >-
+                Maximum self-fix behavior for this policy. Defaults to disabled;
+                branch_commit commits directly to the original PR branch, and
+                pull_request opens follow-up PRs. Both modes must be opted into
+                explicitly.
+            preferenceSubject:
+              type: string
+              enum:
+                - pull_request_author
+                - comment_author
+                - sender
+              description: >-
+                Identity used to look up per-subject action preferences when
+                actionPreferences is configured. Defaults to pull_request_author
+                for PR-shaped events and sender otherwise.
+            allowedOperations:
+              type: array
+              description: >-
+                Exact GitHub bot operation allowlist. If omitted, operations are
+                derived from mode. An explicit empty list grants no tools.
+              items:
+                type: string
+                enum:
+                  - bot.getPullRequest
+                  - bot.getRepository
+                  - bot.searchCode
+                  - bot.getContent
+                  - bot.listPullRequestFiles
+                  - bot.listPullRequestReviewThreads
+                  - bot.getCheckRun
+                  - bot.createCheckRun
+                  - bot.updateCheckRun
+                  - bot.listCheckSuiteCheckRuns
+                  - bot.listCheckRunAnnotations
+                  - bot.getWorkflowRun
+                  - bot.listWorkflowRunJobs
+                  - bot.resolveInstallation
+                  - bot.createPullRequestReview
+                  - bot.resolvePullRequestReviewThread
+                  - bot.createPullRequestConversationComment
+                  - bot.createIssueComment
+                  - bot.addReaction
+                  - bot.addLabels
+                  - bot.removeLabels
+                  - bot.requestReviewers
+                  - bot.commitFiles
+                  - bot.openPullRequest
+                  - bot.closePullRequest
+                  - bot.createPullRequest
+  workflow:
+    type: object
+    description: Workflow provider used for GitHub App webhook dispatch.
+    additionalProperties: false
+    properties:
+      provider:
+        type: string
+        minLength: 1
+        description: Workflow provider name that receives GitHub App webhook events.
+    required:
+      - provider
+  actionPreferences:
+    type: object
+    description: >-
+      Optional IndexedDB-backed per-subject action preferences for GitHub webhook
+      policies. When omitted, config-only policy gates are used.
+    additionalProperties: false
+    properties:
+      indexeddb:
+        type: string
+        description: >-
+          Optional named host IndexedDB provider binding used for dynamic
+          preference records. When omitted, the default IndexedDB binding is used.
+      store:
+        type: string
+        pattern: '^[A-Za-z0-9._-]+$'
+        description: >-
+          Provider-owned IndexedDB object store for action preference records.
+          Defaults to a name derived from the provider instance.
+      failureMode:
+        type: string
+        enum:
+          - config_default
+        description: >-
+          Behavior when the preference store cannot be read. config_default logs
+          and falls back to static config gates.
+  ignoreBotSender:
+    type: boolean
+    description: >-
+      Ignore webhook payloads sent by the derived GitHub App bot login.
+      Defaults to true.
+  agent:
+    type: object
+    description: Agent configuration for GitHub App webhook-triggered turns.
+    additionalProperties: false
+    properties:
+      provider:
+        type: string
+        description: Agent provider used for GitHub App webhook-triggered turns.
+      model:
+        type: string
+        description: Agent model used for GitHub App webhook-triggered turns.
+      systemPrompt:
+        type: string
+        description: Additional system prompt appended for GitHub App webhook-triggered turns.
+      modelOptions:
+        type: object
+        description: Provider-specific options for GitHub App webhook-triggered turns.
+        additionalProperties: true
+required:
+  - workflow
+additionalProperties: false
