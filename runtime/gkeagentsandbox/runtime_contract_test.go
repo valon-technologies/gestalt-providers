@@ -318,11 +318,11 @@ func TestRuntimeContractStartClaimStampsFreshLifecycleAndRuntimeMetadata(t *test
 	}()
 
 	session, err := runtime.Start(ctx, startSandboxRequest{
-		Name:       "session-1",
-		AppName: "agent-provider",
-		Namespace:  "runtime-system",
-		Template:   "agent-runtime",
-		Metadata:   map[string]string{"tenant": "dev"},
+		Name:      "session-1",
+		AppName:   "agent-provider",
+		Namespace: "runtime-system",
+		Template:  "agent-runtime",
+		Metadata:  map[string]string{"tenant": "dev"},
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -395,10 +395,10 @@ func TestRuntimeContractRejectsStaleSandboxPodImage(t *testing.T) {
 	}()
 
 	_, err := runtime.Start(ctx, startSandboxRequest{
-		Name:       "session-2",
-		AppName: "agent-provider",
-		Namespace:  "runtime-system",
-		Template:   "agent-runtime",
+		Name:      "session-2",
+		AppName:   "agent-provider",
+		Namespace: "runtime-system",
+		Template:  "agent-runtime",
 	})
 	if err == nil || !strings.Contains(err.Error(), "stale gke agent sandbox runtime session") {
 		t.Fatalf("Start error = %v, want stale runtime session", err)

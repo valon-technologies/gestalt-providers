@@ -63,7 +63,7 @@ type tunnel interface {
 
 type startRuntimeSessionRequest struct {
 	Name             string
-	AppName       string
+	AppName          string
 	Namespace        string
 	Template         string
 	Image            string
@@ -73,7 +73,7 @@ type startRuntimeSessionRequest struct {
 
 type runtimeSession struct {
 	ID             string
-	AppName     string
+	AppName        string
 	Template       string
 	Metadata       map[string]string
 	Handle         runtimeHandle
@@ -98,7 +98,7 @@ type kubernetesRuntime struct {
 	readFile   func(context.Context, runtimeHandle, string) (string, error)
 }
 
-var errPluginAlreadyStarted = errors.New("plugin runtime session already has a running plugin")
+var errPluginAlreadyStarted = errors.New("runtime session already has a running app")
 
 func newKubernetesRuntime(cfg Config) (runtimeBackend, error) {
 	restConfig, err := kubernetesRESTConfig(cfg)
@@ -431,11 +431,11 @@ func (r *kubernetesRuntime) ResolveSession(ctx context.Context, namespace, sessi
 		return runtimeSession{}, fmt.Errorf("kubernetes runtime namespace is required")
 	}
 	if sessionID == "" {
-		return runtimeSession{}, fmt.Errorf("plugin runtime session id is required")
+		return runtimeSession{}, fmt.Errorf("runtime session id is required")
 	}
 	if pod, err := r.core.CoreV1().Pods(namespace).Get(ctx, sessionID, metav1.GetOptions{}); err == nil {
 		if !runtimeObjectMatchesSession(pod.Labels, sessionID) {
-			return runtimeSession{}, fmt.Errorf("plugin runtime session %q not found", sessionID)
+			return runtimeSession{}, fmt.Errorf("runtime session %q not found", sessionID)
 		}
 		return r.sessionFromPod(ctx, pod)
 	} else if !k8serrors.IsNotFound(err) {
@@ -452,10 +452,10 @@ func (r *kubernetesRuntime) ResolveSession(ctx context.Context, namespace, sessi
 		case 1:
 			return r.sessionFromPod(ctx, &pods.Items[0])
 		default:
-			return runtimeSession{}, fmt.Errorf("plugin runtime session %q is ambiguous: %d Kubernetes Pods matched", sessionID, len(pods.Items))
+			return runtimeSession{}, fmt.Errorf("runtime session %q is ambiguous: %d Kubernetes Pods matched", sessionID, len(pods.Items))
 		}
 	}
-	return runtimeSession{}, fmt.Errorf("plugin runtime session %q not found", sessionID)
+	return runtimeSession{}, fmt.Errorf("runtime session %q not found", sessionID)
 }
 
 func (r *kubernetesRuntime) ListSessions(ctx context.Context, namespace string) ([]runtimeSession, error) {
@@ -1034,7 +1034,7 @@ func runtimeSessionFromRuntimeObject(id, appName, template string, metadata map[
 	}
 	out := runtimeSession{
 		ID:            strings.TrimSpace(id),
-		AppName:    strings.TrimSpace(appName),
+		AppName:       strings.TrimSpace(appName),
 		Template:      strings.TrimSpace(template),
 		Metadata:      cloneStringMap(metadata),
 		Handle:        handle,

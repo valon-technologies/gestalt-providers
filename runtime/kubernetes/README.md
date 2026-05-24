@@ -22,8 +22,8 @@ contain the tools needed to launch the provider process.
   `execution.runtime.template` is set.
 - `StartSession` builds a Pod from `podDefaults` when
   `execution.runtime.image` is set without a template.
-- `StartPlugin` injects `GESTALT_PLUGIN_SOCKET=/tmp/gestalt/plugin.sock` and
-  `GESTALT_PLUGIN_NAME`, starts `socat` from `pluginPort` to the Unix socket,
+- `StartApp` injects `GESTALT_PROVIDER_SOCKET=/tmp/gestalt/plugin.sock` and
+  `GESTALT_APP_NAME`, starts `socat` from `appPort` to the Unix socket,
   and launches the requested command/args/env through `pods/exec`.
 - Session state is derived from Pod phase, the Ready condition, the plugin-start
   Lease, and provider-start annotations.
@@ -50,7 +50,7 @@ runtime:
       config:
         namespace: gestalt-runtime
         container: runtime
-        pluginPort: 50051
+        appPort: 50051
         connectionMode: podIP
         sessionReadyTimeout: 3m
         pluginReadyTimeout: 30s
@@ -111,7 +111,7 @@ plugins:
 ## PodTemplate Example
 
 The Pod must become ready before the provider process starts. Do not make the
-readiness probe depend on `pluginPort`; `StartPlugin` performs provider gRPC
+readiness probe depend on `appPort`; `StartApp` performs provider gRPC
 readiness checks after the process is launched.
 
 ```yaml

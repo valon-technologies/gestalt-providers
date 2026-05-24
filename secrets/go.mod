@@ -14,7 +14,7 @@ require (
 	github.com/hashicorp/vault/api v1.23.0
 	github.com/keeper-security/secrets-manager-go/core v1.6.4
 	github.com/valon-technologies/gestalt/sdk/go v0.0.0-00010101000000-000000000000
-	google.golang.org/grpc v1.81.0
+	google.golang.org/grpc v1.81.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -69,7 +69,7 @@ require (
 	github.com/ryanuber/go-glob v1.0.0 // indirect
 	github.com/uber/jaeger-client-go v2.30.0+incompatible // indirect
 	github.com/uber/jaeger-lib v2.4.1+incompatible // indirect
-	github.com/valon-technologies/gestalt v0.0.0-00010101000000-000000000000 // indirect
+	github.com/valon-technologies/gestalt/server/rpc v0.0.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.67.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0 // indirect
@@ -89,8 +89,8 @@ require (
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.43.0 // indirect
-	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	google.golang.org/api v0.275.0 // indirect
 	google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7 // indirect
@@ -101,4 +101,4 @@ require (
 
 replace github.com/valon-technologies/gestalt/sdk/go => ../../gestalt/sdk/go
 
-replace github.com/valon-technologies/gestalt => ../../gestalt
+replace github.com/valon-technologies/gestalt/server/rpc => ../../gestalt/gestaltd/rpc

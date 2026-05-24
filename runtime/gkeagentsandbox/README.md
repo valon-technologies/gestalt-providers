@@ -15,12 +15,12 @@ This is a manifest-driven `kind: runtime` provider implemented against
 GKE Agent Sandbox is a good fit for the `RuntimeProvider` interface when the
 unit of isolation is a Kubernetes sandbox pod. The provider maps one Gestalt
 runtime session to one Agent Sandbox `SandboxClaim` or direct `Sandbox`, starts
-the plugin process already present in the runtime image, and returns a
+the app process already present in the runtime image, and returns a
 `tcp://...` dial target through either Kubernetes port-forwarding or direct
 sandbox service or pod networking for in-cluster `gestaltd` deployments.
 
 It is not a Modal-equivalent hosted process API. The runtime image or template
-must contain the tools required to launch the plugin process.
+must contain the tools required to launch the app process.
 
 ## Provider Contract
 
@@ -33,9 +33,9 @@ must contain the tools required to launch the plugin process.
 - Kubernetes resource names include a provider-instance suffix as well as the
   session counter, so a rolling deploy can start replacement runtime sessions
   while the previous `gestaltd` revision is still draining.
-- `StartPlugin` starts the manifest-derived command with
-  `GESTALT_PLUGIN_SOCKET=/tmp/gestalt/plugin.sock`, bridges that Unix socket to
-  `config.pluginPort` with `socat`, and opens the configured connection back to
+- `StartApp` starts the manifest-derived command with
+  `GESTALT_PROVIDER_SOCKET=/tmp/gestalt/plugin.sock`, bridges that Unix socket to
+  `config.appPort` with `socat`, and opens the configured connection back to
   `gestaltd`.
 - `BindHostService` accepts relay-backed bindings only. This matches the public
   relay path that `gestaltd` uses for hosted runtimes without direct host
@@ -62,7 +62,7 @@ runtime:
       config:
         namespace: gestalt-runtime
         container: runtime
-        pluginPort: 50051
+        appPort: 50051
         connectionMode: portForward
         gke:
           projectID: gitlab-peach-street
@@ -79,7 +79,7 @@ plugins:
     execution:
       mode: hosted
       runtime:
-        template: gestalt-plugin-runtime
+        template: gestalt-app-runtime
 
 providers:
   agent:
@@ -87,7 +87,7 @@ providers:
       execution:
         mode: hosted
         runtime:
-          template: gestalt-plugin-runtime
+          template: gestalt-app-runtime
           pool:
             minReadyInstances: 1
             maxReadyInstances: 2
@@ -152,7 +152,7 @@ The selected template image or direct image must include:
 - the provider package layout and runtime dependencies needed by the command in
   the plugin manifest
 
-For template mode, keep the container alive and ready before `StartPlugin`
+For template mode, keep the container alive and ready before `StartApp`
 runs. The provider launches the plugin later with Kubernetes `exec`; it does
 not expect the container entrypoint to start the plugin by itself.
 
@@ -175,7 +175,7 @@ is not available.
 
 ## Egress
 
-This provider now claims `PLUGIN_RUNTIME_EGRESS_MODE_HOSTNAME` by enforcing
+This provider now claims `RUNTIME_EGRESS_MODE_HOSTNAME` by enforcing
 proxy-only outbound access with a per-session Kubernetes `NetworkPolicy`.
 When `gestaltd` injects `HTTP_PROXY` / `HTTPS_PROXY`, the provider resolves the
 proxy and relay hosts and allows only:
@@ -194,7 +194,7 @@ enforceable for:
   `Unmanaged`
 
 If a template-backed session needs hostname egress and the selected
-`SandboxTemplate` uses managed network policy, `StartPlugin` fails with a clear
+`SandboxTemplate` uses managed network policy, `StartApp` fails with a clear
 precondition error instead of claiming enforcement that the cluster cannot
 provide.
 
@@ -204,7 +204,7 @@ provide.
 apiVersion: extensions.agents.x-k8s.io/v1alpha1
 kind: SandboxTemplate
 metadata:
-  name: gestalt-plugin-runtime
+  name: gestalt-app-runtime
   namespace: gestalt-runtime
 spec:
   networkPolicyManagement: Unmanaged
@@ -215,7 +215,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: runtime
-          image: us-docker.pkg.dev/my-project/gestalt/plugin-runtime:latest
+          image: us-docker.pkg.dev/my-project/gestalt/app-runtime:latest
           command: ["sh", "-c", "sleep 2147483647"]
           ports:
             - name: plugin-grpc

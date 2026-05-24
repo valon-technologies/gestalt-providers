@@ -71,17 +71,17 @@ type tunnel interface {
 var errStaleRuntimeSession = errors.New("stale gke agent sandbox runtime session")
 
 type startSandboxRequest struct {
-	Name       string
-	AppName string
-	Namespace  string
-	Template   string
-	Image      string
-	Metadata   map[string]string
+	Name      string
+	AppName   string
+	Namespace string
+	Template  string
+	Image     string
+	Metadata  map[string]string
 }
 
 type sandboxSession struct {
 	ID             string
-	AppName     string
+	AppName        string
 	Template       string
 	Metadata       map[string]string
 	Handle         sandboxHandle
@@ -513,7 +513,7 @@ func (r *kubernetesSandboxRuntime) ResolveSession(ctx context.Context, namespace
 		return sandboxSession{}, fmt.Errorf("gke agent sandbox namespace is required")
 	}
 	if sessionID == "" {
-		return sandboxSession{}, fmt.Errorf("plugin runtime session id is required")
+		return sandboxSession{}, fmt.Errorf("runtime session id is required")
 	}
 
 	claim, claimErr := r.extensions.ExtensionsV1alpha1().SandboxClaims(namespace).Get(ctx, sessionID, metav1.GetOptions{})
@@ -573,18 +573,18 @@ func (r *kubernetesSandboxRuntime) ResolveSession(ctx context.Context, namespace
 		case 1:
 			return matches[0], nil
 		default:
-			return sandboxSession{}, fmt.Errorf("plugin runtime session %q is ambiguous: %d Kubernetes runtime objects matched", sessionID, len(matches))
+			return sandboxSession{}, fmt.Errorf("runtime session %q is ambiguous: %d Kubernetes runtime objects matched", sessionID, len(matches))
 		}
 	}
 
-	return sandboxSession{}, fmt.Errorf("plugin runtime session %q not found", sessionID)
+	return sandboxSession{}, fmt.Errorf("runtime session %q not found", sessionID)
 }
 
 // errListSessionsStragglerCap is returned when ListSessions is forced to do
 // more straggler GETs (cache misses on referenced Sandboxes) than the cap
 // allows. Hitting the cap suggests a structural fanout regression rather than
 // the natural single-RV race the fallback is meant to absorb.
-var errListSessionsStragglerCap = errors.New("plugin runtime list sessions: straggler cap exceeded")
+var errListSessionsStragglerCap = errors.New("runtime list sessions: straggler cap exceeded")
 
 // listSessionsStragglerCap bounds per-call straggler Get fanout for sessions
 // whose backing Sandbox was missing from the namespace LIST. The natural race
@@ -1002,7 +1002,7 @@ func (r *kubernetesSandboxRuntime) DeleteHostnameEgressPolicy(ctx context.Contex
 	return nil
 }
 
-var errPluginAlreadyStarted = errors.New("plugin runtime session already has a running plugin")
+var errPluginAlreadyStarted = errors.New("runtime session already has a running app")
 
 func (r *kubernetesSandboxRuntime) AcquirePluginStartLease(ctx context.Context, handle sandboxHandle, holder string, ttl time.Duration) error {
 	holder = strings.TrimSpace(holder)
@@ -1746,7 +1746,7 @@ func (r *kubernetesSandboxRuntime) enrichSessionRuntimeMetadataFromCache(ctx con
 
 func (r *kubernetesSandboxRuntime) podRuntimeImage(ctx context.Context, handle sandboxHandle) (string, string, error) {
 	if strings.TrimSpace(handle.PodName) == "" {
-		return "", "", fmt.Errorf("plugin runtime session %q has no backing pod", handle.Name)
+		return "", "", fmt.Errorf("runtime session %q has no backing pod", handle.Name)
 	}
 	pod, err := r.core.CoreV1().Pods(handle.Namespace).Get(ctx, handle.PodName, metav1.GetOptions{})
 	if err != nil {
@@ -1865,7 +1865,7 @@ func sandboxSessionFromRuntimeObject(id, appName, template string, metadata map[
 	}
 	out := sandboxSession{
 		ID:            strings.TrimSpace(id),
-		AppName:    strings.TrimSpace(appName),
+		AppName:       strings.TrimSpace(appName),
 		Template:      strings.TrimSpace(template),
 		Metadata:      cloneStringMap(metadata),
 		Handle:        handle,
