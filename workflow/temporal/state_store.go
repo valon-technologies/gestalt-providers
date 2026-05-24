@@ -80,31 +80,31 @@ func ensureWorkflowStateStores(ctx context.Context, db workflowDB) error {
 	if db == nil {
 		return nil
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalSchedules, temporalScheduleSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalSchedules, temporalScheduleSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow schedule store: %w", err)
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalEventTriggers, temporalEventTriggerSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalEventTriggers, temporalEventTriggerSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow event trigger store: %w", err)
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalEventTriggerKeys, temporalEventTriggerKeySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalEventTriggerKeys, temporalEventTriggerKeySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow event trigger key store: %w", err)
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalDefinitions, temporalDefinitionSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalDefinitions, temporalDefinitionSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow definition store: %w", err)
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalExecutionRefs, temporalExecutionRefSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalExecutionRefs, temporalExecutionRefSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow execution reference store: %w", err)
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalRunProjections, temporalRunProjectionSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalRunProjections, temporalRunProjectionSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow run projection store: %w", err)
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalRunIdempotency, temporalRunIdempotencySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalRunIdempotency, temporalRunIdempotencySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow run idempotency store: %w", err)
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalSignalIdempotency, temporalSignalIdempotencySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalSignalIdempotency, temporalSignalIdempotencySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow signal idempotency store: %w", err)
 	}
-	if err := db.CreateObjectStore(ctx, storeTemporalWorkflowKeys, temporalWorkflowKeySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := db.CreateObjectStore(ctx, storeTemporalWorkflowKeys, temporalWorkflowKeySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow key store: %w", err)
 	}
 	return nil

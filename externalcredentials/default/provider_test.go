@@ -17,6 +17,7 @@ import (
 
 	idbfake "github.com/valon-technologies/gestalt-providers/externalcredentials/default/internal/fake"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -1260,20 +1261,20 @@ func startTestProvider(t *testing.T, provider *Provider, opts testHostServiceOpt
 	defaultDB := idbfake.New()
 	archiveDB := idbfake.New()
 	if opts.seedStore {
-		if err := seedExternalCredentialStoreOnClient(context.Background(), wrapFakeIndexedDB(defaultDB)); err != nil {
+		if err := seedExternalCredentialStoreOnClient(context.Background(), defaultDB); err != nil {
 			t.Fatalf("seedExternalCredentialStoreOnClient: %v", err)
 		}
 	}
-	if err := archiveDB.CreateObjectStore(context.Background(), storeName, externalCredentialSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := archiveDB.CreateObjectStore(context.Background(), storeName, externalCredentialSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		t.Fatalf("CreateObjectStore(archive): %v", err)
 	}
 
 	origIndexedDB := connectIndexedDB
-	connectIndexedDB = func(binding string) (indexedDBClient, error) {
+	connectIndexedDB = func(binding string) (indexeddb.Database, error) {
 		if binding == "archive" {
-			return wrapFakeIndexedDB(archiveDB), nil
+			return archiveDB, nil
 		}
-		return wrapFakeIndexedDB(defaultDB), nil
+		return defaultDB, nil
 	}
 	t.Cleanup(func() { connectIndexedDB = origIndexedDB })
 
@@ -1284,8 +1285,12 @@ func startTestProvider(t *testing.T, provider *Provider, opts testHostServiceOpt
 	t.Cleanup(func() { connectExternalCredentials = origExternalCreds })
 }
 
-func seedExternalCredentialStoreOnClient(ctx context.Context, client indexedDBClient) error {
-	if err := client.CreateObjectStore(ctx, storeName, externalCredentialSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+func wrapProviderExternalCredClient(provider *Provider) externalCredClient {
+	return idbfake.NewProviderExternalCredClient(provider)
+}
+
+func seedExternalCredentialStoreOnClient(ctx context.Context, client indexeddb.Database) error {
+	if _, err := client.CreateObjectStore(ctx, storeName, externalCredentialSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return err
 	}
 	return nil

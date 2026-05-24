@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 )
 
 const (
@@ -20,8 +21,8 @@ const (
 )
 
 type store struct {
-	client      indexedDBClient
-	credentials objectStore
+	client      indexeddb.Database
+	credentials indexeddb.ObjectStore
 	encryptor   *aesgcmEncryptor
 }
 
@@ -49,11 +50,11 @@ func openStore(ctx context.Context, cfg config) (*store, error) {
 	return st, nil
 }
 
-func ensureExternalCredentialStore(ctx context.Context, client indexedDBClient) error {
+func ensureExternalCredentialStore(ctx context.Context, client indexeddb.Database) error {
 	if client == nil {
 		return nil
 	}
-	if err := client.CreateObjectStore(ctx, storeName, externalCredentialSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := client.CreateObjectStore(ctx, storeName, externalCredentialSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create external credential store: %w", err)
 	}
 	return nil

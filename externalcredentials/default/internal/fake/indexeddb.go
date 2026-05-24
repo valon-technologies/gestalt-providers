@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 )
 
 type IndexedDB struct {
@@ -22,18 +23,29 @@ func New() *IndexedDB {
 	return &IndexedDB{stores: make(map[string]*ObjectStore)}
 }
 
-func (db *IndexedDB) CreateObjectStore(_ context.Context, name string, schema gestalt.ObjectStoreSchema) error {
+func (db *IndexedDB) CreateObjectStore(_ context.Context, name string, schema gestalt.ObjectStoreSchema) (indexeddb.ObjectStore, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	if _, ok := db.stores[name]; ok {
-		return gestalt.ErrAlreadyExists
+		return nil, gestalt.ErrAlreadyExists
 	}
 	store := db.storeLocked(name)
 	store.schema = schema
+	return store, nil
+}
+
+func (db *IndexedDB) DeleteObjectStore(_ context.Context, name string) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	delete(db.stores, name)
 	return nil
 }
 
-func (db *IndexedDB) ObjectStore(name string) *ObjectStore {
+func (db *IndexedDB) Transaction(_ context.Context, _ []string, _ indexeddb.TransactionMode, _ indexeddb.TransactionOptions) (indexeddb.Transaction, error) {
+	return nil, indexeddb.ErrUnsupported
+}
+
+func (db *IndexedDB) ObjectStore(name string) indexeddb.ObjectStore {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	return db.storeLocked(name)
@@ -58,6 +70,13 @@ func (s *ObjectStore) Get(_ context.Context, id string) (gestalt.Record, error) 
 	return cloneRecord(record), nil
 }
 
+func (s *ObjectStore) GetKey(_ context.Context, id string) (string, error) {
+	if _, ok := s.records[id]; !ok {
+		return "", gestalt.ErrNotFound
+	}
+	return id, nil
+}
+
 func (s *ObjectStore) Put(_ context.Context, record gestalt.Record) error {
 	s.records[recordID(record)] = cloneRecord(record)
 	return nil
@@ -80,21 +99,54 @@ func (s *ObjectStore) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+func (s *ObjectStore) Clear(_ context.Context) error {
+	s.records = make(map[string]gestalt.Record)
+	return nil
+}
+
 func (s *ObjectStore) GetAll(_ context.Context, _ *gestalt.KeyRange) ([]gestalt.Record, error) {
 	return cloneRecords(s.records), nil
+}
+
+func (s *ObjectStore) GetAllKeys(_ context.Context, _ *gestalt.KeyRange) ([]string, error) {
+	keys := make([]string, 0, len(s.records))
+	for id := range s.records {
+		keys = append(keys, id)
+	}
+	return keys, nil
 }
 
 func (s *ObjectStore) Count(_ context.Context, _ *gestalt.KeyRange) (int64, error) {
 	return int64(len(s.records)), nil
 }
 
-func (s *ObjectStore) Index(name string) Index {
+func (s *ObjectStore) DeleteRange(_ context.Context, _ gestalt.KeyRange) (int64, error) {
+	return 0, indexeddb.ErrUnsupported
+}
+
+func (s *ObjectStore) Index(name string) indexeddb.Index {
 	return Index{store: s, name: name}
+}
+
+func (s *ObjectStore) OpenCursor(_ context.Context, _ *gestalt.KeyRange, _ gestalt.CursorDirection) (indexeddb.Cursor, error) {
+	return nil, indexeddb.ErrUnsupported
+}
+
+func (s *ObjectStore) OpenKeyCursor(_ context.Context, _ *gestalt.KeyRange, _ gestalt.CursorDirection) (indexeddb.Cursor, error) {
+	return nil, indexeddb.ErrUnsupported
 }
 
 type Index struct {
 	store *ObjectStore
 	name  string
+}
+
+func (idx Index) Get(_ context.Context, _ ...any) (gestalt.Record, error) {
+	return nil, indexeddb.ErrUnsupported
+}
+
+func (idx Index) GetKey(_ context.Context, _ ...any) (string, error) {
+	return "", indexeddb.ErrUnsupported
 }
 
 func (idx Index) GetAll(_ context.Context, _ *gestalt.KeyRange, values ...any) ([]gestalt.Record, error) {
@@ -105,6 +157,30 @@ func (idx Index) GetAll(_ context.Context, _ *gestalt.KeyRange, values ...any) (
 		}
 	}
 	return records, nil
+}
+
+func (idx Index) GetAllKeys(_ context.Context, _ *gestalt.KeyRange, _ ...any) ([]string, error) {
+	return nil, indexeddb.ErrUnsupported
+}
+
+func (idx Index) Count(_ context.Context, _ *gestalt.KeyRange, _ ...any) (int64, error) {
+	return 0, indexeddb.ErrUnsupported
+}
+
+func (idx Index) Delete(_ context.Context, _ ...any) (int64, error) {
+	return 0, indexeddb.ErrUnsupported
+}
+
+func (idx Index) DeleteRange(_ context.Context, _ *gestalt.KeyRange, _ ...any) (int64, error) {
+	return 0, indexeddb.ErrUnsupported
+}
+
+func (idx Index) OpenCursor(_ context.Context, _ *gestalt.KeyRange, _ gestalt.CursorDirection, _ ...any) (indexeddb.Cursor, error) {
+	return nil, indexeddb.ErrUnsupported
+}
+
+func (idx Index) OpenKeyCursor(_ context.Context, _ *gestalt.KeyRange, _ gestalt.CursorDirection, _ ...any) (indexeddb.Cursor, error) {
+	return nil, indexeddb.ErrUnsupported
 }
 
 func matchesIndex(record gestalt.Record, schema gestalt.ObjectStoreSchema, indexName string, values []any) bool {

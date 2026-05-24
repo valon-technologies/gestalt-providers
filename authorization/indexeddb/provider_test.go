@@ -9,6 +9,7 @@ import (
 
 	idbfake "github.com/valon-technologies/gestalt-providers/authorization/indexeddb/internal/fake"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -668,17 +669,17 @@ func newProviderSessionWithSeed(t *testing.T, seedStores bool) *providerSession 
 
 	fakeDB := idbfake.New()
 	if seedStores {
-		if err := seedAuthorizationStoresOnClient(context.Background(), wrapFakeIndexedDB(fakeDB)); err != nil {
+		if err := seedAuthorizationStoresOnClient(context.Background(), fakeDB); err != nil {
 			t.Fatalf("seedAuthorizationStoresOnClient: %v", err)
 		}
 	}
 
 	origConnect := connectIndexedDB
-	connectIndexedDB = func(binding string) (indexedDBClient, error) {
+	connectIndexedDB = func(binding string) (indexeddb.Database, error) {
 		if binding != "" && binding != "test" {
 			return nil, fmt.Errorf("unexpected indexeddb binding %q", binding)
 		}
-		return wrapFakeIndexedDB(fakeDB), nil
+		return fakeDB, nil
 	}
 	t.Cleanup(func() { connectIndexedDB = origConnect })
 
@@ -698,7 +699,7 @@ func newProviderSessionWithSeed(t *testing.T, seedStores bool) *providerSession 
 	return session
 }
 
-func seedAuthorizationStoresOnClient(ctx context.Context, client indexedDBClient) error {
+func seedAuthorizationStoresOnClient(ctx context.Context, client indexeddb.Database) error {
 	for _, def := range []struct {
 		name   string
 		schema gestalt.ObjectStoreSchema
@@ -707,7 +708,7 @@ func seedAuthorizationStoresOnClient(ctx context.Context, client indexedDBClient
 		{name: modelsStoreName, schema: gestalt.ObjectStoreSchema{}},
 		{name: relationsStoreName, schema: authorizationRelationshipsSchema()},
 	} {
-		if err := client.CreateObjectStore(ctx, def.name, def.schema); err != nil {
+		if _, err := client.CreateObjectStore(ctx, def.name, def.schema); err != nil {
 			return err
 		}
 	}
