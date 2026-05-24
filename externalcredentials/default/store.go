@@ -26,19 +26,16 @@ type store struct {
 	encryptor   *aesgcmEncryptor
 }
 
-func openStore(ctx context.Context, cfg config) (*store, error) {
-	client, err := connectIndexedDB(cfg.IndexedDB)
-	if err != nil {
-		return nil, fmt.Errorf("connect indexeddb: %w", err)
+func openStore(ctx context.Context, cfg config, client indexeddb.Database) (*store, error) {
+	if client == nil {
+		return nil, fmt.Errorf("indexeddb database is required")
 	}
 	if err := ensureExternalCredentialStore(ctx, client); err != nil {
-		_ = client.Close()
 		return nil, err
 	}
 
 	encryptor, err := newEncryptorFromConfig(cfg.EncryptionKey)
 	if err != nil {
-		_ = client.Close()
 		return nil, fmt.Errorf("build encryptor: %w", err)
 	}
 
