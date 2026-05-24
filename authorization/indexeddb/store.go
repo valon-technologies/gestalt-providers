@@ -44,17 +44,11 @@ type storedModel struct {
 	compiled *compiledModel
 }
 
-func openStore(ctx context.Context, cfg config) (*store, error) {
-	client, err := connectIndexedDB(cfg.IndexedDB)
-	if err != nil {
-		return nil, fmt.Errorf("connect indexeddb: %w", err)
+func openStore(ctx context.Context, client indexeddb.Database) (*store, error) {
+	if client == nil {
+		return nil, fmt.Errorf("indexeddb database is required")
 	}
-	return openStoreWithConn(ctx, client)
-}
-
-func openStoreWithConn(ctx context.Context, client indexeddb.Database) (*store, error) {
 	if err := ensureAuthorizationStores(ctx, client); err != nil {
-		_ = client.Close()
 		return nil, err
 	}
 

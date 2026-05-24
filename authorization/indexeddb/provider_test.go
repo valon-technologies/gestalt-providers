@@ -2,7 +2,6 @@ package indexeddb
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -674,15 +673,6 @@ func newProviderSessionWithSeed(t *testing.T, seedStores bool) *providerSession 
 		}
 	}
 
-	origConnect := connectIndexedDB
-	connectIndexedDB = func(binding string) (indexeddb.Database, error) {
-		if binding != "" && binding != "test" {
-			return nil, fmt.Errorf("unexpected indexeddb binding %q", binding)
-		}
-		return fakeDB, nil
-	}
-	t.Cleanup(func() { connectIndexedDB = origConnect })
-
 	authzProvider := New()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 
@@ -717,9 +707,19 @@ func seedAuthorizationStoresOnClient(ctx context.Context, client indexeddb.Datab
 
 func (s *providerSession) configure(t *testing.T, config map[string]any) {
 	t.Helper()
-	if err := s.provider.Configure(s.ctx, "authz-indexeddb", config); err != nil {
+
+	cfg, err := decodeConfig(config)
+	if err != nil {
 		t.Fatalf("ConfigureProvider: %v", err)
 	}
+	if cfg.IndexedDB != "" && cfg.IndexedDB != "test" {
+		t.Fatalf("ConfigureProvider: unexpected indexeddb binding %q", cfg.IndexedDB)
+	}
+	st, err := openStore(s.ctx, s.idb)
+	if err != nil {
+		t.Fatalf("ConfigureProvider: %v", err)
+	}
+	s.provider.configureStore(cfg, st)
 }
 
 func resourceIDs(resources []*gestalt.AuthorizationResource) []string {
