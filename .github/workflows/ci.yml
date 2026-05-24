@@ -49,7 +49,7 @@ permissions:
 
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
-  GESTALT_REF: main
+  GESTALT_REF_FILE: .github/gestalt-ref
   VALIDATION_VERSION: 0.0.1-alpha.1
 
 jobs:
@@ -58,6 +58,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
@@ -70,6 +72,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$GOBIN"
           echo "$GOBIN" >> "$GITHUB_PATH"
+          GESTALT_REF="$(cat "$GESTALT_REF_FILE")"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
           .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "$GESTALT_REF"
           (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
@@ -81,14 +84,15 @@ jobs:
   discover:
     runs-on: ubuntu-latest
     outputs:
-      apps: ${{ steps.discover.outputs.apps }}
+      plugins: ${{ steps.discover.outputs.plugins }}
       count: ${{ steps.discover.outputs.count }}
       scope: ${{ steps.discover.outputs.scope }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
-      - name: Discover apps to validate
+      - name: Discover plugins to validate
         id: discover
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -105,7 +109,7 @@ jobs:
 
           repo = Path(".")
           package_roots = ("agent", "runtime", "app", "auth", "authorization", "externalcredentials", "s3", "indexeddb", "workflow", "cache", "secrets")
-          all_apps = []
+          all_plugins = []
           for root_name in package_roots:
               root = repo / root_name
               if not root.is_dir():
@@ -122,7 +126,7 @@ jobs:
                           package_data = {}
                       provider = (package_data.get("gestalt") or {}).get("provider")
                       has_typescript = bool(provider)
-                  all_apps.append(
+                  all_plugins.append(
                       {
                           "dir": str(package_dir.as_posix()),
                           "name": f"{root_name}/{package_dir.name}",
@@ -134,8 +138,8 @@ jobs:
                       }
                   )
           packages_by_root = {}
-          for app in all_apps:
-              packages_by_root.setdefault(app["root"], set()).add(app["dir"])
+          for plugin in all_plugins:
+              packages_by_root.setdefault(plugin["root"], set()).add(plugin["dir"])
           shared_prefixes = (".github/scripts/",)
 
           event_name = os.environ["EVENT_NAME"]
@@ -180,15 +184,15 @@ jobs:
                           selected.add(package_dir.as_posix())
 
           if run_all:
-              apps = all_apps
+              plugins = all_plugins
           else:
-              apps = [app for app in all_apps if app["dir"] in selected]
+              plugins = [plugin for plugin in all_plugins if plugin["dir"] in selected]
 
           print(
               json.dumps(
                   {
-                      "apps": apps,
-                      "count": len(apps),
+                      "plugins": plugins,
+                      "count": len(plugins),
                       "scope": "all" if run_all else "changed",
                   }
               )
@@ -196,21 +200,21 @@ jobs:
           PY
           )"
 
-          apps_json="$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.stdin.read())["apps"]))' <<<"$discovery_output")"
+          plugins_json="$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.stdin.read())["plugins"]))' <<<"$discovery_output")"
           count="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["count"])' <<<"$discovery_output")"
           scope="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read())["scope"])' <<<"$discovery_output")"
 
           {
-            echo "apps<<EOF"
-            echo "$apps_json"
+            echo "plugins<<EOF"
+            echo "$plugins_json"
             echo "EOF"
             echo "count=$count"
             echo "scope=$scope"
           } >> "$GITHUB_OUTPUT"
 
           echo "validation scope: $scope"
-          echo "app count: $count"
-          echo "apps: $apps_json"
+          echo "plugin count: $count"
+          echo "plugins: $plugins_json"
 
   build-gestaltd:
     needs: discover
@@ -219,6 +223,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
@@ -229,6 +235,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$GOBIN"
           echo "$GOBIN" >> "$GITHUB_PATH"
+          GESTALT_REF="$(cat "$GESTALT_REF_FILE")"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
           .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "$GESTALT_REF"
           (cd "$toolchain_dir/gestaltd" && go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
@@ -249,35 +256,38 @@ jobs:
       fail-fast: false
       max-parallel: 6
       matrix:
-        app: ${{ fromJson(needs.discover.outputs.apps) }}
-    name: Validate ${{ matrix.app.name }}
+        plugin: ${{ fromJson(needs.discover.outputs.plugins) }}
+    name: Validate ${{ matrix.plugin.name }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
-        if: matrix.app.has_python
+        if: matrix.plugin.has_python
       - uses: dtolnay/rust-toolchain@1.88.0
-        if: matrix.app.has_rust
+        if: matrix.plugin.has_rust
       - name: Install Rust release target
-        if: matrix.app.has_rust
+        if: matrix.plugin.has_rust
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
           rustup target add "$(uname -m)-unknown-linux-musl"
       - uses: actions/setup-go@v5
-        if: matrix.app.has_go
+        if: matrix.plugin.has_go
         with:
           go-version: '1.26'
       - uses: oven-sh/setup-bun@v2
-        if: matrix.app.has_typescript
+        if: matrix.plugin.has_typescript
         with:
           token: ${{ github.token }}
       - name: Install Python
-        if: matrix.app.has_python
+        if: matrix.plugin.has_python
         run: uv python install 3.13 3.14
       - name: Prepare sibling Gestalt checkout for local SDK validation
-        if: matrix.app.has_go || matrix.app.has_python || matrix.app.has_typescript
+        if: matrix.plugin.has_go || matrix.plugin.has_python || matrix.plugin.has_typescript
         run: |
           set -euo pipefail
+          GESTALT_REF="$(cat "$GESTALT_REF_FILE")"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
           .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "$GESTALT_REF"
           echo "GESTALT_CHECKOUT=$toolchain_dir" >> "$GITHUB_ENV"
@@ -290,70 +300,66 @@ jobs:
         run: |
           chmod +x "${RUNNER_TEMP}/bin/gestaltd"
           echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
-      - name: Validate app
+      - name: Install script dependencies
+        run: python3 -m pip install -r .github/scripts/provider_registry_requirements.txt
+      - name: Validate plugin
         env:
           OUTPUT_ROOT: ${{ runner.temp }}/dist
         run: |
           set -euo pipefail
-          app_dir="${{ matrix.app.dir }}"
-          app_name="${{ matrix.app.name }}"
+          plugin_dir="${{ matrix.plugin.dir }}"
+          plugin_name="${{ matrix.plugin.name }}"
 
           mkdir -p "$OUTPUT_ROOT"
 
-          if [ "${{ matrix.app.has_go }}" = "true" ]; then
-            case "$app_dir" in
+          if [ "${{ matrix.plugin.has_go }}" = "true" ]; then
+            case "$plugin_dir" in
               indexeddb/*)
-                . .github/scripts/setup_go_indexeddb_test_env.sh "$app_dir"
+                . .github/scripts/setup_go_indexeddb_test_env.sh "$plugin_dir"
                 ;;
             esac
-            case "$app_dir" in
+            case "$plugin_dir" in
               cache/*)
-                . .github/scripts/setup_go_cache_test_env.sh "$app_dir"
+                . .github/scripts/setup_go_cache_test_env.sh "$plugin_dir"
                 ;;
             esac
-            (cd "$app_dir" && go test ./...)
+            (cd "$plugin_dir" && go test ./...)
           fi
 
-          if [ "${{ matrix.app.has_rust }}" = "true" ]; then
-            . .github/scripts/setup_rust_datastore_test_env.sh "$app_dir"
-            (cd "$app_dir" && cargo test)
+          if [ "${{ matrix.plugin.has_rust }}" = "true" ]; then
+            . .github/scripts/setup_rust_datastore_test_env.sh "$plugin_dir"
+            (cd "$plugin_dir" && cargo test)
           fi
 
-          if [ -f "${app_dir}/pyproject.toml" ]; then
-            python3 .github/scripts/validate_python_app.py "$app_dir"
+          if [ -f "${plugin_dir}/pyproject.toml" ]; then
+            python3 .github/scripts/validate_python_app.py "$plugin_dir"
           fi
 
-          if [ "${{ matrix.app.has_typescript }}" = "true" ]; then
+          if [ "${{ matrix.plugin.has_typescript }}" = "true" ]; then
             (cd "${GESTALT_CHECKOUT}/sdk/typescript" && bun install --frozen-lockfile)
-            (cd "$app_dir" && bun install --frozen-lockfile)
-            rm -rf "${app_dir}/node_modules/@valon-technologies/gestalt"
-            mkdir -p "${app_dir}/node_modules/@valon-technologies"
-            ln -s "${GESTALT_CHECKOUT}/sdk/typescript" "${app_dir}/node_modules/@valon-technologies/gestalt"
-            (cd "$app_dir" && bun run check)
+            (cd "$plugin_dir" && bun install --frozen-lockfile)
+            rm -rf "${plugin_dir}/node_modules/@valon-technologies/gestalt"
+            mkdir -p "${plugin_dir}/node_modules/@valon-technologies"
+            ln -s "${GESTALT_CHECKOUT}/sdk/typescript" "${plugin_dir}/node_modules/@valon-technologies/gestalt"
+            (cd "$plugin_dir" && bun run check)
           fi
 
-          rm -rf "${OUTPUT_ROOT:?}/${app_name}"
-          mkdir -p "${OUTPUT_ROOT}/${app_name}"
-          (cd "$app_dir" && gestaltd provider package --version "${VALIDATION_VERSION}" --output "${OUTPUT_ROOT}/${app_name}")
-          gestaltd provider release --dist-dir "${OUTPUT_ROOT}/${app_name}" --version "${VALIDATION_VERSION}"
+          rm -rf "${OUTPUT_ROOT:?}/${plugin_name}"
+          mkdir -p "${OUTPUT_ROOT}/${plugin_name}"
+          (cd "$plugin_dir" && gestaltd provider package --version "${VALIDATION_VERSION}" --output "${OUTPUT_ROOT}/${plugin_name}")
+          gestaltd provider release --dist-dir "${OUTPUT_ROOT}/${plugin_name}" --version "${VALIDATION_VERSION}"
 
-          if [ ! -f "${OUTPUT_ROOT}/${app_name}/provider-release.yaml" ]; then
-            echo "ERROR: ${app_name} did not produce provider-release.yaml"
+          if [ ! -f "${OUTPUT_ROOT}/${plugin_name}/provider-release.yaml" ]; then
+            echo "ERROR: ${plugin_name} did not produce provider-release.yaml"
+            exit 1
+          fi
+          if [ ! -f "${OUTPUT_ROOT}/${plugin_name}/checksums.txt" ]; then
+            echo "ERROR: ${plugin_name} did not produce checksums.txt"
             exit 1
           fi
 
-          python3 .github/scripts/write_provider_release_metadata.py \
-            --manifest "${app_dir}/manifest.yaml" \
-            --output-dir "${OUTPUT_ROOT}/${app_name}" \
-            --version "${VALIDATION_VERSION}" \
-            --metadata-path "${OUTPUT_ROOT}/${app_name}/provider-release.generated.yaml"
-
-          if ! find "${OUTPUT_ROOT}/${app_name}" -mindepth 1 -maxdepth 1 -type f | grep -q .; then
-            echo "ERROR: ${app_name} produced no packaged artifacts"
-            exit 1
-          fi
-          if [ ! -f "${OUTPUT_ROOT}/${app_name}/provider-release.generated.yaml" ]; then
-            echo "ERROR: ${app_name} did not regenerate provider-release metadata"
+          if ! find "${OUTPUT_ROOT}/${plugin_name}" -mindepth 1 -maxdepth 1 -type f | grep -q .; then
+            echo "ERROR: ${plugin_name} produced no packaged artifacts"
             exit 1
           fi
 
@@ -366,6 +372,8 @@ jobs:
         working-directory: ui/default
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -384,6 +392,8 @@ jobs:
         working-directory: ui/default
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -408,6 +418,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
@@ -417,6 +429,7 @@ jobs:
       - name: Build gestaltd and UI
         run: |
           set -euo pipefail
+          GESTALT_REF="$(cat "$GESTALT_REF_FILE")"
           gestalt_dir="${GITHUB_WORKSPACE}/../gestalt"
           .github/scripts/checkout_gestalt_ref.sh "$gestalt_dir" "$GESTALT_REF"
 
@@ -450,6 +463,7 @@ jobs:
               secrets: secrets
               indexeddb: main
               externalCredentials: default
+          apps: {}
           providers:
             indexeddb:
               main:
