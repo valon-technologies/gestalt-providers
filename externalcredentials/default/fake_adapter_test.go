@@ -66,3 +66,13 @@ type fakeIndex struct {
 func (idx fakeIndex) GetAll(ctx context.Context, r *gestalt.KeyRange, values ...any) ([]gestalt.Record, error) {
 	return idx.idx.GetAll(ctx, r, values...)
 }
+
+func wrapProviderExternalCredClient(provider *Provider) externalCredClient {
+	return externalCredClientAdapter{
+		ProviderExternalCredClient: idbfake.NewProviderExternalCredClient(provider),
+	}
+}
+
+type externalCredClientAdapter struct {
+	idbfake.ProviderExternalCredClient
+}

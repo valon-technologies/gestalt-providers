@@ -2532,7 +2532,7 @@ func startTestIndexedDBBackend(t *testing.T) {
 
 	prev := connectIndexedDB
 	connectIndexedDB = func() (workflowDB, error) {
-		return providerWorkflowDB{provider: store}, nil
+		return wrapProviderWorkflowDB(store), nil
 	}
 	t.Cleanup(func() { connectIndexedDB = prev })
 }

@@ -3779,7 +3779,7 @@ func startTestIndexedDBBackendWithWrapper(t *testing.T, wrap func(gestalt.Indexe
 	}
 	prev := connectIndexedDB
 	connectIndexedDB = func() (workflowDB, error) {
-		return providerWorkflowDB{provider: indexedDBServer}, nil
+		return wrapProviderWorkflowDB(indexedDBServer), nil
 	}
 	t.Cleanup(func() {
 		connectIndexedDB = prev

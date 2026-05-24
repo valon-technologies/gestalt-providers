@@ -1279,7 +1279,7 @@ func startTestProvider(t *testing.T, provider *Provider, opts testHostServiceOpt
 
 	origExternalCreds := connectExternalCredentials
 	connectExternalCredentials = func() (externalCredClient, error) {
-		return providerCredClient{provider: provider}, nil
+		return wrapProviderExternalCredClient(provider), nil
 	}
 	t.Cleanup(func() { connectExternalCredentials = origExternalCreds })
 }

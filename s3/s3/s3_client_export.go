@@ -5,5 +5,5 @@ type S3Client = s3Client
 
 // ConnectS3ForTest returns a client backed directly by the configured provider.
 func ConnectS3ForTest(provider *Provider) (S3Client, error) {
-	return connectS3(provider)
+	return wrapProviderS3Client(provider), nil
 }
