@@ -1166,6 +1166,18 @@ components:
                 type: integer
               total:
                 type: boolean
+              sort:
+                type: object
+                properties:
+                  aggregation:
+                    type: string
+                  metric:
+                    type: string
+                  order:
+                    type: string
+                    enum: ["asc", "desc"]
+                  type:
+                    type: string
         options:
           type: object
           properties:

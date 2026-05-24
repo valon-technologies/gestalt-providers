@@ -75,6 +75,15 @@ gestalt invoke datadog create_user_invitations \
 gestalt invoke datadog get_user_invitation -p user_invitation_uuid=<UUID>
 ```
 
+Sorted RUM aggregation:
+
+```bash
+gestalt invoke datadog aggregate_rum_events --format json \
+  -p 'filter:={"query":"env:prod service:web @type:view","from":"now-30d","to":"now"}' \
+  -p 'compute:=[{"aggregation":"pc75","metric":"@view.largest_contentful_paint"}]' \
+  -p 'group_by:=[{"facet":"@view.name","limit":10,"sort":{"aggregation":"pc75","metric":"@view.largest_contentful_paint","order":"desc","type":"measure"}},{"facet":"@context.context.owner","limit":10}]'
+```
+
 ## Configuration Reference
 
 Use this provider from a Gestalt configuration entry like:
@@ -90,7 +99,7 @@ This provider does not define provider-level config fields in its config schema.
 
 Connections and authentication:
 
-- `default` uses manual credentials; mode `user`.
+- `default` uses manual credentials.
   - Configure the Datadog API key as `DD-API-KEY`.
   - Configure the Datadog application key as `DD-APPLICATION-KEY`.
 
@@ -112,13 +121,13 @@ Representative operations include:
 
 ## Usage Examples
 
-Grant another provider or workflow permission to invoke this plugin before calling it:
+Grant another provider or workflow permission to invoke this app before calling it:
 
 ```yaml
 apps:
   example_consumer:
     invokes:
-      - plugin: datadog
+      - app: datadog
         operation: list_monitors
 ```
 
