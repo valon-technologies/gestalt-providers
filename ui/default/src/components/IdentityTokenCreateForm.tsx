@@ -108,7 +108,7 @@ export default function IdentityTokenCreateForm({
           <fieldset>
             <legend className="label-text">Token access</legend>
             <p className="mt-2 text-sm text-faint">
-              Token limits only narrow what this API key can use. Plugin grants and connector credentials stay on the managed identity.
+              Token limits only narrow what this API key can use. App grants and connector credentials stay on the managed identity.
             </p>
             <div className="mt-3 space-y-3">
               <label className="flex items-start gap-3 rounded-md border border-alpha bg-base-50 p-4 text-sm text-muted dark:bg-surface-raised">
@@ -126,7 +126,7 @@ export default function IdentityTokenCreateForm({
                 <span>
                   <span className="block font-medium text-primary">All authorized access</span>
                   <span className="mt-1 block text-faint">
-                    The token follows managed identity plugin authorization and connector credentials at use time.
+                    The token follows managed identity app authorization and connector credentials at use time.
                   </span>
                 </span>
               </label>
@@ -146,7 +146,7 @@ export default function IdentityTokenCreateForm({
                 <span>
                   <span className="block font-medium text-primary">Restrict this token</span>
                   <span className="mt-1 block text-faint">
-                    Limit this API key to selected plugins or operations.
+                    Limit this API key to selected apps or operations.
                   </span>
                 </span>
               </label>
@@ -158,7 +158,7 @@ export default function IdentityTokenCreateForm({
               <p className="label-text">Token limits</p>
               {grants.length === 0 ? (
                 <p className="mt-2 text-sm text-faint">
-                  This identity has no visible plugin grants to choose from. Use all authorized access or add a plugin grant first.
+                  This identity has no visible app grants to choose from. Use all authorized access or add an app grant first.
                 </p>
               ) : (
                 <div className="mt-3 space-y-4">
@@ -197,7 +197,7 @@ export default function IdentityTokenCreateForm({
                             className={`mt-2 w-full ${INPUT_CLASSES}`}
                           />
                           <p className="mt-2 text-xs text-faint">
-                            Enter operation names for operation-level limits, or check all authorized operations for this plugin.
+                            Enter operation names for operation-level limits, or check all authorized operations for this app.
                           </p>
                         </div>
                       </div>

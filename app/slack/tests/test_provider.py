@@ -128,8 +128,7 @@ def request_json(request: urllib.request.Request) -> dict[str, Any]:
 
 def tool_ref_pairs(refs: Any) -> list[tuple[str, str]]:
     return [
-        (str(getattr(ref, "system", "") or ref.app), str(ref.operation))
-        for ref in refs
+        (str(getattr(ref, "system", "") or ref.app), str(ref.operation)) for ref in refs
     ]
 
 
@@ -223,20 +222,24 @@ class WorkflowAgentView:
             WorkflowMessageView(message)
             for message in (getattr(agent, "messages", None) or [])
         ]
-        self.tool_refs = getattr(agent, "tool_refs", None) or getattr(
-            agent, "tools", None
-        ) or []
+        self.tool_refs = (
+            getattr(agent, "tool_refs", None) or getattr(agent, "tools", None) or []
+        )
         self.response_schema: Any = getattr(agent, "response_schema", None)
         self.when: Any = workflow_when_view(getattr(step, "when", None))
         self.timeout_seconds = getattr(step, "timeout_seconds", 0) or getattr(
             agent, "timeout_seconds", 0
         )
-        self.metadata = getattr(step, "metadata", None) or getattr(
-            agent, "metadata", None
-        ) or new_struct()
-        self.model_options = getattr(agent, "model_options", None) or getattr(
-            agent, "provider_options", None
-        ) or new_struct()
+        self.metadata = (
+            getattr(step, "metadata", None)
+            or getattr(agent, "metadata", None)
+            or new_struct()
+        )
+        self.model_options = (
+            getattr(agent, "model_options", None)
+            or getattr(agent, "provider_options", None)
+            or new_struct()
+        )
         self.provider_options = self.model_options
         self.reply_delivery: Any = (
             workflow_app_delivery_for_agent(
@@ -267,7 +270,9 @@ def workflow_target_agent(target: Any) -> WorkflowAgentView:
             compute_deliveries=False,
         )
     for step in agent_steps:
-        return WorkflowAgentView(step, getattr(step, "agent"), steps, include_steps=True)
+        return WorkflowAgentView(
+            step, getattr(step, "agent"), steps, include_steps=True
+        )
     raise AssertionError("workflow target has no agent step")
 
 
@@ -476,6 +481,7 @@ class FakeAuthorization:
             if not subject_type or str(subject.type or "").strip() == subject_type
         ]
         return types.SimpleNamespace(subjects=subjects)
+
 
 def _native_subject(subject: Any) -> Any:
     properties = getattr(subject, "properties", None)
@@ -698,17 +704,17 @@ class SlackProviderTests(unittest.TestCase):
 
     def test_agent_tools_reject_non_exact_or_runtime_policy_fields(self) -> None:
         invalid_tools = [
-            {"plugin": "*", "operation": ""},
-            {"plugin": "linear", "operation": ""},
-            {"plugin": "system", "operation": "shell"},
+            {"app": "*", "operation": ""},
+            {"app": "linear", "operation": ""},
+            {"app": "system", "operation": "shell"},
             {"system": "shell", "operation": "run"},
             {"system": "workflow", "operation": ""},
-            {"system": "workflow", "operation": "schedules.create", "plugin": "linear"},
-            {"plugin": "linear", "operation": "searchIssues", "credentialMode": "none"},
-            {"plugin": "linear", "operation": "searchIssues", "runAs": "user"},
-            {"plugin": "linear", "operation": "searchIssues", "runAs": {}},
+            {"system": "workflow", "operation": "schedules.create", "app": "linear"},
+            {"app": "linear", "operation": "searchIssues", "credentialMode": "none"},
+            {"app": "linear", "operation": "searchIssues", "runAs": "user"},
+            {"app": "linear", "operation": "searchIssues", "runAs": {}},
             {
-                "plugin": "linear",
+                "app": "linear",
                 "operation": "searchIssues",
                 "runAs": {
                     "subject": {"id": "service_account:linear"},
@@ -723,11 +729,11 @@ class SlackProviderTests(unittest.TestCase):
                 },
             },
             {
-                "plugin": "linear",
+                "app": "linear",
                 "operation": "searchIssues",
                 "inputBindings": [],
             },
-            {"plugin": "linear", "operation": "searchIssues", "system": True},
+            {"app": "linear", "operation": "searchIssues", "system": True},
         ]
 
         for tool in invalid_tools:
@@ -1154,14 +1160,14 @@ class SlackProviderTests(unittest.TestCase):
                     "provider": "simple",
                     "model": "deep",
                     "toolSets": {
-                        "triage": [{"plugin": "linear", "operation": "searchIssues"}],
+                        "triage": [{"app": "linear", "operation": "searchIssues"}],
                     },
                     "routes": [
                         {
                             "id": "stepped",
                             "match": {"channel": "C_STEPS"},
                             "agent": {
-                                "tools": [{"plugin": "jira", "operation": "search"}],
+                                "tools": [{"app": "jira", "operation": "search"}],
                                 "steps": [
                                     {
                                         "id": "collect",
@@ -1179,7 +1185,7 @@ class SlackProviderTests(unittest.TestCase):
                                         "toolSetRefs": ["triage"],
                                         "tools": [
                                             {
-                                                "plugin": "github",
+                                                "app": "github",
                                                 "operation": "pulls/list",
                                             }
                                         ],
@@ -1340,7 +1346,7 @@ class SlackProviderTests(unittest.TestCase):
                             "agent": {
                                 "tools": [
                                     {
-                                        "plugin": "linear",
+                                        "app": "linear",
                                         "operation": "searchIssues",
                                         "runAs": "user",
                                     }
@@ -1355,7 +1361,7 @@ class SlackProviderTests(unittest.TestCase):
                     "toolSets": {
                         "unsafe": [
                             {
-                                "plugin": "linear",
+                                "app": "linear",
                                 "operation": "searchIssues",
                                 "credentialMode": "none",
                             }
@@ -2104,7 +2110,9 @@ class SlackProviderTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(
+            operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"}
+        )
         self.assertEqual(workflow_manager.signal_or_start_requests, [])
 
     def test_app_mention_route_keeps_requester_subject_in_run_as_channel(self) -> None:
@@ -2361,14 +2369,14 @@ class SlackProviderTests(unittest.TestCase):
                     "modelOptions": {"temperature": 0},
                     "tools": [
                         {
-                            "plugin": "linear",
+                            "app": "linear",
                             "operation": "searchIssues",
                             "connection": "default",
                             "instance": "main",
                             "title": "Search Linear issues",
                             "description": "Find Linear issues relevant to the Slack request.",
                         },
-                        {"plugin": "statusPage", "operation": "status"},
+                        {"app": "statusPage", "operation": "status"},
                         {"system": "workflow", "operation": "definitions.create"},
                         {"system": "workflow", "operation": "schedules.create"},
                     ],
@@ -2494,7 +2502,9 @@ class SlackProviderTests(unittest.TestCase):
             agent_target.session_ready_reply_delivery.target.operation,
             "events.replySessionStarted",
         )
-        self.assertEqual(agent_target.session_ready_reply_delivery.credential_mode, "none")
+        self.assertEqual(
+            agent_target.session_ready_reply_delivery.credential_mode, "none"
+        )
         self.assertEqual(
             app_delivery_bindings(agent_target.session_ready_reply_delivery),
             {
@@ -2673,6 +2683,7 @@ class SlackProviderTests(unittest.TestCase):
                     },
                 ]
             )
+
         with (
             mock.patch.object(
                 gestalt.Request,
@@ -2813,6 +2824,7 @@ class SlackProviderTests(unittest.TestCase):
             parsed = urllib.parse.urlsplit(request.full_url)
             self.assertEqual(parsed.path, "/api/conversations.replies")
             return FakeHTTPResponse('{"ok": false, "error": "channel_not_found"}')
+
         with (
             mock.patch.object(
                 gestalt.Request,
@@ -2900,6 +2912,7 @@ class SlackProviderTests(unittest.TestCase):
                 has_more=True,
                 next_cursor="next-page",
             )
+
         with (
             mock.patch.object(
                 gestalt.Request,
@@ -3596,6 +3609,7 @@ class SlackProviderTests(unittest.TestCase):
             payload = json.loads(cast(bytes, request.data).decode("utf-8"))
             calls.append((parsed.path, payload))
             return FakeHTTPResponse('{"ok": true}')
+
         with (
             mock.patch.object(
                 gestalt.Request,
@@ -3691,6 +3705,7 @@ class SlackProviderTests(unittest.TestCase):
             calls.append((parsed.path, body))
             sequence.append(("slack", parsed.path))
             return FakeHTTPResponse('{"ok": true}')
+
         with (
             mock.patch.object(
                 gestalt.Request,
@@ -3766,6 +3781,7 @@ class SlackProviderTests(unittest.TestCase):
             parsed = urllib.parse.urlsplit(request.full_url)
             self.assertEqual(parsed.path, "/api/reactions.add")
             return FakeHTTPResponse('{"ok": false, "error": "already_reacted"}')
+
         with (
             mock.patch.object(
                 gestalt.Request,
@@ -4402,7 +4418,10 @@ class SlackProviderTests(unittest.TestCase):
 
         self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(operation_body(response)["workflow_run_id"], "run-123")
-        self.assertEqual(operation_body(response)["workflow_key"], "slack:T123:C789:1712161829.000300")
+        self.assertEqual(
+            operation_body(response)["workflow_key"],
+            "slack:T123:C789:1712161829.000300",
+        )
         self.assertEqual(operation_body(response)["action_id"], "approve")
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         workflow_request = workflow_manager.signal_or_start_requests[0]
@@ -4941,7 +4960,7 @@ class SlackProviderTests(unittest.TestCase):
                     "systemPrompt": "Follow the global Slack policy.",
                     "modelOptions": {"temperature": 0},
                     "tools": [
-                        {"plugin": "linear", "operation": "searchIssues"},
+                        {"app": "linear", "operation": "searchIssues"},
                     ],
                     "routes": [
                         {
@@ -4955,7 +4974,7 @@ class SlackProviderTests(unittest.TestCase):
                                 "modelOptions": {"max_output_tokens": 2000},
                                 "tools": [
                                     {
-                                        "plugin": "statusPage",
+                                        "app": "statusPage",
                                         "operation": "status",
                                     },
                                 ],
@@ -5105,7 +5124,9 @@ class SlackProviderTests(unittest.TestCase):
             )
 
         self.assertEqual(operation_body(response)["ok"], True)
-        self.assertEqual(operation_body(response)["workflow_provider"], "route-provider")
+        self.assertEqual(
+            operation_body(response)["workflow_provider"], "route-provider"
+        )
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         self.assertEqual(
             workflow_manager.signal_or_start_requests[0].provider_name,
@@ -5158,7 +5179,9 @@ class SlackProviderTests(unittest.TestCase):
             )
 
         self.assertEqual(operation_body(response)["ok"], True)
-        self.assertEqual(operation_body(response)["workflow_provider"], "route-provider")
+        self.assertEqual(
+            operation_body(response)["workflow_provider"], "route-provider"
+        )
         self.assertEqual(len(workflow_manager.signal_or_start_requests), 1)
         self.assertEqual(
             workflow_manager.signal_or_start_requests[0].provider_name,
@@ -5369,6 +5392,7 @@ class SlackProviderTests(unittest.TestCase):
                 (parsed.path, json.loads(cast(bytes, request.data).decode("utf-8")))
             )
             return FakeHTTPResponse('{"ok": true}')
+
         with (
             mock.patch.object(
                 gestalt.Request,
@@ -5511,6 +5535,7 @@ class SlackProviderTests(unittest.TestCase):
                 (parsed.path, json.loads(cast(bytes, request.data).decode("utf-8")))
             )
             return FakeHTTPResponse('{"ok": true}')
+
         with (
             mock.patch.object(
                 gestalt.Request,
@@ -5740,18 +5765,18 @@ class SlackProviderTests(unittest.TestCase):
                     "model": "deep",
                     "toolSets": {
                         "shared": [
-                            {"plugin": "deployment", "operation": "status"},
-                            {"plugin": "github", "operation": "search"},
+                            {"app": "deployment", "operation": "status"},
+                            {"app": "github", "operation": "search"},
                         ],
                         "route": [
-                            {"plugin": "notion", "operation": "search"},
-                            {"plugin": "pagerduty", "operation": "createIncident"},
+                            {"app": "notion", "operation": "search"},
+                            {"app": "pagerduty", "operation": "createIncident"},
                         ],
                     },
                     "toolSetRefs": ["shared"],
                     "tools": [
-                        {"plugin": "github", "operation": "search"},
-                        {"plugin": "notion", "operation": "search"},
+                        {"app": "github", "operation": "search"},
+                        {"app": "notion", "operation": "search"},
                     ],
                     "routes": [
                         {
@@ -5761,11 +5786,11 @@ class SlackProviderTests(unittest.TestCase):
                                 "toolSetRefs": ["route"],
                                 "tools": [
                                     {
-                                        "plugin": "pagerduty",
+                                        "app": "pagerduty",
                                         "operation": "createIncident",
                                     },
                                     {
-                                        "plugin": "linear",
+                                        "app": "linear",
                                         "operation": "searchIssues",
                                         "runAs": {
                                             "subject": {
@@ -5863,7 +5888,7 @@ class SlackProviderTests(unittest.TestCase):
                     "provider": "simple",
                     "model": "deep",
                     "tools": [
-                        {"plugin": "slack", "operation": "interactions.request"},
+                        {"app": "slack", "operation": "interactions.request"},
                     ],
                 },
             },
@@ -5951,7 +5976,9 @@ class SlackProviderTests(unittest.TestCase):
             ),
         )
 
-        self.assertEqual(operation_body(response), {"ok": True, "ignored": "unsupported_event_type"})
+        self.assertEqual(
+            operation_body(response), {"ok": True, "ignored": "unsupported_event_type"}
+        )
 
     def test_event_type_route_starts_plain_channel_message_agent(self) -> None:
         provider_module.configure(
@@ -6150,7 +6177,9 @@ class SlackProviderTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(
+            operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"}
+        )
         self.assertEqual(workflow_manager.signal_or_start_requests, [])
 
     def test_event_type_route_thread_reply_filters_channel_messages(self) -> None:
@@ -6193,7 +6222,9 @@ class SlackProviderTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(
+            operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"}
+        )
         self.assertEqual(workflow_manager.signal_or_start_requests, [])
 
         response, workflow_manager = self._handle_event_with_workflow(
@@ -6463,9 +6494,7 @@ class SlackProviderTests(unittest.TestCase):
                 if event_type == "message.app_home":
                     workflow_request = workflow_manager.signal_or_start_requests[0]
                     self.assertEqual(workflow_request.workflow_key, "slack:T123:D_HOME")
-                    signal_payload = sdk_value_to_dict(
-                        workflow_request.signal.payload
-                    )
+                    signal_payload = sdk_value_to_dict(workflow_request.signal.payload)
                     self.assertEqual(signal_payload["slack"]["reply_thread_ts"], "")
                     self.assertEqual(signal_payload["slack"]["addressed_to_bot"], True)
 
@@ -6566,7 +6595,9 @@ class SlackProviderTests(unittest.TestCase):
             ),
         )
 
-        self.assertEqual(operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(
+            operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"}
+        )
 
         provider_module.configure(
             "slack",
@@ -6648,7 +6679,9 @@ class SlackProviderTests(unittest.TestCase):
 
                 response, workflow_manager = self._handle_event_with_workflow(payload)
 
-                self.assertEqual(operation_body(response), {"ok": True, "ignored": "ignored_event"})
+                self.assertEqual(
+                    operation_body(response), {"ok": True, "ignored": "ignored_event"}
+                )
                 self.assertEqual(workflow_manager.signal_or_start_requests, [])
 
     def test_event_type_route_ignores_bot_message_without_bot_match(
@@ -6691,7 +6724,9 @@ class SlackProviderTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(
+            operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"}
+        )
         self.assertEqual(workflow_manager.signal_or_start_requests, [])
 
     def test_event_type_route_can_match_configured_bot_message(
@@ -6897,7 +6932,9 @@ class SlackProviderTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(
+            operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"}
+        )
         self.assertEqual(workflow_manager.signal_or_start_requests, [])
 
     def test_repeated_slack_events_reuse_session_key_but_keep_event_metadata_on_turns(
@@ -7027,7 +7064,9 @@ class SlackProviderTests(unittest.TestCase):
                 ),
             )
 
-        self.assertEqual(operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"})
+        self.assertEqual(
+            operation_body(response), {"ok": True, "ignored": "no_matching_agent_route"}
+        )
         log_text = "\n".join(logs.output)
         self.assertIn("ignored Slack event", log_text)
         self.assertIn("ignored_reason=no_matching_agent_route", log_text)

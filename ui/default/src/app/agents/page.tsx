@@ -185,7 +185,7 @@ export default function AgentsPage() {
         setProvidersError(errorMessage(err, "Failed to load agent providers"));
       });
 
-    withLoadTimeout(getIntegrations(), "Loading plugins")
+    withLoadTimeout(getIntegrations(), "Loading apps")
       .then((value) => {
         if (!active) return;
         setIntegrations(value);
@@ -193,7 +193,7 @@ export default function AgentsPage() {
       })
       .catch((err) => {
         if (!active) return;
-        setIntegrationsError(errorMessage(err, "Failed to load plugins"));
+        setIntegrationsError(errorMessage(err, "Failed to load apps"));
       });
 
     withLoadTimeout(
@@ -452,7 +452,7 @@ export default function AgentsPage() {
     } catch (err) {
       setOperationErrorsByPlugin((current) => ({
         ...current,
-        [normalized]: errorMessage(err, "Failed to load plugin operations"),
+        [normalized]: errorMessage(err, "Failed to load app operations"),
       }));
     } finally {
       setOperationsLoadingByPlugin((current) => ({
@@ -1873,7 +1873,7 @@ function composerToTurnCreate(
     }
     const toolRefs = toolRefsFromForm(composer.tools);
     if (toolRefs.length === 0) {
-      throw new Error("At least one plugin operation is required");
+      throw new Error("At least one app operation is required");
     }
     body.toolSource = "mcp_catalog";
     body.toolRefs = toolRefs;
@@ -1894,7 +1894,7 @@ function toolRefsFromForm(tools: AgentToolForm[]): AgentToolRef[] {
     }))
     .filter((tool) => tool.plugin || tool.operation)
     .map((tool) => {
-      if (!tool.plugin) throw new Error("Tool plugin is required");
+      if (!tool.plugin) throw new Error("Tool app is required");
       if (!tool.operation) throw new Error("Tool operation is required");
       return stripEmpty({
         plugin: tool.plugin,

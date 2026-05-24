@@ -139,7 +139,7 @@ export default function ManagedIdentityDetailView({
         .then((integrations) => ({ integrations, error: null as string | null }))
         .catch((err) => ({
           integrations: [] as Integration[],
-          error: err instanceof Error ? err.message : "Failed to load plugin connections",
+          error: err instanceof Error ? err.message : "Failed to load app connections",
         }));
       const [
         nextIdentity,
@@ -476,9 +476,9 @@ export default function ManagedIdentityDetailView({
 
           <section className={SECTION_CARD}>
             <span className="label-text">Authorization</span>
-            <h2 className="mt-2 text-lg font-heading font-bold text-primary">Identity Plugin Access</h2>
+            <h2 className="mt-2 text-lg font-heading font-bold text-primary">Identity App Access</h2>
             <p className="mt-2 text-sm text-muted">
-              Grants are identity-level roles for plugins that enforce authorization. API keys do not create these grants; they only authenticate as this identity.
+              Grants are identity-level roles for apps that enforce authorization. API keys do not create these grants; they only authenticate as this identity.
             </p>
             {canAdmin ? (
               <form
@@ -490,14 +490,14 @@ export default function ManagedIdentityDetailView({
               >
                 <div className="flex-1">
                   <label htmlFor="grant-plugin" className="label-text block">
-                    Plugin
+                    App
                   </label>
                   <div className="relative mt-2">
                     <SearchIcon className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-faint" />
                     <Combobox value={activeGrantPlugin} onChange={selectGrantPlugin} immediate>
                       <ComboboxInput
                         id="grant-plugin"
-                        aria-label="Plugin"
+                        aria-label="App"
                         autoComplete="off"
                         className={`w-full pl-9 pr-10 ${INPUT_CLASSES}`}
                         displayValue={() => grantPluginQuery}
@@ -506,7 +506,7 @@ export default function ManagedIdentityDetailView({
                           setGrantPluginQuery(event.target.value);
                           setGrantSelectionError(null);
                         }}
-                        placeholder="Choose a visible plugin"
+                        placeholder="Choose a visible app"
                       />
                       <ComboboxButton className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-faint transition-colors duration-150 hover:text-muted">
                         <ChevronUpDownIcon className="h-4 w-4" />
@@ -538,7 +538,7 @@ export default function ManagedIdentityDetailView({
                           })
                         ) : (
                           <div className="px-3 py-2 text-sm text-muted">
-                            No matching plugins.
+                            No matching apps.
                           </div>
                         )}
                       </ComboboxOptions>
@@ -567,20 +567,20 @@ export default function ManagedIdentityDetailView({
                   ) : null}
                 </div>
                 <Button type="submit" disabled={!canSubmitGrant}>
-                  {grantBusy ? "Saving..." : "Save Plugin Access"}
+                  {grantBusy ? "Saving..." : "Save App Access"}
                 </Button>
               </form>
             ) : null}
             {grants.length === 0 ? (
               <p className="mt-6 text-sm text-muted">
-                No identity-level plugin access grants. Protected plugins need a grant here; API keys can still be created below.
+                No identity-level app access grants. Protected apps need a grant here; API keys can still be created below.
               </p>
             ) : (
               <div className="mt-6 overflow-x-auto rounded-lg border border-alpha">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-alpha text-left">
-                      <th className="px-5 py-3.5 label-text">Plugin</th>
+                      <th className="px-5 py-3.5 label-text">App</th>
                       <th className="px-5 py-3.5 label-text">Role</th>
                       <th className="px-5 py-3.5 label-text">Source</th>
                       <th className="px-5 py-3.5 label-text"></th>
@@ -613,15 +613,15 @@ export default function ManagedIdentityDetailView({
 
           <section className={SECTION_CARD}>
             <span className="label-text">Connections</span>
-            <h2 className="mt-2 text-lg font-heading font-bold text-primary">Plugin Connections</h2>
+            <h2 className="mt-2 text-lg font-heading font-bold text-primary">App Connections</h2>
             <p className="mt-2 text-sm text-muted">
-              Connections store OAuth or manual credentials for this identity. They do not add plugin roles or change API-key limits.
+              Connections store OAuth or manual credentials for this identity. They do not add app roles or change API-key limits.
             </p>
             {managedIntegrationError ? (
               <p className="mt-6 text-sm text-ember-500">{managedIntegrationError}</p>
             ) : managedIntegrations.length === 0 ? (
               <p className="mt-6 text-sm text-muted">
-                No plugins are available to connect for this identity.
+                No apps are available to connect for this identity.
               </p>
             ) : (
               <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -685,7 +685,7 @@ export default function ManagedIdentityDetailView({
             <span className="label-text">API Access</span>
             <h2 className="mt-2 text-lg font-heading font-bold text-primary">Identity API Keys</h2>
             <p className="mt-2 text-sm text-muted">
-              API keys authenticate as this identity. By default, a key follows managed identity plugin access and connector credentials at use time; token limits only narrow one key.
+              API keys authenticate as this identity. By default, a key follows managed identity app access and connector credentials at use time; token limits only narrow one key.
             </p>
             {canAdmin ? (
               <IdentityTokenCreateForm

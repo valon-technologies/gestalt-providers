@@ -202,7 +202,7 @@ class SlackAgentRouteMatch:
 @dataclass(frozen=True, slots=True)
 class SlackAgentToolRef:
     system: str = ""
-    plugin: str = ""
+    app: str = ""
     operation: str = ""
     connection: str = ""
     instance: str = ""
@@ -370,7 +370,7 @@ class SlackThreadContextConfig:
 
 @dataclass(frozen=True, slots=True)
 class SlackAgentConfig:
-    plugin_name: str = "slack"
+    app_name: str = "slack"
     bot: SlackBotConfig = field(default_factory=SlackBotConfig)
     events: SlackEventsConfig = field(default_factory=SlackEventsConfig)
     assistant: SlackAssistantConfig = field(default_factory=SlackAssistantConfig)

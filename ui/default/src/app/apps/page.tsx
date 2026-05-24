@@ -1,5 +1,5 @@
 import AppsCatalogPageClient from "@/components/AppsCatalogPageClient";
 
-export default function IntegrationsPage() {
+export default function AppsPage() {
   return <AppsCatalogPageClient />;
 }

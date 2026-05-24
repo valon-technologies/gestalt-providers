@@ -66,10 +66,10 @@ test.describe("Navigation", () => {
     ).toBeVisible();
   });
 
-  test("integrations page renders", async ({ authenticatedPage: page }) => {
-    await page.goto("/integrations");
+  test("apps page renders", async ({ authenticatedPage: page }) => {
+    await page.goto("/apps");
     await expect(
-      page.getByRole("heading", { name: "Plugins" }),
+      page.getByRole("heading", { name: "Apps" }),
     ).toBeVisible();
   });
 
@@ -124,7 +124,7 @@ test.describe("Navigation", () => {
   });
 
   test("nav links work", async ({ authenticatedPage: page }) => {
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await page.getByRole("link", { name: "Authorization" }).click();
     await expect(page).toHaveURL(/authorization/);
     await expect(
@@ -142,11 +142,11 @@ test.describe("Navigation", () => {
     ).toBeVisible();
   });
 
-  test("plugins nav label keeps the integrations route", async ({ authenticatedPage: page }) => {
+  test("apps nav label uses the apps route", async ({ authenticatedPage: page }) => {
     await page.goto("/");
-    await page.getByRole("link", { name: "Plugins", exact: true }).click();
-    await expect(page).toHaveURL(/\/integrations/);
-    await expect(page.getByRole("heading", { name: "Plugins" })).toBeVisible();
+    await page.getByRole("link", { name: "Apps", exact: true }).click();
+    await expect(page).toHaveURL(/\/apps/);
+    await expect(page.getByRole("heading", { name: "Apps" })).toBeVisible();
   });
 });
 

@@ -177,7 +177,7 @@ export default function WorkflowsPage() {
       })
       .catch((err) => {
         if (!active) return;
-        setIntegrationsError(errorMessage(err, "Failed to load integrations"));
+        setIntegrationsError(errorMessage(err, "Failed to load apps"));
       });
 
     return () => {
@@ -405,7 +405,7 @@ export default function WorkflowsPage() {
               <h1 className="mt-2 text-2xl font-heading font-bold text-primary">Workflows</h1>
               <p className="mt-2 max-w-3xl text-sm text-muted">
                 Inspect workflow schedules, triggers, and recent run activity across
-                plugins and providers.
+                apps and providers.
               </p>
             </div>
             <button

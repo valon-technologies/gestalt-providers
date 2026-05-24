@@ -272,7 +272,9 @@ def _slack_delivery_log_context(
     return _log_context(
         operation=operation,
         subject_id=_request_subject_id(req),
-        credential_subject_id=getattr(getattr(req, "credential", None), "subject_id", ""),
+        credential_subject_id=getattr(
+            getattr(req, "credential", None), "subject_id", ""
+        ),
         agent_subject_id=getattr(getattr(req, "agent_subject", None), "id", ""),
         slack_team_id=verified_ref.team_id if verified_ref else "",
         slack_channel_id=verified_ref.channel_id if verified_ref else "",
@@ -285,9 +287,7 @@ def _slack_delivery_log_context(
         workflow_context=_workflow_log_context(req),
         reply_ref_sha256=_reply_ref_hash(reply_ref),
         text_bytes=len(text.encode("utf-8")) if text else "",
-        text_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest()
-        if text
-        else "",
+        text_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest() if text else "",
         session_id=session_id,
     )
 
@@ -767,7 +767,9 @@ def reply_to_slack_event(
         req, SLACK_REPLY_OPERATION, reply_ref=reply_ref, text=normalized_text
     )
     if not normalized_text:
-        logger.warning("rejected Slack event reply delivery %s error=text is required", log_context)
+        logger.warning(
+            "rejected Slack event reply delivery %s error=text is required", log_context
+        )
         return _bad_request("text is required")
 
     verified_ref: SlackReplyRef | None = None
@@ -789,7 +791,9 @@ def reply_to_slack_event(
             client_msg_id=_slack_client_msg_id(getattr(req, "idempotency_key", "")),
         )
     except ValueError as err:
-        logger.warning("failed Slack event reply delivery %s error=%s", log_context, err)
+        logger.warning(
+            "failed Slack event reply delivery %s error=%s", log_context, err
+        )
         return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
     except SlackAPIError as err:
         logger.warning(
@@ -800,7 +804,9 @@ def reply_to_slack_event(
         )
         return gestalt.Response(status=err.status, body=err.body)
     except SlackClientError as err:
-        logger.warning("failed Slack event reply delivery %s error=%s", log_context, err)
+        logger.warning(
+            "failed Slack event reply delivery %s error=%s", log_context, err
+        )
         return _event_client_error(err)
 
     logger.info(
@@ -844,7 +850,9 @@ def reply_slack_event_session_started(
             session_id=normalized_session_id,
         )
     except ValueError as err:
-        logger.warning("failed Slack session-started delivery %s error=%s", log_context, err)
+        logger.warning(
+            "failed Slack session-started delivery %s error=%s", log_context, err
+        )
         return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
 
     if _reply_ref_is_thread_reply(verified_ref):
@@ -894,7 +902,9 @@ def reply_slack_event_session_started(
             client_msg_id=_slack_client_msg_id(getattr(req, "idempotency_key", "")),
         )
     except ValueError as err:
-        logger.warning("failed Slack session-started delivery %s error=%s", log_context, err)
+        logger.warning(
+            "failed Slack session-started delivery %s error=%s", log_context, err
+        )
         return gestalt.Response(status=HTTPStatus.FORBIDDEN, body={"error": str(err)})
     except SlackAPIError as err:
         logger.warning(
@@ -905,7 +915,9 @@ def reply_slack_event_session_started(
         )
         return gestalt.Response(status=err.status, body=err.body)
     except SlackClientError as err:
-        logger.warning("failed Slack session-started delivery %s error=%s", log_context, err)
+        logger.warning(
+            "failed Slack session-started delivery %s error=%s", log_context, err
+        )
         return _event_client_error(err)
 
     logger.info(
@@ -1543,7 +1555,7 @@ def _json_payload_from_http_request(
         return {"payload": form_payload}
     try:
         payload = json.loads(raw_body)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except UnicodeDecodeError, json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -2899,7 +2911,7 @@ def _workflow_slack_app_step(
     if step_type is None or app_type is None:
         raise RuntimeError("Gestalt SDK with workflow step support is required")
     app_call = app_type(
-        name=_agent_config.plugin_name,
+        name=_agent_config.app_name,
         operation=operation,
         credential_mode="none",
         input=_workflow_value(object=input_fields),
@@ -2979,7 +2991,9 @@ def _workflow_agent_turn_step(
         kwargs["timeout_seconds"] = timeout_seconds
     if when is not None:
         kwargs["when"] = when
-    return step_type(**{key: value for key, value in kwargs.items() if _keep_step_value(value)})
+    return step_type(
+        **{key: value for key, value in kwargs.items() if _keep_step_value(value)}
+    )
 
 
 def _workflow_agent_prompt() -> str:
@@ -3229,7 +3243,7 @@ def _interaction_user_prompt(
         f"reply_ref: {interaction_ref.reply_ref}",
         "",
         "Thread context tool:",
-        f"operation: {_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
+        f"operation: {_agent_config.app_name}.{SLACK_CONTEXT_OPERATION}",
         f"channel: {interaction_ref.channel_id}",
         f"ts: {interaction_ref.reply_thread_ts or interaction_ref.message_ts}",
     ]
@@ -3239,7 +3253,7 @@ def _interaction_user_prompt(
 def _agent_tool_ref(
     *,
     system: str = "",
-    plugin: str = "",
+    app: str = "",
     operation: str = "",
     connection: str = "",
     instance: str = "",
@@ -3249,7 +3263,7 @@ def _agent_tool_ref(
 ) -> Any:
     return gestalt.AgentToolRef(
         system=system,
-        app=plugin,
+        app=app,
         operation=operation,
         connection=connection,
         instance=instance,
@@ -3279,7 +3293,7 @@ def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
     return [
         _agent_tool_ref(
             system=ref.system,
-            plugin=ref.plugin,
+            app=ref.app,
             operation=ref.operation,
             connection=ref.connection,
             instance=ref.instance,
@@ -3312,7 +3326,7 @@ def _agent_default_tool_refs(route: SlackAgentRoute | None) -> list[SlackAgentTo
         )
     return [
         SlackAgentToolRef(
-            plugin=_agent_config.plugin_name,
+            app=_agent_config.app_name,
             operation=operation,
         )
         for operation in operations
@@ -3332,7 +3346,7 @@ def _agent_step_tool_refs(route: SlackAgentRoute, step: SlackAgentStep) -> list[
     return [
         _agent_tool_ref(
             system=ref.system,
-            plugin=ref.plugin,
+            app=ref.app,
             operation=ref.operation,
             connection=ref.connection,
             instance=ref.instance,
@@ -3357,7 +3371,7 @@ def _dedupe_agent_tool_refs(
     deduped: list[SlackAgentToolRef] = []
     seen: set[tuple[str, str, str, str, str]] = set()
     for ref in refs:
-        key = (ref.system, ref.plugin, ref.operation, ref.connection, ref.instance)
+        key = (ref.system, ref.app, ref.operation, ref.connection, ref.instance)
         if key in seen:
             continue
         seen.add(key)
@@ -3469,9 +3483,9 @@ def _agent_timeout_seconds(route: SlackAgentRoute | None) -> int:
 def _agent_system_prompt(route: SlackAgentRoute | None) -> str:
     parts = [
         DEFAULT_AGENT_SYSTEM_PROMPT_TEMPLATE.format(
-            status_tool=f"{_agent_config.plugin_name}.{SLACK_STATUS_OPERATION}",
-            context_tool=f"{_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
-            file_tool=f"{_agent_config.plugin_name}.{SLACK_FILE_GET_OPERATION}",
+            status_tool=f"{_agent_config.app_name}.{SLACK_STATUS_OPERATION}",
+            context_tool=f"{_agent_config.app_name}.{SLACK_CONTEXT_OPERATION}",
+            file_tool=f"{_agent_config.app_name}.{SLACK_FILE_GET_OPERATION}",
         )
     ]
     if _agent_config.agent_system_prompt:
@@ -3506,7 +3520,7 @@ def _agent_user_prompt(
         [
             "",
             "File content tool:",
-            f"operation: {_agent_config.plugin_name}.{SLACK_FILE_GET_OPERATION}",
+            f"operation: {_agent_config.app_name}.{SLACK_FILE_GET_OPERATION}",
         ]
     )
     file_summaries = _event_file_summaries(event)
@@ -3519,7 +3533,7 @@ def _agent_user_prompt(
         [
             "",
             "Thread context tool:",
-            f"operation: {_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
+            f"operation: {_agent_config.app_name}.{SLACK_CONTEXT_OPERATION}",
             f"channel: {event.channel_id}",
             f"ts: {root_ts}",
         ]
@@ -3554,7 +3568,7 @@ def _event_permalink_summaries(event: SlackAgentEvent) -> list[str]:
         summaries.extend(
             [
                 f"- url: {url}",
-                f"  operation: {_agent_config.plugin_name}.{SLACK_CONTEXT_OPERATION}",
+                f"  operation: {_agent_config.app_name}.{SLACK_CONTEXT_OPERATION}",
                 f"  input: {json.dumps({'url': url}, separators=(',', ': '))}",
             ]
         )
@@ -3623,7 +3637,7 @@ def _workflow_run_status_name(status: Any) -> str:
         return status
     try:
         return gestalt.workflow_run_status_name(int(status))
-    except (TypeError, ValueError, AttributeError):
+    except TypeError, ValueError, AttributeError:
         return str(status)
 
 

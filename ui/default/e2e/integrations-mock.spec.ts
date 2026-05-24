@@ -300,12 +300,12 @@ test.describe("Integrations", () => {
     await mockIntegrations(page, sampleIntegrations);
     await mockTokens(page, []);
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await expect(
-      page.getByRole("heading", { name: "Plugins" }),
+      page.getByRole("heading", { name: "Apps" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("combobox", { name: "Search plugins" }),
+      page.getByRole("combobox", { name: "Search apps" }),
     ).toBeVisible();
     await expect(page.getByText(OAUTH_INTEGRATION.displayName!)).toBeVisible();
     await expect(page.getByText(MANUAL_INTEGRATION.displayName!)).toBeVisible();
@@ -322,7 +322,7 @@ test.describe("Integrations", () => {
     await mockIntegrations(page, [SVG_WITHOUT_XMLNS_INTEGRATION]);
     await mockTokens(page, []);
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
 
     const card = page
       .getByTestId("plugin-grid")
@@ -340,7 +340,7 @@ test.describe("Integrations", () => {
     await mockIntegrations(page, SVG_WITH_UNSAFE_CONTENT_INTEGRATIONS);
     await mockTokens(page, []);
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await expect(page.getByText("Unsafe SVG One")).toBeVisible();
     await expect(page.getByText("Unsafe SVG Two")).toBeVisible();
 
@@ -378,16 +378,16 @@ test.describe("Integrations", () => {
     expect(summary!.html).not.toContain("https://example.com/evil.png");
   });
 
-  test("shows empty state when no integrations", async ({
+  test("shows empty state when no apps", async ({
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
     await mockIntegrations(page, []);
     await mockTokens(page, []);
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await expect(
-      page.getByText("No plugins registered."),
+      page.getByText("No apps registered."),
     ).toBeVisible();
   });
 
@@ -402,7 +402,7 @@ test.describe("Integrations", () => {
       });
     });
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await expect(page.getByRole("button", { name: "Mounted UI Service settings" })).toHaveCount(0);
 
     await page.getByTestId("integration-card-mounted-ui-svc").click();
@@ -416,19 +416,19 @@ test.describe("Integrations", () => {
     await mockIntegrations(page, [MOUNTED_UI_WITH_SETTINGS_INTEGRATION]);
     await mockTokens(page, []);
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await page.getByRole("button", { name: "Mounted UI With Settings settings" }).click();
 
     await expect(page.getByRole("dialog")).toBeVisible();
-    await expect(page).toHaveURL(/\/integrations$/);
+    await expect(page).toHaveURL(/\/apps$/);
   });
 
-  test("filters plugins by display name", async ({ authenticatedPage }) => {
+  test("filters apps by display name", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await mockIntegrations(page, sampleIntegrations);
 
-    await page.goto("/integrations");
-    const search = page.getByRole("combobox", { name: "Search plugins" });
+    await page.goto("/apps");
+    const search = page.getByRole("combobox", { name: "Search apps" });
     const grid = page.getByTestId("plugin-grid");
 
     await search.fill("manual");
@@ -438,12 +438,12 @@ test.describe("Integrations", () => {
     await expect(grid.getByText("Another Service", { exact: true })).toHaveCount(0);
   });
 
-  test("filters plugins by plugin name", async ({ authenticatedPage }) => {
+  test("filters apps by plugin name", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await mockIntegrations(page, sampleIntegrations);
 
-    await page.goto("/integrations");
-    const search = page.getByRole("combobox", { name: "Search plugins" });
+    await page.goto("/apps");
+    const search = page.getByRole("combobox", { name: "Search apps" });
     const grid = page.getByTestId("plugin-grid");
 
     await search.fill("oauth-svc");
@@ -453,12 +453,12 @@ test.describe("Integrations", () => {
     await expect(grid.getByText("Another Service", { exact: true })).toHaveCount(0);
   });
 
-  test("filters plugins by description text", async ({ authenticatedPage }) => {
+  test("filters apps by description text", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await mockIntegrations(page, sampleIntegrations);
 
-    await page.goto("/integrations");
-    const search = page.getByRole("combobox", { name: "Search plugins" });
+    await page.goto("/apps");
+    const search = page.getByRole("combobox", { name: "Search apps" });
     const grid = page.getByTestId("plugin-grid");
 
     await search.fill("example oauth integration");
@@ -468,16 +468,16 @@ test.describe("Integrations", () => {
     await expect(grid.getByText("Another Service", { exact: true })).toHaveCount(0);
   });
 
-  test("shows a search empty state when no plugins match", async ({ authenticatedPage }) => {
+  test("shows a search empty state when no apps match", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await mockIntegrations(page, sampleIntegrations);
 
-    await page.goto("/integrations");
-    const search = page.getByRole("combobox", { name: "Search plugins" });
+    await page.goto("/apps");
+    const search = page.getByRole("combobox", { name: "Search apps" });
 
     await search.fill("missing-plugin");
 
-    await expect(page.getByText('No plugins match "missing-plugin".')).toBeVisible();
+    await expect(page.getByText('No apps match "missing-plugin".')).toBeVisible();
     await expect(page.getByTestId("plugin-grid")).toHaveCount(0);
   });
 
@@ -485,8 +485,8 @@ test.describe("Integrations", () => {
     const page = authenticatedPage;
     await mockIntegrations(page, sampleIntegrations);
 
-    await page.goto("/integrations");
-    const search = page.getByRole("combobox", { name: "Search plugins" });
+    await page.goto("/apps");
+    const search = page.getByRole("combobox", { name: "Search apps" });
     const grid = page.getByTestId("plugin-grid");
 
     await search.fill("oauth");
@@ -503,9 +503,9 @@ test.describe("Integrations", () => {
     const page = authenticatedPage;
     await mockIntegrations(page, sampleIntegrations);
 
-    await page.goto("/integrations");
-    const search = page.getByRole("combobox", { name: "Search plugins" });
-    const clearButton = page.locator('button[aria-label="Clear plugin search"]');
+    await page.goto("/apps");
+    const search = page.getByRole("combobox", { name: "Search apps" });
+    const clearButton = page.locator('button[aria-label="Clear app search"]');
     const grid = page.getByTestId("plugin-grid");
 
     await search.fill("manual");
@@ -530,7 +530,7 @@ test.describe("Integrations", () => {
       MANUAL_INTEGRATION,
     ]);
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await expect(page.getByText(OAUTH_INTEGRATION.displayName!)).toBeVisible();
     await expect(page.getByText(MANUAL_INTEGRATION.displayName!)).toBeVisible();
     await expect(page.getByTestId("integration-card-oauth-svc").getByLabel("Connected")).toBeVisible();
@@ -557,7 +557,7 @@ test.describe("Integrations", () => {
     const page = authenticatedPage;
     await mockIntegrations(page, [PLATFORM_CONFIGURED_INTEGRATION]);
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await expect(page.getByTestId("integration-card-platform-configured-svc").getByLabel("Connected")).toBeVisible();
     await expect(page.getByText("Deployment configured")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Platform Configured Service settings" })).toHaveCount(0);
@@ -569,7 +569,7 @@ test.describe("Integrations", () => {
     const page = authenticatedPage;
     await mockIntegrations(page, [PLATFORM_MISSING_INTEGRATION]);
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     const card = page.getByTestId("integration-card-platform-missing-svc");
     await expect(card.getByText("Admin configuration required")).toHaveCount(0);
     await page.getByRole("button", { name: "Platform Missing Service settings" }).click();
@@ -589,7 +589,7 @@ test.describe("Integrations", () => {
       withConnectedConnection(OAUTH_INTEGRATION),
     ]);
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await page.getByRole("button", { name: "OAuth Service settings" }).click();
 
     const dialog = page.getByRole("dialog");
@@ -627,11 +627,11 @@ test.describe("Integrations", () => {
       },
     });
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await expect(page.getByRole("button", { name: "OAuth Service settings" })).toBeVisible();
 
     // Re-mock so GET returns disconnected state after DELETE fires
-    await page.route("**/api/v1/integrations", (route, request) => {
+    await page.route("**/api/v1/apps", (route, request) => {
       if (request.method() === "GET") {
         route.fulfill({ json: disconnected ? disconnectedList : connectedList });
       } else {
@@ -675,13 +675,13 @@ test.describe("Integrations", () => {
       },
     });
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await page.getByRole("button", { name: "Manual Service settings" }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("button", { name: "Connect" }).click();
     await dialog.getByLabel(/API token/i).fill("test-api-key-123");
 
-    await page.route("**/api/v1/integrations", (route, request) => {
+    await page.route("**/api/v1/apps", (route, request) => {
       if (request.method() === "GET") {
         route.fulfill({ json: connected ? connectedList : disconnectedList });
       } else {
@@ -700,7 +700,7 @@ test.describe("Integrations", () => {
     const page = authenticatedPage;
     await mockIntegrations(page, [MANUAL_INTEGRATION]);
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await page.getByRole("button", { name: "Manual Service settings" }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("button", { name: "Connect" }).click();
@@ -716,7 +716,7 @@ test.describe("Integrations", () => {
     const page = authenticatedPage;
     await mockIntegrations(page, [MULTI_CONNECTION_DUAL_AUTH_INTEGRATION]);
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await page.getByRole("button", { name: "Workspace Service settings" }).click();
     const dialog = page.getByRole("dialog");
 
@@ -747,7 +747,7 @@ test.describe("Integrations", () => {
       });
     });
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await page.getByRole("button", { name: "Dual OAuth Service settings" }).click();
     const dialog = page.getByRole("dialog");
 
@@ -770,7 +770,7 @@ test.describe("Integrations", () => {
     const page = authenticatedPage;
     await mockIntegrations(page, [NO_AUTH_WITH_USER_INTEGRATION]);
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     const card = page.getByTestId("integration-card-no-auth-svc");
     await expect(card.getByLabel("Connected")).toHaveCount(0);
     await expect(card.getByText("Not connected")).toHaveCount(0);
@@ -789,7 +789,7 @@ test.describe("Integrations", () => {
     const page = authenticatedPage;
     await mockIntegrations(page, [MCP_PASSTHROUGH_INTEGRATION]);
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await page.getByRole("button", { name: "MCP Passthrough Service settings" }).click();
     const dialog = page.getByRole("dialog");
 
@@ -804,7 +804,7 @@ test.describe("Integrations", () => {
     const page = authenticatedPage;
     await mockIntegrations(page, [USER_CONNECTION_ACTIONS_INTEGRATION]);
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await expect(page.getByTestId("integration-card-user-actions-svc").getByLabel("Connected")).toBeVisible();
     await expect(page.getByText("Connected")).toHaveCount(0);
     await page.getByRole("button", { name: "User Actions Service settings" }).click();
@@ -825,7 +825,7 @@ test.describe("Integrations", () => {
     const page = authenticatedPage;
     await mockIntegrations(page, [SELECT_INSTANCE_INTEGRATION]);
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     const card = page.getByTestId("integration-card-select-instance-svc");
     await expect(card.getByText("Instance selection required")).toHaveCount(0);
     await page.getByRole("button", { name: "Select Instance Service settings" }).click();
@@ -853,7 +853,7 @@ test.describe("Integrations", () => {
       await route.fulfill({ status: 500, body: "oauth failed" });
     });
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await page.getByRole("button", { name: "Team Service settings" }).click();
     const dialog = page.getByRole("dialog");
 
@@ -871,7 +871,7 @@ test.describe("Integrations", () => {
     const page = authenticatedPage;
     await mockIntegrations(page, [withConnectedConnection(MANUAL_INTEGRATION)]);
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await page.getByRole("button", { name: "Manual Service settings" }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByText("default")).toBeVisible();
@@ -887,7 +887,7 @@ test.describe("Integrations", () => {
     await mockIntegrations(page, [MANUAL_WITH_LINKED_DESC]);
     await mockTokens(page, []);
 
-    await page.goto("/integrations");
+    await page.goto("/apps");
     await page.getByRole("button", { name: "Linked Service settings" }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("button", { name: "Connect" }).click();

@@ -24,7 +24,7 @@ export const docsNavItems: DocsNavItem[] = [
       { id: "workflows", label: "Inspect workflows" },
     ],
   },
-  { id: "connect", href: "/docs/connect", label: "Connect Plugins", subsections: [] },
+  { id: "connect", href: "/docs/connect", label: "Connect Apps", subsections: [] },
   { id: "invoke", href: "/docs/invoke", label: "Invoke Operations", subsections: [] },
   {
     id: "workflows",
@@ -43,7 +43,7 @@ export const docsNavItems: DocsNavItem[] = [
     href: "/docs/authorization",
     label: "Grant Authorization",
     subsections: [
-      { id: "authz-plugin-access", label: "Plugin access" },
+      { id: "authz-plugin-access", label: "App access" },
       { id: "authz-service-accounts", label: "Service accounts" },
       { id: "authz-admins", label: "Built-in admins" },
       { id: "authz-inspect", label: "Inspect grants" },

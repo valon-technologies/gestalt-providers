@@ -146,7 +146,7 @@ export default function ManagedIdentitiesPageClient() {
                 Agent Identities
               </h1>
               <p className="mt-2 text-sm text-muted">
-                Create and manage shared non-human identities for tokens and plugin authorization.
+                Create and manage shared non-human identities for tokens and app authorization.
               </p>
             </div>
 

@@ -59,7 +59,7 @@ export default function LoginPage() {
               Gestalt
             </h1>
             <p className="mt-3 text-sm text-muted">
-              Sign in to manage your plugins.
+              Sign in to manage your apps.
             </p>
             <p className="mt-2 text-sm text-muted">
               Or read the{" "}
