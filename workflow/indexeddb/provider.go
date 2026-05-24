@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	idb "github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gopkg.in/yaml.v3"
@@ -84,6 +85,14 @@ type workflowHostClient interface {
 	Close() error
 }
 
+type workflowDB = idb.Database
+type workflowObjectStore = idb.ObjectStore
+type workflowIndex = idb.Index
+type workflowCursor = idb.Cursor
+type workflowTx = idb.Transaction
+type workflowTxObjectStore = idb.TransactionObjectStore
+type workflowTxIndex = idb.TransactionIndex
+
 var openWorkflowHost = func() (workflowHostClient, error) {
 	return gestalt.WorkflowHost()
 }
@@ -110,6 +119,7 @@ type Provider struct {
 	executionRefStore workflowObjectStore
 	workflowKeyStore  workflowObjectStore
 	signalStore       workflowObjectStore
+	indexedDB         workflowDB
 	claimOwnerID      string
 	startedAt         time.Time
 	pollCancel        context.CancelFunc
@@ -245,7 +255,11 @@ var _ gestalt.WorkflowProvider = (*Provider)(nil)
 func New() *Provider { return newProviderCore() }
 
 func newProviderCore() *Provider {
-	return &Provider{now: time.Now, claimOwnerID: uuid.NewString()}
+	return newProviderCoreWithDB(nil)
+}
+
+func newProviderCoreWithDB(db workflowDB) *Provider {
+	return &Provider{now: time.Now, claimOwnerID: uuid.NewString(), indexedDB: db}
 }
 
 func (p *Provider) Configure(ctx context.Context, name string, raw map[string]any) error {
@@ -258,9 +272,12 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 		return fmt.Errorf("indexeddb workflow: %w", err)
 	}
 
-	db, err := connectIndexedDB()
-	if err != nil {
-		return fmt.Errorf("indexeddb workflow: connect indexeddb: %w", err)
+	db := p.indexedDB
+	if db == nil {
+		db, err = gestalt.IndexedDB(ctx)
+		if err != nil {
+			return fmt.Errorf("indexeddb workflow: connect indexeddb: %w", err)
+		}
 	}
 
 	host, err := openWorkflowHost()
