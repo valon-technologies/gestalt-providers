@@ -11,7 +11,7 @@ toolchain_url="https://github.com/${GESTALT_REPOSITORY}.git"
 rm -rf "$dest_dir"
 git clone "$toolchain_url" "$dest_dir"
 
-if git -C "$dest_dir" fetch --depth 1 origin "refs/tags/${ref}"; then
+if ! [[ "${ref}" =~ ^[0-9a-f]{40}$ ]] && git -C "$dest_dir" fetch --depth 1 origin "refs/tags/${ref}"; then
   git -C "$dest_dir" checkout --detach FETCH_HEAD
   exit 0
 fi

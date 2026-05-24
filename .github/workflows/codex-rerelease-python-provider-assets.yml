@@ -12,9 +12,9 @@ on:
         required: true
         type: string
       gestalt-ref:
-        description: Pinned Gestalt git ref used to build gestaltd
-        required: true
-        default: main
+        description: Optional Gestalt git ref used to build gestaltd; defaults to .github/gestalt-ref
+        required: false
+        default: ''
         type: string
 
 permissions:
@@ -62,14 +62,20 @@ jobs:
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
       - name: Install Python
         run: uv python install 3.13 3.14
+      - name: Install script dependencies
+        run: python3 -m pip install -r .github/scripts/provider_registry_requirements.txt
       - name: Install gestaltd
         env:
           GOBIN: ${{ runner.temp }}/bin
         run: |
           set -euo pipefail
           mkdir -p "$GOBIN" && echo "$GOBIN" >> "$GITHUB_PATH"
+          gestalt_ref="${{ inputs.gestalt-ref }}"
+          if [ -z "$gestalt_ref" ]; then
+            gestalt_ref="$(cat .github/gestalt-ref)"
+          fi
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "$gestalt_ref"
           (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - name: Build darwin/amd64 archive
         run: |
@@ -89,22 +95,8 @@ jobs:
           rm -rf "${patch_dir}"
           mkdir -p "${patch_dir}"
           gh release download "${tag}" --pattern '*.tar.gz' --dir "${patch_dir}"
-          asset_names="$(gh release view "${tag}" --json assets --jq '.assets[].name')"
-          if printf '%s\n' "${asset_names}" | grep -Fxq 'provider-release.yaml'; then
-            gh release download "${tag}" --pattern 'provider-release.yaml' --dir "${patch_dir}"
-            template_flag=(--template-metadata "${patch_dir}/provider-release.yaml")
-          else
-            template_flag=(--manifest "${{ steps.source.outputs.dir }}/manifest.yaml")
-          fi
           cp "${{ steps.source.outputs.dir }}/dist/"*_darwin_amd64.tar.gz "${patch_dir}/"
-          python3 .github/scripts/write_provider_release_metadata.py \
-            "${template_flag[@]}" \
-            --output-dir "${patch_dir}" \
-            --version "${{ inputs.version }}"
-          (
-            cd "${patch_dir}"
-            LC_ALL=C shasum -a 256 ./*.tar.gz > checksums.txt
-          )
+          gestaltd provider release --dist-dir "${patch_dir}" --version "${{ inputs.version }}"
           gh release upload "${tag}" "${patch_dir}"/*_darwin_amd64.tar.gz "${patch_dir}/checksums.txt" "${patch_dir}/provider-release.yaml" --clobber
       - name: Update provider registry index
         run: |
