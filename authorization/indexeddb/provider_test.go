@@ -2,11 +2,11 @@ package indexeddb
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
-	"github.com/valon-technologies/gestalt-providers/internal/hostservicetest"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -654,7 +654,7 @@ type providerSession struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	provider *Provider
-	idb      *testIndexedDBProvider
+	idb      *fakeIndexedDB
 }
 
 func newProviderSession(t *testing.T) *providerSession {
@@ -665,11 +665,21 @@ func newProviderSession(t *testing.T) *providerSession {
 func newProviderSessionWithSeed(t *testing.T, seedStores bool) *providerSession {
 	t.Helper()
 
-	idbProvider := newTestIndexedDBProvider()
+	fakeDB := newFakeIndexedDB()
 	if seedStores {
-		seedAuthorizationStores(t, idbProvider)
+		if err := seedAuthorizationStoresOnConn(context.Background(), fakeDB); err != nil {
+			t.Fatalf("seedAuthorizationStoresOnConn: %v", err)
+		}
 	}
-	hostservicetest.StartIndexedDB(t, idbProvider)
+
+	origConnect := connectIndexedDB
+	connectIndexedDB = func(binding string) (indexedDBConn, error) {
+		if binding != "" && binding != "test" {
+			return nil, fmt.Errorf("unexpected indexeddb binding %q", binding)
+		}
+		return fakeDB, nil
+	}
+	t.Cleanup(func() { connectIndexedDB = origConnect })
 
 	authzProvider := New()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -678,7 +688,7 @@ func newProviderSessionWithSeed(t *testing.T, seedStores bool) *providerSession 
 		ctx:      ctx,
 		cancel:   cancel,
 		provider: authzProvider,
-		idb:      idbProvider,
+		idb:      fakeDB,
 	}
 	t.Cleanup(func() {
 		cancel()
@@ -691,22 +701,6 @@ func (s *providerSession) configure(t *testing.T, config map[string]any) {
 	t.Helper()
 	if err := s.provider.Configure(s.ctx, "authz-indexeddb", config); err != nil {
 		t.Fatalf("ConfigureProvider: %v", err)
-	}
-}
-
-func seedAuthorizationStores(t *testing.T, provider *testIndexedDBProvider) {
-	t.Helper()
-	for _, def := range []struct {
-		name   string
-		schema gestalt.ObjectStoreSchema
-	}{
-		{name: stateStoreName, schema: gestalt.ObjectStoreSchema{}},
-		{name: modelsStoreName, schema: gestalt.ObjectStoreSchema{}},
-		{name: relationsStoreName, schema: authorizationRelationshipsSchema()},
-	} {
-		if err := provider.CreateObjectStore(context.Background(), def.name, def.schema); err != nil {
-			t.Fatalf("CreateObjectStore(%s): %v", def.name, err)
-		}
 	}
 }
 

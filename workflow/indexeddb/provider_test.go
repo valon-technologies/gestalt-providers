@@ -13,7 +13,6 @@ import (
 	"time"
 
 	relationaldb "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb"
-	"github.com/valon-technologies/gestalt-providers/internal/hostservicetest"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -3677,7 +3676,7 @@ func newWorkflowHostStub(status int32, body string) *workflowHostStub {
 	}
 }
 
-func putExpiredRunClaim(t *testing.T, ctx context.Context, store *gestalt.ObjectStoreClient, runID string, claimedAt time.Time) {
+func putExpiredRunClaim(t *testing.T, ctx context.Context, store workflowObjectStore, runID string, claimedAt time.Time) {
 	t.Helper()
 	putRunClaim(t, ctx, store, workflowRunClaimRecord{
 		ID:        runID,
@@ -3688,7 +3687,7 @@ func putExpiredRunClaim(t *testing.T, ctx context.Context, store *gestalt.Object
 	})
 }
 
-func putRunClaim(t *testing.T, ctx context.Context, store *gestalt.ObjectStoreClient, claim workflowRunClaimRecord) {
+func putRunClaim(t *testing.T, ctx context.Context, store workflowObjectStore, claim workflowRunClaimRecord) {
 	t.Helper()
 	if err := store.Put(ctx, claim.toRecord()); err != nil {
 		t.Fatalf("Put(%s claim): %v", claim.ID, err)
@@ -3778,8 +3777,14 @@ func startTestIndexedDBBackendWithWrapper(t *testing.T, wrap func(gestalt.Indexe
 	if wrap != nil {
 		indexedDBServer = wrap(indexedDBServer)
 	}
-	hostservicetest.StartIndexedDB(t, indexedDBServer)
-	t.Cleanup(func() { _ = store.Close() })
+	prev := connectIndexedDB
+	connectIndexedDB = func() (workflowDB, error) {
+		return providerWorkflowDB{provider: indexedDBServer}, nil
+	}
+	t.Cleanup(func() {
+		connectIndexedDB = prev
+		_ = store.Close()
+	})
 }
 
 func seedWorkflowObjectStores(t *testing.T, store *relationaldb.Provider) {

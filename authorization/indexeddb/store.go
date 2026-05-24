@@ -28,13 +28,13 @@ const (
 )
 
 type store struct {
-	client        *gestalt.IndexedDBClient
+	client        indexedDBConn
 	stateName     string
 	modelsName    string
 	relationsName string
-	state         *gestalt.ObjectStoreClient
-	models        *gestalt.ObjectStoreClient
-	relationships *gestalt.ObjectStoreClient
+	state         objectStore
+	models        objectStore
+	relationships objectStore
 }
 
 type storedModel struct {
@@ -44,18 +44,14 @@ type storedModel struct {
 }
 
 func openStore(ctx context.Context, cfg config) (*store, error) {
-	var (
-		client *gestalt.IndexedDBClient
-		err    error
-	)
-	if cfg.IndexedDB == "" {
-		client, err = gestalt.IndexedDB()
-	} else {
-		client, err = gestalt.IndexedDB(cfg.IndexedDB)
-	}
+	client, err := connectIndexedDB(cfg.IndexedDB)
 	if err != nil {
 		return nil, fmt.Errorf("connect indexeddb: %w", err)
 	}
+	return openStoreWithConn(ctx, client)
+}
+
+func openStoreWithConn(ctx context.Context, client indexedDBConn) (*store, error) {
 	if err := ensureAuthorizationStores(ctx, client); err != nil {
 		_ = client.Close()
 		return nil, err
@@ -73,7 +69,7 @@ func openStore(ctx context.Context, cfg config) (*store, error) {
 	return st, nil
 }
 
-func ensureAuthorizationStores(ctx context.Context, client *gestalt.IndexedDBClient) error {
+func ensureAuthorizationStores(ctx context.Context, client indexedDBConn) error {
 	if client == nil {
 		return nil
 	}

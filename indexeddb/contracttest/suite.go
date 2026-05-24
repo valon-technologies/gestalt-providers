@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/valon-technologies/gestalt-providers/internal/hostservicetest"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
@@ -805,7 +804,7 @@ func newSession(t *testing.T, harness Harness) *session {
 	t.Helper()
 
 	provider, providerClose := harness.NewProvider(t)
-	hostservicetest.StartIndexedDB(t, provider)
+	startIndexedDBHost(t, provider)
 
 	client, err := gestalt.IndexedDB()
 	if err != nil {

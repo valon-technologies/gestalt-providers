@@ -33,18 +33,18 @@ const (
 )
 
 type workflowStateStore struct {
-	db      *gestalt.IndexedDBClient
+	db      workflowDB
 	scopeID string
 
-	schedules         *gestalt.ObjectStoreClient
-	eventTriggers     *gestalt.ObjectStoreClient
-	eventTriggerKeys  *gestalt.ObjectStoreClient
-	definitions       *gestalt.ObjectStoreClient
-	executionRefs     *gestalt.ObjectStoreClient
-	runProjections    *gestalt.ObjectStoreClient
-	runIdempotency    *gestalt.ObjectStoreClient
-	signalIdempotency *gestalt.ObjectStoreClient
-	workflowKeys      *gestalt.ObjectStoreClient
+	schedules         workflowObjectStore
+	eventTriggers     workflowObjectStore
+	eventTriggerKeys  workflowObjectStore
+	definitions       workflowObjectStore
+	executionRefs     workflowObjectStore
+	runProjections    workflowObjectStore
+	runIdempotency    workflowObjectStore
+	signalIdempotency workflowObjectStore
+	workflowKeys      workflowObjectStore
 }
 
 func openWorkflowStateStore(ctx context.Context, scopeID string) (*workflowStateStore, error) {
@@ -52,7 +52,7 @@ func openWorkflowStateStore(ctx context.Context, scopeID string) (*workflowState
 	if scopeID == "" {
 		return nil, fmt.Errorf("scopeID is required")
 	}
-	db, err := gestalt.IndexedDB()
+	db, err := connectIndexedDB()
 	if err != nil {
 		return nil, fmt.Errorf("connect indexeddb: %w", err)
 	}
@@ -76,7 +76,7 @@ func openWorkflowStateStore(ctx context.Context, scopeID string) (*workflowState
 	return store, nil
 }
 
-func ensureWorkflowStateStores(ctx context.Context, db *gestalt.IndexedDBClient) error {
+func ensureWorkflowStateStores(ctx context.Context, db workflowDB) error {
 	if db == nil {
 		return nil
 	}
@@ -334,7 +334,7 @@ func (s *workflowStateStore) putRun(ctx context.Context, run *gestalt.BoundWorkf
 	return nil
 }
 
-func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store *gestalt.TransactionObjectStore, run *gestalt.BoundWorkflowRun) (*gestalt.BoundWorkflowRun, error) {
+func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store workflowTxObjectStore, run *gestalt.BoundWorkflowRun) (*gestalt.BoundWorkflowRun, error) {
 	if run == nil || strings.TrimSpace(run.ID) == "" {
 		return nil, nil
 	}
@@ -370,7 +370,7 @@ func (s *workflowStateStore) getRun(ctx context.Context, id string) (*gestalt.Bo
 	return run, err == nil && strings.TrimSpace(run.ID) != "", err
 }
 
-func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store *gestalt.TransactionObjectStore, id string) (*gestalt.BoundWorkflowRun, bool, error) {
+func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store workflowTxObjectStore, id string) (*gestalt.BoundWorkflowRun, bool, error) {
 	record, found, err := transactionGetRecord(ctx, store, s.scopedID(strings.TrimSpace(id)))
 	if err != nil || !found {
 		return nil, false, err
@@ -1733,7 +1733,7 @@ func optionalTime(value *time.Time) *time.Time {
 	return &asTime
 }
 
-func transactionGetRecord(ctx context.Context, store *gestalt.TransactionObjectStore, id string) (gestalt.Record, bool, error) {
+func transactionGetRecord(ctx context.Context, store workflowTxObjectStore, id string) (gestalt.Record, bool, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, false, nil

@@ -14,7 +14,6 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	relationaldb "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb"
-	"github.com/valon-technologies/gestalt-providers/internal/hostservicetest"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -2531,5 +2530,9 @@ func startTestIndexedDBBackend(t *testing.T) {
 		t.Fatalf("relationaldb.Configure: %v", err)
 	}
 
-	hostservicetest.StartIndexedDB(t, store)
+	prev := connectIndexedDB
+	connectIndexedDB = func() (workflowDB, error) {
+		return providerWorkflowDB{provider: store}, nil
+	}
+	t.Cleanup(func() { connectIndexedDB = prev })
 }

@@ -20,21 +20,13 @@ const (
 )
 
 type store struct {
-	client      *gestalt.IndexedDBClient
-	credentials *gestalt.ObjectStoreClient
+	client      indexedDBConn
+	credentials objectStore
 	encryptor   *aesgcmEncryptor
 }
 
 func openStore(ctx context.Context, cfg config) (*store, error) {
-	var (
-		client *gestalt.IndexedDBClient
-		err    error
-	)
-	if cfg.IndexedDB == "" {
-		client, err = gestalt.IndexedDB()
-	} else {
-		client, err = gestalt.IndexedDB(cfg.IndexedDB)
-	}
+	client, err := connectIndexedDB(cfg.IndexedDB)
 	if err != nil {
 		return nil, fmt.Errorf("connect indexeddb: %w", err)
 	}
@@ -57,7 +49,7 @@ func openStore(ctx context.Context, cfg config) (*store, error) {
 	return st, nil
 }
 
-func ensureExternalCredentialStore(ctx context.Context, client *gestalt.IndexedDBClient) error {
+func ensureExternalCredentialStore(ctx context.Context, client indexedDBConn) error {
 	if client == nil {
 		return nil
 	}

@@ -177,12 +177,16 @@ func (p *Provider) GetCredential(ctx context.Context, req *gestalt.GetExternalCr
 	}
 
 	lookup := req.GetLookup()
-	return st.getCredential(
+	credential, err := st.getCredential(
 		ctx,
 		strings.TrimSpace(lookup.GetSubjectId()),
 		strings.TrimSpace(lookup.GetConnectionId()),
 		strings.TrimSpace(lookup.GetInstance()),
 	)
+	if err != nil {
+		return nil, credentialLookupError(err)
+	}
+	return credential, nil
 }
 
 func (p *Provider) ListCredentials(ctx context.Context, req *gestalt.ListExternalCredentialsRequest) (*gestalt.ListExternalCredentialsResponse, error) {
