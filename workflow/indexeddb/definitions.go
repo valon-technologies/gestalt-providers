@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -182,7 +183,7 @@ func (p *Provider) DeleteDefinition(ctx context.Context, req *gestalt.DeleteWork
 	return nil
 }
 
-func loadDefinitionRecord(ctx context.Context, store workflowObjectStore, definitionID string) (workflowDefinitionRecord, bool, error) {
+func loadDefinitionRecord(ctx context.Context, store indexeddb.ObjectStore, definitionID string) (workflowDefinitionRecord, bool, error) {
 	record, err := store.Get(ctx, strings.TrimSpace(definitionID))
 	if err != nil {
 		if errors.Is(err, gestalt.ErrNotFound) {
