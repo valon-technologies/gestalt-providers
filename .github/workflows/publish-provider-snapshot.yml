@@ -91,7 +91,20 @@ jobs:
               }
               providers.append(provider)
           print("providers=" + json.dumps(providers))
-          print("darwin-providers=" + json.dumps([provider for provider in providers if provider["root"] == "ui" or provider["has_go"] or provider["has_python"] or provider["has_rust"] or provider["has_typescript"]]))
+          # UI bundles publish generic archives. A second macOS build emits the
+          # same filename as linux/amd64 and corrupts merged publish artifacts.
+          darwin_providers = [
+              provider
+              for provider in providers
+              if provider["root"] != "ui"
+              and (
+                  provider["has_go"]
+                  or provider["has_python"]
+                  or provider["has_rust"]
+                  or provider["has_typescript"]
+              )
+          ]
+          print("darwin-providers=" + json.dumps(darwin_providers))
           PY
 
   build-linux-amd64:
