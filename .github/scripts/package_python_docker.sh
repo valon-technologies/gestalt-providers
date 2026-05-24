@@ -3,7 +3,7 @@
 # Uses QEMU emulation for non-native architectures (requires docker/setup-qemu-action).
 #
 # Usage: package_python_docker.sh <docker-platform> <base-image> <gestaltd-binary> \
-#                                  <python-env-var> <release-platform> <app-dir> <version>
+#                                  <python-env-var> <release-platform> <plugin-dir> <version>
 #
 # Requires: UV_PYTHON and RUNNER_TEMP environment variables.
 # Optionally set GESTALT_SDK_HOST_DIR to a checked-out gestalt/sdk/python
@@ -16,7 +16,7 @@ base_image="$2"
 gestaltd_bin="$3"
 python_env_var="$4"
 release_platform="$5"
-app_dir="$6"
+plugin_dir="$6"
 version="$7"
 
 : "${RUNNER_TEMP:?RUNNER_TEMP is required}"
@@ -50,7 +50,7 @@ docker run --rm --platform "${docker_platform}" \
   -v "${PWD}:/workspace" \
   -v "${RUNNER_TEMP}/bin/${gestaltd_bin}:/usr/local/bin/gestaltd:ro" \
   "${sdk_mount[@]}" \
-  -w "/workspace/${app_dir}" \
+  -w "/workspace/${plugin_dir}" \
   "${base_image}" \
   sh -ceu '
     eval "${INSTALL_CMD}"

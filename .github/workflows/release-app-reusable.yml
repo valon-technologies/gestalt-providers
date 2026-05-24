@@ -572,20 +572,17 @@ jobs:
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
           .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
           (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
-      - name: Generate provider release metadata
+      - name: Finalize provider release metadata
         run: |
           set -euo pipefail
-          python3 .github/scripts/write_provider_release_metadata.py \
-            --manifest "${{ inputs.app-dir }}/manifest.yaml" \
-            --output-dir dist \
+          gestaltd provider release \
+            --dist-dir dist \
             --version "${{ needs.metadata.outputs.version }}"
-      - name: Write checksums and publish release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          cd dist && sha256sum ./*.tar.gz > checksums.txt && cd ..
-
           args=(release create "${{ needs.metadata.outputs.app-tag }}" --generate-notes)
           if [ "${{ needs.metadata.outputs.prerelease }}" = "true" ]; then
             args+=(--prerelease)

@@ -1,0 +1,11 @@
+apiVersion: gestaltd.config/v6
+
+providerSnapshotRepositories:
+  valon:
+    url: https://storage.googleapis.com/gitlab-peach-street-gestalt-provider-snapshots
+    publish:
+      pathLayout: sourceRef
+      immutable: true
+      storage:
+        kind: objectStore
+        url: gs://gitlab-peach-street-gestalt-provider-snapshots

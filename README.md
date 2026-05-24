@@ -59,8 +59,10 @@ Go, Python, or Rust. See the
 [provider development guide](https://gestaltd.ai/providers) for SDK setup and
 writing custom operations.
 
-All providers are packaged with `gestaltd provider package` and finalized with
-`gestaltd provider release`, including hosted runtime backends under `runtime/`.
+All providers are built with `gestaltd provider package`. Tagged releases are
+finalized with `gestaltd provider release`; commit-addressed CI snapshots are
+published with `gestaltd provider publish`, including hosted runtime backends
+under `runtime/`.
 
 ## Releasing
 

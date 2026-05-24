@@ -15,11 +15,6 @@ on:
         description: Comma or newline separated provider directories
         required: true
         type: string
-      gcs-root:
-        description: GCS destination root
-        required: true
-        default: gs://gitlab-peach-street-gestalt-provider-snapshots
-        type: string
       dry-run:
         description: Validate and print uploads without writing to GCS
         required: true
@@ -95,7 +90,7 @@ jobs:
               }
               providers.append(provider)
           print("providers=" + json.dumps(providers))
-          print("darwin-providers=" + json.dumps([provider for provider in providers if provider["has_go"] or provider["has_python"] or provider["has_typescript"]]))
+          print("darwin-providers=" + json.dumps([provider for provider in providers if provider["root"] == "ui" or provider["has_go"] or provider["has_python"] or provider["has_rust"] or provider["has_typescript"]]))
           PY
 
   build-linux-amd64:
@@ -264,21 +259,25 @@ jobs:
       - name: Verify provider ref
         run: |
           test "$(git rev-parse HEAD)" = "${{ inputs.provider-ref }}"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Install gestaltd
+        env:
+          GOBIN: ${{ runner.temp }}/bin
+        run: |
+          set -euo pipefail
+          mkdir -p "$GOBIN"
+          echo "$GOBIN" >> "$GITHUB_PATH"
+          toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
+          test "$(git -C "$toolchain_dir" rev-parse HEAD)" = "${{ inputs.gestalt-ref }}"
+          (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
       - uses: actions/download-artifact@v4
         with:
           pattern: snapshot-dist-${{ matrix.provider.key }}-*
           path: ${{ matrix.provider.dir }}/dist
           merge-multiple: true
-      - name: Generate provider release metadata
-        env:
-          PROVIDER_DIR: ${{ matrix.provider.dir }}
-          SNAPSHOT_VERSION: 0.0.0-snapshot.g${{ inputs.provider-ref }}
-        run: |
-          set -euo pipefail
-          python3 .github/scripts/write_provider_release_metadata.py \
-            --manifest "${PROVIDER_DIR}/manifest.yaml" \
-            --output-dir "${PROVIDER_DIR}/dist" \
-            --version "$SNAPSHOT_VERSION"
       - uses: google-github-actions/auth@v2
         if: ${{ !inputs.dry-run }}
         with:
@@ -289,16 +288,52 @@ jobs:
       - name: Publish snapshot
         env:
           DRY_RUN: ${{ inputs.dry-run }}
+          PROVIDER_DIR: ${{ matrix.provider.dir }}
+          SNAPSHOT_VERSION: 0.0.0-snapshot.g${{ inputs.provider-ref }}
         run: |
-          args=()
-          if [ "$DRY_RUN" = "true" ]; then
-            args+=(--dry-run)
+          set -euo pipefail
+          manifest="${PROVIDER_DIR}/manifest.yaml"
+          if [ ! -f "$manifest" ]; then
+            manifest="${PROVIDER_DIR}/manifest.json"
           fi
-          .github/scripts/publish_provider_snapshot.py \
-            --provider-dir "${{ matrix.provider.dir }}" \
-            --provider-ref "${{ inputs.provider-ref }}" \
-            --gestalt-ref "${{ inputs.gestalt-ref }}" \
-            --repository "${{ github.repository }}" \
-            --dist-dir "${{ matrix.provider.dir }}/dist" \
-            --gcs-root "${{ inputs.gcs-root }}" \
-            "${args[@]}"
+          publish_args=(
+            --config .github/provider-snapshot-publish.yaml
+            --repo valon
+            --manifest "$manifest"
+            --version "$SNAPSHOT_VERSION"
+            --ref "${{ inputs.provider-ref }}"
+            --dist-dir "${PROVIDER_DIR}/dist"
+          )
+          plan="$(gestaltd provider publish "${publish_args[@]}" --dry-run)"
+          metadata_url="$(awk -F': ' '/^provider-release metadata: / {print $2}' <<< "$plan")"
+          if [ -z "$metadata_url" ]; then
+            echo "provider publish dry-run did not print provider-release metadata URL." >&2
+            echo "$plan" >&2
+            exit 1
+          fi
+
+          if [ "$DRY_RUN" = "true" ]; then
+            printf '%s\n' "$plan"
+            exit 0
+          fi
+
+          status="$(curl -fsS -o /dev/null -w '%{http_code}' "$metadata_url" || true)"
+          if [ "$status" = "200" ]; then
+            echo "provider-release metadata is already readable: $metadata_url"
+            exit 0
+          fi
+
+          gestaltd provider publish "${publish_args[@]}"
+
+          for attempt in {1..30}; do
+            status="$(curl -fsS -o /dev/null -w '%{http_code}' "$metadata_url" || true)"
+            if [ "$status" = "200" ]; then
+              echo "provider-release metadata is readable: $metadata_url"
+              exit 0
+            fi
+            echo "provider-release metadata not readable yet (status=${status:-curl-error}); retry ${attempt}/30."
+            sleep 5
+          done
+
+          echo "provider-release metadata did not become readable: $metadata_url" >&2
+          exit 1
