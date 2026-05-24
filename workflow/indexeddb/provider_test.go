@@ -55,8 +55,8 @@ func TestProviderStartRunUsesIdempotencyAndExecutesHostCallbacks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("waitForCall: %v", err)
 	}
-	plugin := testAppStep(call.Target)
-	if plugin.Name != "roadmap" || plugin.Operation != "sync" {
+	appStep := testAppStep(call.Target)
+	if appStep.Name != "roadmap" || appStep.Operation != "sync" {
 		t.Fatalf("target = %#v", call.Target)
 	}
 	if got := workflowValueObjectField(call.Target, "mode"); got != "full" {
@@ -345,7 +345,7 @@ func TestProviderStartRunRepairsMissingIdempotencyRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("raw idempotency get: %v", err)
 	}
-	assertRecordDoesNotContainFields(t, rawIDRecord, "plugin_name")
+	assertRecordDoesNotContainFields(t, rawIDRecord, "app_name")
 
 	call, err := host.waitForCall(time.Second)
 	if err != nil {
@@ -1642,7 +1642,7 @@ func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
 	}
 }
 
-func TestNormalizeTargetPreservesPluginCredentialMode(t *testing.T) {
+func TestNormalizeTargetPreservesAppCredentialMode(t *testing.T) {
 	target := workflowTarget(t, " github ", " reviewPullRequest ", nil)
 	target.Steps[0].App.CredentialMode = " none "
 
@@ -1659,7 +1659,7 @@ func TestNormalizeTargetPreservesPluginCredentialMode(t *testing.T) {
 	}
 }
 
-func TestNormalizeTargetRejectsInvalidPluginCredentialMode(t *testing.T) {
+func TestNormalizeTargetRejectsInvalidAppCredentialMode(t *testing.T) {
 	target := workflowTarget(t, "github", "reviewPullRequest", nil)
 	target.Steps[0].App.CredentialMode = "platform"
 
@@ -1668,8 +1668,6 @@ func TestNormalizeTargetRejectsInvalidPluginCredentialMode(t *testing.T) {
 		t.Fatalf("normalizeTarget error = %v, want unsupported credential mode", err)
 	}
 }
-
-
 
 func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 	ctx := context.Background()
@@ -1704,7 +1702,7 @@ func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
 		t.Fatalf("agent target = %#v", ref.Target)
 	}
 	if testAppStep(ref.Target) != nil {
-		t.Fatalf("agent target included plugin fields: %#v", ref.Target)
+		t.Fatalf("agent target included legacy scalar app fields: %#v", ref.Target)
 	}
 	got, err := provider.GetExecutionReference(ctx, &gestalt.GetWorkflowExecutionReferenceRequest{ID: "agent-ref"})
 	if err != nil {
@@ -1745,7 +1743,7 @@ func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
 		t.Fatalf("raw schedule get: %v", err)
 	}
 	assertRecordHasTargetJSON(t, scheduleRecord)
-	assertRecordDoesNotContainFields(t, scheduleRecord, "plugin_name", "operation", "connection", "instance", "input")
+	assertRecordDoesNotContainFields(t, scheduleRecord, "operation", "connection", "instance", "input")
 
 	trigger, err := provider.UpsertEventTrigger(ctx, &gestalt.UpsertWorkflowProviderEventTriggerRequest{
 		TriggerID: "stored-trigger",
@@ -1760,7 +1758,7 @@ func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
 		t.Fatalf("raw event trigger get: %v", err)
 	}
 	assertRecordHasTargetJSON(t, triggerRecord)
-	assertRecordDoesNotContainFields(t, triggerRecord, "plugin_name", "operation", "connection", "instance", "input")
+	assertRecordDoesNotContainFields(t, triggerRecord, "operation", "connection", "instance", "input")
 
 	run, err := provider.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{Target: target})
 	if err != nil {
@@ -1771,7 +1769,7 @@ func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
 		t.Fatalf("raw run get: %v", err)
 	}
 	assertRecordHasTargetJSON(t, runRecord)
-	assertRecordDoesNotContainFields(t, runRecord, "plugin_name", "operation", "connection", "instance", "input")
+	assertRecordDoesNotContainFields(t, runRecord, "operation", "connection", "instance", "input")
 
 	ref, err := provider.PutExecutionReference(ctx, &gestalt.PutWorkflowExecutionReferenceRequest{
 		Reference: &gestalt.WorkflowExecutionReference{
@@ -1788,7 +1786,7 @@ func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
 		t.Fatalf("raw execution ref get: %v", err)
 	}
 	assertRecordHasTargetJSON(t, refRecord)
-	assertRecordDoesNotContainFields(t, refRecord, "target_plugin", "target_operation", "target_connection", "target_instance", "target_fingerprint")
+	assertRecordDoesNotContainFields(t, refRecord, "target_app", "target_operation", "target_connection", "target_instance", "target_fingerprint")
 }
 
 func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
@@ -2043,7 +2041,7 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 		"_gestalt": map[string]any{
 			"eventRunPermissions": []any{
 				map[string]any{
-					"plugin": "github",
+					"app": "github",
 					"operations": []any{
 						"bot.commitFiles",
 						"bot.openPullRequest",
@@ -2084,7 +2082,7 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 		AuthSource:  "github_app_webhook",
 	}
 	if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
-		AppName:  "github",
+		AppName:     "github",
 		PublishedBy: publishedBy,
 		Event:       githubWebhookWorkflowEvent(t),
 	}); err != nil {
@@ -2133,7 +2131,7 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 		AuthSource:  "github_app_webhook",
 	}
 	if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
-		AppName:  "github",
+		AppName:     "github",
 		PublishedBy: duplicatePublisher,
 		Event:       githubWebhookWorkflowEvent(t),
 	}); err != nil {
@@ -2155,6 +2153,21 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 	}
 }
 
+func TestConfiguredEventRunPermissionsRejectsLegacyPluginField(t *testing.T) {
+	_, err := configuredEventRunPermissions(map[string]any{
+		gestaltInputKey: map[string]any{
+			eventRunPermissionsKey: []any{
+				map[string]any{
+					"plugin":     "github",
+					"operations": []any{"bot.createPullRequest"},
+				},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), ".app is required") {
+		t.Fatalf("configuredEventRunPermissions error = %v, want app required", err)
+	}
+}
 
 func githubWebhookWorkflowEvent(t *testing.T) *gestalt.WorkflowEvent {
 	t.Helper()
@@ -2197,7 +2210,7 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 		t.Fatalf("schedule target = %#v", schedule.Target)
 	}
 	if testAppStep(schedule.Target) != nil {
-		t.Fatalf("schedule target included plugin fields: %#v", schedule.Target)
+		t.Fatalf("schedule target included legacy scalar app fields: %#v", schedule.Target)
 	}
 
 	listed, err := provider.ListSchedules(ctx, &gestalt.ListWorkflowProviderSchedulesRequest{})
@@ -2232,7 +2245,7 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 		t.Fatalf("tool refs = %#v", toolRefs)
 	}
 	if testAppStep(call.Target) != nil {
-		t.Fatalf("call target included plugin fields: %#v", call.Target)
+		t.Fatalf("call target included legacy scalar app fields: %#v", call.Target)
 	}
 	if call.Trigger.Schedule.ScheduleID != "slack-reminder" {
 		t.Fatalf("schedule trigger = %#v", call.Trigger)
@@ -2563,7 +2576,7 @@ func TestProviderEnqueueDueSchedulesReusesDeterministicRunID(t *testing.T) {
 	}
 }
 
-func TestProviderRejectsCrossPluginScheduleAndTriggerIDCollisions(t *testing.T) {
+func TestProviderRejectsCrossAppScheduleAndTriggerIDCollisions(t *testing.T) {
 	ctx := context.Background()
 	startTestIndexedDBBackend(t)
 	startTestWorkflowHost(t, newWorkflowHostStub(202, `{"ok":true}`))
@@ -2588,7 +2601,7 @@ func TestProviderRejectsCrossPluginScheduleAndTriggerIDCollisions(t *testing.T) 
 		Timezone:   "UTC",
 		Target:     workflowTarget(t, "billing", "sync", map[string]any{"kind": "schedule"}),
 	}); err == nil {
-		t.Fatal("UpsertSchedule(billing) succeeded, want cross-plugin collision error")
+		t.Fatal("UpsertSchedule(billing) succeeded, want cross-app collision error")
 	}
 
 	if _, err := provider.UpsertEventTrigger(ctx, &gestalt.UpsertWorkflowProviderEventTriggerRequest{
@@ -2603,7 +2616,7 @@ func TestProviderRejectsCrossPluginScheduleAndTriggerIDCollisions(t *testing.T) 
 		Match:     &gestalt.WorkflowEventMatch{Type: "invoice.updated"},
 		Target:    workflowTarget(t, "billing", "sync", map[string]any{"kind": "event"}),
 	}); err == nil {
-		t.Fatal("UpsertEventTrigger(billing) succeeded, want cross-plugin collision error")
+		t.Fatal("UpsertEventTrigger(billing) succeeded, want cross-app collision error")
 	}
 }
 
@@ -3054,7 +3067,7 @@ func TestProviderTickProcessesPreferredRunBeforeStaleRecovery(t *testing.T) {
 	}
 }
 
-func TestProviderTickPrioritizesPluginEventWhenPreferredWakeLost(t *testing.T) {
+func TestProviderTickPrioritizesAppEventWhenPreferredWakeLost(t *testing.T) {
 	ctx := context.Background()
 	start := time.Date(2026, time.May, 3, 17, 0, 0, 0, time.UTC)
 	clock := newFakeClock(start)
@@ -3112,7 +3125,7 @@ func TestProviderTickPrioritizesPluginEventWhenPreferredWakeLost(t *testing.T) {
 	}
 	wantRunID := eventRunID(triggerID, "slack", "evt-lost-wake")
 	if call.RunID != wantRunID {
-		t.Fatalf("run_id = %q, want plugin event run %q", call.RunID, wantRunID)
+		t.Fatalf("run_id = %q, want app event run %q", call.RunID, wantRunID)
 	}
 }
 
@@ -3205,14 +3218,14 @@ func TestProviderTickPreservesFIFOWithinDispatchPriority(t *testing.T) {
 		CreatedAt:   start.Add(-time.Hour),
 	}
 	firstEvent := workflowRunRecord{
-		ID:          "first-plugin-event",
+		ID:          "first-app-event",
 		Status:      gestalt.WorkflowRunStatusValuePending,
 		Target:      workflowTarget(t, "brain", "sources.slack.events.ingest", nil),
 		TriggerKind: triggerKindEvent,
 		CreatedAt:   start,
 	}
 	secondEvent := firstEvent
-	secondEvent.ID = "second-plugin-event"
+	secondEvent.ID = "second-app-event"
 	secondEvent.CreatedAt = start.Add(time.Second)
 	for _, run := range []workflowRunRecord{oldAgent, secondEvent, firstEvent} {
 		if err := provider.runStore.Put(ctx, run.toRecord()); err != nil {
@@ -3263,14 +3276,14 @@ func TestProviderTickPreferredWakeDoesNotBypassDispatchPriority(t *testing.T) {
 		TriggerKind: triggerKindManual,
 		CreatedAt:   start.Add(-time.Minute),
 	}
-	pluginEvent := workflowRunRecord{
-		ID:          "higher-priority-plugin-event",
+	appEvent := workflowRunRecord{
+		ID:          "higher-priority-app-event",
 		Status:      gestalt.WorkflowRunStatusValuePending,
 		Target:      workflowTarget(t, "brain", "sources.slack.events.ingest", nil),
 		TriggerKind: triggerKindEvent,
 		CreatedAt:   start,
 	}
-	for _, run := range []workflowRunRecord{pluginEvent, preferred} {
+	for _, run := range []workflowRunRecord{appEvent, preferred} {
 		if err := provider.runStore.Put(ctx, run.toRecord()); err != nil {
 			t.Fatalf("Put(%s): %v", run.ID, err)
 		}
@@ -3283,8 +3296,8 @@ func TestProviderTickPreferredWakeDoesNotBypassDispatchPriority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("waitForCall: %v", err)
 	}
-	if call.RunID != pluginEvent.ID {
-		t.Fatalf("run_id = %q, want higher-priority run %q", call.RunID, pluginEvent.ID)
+	if call.RunID != appEvent.ID {
+		t.Fatalf("run_id = %q, want higher-priority run %q", call.RunID, appEvent.ID)
 	}
 }
 

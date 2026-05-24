@@ -6,7 +6,7 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
-func nativePluginTargetInput(app, operation string) *gestalt.BoundWorkflowTarget {
+func nativeAppTargetInput(app, operation string) *gestalt.BoundWorkflowTarget {
 	return &gestalt.BoundWorkflowTarget{Steps: []gestalt.WorkflowStep{{
 		ID: strings.TrimSpace(operation),
 		App: &gestalt.WorkflowStepAppCall{
@@ -16,8 +16,8 @@ func nativePluginTargetInput(app, operation string) *gestalt.BoundWorkflowTarget
 	}}}
 }
 
-func nativePluginTargetInputWithObject(app, operation string, input map[string]any) *gestalt.BoundWorkflowTarget {
-	target := nativePluginTargetInput(app, operation)
+func nativeAppTargetInputWithObject(app, operation string, input map[string]any) *gestalt.BoundWorkflowTarget {
+	target := nativeAppTargetInput(app, operation)
 	if len(input) > 0 && len(target.Steps) > 0 && target.Steps[0].App != nil {
 		fields := make(map[string]gestalt.WorkflowValue, len(input))
 		for key, value := range input {
@@ -28,8 +28,8 @@ func nativePluginTargetInputWithObject(app, operation string, input map[string]a
 	return target
 }
 
-func pluginTarget(app, operation string) *gestalt.BoundWorkflowTarget {
-	return nativePluginTargetInputWithObject(app, operation, map[string]any{"text": "hello"})
+func appTarget(app, operation string) *gestalt.BoundWorkflowTarget {
+	return nativeAppTargetInputWithObject(app, operation, map[string]any{"text": "hello"})
 }
 
 func workflowValueObjectField(target *gestalt.BoundWorkflowTarget, key string) any {
