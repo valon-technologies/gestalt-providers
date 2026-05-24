@@ -134,7 +134,7 @@ apps:
 Example `list_monitors` call:
 
 ```ts
-await invoker.invoke("datadog", "list_monitors", { page: 0, page_size: 20 });
+await app.invoke("datadog", "list_monitors", { page: 0, page_size: 20 });
 ```
 
 ## Documentation

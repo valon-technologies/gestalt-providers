@@ -76,13 +76,13 @@ apps:
 Example `events.list` call:
 
 ```ts
-await invoker.invoke("google_calendar", "events.list", { calendarId: "primary", maxResults: 10 });
+await app.invoke("google_calendar", "events.list", { calendarId: "primary", maxResults: 10 });
 ```
 
 Example `events.quickAdd` call:
 
 ```ts
-await invoker.invoke("google_calendar", "events.quickAdd", { calendarId: "primary", text: "Team sync tomorrow at 10am" });
+await app.invoke("google_calendar", "events.quickAdd", { calendarId: "primary", text: "Team sync tomorrow at 10am" });
 ```
 
 ## Documentation

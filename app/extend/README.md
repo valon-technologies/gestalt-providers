@@ -76,7 +76,7 @@ apps:
 Example `list_files` call:
 
 ```ts
-await invoker.invoke("extend", "list_files", { page_size: 20 });
+await app.invoke("extend", "list_files", { page_size: 20 });
 ```
 
 ## Documentation

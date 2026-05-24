@@ -85,7 +85,7 @@ apps:
 Example `list_joined_teams` call:
 
 ```ts
-await invoker.invoke("teams", "list_joined_teams", { top: 10 });
+await app.invoke("teams", "list_joined_teams", { top: 10 });
 ```
 
 ## Documentation

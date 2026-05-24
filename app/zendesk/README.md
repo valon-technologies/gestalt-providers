@@ -125,7 +125,7 @@ apps:
 Example `ListTickets` call:
 
 ```ts
-await invoker.invoke("zendesk", "ListTickets", { page: { size: 25 } });
+await app.invoke("zendesk", "ListTickets", { page: { size: 25 } });
 ```
 
 ## Documentation

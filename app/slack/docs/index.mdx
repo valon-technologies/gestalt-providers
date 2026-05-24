@@ -155,7 +155,7 @@ apps:
 Fetch a thread by permalink:
 
 ```ts
-await invoker.invoke("slack", "conversations.getThreadContext", {
+await app.invoke("slack", "conversations.getThreadContext", {
   url: "https://workspace.slack.com/archives/C0123456789/p1712161829000300",
   include_user_info: true,
   include_files: true,
@@ -166,7 +166,7 @@ await invoker.invoke("slack", "conversations.getThreadContext", {
 Read bounded file content by Slack file ID:
 
 ```ts
-await invoker.invoke("slack", "files.get", {
+await app.invoke("slack", "files.get", {
   file_id: "F0123456789",
   include_content: true,
   max_bytes: 200000,
@@ -177,18 +177,18 @@ When responding from a Slack event workflow, use the event helper operations wit
 the opaque `reply_ref` supplied in the event payload. For native streaming:
 
 ```ts
-const started = await invoker.invoke("slack", "events.startStream", {
+const started = await app.invoke("slack", "events.startStream", {
   reply_ref: "...",
   markdown_text: "Working on it...",
 });
 
-await invoker.invoke("slack", "events.appendStream", {
+await app.invoke("slack", "events.appendStream", {
   reply_ref: "...",
   stream_ts: started.ts,
   markdown_text: "Found the relevant context.",
 });
 
-await invoker.invoke("slack", "events.stopStream", {
+await app.invoke("slack", "events.stopStream", {
   reply_ref: "...",
   stream_ts: started.ts,
   markdown_text: "Done.",

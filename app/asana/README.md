@@ -68,7 +68,7 @@ apps:
 Example `getTasks` call:
 
 ```ts
-await invoker.invoke("asana", "getTasks", { project: "project-id", limit: 20 });
+await app.invoke("asana", "getTasks", { project: "project-id", limit: 20 });
 ```
 
 ## Documentation

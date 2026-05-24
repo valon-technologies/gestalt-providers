@@ -65,7 +65,7 @@ apps:
 Example `createMessage` call:
 
 ```ts
-await invoker.invoke("twilio", "createMessage", { To: "+15551234567", From: "+15557654321", Body: "Hello from Gestalt" });
+await app.invoke("twilio", "createMessage", { To: "+15551234567", From: "+15557654321", Body: "Hello from Gestalt" });
 ```
 
 ## Documentation

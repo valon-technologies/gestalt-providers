@@ -70,7 +70,7 @@ apps:
 Example `searchForIssuesUsingJql` call:
 
 ```ts
-await invoker.invoke("jira", "searchForIssuesUsingJql", { jql: "project = ENG order by updated DESC", maxResults: 10 });
+await app.invoke("jira", "searchForIssuesUsingJql", { jql: "project = ENG order by updated DESC", maxResults: 10 });
 ```
 
 ## Documentation

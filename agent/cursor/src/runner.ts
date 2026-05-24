@@ -8,7 +8,7 @@ import type {
   ExecuteAgentToolRequest,
 } from "@valon-technologies/gestalt";
 
-import { GestaltAgentHostClient } from "./agent_host.ts";
+import { GestaltAgentHost } from "./agent_host.ts";
 import type { CursorAgentConfig } from "./config.ts";
 import { createCursorPlatformOptions } from "./cursor_platform.ts";
 import { CursorExecutionCanceled, CursorExecutionError } from "./errors.ts";
@@ -19,7 +19,7 @@ export type CursorAgentFactory = {
   create(options: AgentOptions): Promise<SDKAgent>;
 };
 
-export type AgentHostFactory = () => GestaltAgentHostClient;
+export type AgentHostFactory = () => GestaltAgentHost;
 
 export type TurnEventSink = (
   eventType: string,
@@ -227,10 +227,10 @@ export class CursorSDKRunner {
     return cursor.Agent;
   }
 
-  private createHost(): GestaltAgentHostClient {
+  private createHost(): GestaltAgentHost {
     return this.options.hostFactory
       ? this.options.hostFactory()
-      : new GestaltAgentHostClient();
+      : new GestaltAgentHost();
   }
 
   private async raiseIfCanceled(active: ActiveTurn): Promise<void> {

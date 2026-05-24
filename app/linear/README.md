@@ -71,7 +71,7 @@ apps:
 Example `issueCreate` call:
 
 ```ts
-await invoker.invoke("linear", "issueCreate", { input: { teamId: "team-id", title: "Follow up" } });
+await app.invoke("linear", "issueCreate", { input: { teamId: "team-id", title: "Follow up" } });
 ```
 
 ## Documentation

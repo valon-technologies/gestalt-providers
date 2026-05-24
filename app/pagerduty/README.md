@@ -67,7 +67,7 @@ apps:
 Example `listIncidents` call:
 
 ```ts
-await invoker.invoke("pagerduty", "listIncidents", { statuses: ["triggered", "acknowledged"], limit: 10 });
+await app.invoke("pagerduty", "listIncidents", { statuses: ["triggered", "acknowledged"], limit: 10 });
 ```
 
 ## Documentation

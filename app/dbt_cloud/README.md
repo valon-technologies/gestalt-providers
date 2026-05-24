@@ -63,7 +63,7 @@ apps:
 Example `listAccounts` call:
 
 ```ts
-await invoker.invoke("dbt_cloud", "listAccounts", {});
+await app.invoke("dbt_cloud", "listAccounts", {});
 ```
 
 ## Documentation

@@ -84,7 +84,7 @@ apps:
 Example `list_site_drives` call:
 
 ```ts
-await invoker.invoke("sharepoint", "list_site_drives", { site_id: "contoso.sharepoint.com,site-id,web-id" });
+await app.invoke("sharepoint", "list_site_drives", { site_id: "contoso.sharepoint.com,site-id,web-id" });
 ```
 
 ## Documentation

@@ -96,5 +96,5 @@ apps:
 Example `directory.users.list` call:
 
 ```ts
-await invoker.invoke("google_admin_directory", "directory.users.list", { customer: "my_customer", maxResults: 10 });
+await app.invoke("google_admin_directory", "directory.users.list", { customer: "my_customer", maxResults: 10 });
 ```

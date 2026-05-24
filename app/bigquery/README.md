@@ -65,7 +65,7 @@ apps:
 Example `query` call:
 
 ```ts
-await invoker.invoke("bigquery", "query", {
+await app.invoke("bigquery", "query", {
   project_id: "analytics-prod",
   query: "select name from `dataset.table` limit 10",
   max_results: 10,

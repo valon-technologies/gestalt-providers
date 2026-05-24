@@ -70,7 +70,7 @@ apps:
 Example `search` call:
 
 ```ts
-await invoker.invoke("confluence", "search", { cql: "type=page and text~\"roadmap\"", limit: 10 });
+await app.invoke("confluence", "search", { cql: "type=page and text~\"roadmap\"", limit: 10 });
 ```
 
 ## Documentation

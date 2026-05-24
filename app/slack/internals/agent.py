@@ -2321,7 +2321,7 @@ def _should_notify_unlinked_slack_user_for_event(event: SlackAgentEvent) -> bool
 
 
 def _resolve_slack_subject(
-    authorization: gestalt.AuthorizationClient,
+    authorization: gestalt.AuthorizationProtocol,
     *,
     team_id: str,
     user_id: str,

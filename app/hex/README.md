@@ -88,13 +88,13 @@ apps:
 Example `projects.export` call:
 
 ```ts
-await invoker.invoke("hex", "projects.export", { project_id: "hex-project-id" });
+await app.invoke("hex", "projects.export", { project_id: "hex-project-id" });
 ```
 
 Example `cells.run` call:
 
 ```ts
-await invoker.invoke("hex", "cells.run", { project_id: "hex-project-id", cell_id: "cell-id" });
+await app.invoke("hex", "cells.run", { project_id: "hex-project-id", cell_id: "cell-id" });
 ```
 
 ## Documentation

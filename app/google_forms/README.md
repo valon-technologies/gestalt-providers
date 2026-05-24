@@ -74,13 +74,13 @@ apps:
 Example `forms.get` call:
 
 ```ts
-await invoker.invoke("google_forms", "forms.get", { formId: "form-id" });
+await app.invoke("google_forms", "forms.get", { formId: "form-id" });
 ```
 
 Example `responses.list` call:
 
 ```ts
-await invoker.invoke("google_forms", "responses.list", { formId: "form-id" });
+await app.invoke("google_forms", "responses.list", { formId: "form-id" });
 ```
 
 ## Documentation

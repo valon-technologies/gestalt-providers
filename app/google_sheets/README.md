@@ -78,7 +78,7 @@ apps:
 Example `values.get` call:
 
 ```ts
-await invoker.invoke("google_sheets", "values.get", { spreadsheetId: "sheet-id", range: "Sheet1!A1:D10" });
+await app.invoke("google_sheets", "values.get", { spreadsheetId: "sheet-id", range: "Sheet1!A1:D10" });
 ```
 
 ## Documentation

@@ -73,7 +73,7 @@ apps:
 Example `ListContacts` call:
 
 ```ts
-await invoker.invoke("intercom", "ListContacts", { per_page: 25 });
+await app.invoke("intercom", "ListContacts", { per_page: 25 });
 ```
 
 ## Documentation

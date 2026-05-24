@@ -80,13 +80,13 @@ apps:
 Example `candidate.list` call:
 
 ```ts
-await invoker.invoke("ashby", "candidate.list", { limit: 25 });
+await app.invoke("ashby", "candidate.list", { limit: 25 });
 ```
 
 Example `candidate.info` call:
 
 ```ts
-await invoker.invoke("ashby", "candidate.info", { id: "candidate-id" });
+await app.invoke("ashby", "candidate.info", { id: "candidate-id" });
 ```
 
 ## Documentation

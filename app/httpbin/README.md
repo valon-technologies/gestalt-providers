@@ -66,7 +66,7 @@ apps:
 Example `get` call:
 
 ```ts
-await invoker.invoke("httpbin", "get", { anything: "value" });
+await app.invoke("httpbin", "get", { anything: "value" });
 ```
 
 ## Documentation

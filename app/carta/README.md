@@ -89,7 +89,7 @@ apps:
 Example `v1alpha1.corporations.listCorporations` call:
 
 ```ts
-await invoker.invoke("carta", "v1alpha1.corporations.listCorporations", {});
+await app.invoke("carta", "v1alpha1.corporations.listCorporations", {});
 ```
 
 ## Documentation

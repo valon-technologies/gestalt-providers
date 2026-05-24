@@ -141,7 +141,7 @@ apps:
 Example `flakyTests.listUnhealthyTests` call:
 
 ```ts
-await invoker.invoke("trunk", "flakyTests.listUnhealthyTests", { orgSlug: "acme", repoSlug: "widgets" });
+await app.invoke("trunk", "flakyTests.listUnhealthyTests", { orgSlug: "acme", repoSlug: "widgets" });
 ```
 
 ## Documentation
