@@ -13,7 +13,7 @@ import (
 	"time"
 
 	relationaldb "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb"
-	providerfake "github.com/valon-technologies/gestalt-providers/workflow/internal/providerfake"
+	workflowfake "github.com/valon-technologies/gestalt-providers/workflow/internal/fake"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -3779,7 +3779,7 @@ func startTestIndexedDBBackend(t *testing.T) workflowDB {
 }
 
 func wrapProviderWorkflowDB(provider gestalt.IndexedDBProvider) workflowDB {
-	return providerfake.NewProviderDB(provider)
+	return workflowfake.NewProviderDB(provider)
 }
 
 func startTestIndexedDBBackendWithWrapper(t *testing.T, wrap func(gestalt.IndexedDBProvider) gestalt.IndexedDBProvider) workflowDB {

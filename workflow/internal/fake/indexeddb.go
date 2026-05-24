@@ -1,4 +1,4 @@
-package providerfake
+package fake
 
 import (
 	"context"

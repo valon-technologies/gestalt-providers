@@ -14,7 +14,7 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	relationaldb "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb"
-	providerfake "github.com/valon-technologies/gestalt-providers/workflow/internal/providerfake"
+	workflowfake "github.com/valon-technologies/gestalt-providers/workflow/internal/fake"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"go.opentelemetry.io/otel"
@@ -2549,5 +2549,5 @@ func startTestIndexedDBBackend(t *testing.T) indexeddb.Database {
 	}
 
 	t.Cleanup(func() { _ = store.Close() })
-	return providerfake.NewProviderDB(store)
+	return workflowfake.NewProviderDB(store)
 }
