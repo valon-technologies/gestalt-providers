@@ -36,7 +36,7 @@ plugins:
     execution:
       mode: hosted
       runtime:
-        image: ghcr.io/valon-technologies/github-plugin-runtime:latest
+        image: ghcr.io/valon-technologies/github-app-runtime:latest
 
 providers:
   agent:
@@ -95,7 +95,7 @@ plugins:
       mode: hosted
       runtime:
         provider: nebius
-        image: ghcr.io/valon-technologies/github-plugin-runtime:latest
+        image: ghcr.io/valon-technologies/github-app-runtime:latest
 ```
 
 Example runtime selection on an agent provider:
@@ -130,7 +130,7 @@ Each runtime session lazily provisions a Nebius VM, injects an ephemeral SSH key
 and a pinned SSH host key through cloud-init, installs Docker, and launches the
 requested runtime image with `docker run --network host`. The image must already
 contain the provider package layout expected by the manifest entrypoint. The
-hosted plugin binds only on guest loopback and the host talks to it through a
+hosted app binds only on guest loopback and the host talks to it through a
 local SSH port forward to the VM.
 
 ## Current Limitations

@@ -21,7 +21,7 @@ func TestProviderContractAdvertisesHostnameEgressOnlyWhenEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSupport disabled: %v", err)
 	}
-	if support.EgressMode != gestalt.AppRuntimeEgressModeNone {
+	if support.EgressMode != gestalt.RuntimeEgressModeNone {
 		t.Fatalf("disabled EgressMode = %q, want none", support.EgressMode)
 	}
 
@@ -30,7 +30,7 @@ func TestProviderContractAdvertisesHostnameEgressOnlyWhenEnabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSupport publicProxy: %v", err)
 	}
-	if support.EgressMode != gestalt.AppRuntimeEgressModeHostname {
+	if support.EgressMode != gestalt.RuntimeEgressModeHostname {
 		t.Fatalf("publicProxy EgressMode = %q, want hostname", support.EgressMode)
 	}
 }
@@ -41,10 +41,10 @@ func TestProviderContractPassesImagePullAuthToRuntime(t *testing.T) {
 	provider.cfg = testConfig()
 	provider.runtime = runtime
 
-	_, err := provider.StartSession(context.Background(), gestalt.StartAppRuntimeSessionRequest{
+	_, err := provider.StartSession(context.Background(), gestalt.StartRuntimeSessionRequest{
 		AppName: "github",
-		Image:      "registry.example/runtime:latest",
-		ImagePullAuth: &gestalt.AppRuntimeImagePullAuth{
+		Image:   "registry.example/runtime:latest",
+		ImagePullAuth: &gestalt.RuntimeImagePullAuth{
 			DockerConfigJSON: `{"auths":{"registry.example":{"username":"u","password":"p"}}}`,
 		},
 	})
@@ -59,7 +59,7 @@ func TestProviderContractPassesImagePullAuthToRuntime(t *testing.T) {
 func TestProviderContractBuildsPluginEnv(t *testing.T) {
 	env := buildPluginEnv(gestalt.StartHostedAppRequest{
 		AppName: "claude",
-		Env:        map[string]string{"CUSTOM": "value"},
+		Env:     map[string]string{"CUSTOM": "value"},
 	}, "/tmp/gestalt/plugin.sock")
 	if got, want := env[envProviderSocket], "/tmp/gestalt/plugin.sock"; got != want {
 		t.Fatalf("%s = %q, want %q", envProviderSocket, got, want)
@@ -108,7 +108,7 @@ func TestProviderContractStartedPluginHealthWinsOverPendingReadiness(t *testing.
 	}
 }
 
-func TestProviderContractStartPluginBlocksFailedStartedSessionBeforeLaunch(t *testing.T) {
+func TestProviderContractStartAppBlocksFailedStartedSessionBeforeLaunch(t *testing.T) {
 	runtime := &fakeRuntime{
 		execErr: errors.New("plugin exited"),
 		resolveSession: runtimeSession{
@@ -127,9 +127,9 @@ func TestProviderContractStartPluginBlocksFailedStartedSessionBeforeLaunch(t *te
 	provider.runtime = runtime
 
 	_, err := provider.StartApp(context.Background(), gestalt.StartHostedAppRequest{
-		SessionID:  "session-1",
-		AppName: "github",
-		Command:    "gestalt-plugin-github",
+		SessionID: "session-1",
+		AppName:   "github",
+		Command:   "gestalt-plugin-github",
 	})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("StartApp error = %v, want FailedPrecondition", err)
@@ -139,7 +139,7 @@ func TestProviderContractStartPluginBlocksFailedStartedSessionBeforeLaunch(t *te
 	}
 }
 
-func TestProviderContractStartPluginBlocksStartedNotReadySessionBeforeLaunch(t *testing.T) {
+func TestProviderContractStartAppBlocksStartedNotReadySessionBeforeLaunch(t *testing.T) {
 	runtime := &fakeRuntime{
 		resolveSession: runtimeSession{
 			ID:            "session-1",
@@ -157,9 +157,9 @@ func TestProviderContractStartPluginBlocksStartedNotReadySessionBeforeLaunch(t *
 	provider.runtime = runtime
 
 	_, err := provider.StartApp(context.Background(), gestalt.StartHostedAppRequest{
-		SessionID:  "session-1",
-		AppName: "github",
-		Command:    "gestalt-plugin-github",
+		SessionID: "session-1",
+		AppName:   "github",
+		Command:   "gestalt-plugin-github",
 	})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("StartApp error = %v, want FailedPrecondition", err)
@@ -181,9 +181,9 @@ func (f *fakeRuntime) HealthCheck(context.Context) error { return nil }
 func (f *fakeRuntime) Start(_ context.Context, req startRuntimeSessionRequest) (runtimeSession, error) {
 	f.startReq = req
 	return runtimeSession{
-		ID:         req.Name,
-		AppName: req.AppName,
-		Metadata:   cloneStringMap(req.Metadata),
+		ID:       req.Name,
+		AppName:  req.AppName,
+		Metadata: cloneStringMap(req.Metadata),
 		Handle: runtimeHandle{
 			Name:      req.Name,
 			Namespace: req.Namespace,

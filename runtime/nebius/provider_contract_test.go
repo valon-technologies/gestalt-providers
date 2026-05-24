@@ -55,10 +55,11 @@ func TestRuntimeProviderContractListsSessions(t *testing.T) {
 	}
 	client := startRuntimeProviderServer(t, provider)
 
-	sessions, err := client.ListSessions(context.Background())
+	resp, err := client.ListSessions(context.Background(), gestalt.ListRuntimeSessionsRequest{})
 	if err != nil {
 		t.Fatalf("ListSessions: %v", err)
 	}
+	sessions := resp.Sessions
 	if len(sessions) != 2 {
 		t.Fatalf("ListSessions len = %d, want 2", len(sessions))
 	}

@@ -44,12 +44,12 @@ func TestRuntimeContractStartsSessionFromPodTemplate(t *testing.T) {
 	}
 
 	session, err := runtime.Start(ctx, startRuntimeSessionRequest{
-		Name:       "session-1",
-		AppName: "claude",
-		Namespace:  "runtime-system",
-		Template:   "agent-runtime",
-		Image:      "registry.example/runtime@sha256:abc",
-		Metadata:   map[string]string{"tenant": "prod"},
+		Name:      "session-1",
+		AppName:   "claude",
+		Namespace: "runtime-system",
+		Template:  "agent-runtime",
+		Image:     "registry.example/runtime@sha256:abc",
+		Metadata:  map[string]string{"tenant": "prod"},
 	})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -95,7 +95,7 @@ func TestRuntimeContractDirectSessionCreatesImagePullSecretAndService(t *testing
 
 	_, err := runtime.Start(ctx, startRuntimeSessionRequest{
 		Name:             "session-2",
-		AppName:       "github",
+		AppName:          "github",
 		Namespace:        "runtime-system",
 		Image:            "registry.example/runtime:latest",
 		DockerConfigJSON: `{"auths":{"registry.example":{"username":"u","password":"p"}}}`,

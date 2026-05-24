@@ -22,9 +22,9 @@ import (
 func TestRuntimeProviderContractLaunchesHostedApp(t *testing.T) {
 	t.Parallel()
 
-	pluginTarget := startPluginLifecycleServer(t)
+	appTarget := startAppLifecycleServer(t)
 	fake := &fakeSandboxRuntime{
-		tunnel: &fakeTunnel{dialTarget: pluginTarget},
+		tunnel: &fakeTunnel{dialTarget: appTarget},
 	}
 	client := startRuntimeProviderServer(t, &Provider{
 		name: "gkeAgentSandbox",
@@ -49,13 +49,13 @@ func TestRuntimeProviderContractLaunchesHostedApp(t *testing.T) {
 	if !support.CanHostApps {
 		t.Fatalf("GetSupport CanHostApps = false")
 	}
-	if got, want := support.EgressMode, gestalt.AppRuntimeEgressModeHostname; got != want {
+	if got, want := support.EgressMode, gestalt.RuntimeEgressModeHostname; got != want {
 		t.Fatalf("GetSupport EgressMode = %v, want %v", got, want)
 	}
 
-	session, err := client.StartSession(ctx, gestalt.StartAppRuntimeSessionRequest{
-		AppName: appName,
-		Template:   "python-runtime",
+	session, err := client.StartSession(ctx, gestalt.StartRuntimeSessionRequest{
+		AppName:  appName,
+		Template: "python-runtime",
 		Metadata: map[string]string{
 			"tenant": "dev",
 		},
@@ -98,20 +98,20 @@ func TestRuntimeProviderContractLaunchesHostedApp(t *testing.T) {
 	const hostServiceEnv = gestalt.EnvHostServiceSocket
 
 	hosted, err := client.StartApp(ctx, gestalt.StartHostedAppRequest{
-		SessionID:  session.ID,
-		AppName: appName,
-		Command:    "./plugin",
-		Args:       []string{"--serve", "space value"},
+		SessionID: session.ID,
+		AppName:   appName,
+		Command:   "./plugin",
+		Args:      []string{"--serve", "space value"},
 		Env: map[string]string{
-			"CUSTOM":                  "value",
-			hostServiceEnv:            "tls://host-service-relay.gestalt.example:443",
+			"CUSTOM":                    "value",
+			hostServiceEnv:              "tls://host-service-relay.gestalt.example:443",
 			gestalt.EnvHostServiceToken: "host-service-token",
 		},
 	})
 	if err != nil {
 		t.Fatalf("StartApp: %v", err)
 	}
-	if got, want := hosted.DialTarget, pluginTarget; got != want {
+	if got, want := hosted.DialTarget, appTarget; got != want {
 		t.Fatalf("StartApp dial target = %q, want %q", got, want)
 	}
 
@@ -130,7 +130,7 @@ func TestRuntimeProviderContractLaunchesHostedApp(t *testing.T) {
 		"command -v socat",
 		"TCP-LISTEN:50051",
 		"UNIX-CONNECT:'/tmp/gestalt/plugin.sock'",
-		"'GESTALT_PLUGIN_SOCKET=/tmp/gestalt/plugin.sock'",
+		"'GESTALT_PROVIDER_SOCKET=/tmp/gestalt/plugin.sock'",
 		"'GESTALT_HOST_SERVICE_SOCKET=tls://host-service-relay.gestalt.example:443'",
 		"'GESTALT_HOST_SERVICE_TOKEN=host-service-token'",
 		"'CUSTOM=value'",
@@ -177,7 +177,7 @@ func TestRuntimeProviderContractLaunchesHostedApp(t *testing.T) {
 	}
 }
 
-func TestRuntimeProviderContractStartPluginRejectsStaleSessionBeforeLease(t *testing.T) {
+func TestRuntimeProviderContractStartAppRejectsStaleSessionBeforeLease(t *testing.T) {
 	t.Parallel()
 
 	fake := &fakeSandboxRuntime{verifyErr: errors.Join(errStaleRuntimeSession, errors.New("template image mismatch"))}
@@ -197,9 +197,9 @@ func TestRuntimeProviderContractStartPluginRejectsStaleSessionBeforeLease(t *tes
 	client := startRuntimeProviderServer(t, provider)
 
 	ctx := context.Background()
-	session, err := client.StartSession(ctx, gestalt.StartAppRuntimeSessionRequest{
-		AppName: "github",
-		Template:   "python-runtime",
+	session, err := client.StartSession(ctx, gestalt.StartRuntimeSessionRequest{
+		AppName:  "github",
+		Template: "python-runtime",
 	})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
@@ -207,9 +207,9 @@ func TestRuntimeProviderContractStartPluginRejectsStaleSessionBeforeLease(t *tes
 	tunnel := &fakeTunnel{dialTarget: "tcp://127.0.0.1:1"}
 	provider.setLocalTunnel(session.ID, tunnel)
 	_, err = client.StartApp(ctx, gestalt.StartHostedAppRequest{
-		SessionID:  session.ID,
-		AppName: "github",
-		Command:    "./plugin",
+		SessionID: session.ID,
+		AppName:   "github",
+		Command:   "./plugin",
 	})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("StartApp code = %v, want FailedPrecondition: %v", status.Code(err), err)
@@ -248,9 +248,9 @@ func TestRuntimeProviderContractKeepsLocalTunnelOnTransientCompatibilityError(t 
 	client := startRuntimeProviderServer(t, provider)
 
 	ctx := context.Background()
-	session, err := client.StartSession(ctx, gestalt.StartAppRuntimeSessionRequest{
-		AppName: "github",
-		Template:   "python-runtime",
+	session, err := client.StartSession(ctx, gestalt.StartRuntimeSessionRequest{
+		AppName:  "github",
+		Template: "python-runtime",
 	})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
@@ -259,9 +259,9 @@ func TestRuntimeProviderContractKeepsLocalTunnelOnTransientCompatibilityError(t 
 	provider.setLocalTunnel(session.ID, tunnel)
 
 	_, err = client.StartApp(ctx, gestalt.StartHostedAppRequest{
-		SessionID:  session.ID,
-		AppName: "github",
-		Command:    "./plugin",
+		SessionID: session.ID,
+		AppName:   "github",
+		Command:   "./plugin",
 	})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("StartApp code = %v, want FailedPrecondition: %v", status.Code(err), err)
@@ -309,16 +309,16 @@ func TestRuntimeProviderContractScopesKubernetesNamesByProviderInstance(t *testi
 	})
 
 	ctx := context.Background()
-	sessionA, err := clientA.StartSession(ctx, gestalt.StartAppRuntimeSessionRequest{
-		AppName: "simple",
-		Template:   "python-runtime",
+	sessionA, err := clientA.StartSession(ctx, gestalt.StartRuntimeSessionRequest{
+		AppName:  "simple",
+		Template: "python-runtime",
 	})
 	if err != nil {
 		t.Fatalf("StartSession A: %v", err)
 	}
-	sessionB, err := clientB.StartSession(ctx, gestalt.StartAppRuntimeSessionRequest{
-		AppName: "simple",
-		Template:   "python-runtime",
+	sessionB, err := clientB.StartSession(ctx, gestalt.StartRuntimeSessionRequest{
+		AppName:  "simple",
+		Template: "python-runtime",
 	})
 	if err != nil {
 		t.Fatalf("StartSession B: %v", err)
@@ -377,10 +377,10 @@ func TestRuntimeProviderContractPeerInstanceCanResolveListAndStopSession(t *test
 	})
 
 	ctx := context.Background()
-	session, err := clientA.StartSession(ctx, gestalt.StartAppRuntimeSessionRequest{
-		AppName: "agent-provider",
-		Template:   "python-runtime",
-		Metadata:   map[string]string{"tenant": "dev"},
+	session, err := clientA.StartSession(ctx, gestalt.StartRuntimeSessionRequest{
+		AppName:  "agent-provider",
+		Template: "python-runtime",
+		Metadata: map[string]string{"tenant": "dev"},
 	})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
@@ -397,10 +397,11 @@ func TestRuntimeProviderContractPeerInstanceCanResolveListAndStopSession(t *test
 		t.Fatalf("peer metadata tenant = %q, want %q", got, want)
 	}
 
-	listed, err := clientB.ListSessions(ctx)
+	listedResp, err := clientB.ListSessions(ctx, gestalt.ListRuntimeSessionsRequest{})
 	if err != nil {
 		t.Fatalf("peer ListSessions: %v", err)
 	}
+	listed := listedResp.Sessions
 	if len(listed) != 1 || listed[0].ID != session.ID {
 		t.Fatalf("peer ListSessions = %#v, want one session %q", listed, session.ID)
 	}
@@ -436,10 +437,11 @@ func TestRuntimeProviderContractListsSessions(t *testing.T) {
 		cfg:     Config{Namespace: "runtime-system"},
 	})
 
-	sessions, err := client.ListSessions(context.Background())
+	resp, err := client.ListSessions(context.Background(), gestalt.ListRuntimeSessionsRequest{})
 	if err != nil {
 		t.Fatalf("ListSessions: %v", err)
 	}
+	sessions := resp.Sessions
 	if len(sessions) != 2 {
 		t.Fatalf("ListSessions len = %d, want 2", len(sessions))
 	}
@@ -460,9 +462,9 @@ func TestRuntimeProviderContractListsSessions(t *testing.T) {
 func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(t *testing.T) {
 	t.Parallel()
 
-	pluginTarget := startPluginLifecycleServer(t)
+	appTarget := startAppLifecycleServer(t)
 	fake := &fakeSandboxRuntime{
-		tunnel: &fakeTunnel{dialTarget: pluginTarget},
+		tunnel: &fakeTunnel{dialTarget: appTarget},
 	}
 	client := startRuntimeProviderServer(t, &Provider{
 		name: "gkeAgentSandbox",
@@ -479,9 +481,9 @@ func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(
 	})
 
 	ctx := context.Background()
-	session, err := client.StartSession(ctx, gestalt.StartAppRuntimeSessionRequest{
-		AppName: "agent-provider",
-		Template:   "python-runtime",
+	session, err := client.StartSession(ctx, gestalt.StartRuntimeSessionRequest{
+		AppName:  "agent-provider",
+		Template: "python-runtime",
 	})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
@@ -489,12 +491,12 @@ func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(
 
 	if _, err := client.StartApp(ctx, gestalt.StartHostedAppRequest{
 		SessionID:     session.ID,
-		AppName:    "agent-provider",
+		AppName:       "agent-provider",
 		Command:       "./plugin",
 		AllowedHosts:  []string{"api.github.com"},
 		DefaultAction: "deny",
 		Env: map[string]string{
-			"HTTPS_PROXY":                            "https://proxy.gestalt.example:9443",
+			"HTTPS_PROXY":                "https://proxy.gestalt.example:9443",
 			gestalt.EnvHostServiceSocket: "tls://host-service-relay.gestalt.example:7443",
 			gestalt.EnvHostServiceToken:  "host-service-token",
 		},
@@ -548,9 +550,9 @@ func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(
 func TestRuntimeProviderContractSupportsPodIPConnectionMode(t *testing.T) {
 	t.Parallel()
 
-	pluginTarget := startPluginLifecycleServer(t)
+	appTarget := startAppLifecycleServer(t)
 	fake := &fakeSandboxRuntime{
-		tunnel: &fakeTunnel{dialTarget: pluginTarget},
+		tunnel: &fakeTunnel{dialTarget: appTarget},
 	}
 	client := startRuntimeProviderServer(t, &Provider{
 		name: "gkeAgentSandbox",
@@ -568,22 +570,22 @@ func TestRuntimeProviderContractSupportsPodIPConnectionMode(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	session, err := client.StartSession(ctx, gestalt.StartAppRuntimeSessionRequest{
-		AppName: "simple-agent",
-		Template:   "agent-runtime",
+	session, err := client.StartSession(ctx, gestalt.StartRuntimeSessionRequest{
+		AppName:  "simple-agent",
+		Template: "agent-runtime",
 	})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
 	hosted, err := client.StartApp(ctx, gestalt.StartHostedAppRequest{
-		SessionID:  session.ID,
-		AppName: "simple-agent",
-		Command:    "./plugin",
+		SessionID: session.ID,
+		AppName:   "simple-agent",
+		Command:   "./plugin",
 	})
 	if err != nil {
 		t.Fatalf("StartApp: %v", err)
 	}
-	if got, want := hosted.DialTarget, pluginTarget; got != want {
+	if got, want := hosted.DialTarget, appTarget; got != want {
 		t.Fatalf("StartApp dial target = %q, want %q", got, want)
 	}
 
@@ -622,9 +624,9 @@ func TestRuntimeProviderContractInvalidatesLocalTunnelAfterPodIPOpenUnavailable(
 	client := startRuntimeProviderServer(t, provider)
 
 	ctx := context.Background()
-	session, err := client.StartSession(ctx, gestalt.StartAppRuntimeSessionRequest{
-		AppName: "simple-agent",
-		Template:   "agent-runtime",
+	session, err := client.StartSession(ctx, gestalt.StartRuntimeSessionRequest{
+		AppName:  "simple-agent",
+		Template: "agent-runtime",
 	})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
@@ -633,9 +635,9 @@ func TestRuntimeProviderContractInvalidatesLocalTunnelAfterPodIPOpenUnavailable(
 	oldTunnel := &fakeTunnel{dialTarget: "tcp://127.0.0.1:1"}
 	provider.setLocalTunnel(session.ID, oldTunnel)
 	_, err = client.StartApp(ctx, gestalt.StartHostedAppRequest{
-		SessionID:  session.ID,
-		AppName: "simple-agent",
-		Command:    "./plugin",
+		SessionID: session.ID,
+		AppName:   "simple-agent",
+		Command:   "./plugin",
 	})
 	if status.Code(err) != codes.Unavailable {
 		t.Fatalf("StartApp code = %v, want Unavailable: %v", status.Code(err), err)
@@ -651,9 +653,9 @@ func TestRuntimeProviderContractInvalidatesLocalTunnelAfterPodIPOpenUnavailable(
 func TestRuntimeProviderContractSupportsServiceDNSConnectionMode(t *testing.T) {
 	t.Parallel()
 
-	pluginTarget := startPluginLifecycleServer(t)
+	appTarget := startAppLifecycleServer(t)
 	fake := &fakeSandboxRuntime{
-		tunnel: &fakeTunnel{dialTarget: pluginTarget},
+		tunnel: &fakeTunnel{dialTarget: appTarget},
 	}
 	client := startRuntimeProviderServer(t, &Provider{
 		name: "gkeAgentSandbox",
@@ -671,22 +673,22 @@ func TestRuntimeProviderContractSupportsServiceDNSConnectionMode(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	session, err := client.StartSession(ctx, gestalt.StartAppRuntimeSessionRequest{
-		AppName: "simple-agent",
-		Template:   "agent-runtime",
+	session, err := client.StartSession(ctx, gestalt.StartRuntimeSessionRequest{
+		AppName:  "simple-agent",
+		Template: "agent-runtime",
 	})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
 	hosted, err := client.StartApp(ctx, gestalt.StartHostedAppRequest{
-		SessionID:  session.ID,
-		AppName: "simple-agent",
-		Command:    "./plugin",
+		SessionID: session.ID,
+		AppName:   "simple-agent",
+		Command:   "./plugin",
 	})
 	if err != nil {
 		t.Fatalf("StartApp: %v", err)
 	}
-	if got, want := hosted.DialTarget, pluginTarget; got != want {
+	if got, want := hosted.DialTarget, appTarget; got != want {
 		t.Fatalf("StartApp dial target = %q, want %q", got, want)
 	}
 
@@ -706,7 +708,7 @@ func TestRuntimeProviderContractRejectsHostnameEgressWithoutProxy(t *testing.T) 
 	t.Parallel()
 
 	fake := &fakeSandboxRuntime{
-		tunnel: &fakeTunnel{dialTarget: startPluginLifecycleServer(t)},
+		tunnel: &fakeTunnel{dialTarget: startAppLifecycleServer(t)},
 	}
 	client := startRuntimeProviderServer(t, &Provider{
 		name: "gkeAgentSandbox",
@@ -723,13 +725,13 @@ func TestRuntimeProviderContractRejectsHostnameEgressWithoutProxy(t *testing.T) 
 	})
 
 	ctx := context.Background()
-	session, err := client.StartSession(ctx, gestalt.StartAppRuntimeSessionRequest{AppName: "github", Template: "python-runtime"})
+	session, err := client.StartSession(ctx, gestalt.StartRuntimeSessionRequest{AppName: "github", Template: "python-runtime"})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
 	_, err = client.StartApp(ctx, gestalt.StartHostedAppRequest{
 		SessionID:    session.ID,
-		AppName:   "github",
+		AppName:      "github",
 		Command:      "./plugin",
 		AllowedHosts: []string{"api.github.com"},
 	})
@@ -750,9 +752,9 @@ func TestRuntimeProviderContractRejectsHostnameEgressWithoutProxy(t *testing.T) 
 func TestRuntimeProviderContractAllowsRelayOnlyAgentHostLaunchWithoutProxy(t *testing.T) {
 	t.Parallel()
 
-	pluginTarget := startPluginLifecycleServer(t)
+	appTarget := startAppLifecycleServer(t)
 	fake := &fakeSandboxRuntime{
-		tunnel: &fakeTunnel{dialTarget: pluginTarget},
+		tunnel: &fakeTunnel{dialTarget: appTarget},
 	}
 	client := startRuntimeProviderServer(t, &Provider{
 		name: "gkeAgentSandbox",
@@ -769,18 +771,18 @@ func TestRuntimeProviderContractAllowsRelayOnlyAgentHostLaunchWithoutProxy(t *te
 	})
 
 	ctx := context.Background()
-	session, err := client.StartSession(ctx, gestalt.StartAppRuntimeSessionRequest{
-		AppName: "agent-provider",
-		Template:   "python-runtime",
+	session, err := client.StartSession(ctx, gestalt.StartRuntimeSessionRequest{
+		AppName:  "agent-provider",
+		Template: "python-runtime",
 	})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
 
 	if _, err := client.StartApp(ctx, gestalt.StartHostedAppRequest{
-		SessionID:  session.ID,
-		AppName: "agent-provider",
-		Command:    "./plugin",
+		SessionID: session.ID,
+		AppName:   "agent-provider",
+		Command:   "./plugin",
 		AllowedHosts: []string{
 			"host-service-relay.gestalt.example",
 		},
@@ -815,7 +817,7 @@ func TestRuntimeProviderContractKeepsHostnamePolicyWhenLaunchCleanupFails(t *tes
 	t.Parallel()
 
 	fake := &fakeSandboxRuntime{
-		tunnel: &fakeTunnel{dialTarget: startPluginLifecycleServer(t)},
+		tunnel: &fakeTunnel{dialTarget: startAppLifecycleServer(t)},
 		execErrors: []error{
 			nil,
 			nil,
@@ -838,14 +840,14 @@ func TestRuntimeProviderContractKeepsHostnamePolicyWhenLaunchCleanupFails(t *tes
 	})
 
 	ctx := context.Background()
-	session, err := client.StartSession(ctx, gestalt.StartAppRuntimeSessionRequest{AppName: "agent-provider", Template: "python-runtime"})
+	session, err := client.StartSession(ctx, gestalt.StartRuntimeSessionRequest{AppName: "agent-provider", Template: "python-runtime"})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
 
 	_, err = client.StartApp(ctx, gestalt.StartHostedAppRequest{
 		SessionID:     session.ID,
-		AppName:    "agent-provider",
+		AppName:       "agent-provider",
 		Command:       "./plugin",
 		AllowedHosts:  []string{"api.github.com"},
 		DefaultAction: "deny",
@@ -900,7 +902,7 @@ func TestRuntimeProviderContractRequiresImageWithoutTemplate(t *testing.T) {
 		sessions: map[string]*localSession{},
 	})
 
-	_, err := client.StartSession(context.Background(), gestalt.StartAppRuntimeSessionRequest{
+	_, err := client.StartSession(context.Background(), gestalt.StartRuntimeSessionRequest{
 		AppName: "github",
 	})
 	if status.Code(err) != codes.InvalidArgument {
@@ -914,14 +916,14 @@ func TestRuntimeProviderContractRequiresImageWithoutTemplate(t *testing.T) {
 	}
 }
 
-func TestRuntimeProviderContractRejectsConcurrentPluginLaunch(t *testing.T) {
+func TestRuntimeProviderContractRejectsConcurrentAppLaunch(t *testing.T) {
 	t.Parallel()
 
-	pluginTarget := startPluginLifecycleServer(t)
+	appTarget := startAppLifecycleServer(t)
 	execEntered := make(chan struct{})
 	releaseExec := make(chan struct{})
 	fake := &fakeSandboxRuntime{
-		tunnel:      &fakeTunnel{dialTarget: pluginTarget},
+		tunnel:      &fakeTunnel{dialTarget: appTarget},
 		execEntered: execEntered,
 		blockExec:   releaseExec,
 	}
@@ -949,7 +951,7 @@ func TestRuntimeProviderContractRejectsConcurrentPluginLaunch(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	session, err := clientA.StartSession(ctx, gestalt.StartAppRuntimeSessionRequest{AppName: "github", Template: "python-runtime"})
+	session, err := clientA.StartSession(ctx, gestalt.StartRuntimeSessionRequest{AppName: "github", Template: "python-runtime"})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
@@ -957,9 +959,9 @@ func TestRuntimeProviderContractRejectsConcurrentPluginLaunch(t *testing.T) {
 	firstErr := make(chan error, 1)
 	go func() {
 		_, err := clientA.StartApp(ctx, gestalt.StartHostedAppRequest{
-			SessionID:  session.ID,
-			AppName: "github",
-			Command:    "./plugin",
+			SessionID: session.ID,
+			AppName:   "github",
+			Command:   "./plugin",
 		})
 		firstErr <- err
 	}()
@@ -971,9 +973,9 @@ func TestRuntimeProviderContractRejectsConcurrentPluginLaunch(t *testing.T) {
 	}
 
 	_, err = clientB.StartApp(ctx, gestalt.StartHostedAppRequest{
-		SessionID:  session.ID,
-		AppName: "github",
-		Command:    "./plugin",
+		SessionID: session.ID,
+		AppName:   "github",
+		Command:   "./plugin",
 	})
 	if status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("second StartApp code = %v, want FailedPrecondition: %v", status.Code(err), err)
@@ -985,11 +987,11 @@ func TestRuntimeProviderContractRejectsConcurrentPluginLaunch(t *testing.T) {
 	}
 }
 
-func TestRuntimeProviderContractReportsFailedStateAfterPluginDeath(t *testing.T) {
+func TestRuntimeProviderContractReportsFailedStateAfterAppDeath(t *testing.T) {
 	t.Parallel()
 
-	pluginTarget := startPluginLifecycleServer(t)
-	providerTunnel := &fakeTunnel{dialTarget: pluginTarget}
+	appTarget := startAppLifecycleServer(t)
+	providerTunnel := &fakeTunnel{dialTarget: appTarget}
 	fake := &fakeSandboxRuntime{
 		tunnel:           providerTunnel,
 		failHealthChecks: true,
@@ -1010,14 +1012,14 @@ func TestRuntimeProviderContractReportsFailedStateAfterPluginDeath(t *testing.T)
 	client := startRuntimeProviderServer(t, provider)
 
 	ctx := context.Background()
-	session, err := client.StartSession(ctx, gestalt.StartAppRuntimeSessionRequest{AppName: "github", Template: "python-runtime"})
+	session, err := client.StartSession(ctx, gestalt.StartRuntimeSessionRequest{AppName: "github", Template: "python-runtime"})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
 	if _, err := client.StartApp(ctx, gestalt.StartHostedAppRequest{
-		SessionID:  session.ID,
-		AppName: "github",
-		Command:    "./plugin",
+		SessionID: session.ID,
+		AppName:   "github",
+		Command:   "./plugin",
 	}); err != nil {
 		t.Fatalf("StartApp: %v", err)
 	}
@@ -1126,7 +1128,7 @@ func TestRuntimeProviderContractDropsLocalTunnelWhenSessionGone(t *testing.T) {
 			CleanupTimeout:      2 * time.Second,
 		},
 		runtime: &fakeSandboxRuntime{
-			resolveErr: errors.New(`plugin runtime session "session-1" not found`),
+			resolveErr: errors.New(`runtime session "session-1" not found`),
 		},
 		sessions: map[string]*localSession{},
 	}
@@ -1159,13 +1161,13 @@ func TestRuntimeProviderContractListSessionsReturnsUnavailableOnTransientRuntime
 		},
 	})
 
-	_, err := client.ListSessions(context.Background())
+	_, err := client.ListSessions(context.Background(), gestalt.ListRuntimeSessionsRequest{})
 	if status.Code(err) != codes.Unavailable {
 		t.Fatalf("ListSessions code = %v, want Unavailable: %v", status.Code(err), err)
 	}
 }
 
-func TestRuntimeProviderContractStartPluginResolveSessionUnavailable(t *testing.T) {
+func TestRuntimeProviderContractStartAppResolveSessionUnavailable(t *testing.T) {
 	t.Parallel()
 
 	client := startRuntimeProviderServer(t, &Provider{
@@ -1184,9 +1186,9 @@ func TestRuntimeProviderContractStartPluginResolveSessionUnavailable(t *testing.
 	})
 
 	_, err := client.StartApp(context.Background(), gestalt.StartHostedAppRequest{
-		SessionID:  "session-1",
-		AppName: "github",
-		Command:    "./plugin",
+		SessionID: "session-1",
+		AppName:   "github",
+		Command:   "./plugin",
 	})
 	if status.Code(err) != codes.Unavailable {
 		t.Fatalf("StartApp code = %v, want Unavailable: %v", status.Code(err), err)
@@ -1197,7 +1199,7 @@ func TestRuntimeProviderContractCanRetryStopAfterDeleteFailure(t *testing.T) {
 	t.Parallel()
 
 	fake := &fakeSandboxRuntime{
-		tunnel:       &fakeTunnel{dialTarget: startPluginLifecycleServer(t)},
+		tunnel:       &fakeTunnel{dialTarget: startAppLifecycleServer(t)},
 		stopFailures: 1,
 	}
 	client := startRuntimeProviderServer(t, &Provider{
@@ -1215,13 +1217,13 @@ func TestRuntimeProviderContractCanRetryStopAfterDeleteFailure(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	session, err := client.StartSession(ctx, gestalt.StartAppRuntimeSessionRequest{AppName: "github", Template: "python-runtime"})
+	session, err := client.StartSession(ctx, gestalt.StartRuntimeSessionRequest{AppName: "github", Template: "python-runtime"})
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
 	if _, err := client.StartApp(ctx, gestalt.StartHostedAppRequest{
 		SessionID:     session.ID,
-		AppName:    "github",
+		AppName:       "github",
 		Command:       "./plugin",
 		AllowedHosts:  []string{"api.github.com"},
 		DefaultAction: "deny",
@@ -1289,10 +1291,11 @@ func TestProviderContractListSessionsDoesNotExecPerSession(t *testing.T) {
 		cfg:     Config{Namespace: "runtime-system"},
 	})
 
-	sessions, err := client.ListSessions(context.Background())
+	resp, err := client.ListSessions(context.Background(), gestalt.ListRuntimeSessionsRequest{})
 	if err != nil {
 		t.Fatalf("ListSessions: %v", err)
 	}
+	sessions := resp.Sessions
 	if got, want := len(sessions), 3; got != want {
 		t.Fatalf("ListSessions returned %d sessions, want %d", got, want)
 	}
@@ -1410,11 +1413,11 @@ func (f *fakeSandboxRuntime) Start(_ context.Context, req startSandboxRequest) (
 		Ready:       true,
 	}
 	session := sandboxSession{
-		ID:         req.Name,
-		AppName: req.AppName,
-		Template:   req.Template,
-		Metadata:   cloneStringMap(req.Metadata),
-		Handle:     handle,
+		ID:       req.Name,
+		AppName:  req.AppName,
+		Template: req.Template,
+		Metadata: cloneStringMap(req.Metadata),
+		Handle:   handle,
 	}
 	if session.Metadata == nil {
 		session.Metadata = map[string]string{}
@@ -1433,7 +1436,7 @@ func (f *fakeSandboxRuntime) ResolveSession(_ context.Context, _, sessionID stri
 	}
 	session, ok := f.sessions[sessionID]
 	if !ok {
-		return sandboxSession{}, fmt.Errorf("plugin runtime session %q not found", sessionID)
+		return sandboxSession{}, fmt.Errorf("runtime session %q not found", sessionID)
 	}
 	session.Handle.Ready = true
 	if !session.PluginStarted && f.leases[pluginStartLeaseName(session.Handle)] != "" {
@@ -1664,11 +1667,11 @@ func (t *fakeTunnel) Closed() bool {
 	return t.closed
 }
 
-func startPluginLifecycleServer(t *testing.T) string {
+func startAppLifecycleServer(t *testing.T) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("listen plugin lifecycle server: %v", err)
+		t.Fatalf("listen app lifecycle server: %v", err)
 	}
 	server := grpc.NewServer()
 	server.RegisterService(&grpc.ServiceDesc{
@@ -1696,7 +1699,7 @@ func startPluginLifecycleServer(t *testing.T) string {
 	}, struct{}{})
 	go func() {
 		if err := server.Serve(listener); err != nil {
-			t.Logf("plugin lifecycle server stopped: %v", err)
+			t.Logf("app lifecycle server stopped: %v", err)
 		}
 	}()
 	t.Cleanup(func() {

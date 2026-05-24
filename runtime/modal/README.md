@@ -41,7 +41,7 @@ plugins:
     execution:
       mode: hosted
       runtime:
-        image: ghcr.io/valon-technologies/github-plugin-runtime:latest
+        image: ghcr.io/valon-technologies/github-app-runtime:latest
     egress:
       allowedHosts:
         - api.github.com

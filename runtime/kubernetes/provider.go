@@ -29,8 +29,8 @@ const (
 	sessionStateFailed   = "failed"
 )
 
-const envProviderSocket = "GESTALT_PLUGIN_SOCKET"
-const envProviderName = "GESTALT_PLUGIN_NAME"
+const envProviderSocket = "GESTALT_PROVIDER_SOCKET"
+const envProviderName = "GESTALT_APP_NAME"
 
 type Provider struct {
 	name    string
@@ -102,7 +102,7 @@ func (p *Provider) Metadata() gestalt.ProviderMetadata {
 		Kind:        gestalt.ProviderKindRuntime,
 		Name:        name,
 		DisplayName: "Kubernetes Runtime",
-		Description: "Hosted executable-plugin runtime backed by Kubernetes.",
+		Description: "Hosted runtime backed by Kubernetes.",
 		Version:     providerVersion,
 	}
 }
@@ -115,37 +115,37 @@ func (p *Provider) HealthCheck(ctx context.Context) error {
 	return runtime.HealthCheck(ctx)
 }
 
-func (p *Provider) GetSupport(context.Context) (gestalt.AppRuntimeSupport, error) {
+func (p *Provider) GetSupport(context.Context) (gestalt.RuntimeSupport, error) {
 	_, cfg, err := p.configured()
 	if err != nil {
-		return gestalt.AppRuntimeSupport{}, err
+		return gestalt.RuntimeSupport{}, err
 	}
-	egressMode := gestalt.AppRuntimeEgressModeNone
+	egressMode := gestalt.RuntimeEgressModeNone
 	if cfg.HostnameEgress.Mode == hostnameEgressModePublicProxy {
-		egressMode = gestalt.AppRuntimeEgressModeHostname
+		egressMode = gestalt.RuntimeEgressModeHostname
 	}
-	return gestalt.AppRuntimeSupport{
+	return gestalt.RuntimeSupport{
 		CanHostApps: true,
-		EgressMode:     egressMode,
+		EgressMode:  egressMode,
 	}, nil
 }
 
-func (p *Provider) StartSession(ctx context.Context, req gestalt.StartAppRuntimeSessionRequest) (gestalt.AppRuntimeSession, error) {
+func (p *Provider) StartSession(ctx context.Context, req gestalt.StartRuntimeSessionRequest) (gestalt.RuntimeSession, error) {
 	runtime, cfg, err := p.configured()
 	if err != nil {
-		return gestalt.AppRuntimeSession{}, status.Error(codes.FailedPrecondition, err.Error())
+		return gestalt.RuntimeSession{}, status.Error(codes.FailedPrecondition, err.Error())
 	}
 
 	template := strings.TrimSpace(req.Template)
 	image := strings.TrimSpace(req.Image)
 	if template == "" && image == "" {
-		return gestalt.AppRuntimeSession{}, status.Errorf(codes.InvalidArgument, "plugins.%s.execution.runtime.image or execution.runtime.template is required when using the kubernetes runtime", req.AppName)
+		return gestalt.RuntimeSession{}, status.Errorf(codes.InvalidArgument, "plugins.%s.execution.runtime.image or execution.runtime.template is required when using the kubernetes runtime", req.AppName)
 	}
 
 	sessionID := runtimeResourceName(req.AppName, p.runtimeInstanceID(), p.newID("session"))
 	session, err := runtime.Start(ctx, startRuntimeSessionRequest{
 		Name:             sessionID,
-		AppName:       req.AppName,
+		AppName:          req.AppName,
 		Namespace:        cfg.Namespace,
 		Template:         template,
 		Image:            image,
@@ -153,51 +153,68 @@ func (p *Provider) StartSession(ctx context.Context, req gestalt.StartAppRuntime
 		Metadata:         cloneStringMap(req.Metadata),
 	})
 	if err != nil {
-		return gestalt.AppRuntimeSession{}, status.Errorf(codes.Internal, "start kubernetes session: %v", err)
+		return gestalt.RuntimeSession{}, status.Errorf(codes.Internal, "start kubernetes session: %v", err)
 	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.closed {
 		_ = runtime.Stop(context.Background(), session.Handle)
-		return gestalt.AppRuntimeSession{}, status.Error(codes.FailedPrecondition, "kubernetes runtime is closed")
+		return gestalt.RuntimeSession{}, status.Error(codes.FailedPrecondition, "kubernetes runtime is closed")
 	}
 	if p.sessions == nil {
 		p.sessions = make(map[string]*localSession)
 	}
 	p.sessions[session.ID] = &localSession{}
-	return appRuntimeSession(session, sessionStateReady), nil
+	return sessionToRuntime(session, sessionStateReady), nil
 }
 
-func (p *Provider) GetSession(ctx context.Context, sessionID string) (gestalt.AppRuntimeSession, error) {
+func (p *Provider) GetSession(ctx context.Context, sessionID string) (gestalt.RuntimeSession, error) {
 	runtime, cfg, err := p.configured()
 	if err != nil {
-		return gestalt.AppRuntimeSession{}, status.Error(codes.FailedPrecondition, err.Error())
+		return gestalt.RuntimeSession{}, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	session, err := runtime.ResolveSession(ctx, cfg.Namespace, sessionID)
 	if err != nil {
-		return gestalt.AppRuntimeSession{}, status.Error(codes.NotFound, err.Error())
+		return gestalt.RuntimeSession{}, status.Error(codes.NotFound, err.Error())
 	}
-	return appRuntimeSession(session, sessionStateForRuntime(ctx, runtime, session)), nil
+	return sessionToRuntime(session, sessionStateForRuntime(ctx, runtime, session)), nil
 }
 
-func (p *Provider) ListSessions(ctx context.Context) ([]gestalt.AppRuntimeSession, error) {
+func (p *Provider) ListSessions(ctx context.Context, req gestalt.ListRuntimeSessionsRequest) (gestalt.ListRuntimeSessionsResponse, error) {
 	runtime, cfg, err := p.configured()
 	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
+		return gestalt.ListRuntimeSessionsResponse{}, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	sessions, err := runtime.ListSessions(ctx, cfg.Namespace)
 	if err != nil {
-		return nil, status.Error(codes.Internal, err.Error())
+		return gestalt.ListRuntimeSessionsResponse{}, status.Error(codes.Internal, err.Error())
 	}
 	sort.Slice(sessions, func(i, j int) bool {
 		return sessions[i].ID < sessions[j].ID
 	})
-	out := make([]gestalt.AppRuntimeSession, 0, len(sessions))
+	sessionIDs := make([]string, 0, len(sessions))
+	byID := make(map[string]runtimeSession, len(sessions))
 	for _, session := range sessions {
-		out = append(out, appRuntimeSession(session, sessionStateForRuntime(ctx, runtime, session)))
+		sessionIDs = append(sessionIDs, session.ID)
+		byID[session.ID] = session
 	}
-	return out, nil
+	pageIDs, nextPageToken, err := paginateSessionIDs(sessionIDs, req)
+	if err != nil {
+		return gestalt.ListRuntimeSessionsResponse{}, err
+	}
+	out := make([]gestalt.RuntimeSession, 0, len(pageIDs))
+	for _, sessionID := range pageIDs {
+		session, ok := byID[sessionID]
+		if !ok {
+			continue
+		}
+		out = append(out, sessionToRuntime(session, sessionStateForRuntime(ctx, runtime, session)))
+	}
+	return gestalt.ListRuntimeSessionsResponse{
+		Sessions:      out,
+		NextPageToken: nextPageToken,
+	}, nil
 }
 
 func (p *Provider) StopSession(ctx context.Context, sessionID string) error {
@@ -229,7 +246,7 @@ func (p *Provider) StopSession(ctx context.Context, sessionID string) error {
 
 func (p *Provider) StartApp(ctx context.Context, req gestalt.StartHostedAppRequest) (gestalt.HostedApp, error) {
 	if strings.TrimSpace(req.Command) == "" {
-		return gestalt.HostedApp{}, status.Error(codes.InvalidArgument, "plugin command is required")
+		return gestalt.HostedApp{}, status.Error(codes.InvalidArgument, "app command is required")
 	}
 	runtime, cfg, err := p.configured()
 	if err != nil {
@@ -241,15 +258,15 @@ func (p *Provider) StartApp(ctx context.Context, req gestalt.StartHostedAppReque
 		return gestalt.HostedApp{}, status.Error(codes.NotFound, err.Error())
 	}
 	if state := sessionStateForRuntime(ctx, runtime, session); state == sessionStateRunning || state == sessionStateStarting {
-		return gestalt.HostedApp{}, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.SessionID)
+		return gestalt.HostedApp{}, status.Errorf(codes.FailedPrecondition, "runtime session %q already has a running app", req.SessionID)
 	} else if state == sessionStateFailed {
-		return gestalt.HostedApp{}, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q has failed", req.SessionID)
+		return gestalt.HostedApp{}, status.Errorf(codes.FailedPrecondition, "runtime session %q has failed", req.SessionID)
 	}
 
 	holder := p.runtimeInstanceID() + "/" + p.newID("plugin-start")
 	if err := runtime.AcquirePluginStartLease(ctx, session.Handle, holder, pluginStartLeaseDuration(cfg)); err != nil {
 		if errors.Is(err, errPluginAlreadyStarted) {
-			return gestalt.HostedApp{}, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.SessionID)
+			return gestalt.HostedApp{}, status.Errorf(codes.FailedPrecondition, "runtime session %q already has a running app", req.SessionID)
 		}
 		return gestalt.HostedApp{}, status.Errorf(codes.Internal, "acquire kubernetes plugin start lease: %v", err)
 	}
@@ -270,9 +287,9 @@ func (p *Provider) StartApp(ctx context.Context, req gestalt.StartHostedAppReque
 		return gestalt.HostedApp{}, status.Error(codes.NotFound, err.Error())
 	}
 	if state := sessionStateForRuntime(ctx, runtime, lockedSession); state == sessionStateRunning {
-		return gestalt.HostedApp{}, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.SessionID)
+		return gestalt.HostedApp{}, status.Errorf(codes.FailedPrecondition, "runtime session %q already has a running app", req.SessionID)
 	} else if state == sessionStateFailed {
-		return gestalt.HostedApp{}, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q has failed", req.SessionID)
+		return gestalt.HostedApp{}, status.Errorf(codes.FailedPrecondition, "runtime session %q has failed", req.SessionID)
 	}
 	session = lockedSession
 	handle := session.Handle
@@ -323,26 +340,26 @@ func (p *Provider) StartApp(ctx context.Context, req gestalt.StartHostedAppReque
 	})
 	execCleanupNeeded = true
 	if err := runtime.Exec(execCtx, handle, []string{"sh", "-c", launchScript}, nil); err != nil {
-		return gestalt.HostedApp{}, status.Errorf(codes.Internal, "start plugin process in kubernetes: %v", err)
+		return gestalt.HostedApp{}, status.Errorf(codes.Internal, "start app process in kubernetes: %v", err)
 	}
 	if err := waitForSocketProxyReady(execCtx, runtime, handle, cfg.PluginPort, env[envProviderSocket]); err != nil {
-		return gestalt.HostedApp{}, status.Errorf(codes.DeadlineExceeded, "wait for in-runtime plugin socket proxy: %v", err)
+		return gestalt.HostedApp{}, status.Errorf(codes.DeadlineExceeded, "wait for in-runtime app socket proxy: %v", err)
 	}
 
 	tunnel, err := openPluginTunnel(ctx, runtime, handle, cfg)
 	if err != nil {
-		return gestalt.HostedApp{}, status.Errorf(codes.Internal, "open plugin gRPC connection: %v", err)
+		return gestalt.HostedApp{}, status.Errorf(codes.Internal, "open app gRPC connection: %v", err)
 	}
 	readyCtx, readyCancel := context.WithTimeout(ctx, cfg.PluginReadyTimeout)
 	defer readyCancel()
 	if err := waitForPluginReady(readyCtx, tunnel.DialTarget()); err != nil {
 		_ = tunnel.Close()
-		return gestalt.HostedApp{}, status.Errorf(codes.DeadlineExceeded, "wait for kubernetes plugin gRPC endpoint: %v", err)
+		return gestalt.HostedApp{}, status.Errorf(codes.DeadlineExceeded, "wait for kubernetes app gRPC endpoint: %v", err)
 	}
 	if err := runtime.MarkPluginStarted(ctx, handle, holder, req.AppName); err != nil {
 		_ = tunnel.Close()
 		if errors.Is(err, errPluginAlreadyStarted) {
-			return gestalt.HostedApp{}, status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", req.SessionID)
+			return gestalt.HostedApp{}, status.Errorf(codes.FailedPrecondition, "runtime session %q already has a running app", req.SessionID)
 		}
 		return gestalt.HostedApp{}, status.Errorf(codes.Internal, "mark kubernetes plugin started: %v", err)
 	}
@@ -354,7 +371,7 @@ func (p *Provider) StartApp(ctx context.Context, req gestalt.StartHostedAppReque
 	return gestalt.HostedApp{
 		ID:         p.newID("plugin"),
 		SessionID:  session.ID,
-		AppName: req.AppName,
+		AppName:    req.AppName,
 		DialTarget: tunnel.DialTarget(),
 	}, nil
 }
@@ -476,11 +493,11 @@ func newProviderInstanceID() string {
 	return sanitizeDNSLabelValue(strconv.FormatInt(time.Now().UnixNano(), 36))
 }
 
-func appRuntimeSession(session runtimeSession, state string) gestalt.AppRuntimeSession {
+func sessionToRuntime(session runtimeSession, state string) gestalt.RuntimeSession {
 	if state == "" {
 		state = sessionStateReady
 	}
-	return gestalt.AppRuntimeSession{
+	return gestalt.RuntimeSession{
 		ID:       session.ID,
 		State:    state,
 		Metadata: cloneStringMap(session.Metadata),
@@ -546,7 +563,7 @@ func buildPluginEnv(req gestalt.StartHostedAppRequest, providerSocket string) ma
 	return env
 }
 
-func dockerConfigJSON(auth *gestalt.AppRuntimeImagePullAuth) string {
+func dockerConfigJSON(auth *gestalt.RuntimeImagePullAuth) string {
 	if auth == nil {
 		return ""
 	}
@@ -586,7 +603,7 @@ func isHostServiceEnvVar(envVar string) bool {
 	return first == '_' || (first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z')
 }
 
-var _ gestalt.AppRuntimeProvider = (*Provider)(nil)
+var _ gestalt.RuntimeProvider = (*Provider)(nil)
 var _ gestalt.MetadataProvider = (*Provider)(nil)
 var _ gestalt.HealthChecker = (*Provider)(nil)
 var _ gestalt.Closer = (*Provider)(nil)

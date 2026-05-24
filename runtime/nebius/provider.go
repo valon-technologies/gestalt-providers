@@ -41,7 +41,7 @@ const (
 	sshPort  = 22
 )
 
-const envProviderSocket = "GESTALT_PLUGIN_SOCKET"
+const envProviderSocket = "GESTALT_PROVIDER_SOCKET"
 
 var resourceNamePattern = regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 
@@ -151,7 +151,7 @@ func (p *Provider) Metadata() gestalt.ProviderMetadata {
 		Kind:        gestalt.ProviderKindRuntime,
 		Name:        name,
 		DisplayName: "Nebius Runtime",
-		Description: "Hosted executable-plugin runtime backed by Nebius Compute VMs.",
+		Description: "Hosted runtime backed by Nebius Compute VMs.",
 		Version:     providerVersion,
 	}
 }
@@ -168,20 +168,20 @@ func (p *Provider) HealthCheck(context.Context) error {
 	return nil
 }
 
-func (p *Provider) GetSupport(context.Context) (gestalt.AppRuntimeSupport, error) {
-	return gestalt.AppRuntimeSupport{
+func (p *Provider) GetSupport(context.Context) (gestalt.RuntimeSupport, error) {
+	return gestalt.RuntimeSupport{
 		CanHostApps: true,
-		EgressMode:     gestalt.AppRuntimeEgressModeNone,
+		EgressMode:  gestalt.RuntimeEgressModeNone,
 	}, nil
 }
 
-func (p *Provider) StartSession(_ context.Context, req gestalt.StartAppRuntimeSessionRequest) (gestalt.AppRuntimeSession, error) {
+func (p *Provider) StartSession(_ context.Context, req gestalt.StartRuntimeSessionRequest) (gestalt.RuntimeSession, error) {
 	_, _, err := p.configured()
 	if err != nil {
-		return gestalt.AppRuntimeSession{}, status.Error(codes.FailedPrecondition, err.Error())
+		return gestalt.RuntimeSession{}, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	if strings.TrimSpace(req.Image) == "" {
-		return gestalt.AppRuntimeSession{}, status.Errorf(codes.InvalidArgument, "plugins.%s.runtime.image is required when using the nebius runtime", req.AppName)
+		return gestalt.RuntimeSession{}, status.Errorf(codes.InvalidArgument, "plugins.%s.runtime.image is required when using the nebius runtime", req.AppName)
 	}
 
 	sessionID := p.newID("session")
@@ -198,16 +198,16 @@ func (p *Provider) StartSession(_ context.Context, req gestalt.StartAppRuntimeSe
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.closed {
-		return gestalt.AppRuntimeSession{}, status.Error(codes.FailedPrecondition, "nebius runtime is closed")
+		return gestalt.RuntimeSession{}, status.Error(codes.FailedPrecondition, "nebius runtime is closed")
 	}
 	p.sessions[sessionID] = s
 	return cloneSession(s), nil
 }
 
-func (p *Provider) GetSession(ctx context.Context, sessionID string) (gestalt.AppRuntimeSession, error) {
+func (p *Provider) GetSession(ctx context.Context, sessionID string) (gestalt.RuntimeSession, error) {
 	sdk, _, err := p.configured()
 	if err != nil {
-		return gestalt.AppRuntimeSession{}, status.Error(codes.FailedPrecondition, err.Error())
+		return gestalt.RuntimeSession{}, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	sessionID = strings.TrimSpace(sessionID)
 
@@ -215,7 +215,7 @@ func (p *Provider) GetSession(ctx context.Context, sessionID string) (gestalt.Ap
 	s, err := p.sessionLocked(sessionID)
 	if err != nil {
 		p.mu.Unlock()
-		return gestalt.AppRuntimeSession{}, status.Error(codes.NotFound, err.Error())
+		return gestalt.RuntimeSession{}, status.Error(codes.NotFound, err.Error())
 	}
 	instanceID := ""
 	if s.instance != nil {
@@ -265,7 +265,7 @@ func (p *Provider) GetSession(ctx context.Context, sessionID string) (gestalt.Ap
 	return current, nil
 }
 
-func (p *Provider) ListSessions(ctx context.Context) ([]gestalt.AppRuntimeSession, error) {
+func (p *Provider) ListSessions(ctx context.Context, req gestalt.ListRuntimeSessionsRequest) (gestalt.ListRuntimeSessionsResponse, error) {
 	p.mu.Lock()
 	sessionIDs := make([]string, 0, len(p.sessions))
 	for sessionID := range p.sessions {
@@ -273,19 +273,26 @@ func (p *Provider) ListSessions(ctx context.Context) ([]gestalt.AppRuntimeSessio
 	}
 	p.mu.Unlock()
 	sortStrings(sessionIDs)
+	pageIDs, nextPageToken, err := paginateSessionIDs(sessionIDs, req)
+	if err != nil {
+		return gestalt.ListRuntimeSessionsResponse{}, err
+	}
 
-	sessions := make([]gestalt.AppRuntimeSession, 0, len(sessionIDs))
-	for _, sessionID := range sessionIDs {
+	sessions := make([]gestalt.RuntimeSession, 0, len(pageIDs))
+	for _, sessionID := range pageIDs {
 		session, err := p.GetSession(ctx, sessionID)
 		if status.Code(err) == codes.NotFound {
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return gestalt.ListRuntimeSessionsResponse{}, err
 		}
 		sessions = append(sessions, session)
 	}
-	return sessions, nil
+	return gestalt.ListRuntimeSessionsResponse{
+		Sessions:      sessions,
+		NextPageToken: nextPageToken,
+	}, nil
 }
 
 func (p *Provider) StopSession(ctx context.Context, sessionID string) error {
@@ -332,7 +339,7 @@ func (p *Provider) StopSession(ctx context.Context, sessionID string) error {
 
 func (p *Provider) StartApp(ctx context.Context, req gestalt.StartHostedAppRequest) (gestalt.HostedApp, error) {
 	if strings.TrimSpace(req.Command) == "" {
-		return gestalt.HostedApp{}, status.Error(codes.InvalidArgument, "plugin command is required")
+		return gestalt.HostedApp{}, status.Error(codes.InvalidArgument, "app command is required")
 	}
 	sdk, cfg, err := p.configured()
 	if err != nil {
@@ -368,7 +375,7 @@ func (p *Provider) StartApp(ctx context.Context, req gestalt.StartHostedAppReque
 	containerName := dockerContainerName(req.AppName, req.SessionID)
 	runCmd := buildDockerRunCommand(containerName, image, req.Command, req.Args, env)
 	if _, err := runRemoteCommand(ctx, inst.client, runCmd); err != nil {
-		return gestalt.HostedApp{}, status.Errorf(codes.Internal, "start plugin container in nebius vm: %v", err)
+		return gestalt.HostedApp{}, status.Errorf(codes.Internal, "start app container in nebius vm: %v", err)
 	}
 
 	readyCtx, cancel := context.WithTimeout(ctx, cfg.PluginReadyTimeout)
@@ -377,7 +384,7 @@ func (p *Provider) StartApp(ctx context.Context, req gestalt.StartHostedAppReque
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), cfg.CleanupTimeout)
 		defer cleanupCancel()
 		_ = cleanupRemoteContainer(cleanupCtx, inst.client, containerName)
-		return gestalt.HostedApp{}, status.Errorf(codes.DeadlineExceeded, "wait for nebius plugin gRPC endpoint: %v", err)
+		return gestalt.HostedApp{}, status.Errorf(codes.DeadlineExceeded, "wait for nebius app gRPC endpoint: %v", err)
 	}
 
 	plugin := &plugin{
@@ -407,7 +414,7 @@ func (p *Provider) StartApp(ctx context.Context, req gestalt.StartHostedAppReque
 	return gestalt.HostedApp{
 		ID:         plugin.id,
 		SessionID:  s.id,
-		AppName: plugin.name,
+		AppName:    plugin.name,
 		DialTarget: plugin.dialTarget,
 	}, nil
 }
@@ -464,7 +471,7 @@ func (p *Provider) beginPluginStart(sessionID string) (string, error) {
 		return "", status.Error(codes.NotFound, err.Error())
 	}
 	if s.plugin != nil || s.pluginStarting {
-		return "", status.Errorf(codes.FailedPrecondition, "plugin runtime session %q already has a running plugin", sessionID)
+		return "", status.Errorf(codes.FailedPrecondition, "runtime session %q already has a running app", sessionID)
 	}
 	s.pluginStarting = true
 	s.state = sessionStateStarting
@@ -883,11 +890,11 @@ func (p *Provider) resetSessionInstance(sessionID string, inst *instanceRef) {
 func (p *Provider) sessionLocked(sessionID string) (*session, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
-		return nil, fmt.Errorf("plugin runtime session id is required")
+		return nil, fmt.Errorf("runtime session id is required")
 	}
 	s, ok := p.sessions[sessionID]
 	if !ok || s == nil {
-		return nil, fmt.Errorf("plugin runtime session %q not found", sessionID)
+		return nil, fmt.Errorf("runtime session %q not found", sessionID)
 	}
 	return s, nil
 }
@@ -896,11 +903,11 @@ func (p *Provider) newID(prefix string) string {
 	return fmt.Sprintf("%s-%06d", prefix, atomic.AddUint64(&p.nextID, 1))
 }
 
-func cloneSession(s *session) gestalt.AppRuntimeSession {
+func cloneSession(s *session) gestalt.RuntimeSession {
 	if s == nil {
-		return gestalt.AppRuntimeSession{}
+		return gestalt.RuntimeSession{}
 	}
-	return gestalt.AppRuntimeSession{
+	return gestalt.RuntimeSession{
 		ID:       s.id,
 		State:    s.state,
 		Metadata: cloneStringMap(s.metadata),
@@ -1016,7 +1023,7 @@ func sortStrings(values []string) {
 	}
 }
 
-var _ gestalt.AppRuntimeProvider = (*Provider)(nil)
+var _ gestalt.RuntimeProvider = (*Provider)(nil)
 var _ gestalt.MetadataProvider = (*Provider)(nil)
 var _ gestalt.HealthChecker = (*Provider)(nil)
 var _ gestalt.Closer = (*Provider)(nil)

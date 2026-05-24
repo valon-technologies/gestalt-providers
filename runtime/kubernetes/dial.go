@@ -41,7 +41,7 @@ func waitForPluginReady(ctx context.Context, dialTarget string) error {
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("connect to hosted plugin %s: %w", dialTarget, lastErr)
+			return fmt.Errorf("connect to hosted app %s: %w", dialTarget, lastErr)
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
