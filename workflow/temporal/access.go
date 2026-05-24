@@ -124,9 +124,6 @@ func configuredEventRunPermissions(input map[string]any) ([]gestalt.WorkflowAcce
 		}
 		appName := strings.TrimSpace(stringAny(value["app"]))
 		if appName == "" {
-			appName = strings.TrimSpace(stringAny(value["plugin"]))
-		}
-		if appName == "" {
 			return nil, fmt.Errorf("%s.%s[%d].app is required", gestaltInputKey, eventRunPermissionsKey, i)
 		}
 		opsRaw, ok := value["operations"].([]any)
