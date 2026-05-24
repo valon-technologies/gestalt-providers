@@ -27,6 +27,7 @@ permissions:
 
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
+  GESTALT_FETCH_REF: codex/provider-publish-repository
   PYTHON_ALPINE_VERSION: "3.23"
 
 jobs:
@@ -304,36 +305,8 @@ jobs:
             --ref "${{ inputs.provider-ref }}"
             --dist-dir "${PROVIDER_DIR}/dist"
           )
-          plan="$(gestaltd provider publish "${publish_args[@]}" --dry-run)"
-          metadata_url="$(awk -F': ' '/^provider-release metadata: / {print $2}' <<< "$plan")"
-          if [ -z "$metadata_url" ]; then
-            echo "provider publish dry-run did not print provider-release metadata URL." >&2
-            echo "$plan" >&2
-            exit 1
-          fi
-
           if [ "$DRY_RUN" = "true" ]; then
-            printf '%s\n' "$plan"
-            exit 0
-          fi
-
-          status="$(curl -fsS -o /dev/null -w '%{http_code}' "$metadata_url" || true)"
-          if [ "$status" = "200" ]; then
-            echo "provider-release metadata is already readable: $metadata_url"
-            exit 0
+            publish_args+=(--dry-run --format json)
           fi
 
           gestaltd provider publish "${publish_args[@]}"
-
-          for attempt in {1..30}; do
-            status="$(curl -fsS -o /dev/null -w '%{http_code}' "$metadata_url" || true)"
-            if [ "$status" = "200" ]; then
-              echo "provider-release metadata is readable: $metadata_url"
-              exit 0
-            fi
-            echo "provider-release metadata not readable yet (status=${status:-curl-error}); retry ${attempt}/30."
-            sleep 5
-          done
-
-          echo "provider-release metadata did not become readable: $metadata_url" >&2
-          exit 1
