@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/**'
       - '.github/scripts/**'
+      - '.github/gestalt-ref'
       - 'registry/**'
       - 'agent/**'
       - 'runtime/**'
@@ -26,6 +27,7 @@ on:
     paths:
       - '.github/workflows/**'
       - '.github/scripts/**'
+      - '.github/gestalt-ref'
       - 'registry/**'
       - 'agent/**'
       - 'runtime/**'
