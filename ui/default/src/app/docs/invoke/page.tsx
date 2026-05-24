@@ -3,7 +3,7 @@ import { InvokeDocsPage } from "../DocsContent";
 
 export const metadata: Metadata = {
   title: "Invoke Operations",
-  description: "Invoke plugin operations from the CLI or over HTTP.",
+  description: "Invoke app operations from the CLI or over HTTP.",
 };
 
 export default function InvokePage() {

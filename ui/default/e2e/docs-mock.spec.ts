@@ -78,15 +78,15 @@ test.describe("Docs page", () => {
     await expect(page.locator("#auth-token-panel")).toContainText(
       "export GESTALT_API_KEY=gst_api_your_token_here",
     );
-    await expect(page.getByText("gestalt plugins list", { exact: true })).toBeVisible();
+    await expect(page.getByText("gestalt apps list", { exact: true })).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Grant authorization" }),
     ).toBeVisible();
     await expect(page.locator("article")).toContainText(
-      "gestalt authorization plugins members set <plugin>",
+      "gestalt authorization apps members set <app>",
     );
     await expect(page.locator("article")).toContainText(
-      "gestalt authorization subjects grants set service_account:release-bot <plugin>",
+      "gestalt authorization subjects grants set service_account:release-bot <app>",
     );
     await expect(
       page.getByRole("heading", { name: "Configure cloud environments" }),
@@ -167,7 +167,7 @@ test.describe("Docs page", () => {
     await expect(page.getByRole("tab", { name: "HTTP" })).toBeVisible();
     await page.getByRole("tab", { name: "HTTP" }).click();
     await expect(
-      page.getByText("/api/v1/integrations").first(),
+      page.getByText("/api/v1/apps").first(),
     ).toBeVisible();
 
     await leftNav.getByRole("link", { name: "Grant Authorization" }).click();
@@ -176,11 +176,11 @@ test.describe("Docs page", () => {
       page.getByRole("heading", { name: "Grant Authorization" }),
     ).toBeVisible();
     await expect(page.locator("article")).toContainText(
-      "Plugin admins can manage members for plugins they administer",
+      "App admins can manage members for apps they administer",
     );
     await expect(page.locator("article")).toContainText("--url <management-url>");
     await expect(page.locator("article")).toContainText(
-      "gestalt authorization plugins members set <plugin>",
+      "gestalt authorization apps members set <app>",
     );
     await expect(page.locator("article")).toContainText(
       "gestalt authorization subjects tokens create service_account:release-bot",
@@ -250,7 +250,7 @@ test.describe("Docs page", () => {
       page.locator("aside").first().getByRole("link", { name: "Use With MCP" }),
     ).toHaveAttribute("href", "/docs/mcp");
     await expect(
-      page.locator("nav").getByRole("link", { name: "Plugins", exact: true }),
+      page.locator("nav").getByRole("link", { name: "Apps", exact: true }),
     ).toBeVisible();
     await expect(page.getByText("test@gestalt.dev")).toBeVisible();
     expect(pageErrors).toEqual([]);

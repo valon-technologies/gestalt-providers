@@ -52,7 +52,7 @@ export function GettingStartedDocsPage() {
             workspace you are currently using: install{" "}
             <code className="font-mono text-sm text-primary">gestalt</code>,
             point it at this workspace, sign in when required, connect
-            plugins, grant authorization, invoke operations, mint API tokens,
+            apps, grant authorization, invoke operations, mint API tokens,
             and attach an MCP-aware client. No command-line experience is
             required. Follow the pages below and copy the commands as-is.
           </>
@@ -187,20 +187,20 @@ brew install valon-technologies/gestalt/gestalt`}
           ]}
         />
         <p className="doc-copy">Then verify access:</p>
-        <CodeBlock code="gestalt plugins list" />
+        <CodeBlock code="gestalt apps list" />
 
         <Subheading id="authorization" title="Grant authorization" />
         <p className="doc-copy">
           Use authorization grants when another user or service account needs
-          access to a plugin. Plugin admins can manage members for their own
-          plugin; built-in Gestalt admins can manage grants across plugins.
+          access to an app. App admins can manage members for their own app;
+          built-in Gestalt admins can manage grants across apps.
         </p>
         <CodeBlock
-          code={`gestalt authorization plugins members set <plugin> \\
+          code={`gestalt authorization apps members set <app> \\
   --email operator@example.com \\
   --role viewer
 
-gestalt authorization subjects grants set service_account:release-bot <plugin> \\
+gestalt authorization subjects grants set service_account:release-bot <app> \\
   --role viewer`}
         />
         <p className="doc-copy">
@@ -255,25 +255,25 @@ export function ConnectDocsPage() {
   return (
     <>
       <DocsPageHeader
-        eyebrow="Connect Plugins"
-        title="Connect Plugins"
-        description="Inspect available plugins first, then connect the ones you need."
+        eyebrow="Connect Apps"
+        title="Connect Apps"
+        description="Inspect available apps first, then connect the ones you need."
       />
       <DocsPageBody>
         <p className="doc-copy">
-          Plugins available in this workspace appear in both the CLI and the
+          Apps available in this workspace appear in both the CLI and the
           UI. Use either surface to start the underlying OAuth or manual
           credential flow.
         </p>
         <CodeBlock
-          code={`gestalt plugins list
-gestalt plugins connect <plugin>
-gestalt plugins connect <plugin> --connection <name> --instance <instance>`}
+          code={`gestalt apps list
+gestalt apps connect <app>
+gestalt apps connect <app> --connection <name> --instance <instance>`}
         />
         <p className="doc-copy">
           If you prefer the browser flow, the same work is available on{" "}
-          <Link href="/integrations" className="doc-link">
-            Plugins
+          <Link href="/apps" className="doc-link">
+            Apps
           </Link>
           .
         </p>
@@ -290,7 +290,7 @@ export function InvokeDocsPage() {
       <DocsPageHeader
         eyebrow="Invoke Operations"
         title="Invoke Operations"
-        description="Use the catalog built into Gestalt to discover a plugin's operations before making requests."
+        description="Use the catalog built into Gestalt to discover an app's operations before making requests."
       />
       <DocsPageBody>
         <InvokeMethodTabs origin={origin} />
@@ -332,13 +332,13 @@ export function AuthorizationDocsPage() {
       <DocsPageHeader
         eyebrow="Grant Authorization"
         title="Grant Authorization"
-        description="Grant users and service accounts access to plugin operations from the Gestalt CLI."
+        description="Grant users and service accounts access to app operations from the Gestalt CLI."
       />
       <DocsPageBody>
         <p className="doc-copy">
-          Most teams grant access at the plugin level. Plugin admins can manage
-          members for plugins they administer. Built-in Gestalt admins can
-          manage every plugin and the global admin set. If your deployment
+          Most teams grant access at the app level. App admins can manage
+          members for apps they administer. Built-in Gestalt admins can
+          manage every app and the global admin set. If your deployment
           splits public and management listeners, pass{" "}
           <code className="font-mono text-sm text-primary">
             --url &lt;management-url&gt;
@@ -346,9 +346,9 @@ export function AuthorizationDocsPage() {
           to admin authorization commands.
         </p>
 
-        <Subheading id="authz-plugin-access" title="Grant plugin access" />
+        <Subheading id="authz-plugin-access" title="Grant app access" />
         <p className="doc-copy">
-          Grant a user or service account a plugin role with{" "}
+          Grant a user or service account an app role with{" "}
           <code className="font-mono text-sm text-primary">
             viewer
           </code>
@@ -360,44 +360,44 @@ export function AuthorizationDocsPage() {
           <code className="font-mono text-sm text-primary">admin</code>.
         </p>
         <CodeBlock
-          code={`gestalt authorization plugins list
-gestalt authorization plugins members list <plugin>
+          code={`gestalt authorization apps list
+gestalt authorization apps members list <app>
 
-gestalt authorization plugins members set <plugin> \\
+gestalt authorization apps members set <app> \\
   --email operator@example.com \\
   --role viewer
 
-gestalt authorization plugins members set <plugin> \\
+gestalt authorization apps members set <app> \\
   --subject-id service_account:release-bot \\
   --role editor
 
-gestalt authorization plugins members remove <plugin> user:user_123`}
+gestalt authorization apps members remove <app> user:user_123`}
         />
 
         <Subheading id="authz-service-accounts" title="Grant service account access" />
         <p className="doc-copy">
           Service accounts are managed subjects. Create the subject, grant it a
-          plugin role, connect any plugin credentials it needs, then mint a
+          app role, connect any app credentials it needs, then mint a
           scoped token for automation.
         </p>
         <CodeBlock
           code={`gestalt authorization subjects create release-bot \\
   --display-name "Release Bot"
 
-gestalt authorization subjects grants set service_account:release-bot <plugin> \\
+gestalt authorization subjects grants set service_account:release-bot <app> \\
   --role viewer
 
-gestalt authorization subjects integrations connect service_account:release-bot <plugin>
+gestalt authorization subjects integrations connect service_account:release-bot <app>
 
 gestalt authorization subjects tokens create service_account:release-bot \\
   --name release-bot \\
-  --permission <plugin>:<operation>`}
+  --permission <app>:<operation>`}
         />
 
         <Subheading id="authz-admins" title="Grant built-in admin access" />
         <p className="doc-copy">
           Built-in admins can administer the global authorization surface. Use
-          this only for operators who should manage grants beyond one plugin.
+          this only for operators who should manage grants beyond one app.
         </p>
         <CodeBlock
           code={`gestalt authorization admins members list
@@ -412,14 +412,14 @@ gestalt authorization admins members remove user:user_123`}
         <Subheading id="authz-inspect" title="Inspect grants" />
         <p className="doc-copy">
           Use provider and relationship views to confirm which authorization
-          provider is active and which dynamic plugin grants are stored.
+          provider is active and which dynamic app grants are stored.
         </p>
         <CodeBlock
           code={`gestalt authorization provider get
 gestalt authorization models list
 gestalt authorization relationships list \\
   --resource-type plugin_dynamic \\
-  --resource-id <plugin>`}
+  --resource-id <app>`}
         />
       </DocsPageBody>
     </>
@@ -452,9 +452,9 @@ export function WorkflowsDocsPage() {
 
         <Subheading id="wf-schedules" title="Manage schedules" />
         <p className="doc-copy">
-          Workflow schedules invoke a plugin operation later on a cron. Use the same
+          Workflow schedules invoke an app operation later on a cron. Use the same
           parameter syntax as{" "}
-          <code className="font-mono text-sm text-primary">gestalt plugins invoke</code>
+          <code className="font-mono text-sm text-primary">gestalt apps invoke</code>
           : plain strings with{" "}
           <code className="font-mono text-sm text-primary">key=value</code> or JSON
           with{" "}
@@ -462,13 +462,13 @@ export function WorkflowsDocsPage() {
         </p>
         <CodeBlock
           code={`gestalt workflows schedules list
-gestalt workflows schedules list --plugin <plugin>
+gestalt workflows schedules list --app <app>
 gestalt workflows schedules get <schedule-id>
 
 gestalt workflows schedules create \\
   --cron "0 */5 * * *" \\
   --timezone "UTC" \\
-  --plugin <plugin> \\
+  --app <app> \\
   --operation <operation> \\
   -p key=value
 
@@ -484,13 +484,13 @@ gestalt workflows schedules delete <schedule-id>`}
 
         <Subheading id="wf-triggers" title="Manage event triggers" />
         <p className="doc-copy">
-          Event triggers run a plugin operation when an incoming event matches
+          Event triggers run an app operation when an incoming event matches
           a type, source, or subject filter. Use them when a webhook or other
           event stream should start the workflow immediately instead of on a cron.
         </p>
         <CodeBlock
           code={`gestalt workflows triggers list
-gestalt workflows triggers list --plugin <plugin>
+gestalt workflows triggers list --app <app>
 gestalt workflows triggers list --type <event-type>
 gestalt workflows triggers get <trigger-id>
 
@@ -498,7 +498,7 @@ gestalt workflows triggers create \\
   --type <event-type> \\
   --source <event-source> \\
   --subject <event-subject> \\
-  --plugin <plugin> \\
+  --app <app> \\
   --operation <operation> \\
   -p key=value
 
@@ -510,12 +510,12 @@ gestalt workflows triggers delete <trigger-id>`}
         <Subheading id="wf-runs" title="Inspect runs" />
         <p className="doc-copy">
           Run history tells you whether scheduled or event-driven work actually
-          executed, what plugin and operation ran, and whether the run succeeded
+          executed, what app and operation ran, and whether the run succeeded
           or failed.
         </p>
         <CodeBlock
           code={`gestalt workflows runs list
-gestalt workflows runs list --plugin <plugin>
+gestalt workflows runs list --app <app>
 gestalt workflows runs get <run-id>`}
         />
         <p className="doc-copy">
@@ -538,7 +538,7 @@ export function McpDocsPage() {
       <DocsPageHeader
         eyebrow="Use With MCP"
         title="Use With MCP"
-        description="Gestalt exposes a single MCP endpoint that gives AI tools access to all your connected plugins. If authentication is enabled, create an API token on the API Tokens page first."
+        description="Gestalt exposes a single MCP endpoint that gives AI tools access to all your connected apps. If authentication is enabled, create an API token on the API Tokens page first."
       />
       <DocsPageBody>
         <p className="doc-copy">
@@ -559,7 +559,7 @@ export function McpDocsPage() {
             ],
             [
               "If no tools appear",
-              "Confirm that the plugin is MCP-enabled and connected for your user.",
+              "Confirm that the app is MCP-enabled and connected for your user.",
             ],
           ]}
         />
@@ -596,7 +596,7 @@ export function TroubleshootingDocsPage() {
 
         <Subheading
           id="ts-multiple-connections"
-          title="A plugin has multiple connections"
+          title="An app has multiple connections"
         />
         <p className="doc-copy">
           Pass{" "}
@@ -611,7 +611,7 @@ export function TroubleshootingDocsPage() {
           title="The MCP endpoint is mounted, but the tool list is empty"
         />
         <p className="doc-copy">
-          That usually means the plugin is available in the workspace config
+          That usually means the app is available in the workspace config
           but has not been connected for your current user yet.
         </p>
       </DocsPageBody>
@@ -853,16 +853,16 @@ function InvokeMethodTabs({ origin }: { origin: string }) {
         }
       >
         <CodeBlock
-          code={`gestalt plugins invoke <plugin>
-gestalt plugins describe <plugin> <operation>
-gestalt plugins invoke <plugin> <operation> -p key=value
-gestalt plugins invoke <plugin> <operation> -p filters:='{"status":"open"}'
-gestalt plugins invoke <plugin> <operation> --input-file payload.json --select data.items`}
+          code={`gestalt apps invoke <app>
+gestalt apps describe <app> <operation>
+gestalt apps invoke <app> <operation> -p key=value
+gestalt apps invoke <app> <operation> -p filters:='{"status":"open"}'
+gestalt apps invoke <app> <operation> --input-file payload.json --select data.items`}
         />
         <p className="doc-copy">
           If you omit the operation,{" "}
           <code className="font-mono text-sm text-primary">
-            gestalt plugins invoke &lt;plugin&gt;
+            gestalt apps invoke &lt;app&gt;
           </code>{" "}
           lists available operations instead of running one.
         </p>
@@ -881,21 +881,19 @@ gestalt plugins invoke <plugin> <operation> --input-file payload.json --select d
       >
         <p className="doc-copy">
           The CLI calls the same HTTP API that the workspace exposes for direct
-          programmatic access. The API keeps{" "}
-          <code className="font-mono text-sm text-primary">integrations</code>{" "}
-          in its route paths even though the CLI uses{" "}
-          <code className="font-mono text-sm text-primary">plugins</code>.
+          programmatic access. Use the app catalog route for discovery and the
+          app-specific invoke route for operation calls.
         </p>
         <CodeBlock
           code={`curl \\
   -H "Authorization: Bearer $GESTALT_API_KEY" \\
-  ${origin}/api/v1/integrations
+  ${origin}/api/v1/apps
 
 curl \\
   -H "Authorization: Bearer $GESTALT_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"example":"value"}' \\
-  ${origin}/api/v1/<plugin>/<operation>`}
+  ${origin}/api/v1/<app>/<operation>`}
         />
       </section>
     </div>

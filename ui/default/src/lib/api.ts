@@ -714,14 +714,14 @@ export async function logout(): Promise<void> {
 }
 
 export async function getIntegrations(): Promise<Integration[]> {
-  return fetchAPI<Integration[]>("/api/v1/integrations");
+  return fetchAPI<Integration[]>("/api/v1/apps");
 }
 
 export async function getIntegrationOperations(
   integration: string,
 ): Promise<IntegrationOperation[]> {
   return fetchAPI<IntegrationOperation[]>(
-    `/api/v1/integrations/${encodeURIComponent(integration)}/operations`,
+    `/api/v1/apps/${encodeURIComponent(integration)}/operations`,
   );
 }
 
@@ -782,7 +782,7 @@ export async function disconnectIntegration(
   if (connection) query.set("_connection", connection);
   const params = query.toString();
   await fetchAPI(
-    `/api/v1/integrations/${encodeURIComponent(name)}${params ? `?${params}` : ""}`,
+    `/api/v1/apps/${encodeURIComponent(name)}${params ? `?${params}` : ""}`,
     {
       method: "DELETE",
     },
@@ -1332,7 +1332,7 @@ export async function getManagedIdentity(id: string): Promise<ManagedIdentity> {
 export async function getManagedIdentityIntegrations(
   id: string,
 ): Promise<Integration[]> {
-  return fetchAPI<Integration[]>(`${managedSubjectPath(id)}/integrations`);
+  return fetchAPI<Integration[]>(`${managedSubjectPath(id)}/apps`);
 }
 
 export async function startManagedIdentityIntegrationOAuth(
@@ -1395,7 +1395,7 @@ export async function disconnectManagedIdentityIntegration(
   if (connection) query.set("_connection", connection);
   const params = query.toString();
   await fetchAPI(
-    `${managedSubjectPath(id)}/integrations/${encodeURIComponent(name)}${params ? `?${params}` : ""}`,
+    `${managedSubjectPath(id)}/apps/${encodeURIComponent(name)}${params ? `?${params}` : ""}`,
     {
       method: "DELETE",
     },

@@ -114,7 +114,7 @@ export async function mockIntegrations(
   integrations: Integration[],
   opts?: { onDisconnect?: (name: string, url: URL) => void },
 ) {
-  await page.route("**/api/v1/integrations", (route: Route, request) => {
+  await page.route("**/api/v1/apps", (route: Route, request) => {
     if (request.method() === "GET") {
       route.fulfill({ json: integrations });
     } else {
@@ -122,7 +122,7 @@ export async function mockIntegrations(
     }
   });
 
-  await page.route("**/api/v1/integrations/*", (route: Route, request) => {
+  await page.route("**/api/v1/apps/*", (route: Route, request) => {
     if (request.method() === "DELETE") {
       const url = new URL(request.url());
       const name = url.pathname.split("/").pop() || "";
@@ -138,7 +138,7 @@ export async function mockIntegrationOperations(
   page: Page,
   operationsByIntegrationName: Record<string, IntegrationOperation[]>,
 ) {
-  await page.route("**/api/v1/integrations/*/operations", async (route: Route, request) => {
+  await page.route("**/api/v1/apps/*/operations", async (route: Route, request) => {
     if (request.method() !== "GET") {
       await route.fallback();
       return;

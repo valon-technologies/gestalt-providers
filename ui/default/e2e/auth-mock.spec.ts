@@ -190,7 +190,7 @@ test.describe("Authentication", () => {
       page.getByRole("heading", { name: "Dashboard" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Plugins", exact: true }),
+      page.getByRole("link", { name: "Apps", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Authorization", exact: true }),
@@ -489,7 +489,7 @@ test.describe("Authentication", () => {
     page,
   }) => {
     await seedAuthenticatedUserOnce(page);
-    await page.route("**/api/v1/integrations", (route) => {
+    await page.route("**/api/v1/apps", (route) => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
     await page.route("**/api/v1/tokens", (route) => {

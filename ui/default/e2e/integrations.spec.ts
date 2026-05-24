@@ -6,13 +6,13 @@ test.describe("Integrations", () => {
     await authenticate(page);
   });
 
-  test("shows integrations catalog", async ({ page }) => {
-    await page.goto("/integrations");
+  test("shows apps catalog", async ({ page }) => {
+    await page.goto("/apps");
     await expect(
-      page.getByRole("heading", { name: "Plugins" }),
+      page.getByRole("heading", { name: "Apps" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("combobox", { name: "Search plugins" }),
+      page.getByRole("combobox", { name: "Search apps" }),
     ).toBeVisible();
   });
 });

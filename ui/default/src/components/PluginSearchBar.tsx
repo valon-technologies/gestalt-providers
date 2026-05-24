@@ -52,7 +52,7 @@ export default function PluginSearchBar({
         >
           <ComboboxInput
             ref={inputRef}
-            aria-label="Search plugins"
+            aria-label="Search apps"
             autoComplete="off"
             className={`w-full pl-9 pr-10 ${INPUT_CLASSES} disabled:cursor-not-allowed disabled:opacity-60`}
             displayValue={() => query}
@@ -60,12 +60,12 @@ export default function PluginSearchBar({
               setSelectedIntegration(null);
               onQueryChange(event.target.value);
             }}
-            placeholder="Search plugins"
+            placeholder="Search apps"
           />
           {trimmedQuery.length > 0 && !disabled && (
             <ComboboxButton
               className="absolute right-2 top-1/2 z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-faint transition-colors duration-150 hover:bg-alpha-5 hover:text-muted"
-              aria-label="Clear plugin search"
+              aria-label="Clear app search"
               onMouseDown={(event) => {
                 event.preventDefault();
               }}
@@ -106,7 +106,7 @@ export default function PluginSearchBar({
                 })
               ) : (
                 <div className="px-3 py-2 text-sm text-muted">
-                  No matching plugins.
+                  No matching apps.
                 </div>
               )}
             </ComboboxOptions>
