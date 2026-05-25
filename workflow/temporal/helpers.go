@@ -92,7 +92,7 @@ func hashID(parts ...string) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-func workflowInvokeMetadataInput(workflowKey string) any {
+func workflowInvokeMetadataInput(workflowKey string) map[string]any {
 	workflowKey = strings.TrimSpace(workflowKey)
 	if workflowKey == "" {
 		return nil

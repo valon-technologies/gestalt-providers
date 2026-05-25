@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	gestaltworkflow "github.com/valon-technologies/gestalt/sdk/go/workflow"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -42,46 +43,23 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 		_ = db.Close()
 		return fmt.Errorf("temporal workflow: open state store: %w", err)
 	}
-	host, err := gestalt.WorkflowHost()
-	if err != nil {
-		_ = state.Close()
-		return fmt.Errorf("temporal workflow: connect workflow host: %w", err)
-	}
 	tc, err := client.Dial(client.Options{
 		HostPort:    cfg.HostPort,
 		Namespace:   cfg.Namespace,
 		Credentials: client.NewAPIKeyStaticCredentials(cfg.APIKey),
 	})
 	if err != nil {
-		_ = host.Close()
 		_ = state.Close()
 		return fmt.Errorf("temporal workflow: connect temporal: %w", err)
 	}
 	providerName := strings.TrimSpace(name)
-	backend := newTemporalBackend(providerName, cfg, tc, &sdkWorkflowHost{client: host}, state)
+	backend := newTemporalBackend(providerName, cfg, tc, gestaltworkflow.New(gestaltworkflow.Config{}), state)
 	p.mu.Lock()
 	p.name = providerName
 	p.backend = backend
 	p.mu.Unlock()
 	return nil
 }
-
-type sdkWorkflowHost struct {
-	client gestalt.WorkflowHostAPI
-}
-
-func (h *sdkWorkflowHost) InvokeOperation(ctx context.Context, input gestalt.InvokeWorkflowOperationInput) (*gestalt.InvokeWorkflowOperationResponse, error) {
-	return h.client.InvokeOperation(ctx, input)
-}
-
-func (h *sdkWorkflowHost) Close() error {
-	if h == nil || h.client == nil {
-		return nil
-	}
-	return h.client.Close()
-}
-
-var _ workflowHost = (*sdkWorkflowHost)(nil)
 
 func (p *Provider) Metadata() gestalt.ProviderMetadata {
 	p.mu.RLock()

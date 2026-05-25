@@ -14,9 +14,10 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	relationaldb "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb"
-	workflowfake "github.com/valon-technologies/gestalt-providers/workflow/internal/fake"
+	workflowfake "github.com/valon-technologies/gestalt-providers/workflow/indexeddb/fake"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
+	gestaltworkflow "github.com/valon-technologies/gestalt/sdk/go/workflow"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -41,9 +42,9 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
-	host := &capturingHost{resp: &gestalt.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	host := &capturingHost{resp: &gestaltworkflow.Response{Status: http.StatusOK, Body: "ok"}}
 	env.RegisterWorkflow(gestaltRunWorkflowV4)
-	env.RegisterActivity(&workflowActivities{host: host, state: state})
+	env.RegisterActivity(&workflowActivities{executor: host, state: state})
 
 	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
 		ExecutionRef:                  "ref-1",
@@ -160,9 +161,9 @@ func TestBackendDefinitionCRUD(t *testing.T) {
 func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
-	host := &capturingHost{resp: &gestalt.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	host := &capturingHost{resp: &gestaltworkflow.Response{Status: http.StatusOK, Body: "ok"}}
 	env.RegisterWorkflow(gestaltRunWorkflowV4)
-	env.RegisterActivity(&workflowActivities{host: host})
+	env.RegisterActivity(&workflowActivities{executor: host})
 
 	env.RegisterDelayedCallback(func() {
 		env.UpdateWorkflow(updateAddSignal, "signal-1", updateCallback(t, func(value interface{}) {
@@ -172,7 +173,7 @@ func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 			}
 		}), gestalt.WorkflowSignal{Name: "slack.event", IdempotencyKey: "signal-1", CreatedAt: time.Now().UTC()})
 		if len(host.calls) != 0 {
-			t.Fatalf("host calls before claim = %d, want 0", len(host.calls))
+			t.Fatalf("step calls before claim = %d, want 0", len(host.calls))
 		}
 		env.UpdateWorkflow(updateClaimRun, "claim-run", updateCallback(t, nil))
 	}, time.Millisecond)
@@ -193,15 +194,15 @@ func TestGestaltRunWorkflowV4WaitsForClaimBeforeInvokingHost(t *testing.T) {
 		t.Fatalf("workflow error: %v", err)
 	}
 	if len(host.calls) != 1 {
-		t.Fatalf("host calls = %d, want 1 after claim", len(host.calls))
+		t.Fatalf("step calls = %d, want 1 after claim", len(host.calls))
 	}
 }
 
 func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
-	host := &capturingHost{resp: &gestalt.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
-	activities := &workflowActivities{host: host}
+	host := &capturingHost{resp: &gestaltworkflow.Response{Status: http.StatusOK, Body: "ok"}}
+	activities := &workflowActivities{executor: host}
 	env.RegisterWorkflow(gestaltRunWorkflowV4)
 	env.RegisterActivity(activities)
 
@@ -247,8 +248,8 @@ func TestGestaltRunWorkflowV4ClaimUpdateDoesNotWaitForProjection(t *testing.T) {
 func TestGestaltRunWorkflowV4AddSignalUpdateDoesNotWaitForProjection(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
-	host := &capturingHost{resp: &gestalt.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
-	activities := &workflowActivities{host: host}
+	host := &capturingHost{resp: &gestaltworkflow.Response{Status: http.StatusOK, Body: "ok"}}
+	activities := &workflowActivities{executor: host}
 	env.RegisterWorkflow(gestaltRunWorkflowV4)
 	env.RegisterActivity(activities)
 
@@ -297,9 +298,9 @@ func TestGestaltRunWorkflowV4ContinuesWhenProjectionFails(t *testing.T) {
 
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
-	host := &capturingHost{resp: &gestalt.InvokeWorkflowOperationResponse{Status: http.StatusOK, Body: "ok"}}
+	host := &capturingHost{resp: &gestaltworkflow.Response{Status: http.StatusOK, Body: "ok"}}
 	env.RegisterWorkflow(gestaltRunWorkflowV4)
-	env.RegisterActivity(&workflowActivities{host: host, state: state})
+	env.RegisterActivity(&workflowActivities{executor: host, state: state})
 
 	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
 		ExecutionRef:                  "ref-1",
@@ -320,7 +321,7 @@ func TestGestaltRunWorkflowV4ContinuesWhenProjectionFails(t *testing.T) {
 		t.Fatalf("run = %#v, want succeeded with body", &run)
 	}
 	if len(host.calls) != 1 {
-		t.Fatalf("host calls = %d, want 1", len(host.calls))
+		t.Fatalf("step calls = %d, want 1", len(host.calls))
 	}
 }
 
@@ -1947,12 +1948,12 @@ func TestProviderSurfaceStartsBackendForExecutionRPCs(t *testing.T) {
 }
 
 type capturingHost struct {
-	resp  *gestalt.InvokeWorkflowOperationResponse
+	resp  *gestaltworkflow.Response
 	err   error
-	calls []gestalt.InvokeWorkflowOperationInput
+	calls []gestaltworkflow.Request
 }
 
-func (h *capturingHost) InvokeOperation(_ context.Context, req gestalt.InvokeWorkflowOperationInput) (*gestalt.InvokeWorkflowOperationResponse, error) {
+func (h *capturingHost) Execute(_ context.Context, req gestaltworkflow.Request) (*gestaltworkflow.Response, error) {
 	h.calls = append(h.calls, req)
 	return h.resp, h.err
 }
@@ -2009,31 +2010,6 @@ func cloneSignalRunRequest(req *gestalt.SignalWorkflowProviderRunRequest) *gesta
 	}
 	return &out
 }
-
-type blockingHost struct {
-	mu           sync.Mutex
-	resp         *gestalt.InvokeWorkflowOperationResponse
-	err          error
-	releaseFirst <-chan struct{}
-	calls        []gestalt.InvokeWorkflowOperationInput
-}
-
-func (h *blockingHost) InvokeOperation(ctx context.Context, req gestalt.InvokeWorkflowOperationInput) (*gestalt.InvokeWorkflowOperationResponse, error) {
-	h.mu.Lock()
-	h.calls = append(h.calls, req)
-	callIndex := len(h.calls)
-	h.mu.Unlock()
-	if callIndex == 1 && h.releaseFirst != nil {
-		select {
-		case <-h.releaseFirst:
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
-	return h.resp, h.err
-}
-
-func (h *blockingHost) Close() error { return nil }
 
 func TestNormalizeTargetPreservesAppCredentialMode(t *testing.T) {
 	target := appTarget(" github ", " reviewPullRequest ")
