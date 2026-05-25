@@ -66,7 +66,7 @@ apps:
 Example `query` call:
 
 ```ts
-await invoker.invoke("quickbooks", "query", {
+await app.invoke("quickbooks", "query", {
   query: "select * from Customer maxresults 10",
   minorversion: "75",
 });

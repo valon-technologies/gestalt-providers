@@ -1,5 +1,5 @@
 export {
-  AgentHost as GestaltAgentHostClient,
+  AgentHost as GestaltAgentHost,
   ENV_HOST_SERVICE_SOCKET,
   ENV_HOST_SERVICE_TOKEN,
 } from "@valon-technologies/gestalt";

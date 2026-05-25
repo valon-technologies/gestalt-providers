@@ -4,7 +4,7 @@ import type {
   ListedAgentTool,
 } from "@valon-technologies/gestalt";
 
-import type { GestaltAgentHostClient } from "./agent_host.ts";
+import type { GestaltAgentHost } from "./agent_host.ts";
 import { CursorExecutionError } from "./errors.ts";
 
 export const MCP_SERVER_NAME = "gestalt";
@@ -33,7 +33,7 @@ export type ToolEntry = {
 };
 
 export async function listGestaltTools(input: {
-  host: GestaltAgentHostClient;
+  host: GestaltAgentHost;
   sessionId: string;
   turnId: string;
   runGrant: string;

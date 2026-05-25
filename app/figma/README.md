@@ -69,7 +69,7 @@ apps:
 Example `getFile` call:
 
 ```ts
-await invoker.invoke("figma", "getFile", { file_key: "figma-file-key" });
+await app.invoke("figma", "getFile", { file_key: "figma-file-key" });
 ```
 
 ## Documentation

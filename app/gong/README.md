@@ -105,7 +105,7 @@ apps:
 Example `list_calls` call:
 
 ```ts
-await invoker.invoke("gong", "list_calls", { fromDateTime: "2026-01-01T00:00:00Z", toDateTime: "2026-01-07T00:00:00Z" });
+await app.invoke("gong", "list_calls", { fromDateTime: "2026-01-01T00:00:00Z", toDateTime: "2026-01-07T00:00:00Z" });
 ```
 
 ## Documentation

@@ -87,7 +87,7 @@ apps:
 Example `messages.send` call:
 
 ```ts
-await invoker.invoke("gmail", "messages.send", {
+await app.invoke("gmail", "messages.send", {
   to: ["recipient@example.com"],
   subject: "Status update",
   text_body: "The report is ready.",
@@ -97,7 +97,7 @@ await invoker.invoke("gmail", "messages.send", {
 Example `messages.reply` call:
 
 ```ts
-await invoker.invoke("gmail", "messages.reply", {
+await app.invoke("gmail", "messages.reply", {
   message_id: "18c1234567890abc",
   text_body: "Thanks for the context.",
   reply_all: true,
@@ -107,13 +107,13 @@ await invoker.invoke("gmail", "messages.reply", {
 Create and send a draft when the caller needs review or later delivery:
 
 ```ts
-const draft = await invoker.invoke("gmail", "drafts.create", {
+const draft = await app.invoke("gmail", "drafts.create", {
   to: ["recipient@example.com"],
   subject: "Draft update",
   text_body: "Please review before sending.",
 });
 
-await invoker.invoke("gmail", "drafts.send", {
+await app.invoke("gmail", "drafts.send", {
   draft_id: draft.id,
 });
 ```

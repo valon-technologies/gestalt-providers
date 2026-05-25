@@ -69,7 +69,7 @@ apps:
 Example `get_project` call:
 
 ```ts
-await invoker.invoke("gitlab", "get_project", { id: "group%2Fproject" });
+await app.invoke("gitlab", "get_project", { id: "group%2Fproject" });
 ```
 
 ## Documentation

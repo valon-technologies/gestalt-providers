@@ -129,7 +129,7 @@ apps:
 Example `admin_admin_agents_api_docs.get_agents` call:
 
 ```ts
-await invoker.invoke("nice_incontact", "admin_admin_agents_api_docs.get_agents", { api_host: "api-na1.niceincontact.com" });
+await app.invoke("nice_incontact", "admin_admin_agents_api_docs.get_agents", { api_host: "api-na1.niceincontact.com" });
 ```
 
 ## Documentation

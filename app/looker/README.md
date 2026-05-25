@@ -120,7 +120,7 @@ apps:
 Example `search_dashboards` call:
 
 ```ts
-await invoker.invoke("looker", "search_dashboards", { title: "Revenue" });
+await app.invoke("looker", "search_dashboards", { title: "Revenue" });
 ```
 
 ## Documentation

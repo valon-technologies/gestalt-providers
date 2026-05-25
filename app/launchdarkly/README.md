@@ -63,7 +63,7 @@ apps:
 Example `getFeatureFlag` call:
 
 ```ts
-await invoker.invoke("launchdarkly", "getFeatureFlag", { projectKey: "default", featureFlagKey: "example-flag" });
+await app.invoke("launchdarkly", "getFeatureFlag", { projectKey: "default", featureFlagKey: "example-flag" });
 ```
 
 ## Documentation

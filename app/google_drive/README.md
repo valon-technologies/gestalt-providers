@@ -78,7 +78,7 @@ apps:
 Example `files.list` call:
 
 ```ts
-await invoker.invoke("google_drive", "files.list", { pageSize: 10, q: "mimeType != 'application/vnd.google-apps.folder'" });
+await app.invoke("google_drive", "files.list", { pageSize: 10, q: "mimeType != 'application/vnd.google-apps.folder'" });
 ```
 
 ## Documentation

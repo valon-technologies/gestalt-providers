@@ -73,7 +73,7 @@ apps:
 Example `presentations.get` call:
 
 ```ts
-await invoker.invoke("google_slides", "presentations.get", { presentationId: "presentation-id" });
+await app.invoke("google_slides", "presentations.get", { presentationId: "presentation-id" });
 ```
 
 ## Documentation

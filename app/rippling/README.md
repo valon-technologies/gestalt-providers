@@ -75,7 +75,7 @@ apps:
 Example `Employees.List` call:
 
 ```ts
-await invoker.invoke("rippling", "Employees.List", { limit: 20 });
+await app.invoke("rippling", "Employees.List", { limit: 20 });
 ```
 
 ## Documentation

@@ -67,7 +67,7 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 }
 
 type sdkWorkflowHost struct {
-	client *gestalt.WorkflowHostClient
+	client gestalt.WorkflowHostAPI
 }
 
 func (h *sdkWorkflowHost) InvokeOperation(ctx context.Context, input gestalt.InvokeWorkflowOperationInput) (*gestalt.InvokeWorkflowOperationResponse, error) {

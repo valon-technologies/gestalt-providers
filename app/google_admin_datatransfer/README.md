@@ -68,5 +68,5 @@ apps:
 Example `datatransfer.applications.list` call:
 
 ```ts
-await invoker.invoke("google_admin_datatransfer", "datatransfer.applications.list", {});
+await app.invoke("google_admin_datatransfer", "datatransfer.applications.list", {});
 ```

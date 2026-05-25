@@ -74,7 +74,7 @@ apps:
 Example `listCards` call:
 
 ```ts
-await invoker.invoke("ramp", "listCards", { page_size: 20 });
+await app.invoke("ramp", "listCards", { page_size: 20 });
 ```
 
 ## Documentation

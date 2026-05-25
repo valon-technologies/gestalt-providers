@@ -81,7 +81,7 @@ apps:
 Example `Incidents.List` call:
 
 ```ts
-await invoker.invoke("incident_io", "Incidents.List", { page_size: 25 });
+await app.invoke("incident_io", "Incidents.List", { page_size: 25 });
 ```
 
 ## Documentation

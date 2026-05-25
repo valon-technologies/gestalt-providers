@@ -674,7 +674,7 @@ apps:
 Example `conversations.getThreadContext` call:
 
 ```ts
-await invoker.invoke("slack", "conversations.getThreadContext", {
+await app.invoke("slack", "conversations.getThreadContext", {
   url: "https://workspace.slack.com/archives/C0123456789/p1712161829000300",
   include_user_info: true,
   include_file_content: false,
@@ -684,7 +684,7 @@ await invoker.invoke("slack", "conversations.getThreadContext", {
 Example `events.startStream` call:
 
 ```ts
-await invoker.invoke("slack", "events.startStream", { reply_ref: "...", markdown_text: "Working on it..." });
+await app.invoke("slack", "events.startStream", { reply_ref: "...", markdown_text: "Working on it..." });
 ```
 
 ## Documentation

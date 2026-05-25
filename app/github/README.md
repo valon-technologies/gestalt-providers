@@ -406,7 +406,7 @@ manual `gestalt review`-style comment triggers when invoked from
 `issue_comment` signals. Workflow providers derive app-target access from the
 target app plus optional `_gestalt.eventRunPermissions` entries in target input;
 include extra permissions only when a target operation calls other apps through
-the host invoker.
+the App capability.
 
 After signature validation, the hosted HTTP binding invokes `events.handle`
 before acknowledging the GitHub delivery. `events.handle` filters the event and
@@ -867,13 +867,13 @@ apps:
 Example `bot.getPullRequest` call:
 
 ```ts
-await invoker.invoke("github", "bot.getPullRequest", { owner: "acme", repo: "widgets", pull_number: 42 });
+await app.invoke("github", "bot.getPullRequest", { owner: "acme", repo: "widgets", pull_number: 42 });
 ```
 
 Example `bot.resolveInstallation` call:
 
 ```ts
-await invoker.invoke("github", "bot.resolveInstallation", { owner: "acme", repo: "widgets" });
+await app.invoke("github", "bot.resolveInstallation", { owner: "acme", repo: "widgets" });
 ```
 
 ## Documentation

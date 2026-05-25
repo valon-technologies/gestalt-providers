@@ -71,7 +71,7 @@ apps:
 Example `get` call:
 
 ```ts
-await invoker.invoke("google_docs", "get", { documentId: "document-id" });
+await app.invoke("google_docs", "get", { documentId: "document-id" });
 ```
 
 ## Documentation

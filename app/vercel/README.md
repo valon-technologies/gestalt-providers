@@ -49,7 +49,7 @@ apps:
 ```
 
 ```ts
-await invoker.invoke("vercel", "blob.put", {
+await app.invoke("vercel", "blob.put", {
   pathname: "roadmaps/newrez.json",
   access: "private",
   body: JSON.stringify(payload),
@@ -112,7 +112,7 @@ apps:
 Example `blob.put` call:
 
 ```ts
-await invoker.invoke("vercel", "blob.put", {
+await app.invoke("vercel", "blob.put", {
   pathname: "reports/daily.json",
   access: "private",
   body: JSON.stringify(payload),
@@ -124,7 +124,7 @@ await invoker.invoke("vercel", "blob.put", {
 Example `teamMembers.invite` call:
 
 ```ts
-await invoker.invoke("vercel", "teamMembers.invite", { team_id: "team_123", email: "teammate@example.com", role: "MEMBER" });
+await app.invoke("vercel", "teamMembers.invite", { team_id: "team_123", email: "teammate@example.com", role: "MEMBER" });
 ```
 
 ## Documentation

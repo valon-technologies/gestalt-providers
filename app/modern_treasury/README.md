@@ -77,7 +77,7 @@ apps:
 Example `listPaymentOrders` call:
 
 ```ts
-await invoker.invoke("modern_treasury", "listPaymentOrders", { per_page: 20 });
+await app.invoke("modern_treasury", "listPaymentOrders", { per_page: 20 });
 ```
 
 ## Documentation

@@ -83,13 +83,13 @@ apps:
 Example `listNotes` call:
 
 ```ts
-await invoker.invoke("granola", "listNotes", { page_size: 10 });
+await app.invoke("granola", "listNotes", { page_size: 10 });
 ```
 
 Example `getNote` call:
 
 ```ts
-await invoker.invoke("granola", "getNote", { id: "note-id", include: "transcript" });
+await app.invoke("granola", "getNote", { id: "note-id", include: "transcript" });
 ```
 
 ## Documentation

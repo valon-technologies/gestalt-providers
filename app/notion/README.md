@@ -78,7 +78,7 @@ apps:
 Example `search` call:
 
 ```ts
-await invoker.invoke("notion", "search", { query: "Roadmap" });
+await app.invoke("notion", "search", { query: "Roadmap" });
 ```
 
 ## Documentation
