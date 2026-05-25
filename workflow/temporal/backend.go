@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	gestaltworkflow "github.com/valon-technologies/gestalt/sdk/go/workflow"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
@@ -18,11 +19,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
-
-type workflowHost interface {
-	InvokeOperation(context.Context, gestalt.InvokeWorkflowOperationInput) (*gestalt.InvokeWorkflowOperationResponse, error)
-	Close() error
-}
 
 type temporalWorker interface {
 	RegisterWorkflow(interface{})
@@ -37,7 +33,7 @@ type temporalBackend struct {
 	providerName string
 	cfg          config
 	client       client.Client
-	host         workflowHost
+	stepExecutor gestaltworkflow.StepExecutor
 	state        *workflowStateStore
 
 	newWorker temporalWorkerFactory
@@ -47,12 +43,15 @@ type temporalBackend struct {
 	worker  temporalWorker
 }
 
-func newTemporalBackend(providerName string, cfg config, tc client.Client, host workflowHost, state *workflowStateStore) *temporalBackend {
+func newTemporalBackend(providerName string, cfg config, tc client.Client, executor gestaltworkflow.StepExecutor, state *workflowStateStore) *temporalBackend {
+	if executor == nil {
+		executor = gestaltworkflow.New(gestaltworkflow.Config{})
+	}
 	return &temporalBackend{
 		providerName: strings.TrimSpace(providerName),
 		cfg:          cfg,
 		client:       tc,
-		host:         host,
+		stepExecutor: executor,
 		state:        state,
 		newWorker:    defaultTemporalWorkerFactory,
 	}
@@ -73,7 +72,7 @@ func (b *temporalBackend) Start(ctx context.Context) error {
 	}
 	w := b.newWorker(b.client, b.cfg.TaskQueue, b.workerOptions())
 	w.RegisterWorkflow(gestaltRunWorkflowV4)
-	w.RegisterActivity(&workflowActivities{host: b.host, state: b.state})
+	w.RegisterActivity(&workflowActivities{executor: b.stepExecutor, state: b.state})
 	if err := w.Start(); err != nil {
 		return fmt.Errorf("start temporal worker: %w", err)
 	}
@@ -105,8 +104,8 @@ func (b *temporalBackend) Close() error {
 		w.Stop()
 	}
 	var errs []error
-	if b.host != nil {
-		errs = append(errs, b.host.Close())
+	if b.stepExecutor != nil {
+		errs = append(errs, b.stepExecutor.Close())
 	}
 	if b.state != nil {
 		errs = append(errs, b.state.Close())
@@ -147,7 +146,9 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkfl
 	}
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "run-v4", uuid.NewString())
 	conflictPolicy := enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL
-	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.ExecutionRef, "", target.Target, manualTriggerInput(), req.CreatedBy, false), conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+	input := b.runV4Input(target.OwnerKey, req.ExecutionRef, "", target.Target, manualTriggerInput(), req.CreatedBy, false)
+	input.InvocationToken = strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx))
+	run, err := b.executeRunV4(ctx, temporalWorkflowID, input, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
 	}
@@ -450,7 +451,7 @@ func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *gestalt.Upser
 		CreatedBy:    createdBy,
 		ExecutionRef: strings.TrimSpace(req.ExecutionRef),
 	}
-	if err := b.upsertTemporalSchedule(ctx, schedule); err != nil {
+	if err := b.upsertTemporalSchedule(ctx, schedule, gestalt.InvocationTokenFromContext(ctx)); err != nil {
 		return nil, err
 	}
 	if err := b.state.putSchedule(ctx, schedule); err != nil {
@@ -794,6 +795,7 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 			Event:     eventInput,
 		}}
 		input := b.runV4Input(targetOwnerKeyInput(trigger.Target), executionRef, "", trigger.Target, eventTriggerInput, createdBy, false)
+		input.InvocationToken = strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx))
 		run, err := b.executeRunV4(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 		if err != nil {
 			if strings.TrimSpace(eventInput.ID) != "" && isAlreadyStarted(err) {
@@ -871,9 +873,10 @@ func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, pause
 	return trigger, nil
 }
 
-func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *gestalt.BoundWorkflowSchedule) error {
+func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *gestalt.BoundWorkflowSchedule, invocationToken string) error {
 	actionInput := b.runV4Input(targetOwnerKeyInput(schedule.Target), schedule.ExecutionRef, "", schedule.Target, scheduleTriggerInput(schedule.ID, time.Now().UTC()), schedule.CreatedBy, false)
 	actionInput.ScheduleID = schedule.ID
+	actionInput.InvocationToken = strings.TrimSpace(invocationToken)
 	action := &client.ScheduleWorkflowAction{
 		Workflow:            gestaltRunWorkflowV4,
 		Args:                []any{actionInput},

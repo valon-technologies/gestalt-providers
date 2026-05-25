@@ -61,6 +61,7 @@ func (b *temporalBackend) startKeyedRunV4(ctx context.Context, target scopedTarg
 	}
 
 	input := b.runV4Input(target.OwnerKey, req.ExecutionRef, workflowKey, target.Target, manualTriggerInput(), req.CreatedBy, false)
+	input.InvocationToken = strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx))
 	input.RequireClaim = true
 	run, err := b.executeRunV4(ctx, temporalWorkflowID, input, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
@@ -108,7 +109,9 @@ func (b *temporalBackend) startUnkeyedRunV4(ctx context.Context, target scopedTa
 		}
 	}
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "manual-v4", target.OwnerKey, key)
-	run, err := b.executeRunV4(ctx, temporalWorkflowID, b.runV4Input(target.OwnerKey, req.ExecutionRef, "", target.Target, manualTriggerInput(), req.CreatedBy, false), enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+	input := b.runV4Input(target.OwnerKey, req.ExecutionRef, "", target.Target, manualTriggerInput(), req.CreatedBy, false)
+	input.InvocationToken = strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx))
+	run, err := b.executeRunV4(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
 	}
@@ -232,6 +235,7 @@ func (b *temporalBackend) startSignalWorkflowRunV4(ctx context.Context, target s
 		conflictPolicy = enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
 	}
 	input := b.runV4Input(target.OwnerKey, req.ExecutionRef, workflowKey, target.Target, manualTriggerInput(), req.CreatedBy, true)
+	input.InvocationToken = strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx))
 	input.RequireClaim = true
 	startOperation := b.client.NewWithStartWorkflowOperation(
 		b.startWorkflowOptions(temporalWorkflowID, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE),
@@ -327,6 +331,7 @@ func mapWorkflowKeyLoadError(err error) error {
 func (b *temporalBackend) runV4Input(ownerKey, executionRef, workflowKey string, target *gestalt.BoundWorkflowTarget, trigger *gestalt.WorkflowRunTrigger, createdBy *gestalt.WorkflowActor, requireSignal bool) runWorkflowV4Input {
 	return runWorkflowV4Input{
 		ActivityStartToCloseTimeoutNS: b.cfg.ActivityStartToCloseTimeout,
+		ProviderName:                  b.providerName,
 		ExecutionRef:                  strings.TrimSpace(executionRef),
 		WorkflowKey:                   strings.TrimSpace(workflowKey),
 		OwnerKey:                      strings.TrimSpace(ownerKey),

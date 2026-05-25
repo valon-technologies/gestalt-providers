@@ -22,6 +22,7 @@ import (
 	"github.com/robfig/cron/v3"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
+	gestaltworkflow "github.com/valon-technologies/gestalt/sdk/go/workflow"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"gopkg.in/yaml.v3"
@@ -80,11 +81,6 @@ type config struct {
 	RunClaimRenewEvery time.Duration `yaml:"runClaimRenewEvery"`
 }
 
-type workflowHostClient interface {
-	InvokeOperation(context.Context, gestalt.InvokeWorkflowOperationInput) (*gestalt.InvokeWorkflowOperationResponse, error)
-	Close() error
-}
-
 type Provider struct {
 	mu sync.RWMutex
 	// workerMu serializes scheduler and worker claim work without blocking
@@ -97,7 +93,7 @@ type Provider struct {
 	name              string
 	cfg               config
 	db                indexeddb.Database
-	host              workflowHostClient
+	stepExecutor      gestaltworkflow.StepExecutor
 	scheduleStore     indexeddb.ObjectStore
 	eventTriggerStore indexeddb.ObjectStore
 	definitionStore   indexeddb.ObjectStore
@@ -108,7 +104,7 @@ type Provider struct {
 	workflowKeyStore  indexeddb.ObjectStore
 	signalStore       indexeddb.ObjectStore
 	indexedDB         indexeddb.Database
-	workflowHost      workflowHostClient
+	workflowExecutor  gestaltworkflow.StepExecutor
 	claimOwnerID      string
 	startedAt         time.Time
 	pollCancel        context.CancelFunc
@@ -120,29 +116,31 @@ type Provider struct {
 }
 
 type workflowScheduleRecord struct {
-	ID           string
-	Cron         string
-	Timezone     string
-	Target       *gestalt.BoundWorkflowTarget
-	Paused       bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	NextRunAt    *time.Time
-	CreatedBy    *gestalt.WorkflowActor
-	ExecutionRef string
+	ID              string
+	Cron            string
+	Timezone        string
+	Target          *gestalt.BoundWorkflowTarget
+	Paused          bool
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	NextRunAt       *time.Time
+	CreatedBy       *gestalt.WorkflowActor
+	ExecutionRef    string
+	InvocationToken string
 }
 
 type workflowEventTriggerRecord struct {
-	ID           string
-	MatchType    string
-	MatchSource  string
-	MatchSubject string
-	Target       *gestalt.BoundWorkflowTarget
-	Paused       bool
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	CreatedBy    *gestalt.WorkflowActor
-	ExecutionRef string
+	ID              string
+	MatchType       string
+	MatchSource     string
+	MatchSubject    string
+	Target          *gestalt.BoundWorkflowTarget
+	Paused          bool
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	CreatedBy       *gestalt.WorkflowActor
+	ExecutionRef    string
+	InvocationToken string
 }
 
 type workflowRunRecord struct {
@@ -161,6 +159,7 @@ type workflowRunRecord struct {
 	ResultBody            string
 	CreatedBy             *gestalt.WorkflowActor
 	ExecutionRef          string
+	InvocationToken       string
 	WorkflowKey           string
 	NextSignalSequence    int64
 }
@@ -269,17 +268,13 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 		}
 	}
 
-	host := p.workflowHost
-	if host == nil {
-		host, err = gestalt.WorkflowHost()
-		if err != nil {
-			_ = db.Close()
-			return fmt.Errorf("indexeddb workflow: connect workflow host: %w", err)
-		}
+	executor := p.workflowExecutor
+	if executor == nil {
+		executor = gestaltworkflow.New(gestaltworkflow.Config{})
 	}
 
 	cleanup := func() {
-		_ = host.Close()
+		_ = executor.Close()
 		_ = db.Close()
 	}
 
@@ -297,7 +292,7 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	p.name = strings.TrimSpace(name)
 	p.cfg = cfg
 	p.db = db
-	p.host = host
+	p.stepExecutor = executor
 	p.scheduleStore = db.ObjectStore(storeSchedules)
 	p.eventTriggerStore = db.ObjectStore(storeEventTriggers)
 	p.definitionStore = db.ObjectStore(storeDefinitions)
@@ -406,13 +401,13 @@ func (p *Provider) Close() error {
 	p.mu.Lock()
 	cancel := p.pollCancel
 	done := p.pollDone
-	host := p.host
+	executor := p.stepExecutor
 	db := p.db
 
 	p.name = ""
 	p.cfg = config{}
 	p.db = nil
-	p.host = nil
+	p.stepExecutor = nil
 	p.scheduleStore = nil
 	p.eventTriggerStore = nil
 	p.definitionStore = nil
@@ -436,8 +431,8 @@ func (p *Provider) Close() error {
 	}
 
 	var errs []error
-	if host != nil {
-		if err := host.Close(); err != nil {
+	if executor != nil {
+		if err := executor.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -552,6 +547,7 @@ func (p *Provider) StartRun(ctx context.Context, req *gestalt.StartWorkflowProvi
 		CreatedAt:          now,
 		CreatedBy:          actor,
 		ExecutionRef:       strings.TrimSpace(req.ExecutionRef),
+		InvocationToken:    strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx)),
 		WorkflowKey:        workflowKey,
 		NextSignalSequence: 1,
 	}
@@ -943,15 +939,16 @@ func (p *Provider) UpsertSchedule(ctx context.Context, req *gestalt.UpsertWorkfl
 
 	now := p.clock().UTC()
 	record := workflowScheduleRecord{
-		ID:           scheduleID,
-		Cron:         cronSpec,
-		Timezone:     timezone,
-		Target:       cloneTarget(target.Target),
-		Paused:       req.Paused,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-		CreatedBy:    requestedBy,
-		ExecutionRef: strings.TrimSpace(req.ExecutionRef),
+		ID:              scheduleID,
+		Cron:            cronSpec,
+		Timezone:        timezone,
+		Target:          cloneTarget(target.Target),
+		Paused:          req.Paused,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+		CreatedBy:       requestedBy,
+		ExecutionRef:    strings.TrimSpace(req.ExecutionRef),
+		InvocationToken: strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx)),
 	}
 	if found {
 		record.CreatedAt = existing.CreatedAt
@@ -1126,16 +1123,17 @@ func (p *Provider) UpsertEventTrigger(ctx context.Context, req *gestalt.UpsertWo
 	}
 	now := p.clock().UTC()
 	record := workflowEventTriggerRecord{
-		ID:           triggerID,
-		MatchType:    matchType,
-		MatchSource:  matchSource,
-		MatchSubject: matchSubject,
-		Target:       cloneTarget(target.Target),
-		Paused:       req.Paused,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-		CreatedBy:    requestedBy,
-		ExecutionRef: strings.TrimSpace(req.ExecutionRef),
+		ID:              triggerID,
+		MatchType:       matchType,
+		MatchSource:     matchSource,
+		MatchSubject:    matchSubject,
+		Target:          cloneTarget(target.Target),
+		Paused:          req.Paused,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+		CreatedBy:       requestedBy,
+		ExecutionRef:    strings.TrimSpace(req.ExecutionRef),
+		InvocationToken: strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx)),
 	}
 	if found {
 		record.CreatedAt = existing.CreatedAt
@@ -1329,6 +1327,10 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 				executionRef = ref.ID
 			}
 		}
+		invocationToken := strings.TrimSpace(trigger.InvocationToken)
+		if invocationToken == "" {
+			invocationToken = strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx))
+		}
 		run := workflowRunRecord{
 			ID:                    runID,
 			Status:                gestalt.WorkflowRunStatusValuePending,
@@ -1339,6 +1341,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 			CreatedAt:             now,
 			CreatedBy:             createdBy,
 			ExecutionRef:          executionRef,
+			InvocationToken:       invocationToken,
 			NextSignalSequence:    1,
 		}
 		if err := state.runStore.Add(ctx, run.toRecord()); err != nil {
@@ -1587,6 +1590,7 @@ func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrS
 			CreatedAt:          now,
 			CreatedBy:          cloneActor(req.CreatedBy),
 			ExecutionRef:       strings.TrimSpace(req.ExecutionRef),
+			InvocationToken:    strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx)),
 			WorkflowKey:        workflowKey,
 			NextSignalSequence: 1,
 		}
@@ -1971,6 +1975,7 @@ func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
 			CreatedAt:           now,
 			CreatedBy:           cloneActor(schedule.CreatedBy),
 			ExecutionRef:        schedule.ExecutionRef,
+			InvocationToken:     strings.TrimSpace(schedule.InvocationToken),
 			NextSignalSequence:  1,
 		}
 		if err := state.runStore.Add(ctx, run.toRecord()); err != nil {
@@ -2069,22 +2074,26 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 			return false, err
 		}
 	}
-	host := state.host
+	executor := state.stepExecutor
+	providerName := state.providerName
 	releaseWorker()
 
 	var targetInput *gestalt.BoundWorkflowTarget
 	if pending.Target != nil {
 		targetInput = cloneTarget(pending.Target)
 	}
+	signals := signalInputs(claimedSignals)
 	stopRenewingClaim := p.startRunClaimRenewal(ctx, pending.ID, claimOwnerID, runClaimRenewEvery)
-	resp, invokeErr := host.InvokeOperation(ctx, gestalt.InvokeWorkflowOperationInput{
-		Target:       targetInput,
-		RunID:        pending.ID,
-		Trigger:      pending.triggerInput(),
-		Metadata:     workflowInvokeMetadataInput(pending.WorkflowKey),
-		CreatedBy:    workflowActorInput(pending.CreatedBy),
-		ExecutionRef: pending.ExecutionRef,
-		Signals:      signalInputs(claimedSignals),
+	resp, invokeErr := executor.Execute(ctx, gestaltworkflow.Request{
+		ProviderName:    providerName,
+		RunID:           pending.ID,
+		Target:          targetInput,
+		Trigger:         pending.triggerInput(),
+		Metadata:        workflowInvokeMetadataInput(pending.WorkflowKey),
+		CreatedBy:       workflowActorInput(pending.CreatedBy),
+		ExecutionRef:    pending.ExecutionRef,
+		InvocationToken: pending.InvocationToken,
+		Signals:         signals,
 	})
 	stopRenewingClaim()
 
@@ -2145,7 +2154,7 @@ func (p *Provider) renewWorkflowRunClaim(ctx context.Context, runID, ownerID str
 	return renewWorkflowRunClaim(ctx, state.db, runID, ownerID, p.clock().UTC(), state.runClaimTTL)
 }
 
-func (p *Provider) completeRunAfterInvoke(ctx context.Context, pending workflowRunRecord, claimedSignals []workflowSignalRecord, claimOwnerID string, resp *gestalt.InvokeWorkflowOperationResponse, invokeErr error) error {
+func (p *Provider) completeRunAfterInvoke(ctx context.Context, pending workflowRunRecord, claimedSignals []workflowSignalRecord, claimOwnerID string, resp *gestaltworkflow.Response, invokeErr error) error {
 	p.workerMu.Lock()
 	defer p.workerMu.Unlock()
 
@@ -2176,7 +2185,7 @@ func (p *Provider) completeRunAfterInvoke(ctx context.Context, pending workflowR
 	return nil
 }
 
-func completeRunInTransaction(ctx context.Context, stores workflowRunCompletionTxStores, pending workflowRunRecord, claimedSignals []workflowSignalRecord, claimOwnerID string, resp *gestalt.InvokeWorkflowOperationResponse, invokeErr error, completedAt time.Time) error {
+func completeRunInTransaction(ctx context.Context, stores workflowRunCompletionTxStores, pending workflowRunRecord, claimedSignals []workflowSignalRecord, claimOwnerID string, resp *gestaltworkflow.Response, invokeErr error, completedAt time.Time) error {
 	claim, claimFound, err := loadRunClaimRecordTx(ctx, stores.runClaimStore, pending.ID)
 	if err != nil {
 		return err
@@ -2210,6 +2219,9 @@ func completeRunInTransaction(ctx context.Context, stores workflowRunCompletionT
 			}
 		}
 	} else {
+		if resp == nil {
+			resp = &gestaltworkflow.Response{}
+		}
 		current.ResultBody = resp.Body
 		if resp.Status >= http.StatusBadRequest {
 			current.Status = gestalt.WorkflowRunStatusValueFailed
@@ -2248,12 +2260,13 @@ func completeRunInTransaction(ctx context.Context, stores workflowRunCompletionT
 }
 
 func (p *Provider) requireConfiguredLocked() (*configuredState, error) {
-	if p.db == nil || p.runStore == nil || p.runClaimStore == nil || p.scheduleStore == nil || p.eventTriggerStore == nil || p.definitionStore == nil || p.idempotencyStore == nil || p.executionRefStore == nil || p.workflowKeyStore == nil || p.signalStore == nil || p.host == nil {
+	if p.db == nil || p.runStore == nil || p.runClaimStore == nil || p.scheduleStore == nil || p.eventTriggerStore == nil || p.definitionStore == nil || p.idempotencyStore == nil || p.executionRefStore == nil || p.workflowKeyStore == nil || p.signalStore == nil || p.stepExecutor == nil {
 		return nil, errors.New("indexeddb workflow: provider is not configured")
 	}
 	return &configuredState{
+		providerName:       strings.TrimSpace(p.name),
 		db:                 p.db,
-		host:               p.host,
+		stepExecutor:       p.stepExecutor,
 		scheduleStore:      p.scheduleStore,
 		eventTriggerStore:  p.eventTriggerStore,
 		definitionStore:    p.definitionStore,
@@ -2307,8 +2320,9 @@ func (p *Provider) providerName() string {
 }
 
 type configuredState struct {
+	providerName       string
 	db                 indexeddb.Database
-	host               workflowHostClient
+	stepExecutor       gestaltworkflow.StepExecutor
 	scheduleStore      indexeddb.ObjectStore
 	eventTriggerStore  indexeddb.ObjectStore
 	definitionStore    indexeddb.ObjectStore
@@ -2898,7 +2912,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func workflowInvokeMetadataInput(workflowKey string) any {
+func workflowInvokeMetadataInput(workflowKey string) map[string]any {
 	workflowKey = strings.TrimSpace(workflowKey)
 	if workflowKey == "" {
 		return nil
@@ -4788,15 +4802,16 @@ func timeField(value map[string]any, key string) *time.Time {
 
 func (r workflowScheduleRecord) toRecord() gestalt.Record {
 	record := gestalt.Record{
-		"id":            r.ID,
-		"cron":          r.Cron,
-		"timezone":      r.Timezone,
-		"target_json":   targetJSON(r.Target),
-		"paused":        r.Paused,
-		"created_at":    r.CreatedAt.UTC(),
-		"updated_at":    r.UpdatedAt.UTC(),
-		"created_by":    actorToMap(r.CreatedBy),
-		"execution_ref": r.ExecutionRef,
+		"id":               r.ID,
+		"cron":             r.Cron,
+		"timezone":         r.Timezone,
+		"target_json":      targetJSON(r.Target),
+		"paused":           r.Paused,
+		"created_at":       r.CreatedAt.UTC(),
+		"updated_at":       r.UpdatedAt.UTC(),
+		"created_by":       actorToMap(r.CreatedBy),
+		"execution_ref":    r.ExecutionRef,
+		"invocation_token": r.InvocationToken,
 	}
 	if r.NextRunAt != nil {
 		record["next_run_at"] = r.NextRunAt.UTC()
@@ -4814,13 +4829,14 @@ func scheduleRecordFromRecord(record gestalt.Record) (workflowScheduleRecord, er
 		return workflowScheduleRecord{}, err
 	}
 	out := workflowScheduleRecord{
-		ID:           id,
-		Cron:         stringField(value, "cron"),
-		Timezone:     stringField(value, "timezone"),
-		Target:       target,
-		Paused:       boolField(value, "paused"),
-		CreatedBy:    actorFromAny(value["created_by"]),
-		ExecutionRef: stringField(value, "execution_ref"),
+		ID:              id,
+		Cron:            stringField(value, "cron"),
+		Timezone:        stringField(value, "timezone"),
+		Target:          target,
+		Paused:          boolField(value, "paused"),
+		CreatedBy:       actorFromAny(value["created_by"]),
+		ExecutionRef:    stringField(value, "execution_ref"),
+		InvocationToken: stringField(value, "invocation_token"),
 	}
 	if createdAt := timeField(value, "created_at"); createdAt != nil {
 		out.CreatedAt = createdAt.UTC()
@@ -4849,16 +4865,17 @@ func (r workflowScheduleRecord) toInput() (*gestalt.BoundWorkflowSchedule, error
 
 func (r workflowEventTriggerRecord) toRecord() gestalt.Record {
 	return gestalt.Record{
-		"id":            r.ID,
-		"match_type":    r.MatchType,
-		"match_source":  r.MatchSource,
-		"match_subject": r.MatchSubject,
-		"target_json":   targetJSON(r.Target),
-		"paused":        r.Paused,
-		"created_at":    r.CreatedAt.UTC(),
-		"updated_at":    r.UpdatedAt.UTC(),
-		"created_by":    actorToMap(r.CreatedBy),
-		"execution_ref": r.ExecutionRef,
+		"id":               r.ID,
+		"match_type":       r.MatchType,
+		"match_source":     r.MatchSource,
+		"match_subject":    r.MatchSubject,
+		"target_json":      targetJSON(r.Target),
+		"paused":           r.Paused,
+		"created_at":       r.CreatedAt.UTC(),
+		"updated_at":       r.UpdatedAt.UTC(),
+		"created_by":       actorToMap(r.CreatedBy),
+		"execution_ref":    r.ExecutionRef,
+		"invocation_token": r.InvocationToken,
 	}
 }
 
@@ -4870,14 +4887,15 @@ func eventTriggerRecordFromRecord(record gestalt.Record) (workflowEventTriggerRe
 		return workflowEventTriggerRecord{}, err
 	}
 	out := workflowEventTriggerRecord{
-		ID:           id,
-		MatchType:    stringField(value, "match_type"),
-		MatchSource:  stringField(value, "match_source"),
-		MatchSubject: stringField(value, "match_subject"),
-		Target:       target,
-		Paused:       boolField(value, "paused"),
-		CreatedBy:    actorFromAny(value["created_by"]),
-		ExecutionRef: stringField(value, "execution_ref"),
+		ID:              id,
+		MatchType:       stringField(value, "match_type"),
+		MatchSource:     stringField(value, "match_source"),
+		MatchSubject:    stringField(value, "match_subject"),
+		Target:          target,
+		Paused:          boolField(value, "paused"),
+		CreatedBy:       actorFromAny(value["created_by"]),
+		ExecutionRef:    stringField(value, "execution_ref"),
+		InvocationToken: stringField(value, "invocation_token"),
 	}
 	if createdAt := timeField(value, "created_at"); createdAt != nil {
 		out.CreatedAt = createdAt.UTC()
@@ -4919,6 +4937,7 @@ func (r workflowRunRecord) toRecord() gestalt.Record {
 		"result_body":              r.ResultBody,
 		"created_by":               actorToMap(r.CreatedBy),
 		"execution_ref":            r.ExecutionRef,
+		"invocation_token":         r.InvocationToken,
 		"workflow_key":             r.WorkflowKey,
 		"next_signal_sequence":     r.NextSignalSequence,
 	}
@@ -4959,6 +4978,7 @@ func runRecordFromRecord(record gestalt.Record) (workflowRunRecord, error) {
 		ResultBody:            stringField(value, "result_body"),
 		CreatedBy:             actorFromAny(value["created_by"]),
 		ExecutionRef:          stringField(value, "execution_ref"),
+		InvocationToken:       stringField(value, "invocation_token"),
 		WorkflowKey:           stringField(value, "workflow_key"),
 		NextSignalSequence:    intField(value, "next_signal_sequence"),
 	}

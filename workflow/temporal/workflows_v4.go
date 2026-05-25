@@ -7,14 +7,17 @@ import (
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	gestaltworkflow "github.com/valon-technologies/gestalt/sdk/go/workflow"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
 type runWorkflowV4Input struct {
 	ActivityStartToCloseTimeoutNS time.Duration                `json:"activity_start_to_close_timeout_ns"`
+	ProviderName                  string                       `json:"provider_name,omitempty"`
 	ScheduleID                    string                       `json:"schedule_id,omitempty"`
 	ExecutionRef                  string                       `json:"execution_ref,omitempty"`
+	InvocationToken               string                       `json:"invocation_token,omitempty"`
 	WorkflowKey                   string                       `json:"workflow_key,omitempty"`
 	OwnerKey                      string                       `json:"owner_key,omitempty"`
 	Target                        *gestalt.BoundWorkflowTarget `json:"target,omitempty"`
@@ -202,17 +205,19 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 			StartToCloseTimeout: input.ActivityStartToCloseTimeoutNS,
 			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 		})
-		invokeReq := gestalt.InvokeWorkflowOperationInput{
-			Target:       state.Target,
-			RunID:        state.ID,
-			Trigger:      state.Trigger,
-			Metadata:     workflowInvokeMetadataInput(state.WorkflowKey),
-			CreatedBy:    state.CreatedBy,
-			ExecutionRef: strings.TrimSpace(state.ExecutionRef),
-			Signals:      batch,
+		invokeReq := gestaltworkflow.Request{
+			ProviderName:    strings.TrimSpace(input.ProviderName),
+			RunID:           state.ID,
+			Target:          state.Target,
+			Trigger:         state.Trigger,
+			Metadata:        workflowInvokeMetadataInput(state.WorkflowKey),
+			CreatedBy:       state.CreatedBy,
+			ExecutionRef:    strings.TrimSpace(state.ExecutionRef),
+			InvocationToken: strings.TrimSpace(input.InvocationToken),
+			Signals:         batch,
 		}
-		var resp gestalt.InvokeWorkflowOperationResponse
-		invokeErr := workflow.ExecuteActivity(activityCtx, (*workflowActivities).InvokeOperation, invokeReq).Get(activityCtx, &resp)
+		var resp gestaltworkflow.Response
+		invokeErr := workflow.ExecuteActivity(activityCtx, (*workflowActivities).ExecuteSteps, invokeReq).Get(activityCtx, &resp)
 
 		if err := runMutex.Lock(ctx); err != nil {
 			return nil, err
@@ -223,12 +228,12 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		if invokeErr != nil {
 			runInput.Status = gestalt.WorkflowRunStatusValueFailed
 			runInput.StatusMessage = invokeErr.Error()
-		} else if resp.GetStatus() >= http.StatusBadRequest {
+		} else if resp.Status >= http.StatusBadRequest {
 			runInput.Status = gestalt.WorkflowRunStatusValueFailed
-			runInput.StatusMessage = fmt.Sprintf("workflow operation returned status %d", resp.GetStatus())
-			runInput.ResultBody = resp.GetBody()
+			runInput.StatusMessage = fmt.Sprintf("workflow operation returned status %d", resp.Status)
+			runInput.ResultBody = resp.Body
 		} else {
-			runInput.ResultBody = resp.GetBody()
+			runInput.ResultBody = resp.Body
 			if len(pendingSignals) > 0 {
 				runInput.Status = gestalt.WorkflowRunStatusValuePending
 				runInput.CompletedAt = nil

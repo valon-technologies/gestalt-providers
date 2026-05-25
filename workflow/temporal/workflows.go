@@ -4,6 +4,7 @@ import (
 	"context"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	gestaltworkflow "github.com/valon-technologies/gestalt/sdk/go/workflow"
 )
 
 const (
@@ -15,12 +16,12 @@ const (
 )
 
 type workflowActivities struct {
-	host  workflowHost
-	state *workflowStateStore
+	executor gestaltworkflow.StepExecutor
+	state    *workflowStateStore
 }
 
-func (a *workflowActivities) InvokeOperation(ctx context.Context, req gestalt.InvokeWorkflowOperationInput) (*gestalt.InvokeWorkflowOperationResponse, error) {
-	return a.host.InvokeOperation(ctx, req)
+func (a *workflowActivities) ExecuteSteps(ctx context.Context, req gestaltworkflow.Request) (*gestaltworkflow.Response, error) {
+	return a.executor.Execute(ctx, req)
 }
 
 func (a *workflowActivities) ProjectRun(ctx context.Context, run gestalt.BoundWorkflowRun) error {
