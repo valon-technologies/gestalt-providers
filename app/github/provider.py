@@ -1181,9 +1181,8 @@ def _signal_or_start_webhook_workflow(
                 "workflow_provider": workflow_request.provider_name,
             },
         )
-        workflow_manager_factory = getattr(req, "workflow_manager")
-        with workflow_manager_factory() as workflow_manager:
-            response = workflow_manager.signal_or_start_run(workflow_request)
+        with req.workflows() as workflows:
+            response = workflows.signal_or_start_run(workflow_request)
     except Exception as err:
         _complete_review_check_run_dispatch_failed(
             review_check_run, req, summary=summary

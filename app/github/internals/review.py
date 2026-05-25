@@ -952,7 +952,6 @@ def ask_agent_for_findings(
     pull_request: Mapping[str, Any],
     files: Sequence[PullRequestFile],
 ) -> list[ReviewFinding]:
-    manager = req.agent_manager()
     metadata = {
         "source": "github.reviewPullRequest",
         "repository": subject.repository,
@@ -968,46 +967,48 @@ def ask_agent_for_findings(
             string_value(signal.get("delivery_id")),
         ]
     )
-    session_request = gestalt.AgentManagerCreateSession(
+    session_request = gestalt.AgentCreateSession(
         provider_name=settings.agent_provider,
         model=settings.model,
         client_ref=f"{subject.repository}#{subject.pull_number}",
         metadata=metadata,
         idempotency_key=f"{idempotency_base}:session",
     )
-    try:
-        session = manager.create_session(session_request)
-    except Exception as err:
-        raise RuntimeError(f"review agent session request failed: {err}") from err
+    with req.agent() as agent:
+        try:
+            session = agent.create_session(session_request)
+        except Exception as err:
+            raise RuntimeError(f"review agent session request failed: {err}") from err
 
-    turn_request = gestalt.AgentManagerCreateTurn(
-        session_id=session.id,
-        model=settings.model,
-        messages=[
-            gestalt.AgentMessage(role="system", text=settings.system_prompt),
-            gestalt.AgentMessage(
-                role="user", text=review_prompt(subject, pull_request, files, settings)
-            ),
-        ],
-        tool_refs=review_agent_tool_refs(req, signal),
-        tool_source=gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
-        metadata=metadata,
-        idempotency_key=f"{idempotency_base}:turn",
-    )
-    try:
-        turn = manager.create_turn(turn_request)
-        turn = wait_for_turn(manager, turn, settings)
-    except Exception as err:
-        raise RuntimeError(f"review agent turn request failed: {err}") from err
-
-    if turn.status != gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED:
-        raise RuntimeError(
-            f"agent turn {turn.id} finished with status {turn.status}: "
-            f"{turn.status_message}"
+        turn_request = gestalt.AgentCreateTurn(
+            session_id=session.id,
+            model=settings.model,
+            messages=[
+                gestalt.AgentMessage(role="system", text=settings.system_prompt),
+                gestalt.AgentMessage(
+                    role="user",
+                    text=review_prompt(subject, pull_request, files, settings),
+                ),
+            ],
+            tool_refs=review_agent_tool_refs(req, signal),
+            tool_source=gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
+            metadata=metadata,
+            idempotency_key=f"{idempotency_base}:turn",
         )
+        try:
+            turn = agent.create_turn(turn_request)
+            turn = wait_for_turn(agent, turn, settings)
+        except Exception as err:
+            raise RuntimeError(f"review agent turn request failed: {err}") from err
 
-    findings = parse_review_findings_output(str(getattr(turn, "output_text", "")))
-    return [finding for item in findings for finding in normalize_finding(item)]
+        if turn.status != gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED:
+            raise RuntimeError(
+                f"agent turn {turn.id} finished with status {turn.status}: "
+                f"{turn.status_message}"
+            )
+
+        findings = parse_review_findings_output(str(getattr(turn, "output_text", "")))
+        return [finding for item in findings for finding in normalize_finding(item)]
 
 
 def ask_agent_for_fix(
@@ -1020,7 +1021,6 @@ def ask_agent_for_fix(
     findings: Sequence[ValidatedFinding],
     files: Sequence[ReviewFileContent],
 ) -> list[ReviewFixFile]:
-    manager = req.agent_manager()
     metadata = {
         "source": "github.reviewPullRequest.selfFix",
         "repository": subject.repository,
@@ -1036,52 +1036,53 @@ def ask_agent_for_fix(
             string_value(signal.get("delivery_id")),
         ]
     )
-    session_request = gestalt.AgentManagerCreateSession(
+    session_request = gestalt.AgentCreateSession(
         provider_name=settings.agent_provider,
         model=settings.model,
         client_ref=f"{subject.repository}#{subject.pull_number}:self-fix",
         metadata=metadata,
         idempotency_key=f"{idempotency_base}:session",
     )
-    try:
-        session = manager.create_session(session_request)
-    except Exception as err:
-        raise RuntimeError(f"self-fix agent session request failed: {err}") from err
+    with req.agent() as agent:
+        try:
+            session = agent.create_session(session_request)
+        except Exception as err:
+            raise RuntimeError(f"self-fix agent session request failed: {err}") from err
 
-    turn_request = gestalt.AgentManagerCreateTurn(
-        session_id=session.id,
-        model=settings.model,
-        messages=[
-            gestalt.AgentMessage(role="system", text=SELF_FIX_SYSTEM_PROMPT),
-            gestalt.AgentMessage(
-                role="user",
-                text=self_fix_prompt(
-                    subject,
-                    pull_request,
-                    findings=findings,
-                    files=files,
-                    settings=settings,
+        turn_request = gestalt.AgentCreateTurn(
+            session_id=session.id,
+            model=settings.model,
+            messages=[
+                gestalt.AgentMessage(role="system", text=SELF_FIX_SYSTEM_PROMPT),
+                gestalt.AgentMessage(
+                    role="user",
+                    text=self_fix_prompt(
+                        subject,
+                        pull_request,
+                        findings=findings,
+                        files=files,
+                        settings=settings,
+                    ),
                 ),
-            ),
-        ],
-        tool_refs=review_agent_tool_refs(req, signal),
-        tool_source=gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
-        metadata=metadata,
-        idempotency_key=f"{idempotency_base}:turn",
-    )
-    try:
-        turn = manager.create_turn(turn_request)
-        turn = wait_for_turn(manager, turn, settings)
-    except Exception as err:
-        raise RuntimeError(f"self-fix agent turn request failed: {err}") from err
-
-    if turn.status != gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED:
-        raise RuntimeError(
-            f"agent turn {turn.id} finished with status {turn.status}: "
-            f"{turn.status_message}"
+            ],
+            tool_refs=review_agent_tool_refs(req, signal),
+            tool_source=gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
+            metadata=metadata,
+            idempotency_key=f"{idempotency_base}:turn",
         )
+        try:
+            turn = agent.create_turn(turn_request)
+            turn = wait_for_turn(agent, turn, settings)
+        except Exception as err:
+            raise RuntimeError(f"self-fix agent turn request failed: {err}") from err
 
-    return parse_review_fix_output(str(getattr(turn, "output_text", "")))
+        if turn.status != gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED:
+            raise RuntimeError(
+                f"agent turn {turn.id} finished with status {turn.status}: "
+                f"{turn.status_message}"
+            )
+
+        return parse_review_fix_output(str(getattr(turn, "output_text", "")))
 
 
 def wait_for_turn(manager: Any, turn: Any, settings: ReviewSettings) -> Any:
@@ -1094,7 +1095,7 @@ def wait_for_turn(manager: Any, turn: Any, settings: ReviewSettings) -> Any:
         if time.monotonic() >= deadline:
             raise RuntimeError(f"agent turn {turn.id} timed out")
         time.sleep(settings.poll_interval_ms / 1000)
-        turn = manager.get_turn(gestalt.AgentManagerGetTurn(turn_id=turn.id))
+        turn = manager.get_turn(gestalt.AgentGetTurn(turn_id=turn.id))
     return turn
 
 

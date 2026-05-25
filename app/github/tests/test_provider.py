@@ -27,6 +27,7 @@ from internals.config import GitHubBotIdentity, GitHubUserIdentity, get_github_c
 from internals.errors import GitHubAPIError
 import provider as provider_module
 
+
 def sdk_value_to_dict(value: Any) -> Any:
     if value is None:
         return {}
@@ -120,12 +121,12 @@ class FakeHTTPResponse:
         return self._body
 
 
-class FakeWorkflowManager:
+class FakeWorkflowClient:
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
         self.requests: list[Any] = []
 
-    def __enter__(self) -> FakeWorkflowManager:
+    def __enter__(self) -> FakeWorkflowClient:
         return self
 
     def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
@@ -134,16 +135,11 @@ class FakeWorkflowManager:
     def signal_or_start_run(self, request: Any) -> Any:
         self.requests.append(request)
         if self.fail:
-            raise RuntimeError("workflow manager unavailable")
+            raise RuntimeError("workflow client unavailable")
         signal = request.signal or gestalt.WorkflowSignal()
-        run_type = getattr(
-            gestalt,
-            "WorkflowManagerBoundRun",
-            getattr(gestalt, "BoundWorkflowRun"),
-        )
-        return gestalt.WorkflowManagerRunSignal(
+        return gestalt.WorkflowRunSignal(
             provider_name=request.provider_name,
-            run=run_type(
+            run=gestalt.BoundWorkflowRun(
                 id="workflow-run-123",
                 status=gestalt.WORKFLOW_RUN_STATUS_RUNNING,
                 target=request.target,
@@ -213,7 +209,7 @@ class FakeAuthorization:
         return SimpleNamespace(subjects=self.subjects)
 
 
-class FakeAgentManager:
+class FakeAgentClient:
     def __init__(
         self,
         findings: list[dict[str, Any]],
@@ -232,6 +228,13 @@ class FakeAgentManager:
         self.turn_error = turn_error
         self.sessions: list[Any] = []
         self.turns: list[Any] = []
+        self.closed = False
+
+    def __enter__(self) -> FakeAgentClient:
+        return self
+
+    def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
+        self.close()
 
     def create_session(self, request: Any) -> Any:
         self.sessions.append(request)
@@ -266,6 +269,9 @@ class FakeAgentManager:
 
     def get_turn(self, request: Any) -> Any:
         raise AssertionError(f"unexpected get_turn call for {request.turn_id}")
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def request_json(request: urllib.request.Request) -> dict[str, Any]:
@@ -1294,7 +1300,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("acme/widgets", subject.display_name)
 
     def test_webhook_handler_signals_workflow_run(self) -> None:
-        workflow_manager = FakeWorkflowManager()
+        workflow_client = FakeWorkflowClient()
         payload = {
             "action": "opened",
             "installation": {"id": 99.0, "app_id": 12345},
@@ -1323,13 +1329,13 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "workflow_manager",
-                return_value=workflow_manager,
+                "workflows",
+                return_value=workflow_client,
                 create=True,
             ),
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
+                "agent",
                 side_effect=AssertionError("agent manager should not be called"),
             ),
         ):
@@ -1343,9 +1349,9 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(result_body["workflow_key"], "github:99:acme/widgets:7")
         self.assertEqual(result_body["workflow_signal_id"], "signal-123")
         self.assertEqual(result_body["workflow_started_run"], True)
-        self.assertEqual(len(workflow_manager.requests), 1)
+        self.assertEqual(len(workflow_client.requests), 1)
 
-        request = workflow_manager.requests[0]
+        request = workflow_client.requests[0]
         self.assertEqual(request.provider_name, "local")
         self.assertEqual(request.workflow_key, "github:99:acme/widgets:7")
         self.assertTrue(
@@ -2501,7 +2507,7 @@ class GitHubProviderTests(unittest.TestCase):
                 }
             }
         )
-        workflow_manager = FakeWorkflowManager()
+        workflow_client = FakeWorkflowClient()
         with (
             mock.patch.object(gestalt, "IndexedDB", return_value=fake_db),
             mock.patch.object(
@@ -2509,8 +2515,8 @@ class GitHubProviderTests(unittest.TestCase):
             ),
             mock.patch.object(
                 gestalt.Request,
-                "workflow_manager",
-                return_value=workflow_manager,
+                "workflows",
+                return_value=workflow_client,
                 create=True,
             ),
         ):
@@ -2524,7 +2530,7 @@ class GitHubProviderTests(unittest.TestCase):
                 "ignored": "policy_preference_disabled:code_review_comments",
             },
         )
-        self.assertEqual(workflow_manager.requests, [])
+        self.assertEqual(workflow_client.requests, [])
 
     def test_action_preferences_comment_author_and_sender_modes(self) -> None:
         cases = [
@@ -3466,7 +3472,7 @@ class GitHubProviderTests(unittest.TestCase):
                 return FakeHTTPResponse({"number": 7, "head": {"sha": "current-sha"}})
             self.fail(f"unexpected request {method} {path}")
 
-        workflow_manager = FakeWorkflowManager()
+        workflow_client = FakeWorkflowClient()
         with (
             mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
             mock.patch(
@@ -3474,8 +3480,8 @@ class GitHubProviderTests(unittest.TestCase):
             ),
             mock.patch.object(
                 gestalt.Request,
-                "workflow_manager",
-                return_value=workflow_manager,
+                "workflows",
+                return_value=workflow_client,
                 create=True,
             ),
         ):
@@ -3504,7 +3510,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(
             result, {"ok": True, "ignored": "stale_head:stale-sha:current-sha"}
         )
-        self.assertEqual(workflow_manager.requests, [])
+        self.assertEqual(workflow_client.requests, [])
         self.assertEqual(len(calls), 2)
 
     def test_explicit_policy_can_dispatch_to_configured_app_workflow_target(
@@ -3625,12 +3631,12 @@ class GitHubProviderTests(unittest.TestCase):
     ) -> None:
         events: list[str] = []
 
-        class RecordingWorkflowManager(FakeWorkflowManager):
+        class RecordingWorkflowClient(FakeWorkflowClient):
             def signal_or_start_run(self, request: Any) -> Any:
                 events.append("workflow")
                 return super().signal_or_start_run(request)
 
-        workflow_manager = RecordingWorkflowManager()
+        workflow_client = RecordingWorkflowClient()
         provider_module.configure(
             "github",
             {
@@ -3717,8 +3723,8 @@ class GitHubProviderTests(unittest.TestCase):
             ),
             mock.patch.object(
                 gestalt.Request,
-                "workflow_manager",
-                return_value=workflow_manager,
+                "workflows",
+                return_value=workflow_client,
                 create=True,
             ),
         ):
@@ -3728,9 +3734,9 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(operation_body(result)["ok"], True)
         self.assertEqual(events, ["check-list", "check-create", "workflow"])
-        self.assertEqual(len(workflow_manager.requests), 1)
+        self.assertEqual(len(workflow_client.requests), 1)
         signal_payload = sdk_value_to_dict(
-            workflow_manager.requests[0].signal.payload
+            workflow_client.requests[0].signal.payload
         )
         self.assertEqual(signal_payload["review_check_run"]["id"], 456)
         self.assertEqual(signal_payload["review_check_run"]["name"], "Bugbot Review")
@@ -3738,7 +3744,7 @@ class GitHubProviderTests(unittest.TestCase):
     def test_builtin_review_policy_check_run_failure_prevents_workflow_enqueue(
         self,
     ) -> None:
-        workflow_manager = FakeWorkflowManager()
+        workflow_client = FakeWorkflowClient()
         self._configure_builtin_review_policy()
 
         def fake_urlopen(
@@ -3768,8 +3774,8 @@ class GitHubProviderTests(unittest.TestCase):
             ),
             mock.patch.object(
                 gestalt.Request,
-                "workflow_manager",
-                return_value=workflow_manager,
+                "workflows",
+                return_value=workflow_client,
                 create=True,
             ),
         ):
@@ -3780,13 +3786,13 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIsInstance(result, gestalt.Response)
         response = cast(gestalt.Response[dict[str, Any]], result)
         self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
-        self.assertEqual(workflow_manager.requests, [])
+        self.assertEqual(workflow_client.requests, [])
 
     def test_builtin_review_policy_marks_check_run_failed_when_enqueue_fails(
         self,
     ) -> None:
         events: list[str] = []
-        workflow_manager = FakeWorkflowManager(fail=True)
+        workflow_client = FakeWorkflowClient(fail=True)
         self._configure_builtin_review_policy()
 
         def fake_urlopen(
@@ -3834,8 +3840,8 @@ class GitHubProviderTests(unittest.TestCase):
             ),
             mock.patch.object(
                 gestalt.Request,
-                "workflow_manager",
-                return_value=workflow_manager,
+                "workflows",
+                return_value=workflow_client,
                 create=True,
             ),
         ):
@@ -3850,7 +3856,7 @@ class GitHubProviderTests(unittest.TestCase):
 
     def test_builtin_review_policy_reuses_matching_active_check_run(self) -> None:
         events: list[str] = []
-        workflow_manager = FakeWorkflowManager()
+        workflow_client = FakeWorkflowClient()
         self._configure_builtin_review_policy()
 
         def fake_urlopen(
@@ -3905,8 +3911,8 @@ class GitHubProviderTests(unittest.TestCase):
             ),
             mock.patch.object(
                 gestalt.Request,
-                "workflow_manager",
-                return_value=workflow_manager,
+                "workflows",
+                return_value=workflow_client,
                 create=True,
             ),
         ):
@@ -3916,14 +3922,14 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(operation_body(result)["ok"], True)
         self.assertEqual(events, ["check-update"])
-        payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
+        payload = sdk_value_to_dict(workflow_client.requests[0].signal.payload)
         self.assertEqual(payload["review_check_run"]["id"], 456)
 
     def test_builtin_review_policy_reuses_matching_failed_completed_check_run(
         self,
     ) -> None:
         events: list[str] = []
-        workflow_manager = FakeWorkflowManager()
+        workflow_client = FakeWorkflowClient()
         self._configure_builtin_review_policy()
 
         def fake_urlopen(
@@ -3968,8 +3974,8 @@ class GitHubProviderTests(unittest.TestCase):
             ),
             mock.patch.object(
                 gestalt.Request,
-                "workflow_manager",
-                return_value=workflow_manager,
+                "workflows",
+                return_value=workflow_client,
                 create=True,
             ),
         ):
@@ -3979,7 +3985,7 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(operation_body(result)["ok"], True)
         self.assertEqual(events, ["check-list"])
-        payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
+        payload = sdk_value_to_dict(workflow_client.requests[0].signal.payload)
         self.assertEqual(payload["review_check_run"]["id"], 456)
         self.assertEqual(payload["review_check_run"]["status"], "completed")
         self.assertEqual(payload["review_check_run"]["conclusion"], "failure")
@@ -3988,7 +3994,7 @@ class GitHubProviderTests(unittest.TestCase):
         self,
     ) -> None:
         events: list[str] = []
-        workflow_manager = FakeWorkflowManager()
+        workflow_client = FakeWorkflowClient()
         self._configure_builtin_review_policy()
 
         def fake_urlopen(
@@ -4047,8 +4053,8 @@ class GitHubProviderTests(unittest.TestCase):
             ),
             mock.patch.object(
                 gestalt.Request,
-                "workflow_manager",
-                return_value=workflow_manager,
+                "workflows",
+                return_value=workflow_client,
                 create=True,
             ),
         ):
@@ -4058,7 +4064,7 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(operation_body(result)["ok"], True)
         self.assertEqual(events, ["check-list", "check-update"])
-        payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
+        payload = sdk_value_to_dict(workflow_client.requests[0].signal.payload)
         self.assertEqual(payload["review_check_run"]["id"], 456)
         self.assertEqual(payload["review_check_run"]["status"], "in_progress")
 
@@ -4066,7 +4072,7 @@ class GitHubProviderTests(unittest.TestCase):
         self,
     ) -> None:
         events: list[str] = []
-        workflow_manager = FakeWorkflowManager()
+        workflow_client = FakeWorkflowClient()
         provider_module.configure(
             "github",
             {
@@ -4148,8 +4154,8 @@ class GitHubProviderTests(unittest.TestCase):
             ),
             mock.patch.object(
                 gestalt.Request,
-                "workflow_manager",
-                return_value=workflow_manager,
+                "workflows",
+                return_value=workflow_client,
                 create=True,
             ),
         ):
@@ -4159,12 +4165,12 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(operation_body(result)["ok"], True)
         self.assertEqual(events, ["pull", "check-list", "check-create"])
-        payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
+        payload = sdk_value_to_dict(workflow_client.requests[0].signal.payload)
         self.assertEqual(payload["review_check_run"]["head_sha"], "abc123")
 
     def test_app_mention_manual_review_creates_check_run(self) -> None:
         events: list[str] = []
-        workflow_manager = FakeWorkflowManager()
+        workflow_client = FakeWorkflowClient()
         identity = GitHubBotIdentity(
             name="Example App Bot",
             login="example-app[bot]",
@@ -4256,8 +4262,8 @@ class GitHubProviderTests(unittest.TestCase):
             ),
             mock.patch.object(
                 gestalt.Request,
-                "workflow_manager",
-                return_value=workflow_manager,
+                "workflows",
+                return_value=workflow_client,
                 create=True,
             ),
         ):
@@ -4267,14 +4273,14 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(operation_body(result)["ok"], True)
         self.assertEqual(events, ["pull", "check-list", "check-create"])
-        payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
+        payload = sdk_value_to_dict(workflow_client.requests[0].signal.payload)
         self.assertEqual(
             payload["webhook_policy"]["trigger"]["require_app_mention"], True
         )
         self.assertEqual(payload["review_check_run"]["head_sha"], "abc123")
 
     def test_review_comment_event_does_not_create_check_run(self) -> None:
-        workflow_manager = FakeWorkflowManager()
+        workflow_client = FakeWorkflowClient()
         provider_module.configure(
             "github",
             {
@@ -4309,8 +4315,8 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "workflow_manager",
-                return_value=workflow_manager,
+                "workflows",
+                return_value=workflow_client,
                 create=True,
             ),
             mock.patch(
@@ -4340,11 +4346,11 @@ class GitHubProviderTests(unittest.TestCase):
             )
 
         self.assertEqual(operation_body(result)["ok"], True)
-        payload = sdk_value_to_dict(workflow_manager.requests[0].signal.payload)
+        payload = sdk_value_to_dict(workflow_client.requests[0].signal.payload)
         self.assertNotIn("review_check_run", payload)
 
     def test_review_pull_request_posts_validated_inline_comments(self) -> None:
-        agent_manager = FakeAgentManager(
+        agent_client = FakeAgentClient(
             findings=[],
             output_text=json.dumps(
                 {
@@ -4422,8 +4428,8 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
-                return_value=agent_manager,
+                "agent",
+                return_value=agent_client,
                 create=True,
             ),
             mock.patch(
@@ -4473,10 +4479,10 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(data["repository"], "acme/widgets")
         self.assertEqual(data["pullNumber"], 7)
 
-        self.assertEqual(len(agent_manager.sessions), 1)
-        self.assertEqual(agent_manager.sessions[0].provider_name, "claude")
-        self.assertEqual(len(agent_manager.turns), 1)
-        prompt = agent_manager.turns[0].messages[1].text
+        self.assertEqual(len(agent_client.sessions), 1)
+        self.assertEqual(agent_client.sessions[0].provider_name, "claude")
+        self.assertEqual(len(agent_client.turns), 1)
+        prompt = agent_client.turns[0].messages[1].text
         self.assertIn('"repository": "acme/widgets"', prompt)
         self.assertIn("+bad = True", prompt)
         prompt_data = json.loads(prompt)
@@ -4491,16 +4497,16 @@ class GitHubProviderTests(unittest.TestCase):
             "Use only added RIGHT-side lines",
             prompt_data["output_contract"]["line_policy"],
         )
-        self.assertFalse(getattr(agent_manager.turns[0], "response_schema", None))
+        self.assertFalse(getattr(agent_client.turns[0], "response_schema", None))
         self.assertEqual(
-            [(ref.app, ref.operation) for ref in agent_manager.turns[0].tool_refs],
+            [(ref.app, ref.operation) for ref in agent_client.turns[0].tool_refs],
             [
                 ("linear", "issue.get"),
                 ("github", "bot.getPullRequest"),
             ],
         )
         self.assertEqual(
-            agent_manager.turns[0].tool_source,
+            agent_client.turns[0].tool_source,
             gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
         )
 
@@ -4528,8 +4534,67 @@ class GitHubProviderTests(unittest.TestCase):
             r"source=github\.reviewPullRequest -->$",
         )
 
+    def test_review_agent_new_sdk_client_is_closed(self) -> None:
+        agent_client = FakeAgentClient(findings=[])
+        request = github_request()
+        settings = review_module.ReviewSettings(
+            agent_provider="claude",
+            model="claude-opus-4-7",
+            system_prompt="Review the diff.",
+            max_comments=10,
+            max_files=10,
+            max_patch_chars=4000,
+            changed_lines_only=True,
+            dry_run=False,
+            auto_resolve_stale_findings=True,
+            check_run_name="Gestalt Review",
+            turn_timeout_ms=1000,
+            poll_interval_ms=1,
+        )
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent",
+                None,
+                create=True,
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "agent",
+                return_value=agent_client,
+                create=True,
+            ),
+        ):
+            findings = review_module.ask_agent_for_findings(
+                request,
+                settings,
+                signal={"delivery_id": "delivery-pr-review"},
+                subject=review_module.PullRequestSubject(
+                    owner="acme",
+                    repo="widgets",
+                    repository="acme/widgets",
+                    pull_number=7,
+                    installation_id=99,
+                ),
+                pull_request={"head_sha": "abc123"},
+                files=[
+                    review_module.PullRequestFile(
+                        filename="src/widget.py",
+                        status="modified",
+                        additions=1,
+                        deletions=0,
+                        changes=1,
+                        patch="@@ -1 +1 @@\n-old\n+new",
+                    )
+                ],
+            )
+
+        self.assertEqual(findings, [])
+        self.assertTrue(agent_client.closed)
+
     def test_review_pull_request_commits_same_pr_self_fix(self) -> None:
-        agent_manager = FakeAgentManager(
+        agent_client = FakeAgentClient(
             findings=[],
             output_texts=[
                 json.dumps(
@@ -4639,8 +4704,8 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
-                return_value=agent_manager,
+                "agent",
+                return_value=agent_client,
                 create=True,
             ),
             mock.patch(
@@ -4702,31 +4767,31 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(data["selfFix"]["status"], "committed")
         self.assertEqual(data["selfFix"]["commit"]["sha"], "new-commit")
         self.assertEqual(data["checkRun"]["head_sha"], "new-commit")
-        self.assertEqual(len(agent_manager.turns), 2)
+        self.assertEqual(len(agent_client.turns), 2)
         expected_tool_refs = [
             ("github", "bot.getPullRequest"),
             ("github", "bot.listPullRequestFiles"),
             ("github", "bot.commitFiles"),
         ]
         self.assertEqual(
-            [(ref.app, ref.operation) for ref in agent_manager.turns[0].tool_refs],
+            [(ref.app, ref.operation) for ref in agent_client.turns[0].tool_refs],
             expected_tool_refs,
         )
         self.assertEqual(
-            [(ref.app, ref.operation) for ref in agent_manager.turns[1].tool_refs],
+            [(ref.app, ref.operation) for ref in agent_client.turns[1].tool_refs],
             expected_tool_refs,
         )
         self.assertEqual(
-            agent_manager.turns[0].tool_source,
+            agent_client.turns[0].tool_source,
             gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
         )
         self.assertEqual(
-            agent_manager.turns[1].tool_source,
+            agent_client.turns[1].tool_source,
             gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
         )
-        self.assertIn("Fix concrete", agent_manager.turns[1].messages[0].text)
-        self.assertNotIn("findings array", agent_manager.turns[1].messages[0].text)
-        fix_prompt = json.loads(agent_manager.turns[1].messages[1].text)
+        self.assertIn("Fix concrete", agent_client.turns[1].messages[0].text)
+        self.assertNotIn("findings array", agent_client.turns[1].messages[0].text)
+        fix_prompt = json.loads(agent_client.turns[1].messages[1].text)
         self.assertEqual(
             fix_prompt["output_contract"]["contract"],
             "github.pull_request_review.self_fix.v1",
@@ -4743,7 +4808,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(updated_checks[0][0].check_run_id, 777)
 
     def test_review_pull_request_self_fix_requires_commit_tool_ref(self) -> None:
-        agent_manager = FakeAgentManager(
+        agent_client = FakeAgentClient(
             findings=[],
             output_text=json.dumps(
                 {
@@ -4791,8 +4856,8 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
-                return_value=agent_manager,
+                "agent",
+                return_value=agent_client,
                 create=True,
             ),
             mock.patch(
@@ -4840,16 +4905,16 @@ class GitHubProviderTests(unittest.TestCase):
         data = cast(dict[str, Any], result)["data"]
         self.assertEqual(data["posted"], True)
         self.assertNotIn("selfFix", data)
-        self.assertEqual(len(agent_manager.turns), 1)
-        self.assertEqual(agent_manager.turns[0].tool_refs, [])
+        self.assertEqual(len(agent_client.turns), 1)
+        self.assertEqual(agent_client.turns[0].tool_refs, [])
         self.assertEqual(
-            agent_manager.turns[0].tool_source,
+            agent_client.turns[0].tool_source,
             gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
         )
         self.assertEqual(len(created_reviews), 1)
 
     def test_review_pull_request_self_fix_falls_back_when_head_is_stale(self) -> None:
-        agent_manager = FakeAgentManager(
+        agent_client = FakeAgentClient(
             findings=[],
             output_texts=[
                 json.dumps(
@@ -4914,8 +4979,8 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
-                return_value=agent_manager,
+                "agent",
+                return_value=agent_client,
                 create=True,
             ),
             mock.patch(
@@ -4973,7 +5038,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(len(created_reviews), 1)
 
     def test_review_pull_request_self_fix_falls_back_for_unsafe_file(self) -> None:
-        agent_manager = FakeAgentManager(
+        agent_client = FakeAgentClient(
             findings=[],
             output_text=json.dumps(
                 {
@@ -5021,8 +5086,8 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
-                return_value=agent_manager,
+                "agent",
+                return_value=agent_client,
                 create=True,
             ),
             mock.patch(
@@ -5075,13 +5140,13 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(data["posted"], True)
         self.assertEqual(data["selfFix"]["status"], "skipped")
         self.assertIn("not UTF-8 text", data["selfFix"]["reason"])
-        self.assertEqual(len(agent_manager.turns), 1)
+        self.assertEqual(len(agent_client.turns), 1)
         self.assertEqual(len(created_reviews), 1)
 
     def test_review_pull_request_accepts_contains_issue_comment_and_updates_check(
         self,
     ) -> None:
-        agent_manager = FakeAgentManager(findings=[])
+        agent_client = FakeAgentClient(findings=[])
         created_checks: list[Any] = []
         updated_checks: list[Any] = []
         request = github_request()
@@ -5129,8 +5194,8 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
-                return_value=agent_manager,
+                "agent",
+                return_value=agent_client,
                 create=True,
             ),
             mock.patch(
@@ -5173,7 +5238,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(updated_checks[0][0].conclusion, "success")
 
     def test_review_pull_request_accepts_app_mention_issue_comment(self) -> None:
-        agent_manager = FakeAgentManager(findings=[])
+        agent_client = FakeAgentClient(findings=[])
         identity = GitHubBotIdentity(
             name="Example App Bot",
             login="example-app[bot]",
@@ -5204,8 +5269,8 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
-                return_value=agent_manager,
+                "agent",
+                return_value=agent_client,
                 create=True,
             ),
             mock.patch(
@@ -5243,7 +5308,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(data["checkRun"]["conclusion"], "success")
 
     def test_review_pull_request_adopts_signal_check_run(self) -> None:
-        agent_manager = FakeAgentManager(findings=[])
+        agent_client = FakeAgentClient(findings=[])
         updated_checks: list[Any] = []
         request = github_request()
         request.workflow = {
@@ -5278,8 +5343,8 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
-                return_value=agent_manager,
+                "agent",
+                return_value=agent_client,
                 create=True,
             ),
             mock.patch(
@@ -5376,7 +5441,7 @@ class GitHubProviderTests(unittest.TestCase):
     def test_review_pull_request_marks_signal_check_failed_when_agent_fails(
         self,
     ) -> None:
-        agent_manager = FakeAgentManager(
+        agent_client = FakeAgentClient(
             findings=[], turn_error=Exception("agent rejected request")
         )
         updated_checks: list[Any] = []
@@ -5413,8 +5478,8 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
-                return_value=agent_manager,
+                "agent",
+                return_value=agent_client,
                 create=True,
             ),
             mock.patch(
@@ -5481,7 +5546,7 @@ class GitHubProviderTests(unittest.TestCase):
         ]
         for name, output_text, structured_output in cases:
             with self.subTest(name=name):
-                agent_manager = FakeAgentManager(
+                agent_client = FakeAgentClient(
                     findings=[],
                     output_text=output_text,
                     structured_output=structured_output,
@@ -5523,8 +5588,8 @@ class GitHubProviderTests(unittest.TestCase):
                 with (
                     mock.patch.object(
                         gestalt.Request,
-                        "agent_manager",
-                        return_value=agent_manager,
+                        "agent",
+                        return_value=agent_client,
                         create=True,
                     ),
                     mock.patch(
@@ -5580,7 +5645,7 @@ class GitHubProviderTests(unittest.TestCase):
                 self.assertEqual(updated_checks[0][0].conclusion, "failure")
 
     def test_review_pull_request_resolves_stale_marked_bot_thread(self) -> None:
-        agent_manager = FakeAgentManager(
+        agent_client = FakeAgentClient(
             findings=[
                 {
                     "path": "src/widget.py",
@@ -5644,8 +5709,8 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
-                return_value=agent_manager,
+                "agent",
+                return_value=agent_client,
                 create=True,
             ),
             mock.patch(
@@ -5705,7 +5770,7 @@ class GitHubProviderTests(unittest.TestCase):
     def test_review_pull_request_suppresses_materially_identical_existing_finding(
         self,
     ) -> None:
-        agent_manager = FakeAgentManager(
+        agent_client = FakeAgentClient(
             findings=[
                 {
                     "path": "src/widget.py",
@@ -5769,8 +5834,8 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
-                return_value=agent_manager,
+                "agent",
+                return_value=agent_client,
                 create=True,
             ),
             mock.patch(
@@ -5830,7 +5895,7 @@ class GitHubProviderTests(unittest.TestCase):
     def test_review_pull_request_records_resolution_list_failure_after_post(
         self,
     ) -> None:
-        agent_manager = FakeAgentManager(
+        agent_client = FakeAgentClient(
             findings=[
                 {
                     "path": "src/widget.py",
@@ -5857,8 +5922,8 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
-                return_value=agent_manager,
+                "agent",
+                return_value=agent_client,
                 create=True,
             ),
             mock.patch(
@@ -5916,7 +5981,7 @@ class GitHubProviderTests(unittest.TestCase):
     def test_review_pull_request_skips_current_and_human_replied_threads(
         self,
     ) -> None:
-        agent_manager = FakeAgentManager(
+        agent_client = FakeAgentClient(
             findings=[
                 {
                     "path": "src/widget.py",
@@ -5958,8 +6023,8 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
-                return_value=agent_manager,
+                "agent",
+                return_value=agent_client,
                 create=True,
             ),
             mock.patch(
@@ -6063,7 +6128,7 @@ class GitHubProviderTests(unittest.TestCase):
     def test_review_pull_request_drops_unanchored_findings_without_posting(
         self,
     ) -> None:
-        agent_manager = FakeAgentManager(
+        agent_client = FakeAgentClient(
             findings=[
                 {
                     "path": "src/widget.py",
@@ -6091,8 +6156,8 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
-                return_value=agent_manager,
+                "agent",
+                return_value=agent_client,
                 create=True,
             ),
             mock.patch(
@@ -6175,7 +6240,7 @@ class GitHubProviderTests(unittest.TestCase):
     def test_review_pull_request_allows_context_line_when_changed_lines_only_false(
         self,
     ) -> None:
-        agent_manager = FakeAgentManager(
+        agent_client = FakeAgentClient(
             findings=[
                 {
                     "path": "src/widget.py",
@@ -6216,8 +6281,8 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
-                return_value=agent_manager,
+                "agent",
+                return_value=agent_client,
                 create=True,
             ),
             mock.patch(
@@ -6252,7 +6317,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(data["posted"], True)
         self.assertEqual(data["comments"], 1)
         self.assertNotIn("droppedFindings", data)
-        prompt_data = json.loads(agent_manager.turns[0].messages[1].text)
+        prompt_data = json.loads(agent_client.turns[0].messages[1].text)
         self.assertIn(
             "Use RIGHT-side lines that are present",
             prompt_data["output_contract"]["line_policy"],
@@ -6264,7 +6329,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn("added RIGHT-side diff lines only", prompt_data["task"])
         self.assertIn(
             "RIGHT-side lines allowed",
-            agent_manager.turns[0].messages[0].text,
+            agent_client.turns[0].messages[0].text,
         )
         self.assertEqual(len(created_reviews), 1)
         review_request, _ = created_reviews[0]
@@ -6273,7 +6338,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(review_request.comments[0].side, "RIGHT")
 
     def test_review_pull_request_dry_run_does_not_post_or_resolve(self) -> None:
-        agent_manager = FakeAgentManager(
+        agent_client = FakeAgentClient(
             findings=[
                 {
                     "path": "src/widget.py",
@@ -6300,8 +6365,8 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
-                return_value=agent_manager,
+                "agent",
+                return_value=agent_client,
                 create=True,
             ),
             mock.patch(
@@ -6404,7 +6469,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         with mock.patch.object(
             gestalt.Request,
-            "workflow_manager",
+            "workflows",
             side_effect=AssertionError("workflow manager should not be called"),
             create=True,
         ):
@@ -6435,7 +6500,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         with mock.patch.object(
             gestalt.Request,
-            "workflow_manager",
+            "workflows",
             side_effect=AssertionError("workflow manager should not be called"),
             create=True,
         ):
@@ -7084,17 +7149,17 @@ class GitHubProviderTests(unittest.TestCase):
         )
 
     def _workflow_signal_request(self, payload: dict[str, Any]) -> Any:
-        workflow_manager = FakeWorkflowManager()
+        workflow_client = FakeWorkflowClient()
         with (
             mock.patch.object(
                 gestalt.Request,
-                "workflow_manager",
-                return_value=workflow_manager,
+                "workflows",
+                return_value=workflow_client,
                 create=True,
             ),
             mock.patch.object(
                 gestalt.Request,
-                "agent_manager",
+                "agent",
                 side_effect=AssertionError("agent manager should not be called"),
             ),
         ):
@@ -7102,8 +7167,8 @@ class GitHubProviderTests(unittest.TestCase):
         result_body = operation_body(result)
         self.assertEqual(result_body["ok"], True)
         self.assertEqual(result_body["dispatch"], "workflow")
-        self.assertEqual(len(workflow_manager.requests), 1)
-        return workflow_manager.requests[0]
+        self.assertEqual(len(workflow_client.requests), 1)
+        return workflow_client.requests[0]
 
     def _workflow_signal_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
         request = self._workflow_signal_request(payload)
@@ -7513,7 +7578,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn("commits", agent_request)
         self.assertIn("ref: refs/heads/feature", agent_request["user_prompt"])
 
-    def test_webhook_handler_fails_retryable_without_workflow_manager(
+    def test_webhook_handler_fails_retryable_without_workflow_client(
         self,
     ) -> None:
         payload = {
@@ -7544,8 +7609,8 @@ class GitHubProviderTests(unittest.TestCase):
 
         with mock.patch.object(
             gestalt.Request,
-            "workflow_manager",
-            return_value=FakeWorkflowManager(fail=True),
+            "workflows",
+            return_value=FakeWorkflowClient(fail=True),
             create=True,
         ):
             with self.assertLogs(provider_module.logger, level="ERROR") as logs:
@@ -7556,7 +7621,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIsInstance(result, gestalt.Response)
         response = cast(gestalt.Response[dict[str, str]], result)
         self.assertEqual(response.status, HTTPStatus.SERVICE_UNAVAILABLE)
-        self.assertIn("workflow manager unavailable", response.body["error"])
+        self.assertIn("workflow client unavailable", response.body["error"])
         self.assertIn("failed to dispatch GitHub webhook workflow", logs.output[0])
 
     def test_commit_files_creates_branch_commit_and_bot_coauthor(self) -> None:
@@ -10532,7 +10597,7 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "workflow_manager",
+                "workflows",
                 side_effect=AssertionError("workflow manager should not be called"),
                 create=True,
             ),
@@ -10572,7 +10637,7 @@ class GitHubProviderTests(unittest.TestCase):
         with (
             mock.patch.object(
                 gestalt.Request,
-                "workflow_manager",
+                "workflows",
                 side_effect=AssertionError("workflow manager should not be called"),
                 create=True,
             ),

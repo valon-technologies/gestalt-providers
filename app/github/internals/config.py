@@ -7,8 +7,6 @@ import urllib.parse
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-import gestalt
-
 from .constants import (
     BOT_COMMIT_FILES_OPERATION,
     BOT_CREATE_ISSUE_COMMENT_OPERATION,
@@ -817,12 +815,7 @@ def enum_string(
 
 def validate_struct_compatible(input_value: dict[str, Any], path: str) -> None:
     try:
-        converter = getattr(gestalt, "json_from_native", None)
-        normalized = (
-            converter(input_value, path=path)
-            if callable(converter)
-            else json.loads(json.dumps(input_value, allow_nan=False))
-        )
+        normalized = json.loads(json.dumps(input_value, allow_nan=False))
     except Exception as err:
         raise ValueError(f"{path} must be JSON-compatible") from err
     if not isinstance(normalized, dict):

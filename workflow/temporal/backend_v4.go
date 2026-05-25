@@ -60,7 +60,7 @@ func (b *temporalBackend) startKeyedRunV4(ctx context.Context, target scopedTarg
 		return nil, status.Errorf(codes.FailedPrecondition, "workflow key %q already has an active run", workflowKey)
 	}
 
-	input := b.runV4Input(target.OwnerKey, req.ExecutionRef, workflowKey, target.Target, manualTriggerInput(), req.CreatedBy, false)
+	input := b.runV4Input(target.OwnerKey, req.DefinitionID, workflowKey, target.Target, manualTriggerInput(), req.CreatedBy, false)
 	input.InvocationToken = strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx))
 	input.RequireClaim = true
 	run, err := b.executeRunV4(ctx, temporalWorkflowID, input, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
@@ -109,7 +109,7 @@ func (b *temporalBackend) startUnkeyedRunV4(ctx context.Context, target scopedTa
 		}
 	}
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "manual-v4", target.OwnerKey, key)
-	input := b.runV4Input(target.OwnerKey, req.ExecutionRef, "", target.Target, manualTriggerInput(), req.CreatedBy, false)
+	input := b.runV4Input(target.OwnerKey, req.DefinitionID, "", target.Target, manualTriggerInput(), req.CreatedBy, false)
 	input.InvocationToken = strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx))
 	run, err := b.executeRunV4(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
@@ -234,7 +234,7 @@ func (b *temporalBackend) startSignalWorkflowRunV4(ctx context.Context, target s
 		temporalWorkflowID = workflowID(b.cfg.ScopeID, "signal-keyed-v4", target.OwnerKey, signalIDKey, hashID(workflowKey))
 		conflictPolicy = enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
 	}
-	input := b.runV4Input(target.OwnerKey, req.ExecutionRef, workflowKey, target.Target, manualTriggerInput(), req.CreatedBy, true)
+	input := b.runV4Input(target.OwnerKey, req.DefinitionID, workflowKey, target.Target, manualTriggerInput(), req.CreatedBy, true)
 	input.InvocationToken = strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx))
 	input.RequireClaim = true
 	startOperation := b.client.NewWithStartWorkflowOperation(
@@ -328,11 +328,11 @@ func mapWorkflowKeyLoadError(err error) error {
 	return status.Errorf(codes.Internal, "load workflow key: %v", err)
 }
 
-func (b *temporalBackend) runV4Input(ownerKey, executionRef, workflowKey string, target *gestalt.BoundWorkflowTarget, trigger *gestalt.WorkflowRunTrigger, createdBy *gestalt.WorkflowActor, requireSignal bool) runWorkflowV4Input {
+func (b *temporalBackend) runV4Input(ownerKey, definitionID, workflowKey string, target *gestalt.BoundWorkflowTarget, trigger *gestalt.WorkflowRunTrigger, createdBy *gestalt.WorkflowActor, requireSignal bool) runWorkflowV4Input {
 	return runWorkflowV4Input{
 		ActivityStartToCloseTimeoutNS: b.cfg.ActivityStartToCloseTimeout,
 		ProviderName:                  b.providerName,
-		ExecutionRef:                  strings.TrimSpace(executionRef),
+		DefinitionID:                  strings.TrimSpace(definitionID),
 		WorkflowKey:                   strings.TrimSpace(workflowKey),
 		OwnerKey:                      strings.TrimSpace(ownerKey),
 		Target:                        target,
@@ -369,8 +369,8 @@ func (b *temporalBackend) pendingRunFromWorkflowRun(run client.WorkflowRun, inpu
 		Trigger:      input.triggerInput(now),
 		CreatedAt:    now,
 		CreatedBy:    input.createdByInput(),
-		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
 		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
+		DefinitionID: strings.TrimSpace(input.DefinitionID),
 	}
 	return out
 }

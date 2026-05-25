@@ -9,7 +9,6 @@ import logging
 import time
 import urllib.parse
 import uuid
-from dataclasses import dataclass, field
 from http import HTTPStatus
 from typing import Any, Iterable, TypeAlias, cast
 
@@ -37,7 +36,6 @@ from .models import (
     SlackInteractionActionStyle,
     SlackInteractionRef,
     SlackReplyRef,
-    WorkflowManagerFactory,
 )
 from .models import SlackAcknowledgementConfig as SlackAcknowledgementConfig  # noqa: F401
 from .models import SlackAgentRouteMatch as SlackAgentRouteMatch  # noqa: F401
@@ -111,11 +109,6 @@ When you answer the Slack user, return the complete Slack message body as your
 final assistant answer. Gestalt will deliver that final answer to Slack.
 Do not use raw Slack message-posting tools for the final reply.
 """.strip()
-
-
-@dataclass(frozen=True, slots=True)
-class _CompatWorkflowAgentStepWhen:
-    data: dict[str, Any] = field(default_factory=dict)
 
 
 def _request_subject_id(req: gestalt.Request) -> str:
@@ -214,6 +207,9 @@ def _request_workflow_context(req: gestalt.Request) -> dict[str, Any]:
 
 def _workflow_log_context(req: gestalt.Request) -> str:
     workflow = _request_workflow_context(req)
+    metadata = workflow.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
     trigger = workflow.get("trigger")
     if not isinstance(trigger, dict):
         trigger = {}
@@ -224,7 +220,7 @@ def _workflow_log_context(req: gestalt.Request) -> str:
     return _log_context(
         workflow_provider=workflow.get("provider"),
         workflow_run_id=workflow.get("runId"),
-        workflow_execution_ref=workflow.get("executionRef"),
+        workflow_definition_id=metadata.get("definition_id"),
         workflow_trigger_kind=trigger.get("kind"),
         workflow_schedule_id=trigger.get("scheduleId"),
         workflow_event_trigger_id=trigger.get("triggerId"),
@@ -497,26 +493,15 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
                 status=HTTPStatus.PRECONDITION_FAILED,
                 body={"error": "Slack workflow provider is not configured"},
             )
-        if not _workflow_manager_contract_available():
-            message = "Slack event handling requires a Gestalt SDK/runtime with workflow step and signal-or-start support"
-            logger.error("%s %s", message, log_context)
-            return _server_error(message)
-        workflow_manager_factory = cast(
-            WorkflowManagerFactory | None, getattr(req, "workflow_manager", None)
+        workflow_request = _build_workflow_signal_or_start_request(
+            event, route, reply_ref
         )
-        if workflow_manager_factory is None:
-            message = "Slack event handling requires a Gestalt SDK/runtime with workflow manager support"
-            logger.error("%s %s", message, log_context)
-            return _server_error(message)
-        with workflow_manager_factory() as workflow_manager:
-            workflow_request = _build_workflow_signal_or_start_request(
-                event, route, reply_ref
-            )
-            logger.info(
-                f"attempting Slack event workflow signal {log_context} "
-                f"{_workflow_handoff_log_context(workflow_request)}"
-            )
-            workflow_response = workflow_manager.signal_or_start_run(workflow_request)
+        logger.info(
+            f"attempting Slack event workflow signal {log_context} "
+            f"{_workflow_handoff_log_context(workflow_request)}"
+        )
+        with req.workflows() as workflows:
+            workflow_response = workflows.signal_or_start_run(workflow_request)
     except Exception as err:
         logger.exception(
             f"failed to signal Slack event workflow {log_context} "
@@ -710,29 +695,17 @@ def handle_slack_interaction(
             status=HTTPStatus.PRECONDITION_FAILED,
             body={"error": "Slack workflow provider is not configured"},
         )
-    if not _workflow_manager_contract_available():
-        message = "Slack interactions require a Gestalt SDK/runtime with workflow step and signal-or-start support"
-        logger.error("%s %s", message, log_context)
-        return _server_error(message)
-    workflow_manager_factory = cast(
-        WorkflowManagerFactory | None, getattr(req, "workflow_manager", None)
-    )
-    if workflow_manager_factory is None:
-        message = "Slack interactions require a Gestalt SDK/runtime with workflow manager support"
-        logger.error("%s %s", message, log_context)
-        return _server_error(message)
-
     workflow_request: Any | None = None
     try:
         workflow_request = _build_workflow_interaction_signal_or_start_request(
             payload, selected_action, verified_ref, route
         )
-        with workflow_manager_factory() as workflow_manager:
-            logger.info(
-                f"attempting Slack interaction workflow signal {log_context} "
-                f"{_workflow_handoff_log_context(workflow_request)}"
-            )
-            workflow_response = workflow_manager.signal_or_start_run(workflow_request)
+        logger.info(
+            f"attempting Slack interaction workflow signal {log_context} "
+            f"{_workflow_handoff_log_context(workflow_request)}"
+        )
+        with req.workflows() as workflows:
+            workflow_response = workflows.signal_or_start_run(workflow_request)
     except Exception as err:
         logger.exception(
             f"failed to signal Slack interaction workflow {log_context} "
@@ -1555,7 +1528,7 @@ def _json_payload_from_http_request(
         return {"payload": form_payload}
     try:
         payload = json.loads(raw_body)
-    except UnicodeDecodeError, json.JSONDecodeError:
+    except (UnicodeDecodeError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -1859,35 +1832,15 @@ def _publish_matching_workflow_events(
         return None
 
     log_context = _slack_publish_log_context(event, routes)
-    if not _workflow_publish_contract_available():
-        message = "Slack event publishing requires a Gestalt SDK/runtime with workflow event publishing support"
-        logger.error(f"{message} {log_context}")
-        return _server_error(message)
-    if (
-        _workflow_publish_provider_selection_required(routes)
-        and not _workflow_publish_provider_selection_available()
-    ):
-        message = "Slack event publishing requires a Gestalt SDK/runtime with workflow provider selection support"
-        logger.error(f"{message} {log_context}")
-        return _server_error(message)
-
-    workflow_manager_factory = cast(
-        WorkflowManagerFactory | None, getattr(req, "workflow_manager", None)
-    )
-    if workflow_manager_factory is None:
-        message = "Slack event publishing requires a Gestalt SDK/runtime with workflow manager support"
-        logger.error(f"{message} {log_context}")
-        return _server_error(message)
-
     try:
         workflow_event_ids: list[str] = []
         route_ids: list[str] = []
-        with workflow_manager_factory() as workflow_manager:
+        with req.workflows() as workflows:
             for route in routes:
                 workflow_request = _build_workflow_publish_event_request(
                     event, route, payload
                 )
-                workflow_manager.publish_event(workflow_request)
+                workflows.publish_event(workflow_request)
                 workflow_event_ids.append(str(workflow_request.event.id))
                 route_ids.append(route.id)
     except Exception as err:
@@ -2000,7 +1953,7 @@ def _build_workflow_publish_event_request(
     route: SlackEventPublishRoute,
     raw_payload: dict[str, Any],
 ) -> Any:
-    workflow_request = gestalt.WorkflowManagerPublishEvent(
+    workflow_request = gestalt.WorkflowPublishEvent(
         event=gestalt.WorkflowEvent(
             id=_workflow_event_id(event, route),
             source=route.source or "slack",
@@ -2743,7 +2696,7 @@ def _build_workflow_signal_or_start_request(
 ) -> Any:
     workflow_key = _agent_session_ref(event)
     thread_context = _prefetch_thread_context(event, route)
-    request = gestalt.WorkflowManagerSignalOrStartRun(
+    request = gestalt.WorkflowSignalOrStartRun(
         provider_name=_workflow_provider_name(route),
         workflow_key=workflow_key,
         idempotency_key=_agent_turn_idempotency_key(event),
@@ -2833,32 +2786,22 @@ def _workflow_steps_for_configured_step(
 
 
 def _workflow_text(template: str) -> Any:
-    text_type = getattr(gestalt, "WorkflowText", None)
-    if text_type is None:
-        return template
-    return text_type(template=template)
+    return gestalt.WorkflowText(template=template)
 
 
 def _workflow_agent_message(role: str, text: str, metadata: Any = None) -> Any:
-    message_type = getattr(gestalt, "WorkflowAgentMessage", None)
-    if message_type is None:
-        return gestalt.AgentMessage(role=role, text=text, metadata=metadata)
-    return message_type(role=role, text=_workflow_text(text), metadata=metadata or None)
+    return gestalt.WorkflowAgentMessage(
+        role=role, text=_workflow_text(text), metadata=metadata or None
+    )
 
 
 def _workflow_value(**kwargs: Any) -> Any:
-    value_type = getattr(gestalt, "WorkflowValue", None)
-    if value_type is None:
-        return kwargs
-    return value_type(**kwargs)
+    return gestalt.WorkflowValue(**kwargs)
 
 
 def _workflow_step_output(step_id: str, path: str) -> Any:
-    source_type = getattr(gestalt, "WorkflowStepOutputSource", None)
-    if source_type is None:
-        return {"step_id": step_id, "path": path}
     return _workflow_value(
-        step_output=source_type(step_id=step_id, path=path),
+        step_output=gestalt.WorkflowStepOutputSource(step_id=step_id, path=path),
     )
 
 
@@ -2884,16 +2827,7 @@ def _workflow_step_when(when: dict[str, Any]) -> Any:
     path = output_path.replace("structured_output.", "structuredOutput.", 1)
     if not path.startswith("agent."):
         path = f"agent.{path}"
-    when_type = getattr(gestalt, "WorkflowStepWhen", None)
-    if when_type is None:
-        return _CompatWorkflowAgentStepWhen(
-            data={
-                "step_id": step_id,
-                "output_path": output_path,
-                "equals": equals,
-            }
-        )
-    return when_type(
+    return gestalt.WorkflowStepWhen(
         value=_workflow_step_output(step_id, path),
         equals=equals,
     )
@@ -2906,11 +2840,7 @@ def _workflow_slack_app_step(
     input_fields: dict[str, Any],
     when: Any = None,
 ) -> Any:
-    step_type = getattr(gestalt, "WorkflowStep", None)
-    app_type = getattr(gestalt, "WorkflowStepAppCall", None)
-    if step_type is None or app_type is None:
-        raise RuntimeError("Gestalt SDK with workflow step support is required")
-    app_call = app_type(
+    app_call = gestalt.WorkflowStepAppCall(
         name=_agent_config.app_name,
         operation=operation,
         credential_mode="none",
@@ -2919,7 +2849,7 @@ def _workflow_slack_app_step(
     kwargs: dict[str, Any] = {"id": step_id, "app": app_call}
     if when is not None:
         kwargs["when"] = when
-    return step_type(**kwargs)
+    return gestalt.WorkflowStep(**kwargs)
 
 
 def _workflow_reply_app_step(
@@ -2968,11 +2898,7 @@ def _workflow_agent_turn_step(
     timeout_seconds: int = 0,
     when: Any = None,
 ) -> Any:
-    step_type = getattr(gestalt, "WorkflowStep", None)
-    agent_type = getattr(gestalt, "WorkflowStepAgentTurn", None)
-    if step_type is None or agent_type is None:
-        raise RuntimeError("Gestalt SDK with workflow step support is required")
-    agent_turn = agent_type(
+    agent_turn = gestalt.WorkflowStepAgentTurn(
         provider=_agent_provider(route),
         model=_agent_model(route),
         prompt=_workflow_text(prompt),
@@ -2991,7 +2917,7 @@ def _workflow_agent_turn_step(
         kwargs["timeout_seconds"] = timeout_seconds
     if when is not None:
         kwargs["when"] = when
-    return step_type(
+    return gestalt.WorkflowStep(
         **{key: value for key, value in kwargs.items() if _keep_step_value(value)}
     )
 
@@ -3162,7 +3088,7 @@ def _build_workflow_interaction_signal_or_start_request(
         ),
         metadata=_agent_metadata(event, route),
     )
-    return gestalt.WorkflowManagerSignalOrStartRun(
+    return gestalt.WorkflowSignalOrStartRun(
         provider_name=_workflow_provider_name(route),
         workflow_key=interaction_ref.workflow_key,
         idempotency_key=signal.idempotency_key,
@@ -3637,69 +3563,8 @@ def _workflow_run_status_name(status: Any) -> str:
         return status
     try:
         return gestalt.workflow_run_status_name(int(status))
-    except TypeError, ValueError, AttributeError:
+    except (TypeError, ValueError, AttributeError):
         return str(status)
-
-
-def _workflow_manager_contract_available() -> bool:
-    required = (
-        "BoundWorkflowTarget",
-        "WorkflowStep",
-        "WorkflowStepAppCall",
-        "WorkflowStepAgentTurn",
-        "WorkflowValue",
-        "WorkflowStepOutputSource",
-        "WorkflowManagerSignalOrStartRun",
-        "WorkflowSignal",
-    )
-    if not all(getattr(gestalt, name, None) is not None for name in required):
-        return False
-    try:
-        gestalt.BoundWorkflowTarget(
-            steps=[
-                gestalt.WorkflowStep(
-                    id="run",
-                    agent=gestalt.WorkflowStepAgentTurn(
-                        provider="managed",
-                        prompt=gestalt.WorkflowText(template="Handle the event."),
-                    ),
-                )
-            ]
-        )
-        gestalt.WorkflowManagerSignalOrStartRun()
-    except Exception:
-        return False
-    return True
-
-
-def _workflow_publish_contract_available() -> bool:
-    request_type = getattr(gestalt, "WorkflowManagerPublishEvent", None)
-    if request_type is None:
-        return False
-    try:
-        request = request_type()
-    except Exception:
-        return False
-    return hasattr(request, "event")
-
-
-def _workflow_publish_provider_selection_required(
-    routes: tuple[SlackEventPublishRoute, ...],
-) -> bool:
-    if _agent_config.workflow.provider_name:
-        return True
-    return any(route.workflow_provider for route in routes)
-
-
-def _workflow_publish_provider_selection_available() -> bool:
-    request_type = getattr(gestalt, "WorkflowManagerPublishEvent", None)
-    if request_type is None:
-        return False
-    try:
-        request = request_type()
-    except Exception:
-        return False
-    return hasattr(request, "provider_name")
 
 
 def _bad_request(message: str) -> ErrorResponse:

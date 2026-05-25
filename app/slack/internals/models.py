@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from types import TracebackType
-from typing import Any, Literal, Protocol, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 
 class SlackCallbackType(StrEnum):
@@ -424,22 +423,3 @@ class SlackInteractionRef:
     action_id: str
     action_value: str
     expires_at: int
-
-
-class WorkflowManager(Protocol):
-    def __enter__(self) -> WorkflowManager: ...
-
-    def __exit__(
-        self,
-        _exc_type: type[BaseException] | None,
-        _exc: BaseException | None,
-        _tb: TracebackType | None,
-    ) -> bool | None: ...
-
-    def signal_or_start_run(self, request: Any) -> Any: ...
-
-    def publish_event(self, request: Any) -> Any: ...
-
-
-class WorkflowManagerFactory(Protocol):
-    def __call__(self) -> WorkflowManager: ...

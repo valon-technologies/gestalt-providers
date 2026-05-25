@@ -74,8 +74,8 @@ Metadata-only reads do not start the Temporal worker.
 - public run IDs are opaque V4 handles that identify the run workflow and
   Temporal run ID
 - `GetRun` and `ListRuns` read IndexedDB run projections only
-- IndexedDB stores schedule, event-trigger, execution-reference, V4 run
+- IndexedDB stores schedule, event-trigger, workflow definition, V4 run
   projection, V4 start idempotency, V4 signal idempotency, and workflow-key
   ownership metadata
-- event-trigger runs can create execution references for the publishing subject
-  before the target operation is invoked
+- event-trigger runs use the publishing subject as `created_by` when it is
+  provided
