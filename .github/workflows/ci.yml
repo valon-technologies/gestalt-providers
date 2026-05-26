@@ -49,7 +49,6 @@ permissions:
 
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
-  GESTALT_FETCH_REF: codex/provider-publish-repository
   GESTALT_REF_FILE: .github/gestalt-ref
   VALIDATION_VERSION: 0.0.1-alpha.1
 

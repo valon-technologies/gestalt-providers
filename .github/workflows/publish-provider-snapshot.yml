@@ -27,7 +27,6 @@ permissions:
 
 env:
   GESTALT_REPOSITORY: valon-technologies/gestalt
-  GESTALT_FETCH_REF: codex/provider-publish-repository
   PYTHON_ALPINE_VERSION: "3.23"
 
 jobs:
