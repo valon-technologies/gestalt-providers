@@ -2812,7 +2812,7 @@ def _github_user_id_from_external_identity(identity_id: str) -> str:
     return user_id.strip()
 
 
-def _request_external_identity(req: gestalt.Request) -> Any:
+def _request_external_identity(req: gestalt.Request) -> gestalt.ExternalIdentity | None:
     # This is the delegated GitHub App installation identity authorized by the
     # host. Do not fall back to agent_external_identity; that field identifies
     # the original agent caller's GitHub user.

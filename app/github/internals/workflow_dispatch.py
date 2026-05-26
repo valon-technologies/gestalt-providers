@@ -10,6 +10,7 @@ from .constants import (
     MAX_GITHUB_TITLE_CHARS,
 )
 from .helpers import int_field, map_field, nested_str, str_field
+from .identity import GitHubPullRequestContext
 from .operations import pull_request_summary
 from .policy_metadata import policy_base_metadata
 from .webhook import bounded_text
@@ -19,7 +20,7 @@ def workflow_signal_data(
     payload: dict[str, Any],
     summary: dict[str, Any],
     policy: GitHubWebhookPolicy | None = None,
-    pull_request_context: Any | None = None,
+    pull_request_context: GitHubPullRequestContext | None = None,
 ) -> dict[str, Any]:
     payload_digest = _payload_digest(payload)
     delivery_id = _github_delivery_id(payload)
@@ -64,7 +65,7 @@ def _canonical_json(value: Any) -> str:
 def _agent_request(
     payload: dict[str, Any],
     summary: dict[str, Any],
-    pull_request_context: Any | None = None,
+    pull_request_context: GitHubPullRequestContext | None = None,
 ) -> dict[str, Any]:
     request: dict[str, Any] = {}
     subject = _subject_data(payload, summary)
@@ -123,13 +124,14 @@ def _subject_data(payload: dict[str, Any], summary: dict[str, Any]) -> dict[str,
 
 
 def _pull_request_data(
-    payload: dict[str, Any], pull_request_context: Any | None = None
+    payload: dict[str, Any], pull_request_context: GitHubPullRequestContext | None = None
 ) -> dict[str, Any]:
     pull_request = map_field(payload, "pull_request")
     if not pull_request:
-        context_pull = getattr(pull_request_context, "pull_request", None)
-        if isinstance(context_pull, dict):
-            return _compact_dict_preserve_false(pull_request_summary(context_pull))
+        if pull_request_context is not None:
+            return _compact_dict_preserve_false(
+                pull_request_summary(pull_request_context.pull_request)
+            )
         issue = map_field(payload, "issue")
         if not map_field(issue, "pull_request"):
             return {}

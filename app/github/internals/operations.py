@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Any
 
+import gestalt
+
 from .client import (
     DEFAULT_GITHUB_CLIENT,
     GitHubAPIClient,
@@ -532,9 +534,9 @@ class _ValidatedCommitRequest:
 def commit_files(
     request: GitHubCommitRequest,
     *,
-    subject: Any,
+    subject: gestalt.Subject,
     pull_request_permissions: bool,
-    external_identity: Any = None,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> CommitResult:
     github = github_client(client)
@@ -740,8 +742,8 @@ def _write_commit(
 def open_pull_request(
     request: GitHubOpenPullRequestRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -782,8 +784,8 @@ def open_pull_request(
 def close_pull_request(
     request: GitHubPullRequestRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -814,8 +816,8 @@ def close_pull_request(
 def create_pull_request_with_files(
     request: GitHubCreatePullRequestRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> CreatePullRequestResult:
     github = github_client(client)
@@ -944,8 +946,8 @@ def create_pull_request_on_github(
 def create_issue_comment(
     request: GitHubCreateIssueCommentRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -976,8 +978,8 @@ def create_issue_comment(
 def add_reaction(
     request: GitHubAddReactionRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1024,8 +1026,8 @@ def add_reaction(
 def add_labels(
     request: GitHubAddLabelsRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> list[JsonObject]:
     github = github_client(client)
@@ -1060,8 +1062,8 @@ def add_labels(
 def remove_labels(
     request: GitHubRemoveLabelsRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> tuple[tuple[str, ...], list[JsonObject]]:
     github = github_client(client)
@@ -1098,8 +1100,8 @@ def remove_labels(
 def request_reviewers(
     request: GitHubRequestReviewersRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1139,8 +1141,8 @@ def request_reviewers(
 def create_pull_request_conversation_comment(
     request: GitHubCreatePullRequestConversationCommentRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1171,8 +1173,8 @@ def create_pull_request_conversation_comment(
 def create_pull_request_review(
     request: GitHubCreatePullRequestReviewRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1211,8 +1213,8 @@ def create_pull_request_review(
 def list_pull_request_review_threads(
     request: GitHubListPullRequestReviewThreadsRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1279,8 +1281,8 @@ def list_pull_request_review_threads(
 def resolve_pull_request_review_thread(
     request: GitHubResolvePullRequestReviewThreadRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1336,8 +1338,8 @@ def resolve_pull_request_review_thread(
 def get_pull_request(
     request: GitHubPullRequestRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1365,8 +1367,8 @@ def get_pull_request(
 def list_pull_request_files(
     request: GitHubListPullRequestFilesRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> list[JsonObject]:
     github = github_client(client)
@@ -1401,8 +1403,8 @@ def list_pull_request_files(
 def get_repository(
     request: GitHubRepositoryRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1425,8 +1427,8 @@ def get_repository(
 def search_code(
     request: GitHubCodeSearchRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1456,8 +1458,8 @@ def search_code(
 def get_file_text_at_ref(
     request: GitHubFileContentRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> str:
     github = github_client(client)
@@ -1526,8 +1528,8 @@ def normalize_optional_search_path(path: str) -> str:
 def create_check_run(
     request: GitHubCreateCheckRunRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1566,8 +1568,8 @@ def create_check_run(
 def update_check_run(
     request: GitHubUpdateCheckRunRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1605,8 +1607,8 @@ def update_check_run(
 def get_check_run(
     request: GitHubCheckRunRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1634,8 +1636,8 @@ def get_check_run(
 def list_check_runs_for_ref(
     request: GitHubListCheckRunsForRefRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1690,8 +1692,8 @@ def list_check_runs_for_ref(
 def list_check_suite_check_runs(
     request: GitHubListCheckSuiteCheckRunsRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1746,8 +1748,8 @@ def list_check_suite_check_runs(
 def list_check_run_annotations(
     request: GitHubListCheckRunAnnotationsRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> list[JsonObject]:
     github = github_client(client)
@@ -1783,8 +1785,8 @@ def list_check_run_annotations(
 def get_workflow_run(
     request: GitHubWorkflowRunRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1812,8 +1814,8 @@ def get_workflow_run(
 def list_workflow_run_jobs(
     request: GitHubListWorkflowRunJobsRequest,
     *,
-    subject: Any,
-    external_identity: Any = None,
+    subject: gestalt.Subject,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -2093,12 +2095,12 @@ def pull_request_review_comment_payload(
 
 
 def scoped_installation_id(
-    subject: Any,
+    subject: gestalt.Subject,
     *,
     owner: str,
     repo: str,
     explicit: int,
-    external_identity: Any = None,
+    external_identity: gestalt.ExternalIdentity | None = None,
     client: GitHubAPIClient | None = None,
 ) -> int:
     explicit_id = optional_positive_int(explicit, "installation_id")
@@ -2134,20 +2136,20 @@ def scoped_installation_id(
 
 
 def scoped_installation_id_from_external_identity(
-    external_identity: Any,
+    external_identity: gestalt.ExternalIdentity,
     *,
     owner: str,
     repo: str,
     explicit: int,
     client: GitHubAPIClient | None = None,
 ) -> int:
-    identity_type = external_identity_field(external_identity, "type")
+    identity_type = external_identity.type.strip()
     if identity_type != GITHUB_APP_INSTALLATION_EXTERNAL_IDENTITY_TYPE:
         raise GitHubAuthorizationError(
             "external_identity.type must be github_app_installation"
         )
 
-    identity_id = external_identity_field(external_identity, "id")
+    identity_id = external_identity.id.strip()
     expected_id = github_app_installation_external_identity_id(owner, repo)
     if identity_id.lower() != expected_id.lower():
         raise GitHubAuthorizationError(
@@ -2169,22 +2171,14 @@ def scoped_installation_id_from_external_identity(
     return installation_id
 
 
-def non_empty_external_identity(external_identity: Any) -> Any | None:
+def non_empty_external_identity(
+    external_identity: gestalt.ExternalIdentity | None,
+) -> gestalt.ExternalIdentity | None:
     if external_identity is None:
         return None
-    if not external_identity_field(
-        external_identity, "type"
-    ) and not external_identity_field(external_identity, "id"):
+    if not external_identity.type.strip() and not external_identity.id.strip():
         return None
     return external_identity
-
-
-def external_identity_field(external_identity: Any, field: str) -> str:
-    if isinstance(external_identity, Mapping):
-        value = external_identity.get(field)
-    else:
-        value = getattr(external_identity, field, None)
-    return value.strip() if isinstance(value, str) else ""
 
 
 def resolve_repository_installation(
@@ -2241,7 +2235,7 @@ def installation_resolution_dict(
     }
 
 
-def github_scope_from_subject(subject: Any) -> GitHubSubjectScope:
+def github_scope_from_subject(subject: gestalt.Subject) -> GitHubSubjectScope:
     if subject.kind != "service_account" or subject.auth_source != "github_app_webhook":
         return GitHubSubjectScope()
     if not subject.id.startswith(GITHUB_INSTALLATION_SUBJECT_PREFIX):
