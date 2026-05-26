@@ -12,7 +12,7 @@ import threading
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Callable, cast
+from typing import Any, Protocol
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -36,13 +36,32 @@ class CodexExecutionCanceled(CodexExecutionError):
     pass
 
 
-ServerFactory = Callable[..., Any]
+class CodexMCPServerProtocol(Protocol):
+    async def connect(self) -> None: ...
+
+    async def list_tools(self) -> list[mcp_types.Tool]: ...
+
+    async def call_tool(
+        self, name: str, arguments: dict[str, Any]
+    ) -> mcp_types.CallToolResult: ...
+
+    async def cleanup(self) -> None: ...
+
+
+class ServerFactory(Protocol):
+    def __call__(
+        self,
+        *,
+        params: dict[str, Any],
+        name: str,
+        client_session_timeout_seconds: float,
+    ) -> CodexMCPServerProtocol: ...
 
 
 @dataclass(slots=True)
 class _ActiveTurn:
     loop: asyncio.AbstractEventLoop
-    server: Any | None = None
+    server: CodexMCPServerProtocol | None = None
 
 
 class CodexMCPStdioServer:
@@ -74,12 +93,12 @@ class CodexMCPStdioServer:
         self._stack = stack
         self._session = session
 
-    async def list_tools(self) -> list[Any]:
+    async def list_tools(self) -> list[mcp_types.Tool]:
         session = self._require_session()
         result = await session.list_tools()
         return list(result.tools)
 
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> mcp_types.CallToolResult:
         session = self._require_session()
         return await session.call_tool(name, arguments, read_timeout_seconds=self._timeout)
 
@@ -165,7 +184,7 @@ class CodexMCPRunner:
     ) -> str:
         loop = asyncio.get_running_loop()
         self._register_active_turn(turn_id, _ActiveTurn(loop=loop))
-        server: Any | None = None
+        server: CodexMCPServerProtocol | None = None
         bridge: BridgeHTTPServer | None = None
         try:
             self._raise_if_canceled(turn_id)
@@ -199,7 +218,7 @@ class CodexMCPRunner:
             with tempfile.TemporaryDirectory(prefix="gestalt-codex-home-") as codex_home:
                 _materialize_codex_skills(codex_home=codex_home, skill_roots=skill_roots)
                 server = self._server_factory(
-                    params=cast(Any, self._server_params(codex_home=codex_home, cwd=cwd)),
+                    params=self._server_params(codex_home=codex_home, cwd=cwd),
                     name="Codex CLI",
                     client_session_timeout_seconds=self._config.timeout_seconds,
                 )
@@ -248,9 +267,9 @@ class CodexMCPRunner:
             params["cwd"] = working_directory
         return params
 
-    async def _assert_codex_tool(self, server: Any) -> None:
+    async def _assert_codex_tool(self, server: CodexMCPServerProtocol) -> None:
         tools = await server.list_tools()
-        if CODEX_TOOL_NAME not in {str(getattr(tool, "name", "") or "") for tool in tools}:
+        if CODEX_TOOL_NAME not in {tool.name for tool in tools}:
             raise CodexExecutionError("Codex MCP server did not expose the codex tool")
 
     def _codex_tool_arguments(
@@ -297,7 +316,7 @@ class CodexMCPRunner:
         with self._lock:
             self._active_turns[turn_id] = active
 
-    def _register_active_server(self, turn_id: str, server: Any) -> None:
+    def _register_active_server(self, turn_id: str, server: CodexMCPServerProtocol) -> None:
         should_cleanup = False
         with self._lock:
             active = self._active_turns.get(turn_id)
@@ -324,21 +343,18 @@ class CodexMCPRunner:
             return turn_id in self._canceled_turns
 
 
-def normalize_codex_result(result: Any) -> str:
-    structured = getattr(result, "structuredContent", None)
+def normalize_codex_result(result: mcp_types.CallToolResult) -> str:
+    structured = result.structuredContent
     if isinstance(structured, dict):
         content = structured.get("content")
         if content is not None:
             return _stringify_content(content)
 
     text_parts: list[str] = []
-    for item in getattr(result, "content", []) or []:
+    for item in result.content:
         if isinstance(item, mcp_types.TextContent):
             text_parts.append(item.text)
             continue
-        text = getattr(item, "text", None)
-        if text is not None:
-            text_parts.append(str(text))
     return "\n".join(part for part in text_parts if part).strip()
 
 
@@ -403,7 +419,9 @@ def _message_content(message: dict[str, Any]) -> str:
     return "\n".join(chunks).strip()
 
 
-def _schedule_cleanup(loop: asyncio.AbstractEventLoop, server: Any) -> concurrent.futures.Future[Any] | None:
+def _schedule_cleanup(
+    loop: asyncio.AbstractEventLoop, server: CodexMCPServerProtocol
+) -> concurrent.futures.Future[Any] | None:
     try:
         return asyncio.run_coroutine_threadsafe(server.cleanup(), loop)
     except RuntimeError:

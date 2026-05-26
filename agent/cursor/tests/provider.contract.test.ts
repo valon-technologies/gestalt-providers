@@ -1222,16 +1222,6 @@ describe("Cursor agent provider contract", () => {
         "unsafe",
       ],
       [
-        "missing id",
-        [{ tools: [tool({ id: "", mcpName: "ok" })] }],
-        "without an id",
-      ],
-      [
-        "missing mcp",
-        [{ tools: [tool({ id: "a", mcpName: "" })] }],
-        "without an mcp_name",
-      ],
-      [
         "repeated token",
         [{ tools: [], nextPageToken: "again" }],
         "repeated page token",

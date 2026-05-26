@@ -104,20 +104,28 @@ class GestaltMCPBridge:
         async with self._execute_lock:
             self._sequence += 1
             tool_call_id = f"sdk-{self._sequence}"
+
+            def execute_tool() -> gestalt.ExecuteAgentToolResponse:
+                with gestalt.AgentHost() as host:
+                    return host.execute_tool_for_turn(
+                        self._session_id,
+                        self._turn_id,
+                        tool_call_id=tool_call_id,
+                        tool_id=entry.tool_id,
+                        arguments=arguments or {},
+                        run_grant=self._run_grant,
+                        idempotency_key=(
+                            f"agent/claude-sdk:{self._turn_id}:"
+                            f"{tool_call_id}:{entry.mcp_name}"
+                        ),
+                    )
+
             try:
-                response = await asyncio.to_thread(
-                    _execute_tool,
-                    session_id=self._session_id,
-                    turn_id=self._turn_id,
-                    run_grant=self._run_grant,
-                    entry=entry,
-                    tool_call_id=tool_call_id,
-                    arguments=arguments,
-                )
+                response = await asyncio.to_thread(execute_tool)
             except Exception as exc:
                 return _tool_error_result(exc)
-        body = str(getattr(response, "body", "") or "")
-        status = int(getattr(response, "status", 0) or 0)
+        body = str(response.body or "")
+        status = int(response.status or 0)
         if not body:
             body = "{}"
         return CallToolResult(content=[TextContent(type="text", text=body)], isError=status >= 400)
@@ -312,13 +320,9 @@ def _tool_error_message(exc: Exception) -> str:
     return message
 
 
-def _tool_entry(tool: Any) -> ToolEntry:
-    tool_id = str(tool.id or "").strip()
-    mcp_name = str(tool.mcp_name or "").strip()
-    if not tool_id:
-        raise ValueError("ListTools returned a tool without an id")
-    if not mcp_name:
-        raise ValueError("ListTools returned a tool without an mcp_name")
+def _tool_entry(tool: gestalt.ListedAgentTool) -> ToolEntry:
+    tool_id = tool.id.strip()
+    mcp_name = tool.mcp_name.strip()
     if _UNSAFE_TOOL_NAME.search(mcp_name):
         raise ValueError(f"ListTools returned unsafe mcp_name {mcp_name!r}")
     return ToolEntry(
@@ -326,8 +330,8 @@ def _tool_entry(tool: Any) -> ToolEntry:
         mcp_name=mcp_name,
         title=str(tool.title or "").strip(),
         description=str(tool.description or "").strip(),
-        tags=_string_list(getattr(tool, "tags", [])),
-        search_text=str(getattr(tool, "search_text", "") or "").strip(),
+        tags=_string_list(tool.tags),
+        search_text=str(tool.search_text or "").strip(),
         input_schema=_schema_from_json(str(tool.input_schema or "")),
         annotations=_annotations(tool.annotations, title=str(tool.title or "").strip()),
     )
@@ -375,21 +379,6 @@ def _string_list(value: Any) -> tuple[str, ...]:
         if text:
             out.append(text)
     return tuple(out)
-
-
-def _execute_tool(
-    *, session_id: str, turn_id: str, run_grant: str, entry: ToolEntry, tool_call_id: str, arguments: dict[str, Any]
-) -> Any:
-    with gestalt.AgentHost() as host:
-        return host.execute_tool_for_turn(
-            session_id,
-            turn_id,
-            tool_call_id=tool_call_id,
-            tool_id=entry.tool_id,
-            arguments=arguments or {},
-            run_grant=run_grant,
-            idempotency_key=f"agent/claude-sdk:{turn_id}:{tool_call_id}:{entry.mcp_name}",
-        )
 
 
 def _schema_from_json(value: str) -> dict[str, Any]:
@@ -480,17 +469,16 @@ def _schema_required(value: Any, properties: dict[str, Any]) -> set[str]:
     return {item for item in value if isinstance(item, str) and item in properties}
 
 
-def _annotations(value: Any, *, title: str) -> ToolAnnotations | None:
+def _annotations(value: gestalt.AgentToolAnnotations | None, *, title: str) -> ToolAnnotations | None:
     if value is None:
         return ToolAnnotations(title=title) if title else None
-    payload: dict[str, str | bool | None] = {"title": title or str(getattr(value, "title", "") or "").strip() or None}
-    for source_attr, sdk_name in (
-        ("read_only_hint", "readOnlyHint"),
-        ("destructive_hint", "destructiveHint"),
-        ("idempotent_hint", "idempotentHint"),
-        ("open_world_hint", "openWorldHint"),
-    ):
-        current = getattr(value, source_attr, None)
-        if current is not None:
-            payload[sdk_name] = bool(current)
+    payload: dict[str, str | bool | None] = {"title": title or None}
+    if value.read_only_hint is not None:
+        payload["readOnlyHint"] = bool(value.read_only_hint)
+    if value.destructive_hint is not None:
+        payload["destructiveHint"] = bool(value.destructive_hint)
+    if value.idempotent_hint is not None:
+        payload["idempotentHint"] = bool(value.idempotent_hint)
+    if value.open_world_hint is not None:
+        payload["openWorldHint"] = bool(value.open_world_hint)
     return ToolAnnotations.model_validate({k: v for k, v in payload.items() if v is not None})

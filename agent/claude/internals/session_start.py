@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from collections.abc import Mapping
 from typing import Any
 
 import gestalt
@@ -111,10 +112,9 @@ def _json_stdout_payload(stdout: str) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _hook_env(explicit: Any) -> dict[str, str]:
+def _hook_env(explicit: Mapping[str, str]) -> dict[str, str]:
     env = {key: value for key in _DEFAULT_ENV_KEYS if (value := os.environ.get(key)) is not None}
-    for key, value in dict(explicit).items():
-        env[str(key)] = str(value)
+    env.update(explicit)
     return env
 
 

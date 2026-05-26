@@ -1,5 +1,9 @@
 import { spawn } from "node:child_process";
-import type { AgentMessage } from "@valon-technologies/gestalt";
+import type {
+  AgentMessage,
+  AgentSessionStartConfig,
+  AgentSessionStartHook,
+} from "@valon-technologies/gestalt";
 
 export const SESSION_START_PREFIX = "__gestalt.lifecycle.sessionStart";
 export const SESSION_START_ADDITIONAL_CONTEXT_KEY = `${SESSION_START_PREFIX}.additionalContext`;
@@ -17,7 +21,7 @@ const DEFAULT_ENV_KEYS = [
 ] as const;
 
 export async function runSessionStartHooks(
-  sessionStart: unknown,
+  sessionStart: AgentSessionStartConfig | undefined,
   metadata: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const hooks = sessionStartHooks(sessionStart);
@@ -72,42 +76,38 @@ export function prependSessionStartContext(
   ];
 }
 
-function sessionStartHooks(sessionStart: unknown): Record<string, unknown>[] {
-  if (!sessionStart || typeof sessionStart !== "object") {
-    return [];
-  }
-  const hooks = (sessionStart as { hooks?: unknown }).hooks;
-  return Array.isArray(hooks) ? hooks.filter(isRecord) : [];
+function sessionStartHooks(
+  sessionStart: AgentSessionStartConfig | undefined,
+): readonly AgentSessionStartHook[] {
+  return sessionStart?.hooks ?? [];
 }
 
-async function runHook(hook: Record<string, unknown>): Promise<{
+async function runHook(hook: AgentSessionStartHook): Promise<{
   result: Record<string, unknown>;
   additionalContext: string;
 }> {
   const id = hookId(hook);
-  const type = String(hook.type ?? "command").trim() || "command";
+  const type = (hook.type ?? "command").trim() || "command";
   if (type !== "command") {
     throw new Error(`sessionStart hook ${JSON.stringify(id)} type ${JSON.stringify(type)} is not supported`);
   }
-  const command = Array.isArray(hook.command)
-    ? hook.command.map((part) => String(part)).filter((part) => part.trim())
-    : [];
+  const command = (hook.command ?? []).filter((part) => part.trim());
   if (command.length === 0) {
     throw new Error(`sessionStart hook ${JSON.stringify(id)} command is required`);
   }
-  const timeout = String(hook.timeout ?? "");
+  const timeout = hook.timeout ?? "";
   const completed = await runCommand({
     command: command[0]!,
     args: command.slice(1),
-    cwd: String(hook.cwd ?? "").trim() || undefined,
-    env: hookEnv(isRecord(hook.env) ? hook.env : {}),
+    cwd: (hook.cwd ?? "").trim() || undefined,
+    env: hookEnv(hook.env ?? {}),
     timeoutMs: parseTimeoutMs(timeout),
   });
   if (completed.code !== 0) {
     const detail = completed.stderr.trim() || completed.stdout.trim() || `exit code ${completed.code}`;
     throw new Error(`sessionStart hook ${JSON.stringify(id)} failed: ${detail}`);
   }
-  const output = isRecord(hook.output) ? hook.output : {};
+  const output = hook.output;
   const stdoutPayload = jsonStdoutPayload(completed.stdout);
   const result: Record<string, unknown> = {
     status: "succeeded",
@@ -115,7 +115,7 @@ async function runHook(hook: Record<string, unknown>): Promise<{
     timeout,
     timedOut: false,
   };
-  if (output.metadata === true) {
+  if (output?.metadata === true) {
     if (isRecord(stdoutPayload.metadata)) {
       result.metadata = stdoutPayload.metadata;
     }
@@ -126,7 +126,7 @@ async function runHook(hook: Record<string, unknown>): Promise<{
   return {
     result,
     additionalContext:
-      output.additionalContext === true
+      output?.additionalContext === true
         ? payloadContext === undefined
           ? completed.stdout.trim()
           : String(payloadContext).trim()
@@ -174,7 +174,7 @@ function runCommand(input: {
   });
 }
 
-function hookEnv(explicit: Record<string, unknown>): NodeJS.ProcessEnv {
+function hookEnv(explicit: Record<string, string>): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const key of DEFAULT_ENV_KEYS) {
     if (process.env[key] !== undefined) {
@@ -204,8 +204,8 @@ function parseTimeoutMs(value: string): number | undefined {
   return Number(trimmed) * 1000;
 }
 
-function hookId(hook: Record<string, unknown>): string {
-  return String(hook.id ?? "").trim();
+function hookId(hook: AgentSessionStartHook): string {
+  return (hook.id ?? "").trim();
 }
 
 function jsonStdoutPayload(stdout: string): Record<string, unknown> {
