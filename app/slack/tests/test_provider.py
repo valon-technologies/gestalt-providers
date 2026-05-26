@@ -217,6 +217,9 @@ class WorkflowAgentView:
         )
         self.id = getattr(step, "id", "")
         self.model = getattr(agent, "model", "")
+        self.session_key = getattr(agent, "session_key", "") or getattr(
+            agent, "sessionKey", ""
+        )
         self.prompt = workflow_text(getattr(agent, "prompt", ""))
         self.messages = [
             WorkflowMessageView(message)
@@ -1166,6 +1169,7 @@ class SlackProviderTests(unittest.TestCase):
                                 "steps": [
                                     {
                                         "id": "collect",
+                                        "sessionKey": "stepped-session",
                                         "prompt": "Collect Slack context.",
                                         "messages": [
                                             {
@@ -1196,6 +1200,7 @@ class SlackProviderTests(unittest.TestCase):
                                     },
                                     {
                                         "id": "reply",
+                                        "session_key": "stepped-session",
                                         "prompt": "Write the Slack reply.",
                                         "when": {
                                             "stepId": "collect",
@@ -1254,7 +1259,16 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(len(agent_target.steps), 2)
         collect = agent_target.steps[0]
         self.assertEqual(collect.id, "collect")
-        self.assertEqual(collect.prompt, "Collect Slack context.")
+        self.assertEqual(collect.session_key, "stepped-session")
+        self.assertEqual(
+            collect.prompt,
+            "Current Slack request:\n"
+            "${signalPayload.user_prompt}\n"
+            "Treat Background thread context inside this request as supporting "
+            "context only, not as the current request.\n\n"
+            "Configured task:\n"
+            "Collect Slack context.",
+        )
         self.assertEqual(
             [message.role for message in collect.messages], ["system", "system", "user"]
         )
@@ -1272,6 +1286,8 @@ class SlackProviderTests(unittest.TestCase):
 
         reply = agent_target.steps[1]
         self.assertEqual(reply.id, "reply")
+        self.assertEqual(reply.session_key, "stepped-session")
+        self.assertEqual(reply.prompt, "Write the Slack reply.")
         self.assertEqual(reply.when.step_id, "collect")
         self.assertEqual(reply.when.output_path, "structured_output.actionable")
         self.assertEqual(reply.when.equals, True)
@@ -1284,6 +1300,87 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(reply.reply_delivery.target.app_name, "slack")
         self.assertEqual(reply.reply_delivery.target.operation, "events.reply")
+
+    def test_route_agent_steps_append_signal_context_to_message_only_first_step(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "message-only",
+                            "match": {"channel": "C_STEPS"},
+                            "agent": {
+                                "steps": [
+                                    {
+                                        "id": "collect",
+                                        "messages": [
+                                            {
+                                                "role": "user",
+                                                "text": "Summarize the request.",
+                                            }
+                                        ],
+                                    },
+                                    {"id": "reply", "prompt": "Write the reply."},
+                                ]
+                            },
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_client = FakeWorkflowClient()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvRouteMessageOnlySteps",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C_STEPS",
+                "channel_type": "channel",
+                "text": "<@UBOT> plan this",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        with mock.patch.object(
+            gestalt.Request,
+            "workflows",
+            return_value=workflow_client,
+            create=True,
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(operation_body(response)["ok"], True)
+        steps = workflow_target_agent(
+            workflow_client.signal_or_start_requests[0].target
+        ).steps
+        collect = steps[0]
+        self.assertEqual(collect.prompt, "")
+        self.assertEqual(
+            [message.role for message in collect.messages], ["system", "user", "user"]
+        )
+        self.assertEqual(
+            collect.messages[-1].text,
+            "Current Slack request:\n"
+            "${signalPayload.user_prompt}\n"
+            "Treat Background thread context inside this request as supporting "
+            "context only, not as the current request.",
+        )
+        self.assertEqual(steps[1].prompt, "Write the reply.")
 
     def test_route_agent_steps_reject_invalid_ids_and_when_references(self) -> None:
         invalid_steps = [
@@ -2440,15 +2537,12 @@ class SlackProviderTests(unittest.TestCase):
         agent_target = workflow_target_agent(workflow_request.target)
         self.assertEqual(agent_target.provider_name, "simple")
         self.assertEqual(agent_target.model, "deep")
-        self.assertIn("final workflow signal batch", agent_target.prompt)
-        self.assertIn("agent_request", agent_target.prompt)
-        self.assertIn("current_message", agent_target.prompt)
-        self.assertIn("payload.user_prompt", agent_target.prompt)
+        self.assertIn("Current Slack request", agent_target.prompt)
+        self.assertIn("${signalPayload.user_prompt}", agent_target.prompt)
+        self.assertIn("current user request", agent_target.prompt)
         self.assertIn("Background thread context", agent_target.prompt)
-        self.assertNotIn(
-            "Use the payload's user_prompt as the current Slack request",
-            agent_target.prompt,
-        )
+        self.assertNotIn("final workflow signal batch", agent_target.prompt)
+        self.assertNotIn("payload.user_prompt", agent_target.prompt)
         self.assertEqual(len(agent_target.messages), 1)
         self.assertEqual(
             tool_ref_pairs(agent_target.tool_refs),

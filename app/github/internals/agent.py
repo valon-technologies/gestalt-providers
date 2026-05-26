@@ -168,9 +168,10 @@ def workflow_signal_payload(
 def workflow_agent_prompt() -> str:
     return "\n".join(
         [
-            "Handle GitHub App webhooks delivered in the final workflow signal batch.",
-            "Each signal payload includes summary and compact agent_request fields.",
-            "Use agent_request.user_prompt as the current GitHub request.",
+            "Handle the current GitHub App webhook.",
+            "Current GitHub request:",
+            "${signalPayload.agent_request.user_prompt}",
+            "Treat the GitHub request above as the current user request.",
         ]
     )
 

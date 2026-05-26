@@ -46,20 +46,15 @@ def operation_body(result: Any) -> dict[str, Any]:
     return cast(dict[str, Any], result)
 
 
-def _workflow_message_text(message: Any) -> str:
-    text = getattr(message, "text", "")
-    template = getattr(text, "template", None)
-    if template is not None:
-        return str(template)
-    return str(text)
-
-
 class _WorkflowAgentView:
     def __init__(self, step: Any, agent: Any) -> None:
         self.provider_name = getattr(agent, "provider", "") or getattr(
             agent, "provider_name", ""
         )
         self.model = getattr(agent, "model", "")
+        prompt = getattr(agent, "prompt", "")
+        prompt_template = getattr(prompt, "template", None)
+        self.prompt = str(prompt_template) if prompt_template is not None else str(prompt)
         self.metadata = getattr(step, "metadata", None) or getattr(
             agent, "metadata", None
         )
@@ -75,7 +70,9 @@ class _WorkflowAgentView:
 class _WorkflowMessageView:
     def __init__(self, message: Any) -> None:
         self.role = getattr(message, "role", "")
-        self.text = _workflow_message_text(message)
+        text = getattr(message, "text", "")
+        template = getattr(text, "template", None)
+        self.text = str(template) if template is not None else str(text)
 
 
 class _WorkflowAppView:
@@ -3605,7 +3602,9 @@ class GitHubProviderTests(unittest.TestCase):
             sdk_value_to_dict(app_request.signal.metadata),
             sdk_value_to_dict(agent_request.signal.metadata),
         )
-        self.assertIsNotNone(workflow_target_agent(agent_request.target))
+        agent_target = workflow_target_agent(agent_request.target)
+        self.assertIn("${signalPayload.agent_request.user_prompt}", agent_target.prompt)
+        self.assertNotIn("final workflow signal batch", agent_target.prompt)
         self.assertIsNotNone(workflow_target_app(app_request.target))
 
         app = workflow_target_app(app_request.target)

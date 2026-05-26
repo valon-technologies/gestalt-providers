@@ -601,6 +601,7 @@ def _agent_steps_from_config(
         steps.append(
             SlackAgentStep(
                 id=_config_string(step, "id", "name"),
+                session_key=_config_string(step, "sessionKey", "session_key"),
                 prompt=_config_string(step, "prompt"),
                 messages=tuple(_agent_step_messages_from_config(step, path)),
                 tool_set_refs=_config_string_tuple(
