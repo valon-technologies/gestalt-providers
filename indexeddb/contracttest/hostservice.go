@@ -8,21 +8,19 @@ import (
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	"google.golang.org/grpc"
 )
 
 func startIndexedDBHost(t *testing.T, provider gestalt.IndexedDBProvider) {
 	t.Helper()
 
 	socketPath := hostSocketPath(t, "host-service.sock")
+	t.Setenv("GESTALT_PROVIDER_SOCKET", socketPath)
 	t.Setenv(gestalt.EnvHostServiceSocket, "unix://"+socketPath)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- gestalt.ServeHostServiceGRPC(ctx, socketPath, func(srv *grpc.Server) {
-			gestalt.RegisterIndexedDBHostService(srv, provider)
-		})
+		errCh <- gestalt.ServeIndexedDBProvider(ctx, provider)
 	}()
 	runtime.Gosched()
 
