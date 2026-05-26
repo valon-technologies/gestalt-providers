@@ -552,8 +552,10 @@ Route `agent.timeoutSeconds` overrides the top-level agent timeout for both
 Slack events and signed Slack interaction callbacks generated from that route.
 Route `agent.steps` is passed through to workflow agents that support the
 step-based interface. Each step must set a stable `id` and may set `prompt`,
-`messages`, `toolSetRefs`, `tools`, `responseSchema`, `modelOptions`,
-`metadata`, `timeoutSeconds`, and `when`. Set `slackReply.agentOutput` on a
+`sessionKey`, `messages`, `toolSetRefs`, `tools`, `responseSchema`,
+`modelOptions`, `metadata`, `timeoutSeconds`, and `when`. Set the same
+`sessionKey` on multiple steps when those steps should share one agent session.
+Set `slackReply.agentOutput` on a
 step to deliver that step's agent output through `slack.events.reply`; the
 provider binds the reply text from the named agent output and the `reply_ref`
 from the Slack workflow signal.

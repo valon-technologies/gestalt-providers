@@ -86,6 +86,16 @@ SLACK_MESSAGE_OPERATION = "conversations.getMessage"
 SLACK_CONTEXT_OPERATION = "conversations.getThreadContext"
 SLACK_FILE_GET_OPERATION = "files.get"
 MAX_PROMPT_MESSAGE_URLS = 5
+SLACK_SIGNAL_CONTEXT_PROMPT = "\n".join(
+    [
+        "Current Slack request:",
+        "${signalPayload.user_prompt}",
+        (
+            "Treat Background thread context inside this request as supporting "
+            "context only, not as the current request."
+        ),
+    ]
+)
 SLACK_EXTERNAL_IDENTITY_TYPE = "slack_identity"
 SLACK_REPLY_REF_TTL_SECONDS = 60 * 60
 SLACK_INTERACTION_REF_TTL_SECONDS = 24 * 60 * 60
@@ -2716,9 +2726,14 @@ def _build_workflow_agent_target(
     route: SlackAgentRoute | None,
 ) -> Any:
     if route is not None and route.agent_steps:
-        return gestalt.BoundWorkflowTarget(
-            steps=_workflow_steps_for_route(route),
-        )
+        steps: list[Any] = []
+        for index, config_step in enumerate(route.agent_steps):
+            steps.extend(
+                _workflow_steps_for_configured_step(
+                    route, config_step, include_signal_context=index == 0
+                )
+            )
+        return gestalt.BoundWorkflowTarget(steps=steps)
 
     agent_step_id = "run"
     steps = [
@@ -2738,16 +2753,11 @@ def _build_workflow_agent_target(
     return gestalt.BoundWorkflowTarget(steps=steps)
 
 
-def _workflow_steps_for_route(route: SlackAgentRoute) -> list[Any]:
-    steps: list[Any] = []
-    for config_step in route.agent_steps:
-        steps.extend(_workflow_steps_for_configured_step(route, config_step))
-    return steps
-
-
 def _workflow_steps_for_configured_step(
     route: SlackAgentRoute,
     step: SlackAgentStep,
+    *,
+    include_signal_context: bool = False,
 ) -> list[Any]:
     messages = [_workflow_agent_message("system", _agent_system_prompt(route))]
     messages.extend(
@@ -2758,12 +2768,24 @@ def _workflow_steps_for_configured_step(
         )
         for message in step.messages
     )
+    prompt = step.prompt
+    if include_signal_context:
+        if prompt:
+            prompt = "\n\n".join(
+                [
+                    SLACK_SIGNAL_CONTEXT_PROMPT,
+                    f"Configured task:\n{prompt}",
+                ]
+            )
+        else:
+            messages.append(_workflow_agent_message("user", SLACK_SIGNAL_CONTEXT_PROMPT))
     when = _workflow_step_when(step.when) if step.when else None
     steps = [
         _workflow_agent_turn_step(
             step.id,
             route,
-            prompt=step.prompt,
+            session_key=step.session_key,
+            prompt=prompt,
             messages=messages,
             tools=_agent_step_tool_refs(route, step),
             response_schema=step.response_schema or None,
@@ -2785,13 +2807,9 @@ def _workflow_steps_for_configured_step(
     return steps
 
 
-def _workflow_text(template: str) -> Any:
-    return gestalt.WorkflowText(template=template)
-
-
 def _workflow_agent_message(role: str, text: str, metadata: Any = None) -> Any:
     return gestalt.WorkflowAgentMessage(
-        role=role, text=_workflow_text(text), metadata=metadata or None
+        role=role, text=gestalt.WorkflowText(template=text), metadata=metadata or None
     )
 
 
@@ -2892,6 +2910,7 @@ def _workflow_agent_turn_step(
     prompt: str,
     messages: list[Any],
     tools: list[Any],
+    session_key: str = "",
     response_schema: dict[str, Any] | None = None,
     model_options: dict[str, Any] | None = None,
     metadata: Any = None,
@@ -2901,7 +2920,8 @@ def _workflow_agent_turn_step(
     agent_turn = gestalt.WorkflowStepAgentTurn(
         provider=_agent_provider(route),
         model=_agent_model(route),
-        prompt=_workflow_text(prompt),
+        session_key=session_key,
+        prompt=gestalt.WorkflowText(template=prompt),
         messages=messages,
         tools=tools,
         response_schema=response_schema,
@@ -2925,13 +2945,14 @@ def _workflow_agent_turn_step(
 def _workflow_agent_prompt() -> str:
     return "\n".join(
         [
-            "Handle Slack events and interactions delivered in the final workflow signal batch.",
-            "Each signal payload includes user_prompt and reply_ref; Slack event signals may include agent_request.",
-            "For slack.event signals, when payload.agent_request.kind is slack.event, treat payload.agent_request.current_message.text as the current user request and payload.agent_request.user_prompt as request context.",
-            "If agent_request is absent, fall back to payload.user_prompt.",
-            "Treat Background thread context as supporting context only, not as the current request.",
+            "Handle the current Slack event or interaction.",
+            SLACK_SIGNAL_CONTEXT_PROMPT,
+            "Treat the Slack request above as the current user request.",
+            (
+                "Use reply_ref only when a Slack helper tool requires it; do not "
+                "include reply_ref in the visible Slack reply."
+            ),
             "Return the complete Slack reply as your final assistant answer.",
-            "If the batch contains multiple Slack events, handle them in sequence.",
         ]
     )
 

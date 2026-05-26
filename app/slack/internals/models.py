@@ -213,6 +213,7 @@ class SlackAgentToolRef:
 @dataclass(frozen=True, slots=True)
 class SlackAgentStep:
     id: str = ""
+    session_key: str = ""
     prompt: str = ""
     messages: tuple[dict[str, Any], ...] = ()
     tool_set_refs: tuple[str, ...] = ()
