@@ -404,20 +404,19 @@ changed RIGHT-side diff lines, and posts one inline review only when it has
 line-anchored findings. It rejects draft pull requests and only supports exact
 manual `gestalt review`-style comment triggers when invoked from
 `issue_comment` signals. Workflow providers derive app-target access from the
-target app plus optional `_gestalt.eventRunPermissions` entries in target input;
-include extra permissions only when a target operation calls other apps through
-the App capability.
+target app; grant cross-app access through the workflow definition rather than
+target input.
 
 After signature validation, the hosted HTTP binding invokes `events.handle`
 before acknowledging the GitHub delivery. `events.handle` filters the event and
-calls `WorkflowManager.SignalOrStartRun(provider_name=workflow.provider,
-workflow_key="github:${installation_id}:${owner}/${repo}:${number}",
-signal.name="github.app.webhook")` and returns from the webhook request after
-the workflow signal has been durably enqueued. The configured workflow target
-starts from the workflow provider; when no policy target is configured, the
-generated agent target is used. If enqueueing fails, `events.handle` returns a
-retryable error so GitHub can redeliver the webhook. The signal payload has this
-interface:
+calls `req.workflows().signal_or_start_run(WorkflowSignalOrStartRun(...))` with
+`provider_name=workflow.provider`,
+`workflow_key="github:${installation_id}:${owner}/${repo}:${number}"`, and
+`signal.name="github.app.webhook"`. It returns from the webhook request after the
+workflow signal has been durably enqueued. The configured workflow target starts
+from the workflow provider; when no policy target is configured, the generated
+agent target is used. If enqueueing fails, `events.handle` returns a retryable
+error so GitHub can redeliver the webhook. The signal payload has this interface:
 
 GitHub's delivery timeout is 10 seconds, so webhook handlers must keep the
 enqueue path small and avoid starting agents inline. Treat non-2xx delivery
@@ -425,7 +424,7 @@ responses as retryable enqueue failures.
 
 For a `workflow.target.steps` app step with `operation: reviewPullRequest`, `events.handle`
 creates or reuses the review check run before calling
-`WorkflowManager.SignalOrStartRun`. If the check run cannot be created, the
+`req.workflows().signal_or_start_run(...)`. If the check run cannot be created, the
 workflow is not enqueued. If enqueueing fails after creating the check run, the
 provider best-effort completes that check as failure before returning the
 retryable error.

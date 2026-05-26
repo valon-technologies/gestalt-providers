@@ -106,12 +106,12 @@ apps:
           maxMessages: 200
 ```
 
-`events.handle` calls `WorkflowManager.SignalOrStartRun` with
-`provider_name=workflow.provider`, a thread-scoped workflow key, and a
-`slack.event` signal. Later Slack messages in the same thread signal the
-existing keyed run instead of replacing its target or authorization context.
-Set positive `agent.timeoutSeconds` to pass an explicit workflow-agent run
-budget to Gestalt. When omitted, Gestalt's workflow-agent default applies.
+`events.handle` calls `req.workflows().signal_or_start_run(WorkflowSignalOrStartRun(...))`
+with `provider_name=workflow.provider`, a thread-scoped workflow key, and a
+`slack.event` signal. Later Slack messages in the same thread signal the existing
+keyed run instead of replacing its target or authorization context. Set positive
+`agent.timeoutSeconds` to pass an explicit workflow-agent run budget to Gestalt.
+When omitted, Gestalt's workflow-agent default applies.
 
 When `acknowledgement.reaction` is configured, `events.handle` adds that
 reaction to the source Slack message only after the workflow signal-or-start
@@ -141,10 +141,10 @@ route even when it is enabled globally.
 ## Durable Handoff
 
 `events.handle` uses the workflow provider as the durable boundary. It signs a
-short-lived `reply_ref`, calls `WorkflowManager.SignalOrStartRun`, and only then
-acknowledges the Slack callback. If the workflow handoff fails, the handler
-returns an error so Slack can retry the same event. The workflow provider owns
-run state, signal idempotency, retries, and output delivery.
+short-lived `reply_ref`, calls `req.workflows().signal_or_start_run(...)`, and
+only then acknowledges the Slack callback. If the workflow handoff fails, the
+handler returns an error so Slack can retry the same event. The workflow provider
+owns run state, signal idempotency, retries, and output delivery.
 
 After the workflow has accepted the event, Slack-visible acknowledgement
 reactions and native assistant loading status updates are best effort. Failures

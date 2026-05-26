@@ -381,7 +381,7 @@ func TestProviderSignalOrStartRunReinvokesSameRunForQueuedSignals(t *testing.T) 
 	first, err := provider.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey:  workflowKey,
 		Target:       target,
-		ExecutionRef: "agent-ref",
+		DefinitionID: "agent-ref",
 		Signal:       workflowSignal(t, "", "evt-1", "first"),
 	})
 	if err != nil {
@@ -407,8 +407,8 @@ func TestProviderSignalOrStartRunReinvokesSameRunForQueuedSignals(t *testing.T) 
 	if testAgentStep(firstCall.Target).Provider != "managed" {
 		t.Fatalf("first call target = %#v", firstCall.Target)
 	}
-	if firstCall.ExecutionRef != "agent-ref" {
-		t.Fatalf("first call execution_ref = %q, want agent-ref", firstCall.ExecutionRef)
+	if anyMap(firstCall.Metadata)[workflowInvokeMetadataDefinitionID] != "agent-ref" {
+		t.Fatalf("first call definition_id = %q, want agent-ref", anyMap(firstCall.Metadata)[workflowInvokeMetadataDefinitionID])
 	}
 	if len(firstCall.Signals) != 1 || firstCall.Signals[0].IdempotencyKey != "evt-1" {
 		t.Fatalf("first call signals = %#v", firstCall.Signals)
@@ -420,7 +420,7 @@ func TestProviderSignalOrStartRunReinvokesSameRunForQueuedSignals(t *testing.T) 
 	second, err := provider.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey:  workflowKey,
 		Target:       changedTarget,
-		ExecutionRef: "ignored-new-ref",
+		DefinitionID: "ignored-new-ref",
 		Signal:       workflowSignal(t, "", "evt-2", "second"),
 	})
 	if err != nil {
@@ -450,8 +450,8 @@ func TestProviderSignalOrStartRunReinvokesSameRunForQueuedSignals(t *testing.T) 
 	if len(secondCall.Signals) != 1 || secondCall.Signals[0].IdempotencyKey != "evt-2" {
 		t.Fatalf("second call signals = %#v", secondCall.Signals)
 	}
-	if secondCall.ExecutionRef != "agent-ref" {
-		t.Fatalf("second call execution_ref = %q, want original agent-ref", secondCall.ExecutionRef)
+	if anyMap(secondCall.Metadata)[workflowInvokeMetadataDefinitionID] != "agent-ref" {
+		t.Fatalf("second call definition_id = %q, want original agent-ref", anyMap(secondCall.Metadata)[workflowInvokeMetadataDefinitionID])
 	}
 	if secondCall.Metadata == nil || anyMap(secondCall.Metadata)["workflow_key"] != workflowKey {
 		t.Fatalf("second call metadata = %#v, want workflow_key %q", secondCall.Metadata, workflowKey)
@@ -465,7 +465,7 @@ func TestProviderSignalOrStartRunReinvokesSameRunForQueuedSignals(t *testing.T) 
 	duplicate, err := provider.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey:  "slack:T123:C123:1700000000.000001",
 		Target:       target,
-		ExecutionRef: "ignored-duplicate-ref",
+		DefinitionID: "ignored-duplicate-ref",
 		Signal:       workflowSignal(t, "", "evt-2", "second duplicate"),
 	})
 	if err != nil {
@@ -478,7 +478,7 @@ func TestProviderSignalOrStartRunReinvokesSameRunForQueuedSignals(t *testing.T) 
 	third, err := provider.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey:  "slack:T123:C123:1700000000.000001",
 		Target:       target,
-		ExecutionRef: "agent-ref-new-run",
+		DefinitionID: "agent-ref-new-run",
 		Signal:       workflowSignal(t, "sig-3", "evt-3", "third"),
 	})
 	if err != nil {
@@ -531,7 +531,7 @@ func TestProviderSignalOrStartRunFailsQueuedSignalsWhenRunFails(t *testing.T) {
 			first, err := provider.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 				WorkflowKey:  workflowKey,
 				Target:       target,
-				ExecutionRef: "agent-ref",
+				DefinitionID: "agent-ref",
 				Signal:       workflowSignal(t, "", "evt-1", "first"),
 			})
 			if err != nil {
@@ -544,7 +544,7 @@ func TestProviderSignalOrStartRunFailsQueuedSignalsWhenRunFails(t *testing.T) {
 			if _, err := provider.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 				WorkflowKey:  workflowKey,
 				Target:       target,
-				ExecutionRef: "ignored-new-ref",
+				DefinitionID: "ignored-new-ref",
 				Signal:       workflowSignal(t, "", "evt-2", "second"),
 			}); err != nil {
 				t.Fatalf("SignalOrStartRun(second): %v", err)
@@ -578,7 +578,7 @@ func TestProviderSignalOrStartRunFailsQueuedSignalsWhenRunFails(t *testing.T) {
 			third, err := provider.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 				WorkflowKey:  workflowKey,
 				Target:       target,
-				ExecutionRef: "agent-ref-new-run",
+				DefinitionID: "agent-ref-new-run",
 				Signal:       workflowSignal(t, "sig-3", "evt-3", "third"),
 			})
 			if err != nil {
@@ -633,7 +633,7 @@ func TestProviderSignalOrStartRunDoesNotScanSignalsForOtherRuns(t *testing.T) {
 	resp, err := provider.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey:  "github:127579767:valon-technologies/toolshed:1",
 		Target:       workflowAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
-		ExecutionRef: "agent-ref",
+		DefinitionID: "agent-ref",
 		Signal:       workflowSignal(t, "", "new-event", "new"),
 	})
 	if err != nil {
@@ -715,7 +715,7 @@ func TestProviderSignalOrStartRunConcurrentSignalsShareWorkflowKeyRun(t *testing
 			resp, err := p.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 				WorkflowKey:  "github:127579767:valon-technologies/gestalt:issue_comment:42",
 				Target:       workflowAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
-				ExecutionRef: "agent-ref",
+				DefinitionID: "agent-ref",
 				Signal:       workflowSignal(t, "", fmt.Sprintf("github-delivery-%02d", i), fmt.Sprintf("event %02d", i)),
 			})
 			results <- result{resp: resp, err: err}
@@ -786,7 +786,7 @@ func TestProviderSignalOrStartRunRejectsExplicitSignalIDFromOtherWorkflowKey(t *
 	first, err := provider.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey:  "github:127579767:valon-technologies/gestalt:issue_comment:42",
 		Target:       target,
-		ExecutionRef: "agent-ref",
+		DefinitionID: "agent-ref",
 		Signal:       workflowSignal(t, "shared-signal-id", "github-delivery-1", "first"),
 	})
 	if err != nil {
@@ -799,7 +799,7 @@ func TestProviderSignalOrStartRunRejectsExplicitSignalIDFromOtherWorkflowKey(t *
 	_, err = provider.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey:  "github:127579767:valon-technologies/gestalt:issue_comment:43",
 		Target:       target,
-		ExecutionRef: "agent-ref",
+		DefinitionID: "agent-ref",
 		Signal:       workflowSignal(t, "shared-signal-id", "github-delivery-2", "second"),
 	})
 	if status.Code(err) != codes.FailedPrecondition {
@@ -1101,7 +1101,7 @@ func TestProviderSignalOrStartRunReplacesStaleWorkflowKey(t *testing.T) {
 	resp, err := provider.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey:  workflowKey,
 		Target:       workflowAgentTarget("managed", "gpt-5.5", "Respond in the GitHub thread"),
-		ExecutionRef: "agent-ref",
+		DefinitionID: "agent-ref",
 		Signal:       workflowSignal(t, "", "github-delivery-1", "first"),
 	})
 	if err != nil {
@@ -1137,7 +1137,7 @@ func TestProviderSignalOrStartRunRecoversStaleRunningWorkflowKey(t *testing.T) {
 		TriggerKind:  triggerKindManual,
 		CreatedAt:    staleStartedAt.Add(-time.Second),
 		StartedAt:    &staleStartedAt,
-		ExecutionRef: "stale-ref",
+		DefinitionID: "stale-ref",
 	}.toRecord()); err != nil {
 		t.Fatalf("Put(stale-running-run): %v", err)
 	}
@@ -1165,7 +1165,7 @@ func TestProviderSignalOrStartRunRecoversStaleRunningWorkflowKey(t *testing.T) {
 	resp, err := provider.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey:  workflowKey,
 		Target:       workflowAgentTarget("managed", "gpt-5.5", "Respond in the Slack thread"),
-		ExecutionRef: "fresh-ref",
+		DefinitionID: "fresh-ref",
 		Signal:       workflowSignal(t, "old-signal", "old-delivery", "fresh retry"),
 	})
 	if err != nil {
@@ -1418,7 +1418,7 @@ func TestProviderSignalWakePrefersRunAndBatchesSignals(t *testing.T) {
 	preferred, err := provider.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		WorkflowKey:  "slack:T123:C123:1700000000.000001",
 		Target:       interactiveTarget,
-		ExecutionRef: "agent-ref",
+		DefinitionID: "agent-ref",
 		Signal:       workflowSignal(t, "", "slack-event-1", "new"),
 	})
 	if err != nil {
@@ -1508,142 +1508,6 @@ func TestProviderCancelRunOnlyWhilePending(t *testing.T) {
 	}
 }
 
-func TestProviderExecutionReferencesRoundTripAndListBySubject(t *testing.T) {
-	ctx := context.Background()
-	db := startTestIndexedDBBackend(t)
-	newTestProvider := newTestProviderFactory(t, newStepExecutorStub(202, `{"ok":true}`))
-
-	provider := newTestProvider(db)
-	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
-		t.Fatalf("Configure: %v", err)
-	}
-	t.Cleanup(func() { _ = provider.Close() })
-
-	firstCreatedAt := time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC)
-	secondCreatedAt := firstCreatedAt.Add(time.Minute)
-	first, err := provider.PutExecutionReference(ctx, &gestalt.PutWorkflowExecutionReferenceRequest{
-		Reference: &gestalt.WorkflowExecutionReference{
-			ID:                  "ref-1",
-			Target:              workflowTarget(t, "roadmap", "sync", nil),
-			SubjectID:           "user:123",
-			CredentialSubjectID: "svc:workflow",
-			Permissions: []gestalt.WorkflowAccessPermission{
-				{App: "roadmap", Operations: []string{"sync", "preview"}},
-			},
-			CreatedAt: firstCreatedAt,
-		},
-	})
-	if err != nil {
-		t.Fatalf("PutExecutionReference(ref-1): %v", err)
-	}
-	if first.ProviderName != "indexeddb" {
-		t.Fatalf("provider_name = %q, want indexeddb", first.ProviderName)
-	}
-	if got := first.CreatedAt; !got.Equal(firstCreatedAt) {
-		t.Fatalf("created_at = %v, want %v", got, firstCreatedAt)
-	}
-
-	revokedAt := secondCreatedAt.Add(time.Minute)
-	updatedTarget := workflowTarget(t, "roadmap", "sync", nil)
-	updatedTarget.Steps[0].App.CredentialMode = "none"
-	updated, err := provider.PutExecutionReference(ctx, &gestalt.PutWorkflowExecutionReferenceRequest{
-		Reference: &gestalt.WorkflowExecutionReference{
-			ID:                  "ref-1",
-			Target:              updatedTarget,
-			SubjectID:           "user:123",
-			CredentialSubjectID: "svc:workflow",
-			RunAs: &gestalt.WorkflowRunAsSubject{
-				SubjectID:   "service_account:roadmap-sync",
-				SubjectKind: "service_account",
-				DisplayName: "Roadmap sync",
-				AuthSource:  "config",
-			},
-			Permissions: []gestalt.WorkflowAccessPermission{
-				{App: "roadmap", Operations: []string{"sync"}},
-			},
-			CreatedAt: secondCreatedAt,
-			RevokedAt: &revokedAt,
-		},
-	})
-	if err != nil {
-		t.Fatalf("PutExecutionReference(update ref-1): %v", err)
-	}
-	if got := updated.CreatedAt; !got.Equal(firstCreatedAt) {
-		t.Fatalf("updated created_at = %v, want preserved %v", got, firstCreatedAt)
-	}
-	if got := updated.RevokedAt; !got.Equal(revokedAt) {
-		t.Fatalf("updated revoked_at = %v, want %v", got, revokedAt)
-	}
-
-	if _, err := provider.PutExecutionReference(ctx, &gestalt.PutWorkflowExecutionReferenceRequest{
-		Reference: &gestalt.WorkflowExecutionReference{
-			ID:        "ref-2",
-			Target:    workflowTarget(t, "roadmap", "sync", nil),
-			SubjectID: "user:123",
-			CreatedAt: secondCreatedAt,
-		},
-	}); err != nil {
-		t.Fatalf("PutExecutionReference(ref-2): %v", err)
-	}
-	if _, err := provider.PutExecutionReference(ctx, &gestalt.PutWorkflowExecutionReferenceRequest{
-		Reference: &gestalt.WorkflowExecutionReference{
-			ID:        "ref-3",
-			Target:    workflowTarget(t, "billing", "collect", nil),
-			SubjectID: "user:999",
-			CreatedAt: secondCreatedAt.Add(time.Minute),
-		},
-	}); err != nil {
-		t.Fatalf("PutExecutionReference(ref-3): %v", err)
-	}
-
-	got, err := provider.GetExecutionReference(ctx, &gestalt.GetWorkflowExecutionReferenceRequest{ID: "ref-1"})
-	if err != nil {
-		t.Fatalf("GetExecutionReference(ref-1): %v", err)
-	}
-	if got.ProviderName != "indexeddb" {
-		t.Fatalf("get provider_name = %q, want indexeddb", got.ProviderName)
-	}
-	if got.CredentialSubjectID != "svc:workflow" {
-		t.Fatalf("credential_subject_id = %q, want svc:workflow", got.CredentialSubjectID)
-	}
-	if got.RunAs.SubjectID != "service_account:roadmap-sync" || got.RunAs.SubjectKind != "service_account" {
-		t.Fatalf("run_as = %#v, want roadmap sync service account", got.RunAs)
-	}
-	if got.RunAs.DisplayName != "Roadmap sync" || got.RunAs.AuthSource != "config" {
-		t.Fatalf("run_as metadata = (%q, %q), want display/auth", got.RunAs.DisplayName, got.RunAs.AuthSource)
-	}
-	if testAppStep(got.Target).CredentialMode != "none" {
-		t.Fatalf("target credential mode = %q, want none", testAppStep(got.Target).CredentialMode)
-	}
-	if len(got.Permissions) != 1 || got.Permissions[0].App != "roadmap" {
-		t.Fatalf("permissions = %#v, want roadmap entry", got.Permissions)
-	}
-	if ops := got.Permissions[0].Operations; len(ops) != 1 || ops[0] != "sync" {
-		t.Fatalf("permission operations = %#v, want [sync]", ops)
-	}
-
-	listed, err := provider.ListExecutionReferences(ctx, &gestalt.ListWorkflowExecutionReferencesRequest{
-		SubjectID: "user:123",
-	})
-	if err != nil {
-		t.Fatalf("ListExecutionReferences(subject): %v", err)
-	}
-	if len(listed.References) != 2 {
-		t.Fatalf("subject references len = %d, want 2", len(listed.References))
-	}
-	if listed.References[0].ID != "ref-1" || listed.References[1].ID != "ref-2" {
-		t.Fatalf("subject references ids = [%s %s], want [ref-1 ref-2]", listed.References[0].ID, listed.References[1].ID)
-	}
-
-	all, err := provider.ListExecutionReferences(ctx, &gestalt.ListWorkflowExecutionReferencesRequest{})
-	if err != nil {
-		t.Fatalf("ListExecutionReferences(all): %v", err)
-	}
-	if len(all.References) != 3 {
-		t.Fatalf("all references len = %d, want 3", len(all.References))
-	}
-}
-
 func TestNormalizeTargetPreservesAppCredentialMode(t *testing.T) {
 	target := workflowTarget(t, " github ", " reviewPullRequest ", nil)
 	target.Steps[0].App.CredentialMode = " none "
@@ -1668,50 +1532,6 @@ func TestNormalizeTargetRejectsInvalidAppCredentialMode(t *testing.T) {
 	_, err := normalizeTarget(workflowTargetInput(target))
 	if err == nil || !strings.Contains(err.Error(), `target.steps[0].app.credential_mode "platform" is not supported`) {
 		t.Fatalf("normalizeTarget error = %v, want unsupported credential mode", err)
-	}
-}
-
-func TestProviderExecutionReferenceRoundTripsAgentTarget(t *testing.T) {
-	ctx := context.Background()
-	db := startTestIndexedDBBackend(t)
-	newTestProvider := newTestProviderFactory(t, newStepExecutorStub(202, `{"ok":true}`))
-
-	provider := newTestProvider(db)
-	if err := provider.Configure(ctx, "indexeddb", map[string]any{"pollInterval": "1h"}); err != nil {
-		t.Fatalf("Configure: %v", err)
-	}
-	t.Cleanup(func() { _ = provider.Close() })
-
-	createdAt := time.Date(2026, time.April, 16, 12, 0, 0, 0, time.UTC)
-	ref, err := provider.PutExecutionReference(ctx, &gestalt.PutWorkflowExecutionReferenceRequest{
-		Reference: &gestalt.WorkflowExecutionReference{
-			ID:        "agent-ref",
-			Target:    workflowAgentTarget("managed", "gpt-5.4", "send a Slack reminder"),
-			SubjectID: "user:123",
-			Permissions: []gestalt.WorkflowAccessPermission{
-				{App: "slack", Operations: []string{"chat.postMessage"}},
-			},
-			CreatedAt: createdAt,
-		},
-	})
-	if err != nil {
-		t.Fatalf("PutExecutionReference(agent-ref): %v", err)
-	}
-	if ref.ProviderName != "indexeddb" {
-		t.Fatalf("provider_name = %q, want indexeddb", ref.ProviderName)
-	}
-	if testAgentStep(ref.Target).Provider != "managed" {
-		t.Fatalf("agent target = %#v", ref.Target)
-	}
-	if testAppStep(ref.Target) != nil {
-		t.Fatalf("agent target included legacy scalar app fields: %#v", ref.Target)
-	}
-	got, err := provider.GetExecutionReference(ctx, &gestalt.GetWorkflowExecutionReferenceRequest{ID: "agent-ref"})
-	if err != nil {
-		t.Fatalf("GetExecutionReference(agent-ref): %v", err)
-	}
-	if !workflowValuesEqual(got.Target, ref.Target) {
-		t.Fatalf("round-tripped target = %#v, want %#v", got.Target, ref.Target)
 	}
 }
 
@@ -1772,23 +1592,6 @@ func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
 	}
 	assertRecordHasTargetJSON(t, runRecord)
 	assertRecordDoesNotContainFields(t, runRecord, "operation", "connection", "instance", "input")
-
-	ref, err := provider.PutExecutionReference(ctx, &gestalt.PutWorkflowExecutionReferenceRequest{
-		Reference: &gestalt.WorkflowExecutionReference{
-			ID:        "stored-ref",
-			Target:    target,
-			SubjectID: "user:123",
-		},
-	})
-	if err != nil {
-		t.Fatalf("PutExecutionReference: %v", err)
-	}
-	refRecord, err := provider.executionRefStore.Get(ctx, ref.ID)
-	if err != nil {
-		t.Fatalf("raw execution ref get: %v", err)
-	}
-	assertRecordHasTargetJSON(t, refRecord)
-	assertRecordDoesNotContainFields(t, refRecord, "target_app", "target_operation", "target_connection", "target_instance", "target_fingerprint")
 }
 
 func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
@@ -1811,13 +1614,13 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 		TriggerID:    "refresh-trigger",
 		Match:        &gestalt.WorkflowEventMatch{Type: "task.updated", Source: "roadmap"},
 		Target:       workflowTarget(t, "roadmap", "sync", map[string]any{"kind": "event"}),
-		ExecutionRef: "event-ref",
+		DefinitionID: "event-ref",
 	})
 	if err != nil {
 		t.Fatalf("UpsertEventTrigger: %v", err)
 	}
-	if trigger.ExecutionRef != "event-ref" {
-		t.Fatalf("trigger execution_ref = %q, want event-ref", trigger.ExecutionRef)
+	if trigger.DefinitionID != "event-ref" {
+		t.Fatalf("trigger definition_id = %q, want event-ref", trigger.DefinitionID)
 	}
 	requestEvent := &gestalt.WorkflowEvent{
 		ID:          "evt-1",
@@ -1841,8 +1644,8 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("waitForCall(event): %v", err)
 	}
-	if eventCall.ExecutionRef != "event-ref" {
-		t.Fatalf("event execution_ref = %q, want event-ref", eventCall.ExecutionRef)
+	if anyMap(eventCall.Metadata)[workflowInvokeMetadataDefinitionID] != "event-ref" {
+		t.Fatalf("event definition_id = %q, want event-ref", anyMap(eventCall.Metadata)[workflowInvokeMetadataDefinitionID])
 	}
 	if eventCall.Trigger.Event == nil || eventCall.Trigger.Event.TriggerID != "refresh-trigger" {
 		t.Fatalf("event trigger = %#v", eventCall.Trigger)
@@ -1853,13 +1656,13 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 		Cron:         "*/5 * * * *",
 		Timezone:     "UTC",
 		Target:       workflowTarget(t, "roadmap", "sync", map[string]any{"kind": "schedule"}),
-		ExecutionRef: "schedule-ref",
+		DefinitionID: "schedule-ref",
 	})
 	if err != nil {
 		t.Fatalf("UpsertSchedule: %v", err)
 	}
-	if schedule.ExecutionRef != "schedule-ref" {
-		t.Fatalf("schedule execution_ref = %q, want schedule-ref", schedule.ExecutionRef)
+	if schedule.DefinitionID != "schedule-ref" {
+		t.Fatalf("schedule definition_id = %q, want schedule-ref", schedule.DefinitionID)
 	}
 	if got := schedule.NextRunAt; !got.Equal(time.Date(2026, time.April, 16, 12, 5, 0, 0, time.UTC)) {
 		t.Fatalf("initial next_run_at = %v", got)
@@ -1874,8 +1677,8 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("waitForCall(schedule): %v", err)
 	}
-	if scheduleCall.ExecutionRef != "schedule-ref" {
-		t.Fatalf("schedule call execution_ref = %q, want schedule-ref", scheduleCall.ExecutionRef)
+	if anyMap(scheduleCall.Metadata)[workflowInvokeMetadataDefinitionID] != "schedule-ref" {
+		t.Fatalf("schedule call definition_id = %q, want schedule-ref", anyMap(scheduleCall.Metadata)[workflowInvokeMetadataDefinitionID])
 	}
 	scheduledFor := scheduleCall.Trigger.Schedule.ScheduledFor
 	wantScheduledFor := time.Date(2026, time.April, 16, 12, 15, 0, 0, time.UTC)
@@ -1893,8 +1696,8 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	if got := updated.NextRunAt; !got.Equal(wantNext) {
 		t.Fatalf("next_run_at = %v, want %v", got, wantNext)
 	}
-	if updated.ExecutionRef != "schedule-ref" {
-		t.Fatalf("updated schedule execution_ref = %q, want schedule-ref", updated.ExecutionRef)
+	if updated.DefinitionID != "schedule-ref" {
+		t.Fatalf("updated schedule definition_id = %q, want schedule-ref", updated.DefinitionID)
 	}
 
 	waitForCondition(t, 3*time.Second, func() bool {
@@ -1914,16 +1717,16 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRun(event): %v", err)
 	}
-	if eventRun.ExecutionRef != "event-ref" {
-		t.Fatalf("event run execution_ref = %q, want event-ref", eventRun.ExecutionRef)
+	if eventRun.DefinitionID != "event-ref" {
+		t.Fatalf("event run definition_id = %q, want event-ref", eventRun.DefinitionID)
 	}
 
 	scheduleRun, err := provider.GetRun(ctx, &gestalt.GetWorkflowProviderRunRequest{RunID: scheduleCall.RunID})
 	if err != nil {
 		t.Fatalf("GetRun(schedule): %v", err)
 	}
-	if scheduleRun.ExecutionRef != "schedule-ref" {
-		t.Fatalf("schedule run execution_ref = %q, want schedule-ref", scheduleRun.ExecutionRef)
+	if scheduleRun.DefinitionID != "schedule-ref" {
+		t.Fatalf("schedule run definition_id = %q, want schedule-ref", scheduleRun.DefinitionID)
 	}
 }
 
@@ -2023,7 +1826,7 @@ func TestProviderPublishEventDoesNotWaitForConcurrentScheduleList(t *testing.T) 
 	}
 }
 
-func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
+func TestProviderPublishEventUsesPublishedByAsCreator(t *testing.T) {
 	ctx := context.Background()
 	host := newStepExecutorStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
@@ -2039,34 +1842,12 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 	startProviderWorker(t, provider)
 	t.Cleanup(func() { _ = provider.Close() })
 
-	target := workflowTarget(t, "github", "events.runAgentFromWorkflowEvent", map[string]any{
-		"_gestalt": map[string]any{
-			"eventRunPermissions": []any{
-				map[string]any{
-					"app": "github",
-					"operations": []any{
-						"bot.commitFiles",
-						"bot.openPullRequest",
-						"bot.createPullRequest",
-					},
-				},
-			},
-		},
-	})
+	target := workflowTarget(t, "github", "events.runAgentFromWorkflowEvent", map[string]any{"repository": "gestalt"})
 	if _, err := provider.UpsertEventTrigger(ctx, &gestalt.UpsertWorkflowProviderEventTriggerRequest{
-		TriggerID: "github-webhook",
-		Match:     &gestalt.WorkflowEventMatch{Type: "github.app.webhook", Source: "github"},
-		Target:    target,
-		RequestedBy: &gestalt.WorkflowActor{
-			SubjectID: "system:config",
-		},
-	}); err != nil {
-		t.Fatalf("UpsertEventTrigger(existing actor shape): %v", err)
-	}
-	if _, err := provider.UpsertEventTrigger(ctx, &gestalt.UpsertWorkflowProviderEventTriggerRequest{
-		TriggerID: "github-webhook",
-		Match:     &gestalt.WorkflowEventMatch{Type: "github.app.webhook", Source: "github"},
-		Target:    target,
+		TriggerID:    "github-webhook",
+		Match:        &gestalt.WorkflowEventMatch{Type: "github.app.webhook", Source: "github"},
+		Target:       target,
+		DefinitionID: "github-webhook-definition",
 		RequestedBy: &gestalt.WorkflowActor{
 			SubjectID:   "system:config",
 			SubjectKind: "system",
@@ -2095,35 +1876,21 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("waitForCall: %v", err)
 	}
-	if call.ExecutionRef == "" || call.ExecutionRef == "event-ref" {
-		t.Fatalf("execution_ref = %q, want publisher-scoped event ref", call.ExecutionRef)
+	if got := anyMap(call.Metadata)[workflowInvokeMetadataDefinitionID]; got != "github-webhook-definition" {
+		t.Fatalf("definition_id = %v, want github-webhook-definition", got)
 	}
 	if call.CreatedBy.SubjectID != publishedBy.SubjectID {
 		t.Fatalf("created_by.subject_id = %q, want %q", call.CreatedBy.SubjectID, publishedBy.SubjectID)
 	}
-	ref, err := provider.GetExecutionReference(ctx, &gestalt.GetWorkflowExecutionReferenceRequest{ID: call.ExecutionRef})
+	run, err := provider.GetRun(ctx, &gestalt.GetWorkflowProviderRunRequest{RunID: call.RunID})
 	if err != nil {
-		t.Fatalf("GetExecutionReference: %v", err)
+		t.Fatalf("GetRun: %v", err)
 	}
-	if ref.SubjectID != publishedBy.SubjectID || ref.SubjectKind != "service_account" || ref.AuthSource != "github_app_webhook" {
-		t.Fatalf("execution ref subject = (%q, %q, %q), want published GitHub service account", ref.SubjectID, ref.SubjectKind, ref.AuthSource)
+	if run.DefinitionID != "github-webhook-definition" {
+		t.Fatalf("run definition_id = %q, want github-webhook-definition", run.DefinitionID)
 	}
-	if ref.CredentialSubjectID != publishedBy.SubjectID {
-		t.Fatalf("credential_subject_id = %q, want publisher subject", ref.CredentialSubjectID)
-	}
-	gotOperations := map[string]bool{}
-	for _, permission := range ref.Permissions {
-		if permission.App != "github" {
-			continue
-		}
-		for _, operation := range permission.Operations {
-			gotOperations[operation] = true
-		}
-	}
-	for _, operation := range []string{"events.runAgentFromWorkflowEvent", "bot.commitFiles", "bot.openPullRequest", "bot.createPullRequest"} {
-		if !gotOperations[operation] {
-			t.Fatalf("permissions = %#v, missing github/%s", ref.Permissions, operation)
-		}
+	if run.CreatedBy.SubjectID != publishedBy.SubjectID {
+		t.Fatalf("run created_by.subject_id = %q, want %q", run.CreatedBy.SubjectID, publishedBy.SubjectID)
 	}
 
 	duplicatePublisher := &gestalt.WorkflowActor{
@@ -2139,13 +1906,6 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("PublishEvent(duplicate): %v", err)
 	}
-	ref, err = provider.GetExecutionReference(ctx, &gestalt.GetWorkflowExecutionReferenceRequest{ID: call.ExecutionRef})
-	if err != nil {
-		t.Fatalf("GetExecutionReference(after duplicate): %v", err)
-	}
-	if ref.SubjectID != publishedBy.SubjectID {
-		t.Fatalf("duplicate publish replaced execution ref subject = %q, want %q", ref.SubjectID, publishedBy.SubjectID)
-	}
 	runs, err := provider.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{})
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
@@ -2153,21 +1913,8 @@ func TestProviderPublishEventUsesPublisherExecutionReference(t *testing.T) {
 	if len(runs.Runs) != 1 {
 		t.Fatalf("runs len = %d, want duplicate event to keep one run", len(runs.Runs))
 	}
-}
-
-func TestConfiguredEventRunPermissionsRejectsLegacyPluginField(t *testing.T) {
-	_, err := configuredEventRunPermissions(map[string]any{
-		gestaltInputKey: map[string]any{
-			eventRunPermissionsKey: []any{
-				map[string]any{
-					"plugin":     "github",
-					"operations": []any{"bot.createPullRequest"},
-				},
-			},
-		},
-	})
-	if err == nil || !strings.Contains(err.Error(), ".app is required") {
-		t.Fatalf("configuredEventRunPermissions error = %v, want app required", err)
+	if runs.Runs[0].CreatedBy.SubjectID != publishedBy.SubjectID {
+		t.Fatalf("duplicate publish changed created_by.subject_id = %q, want %q", runs.Runs[0].CreatedBy.SubjectID, publishedBy.SubjectID)
 	}
 }
 
@@ -2203,7 +1950,7 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 		Cron:         "* * * * *",
 		Timezone:     "UTC",
 		Target:       workflowAgentTarget("managed", "gpt-5.4", "send a Slack reminder"),
-		ExecutionRef: "agent-ref",
+		DefinitionID: "agent-ref",
 	})
 	if err != nil {
 		t.Fatalf("UpsertSchedule(agent): %v", err)
@@ -2232,8 +1979,8 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("waitForCall(agent schedule): %v", err)
 	}
-	if call.ExecutionRef != "agent-ref" {
-		t.Fatalf("execution_ref = %q, want agent-ref", call.ExecutionRef)
+	if anyMap(call.Metadata)[workflowInvokeMetadataDefinitionID] != "agent-ref" {
+		t.Fatalf("definition_id = %q, want agent-ref", anyMap(call.Metadata)[workflowInvokeMetadataDefinitionID])
 	}
 	if testAgentStep(call.Target).Prompt.Template != "send a Slack reminder" {
 		t.Fatalf("call target = %#v", call.Target)
@@ -2400,22 +2147,6 @@ func TestProviderRequiresStoredTargetJSON(t *testing.T) {
 			},
 			read: func() error {
 				_, err := provider.GetRun(ctx, &gestalt.GetWorkflowProviderRunRequest{RunID: "missing-target-run"})
-				return err
-			},
-			want: "missing target_json",
-		},
-		{
-			name: "execution reference missing target json",
-			put: func() error {
-				return provider.executionRefStore.Put(ctx, gestalt.Record{
-					"id":            "missing-target-ref",
-					"provider_name": "workflow",
-					"subject_id":    "user-1",
-					"created_at":    now,
-				})
-			},
-			read: func() error {
-				_, err := provider.GetExecutionReference(ctx, &gestalt.GetWorkflowExecutionReferenceRequest{ID: "missing-target-ref"})
 				return err
 			},
 			want: "missing target_json",
@@ -2653,7 +2384,7 @@ func TestProviderMarksStaleRunningRunsFailedOnStartup(t *testing.T) {
 		TriggerKind:  triggerKindManual,
 		CreatedAt:    startedAt.Add(-time.Second),
 		StartedAt:    &startedAt,
-		ExecutionRef: "agent-ref",
+		DefinitionID: "agent-ref",
 	}.toRecord()); err != nil {
 		t.Fatalf("Put(stale-agent-run): %v", err)
 	}
@@ -3405,7 +3136,7 @@ func TestProviderTickPrioritizesKeyedSignalContinuation(t *testing.T) {
 		CreatedAt:    start,
 		StartedAt:    timePtr(start.Add(time.Second)),
 		CompletedAt:  timePtr(start.Add(2 * time.Second)),
-		ExecutionRef: "agent-ref",
+		DefinitionID: "agent-ref",
 	}
 	for _, run := range []workflowRunRecord{oldAgent, continuation} {
 		if err := provider.runStore.Put(ctx, run.toRecord()); err != nil {
@@ -3816,7 +3547,6 @@ func seedWorkflowObjectStores(t *testing.T, store *relationaldb.Provider) {
 		{name: storeWorkflowKeys, schema: gestalt.ObjectStoreSchema{}},
 		{name: storeRuns, schema: gestalt.ObjectStoreSchema{}},
 		{name: storeRunClaims, schema: workflowRunClaimSchema()},
-		{name: storeExecutionRefs, schema: workflowExecutionReferenceSchema()},
 		{name: storeSignals, schema: workflowSignalSchema()},
 	} {
 		if err := store.CreateObjectStore(context.Background(), def.name, def.schema); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
@@ -3859,28 +3589,6 @@ func workflowSignalSchema() gestalt.ObjectStoreSchema {
 			{Name: "delivered_at", Type: gestalt.TypeTime},
 			{Name: "failed_at", Type: gestalt.TypeTime},
 			{Name: "status_message", Type: gestalt.TypeString},
-		},
-	}
-}
-
-func workflowExecutionReferenceSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
-		Indexes: []gestalt.IndexSchema{
-			{Name: "by_subject", KeyPath: []string{"subject_id"}},
-		},
-		Columns: []gestalt.ColumnDef{
-			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
-			{Name: "provider_name", Type: gestalt.TypeString, NotNull: true},
-			{Name: "target_json", Type: gestalt.TypeString},
-			{Name: "subject_id", Type: gestalt.TypeString, NotNull: true},
-			{Name: "subject_kind", Type: gestalt.TypeString},
-			{Name: "display_name", Type: gestalt.TypeString},
-			{Name: "auth_source", Type: gestalt.TypeString},
-			{Name: "credential_subject_id", Type: gestalt.TypeString},
-			{Name: "run_as_json", Type: gestalt.TypeString},
-			{Name: "permissions_json", Type: gestalt.TypeString},
-			{Name: "created_at", Type: gestalt.TypeTime},
-			{Name: "revoked_at", Type: gestalt.TypeTime},
 		},
 	}
 }

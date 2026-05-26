@@ -18,8 +18,6 @@ const (
 	defaultSpecVersion = "1.0"
 	defaultTimezone    = "UTC"
 
-	gestaltInputKey              = "_gestalt"
-	eventRunPermissionsKey       = "eventRunPermissions"
 	configManagedWorkflowSubject = "system:config"
 	configManagedWorkflowKind    = "system"
 	configManagedWorkflowAuth    = "config"
@@ -92,14 +90,20 @@ func hashID(parts ...string) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-func workflowInvokeMetadataInput(workflowKey string) map[string]any {
+func workflowInvokeMetadataInput(workflowKey, definitionID string) map[string]any {
 	workflowKey = strings.TrimSpace(workflowKey)
-	if workflowKey == "" {
+	definitionID = strings.TrimSpace(definitionID)
+	if workflowKey == "" && definitionID == "" {
 		return nil
 	}
-	return map[string]any{
-		workflowInvokeMetadataWorkflowKey: workflowKey,
+	metadata := map[string]any{}
+	if workflowKey != "" {
+		metadata[workflowInvokeMetadataWorkflowKey] = workflowKey
 	}
+	if definitionID != "" {
+		metadata[workflowInvokeMetadataDefinitionID] = definitionID
+	}
+	return metadata
 }
 
 func valueHashID(value any) string {
@@ -372,8 +376,8 @@ func cloneRunInput(run *gestalt.BoundWorkflowRun) *gestalt.BoundWorkflowRun {
 	out := *run
 	out.ID = strings.TrimSpace(out.ID)
 	out.StatusMessage = strings.TrimSpace(out.StatusMessage)
-	out.ExecutionRef = strings.TrimSpace(out.ExecutionRef)
 	out.WorkflowKey = strings.TrimSpace(out.WorkflowKey)
+	out.DefinitionID = strings.TrimSpace(out.DefinitionID)
 	out.CreatedBy = cloneActorInput(out.CreatedBy)
 	return &out
 }
@@ -516,16 +520,5 @@ func sortTriggerInputs(triggers []*gestalt.BoundWorkflowEventTrigger) {
 			return a.Before(b)
 		}
 		return triggers[i].ID < triggers[j].ID
-	})
-}
-
-func sortReferenceInputs(refs []*gestalt.WorkflowExecutionReference) {
-	sort.SliceStable(refs, func(i, j int) bool {
-		a := refs[i].CreatedAt
-		b := refs[j].CreatedAt
-		if !a.Equal(b) {
-			return a.Before(b)
-		}
-		return refs[i].ID < refs[j].ID
 	})
 }

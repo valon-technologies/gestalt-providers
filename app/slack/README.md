@@ -176,8 +176,10 @@ reaction to the source Slack message after the workflow provider accepts the
 event. Emoji names may be written with or without colons, and Slack's
 `already_reacted` response is treated as idempotent success.
 
-`events.handle` calls `WorkflowManager.SignalOrStartRun(provider_name=workflow.provider,
-workflow_key="slack:${team_id}:${channel_id}:${root_ts}", signal.name="slack.event")`.
+`events.handle` calls `req.workflows().signal_or_start_run(WorkflowSignalOrStartRun(...))`
+with `provider_name=workflow.provider`,
+`workflow_key="slack:${team_id}:${channel_id}:${root_ts}"`, and
+`signal.name="slack.event"`.
 The workflow target is an agent target built from the `agent` and `agent.routes`
 configuration. The Slack event, `reply_ref`, and generated user prompt are
 delivered in the signal payload, so later Slack messages in the same thread
@@ -339,7 +341,7 @@ native assistant thread metadata:
 
 Use `slack.interactions.request` to post signed Slack buttons.
 When the Slack user clicks a button, the interactivity webhook validates the
-signed metadata and calls `WorkflowManager.SignalOrStartRun` with
+signed metadata and calls `req.workflows().signal_or_start_run(...)` with
 `signal.name="slack.interaction"` for the same `workflow_key`:
 
 ```json

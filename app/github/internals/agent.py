@@ -60,7 +60,7 @@ def build_workflow_signal_or_start_request(
     pull_request_context: Any | None = None,
 ) -> Any:
     idempotency_key = agent_turn_idempotency_key(payload, summary, policy)
-    request = gestalt.WorkflowManagerSignalOrStartRun(
+    request = gestalt.WorkflowSignalOrStartRun(
         provider_name=workflow_provider(policy),
         workflow_key=agent_session_ref(summary, policy),
         idempotency_key=idempotency_key,
@@ -97,19 +97,10 @@ def workflow_target(
 
 
 def workflow_app_target(target: GitHubWorkflowAppTarget) -> Any:
-    step_type = getattr(gestalt, "WorkflowStep", None)
-    app_type = getattr(gestalt, "WorkflowStepAppCall", None)
-    value_type = getattr(gestalt, "WorkflowValue", None)
-    if step_type is None or app_type is None:
-        raise RuntimeError("Gestalt SDK with workflow step support is required")
     app_input: Any = None
     if target.input is not None:
-        app_input = (
-            value_type(object=target.input)
-            if value_type is not None
-            else target.input
-        )
-    app_call = app_type(
+        app_input = gestalt.WorkflowValue(object=target.input)
+    app_call = gestalt.WorkflowStepAppCall(
         name=target.app_name,
         operation=target.operation,
         connection=target.connection or "",
@@ -117,29 +108,23 @@ def workflow_app_target(target: GitHubWorkflowAppTarget) -> Any:
         credential_mode=target.credential_mode or "",
         input=app_input,
     )
-    return gestalt.BoundWorkflowTarget(steps=[step_type(id="run", app=app_call)])
+    return gestalt.BoundWorkflowTarget(
+        steps=[gestalt.WorkflowStep(id="run", app=app_call)]
+    )
 
 
 def workflow_agent_target(
     summary: dict[str, Any], policy: GitHubWebhookPolicy | None = None
 ) -> Any:
-    step_type = getattr(gestalt, "WorkflowStep", None)
-    agent_type = getattr(gestalt, "WorkflowStepAgentTurn", None)
-    if step_type is None or agent_type is None:
-        raise RuntimeError("Gestalt SDK with workflow step support is required")
     model_options = agent_model_options(policy)
     system_prompt = agent_system_prompt(policy)
-    text_type = getattr(gestalt, "WorkflowText", None)
-    message_type = getattr(gestalt, "WorkflowAgentMessage", None)
-    if message_type is not None and text_type is not None:
-        messages = [
-            message_type(role="system", text=text_type(template=system_prompt))
-        ]
-        prompt = text_type(template=workflow_agent_prompt())
-    else:
-        messages = [gestalt.AgentMessage(role="system", text=system_prompt)]
-        prompt = workflow_agent_prompt()
-    agent_turn = agent_type(
+    messages = [
+        gestalt.WorkflowAgentMessage(
+            role="system", text=gestalt.WorkflowText(template=system_prompt)
+        )
+    ]
+    prompt = gestalt.WorkflowText(template=workflow_agent_prompt())
+    agent_turn = gestalt.WorkflowStepAgentTurn(
         provider=agent_provider(policy),
         model=agent_model(policy),
         prompt=prompt,
@@ -151,7 +136,7 @@ def workflow_agent_target(
     step_kwargs: dict[str, Any] = {"id": "run", "agent": agent_turn}
     if metadata:
         step_kwargs["metadata"] = metadata
-    return gestalt.BoundWorkflowTarget(steps=[step_type(**step_kwargs)])
+    return gestalt.BoundWorkflowTarget(steps=[gestalt.WorkflowStep(**step_kwargs)])
 
 
 def workflow_signal_payload(

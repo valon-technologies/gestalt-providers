@@ -16,7 +16,7 @@ type runWorkflowV4Input struct {
 	ActivityStartToCloseTimeoutNS time.Duration                `json:"activity_start_to_close_timeout_ns"`
 	ProviderName                  string                       `json:"provider_name,omitempty"`
 	ScheduleID                    string                       `json:"schedule_id,omitempty"`
-	ExecutionRef                  string                       `json:"execution_ref,omitempty"`
+	DefinitionID                  string                       `json:"definition_id,omitempty"`
 	InvocationToken               string                       `json:"invocation_token,omitempty"`
 	WorkflowKey                   string                       `json:"workflow_key,omitempty"`
 	OwnerKey                      string                       `json:"owner_key,omitempty"`
@@ -56,8 +56,8 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		Trigger:      input.triggerInput(now),
 		CreatedAt:    now,
 		CreatedBy:    input.createdByInput(),
-		ExecutionRef: strings.TrimSpace(input.ExecutionRef),
 		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
+		DefinitionID: strings.TrimSpace(input.DefinitionID),
 	}
 	pendingSignals := make([]gestalt.WorkflowSignal, 0)
 	nextSignalSequence := int64(1)
@@ -210,9 +210,8 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 			RunID:           state.ID,
 			Target:          state.Target,
 			Trigger:         state.Trigger,
-			Metadata:        workflowInvokeMetadataInput(state.WorkflowKey),
+			Metadata:        workflowInvokeMetadataInput(state.WorkflowKey, state.DefinitionID),
 			CreatedBy:       state.CreatedBy,
-			ExecutionRef:    strings.TrimSpace(state.ExecutionRef),
 			InvocationToken: strings.TrimSpace(input.InvocationToken),
 			Signals:         batch,
 		}

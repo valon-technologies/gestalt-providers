@@ -47,7 +47,6 @@ const (
 	storeRuns          = "runs"
 	storeRunClaims     = "workflow_run_claims"
 	storeIdempotency   = "idempotency"
-	storeExecutionRefs = "execution_refs"
 	storeWorkflowKeys  = "workflow_keys"
 	storeSignals       = "workflow_signals"
 
@@ -55,15 +54,15 @@ const (
 	triggerKindSchedule = "schedule"
 	triggerKindEvent    = "event"
 
-	gestaltInputKey                   = "_gestalt"
-	eventRunPermissionsKey            = "eventRunPermissions"
-	configManagedWorkflowSubject      = "system:config"
-	configManagedWorkflowAuth         = "config"
-	configManagedWorkflowKind         = "system"
-	workflowMetadataKey               = "workflow"
-	workflowInvokeMetadataWorkflowKey = "workflow_key"
-	dispatchPriorityMetadataKey       = "dispatchPriority"
-	staleRunStatusMessage             = "workflow provider restarted while run was in progress"
+	gestaltInputKey                    = "_gestalt"
+	configManagedWorkflowSubject       = "system:config"
+	configManagedWorkflowAuth          = "config"
+	configManagedWorkflowKind          = "system"
+	workflowMetadataKey                = "workflow"
+	workflowInvokeMetadataWorkflowKey  = "workflow_key"
+	workflowInvokeMetadataDefinitionID = "definition_id"
+	dispatchPriorityMetadataKey        = "dispatchPriority"
+	staleRunStatusMessage              = "workflow provider restarted while run was in progress"
 
 	signalStatePending   = "pending"
 	signalStateClaimed   = "claimed"
@@ -86,8 +85,8 @@ type Provider struct {
 	// workerMu serializes scheduler and worker claim work without blocking
 	// foreground enqueue calls on the provider lifecycle lock.
 	workerMu sync.Mutex
-	// publishMu serializes event publication so deterministic event run IDs and
-	// publisher-scoped execution refs stay consistent across duplicate publishes.
+	// publishMu serializes event publication so deterministic event run IDs stay
+	// consistent across duplicate publishes.
 	publishMu sync.Mutex
 
 	name              string
@@ -100,7 +99,6 @@ type Provider struct {
 	runStore          indexeddb.ObjectStore
 	runClaimStore     indexeddb.ObjectStore
 	idempotencyStore  indexeddb.ObjectStore
-	executionRefStore indexeddb.ObjectStore
 	workflowKeyStore  indexeddb.ObjectStore
 	signalStore       indexeddb.ObjectStore
 	indexedDB         indexeddb.Database
@@ -125,7 +123,7 @@ type workflowScheduleRecord struct {
 	UpdatedAt       time.Time
 	NextRunAt       *time.Time
 	CreatedBy       *gestalt.WorkflowActor
-	ExecutionRef    string
+	DefinitionID    string
 	InvocationToken string
 }
 
@@ -139,7 +137,7 @@ type workflowEventTriggerRecord struct {
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 	CreatedBy       *gestalt.WorkflowActor
-	ExecutionRef    string
+	DefinitionID    string
 	InvocationToken string
 }
 
@@ -158,7 +156,7 @@ type workflowRunRecord struct {
 	StatusMessage         string
 	ResultBody            string
 	CreatedBy             *gestalt.WorkflowActor
-	ExecutionRef          string
+	DefinitionID          string
 	InvocationToken       string
 	WorkflowKey           string
 	NextSignalSequence    int64
@@ -217,22 +215,6 @@ type workflowSignalRecord struct {
 	StatusMessage  string
 }
 
-type workflowExecutionReferenceRecord struct {
-	ID                  string
-	ProviderName        string
-	Target              *gestalt.BoundWorkflowTarget
-	SubjectID           string
-	SubjectKind         string
-	DisplayName         string
-	AuthSource          string
-	CredentialSubjectID string
-	RunAsJSON           string
-	PermissionsJSON     string
-	CreatedAt           time.Time
-	RevokedAt           *time.Time
-	CallerAppName       string
-}
-
 type scopedTarget struct {
 	OwnerKey string
 	Target   *gestalt.BoundWorkflowTarget
@@ -281,7 +263,6 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	runStore := db.ObjectStore(storeRuns)
 	runClaimStore := db.ObjectStore(storeRunClaims)
 	workflowKeyStore := db.ObjectStore(storeWorkflowKeys)
-	executionRefStore := db.ObjectStore(storeExecutionRefs)
 	signalStore := db.ObjectStore(storeSignals)
 	if err := validateWorkflowSignalIndexes(ctx, signalStore); err != nil {
 		cleanup()
@@ -299,7 +280,6 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	p.runStore = runStore
 	p.runClaimStore = runClaimStore
 	p.idempotencyStore = db.ObjectStore(storeIdempotency)
-	p.executionRefStore = executionRefStore
 	p.workflowKeyStore = workflowKeyStore
 	p.signalStore = signalStore
 	if strings.TrimSpace(p.claimOwnerID) == "" {
@@ -414,7 +394,6 @@ func (p *Provider) Close() error {
 	p.runStore = nil
 	p.runClaimStore = nil
 	p.idempotencyStore = nil
-	p.executionRefStore = nil
 	p.workflowKeyStore = nil
 	p.signalStore = nil
 	p.startedAt = time.Time{}
@@ -546,7 +525,7 @@ func (p *Provider) StartRun(ctx context.Context, req *gestalt.StartWorkflowProvi
 		TriggerKind:        triggerKindManual,
 		CreatedAt:          now,
 		CreatedBy:          actor,
-		ExecutionRef:       strings.TrimSpace(req.ExecutionRef),
+		DefinitionID:       strings.TrimSpace(req.DefinitionID),
 		InvocationToken:    strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx)),
 		WorkflowKey:        workflowKey,
 		NextSignalSequence: 1,
@@ -947,7 +926,7 @@ func (p *Provider) UpsertSchedule(ctx context.Context, req *gestalt.UpsertWorkfl
 		CreatedAt:       now,
 		UpdatedAt:       now,
 		CreatedBy:       requestedBy,
-		ExecutionRef:    strings.TrimSpace(req.ExecutionRef),
+		DefinitionID:    strings.TrimSpace(req.DefinitionID),
 		InvocationToken: strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx)),
 	}
 	if found {
@@ -1132,7 +1111,7 @@ func (p *Provider) UpsertEventTrigger(ctx context.Context, req *gestalt.UpsertWo
 		CreatedAt:       now,
 		UpdatedAt:       now,
 		CreatedBy:       requestedBy,
-		ExecutionRef:    strings.TrimSpace(req.ExecutionRef),
+		DefinitionID:    strings.TrimSpace(req.DefinitionID),
 		InvocationToken: strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx)),
 	}
 	if found {
@@ -1282,7 +1261,6 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 		return nil, status.Errorf(codes.Internal, "list event triggers: %v", err)
 	}
 	now := p.clock().UTC()
-	providerName := strings.TrimSpace(p.name)
 	publishedBy := cloneActor(req.PublishedBy)
 	enqueued := false
 	preferredRunID := ""
@@ -1301,31 +1279,8 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 			continue
 		}
 		createdBy := cloneActor(trigger.CreatedBy)
-		executionRef := trigger.ExecutionRef
-		createdExecutionRef := false
 		if actorHasSubject(publishedBy) {
 			createdBy = cloneActor(publishedBy)
-			ref, err := publishedEventExecutionReference(providerName, runID, trigger, publishedBy, now)
-			if err != nil {
-				p.mu.RUnlock()
-				return nil, status.Errorf(codes.Internal, "build event execution reference: %v", err)
-			}
-			if ref != nil {
-				record, err := executionReferenceRecordFromInput(ref)
-				if err != nil {
-					p.mu.RUnlock()
-					return nil, status.Errorf(codes.Internal, "build event execution reference record: %v", err)
-				}
-				if err := state.executionRefStore.Add(ctx, record.toRecord()); err != nil {
-					if !errors.Is(err, gestalt.ErrAlreadyExists) {
-						p.mu.RUnlock()
-						return nil, status.Errorf(codes.Internal, "store event execution reference: %v", err)
-					}
-				} else {
-					createdExecutionRef = true
-				}
-				executionRef = ref.ID
-			}
 		}
 		invocationToken := strings.TrimSpace(trigger.InvocationToken)
 		if invocationToken == "" {
@@ -1340,16 +1295,13 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 			TriggerEvent:          cloneEvent(event),
 			CreatedAt:             now,
 			CreatedBy:             createdBy,
-			ExecutionRef:          executionRef,
+			DefinitionID:          trigger.DefinitionID,
 			InvocationToken:       invocationToken,
 			NextSignalSequence:    1,
 		}
 		if err := state.runStore.Add(ctx, run.toRecord()); err != nil {
 			if errors.Is(err, gestalt.ErrAlreadyExists) {
 				continue
-			}
-			if createdExecutionRef {
-				_ = state.executionRefStore.Delete(ctx, executionRef)
 			}
 			p.mu.RUnlock()
 			return nil, status.Errorf(codes.Internal, "enqueue workflow run: %v", err)
@@ -1364,132 +1316,6 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 	}
 	p.mu.RUnlock()
 	return cloneWorkflowEvent(event), nil
-}
-
-func (p *Provider) PutExecutionReference(ctx context.Context, req *gestalt.PutWorkflowExecutionReferenceRequest) (*gestalt.WorkflowExecutionReference, error) {
-	if req == nil || req.Reference == nil {
-		return nil, status.Error(codes.InvalidArgument, "reference is required")
-	}
-	ref := cloneExecutionReference(req.Reference)
-	if strings.TrimSpace(ref.ProviderName) == "" {
-		ref.ProviderName = p.providerName()
-	}
-	record, err := executionReferenceRecordFromInput(ref)
-	if err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
-	}
-
-	p.mu.RLock()
-	state, err := p.requireConfiguredLocked()
-	if err != nil {
-		p.mu.RUnlock()
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	if existing, found, err := loadExecutionReferenceRecord(ctx, state.executionRefStore, record.ID); err != nil {
-		p.mu.RUnlock()
-		return nil, status.Errorf(codes.Internal, "load execution reference: %v", err)
-	} else if found {
-		if !existing.CreatedAt.IsZero() {
-			record.CreatedAt = existing.CreatedAt
-		}
-		if executionReferenceRecordsEqual(existing, record) {
-			resp, err := existing.toInput()
-			p.mu.RUnlock()
-			if err != nil {
-				return nil, status.Errorf(codes.Internal, "build execution reference response: %v", err)
-			}
-			return resp, nil
-		}
-	}
-	if record.CreatedAt.IsZero() {
-		record.CreatedAt = p.clock().UTC()
-	}
-	if err := state.executionRefStore.Put(ctx, record.toRecord()); err != nil {
-		if errors.Is(err, gestalt.ErrAlreadyExists) {
-			existing, found, loadErr := loadExecutionReferenceRecord(ctx, state.executionRefStore, record.ID)
-			if loadErr != nil {
-				p.mu.RUnlock()
-				return nil, status.Errorf(codes.Internal, "load existing execution reference after conflict: %v", loadErr)
-			}
-			if found {
-				if !existing.CreatedAt.IsZero() {
-					record.CreatedAt = existing.CreatedAt
-				}
-				if executionReferenceRecordsEqual(existing, record) {
-					resp, buildErr := existing.toInput()
-					p.mu.RUnlock()
-					if buildErr != nil {
-						return nil, status.Errorf(codes.Internal, "build execution reference response: %v", buildErr)
-					}
-					return resp, nil
-				}
-			}
-		}
-		p.mu.RUnlock()
-		return nil, status.Errorf(codes.Internal, "put execution reference: %v", err)
-	}
-	resp, err := record.toInput()
-	p.mu.RUnlock()
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "build execution reference response: %v", err)
-	}
-	return resp, nil
-}
-
-func (p *Provider) GetExecutionReference(ctx context.Context, req *gestalt.GetWorkflowExecutionReferenceRequest) (*gestalt.WorkflowExecutionReference, error) {
-	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "request is required")
-	}
-	refID := strings.TrimSpace(req.ID)
-	if refID == "" {
-		return nil, status.Error(codes.InvalidArgument, "id is required")
-	}
-	p.mu.RLock()
-	state, err := p.requireConfiguredLocked()
-	if err != nil {
-		p.mu.RUnlock()
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	record, found, err := loadExecutionReferenceRecord(ctx, state.executionRefStore, refID)
-	p.mu.RUnlock()
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "get execution reference: %v", err)
-	}
-	if !found {
-		return nil, status.Errorf(codes.NotFound, "workflow execution reference %q not found", refID)
-	}
-	resp, err := record.toInput()
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "build execution reference response: %v", err)
-	}
-	return resp, nil
-}
-
-func (p *Provider) ListExecutionReferences(ctx context.Context, req *gestalt.ListWorkflowExecutionReferencesRequest) (*gestalt.ListWorkflowExecutionReferencesResponse, error) {
-	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "request is required")
-	}
-	subjectID := strings.TrimSpace(req.SubjectID)
-	p.mu.RLock()
-	state, err := p.requireConfiguredLocked()
-	if err != nil {
-		p.mu.RUnlock()
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	records, err := listExecutionReferenceRecords(ctx, state.executionRefStore, subjectID)
-	p.mu.RUnlock()
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "list execution references: %v", err)
-	}
-	resp := &gestalt.ListWorkflowExecutionReferencesResponse{References: make([]gestalt.WorkflowExecutionReference, 0, len(records))}
-	for _, record := range records {
-		pbRef, err := record.toInput()
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "build execution reference response: %v", err)
-		}
-		resp.References = append(resp.References, *pbRef)
-	}
-	return resp, nil
 }
 
 type workflowSignalAddConflictError struct {
@@ -1589,7 +1415,7 @@ func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrS
 			TriggerKind:        triggerKindManual,
 			CreatedAt:          now,
 			CreatedBy:          cloneActor(req.CreatedBy),
-			ExecutionRef:       strings.TrimSpace(req.ExecutionRef),
+			DefinitionID:       strings.TrimSpace(req.DefinitionID),
 			InvocationToken:    strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx)),
 			WorkflowKey:        workflowKey,
 			NextSignalSequence: 1,
@@ -1607,7 +1433,7 @@ func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrS
 			return nil, "", status.Errorf(codes.Internal, "store workflow key: %v", err)
 		}
 	}
-	// The existing keyed run owns the execution ref and target. Later signals
+	// The existing keyed run owns the definition and target. Later signals
 	// deliberately do not replace that context, even if the caller's current
 	// config would build a different target.
 	return enqueueSignalInTransaction(ctx, stores.runStore, stores.idempotencyStore, stores.signalStore, run, enqueueSignal, startedRun)
@@ -1974,7 +1800,7 @@ func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
 			TriggerScheduledFor: timePtr(latestDue),
 			CreatedAt:           now,
 			CreatedBy:           cloneActor(schedule.CreatedBy),
-			ExecutionRef:        schedule.ExecutionRef,
+			DefinitionID:        schedule.DefinitionID,
 			InvocationToken:     strings.TrimSpace(schedule.InvocationToken),
 			NextSignalSequence:  1,
 		}
@@ -2089,9 +1915,8 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 		RunID:           pending.ID,
 		Target:          targetInput,
 		Trigger:         pending.triggerInput(),
-		Metadata:        workflowInvokeMetadataInput(pending.WorkflowKey),
+		Metadata:        workflowInvokeMetadataInput(pending.WorkflowKey, pending.DefinitionID),
 		CreatedBy:       workflowActorInput(pending.CreatedBy),
-		ExecutionRef:    pending.ExecutionRef,
 		InvocationToken: pending.InvocationToken,
 		Signals:         signals,
 	})
@@ -2260,7 +2085,7 @@ func completeRunInTransaction(ctx context.Context, stores workflowRunCompletionT
 }
 
 func (p *Provider) requireConfiguredLocked() (*configuredState, error) {
-	if p.db == nil || p.runStore == nil || p.runClaimStore == nil || p.scheduleStore == nil || p.eventTriggerStore == nil || p.definitionStore == nil || p.idempotencyStore == nil || p.executionRefStore == nil || p.workflowKeyStore == nil || p.signalStore == nil || p.stepExecutor == nil {
+	if p.db == nil || p.runStore == nil || p.runClaimStore == nil || p.scheduleStore == nil || p.eventTriggerStore == nil || p.definitionStore == nil || p.idempotencyStore == nil || p.workflowKeyStore == nil || p.signalStore == nil || p.stepExecutor == nil {
 		return nil, errors.New("indexeddb workflow: provider is not configured")
 	}
 	return &configuredState{
@@ -2273,7 +2098,6 @@ func (p *Provider) requireConfiguredLocked() (*configuredState, error) {
 		runStore:           p.runStore,
 		runClaimStore:      p.runClaimStore,
 		idempotencyStore:   p.idempotencyStore,
-		executionRefStore:  p.executionRefStore,
 		workflowKeyStore:   p.workflowKeyStore,
 		signalStore:        p.signalStore,
 		claimOwnerID:       p.claimOwnerID,
@@ -2329,7 +2153,6 @@ type configuredState struct {
 	runStore           indexeddb.ObjectStore
 	runClaimStore      indexeddb.ObjectStore
 	idempotencyStore   indexeddb.ObjectStore
-	executionRefStore  indexeddb.ObjectStore
 	workflowKeyStore   indexeddb.ObjectStore
 	signalStore        indexeddb.ObjectStore
 	claimOwnerID       string
@@ -2702,13 +2525,6 @@ func normalizeRunClaimRenewEvery(ttl, renewEvery time.Duration) time.Duration {
 	return renewEvery
 }
 
-func validateWorkflowExecutionReferenceIndexes(ctx context.Context, store indexeddb.ObjectStore) error {
-	if _, err := store.Index("by_subject").Count(ctx, nil, "__workflow_schema_probe__"); err != nil {
-		return fmt.Errorf("by_subject: %w", err)
-	}
-	return nil
-}
-
 func validateWorkflowSignalIndexes(ctx context.Context, store indexeddb.ObjectStore) error {
 	probes := []struct {
 		name   string
@@ -2912,14 +2728,20 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func workflowInvokeMetadataInput(workflowKey string) map[string]any {
+func workflowInvokeMetadataInput(workflowKey, definitionID string) map[string]any {
 	workflowKey = strings.TrimSpace(workflowKey)
-	if workflowKey == "" {
+	definitionID = strings.TrimSpace(definitionID)
+	if workflowKey == "" && definitionID == "" {
 		return nil
 	}
-	return map[string]any{
-		workflowInvokeMetadataWorkflowKey: workflowKey,
+	metadata := map[string]any{}
+	if workflowKey != "" {
+		metadata[workflowInvokeMetadataWorkflowKey] = workflowKey
 	}
+	if definitionID != "" {
+		metadata[workflowInvokeMetadataDefinitionID] = definitionID
+	}
+	return metadata
 }
 
 func failStaleRunningRun(ctx context.Context, runStore recordPutter, workflowKeyStore indexeddb.ObjectStore, signalStore indexeddb.ObjectStore, run workflowRunRecord, workflowKey string, now time.Time) error {
@@ -4133,53 +3955,6 @@ func storeSignalIdempotencyRecord(ctx context.Context, store recordPutter, owner
 	return store.Put(ctx, record.toRecord())
 }
 
-func loadExecutionReferenceRecord(ctx context.Context, store recordGetter, refID string) (workflowExecutionReferenceRecord, bool, error) {
-	record, err := store.Get(ctx, strings.TrimSpace(refID))
-	if err != nil {
-		if errors.Is(err, gestalt.ErrNotFound) {
-			return workflowExecutionReferenceRecord{}, false, nil
-		}
-		return workflowExecutionReferenceRecord{}, false, err
-	}
-	ref, err := executionReferenceRecordFromRecord(record)
-	if err != nil {
-		return workflowExecutionReferenceRecord{}, false, err
-	}
-	return ref, true, nil
-}
-
-func listExecutionReferenceRecords(ctx context.Context, store indexeddb.ObjectStore, subjectID string) ([]workflowExecutionReferenceRecord, error) {
-	subjectID = strings.TrimSpace(subjectID)
-	var records []gestalt.Record
-	var err error
-	if subjectID == "" {
-		records, err = store.GetAll(ctx, nil)
-	} else {
-		records, err = store.Index("by_subject").GetAll(ctx, nil, subjectID)
-	}
-	if err != nil {
-		return nil, err
-	}
-	out := make([]workflowExecutionReferenceRecord, 0, len(records))
-	for _, record := range records {
-		ref, err := executionReferenceRecordFromRecord(record)
-		if err != nil {
-			return nil, err
-		}
-		if subjectID != "" && ref.SubjectID != subjectID {
-			continue
-		}
-		out = append(out, ref)
-	}
-	slices.SortFunc(out, func(a, b workflowExecutionReferenceRecord) int {
-		if cmp := a.CreatedAt.Compare(b.CreatedAt); cmp != 0 {
-			return cmp
-		}
-		return strings.Compare(a.ID, b.ID)
-	})
-	return out, nil
-}
-
 func eventMatchesTrigger(event *gestalt.WorkflowEvent, trigger workflowEventTriggerRecord) bool {
 	if event == nil {
 		return false
@@ -4218,11 +3993,6 @@ func eventRunID(triggerID, eventSource, eventID string) string {
 	return hashScopedID("event", triggerID, eventSource, eventID)
 }
 
-func eventExecutionRefID(runID string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(runID)))
-	return "event_ref:" + hex.EncodeToString(sum[:16])
-}
-
 func actorHasSubject(actor *gestalt.WorkflowActor) bool {
 	if actor == nil {
 		return false
@@ -4237,42 +4007,6 @@ func createdByForUpsert(existing, requested *gestalt.WorkflowActor) *gestalt.Wor
 	return cloneActor(existing)
 }
 
-func publishedEventExecutionReference(providerName, runID string, trigger workflowEventTriggerRecord, actor *gestalt.WorkflowActor, createdAt time.Time) (*gestalt.WorkflowExecutionReference, error) {
-	if !actorHasSubject(actor) {
-		return nil, nil
-	}
-	target := trigger.Target
-	permissions, err := eventExecutionReferencePermissions(trigger)
-	if err != nil {
-		return nil, err
-	}
-	subjectID := strings.TrimSpace(actor.SubjectID)
-	return cloneWorkflowExecutionReference(&gestalt.WorkflowExecutionReference{
-		ID:                  eventExecutionRefID(runID),
-		ProviderName:        strings.TrimSpace(providerName),
-		Target:              workflowTargetInput(target),
-		SubjectID:           subjectID,
-		CredentialSubjectID: subjectID,
-		Permissions:         workflowPermissionInputs(permissions),
-		CreatedAt:           createdAt.UTC(),
-		SubjectKind:         strings.TrimSpace(actor.SubjectKind),
-		DisplayName:         strings.TrimSpace(actor.DisplayName),
-		AuthSource:          strings.TrimSpace(actor.AuthSource),
-	}), nil
-}
-
-func eventExecutionReferencePermissions(trigger workflowEventTriggerRecord) ([]gestalt.WorkflowAccessPermission, error) {
-	permissions := executionReferencePermissionsForTarget(trigger.Target)
-	if !isConfigManagedActor(trigger.CreatedBy) {
-		return permissions, nil
-	}
-	extra, err := configuredEventRunPermissions(appTargetInput(trigger.Target))
-	if err != nil {
-		return nil, err
-	}
-	return mergeAccessPermissions(permissions, extra), nil
-}
-
 func isConfigManagedActor(actor *gestalt.WorkflowActor) bool {
 	if actor == nil {
 		return false
@@ -4280,169 +4014,6 @@ func isConfigManagedActor(actor *gestalt.WorkflowActor) bool {
 	return strings.TrimSpace(actor.SubjectID) == configManagedWorkflowSubject &&
 		strings.TrimSpace(actor.SubjectKind) == configManagedWorkflowKind &&
 		strings.TrimSpace(actor.AuthSource) == configManagedWorkflowAuth
-}
-
-func executionReferencePermissionsForTarget(target *gestalt.BoundWorkflowTarget) []gestalt.WorkflowAccessPermission {
-	if target == nil {
-		return nil
-	}
-	permissionsByApp := map[string]map[string]struct{}{}
-	for _, step := range target.Steps {
-		if step.App != nil {
-			appName := strings.TrimSpace(step.App.Name)
-			operation := strings.TrimSpace(step.App.Operation)
-			if appName == "" || operation == "" {
-				continue
-			}
-			ops := permissionsByApp[appName]
-			if ops == nil {
-				ops = map[string]struct{}{}
-				permissionsByApp[appName] = ops
-			}
-			ops[operation] = struct{}{}
-		}
-		if step.Agent == nil {
-			continue
-		}
-		for _, tool := range step.Agent.Tools {
-			appName := strings.TrimSpace(tool.App)
-			operation := strings.TrimSpace(tool.Operation)
-			if appName == "" || operation == "" {
-				continue
-			}
-			ops := permissionsByApp[appName]
-			if ops == nil {
-				ops = map[string]struct{}{}
-				permissionsByApp[appName] = ops
-			}
-			ops[operation] = struct{}{}
-		}
-	}
-	return accessPermissionsFromSet(permissionsByApp)
-}
-
-func configuredEventRunPermissions(input map[string]any) ([]gestalt.WorkflowAccessPermission, error) {
-	rawGestalt, ok := input[gestaltInputKey]
-	if !ok || rawGestalt == nil {
-		return nil, nil
-	}
-	gestaltConfig, ok := rawGestalt.(map[string]any)
-	if !ok {
-		return nil, fmt.Errorf("%s must be an object", gestaltInputKey)
-	}
-	rawPermissions, ok := gestaltConfig[eventRunPermissionsKey]
-	if !ok || rawPermissions == nil {
-		return nil, nil
-	}
-	items, ok := rawPermissions.([]any)
-	if !ok {
-		return nil, fmt.Errorf("%s.%s must be a list", gestaltInputKey, eventRunPermissionsKey)
-	}
-	out := make([]gestalt.WorkflowAccessPermission, 0, len(items))
-	for i, item := range items {
-		value, ok := item.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("%s.%s[%d] must be an object", gestaltInputKey, eventRunPermissionsKey, i)
-		}
-		appName := strings.TrimSpace(stringField(value, "app"))
-		if appName == "" {
-			return nil, fmt.Errorf("%s.%s[%d].app is required", gestaltInputKey, eventRunPermissionsKey, i)
-		}
-		operations, err := stringListField(value, "operations")
-		if err != nil {
-			return nil, fmt.Errorf("%s.%s[%d].operations: %w", gestaltInputKey, eventRunPermissionsKey, i, err)
-		}
-		if len(operations) == 0 {
-			return nil, fmt.Errorf("%s.%s[%d].operations is required", gestaltInputKey, eventRunPermissionsKey, i)
-		}
-		out = append(out, gestalt.WorkflowAccessPermission{
-			App:        appName,
-			Operations: operations,
-		})
-	}
-	return out, nil
-}
-
-func stringListField(value map[string]any, key string) ([]string, error) {
-	raw, ok := value[key]
-	if !ok || raw == nil {
-		return nil, nil
-	}
-	items, ok := raw.([]any)
-	if !ok {
-		return nil, fmt.Errorf("must be a list")
-	}
-	out := make([]string, 0, len(items))
-	for i, item := range items {
-		text, ok := item.(string)
-		if !ok {
-			return nil, fmt.Errorf("[%d] must be a string", i)
-		}
-		text = strings.TrimSpace(text)
-		if text != "" {
-			out = append(out, text)
-		}
-	}
-	return out, nil
-}
-
-func mergeAccessPermissions(groups ...[]gestalt.WorkflowAccessPermission) []gestalt.WorkflowAccessPermission {
-	set := map[string]map[string]struct{}{}
-	for _, group := range groups {
-		for _, permission := range group {
-			addAccessPermission(set, permission)
-		}
-	}
-	return accessPermissionsFromSet(set)
-}
-
-func addAccessPermission(set map[string]map[string]struct{}, permission gestalt.WorkflowAccessPermission) {
-	appName := strings.TrimSpace(permission.App)
-	if appName == "" {
-		return
-	}
-	if len(permission.Operations) == 0 {
-		set[appName] = nil
-		return
-	}
-	if _, ok := set[appName]; ok && set[appName] == nil {
-		return
-	}
-	ops := set[appName]
-	if ops == nil {
-		ops = map[string]struct{}{}
-		set[appName] = ops
-	}
-	for _, operation := range permission.Operations {
-		operation = strings.TrimSpace(operation)
-		if operation != "" {
-			ops[operation] = struct{}{}
-		}
-	}
-}
-
-func accessPermissionsFromSet(values map[string]map[string]struct{}) []gestalt.WorkflowAccessPermission {
-	if len(values) == 0 {
-		return nil
-	}
-	apps := make([]string, 0, len(values))
-	for appName := range values {
-		apps = append(apps, appName)
-	}
-	slices.Sort(apps)
-	out := make([]gestalt.WorkflowAccessPermission, 0, len(apps))
-	for _, appName := range apps {
-		operations := make([]string, 0, len(values[appName]))
-		for operation := range values[appName] {
-			operations = append(operations, operation)
-		}
-		slices.Sort(operations)
-		out = append(out, gestalt.WorkflowAccessPermission{
-			App:        appName,
-			Operations: operations,
-		})
-	}
-	return out
 }
 
 func scheduleRunID(scheduleID string, scheduledFor time.Time) string {
@@ -4467,32 +4038,6 @@ func workflowActorInput(actor *gestalt.WorkflowActor) *gestalt.WorkflowActor {
 
 func workflowTargetInput(target *gestalt.BoundWorkflowTarget) *gestalt.BoundWorkflowTarget {
 	return cloneTarget(target)
-}
-
-func workflowPermissionInputs(in []gestalt.WorkflowAccessPermission) []gestalt.WorkflowAccessPermission {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]gestalt.WorkflowAccessPermission, 0, len(in))
-	for _, permission := range in {
-		out = append(out, gestalt.WorkflowAccessPermission{
-			App:        strings.TrimSpace(permission.App),
-			Operations: append([]string(nil), permission.Operations...),
-		})
-	}
-	return out
-}
-
-func workflowRunAsInput(runAs *gestalt.WorkflowRunAsSubject) *gestalt.WorkflowRunAsSubject {
-	if runAs == nil {
-		return nil
-	}
-	return &gestalt.WorkflowRunAsSubject{
-		SubjectID:   strings.TrimSpace(runAs.SubjectID),
-		SubjectKind: strings.TrimSpace(runAs.SubjectKind),
-		DisplayName: strings.TrimSpace(runAs.DisplayName),
-		AuthSource:  strings.TrimSpace(runAs.AuthSource),
-	}
 }
 
 func cloneEvent(event *gestalt.WorkflowEvent) *gestalt.WorkflowEvent {
@@ -4810,7 +4355,7 @@ func (r workflowScheduleRecord) toRecord() gestalt.Record {
 		"created_at":       r.CreatedAt.UTC(),
 		"updated_at":       r.UpdatedAt.UTC(),
 		"created_by":       actorToMap(r.CreatedBy),
-		"execution_ref":    r.ExecutionRef,
+		"definition_id":    r.DefinitionID,
 		"invocation_token": r.InvocationToken,
 	}
 	if r.NextRunAt != nil {
@@ -4835,7 +4380,7 @@ func scheduleRecordFromRecord(record gestalt.Record) (workflowScheduleRecord, er
 		Target:          target,
 		Paused:          boolField(value, "paused"),
 		CreatedBy:       actorFromAny(value["created_by"]),
-		ExecutionRef:    stringField(value, "execution_ref"),
+		DefinitionID:    stringField(value, "definition_id"),
 		InvocationToken: stringField(value, "invocation_token"),
 	}
 	if createdAt := timeField(value, "created_at"); createdAt != nil {
@@ -4859,7 +4404,7 @@ func (r workflowScheduleRecord) toInput() (*gestalt.BoundWorkflowSchedule, error
 		UpdatedAt:    r.UpdatedAt,
 		NextRunAt:    r.NextRunAt,
 		CreatedBy:    workflowActorInput(r.CreatedBy),
-		ExecutionRef: r.ExecutionRef,
+		DefinitionID: r.DefinitionID,
 	}), nil
 }
 
@@ -4874,7 +4419,7 @@ func (r workflowEventTriggerRecord) toRecord() gestalt.Record {
 		"created_at":       r.CreatedAt.UTC(),
 		"updated_at":       r.UpdatedAt.UTC(),
 		"created_by":       actorToMap(r.CreatedBy),
-		"execution_ref":    r.ExecutionRef,
+		"definition_id":    r.DefinitionID,
 		"invocation_token": r.InvocationToken,
 	}
 }
@@ -4894,7 +4439,7 @@ func eventTriggerRecordFromRecord(record gestalt.Record) (workflowEventTriggerRe
 		Target:          target,
 		Paused:          boolField(value, "paused"),
 		CreatedBy:       actorFromAny(value["created_by"]),
-		ExecutionRef:    stringField(value, "execution_ref"),
+		DefinitionID:    stringField(value, "definition_id"),
 		InvocationToken: stringField(value, "invocation_token"),
 	}
 	if createdAt := timeField(value, "created_at"); createdAt != nil {
@@ -4919,7 +4464,7 @@ func (r workflowEventTriggerRecord) toInput() (*gestalt.BoundWorkflowEventTrigge
 		CreatedAt:    r.CreatedAt,
 		UpdatedAt:    r.UpdatedAt,
 		CreatedBy:    workflowActorInput(r.CreatedBy),
-		ExecutionRef: r.ExecutionRef,
+		DefinitionID: r.DefinitionID,
 	}), nil
 }
 
@@ -4936,7 +4481,7 @@ func (r workflowRunRecord) toRecord() gestalt.Record {
 		"status_message":           r.StatusMessage,
 		"result_body":              r.ResultBody,
 		"created_by":               actorToMap(r.CreatedBy),
-		"execution_ref":            r.ExecutionRef,
+		"definition_id":            r.DefinitionID,
 		"invocation_token":         r.InvocationToken,
 		"workflow_key":             r.WorkflowKey,
 		"next_signal_sequence":     r.NextSignalSequence,
@@ -4977,7 +4522,7 @@ func runRecordFromRecord(record gestalt.Record) (workflowRunRecord, error) {
 		StatusMessage:         stringField(value, "status_message"),
 		ResultBody:            stringField(value, "result_body"),
 		CreatedBy:             actorFromAny(value["created_by"]),
-		ExecutionRef:          stringField(value, "execution_ref"),
+		DefinitionID:          stringField(value, "definition_id"),
 		InvocationToken:       stringField(value, "invocation_token"),
 		WorkflowKey:           stringField(value, "workflow_key"),
 		NextSignalSequence:    intField(value, "next_signal_sequence"),
@@ -5003,8 +4548,8 @@ func (r workflowRunRecord) toInput() (*gestalt.BoundWorkflowRun, error) {
 		StatusMessage: r.StatusMessage,
 		ResultBody:    r.ResultBody,
 		CreatedBy:     workflowActorInput(r.CreatedBy),
-		ExecutionRef:  r.ExecutionRef,
 		WorkflowKey:   r.WorkflowKey,
+		DefinitionID:  r.DefinitionID,
 	}), nil
 }
 
@@ -5191,241 +4736,6 @@ func (r workflowSignalRecord) signalInput() *gestalt.WorkflowSignal {
 	return input
 }
 
-type workflowAccessPermissionRecord struct {
-	App        string   `json:"app"`
-	Operations []string `json:"operations,omitempty"`
-}
-
-func executionReferenceRecordFromInput(ref *gestalt.WorkflowExecutionReference) (workflowExecutionReferenceRecord, error) {
-	if ref == nil {
-		return workflowExecutionReferenceRecord{}, errors.New("reference is required")
-	}
-	target, err := normalizeTarget(workflowTargetInput(ref.Target))
-	if err != nil {
-		return workflowExecutionReferenceRecord{}, err
-	}
-	record := workflowExecutionReferenceRecord{
-		ID:                  strings.TrimSpace(ref.ID),
-		ProviderName:        strings.TrimSpace(ref.ProviderName),
-		Target:              cloneTarget(target.Target),
-		SubjectID:           strings.TrimSpace(ref.SubjectID),
-		SubjectKind:         strings.TrimSpace(ref.SubjectKind),
-		DisplayName:         strings.TrimSpace(ref.DisplayName),
-		AuthSource:          strings.TrimSpace(ref.AuthSource),
-		CredentialSubjectID: strings.TrimSpace(ref.CredentialSubjectID),
-		CallerAppName:       strings.TrimSpace(ref.CallerAppName),
-	}
-	if record.ID == "" {
-		return workflowExecutionReferenceRecord{}, errors.New("id is required")
-	}
-	if record.ProviderName == "" {
-		return workflowExecutionReferenceRecord{}, errors.New("provider_name is required")
-	}
-	if target.OwnerKey == "" {
-		return workflowExecutionReferenceRecord{}, errors.New("target owner is required")
-	}
-	if record.SubjectID == "" {
-		return workflowExecutionReferenceRecord{}, errors.New("subject_id is required")
-	}
-	runAsJSON, err := executionReferenceRunAsJSON(ref.RunAs)
-	if err != nil {
-		return workflowExecutionReferenceRecord{}, fmt.Errorf("run_as: %w", err)
-	}
-	permissionsJSON, err := executionReferencePermissionsJSON(ref.Permissions)
-	if err != nil {
-		return workflowExecutionReferenceRecord{}, fmt.Errorf("permissions: %w", err)
-	}
-	record.RunAsJSON = runAsJSON
-	record.PermissionsJSON = permissionsJSON
-	if !ref.CreatedAt.IsZero() {
-		record.CreatedAt = ref.CreatedAt.UTC()
-	}
-	if ref.RevokedAt != nil {
-		record.RevokedAt = timePtr(ref.RevokedAt.UTC())
-	}
-	return record, nil
-}
-
-func executionReferenceRecordFromRecord(record gestalt.Record) (workflowExecutionReferenceRecord, error) {
-	value := map[string]any(record)
-	id := stringField(value, "id")
-	target, err := targetFromRecordValue("workflow execution reference", id, value["target_json"])
-	if err != nil {
-		return workflowExecutionReferenceRecord{}, err
-	}
-	out := workflowExecutionReferenceRecord{
-		ID:                  id,
-		ProviderName:        stringField(value, "provider_name"),
-		Target:              target,
-		SubjectID:           stringField(value, "subject_id"),
-		SubjectKind:         stringField(value, "subject_kind"),
-		DisplayName:         stringField(value, "display_name"),
-		AuthSource:          stringField(value, "auth_source"),
-		CredentialSubjectID: stringField(value, "credential_subject_id"),
-		RunAsJSON:           stringField(value, "run_as_json"),
-		PermissionsJSON:     stringField(value, "permissions_json"),
-		CallerAppName:       stringField(value, "caller_app_name"),
-	}
-	if createdAt := timeField(value, "created_at"); createdAt != nil {
-		out.CreatedAt = createdAt.UTC()
-	}
-	out.RevokedAt = timeField(value, "revoked_at")
-	return out, nil
-}
-
-func (r workflowExecutionReferenceRecord) toRecord() gestalt.Record {
-	record := gestalt.Record{
-		"id":                    r.ID,
-		"provider_name":         r.ProviderName,
-		"target_json":           targetJSON(r.Target),
-		"subject_id":            r.SubjectID,
-		"subject_kind":          r.SubjectKind,
-		"display_name":          r.DisplayName,
-		"auth_source":           r.AuthSource,
-		"credential_subject_id": r.CredentialSubjectID,
-		"run_as_json":           r.RunAsJSON,
-		"permissions_json":      r.PermissionsJSON,
-		"caller_app_name":       r.CallerAppName,
-		"created_at":            r.CreatedAt.UTC(),
-	}
-	if r.RevokedAt != nil {
-		record["revoked_at"] = r.RevokedAt.UTC()
-	} else {
-		record["revoked_at"] = nil
-	}
-	return record
-}
-
-func (r workflowExecutionReferenceRecord) toInput() (*gestalt.WorkflowExecutionReference, error) {
-	runAs, err := executionReferenceRunAsFromJSON(r.RunAsJSON)
-	if err != nil {
-		return nil, err
-	}
-	permissions, err := executionReferencePermissionsFromJSON(r.PermissionsJSON)
-	if err != nil {
-		return nil, err
-	}
-	return cloneWorkflowExecutionReference(&gestalt.WorkflowExecutionReference{
-		ID:                  r.ID,
-		ProviderName:        r.ProviderName,
-		Target:              workflowTargetInput(r.Target),
-		SubjectID:           r.SubjectID,
-		CredentialSubjectID: r.CredentialSubjectID,
-		Permissions:         workflowPermissionInputs(permissions),
-		CreatedAt:           r.CreatedAt,
-		RevokedAt:           r.RevokedAt,
-		SubjectKind:         r.SubjectKind,
-		DisplayName:         r.DisplayName,
-		AuthSource:          r.AuthSource,
-		CallerAppName:       r.CallerAppName,
-		RunAs:               workflowRunAsInput(runAs),
-	}), nil
-}
-
-func executionReferenceRecordsEqual(left, right workflowExecutionReferenceRecord) bool {
-	if left.ID != right.ID ||
-		left.ProviderName != right.ProviderName ||
-		targetJSON(left.Target) != targetJSON(right.Target) ||
-		left.SubjectID != right.SubjectID ||
-		left.SubjectKind != right.SubjectKind ||
-		left.DisplayName != right.DisplayName ||
-		left.AuthSource != right.AuthSource ||
-		left.CredentialSubjectID != right.CredentialSubjectID ||
-		left.RunAsJSON != right.RunAsJSON ||
-		left.PermissionsJSON != right.PermissionsJSON ||
-		left.CallerAppName != right.CallerAppName ||
-		!left.CreatedAt.Equal(right.CreatedAt) {
-		return false
-	}
-	if (left.RevokedAt == nil) != (right.RevokedAt == nil) {
-		return false
-	}
-	return left.RevokedAt == nil || left.RevokedAt.Equal(*right.RevokedAt)
-}
-
-func executionReferenceRunAsJSON(value *gestalt.WorkflowRunAsSubject) (string, error) {
-	if value == nil {
-		return "", nil
-	}
-	normalized := &gestalt.WorkflowRunAsSubject{
-		SubjectID:   strings.TrimSpace(value.SubjectID),
-		SubjectKind: strings.TrimSpace(value.SubjectKind),
-		DisplayName: strings.TrimSpace(value.DisplayName),
-		AuthSource:  strings.TrimSpace(value.AuthSource),
-	}
-	if normalized.SubjectID == "" {
-		return "", nil
-	}
-	data, err := json.Marshal(normalized)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-
-func executionReferenceRunAsFromJSON(raw string) (*gestalt.WorkflowRunAsSubject, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil, nil
-	}
-	out := &gestalt.WorkflowRunAsSubject{}
-	if err := json.Unmarshal([]byte(raw), out); err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(out.SubjectID) == "" {
-		return nil, nil
-	}
-	return out, nil
-}
-
-func executionReferencePermissionsJSON(values []gestalt.WorkflowAccessPermission) (string, error) {
-	if len(values) == 0 {
-		return "", nil
-	}
-	records := make([]workflowAccessPermissionRecord, 0, len(values))
-	for _, value := range values {
-		appName := strings.TrimSpace(value.App)
-		if appName == "" {
-			continue
-		}
-		records = append(records, workflowAccessPermissionRecord{
-			App:        appName,
-			Operations: append([]string(nil), value.Operations...),
-		})
-	}
-	if len(records) == 0 {
-		return "", nil
-	}
-	data, err := json.Marshal(records)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-
-func executionReferencePermissionsFromJSON(raw string) ([]gestalt.WorkflowAccessPermission, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return nil, nil
-	}
-	var records []workflowAccessPermissionRecord
-	if err := json.Unmarshal([]byte(raw), &records); err != nil {
-		return nil, err
-	}
-	out := make([]gestalt.WorkflowAccessPermission, 0, len(records))
-	for _, record := range records {
-		appName := strings.TrimSpace(record.App)
-		if appName == "" {
-			continue
-		}
-		out = append(out, gestalt.WorkflowAccessPermission{
-			App:        appName,
-			Operations: append([]string(nil), record.Operations...),
-		})
-	}
-	return out, nil
-}
-
 func cloneWorkflowTarget(target *gestalt.BoundWorkflowTarget) *gestalt.BoundWorkflowTarget {
 	if target == nil {
 		return nil
@@ -5474,14 +4784,6 @@ func cloneWorkflowSignal(signal *gestalt.WorkflowSignal) *gestalt.WorkflowSignal
 	return &out
 }
 
-func cloneWorkflowExecutionReference(ref *gestalt.WorkflowExecutionReference) *gestalt.WorkflowExecutionReference {
-	if ref == nil {
-		return nil
-	}
-	out := cloneJSONValue(*ref)
-	return &out
-}
-
 func cloneJSONValue[T any](value T) T {
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -5492,10 +4794,6 @@ func cloneJSONValue[T any](value T) T {
 		return value
 	}
 	return out
-}
-
-func cloneExecutionReference(ref *gestalt.WorkflowExecutionReference) *gestalt.WorkflowExecutionReference {
-	return cloneWorkflowExecutionReference(ref)
 }
 
 func cloneTarget(target *gestalt.BoundWorkflowTarget) *gestalt.BoundWorkflowTarget {

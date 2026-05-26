@@ -38,8 +38,8 @@ func signalFingerprint(ownerKey, workflowKey string, signal *gestalt.WorkflowSig
 	return hashID("signal", ownerKey, workflowKey, valueHashID(stableSignal))
 }
 
-func startFingerprint(ownerKey, key, workflowKey, executionRef string, target *gestalt.BoundWorkflowTarget, createdBy *gestalt.WorkflowActor) string {
-	return hashID("start", ownerKey, key, workflowKey, executionRef, valueHashID(target), valueHashID(createdBy))
+func startFingerprint(ownerKey, key, workflowKey, definitionID string, target *gestalt.BoundWorkflowTarget, createdBy *gestalt.WorkflowActor) string {
+	return hashID("start", ownerKey, key, workflowKey, definitionID, valueHashID(target), valueHashID(createdBy))
 }
 
 func idempotentDefinitionID(ownerKey, key string) string {

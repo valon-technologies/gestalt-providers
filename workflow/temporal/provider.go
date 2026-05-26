@@ -280,30 +280,6 @@ func (p *Provider) ResumeEventTrigger(ctx context.Context, req *gestalt.ResumeWo
 	return backend.ResumeEventTrigger(ctx, req)
 }
 
-func (p *Provider) PutExecutionReference(ctx context.Context, req *gestalt.PutWorkflowExecutionReferenceRequest) (*gestalt.WorkflowExecutionReference, error) {
-	backend, err := p.requireBackend()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	return backend.PutExecutionReference(ctx, req)
-}
-
-func (p *Provider) GetExecutionReference(ctx context.Context, req *gestalt.GetWorkflowExecutionReferenceRequest) (*gestalt.WorkflowExecutionReference, error) {
-	backend, err := p.requireBackend()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	return backend.GetExecutionReference(ctx, req)
-}
-
-func (p *Provider) ListExecutionReferences(ctx context.Context, req *gestalt.ListWorkflowExecutionReferencesRequest) (*gestalt.ListWorkflowExecutionReferencesResponse, error) {
-	backend, err := p.requireBackend()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	return backend.ListExecutionReferences(ctx, req)
-}
-
 func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflowProviderEventRequest) (*gestalt.WorkflowEvent, error) {
 	backend, err := p.requireStartedBackend(ctx)
 	if err != nil {
