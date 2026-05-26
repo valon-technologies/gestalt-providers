@@ -162,6 +162,7 @@ func TestConfigureRejectsUnknownPayloadSigning(t *testing.T) {
 
 	err := New().Configure(context.Background(), "assets", map[string]any{
 		"region":         "us-east-1",
+		"bucket":         "fixtures",
 		"payloadSigning": "required",
 	})
 	if err == nil {

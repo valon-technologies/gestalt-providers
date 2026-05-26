@@ -17,6 +17,8 @@ providers:
         version: ...
       config:
         region: us-east-1
+        bucket: media-assets
+        keyPrefix: app/media
         endpoint: https://s3.us-east-1.amazonaws.com
         forcePathStyle: false
         payloadSigning: auto
@@ -43,6 +45,7 @@ providers:
         version: ...
       config:
         region: auto
+        bucket: archive-assets
         endpoint: https://storage.googleapis.com
         forcePathStyle: true
         payloadSigning: signed
@@ -53,6 +56,8 @@ providers:
 Supported config fields:
 
 - `region`: signing region for the backend.
+- `bucket`: backing bucket for all object operations through this provider.
+- `keyPrefix`: optional backend key prefix within the configured bucket. SDK object keys are relative to this prefix, and returned metadata/list prefixes have it stripped.
 - `endpoint`: optional base endpoint for S3-compatible services.
 - `forcePathStyle`: switch between path-style and virtual-host-style requests.
 - `payloadSigning`: `auto` uses the AWS SDK default payload-signing behavior; `signed` sends a SHA256 payload hash for direct provider requests to S3-compatible services that reject unsigned payloads.
@@ -105,7 +110,7 @@ if err != nil {
 }
 defer store.Close()
 
-obj := store.Object("uploads", "avatars/user-123.png")
+obj := store.Object("avatars/user-123.png")
 _, err = obj.WriteBytes(ctx, pngBytes, &gestalt.WriteOptions{
 	ContentType: "image/png",
 })
@@ -116,7 +121,7 @@ if err != nil {
 
 ## Notes
 
-- Object identity is `{bucket, key, versionID}`. Buckets are chosen by the caller, not fixed in provider config.
+- Object identity is `{key, versionID}` relative to the provider's configured bucket and optional `keyPrefix`. Use separate provider entries for separate buckets or key prefixes.
 - Reads stay streaming across the Gestalt gRPC boundary and the S3 HTTP boundary. Writes stream over gRPC, then stage to a temporary file before `PutObject`.
 - `payloadSigning: signed` applies to direct provider requests. Presigned PUT URLs keep unsigned-payload signing so clients can upload arbitrary bodies.
 - The provider maps portable errors to gRPC status codes so SDK callers consistently get `ErrS3NotFound`, `ErrS3PreconditionFailed`, and `ErrS3InvalidRange`.
