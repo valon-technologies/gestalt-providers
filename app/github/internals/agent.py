@@ -58,7 +58,7 @@ def build_workflow_signal_or_start_request(
     policy: GitHubWebhookPolicy | None = None,
     extra_signal_data: dict[str, Any] | None = None,
     pull_request_context: Any | None = None,
-) -> Any:
+) -> gestalt.WorkflowSignalOrStartRun:
     idempotency_key = agent_turn_idempotency_key(payload, summary, policy)
     request = gestalt.WorkflowSignalOrStartRun(
         provider_name=workflow_provider(policy),
@@ -90,16 +90,14 @@ def workflow_provider(policy: GitHubWebhookPolicy | None) -> str:
 
 def workflow_target(
     summary: dict[str, Any], policy: GitHubWebhookPolicy | None = None
-) -> Any:
+) -> gestalt.BoundWorkflowTarget:
     if policy is not None and policy.workflow_target is not None:
         return workflow_app_target(policy.workflow_target)
     return workflow_agent_target(summary, policy)
 
 
-def workflow_app_target(target: GitHubWorkflowAppTarget) -> Any:
-    app_input: Any = None
-    if target.input is not None:
-        app_input = gestalt.WorkflowValue(object=target.input)
+def workflow_app_target(target: GitHubWorkflowAppTarget) -> gestalt.BoundWorkflowTarget:
+    app_input = gestalt.WorkflowValue(object=target.input)
     app_call = gestalt.WorkflowStepAppCall(
         name=target.app_name,
         operation=target.operation,
@@ -115,7 +113,7 @@ def workflow_app_target(target: GitHubWorkflowAppTarget) -> Any:
 
 def workflow_agent_target(
     summary: dict[str, Any], policy: GitHubWebhookPolicy | None = None
-) -> Any:
+) -> gestalt.BoundWorkflowTarget:
     model_options = agent_model_options(policy)
     system_prompt = agent_system_prompt(policy)
     messages = [
@@ -176,7 +174,7 @@ def workflow_agent_prompt() -> str:
     )
 
 
-def agent_tool_refs(policy: GitHubWebhookPolicy | None = None) -> list[Any]:
+def agent_tool_refs(policy: GitHubWebhookPolicy | None = None) -> list[gestalt.AgentToolRef]:
     return [
         gestalt.AgentToolRef(app="github", operation=operation)
         for operation in agent_operations(policy)

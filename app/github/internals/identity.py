@@ -5,6 +5,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+import gestalt
+
 from .client import DEFAULT_GITHUB_CLIENT
 from .config import (
     GitHubWebhookPolicy,
@@ -126,16 +128,15 @@ def preference_identity_from_webhook(
 
 
 def caller_preference_identity(
-    req: Any, identity_kind: str
+    req: gestalt.Request, identity_kind: str
 ) -> GitHubPreferenceIdentity:
     normalized = identity_kind.strip()
-    external_identity = getattr(req, "agent_external_identity", None)
-    external_identity_type = str(getattr(external_identity, "type", "") or "").strip()
-    external_subject_id = str(getattr(external_identity, "id", "") or "").strip()
-    subject_id = _human_subject_id(getattr(req, "agent_subject", None))
+    external_identity_type = req.agent_external_identity.type.strip()
+    external_subject_id = req.agent_external_identity.id.strip()
+    subject_id = _human_subject_id(req.agent_subject)
     if not subject_id:
-        subject_id = _human_subject_id(getattr(req, "subject", None))
-    token = str(getattr(req, "token", "") or "").strip()
+        subject_id = _human_subject_id(req.subject)
+    token = req.token.strip()
     needs_external_identity = normalized in {"", "external_subject_id"}
     if (
         needs_external_identity
@@ -253,9 +254,9 @@ def _github_user_external_id(user: dict[str, Any]) -> str:
     return f"user:{user_id}" if user_id > 0 else ""
 
 
-def _human_subject_id(subject: Any) -> str:
-    subject_id = str(getattr(subject, "id", "") or "").strip()
-    kind = str(getattr(subject, "kind", "") or "").strip()
+def _human_subject_id(subject: gestalt.Subject) -> str:
+    subject_id = subject.id.strip()
+    kind = subject.kind.strip()
     if not subject_id or subject_id.startswith("service_account:"):
         return ""
     if kind and kind not in {"human", "user", "subject"}:
