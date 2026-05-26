@@ -70,11 +70,11 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
 
     def create_session(self, request: gestalt.CreateAgentProviderSessionRequest) -> gestalt.AgentSession:
         _, store, config = self._require_runtime()
-        session_id = str(request.session_id or "").strip()
+        session_id = request.session_id.strip()
         if not session_id:
             raise gestalt.Error(400, "session_id is required")
         try:
-            model = config.resolve_model(str(request.model or ""))
+            model = config.resolve_model(request.model.strip())
         except ValueError as exc:
             raise gestalt.Error(400, str(exc)) from exc
         metadata = dict(request.metadata or {})
@@ -86,16 +86,16 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         if prepared_workspace and (not prepared_workspace.get("root") or not prepared_workspace.get("cwd")):
             raise gestalt.Error(400, "prepared_workspace root and cwd are required")
         prepared_workspace = prepared_workspace or None
-        idempotency_key = str(request.idempotency_key or "").strip()
-        session_start = request.session_start
-        if session_start is not None and len(list(getattr(session_start, "hooks", []) or [])) > 0:
+        idempotency_key = request.idempotency_key.strip()
+        request_subject_id = request.subject.id.strip() if request.subject is not None else ""
+        if request.session_start is not None and len(list(request.session_start.hooks)) > 0:
             with self._session_start_lock:
                 existing = _existing_session_for_create(store, session_id, idempotency_key)
                 if existing is not None:
-                    _require_session_readable(existing, _subject_id(getattr(request, "subject", None)))
+                    _require_session_readable(existing, request_subject_id)
                     return _agent_session(existing)
                 try:
-                    metadata = run_session_start_hooks(session_start, metadata)
+                    metadata = run_session_start_hooks(request.session_start, metadata)
                 except Exception as exc:
                     raise gestalt.Error(412, str(exc)) from exc
                 session, _ = store.create_session(
@@ -103,7 +103,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                     idempotency_key=idempotency_key,
                     provider_name=self._name,
                     model=model,
-                    client_ref=str(request.client_ref or "").strip(),
+                    client_ref=request.client_ref.strip(),
                     metadata=metadata,
                     prepared_workspace=prepared_workspace,
                     created_by=gestalt.agent_actor_to_dict(request.created_by),
@@ -114,37 +114,37 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             idempotency_key=idempotency_key,
             provider_name=self._name,
             model=model,
-            client_ref=str(request.client_ref or "").strip(),
+            client_ref=request.client_ref.strip(),
             metadata=metadata,
             prepared_workspace=prepared_workspace,
             created_by=gestalt.agent_actor_to_dict(request.created_by),
         )
         if not created:
-            _require_session_readable(session, _subject_id(getattr(request, "subject", None)))
+            _require_session_readable(session, request_subject_id)
         return _agent_session(session)
 
     def get_session(self, request: gestalt.GetAgentProviderSessionRequest) -> gestalt.AgentSession:
         _, store, _ = self._require_runtime()
-        session = store.get_session(str(request.session_id or "").strip())
+        session = store.get_session(request.session_id.strip())
         if session is None:
             raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
-        _require_session_readable(session, _subject_id(getattr(request, "subject", None)))
+        _require_session_readable(session, request.subject.id.strip() if request.subject is not None else "")
         return _agent_session(session)
 
     def list_sessions(
         self, request: gestalt.ListAgentProviderSessionsRequest
     ) -> gestalt.ListAgentProviderSessionsResponse:
         _, store, _ = self._require_runtime()
-        limit = int(getattr(request, "limit", 0) or 0)
+        limit = request.limit
         if limit < 0:
             raise gestalt.Error(400, "limit must be non-negative")
         return gestalt.ListAgentProviderSessionsResponse(
             sessions=[
-                _agent_session(session, summary_only=bool(getattr(request, "summary_only", False)))
+                _agent_session(session, summary_only=bool(request.summary_only))
                 for session in store.list_sessions(
-                    session_ids=[str(value or "").strip() for value in getattr(request, "session_ids", [])],
-                    subject_id=_subject_id(request.subject),
-                    state=int(getattr(request, "state", 0) or 0),
+                    session_ids=[value.strip() for value in request.session_ids],
+                    subject_id=request.subject.id.strip() if request.subject is not None else "",
+                    state=request.state,
                     limit=limit,
                 )
             ]
@@ -157,14 +157,14 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             validate_session_start_user_metadata(metadata)
         except ValueError as exc:
             raise gestalt.Error(400, str(exc)) from exc
-        existing = store.get_session(str(request.session_id or "").strip())
+        existing = store.get_session(request.session_id.strip())
         if existing is None:
             raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
-        _require_session_writable(existing, _subject_id(getattr(request, "subject", None)))
+        _require_session_writable(existing, request.subject.id.strip() if request.subject is not None else "")
         session = store.update_session(
-            session_id=str(request.session_id or "").strip(),
-            client_ref=str(request.client_ref or "").strip(),
-            state=int(request.state or 0),
+            session_id=request.session_id.strip(),
+            client_ref=request.client_ref.strip(),
+            state=request.state,
             metadata=metadata,
         )
         if session is None:
@@ -174,14 +174,14 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
     def create_turn(self, request: gestalt.CreateAgentProviderTurnRequest) -> gestalt.AgentTurn:
         runner, store, config = self._require_runtime()
         _validate_create_turn_request(request)
-        session = store.get_session(str(request.session_id or "").strip())
+        session = store.get_session(request.session_id.strip())
         if session is None:
             raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
-        _require_session_writable(session, _subject_id(getattr(request, "subject", None)))
+        _require_session_writable(session, request.subject.id.strip() if request.subject is not None else "")
         if len(list(request.messages)) == 0:
             raise gestalt.Error(400, "messages must contain at least one entry")
         try:
-            model = config.resolve_model(str(request.model or "").strip() or session.model)
+            model = config.resolve_model(request.model.strip() or session.model)
         except ValueError as exc:
             raise gestalt.Error(400, str(exc)) from exc
 
@@ -189,17 +189,17 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         skill_roots = session_start_metadata_paths(
             session.metadata, "codexSkillRoots", allowed_basenames={"mortgage", "vds", "tools", "rnb"}
         )
-        cwd = _prepared_workspace_cwd(session.prepared_workspace)
+        cwd = session.prepared_workspace.get("cwd", "").strip() if session.prepared_workspace else ""
         try:
             turn, created = store.begin_turn(
-                turn_id=str(request.turn_id or "").strip(),
-                session_id=str(request.session_id or "").strip(),
-                idempotency_key=str(request.idempotency_key or "").strip(),
+                turn_id=request.turn_id.strip(),
+                session_id=request.session_id.strip(),
+                idempotency_key=request.idempotency_key.strip(),
                 provider_name=self._name,
                 model=model,
                 messages=messages,
                 created_by=gestalt.agent_actor_to_dict(request.created_by),
-                execution_ref=str(request.execution_ref or "").strip(),
+                execution_ref=request.execution_ref.strip(),
             )
         except StoreConflictError as exc:
             raise gestalt.Error(409, str(exc)) from exc
@@ -215,7 +215,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                     "session_id": turn.session_id,
                     "model": model,
                     "messages": list(turn.messages),
-                    "run_grant": str(request.run_grant or "").strip(),
+                    "run_grant": request.run_grant.strip(),
                     "skill_roots": skill_roots,
                     "cwd": cwd,
                 },
@@ -225,20 +225,23 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
 
     def get_turn(self, request: gestalt.GetAgentProviderTurnRequest) -> gestalt.AgentTurn:
         _, store, _ = self._require_runtime()
-        turn = store.get_turn(str(request.turn_id or "").strip())
+        turn = store.get_turn(request.turn_id.strip())
         if turn is None:
             raise gestalt.Error(404, f"agent turn {request.turn_id!r} was not found")
-        _require_session_readable(_session_for_turn(store, turn), _subject_id(getattr(request, "subject", None)))
+        _require_session_readable(
+            _session_for_turn(store, turn),
+            request.subject.id.strip() if request.subject is not None else "",
+        )
         return _agent_turn(turn)
 
     def list_turns(self, request: gestalt.ListAgentProviderTurnsRequest) -> gestalt.ListAgentProviderTurnsResponse:
         _, store, _ = self._require_runtime()
-        limit = int(getattr(request, "limit", 0) or 0)
+        limit = request.limit
         if limit < 0:
             raise gestalt.Error(400, "limit must be non-negative")
-        request_subject_id = _subject_id(getattr(request, "subject", None))
-        session_id = str(request.session_id or "").strip()
-        turn_ids = [str(value or "").strip() for value in getattr(request, "turn_ids", [])]
+        request_subject_id = request.subject.id.strip() if request.subject is not None else ""
+        session_id = request.session_id.strip()
+        turn_ids = [value.strip() for value in request.turn_ids]
         if session_id:
             session = store.get_session(session_id)
             if session is None or not session_readable_by(session, request_subject_id):
@@ -250,7 +253,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                 session_id=session_id,
                 turn_ids=turn_ids,
                 subject_id="",
-                status=int(getattr(request, "status", 0) or 0),
+                status=request.status,
                 limit=store_limit,
             ),
             request_subject_id,
@@ -258,16 +261,19 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         if turn_ids and limit > 0:
             turns = turns[:limit]
         return gestalt.ListAgentProviderTurnsResponse(
-            turns=[_agent_turn(turn, summary_only=bool(getattr(request, "summary_only", False))) for turn in turns]
+            turns=[_agent_turn(turn, summary_only=bool(request.summary_only)) for turn in turns]
         )
 
     def cancel_turn(self, request: gestalt.CancelAgentProviderTurnRequest) -> gestalt.AgentTurn:
         runner, store, _ = self._require_runtime()
-        existing = store.get_turn(str(request.turn_id or "").strip())
+        existing = store.get_turn(request.turn_id.strip())
         if existing is None:
             raise gestalt.Error(404, f"agent turn {request.turn_id!r} was not found")
-        _require_session_writable(_session_for_turn(store, existing), _subject_id(getattr(request, "subject", None)))
-        turn = store.cancel_turn(turn_id=str(request.turn_id or "").strip(), reason=str(request.reason or "").strip())
+        _require_session_writable(
+            _session_for_turn(store, existing),
+            request.subject.id.strip() if request.subject is not None else "",
+        )
+        turn = store.cancel_turn(turn_id=request.turn_id.strip(), reason=request.reason.strip())
         if turn is None:
             raise gestalt.Error(404, f"agent turn {request.turn_id!r} was not found")
         if turn.status == gestalt.AGENT_EXECUTION_STATUS_CANCELED:
@@ -278,19 +284,19 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         self, request: gestalt.ListAgentProviderTurnEventsRequest
     ) -> gestalt.ListAgentProviderTurnEventsResponse:
         _, store, _ = self._require_runtime()
-        turn = store.get_turn(str(request.turn_id or "").strip())
+        turn = store.get_turn(request.turn_id.strip())
         if turn is None:
             return gestalt.ListAgentProviderTurnEventsResponse(events=[])
         session = _session_for_turn(store, turn)
-        if not session_readable_by(session, _subject_id(getattr(request, "subject", None))):
+        if not session_readable_by(session, request.subject.id.strip() if request.subject is not None else ""):
             return gestalt.ListAgentProviderTurnEventsResponse(events=[])
         return gestalt.ListAgentProviderTurnEventsResponse(
             events=[
                 _agent_turn_event(event)
                 for event in store.list_turn_events(
-                    turn_id=str(request.turn_id or "").strip(),
-                    after_seq=int(request.after_seq or 0),
-                    limit=int(request.limit or 0),
+                    turn_id=request.turn_id.strip(),
+                    after_seq=request.after_seq,
+                    limit=request.limit,
                 )
             ]
         )
@@ -323,11 +329,9 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             reasoning_summaries=False,
             bounded_list_hydration=True,
             supported_tool_sources=[gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG],
+            supports_session_start=True,
+            supports_prepared_workspace=True,
         )
-        if hasattr(caps, "supports_session_start"):
-            caps.supports_session_start = True
-        if hasattr(caps, "supports_prepared_workspace"):
-            caps.supports_prepared_workspace = True
         return caps
 
     def _require_runtime(self) -> tuple[CodexMCPRunner, InMemoryRunStore, CodexAgentConfig]:
@@ -480,29 +484,29 @@ def _which(binary: str) -> str | None:
     return None
 
 
-def _validate_create_turn_request(request: Any) -> None:
-    if int(getattr(request, "tool_source", 0) or 0) != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
+def _validate_create_turn_request(request: gestalt.CreateAgentProviderTurnRequest) -> None:
+    if request.tool_source != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
         raise gestalt.Error(400, "agent/codex requires toolSource mcp_catalog")
-    if not str(request.run_grant or "").strip():
+    if not request.run_grant.strip():
         raise gestalt.Error(400, "run_grant is required")
-    if len(list(getattr(request, "tools", []))) > 0:
+    if len(list(request.tools)) > 0:
         raise gestalt.Error(400, "resolved tools are not supported; use tool_refs with mcp_catalog")
-    if dict(getattr(request, "response_schema", None) or {}):
+    if dict(request.response_schema or {}):
         raise gestalt.Error(400, "response_schema is not supported by agent/codex")
-    if dict(getattr(request, "model_options", None) or {}):
+    if dict(request.model_options or {}):
         raise gestalt.Error(400, "model_options are not supported by agent/codex")
-    _validate_tool_refs(list(getattr(request, "tool_refs", [])))
+    _validate_tool_refs(list(request.tool_refs))
 
 
-def _validate_tool_refs(tool_refs: list[Any]) -> None:
+def _validate_tool_refs(tool_refs: list[gestalt.AgentToolRef]) -> None:
     if not tool_refs:
         raise gestalt.Error(400, "tool_refs are required for mcp_catalog turns")
     for index, ref in enumerate(tool_refs, start=1):
-        plugin = _text(getattr(ref, "app", "") or getattr(ref, "plugin", ""))
-        system = _text(getattr(ref, "system", ""))
-        operation = _text(getattr(ref, "operation", ""))
-        connection = _text(getattr(ref, "connection", ""))
-        instance = _text(getattr(ref, "instance", ""))
+        plugin = ref.app.strip()
+        system = ref.system.strip()
+        operation = ref.operation.strip()
+        connection = ref.connection.strip()
+        instance = ref.instance.strip()
         if not operation:
             raise gestalt.Error(400, f"tool_refs[{index}].operation is required")
         if "*" in {plugin, system, operation, connection, instance}:
@@ -511,12 +515,6 @@ def _validate_tool_refs(tool_refs: list[Any]) -> None:
             raise gestalt.Error(400, f"tool_refs[{index}] must set exactly one of plugin or system")
         if system and system != "workflow":
             raise gestalt.Error(400, f"tool_refs[{index}].system {system!r} is not supported")
-
-
-def _prepared_workspace_cwd(value: dict[str, str] | None) -> str:
-    if not value:
-        return ""
-    return _text(value.get("cwd"))
 
 
 def _existing_session_for_create(
@@ -528,14 +526,6 @@ def _existing_session_for_create(
     if not idempotency_key:
         return None
     return store.get_session_by_idempotency_key(idempotency_key)
-
-
-def _subject_id(subject: Any) -> str:
-    return _text(getattr(subject, "id", ""))
-
-
-def _text(value: Any) -> str:
-    return str(value or "").strip()
 
 
 provider = CodexMCPAgentProvider()

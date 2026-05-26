@@ -46,61 +46,57 @@ def operation_body(result: Any) -> dict[str, Any]:
     return cast(dict[str, Any], result)
 
 
+def workflow_text(value: gestalt.WorkflowText | str | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, gestalt.WorkflowText):
+        return value.template
+    return str(value)
+
+
 class _WorkflowAgentView:
-    def __init__(self, step: Any, agent: Any) -> None:
-        self.provider_name = getattr(agent, "provider", "") or getattr(
-            agent, "provider_name", ""
-        )
-        self.model = getattr(agent, "model", "")
-        prompt = getattr(agent, "prompt", "")
-        prompt_template = getattr(prompt, "template", None)
-        self.prompt = str(prompt_template) if prompt_template is not None else str(prompt)
-        self.metadata = getattr(step, "metadata", None) or getattr(
-            agent, "metadata", None
-        )
-        self.model_options = getattr(agent, "model_options", None)
-        tools = getattr(agent, "tools", None) or getattr(agent, "tool_refs", None) or []
-        self.tool_refs = tools
+    def __init__(
+        self, step: gestalt.WorkflowStep, agent: gestalt.WorkflowStepAgentTurn
+    ) -> None:
+        self.provider_name = agent.provider
+        self.model = agent.model
+        self.prompt = workflow_text(agent.prompt)
+        self.metadata = step.metadata
+        self.model_options = agent.model_options
+        self.tool_refs = list(agent.tools)
         self.messages = [
             _WorkflowMessageView(message)
-            for message in (getattr(agent, "messages", None) or [])
+            for message in agent.messages
         ]
 
 
 class _WorkflowMessageView:
-    def __init__(self, message: Any) -> None:
-        self.role = getattr(message, "role", "")
-        text = getattr(message, "text", "")
-        template = getattr(text, "template", None)
-        self.text = str(template) if template is not None else str(text)
+    def __init__(self, message: gestalt.WorkflowAgentMessage) -> None:
+        self.role = message.role
+        self.text = workflow_text(message.text)
 
 
-class _WorkflowAppView:
-    def __init__(self, app: Any) -> None:
-        self.app_name = getattr(app, "name", "")
-        self.operation = getattr(app, "operation", "")
-        self.connection = getattr(app, "connection", "")
-        self.instance = getattr(app, "instance", "")
-        self.credential_mode = getattr(app, "credential_mode", "")
-        input_value = getattr(app, "input", None)
-        if input_value is not None and hasattr(input_value, "object"):
-            input_value = getattr(input_value, "object", input_value)
-        self.input = input_value
-
-
-def workflow_target_agent(target: Any) -> _WorkflowAgentView:
-    for step in getattr(target, "steps", None) or []:
-        agent = getattr(step, "agent", None)
+def workflow_target_agent(
+    target: gestalt.BoundWorkflowTarget | None,
+) -> _WorkflowAgentView:
+    if target is None:
+        raise AssertionError("workflow target has no agent step")
+    for step in target.steps:
+        agent = step.agent
         if agent is not None:
             return _WorkflowAgentView(step, agent)
     raise AssertionError("workflow target has no agent step")
 
 
-def workflow_target_app(target: Any) -> _WorkflowAppView:
-    for step in getattr(target, "steps", None) or []:
-        app = getattr(step, "app", None)
+def workflow_target_app(
+    target: gestalt.BoundWorkflowTarget | None,
+) -> gestalt.WorkflowStepAppCall:
+    if target is None:
+        raise AssertionError("workflow target has no app step")
+    for step in target.steps:
+        app = step.app
         if app is not None:
-            return _WorkflowAppView(app)
+            return app
     raise AssertionError("workflow target has no app step")
 
 
@@ -121,7 +117,7 @@ class FakeHTTPResponse:
 class FakeWorkflowClient:
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
-        self.requests: list[Any] = []
+        self.requests: list[gestalt.WorkflowSignalOrStartRun] = []
 
     def __enter__(self) -> FakeWorkflowClient:
         return self
@@ -129,7 +125,9 @@ class FakeWorkflowClient:
     def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
         return None
 
-    def signal_or_start_run(self, request: Any) -> Any:
+    def signal_or_start_run(
+        self, request: gestalt.WorkflowSignalOrStartRun
+    ) -> gestalt.WorkflowRunSignal:
         self.requests.append(request)
         if self.fail:
             raise RuntimeError("workflow client unavailable")
@@ -333,21 +331,19 @@ def github_agent_request(
     repo: str = "acme/widgets",
     external_identity_type: str = "github_identity",
     external_identity_id: str = "user:222",
-) -> Any:
+) -> gestalt.Request:
     req = github_request(installation_id=installation_id, repo=repo)
-    return SimpleNamespace(
-        subject=req.subject,
-        agent_subject=SimpleNamespace(
-            id="user:user-456",
-            kind="user",
-            display_name="Grace Hopper",
-            auth_source="slack",
-        ),
-        agent_external_identity=SimpleNamespace(
-            type=external_identity_type,
-            id=external_identity_id,
-        ),
+    req.agent_subject = gestalt.Subject(
+        id="user:user-456",
+        kind="user",
+        display_name="Grace Hopper",
+        auth_source="slack",
     )
+    req.agent_external_identity = gestalt.ExternalIdentity(
+        type=external_identity_type,
+        id=external_identity_id,
+    )
+    return req
 
 
 class GitHubExternalIdentityRequest:
@@ -2802,7 +2798,7 @@ class GitHubProviderTests(unittest.TestCase):
         provider_module.configure("github", config)
         fake_db = FakeIndexedDB()
         fake_client = FakePreferenceTargetsClient()
-        req = SimpleNamespace(
+        req = gestalt.Request(
             token="user-token",
             subject=gestalt.Subject(id="user:ada", kind="human"),
         )
@@ -2937,7 +2933,7 @@ class GitHubProviderTests(unittest.TestCase):
         ):
             result = provider_module.github_action_preferences_list_targets(
                 provider_module.ActionPreferenceTargetsInput(),
-                SimpleNamespace(
+                gestalt.Request(
                     token="revoked-token",
                     subject=gestalt.Subject(id="user:ada", kind="human"),
                 ),
@@ -3608,13 +3604,13 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIsNotNone(workflow_target_app(app_request.target))
 
         app = workflow_target_app(app_request.target)
-        self.assertEqual(app.app_name, "github")
+        self.assertEqual(app.name, "github")
         self.assertEqual(app.operation, "reviewPullRequest")
         self.assertEqual(app.connection, "review-bot")
         self.assertEqual(app.instance, "prod")
         self.assertEqual(app.credential_mode, "none")
 
-        target_input = sdk_value_to_dict(app.input)
+        target_input = sdk_value_to_dict(app.input.object)
         self.assertEqual(target_input["maxComments"], 10)
         self.assertEqual(target_input["changedLinesOnly"], True)
         self.assertEqual(target_input["dryRun"], True)

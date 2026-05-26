@@ -1071,7 +1071,7 @@ def github_events_handle(
 
     installation_id = installation_id_from_payload(input)
     summary = event_summary(input, installation_id, event_type=event_type)
-    policy = None
+    policy: GitHubWebhookPolicy | None = None
     pull_request_context = None
     if explicit_policies:
         policy = select_webhook_policy(config, input, summary)
@@ -1131,16 +1131,16 @@ def _signal_or_start_webhook_workflow(
     req: gestalt.Request,
     *,
     summary: dict[str, Any],
-    policy: Any,
+    policy: GitHubWebhookPolicy | None,
     pull_request_context: GitHubPullRequestContext | None,
 ) -> OperationResult:
     workflow_key = ""
     workflow_request = build_workflow_signal_or_start_request(
         input, summary, policy, pull_request_context=pull_request_context
     )
-    workflow_key = str(getattr(workflow_request, "workflow_key", "")).strip()
+    workflow_key = workflow_request.workflow_key.strip()
     review_check_run: dict[str, Any] | None = None
-    if _policy_targets_review_pull_request(policy):
+    if policy is not None and _policy_targets_review_pull_request(policy):
         try:
             review_check_run = _ensure_review_check_run_for_workflow(
                 input,
@@ -1167,7 +1167,7 @@ def _signal_or_start_webhook_workflow(
                 },
                 pull_request_context=pull_request_context,
             )
-            workflow_key = str(getattr(workflow_request, "workflow_key", "")).strip()
+            workflow_key = workflow_request.workflow_key.strip()
     try:
         logger.info(
             "dispatching GitHub webhook workflow",
@@ -1176,7 +1176,7 @@ def _signal_or_start_webhook_workflow(
                 "github_action": summary.get("action", ""),
                 "github_delivery_id": summary.get("delivery_id", ""),
                 "github_repository": summary.get("repository", ""),
-                "github_webhook_policy": getattr(policy, "id", ""),
+                "github_webhook_policy": policy.id if policy is not None else "",
                 "workflow_key": workflow_key,
                 "workflow_provider": workflow_request.provider_name,
             },
@@ -1194,16 +1194,15 @@ def _signal_or_start_webhook_workflow(
                 "github_action": summary.get("action", ""),
                 "github_delivery_id": summary.get("delivery_id", ""),
                 "github_repository": summary.get("repository", ""),
-                "github_webhook_policy": getattr(policy, "id", ""),
+                "github_webhook_policy": policy.id if policy is not None else "",
                 "workflow_key": workflow_key,
             },
         )
         return _service_unavailable(f"failed to dispatch workflow run: {err}")
 
-    run = getattr(response, "run", None)
-    signal = getattr(response, "signal", None)
     workflow_key = str(
-        getattr(response, "workflow_key", "") or getattr(run, "workflow_key", "")
+        response.workflow_key
+        or (response.run.workflow_key if response.run is not None else "")
     ).strip()
     logger.info(
         "dispatched GitHub webhook workflow",
@@ -1212,38 +1211,36 @@ def _signal_or_start_webhook_workflow(
             "github_action": summary.get("action", ""),
             "github_delivery_id": summary.get("delivery_id", ""),
             "github_repository": summary.get("repository", ""),
-            "github_webhook_policy": getattr(policy, "id", ""),
+            "github_webhook_policy": policy.id if policy is not None else "",
             "workflow_key": workflow_key,
-            "workflow_provider": str(
-                getattr(response, "provider_name", "")
-                or get_github_config().workflow_provider
-            ),
-            "workflow_run_id": str(getattr(run, "id", "")),
-            "workflow_signal_id": str(getattr(signal, "id", "")),
-            "workflow_started_run": bool(getattr(response, "started_run", False)),
+            "workflow_provider": response.provider_name
+            or get_github_config().workflow_provider,
+            "workflow_run_id": response.run.id if response.run is not None else "",
+            "workflow_signal_id": response.signal.id
+            if response.signal is not None
+            else "",
+            "workflow_started_run": response.started_run,
         },
     )
 
     return {
         "ok": True,
         "dispatch": "workflow",
-        "workflow_provider": str(
-            getattr(response, "provider_name", "")
-            or get_github_config().workflow_provider
-        ),
-        "workflow_run_id": str(getattr(run, "id", "")),
+        "workflow_provider": response.provider_name
+        or get_github_config().workflow_provider,
+        "workflow_run_id": response.run.id if response.run is not None else "",
         "workflow_key": workflow_key,
-        "workflow_signal_id": str(getattr(signal, "id", "")),
-        "workflow_started_run": bool(getattr(response, "started_run", False)),
+        "workflow_signal_id": response.signal.id if response.signal is not None else "",
+        "workflow_started_run": response.started_run,
     }
 
 
-def _policy_targets_review_pull_request(policy: Any) -> bool:
-    target = getattr(policy, "workflow_target", None)
+def _policy_targets_review_pull_request(policy: GitHubWebhookPolicy) -> bool:
+    if policy.workflow_target is None:
+        return False
     return (
-        target is not None
-        and getattr(target, "app_name", "") == "github"
-        and getattr(target, "operation", "") == REVIEW_PULL_REQUEST_OPERATION
+        policy.workflow_target.app_name == "github"
+        and policy.workflow_target.operation == REVIEW_PULL_REQUEST_OPERATION
     )
 
 
@@ -1252,8 +1249,8 @@ def _ensure_review_check_run_for_workflow(
     req: gestalt.Request,
     *,
     summary: dict[str, Any],
-    policy: Any,
-    workflow_request: Any,
+    policy: GitHubWebhookPolicy,
+    workflow_request: gestalt.WorkflowSignalOrStartRun,
 ) -> dict[str, Any] | None:
     if _review_target_dry_run(policy):
         return None
@@ -1261,7 +1258,7 @@ def _ensure_review_check_run_for_workflow(
     if context is None:
         return None
     external_id = _review_check_run_external_id(
-        str(getattr(workflow_request, "idempotency_key", "")).strip()
+        workflow_request.idempotency_key.strip()
     )
     existing = _find_reusable_review_check_run(
         req,
@@ -1305,10 +1302,11 @@ def _ensure_review_check_run_for_workflow(
     )
 
 
-def _review_target_dry_run(policy: Any) -> bool:
-    target = getattr(policy, "workflow_target", None)
-    target_input = getattr(target, "input", {}) if target is not None else {}
-    return isinstance(target_input, dict) and target_input.get("dryRun") is True
+def _review_target_dry_run(policy: GitHubWebhookPolicy) -> bool:
+    return (
+        policy.workflow_target is not None
+        and policy.workflow_target.input.get("dryRun") is True
+    )
 
 
 def _review_check_run_context(
@@ -1316,7 +1314,7 @@ def _review_check_run_context(
     req: gestalt.Request,
     *,
     summary: dict[str, Any],
-    policy: Any,
+    policy: GitHubWebhookPolicy,
 ) -> dict[str, Any] | None:
     event_type = str(summary.get("event_type", "")).strip()
     action = str(summary.get("action", "")).strip()
@@ -1341,17 +1339,16 @@ def _review_check_run_context(
         if not map_field(issue, "pull_request"):
             return None
         comment_body = str_field(map_field(input, "comment"), "body")
-        trigger = getattr(policy, "trigger", None)
-        if getattr(trigger, "require_app_mention", False):
+        if policy.trigger.require_app_mention:
             if not app_mention_body_matches(comment_body):
                 return None
         else:
-            commands = getattr(trigger, "manual_commands", ())
-            if not commands:
+            if not policy.trigger.manual_commands:
                 return None
-            match_mode = getattr(trigger, "manual_command_match", "")
             if not manual_command_body_matches(
-                comment_body, commands, match_mode=match_mode
+                comment_body,
+                policy.trigger.manual_commands,
+                match_mode=policy.trigger.manual_command_match,
             ):
                 return None
         if pull_number <= 0:
@@ -1382,13 +1379,14 @@ def _review_check_run_context(
     }
 
 
-def _review_check_run_name(policy: Any) -> str:
-    target = getattr(policy, "workflow_target", None)
-    target_input = getattr(target, "input", {}) if target is not None else {}
-    if isinstance(target_input, dict):
-        name = target_input.get("checkRunName")
-        if isinstance(name, str) and name.strip():
-            return name.strip()
+def _review_check_run_name(policy: GitHubWebhookPolicy) -> str:
+    if policy.workflow_target is None:
+        return "Gestalt Review"
+    if (
+        isinstance(policy.workflow_target.input.get("checkRunName"), str)
+        and policy.workflow_target.input["checkRunName"].strip()
+    ):
+        return policy.workflow_target.input["checkRunName"].strip()
     return "Gestalt Review"
 
 
@@ -1498,10 +1496,10 @@ def _complete_review_check_run_dispatch_failed(
 
 def _stale_ci_head_ignored_reason(
     summary: dict[str, Any],
-    policy: Any,
+    policy: GitHubWebhookPolicy,
     pull_request_context: GitHubPullRequestContext | None,
 ) -> str:
-    if not getattr(getattr(policy, "comments", None), "suppress_stale_head", False):
+    if not policy.comments.suppress_stale_head:
         return ""
     if str(summary.get("event_type", "")).strip() not in (
         "check_run",
@@ -1524,7 +1522,7 @@ def _pull_request_webhook_context(
     input: dict[str, Any],
     req: gestalt.Request,
     summary: dict[str, Any],
-    policy: Any,
+    policy: GitHubWebhookPolicy,
 ) -> GitHubPullRequestContext | None:
     if not _needs_pull_request_context(input, summary, policy):
         return None
@@ -1552,7 +1550,7 @@ def _fetch_pull_request_webhook_context(
 
 
 def _needs_pull_request_context(
-    input: dict[str, Any], summary: dict[str, Any], policy: Any
+    input: dict[str, Any], summary: dict[str, Any], policy: GitHubWebhookPolicy
 ) -> bool:
     if _needs_pull_request_context_for_stale(summary, policy):
         return True
@@ -1566,11 +1564,11 @@ def _needs_pull_request_context(
 
 
 def _needs_pull_request_context_for_branch_commit(
-    input: dict[str, Any], summary: dict[str, Any], policy: Any
+    input: dict[str, Any], summary: dict[str, Any], policy: GitHubWebhookPolicy
 ) -> bool:
-    if getattr(policy, "self_fix_mode", "") != SELF_FIX_BRANCH_COMMIT:
+    if policy.self_fix_mode != SELF_FIX_BRANCH_COMMIT:
         return False
-    if not getattr(policy, "allow_self_fix", False):
+    if not policy.allow_self_fix:
         return False
     if BOT_COMMIT_FILES_OPERATION not in effective_policy_operations(policy):
         return False
@@ -1593,8 +1591,10 @@ def _pull_request_payload_has_same_pr_commit_metadata(input: dict[str, Any]) -> 
     )
 
 
-def _needs_pull_request_context_for_stale(summary: dict[str, Any], policy: Any) -> bool:
-    if not getattr(getattr(policy, "comments", None), "suppress_stale_head", False):
+def _needs_pull_request_context_for_stale(
+    summary: dict[str, Any], policy: GitHubWebhookPolicy
+) -> bool:
+    if not policy.comments.suppress_stale_head:
         return False
     if str(summary.get("event_type", "")).strip() not in (
         "check_run",
@@ -1611,9 +1611,9 @@ def _policy_with_action_preferences(
     input: dict[str, Any],
     req: gestalt.Request,
     summary: dict[str, Any],
-    policy: Any,
+    policy: GitHubWebhookPolicy,
     pull_request_context: GitHubPullRequestContext | None,
-) -> Any:
+) -> GitHubWebhookPolicy:
     config = get_github_config()
     if not config.action_preferences.enabled:
         return policy
@@ -1632,16 +1632,18 @@ def _policy_with_action_preferences(
     return apply_action_preferences(policy, config.action_preferences, identity)
 
 
-def _review_pull_request_disabled_by_preference(policy: Any) -> bool:
-    preferences = getattr(policy, "action_preferences", None)
-    if not preferences or preferences.get("source") == "config_default":
+def _review_pull_request_disabled_by_preference(policy: GitHubWebhookPolicy) -> bool:
+    if (
+        not policy.action_preferences
+        or policy.action_preferences.get("source") == "config_default"
+    ):
         return False
-    target = getattr(policy, "workflow_target", None)
+    if policy.workflow_target is None:
+        return False
     return (
-        target is not None
-        and getattr(target, "app_name", "") == "github"
-        and getattr(target, "operation", "") == REVIEW_PULL_REQUEST_OPERATION
-        and not getattr(policy, "allow_code_review_comments", True)
+        policy.workflow_target.app_name == "github"
+        and policy.workflow_target.operation == REVIEW_PULL_REQUEST_OPERATION
+        and not policy.allow_code_review_comments
     )
 
 
@@ -1694,7 +1696,7 @@ def github_action_preferences_list_targets(
     config = app_config.action_preferences
     if not config.enabled:
         return _failed_precondition("GitHub action preferences are not configured")
-    token = str(getattr(req, "token", "") or "").strip()
+    token = req.token.strip()
     if not token:
         return _failed_precondition(
             "A connected GitHub OAuth token is required to list configurable repositories"
@@ -2101,7 +2103,7 @@ def bot_create_pull_request(
 def user_create_pull_request(
     input: UserCreatePullRequestInput, req: gestalt.Request
 ) -> OperationResult:
-    token = str(getattr(req, "token", "") or "").strip()
+    token = req.token.strip()
     if not token:
         return gestalt.Response(
             status=HTTPStatus.UNAUTHORIZED, body={"error": "token is required"}
@@ -2792,17 +2794,14 @@ def _commit_request_from_input(
 
 
 def _commit_author_from_request(
-    input_name: str, input_email: str, req: Any
+    input_name: str, input_email: str, req: gestalt.Request
 ) -> tuple[str, str]:
-    external_identity = getattr(req, "agent_external_identity", None)
-    if external_identity is not None:
-        identity_type = str(getattr(external_identity, "type", "") or "").strip()
-        identity_id = str(getattr(external_identity, "id", "") or "").strip()
-        if identity_type == GITHUB_EXTERNAL_IDENTITY_TYPE:
-            user_id = _github_user_id_from_external_identity(identity_id)
-            user_identity = DEFAULT_GITHUB_CLIENT.user_identity_by_id(user_id)
-            if user_identity is not None and user_identity.email:
-                return user_identity.name, user_identity.email
+    external_identity = req.agent_external_identity
+    if external_identity.type.strip() == GITHUB_EXTERNAL_IDENTITY_TYPE:
+        user_id = _github_user_id_from_external_identity(external_identity.id)
+        user_identity = DEFAULT_GITHUB_CLIENT.user_identity_by_id(user_id)
+        if user_identity is not None and user_identity.email:
+            return user_identity.name, user_identity.email
     return input_name, input_email
 
 
@@ -2817,7 +2816,7 @@ def _request_external_identity(req: gestalt.Request) -> Any:
     # This is the delegated GitHub App installation identity authorized by the
     # host. Do not fall back to agent_external_identity; that field identifies
     # the original agent caller's GitHub user.
-    return non_empty_external_identity(getattr(req, "external_identity", None))
+    return non_empty_external_identity(req.external_identity)
 
 
 def _file_changes_from_input(
@@ -2948,7 +2947,7 @@ def _installed_app_repositories() -> list[dict[str, Any]]:
                     if full_name and full_name not in repositories:
                         repositories[full_name] = {
                             "repository": full_name,
-                            "html_url": _text(repository.get("html_url")),
+                            "html_url": str_field(repository, "html_url"),
                             "installation_id": installation_id,
                         }
                 if len(page_repositories) < 100:
@@ -2963,7 +2962,7 @@ def _installed_app_repositories() -> list[dict[str, Any]]:
 def _accessible_repository_summary(
     repository: dict[str, Any], token: str
 ) -> dict[str, Any] | None:
-    full_name = _text(repository.get("repository"))
+    full_name = str_field(repository, "repository")
     owner, separator, repo = full_name.partition("/")
     if not owner or not separator or not repo:
         return None
@@ -2978,8 +2977,8 @@ def _accessible_repository_summary(
     accessible_full_name = _repository_full_name(response) or full_name
     return {
         "repository": accessible_full_name,
-        "html_url": _text(response.get("html_url"))
-        or _text(repository.get("html_url")),
+        "html_url": str_field(response, "html_url")
+        or str_field(repository, "html_url"),
         "installation_id": repository.get("installation_id"),
     }
 
@@ -3059,11 +3058,10 @@ def _policy_action_preference_fields(
 ) -> tuple[str, ...]:
     operations = set(effective_policy_operations(policy))
     fields: list[str] = []
-    workflow_target = policy.workflow_target
     is_review_workflow = (
-        workflow_target is not None
-        and workflow_target.app_name == "github"
-        and workflow_target.operation == REVIEW_PULL_REQUEST_OPERATION
+        policy.workflow_target is not None
+        and policy.workflow_target.app_name == "github"
+        and policy.workflow_target.operation == REVIEW_PULL_REQUEST_OPERATION
     )
     if BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION in operations or is_review_workflow:
         fields.append("allow_code_review_comments")
@@ -3164,19 +3162,19 @@ def _preference_identity_summary(
 ) -> dict[str, Any]:
     return {
         "identity_kind": identity_kind,
-        "external_identity_type": getattr(identity, "external_identity_type", ""),
-        "external_subject_id": getattr(identity, "external_subject_id", ""),
-        "subject_id": getattr(identity, "subject_id", ""),
+        "external_identity_type": identity.external_identity_type,
+        "external_subject_id": identity.external_subject_id,
+        "subject_id": identity.subject_id,
     }
 
 
 def _repository_full_name(repository: dict[str, Any]) -> str:
-    full_name = _text(repository.get("full_name"))
+    full_name = str_field(repository, "full_name")
     if full_name:
         return full_name
     owner = repository.get("owner")
-    owner_login = _text(owner.get("login")) if isinstance(owner, dict) else ""
-    name = _text(repository.get("name"))
+    owner_login = str_field(owner, "login") if isinstance(owner, dict) else ""
+    name = str_field(repository, "name")
     return f"{owner_login}/{name}" if owner_login and name else ""
 
 
@@ -3185,10 +3183,6 @@ def _positive_int(value: Any) -> int:
         return 0
     result = int(value)
     return result if result > 0 else 0
-
-
-def _text(value: Any) -> str:
-    return value.strip() if isinstance(value, str) else ""
 
 
 def _preference_summary(preference: dict[str, Any]) -> dict[str, Any]:

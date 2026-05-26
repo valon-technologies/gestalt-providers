@@ -546,22 +546,6 @@ class ExplodingPublishResponseWorkflowClient(FakeWorkflowClient):
         return Response()
 
 
-class DictWorkflowClient(FakeWorkflowClient):
-    def signal_or_start_run(self, request: Any) -> Any:
-        self.signal_or_start_requests.append(request)
-        return {
-            "providerName": request.provider_name or "local",
-            "run": {
-                "id": "run-123",
-                "status": 1,
-                "workflowKey": request.workflow_key,
-            },
-            "signal": {"id": "signal-123"},
-            "startedRun": True,
-            "workflowKey": request.workflow_key,
-        }
-
-
 def slack_replies_response(
     messages: list[dict[str, Any]] | None = None,
     *,
@@ -3548,59 +3532,6 @@ class SlackProviderTests(unittest.TestCase):
             ],
         )
 
-    def test_slack_event_handler_acks_dict_workflow_response(self) -> None:
-        provider_module.configure(
-            "slack",
-            {
-                "bot": {"token": "xoxb-test-bot"},
-                "workflow": {"provider": "local"},
-                "agentProvider": "simple",
-                "agentModel": "deep",
-            },
-        )
-        self.addCleanup(provider_module.configure, "slack", {})
-        workflow_client = DictWorkflowClient()
-        payload = {
-            "type": "event_callback",
-            "event_id": "EvDict",
-            "team_id": "T123",
-            "event": {
-                "type": "app_mention",
-                "user": "U456",
-                "channel": "C789",
-                "channel_type": "channel",
-                "text": "<@UBOT> ack this",
-                "ts": "1712161829.000300",
-            },
-        }
-        request = gestalt.Request(
-            subject=gestalt.Subject(id="user:gestalt-123", kind="user")
-        )
-
-        with (
-            mock.patch.object(
-                gestalt.Request,
-                "workflows",
-                return_value=workflow_client,
-                create=True,
-            ),
-        ):
-            response = provider_module.slack_events_handle(payload, request)
-
-        self.assertEqual(
-            operation_body(response),
-            {
-                "ok": True,
-                "workflow_provider": "local",
-                "workflow_run_id": "run-123",
-                "workflow_key": "slack:T123:C789:1712161829.000300",
-                "workflow_signal_id": "signal-123",
-                "started_run": True,
-                "status": "WORKFLOW_RUN_STATUS_PENDING",
-            },
-        )
-        self.assertEqual(len(workflow_client.signal_or_start_requests), 1)
-
     def test_slack_event_handler_requires_bot_token_before_signaling_workflow(
         self,
     ) -> None:
@@ -4182,18 +4113,9 @@ class SlackProviderTests(unittest.TestCase):
                 provider_module.SlackEventReplyInput(
                     reply_ref=reply_ref, text="Here is the answer"
                 ),
-                cast(
-                    Any,
-                    type(
-                        "RequestWithIdempotencyKey",
-                        (),
-                        {
-                            "subject": gestalt.Subject(
-                                id="user:gestalt-123", kind="user"
-                            ),
-                            "idempotency_key": idempotency_key,
-                        },
-                    )(),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user"),
+                    idempotency_key=idempotency_key,
                 ),
             )
 
@@ -4274,21 +4196,10 @@ class SlackProviderTests(unittest.TestCase):
                 provider_module.SlackEventSessionStartedInput(
                     reply_ref=reply_ref, session_id="agent session/123"
                 ),
-                cast(
-                    Any,
-                    type(
-                        "RequestWithHostAndIdempotencyKey",
-                        (),
-                        {
-                            "subject": gestalt.Subject(
-                                id="user:gestalt-123", kind="user"
-                            ),
-                            "host": types.SimpleNamespace(
-                                public_base_url="https://gestalt.example.test/"
-                            ),
-                            "idempotency_key": idempotency_key,
-                        },
-                    )(),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user"),
+                    host=gestalt.Host(public_base_url="https://gestalt.example.test/"),
+                    idempotency_key=idempotency_key,
                 ),
             )
 
@@ -5965,7 +5876,7 @@ class SlackProviderTests(unittest.TestCase):
             if ref.app == "linear" and ref.operation == "searchIssues"
         )
         self.assertEqual(
-            _agent_subject_id(linear_ref.run_as),
+            linear_ref.run_as.id if linear_ref.run_as is not None else "",
             "service_account:slack-linear",
         )
 
@@ -8467,10 +8378,6 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(calls, 2)
         sleep.assert_called_once_with(0.0)
         self.assertEqual(result["data"]["message"]["text"], "after retry")
-
-
-def _agent_subject_id(subject: Any) -> str:
-    return cast(str, getattr(subject, "id", ""))
 
 
 if __name__ == "__main__":

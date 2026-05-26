@@ -27,11 +27,11 @@ class SessionCreateRequest:
     metadata: dict[str, Any]
     prepared_workspace: dict[str, str] | None
     created_by: dict[str, str]
-    session_start: Any | None
+    session_start: gestalt.AgentSessionStartConfig | None
 
     @property
     def has_session_start_hooks(self) -> bool:
-        return self.session_start is not None and bool(list(getattr(self.session_start, "hooks", []) or []))
+        return self.session_start is not None and bool(list(self.session_start.hooks))
 
     def with_metadata(self, metadata: dict[str, Any]) -> SessionCreateRequest:
         return replace(self, metadata=metadata)
@@ -65,20 +65,22 @@ class ToolRefRequest:
 def session_create_request_from_provider_request(
     request: gestalt.CreateAgentProviderSessionRequest, *, config: ClaudeAgentConfig
 ) -> SessionCreateRequest:
-    session_id = _required_text(getattr(request, "session_id", ""), field_name="session_id")
-    model = config.resolve_model(_text(getattr(request, "model", "")))
-    metadata = dict(getattr(request, "metadata", {}) or {})
+    session_id = request.session_id.strip()
+    if not session_id:
+        raise ValueError("session_id is required")
+    model = config.resolve_model(request.model.strip())
+    metadata = dict(request.metadata or {})
     validate_session_start_user_metadata(metadata)
     prepared_workspace = _prepared_workspace_from_request(request)
     return SessionCreateRequest(
         session_id=session_id,
-        idempotency_key=_text(getattr(request, "idempotency_key", "")),
+        idempotency_key=request.idempotency_key.strip(),
         model=model,
-        client_ref=_text(getattr(request, "client_ref", "")),
+        client_ref=request.client_ref.strip(),
         metadata=metadata,
         prepared_workspace=prepared_workspace,
-        created_by=gestalt.agent_actor_to_dict(getattr(request, "created_by", None)),
-        session_start=getattr(request, "session_start", None),
+        created_by=gestalt.agent_actor_to_dict(request.created_by),
+        session_start=request.session_start,
     )
 
 
@@ -89,34 +91,34 @@ def turn_create_request_from_provider_request(
     session: StoredSession,
     tool_source_modes: ToolSourceModes,
 ) -> TurnCreateRequest:
-    if not getattr(request, "messages", None):
+    request_messages = list(request.messages)
+    if not request_messages:
         raise ValueError("messages must contain at least one entry")
 
-    model = config.resolve_model(_text(getattr(request, "model", "")) or session.model)
-    messages = gestalt.agent_messages_to_dicts(request.messages)
+    model = config.resolve_model(request.model.strip() or session.model)
+    messages = gestalt.agent_messages_to_dicts(request_messages)
     response_schema = _response_schema_from_request(request)
-    tool_source = _tool_source_from_request(request)
-    if tool_source == tool_source_modes.none:
+    if request.tool_source == tool_source_modes.none:
         if response_schema is None:
             raise ValueError("response_schema is required with toolSource none")
         turn_profile = ClaudeTurnProfile.structured_output(response_schema=response_schema)
     else:
         claude_code_options = config.claude_code.resolve_turn_options(session.metadata)
         turn_profile = ClaudeTurnProfile.catalog(
-            run_grant=_text(getattr(request, "run_grant", "")),
+            run_grant=request.run_grant.strip(),
             response_schema=response_schema,
             claude_code_options=claude_code_options,
             cwd=prepared_workspace_cwd(session.prepared_workspace),
         )
 
     return TurnCreateRequest(
-        turn_id=_text(getattr(request, "turn_id", "")),
-        session_id=_text(getattr(request, "session_id", "")),
-        idempotency_key=_text(getattr(request, "idempotency_key", "")),
+        turn_id=request.turn_id.strip(),
+        session_id=request.session_id.strip(),
+        idempotency_key=request.idempotency_key.strip(),
         model=model,
         messages=messages,
-        created_by=gestalt.agent_actor_to_dict(getattr(request, "created_by", None)),
-        execution_ref=_text(getattr(request, "execution_ref", "")),
+        created_by=gestalt.agent_actor_to_dict(request.created_by),
+        execution_ref=request.execution_ref.strip(),
         turn_profile=turn_profile,
         timeout_seconds=_timeout_seconds_from_request(request),
     )
@@ -125,22 +127,22 @@ def turn_create_request_from_provider_request(
 def validate_turn_contract(
     request: gestalt.CreateAgentProviderTurnRequest, *, tool_source_modes: ToolSourceModes
 ) -> None:
-    tool_source = _tool_source_from_request(request)
-    if tool_source not in {tool_source_modes.mcp_catalog, tool_source_modes.none}:
+    if request.tool_source not in {tool_source_modes.mcp_catalog, tool_source_modes.none}:
         raise ValueError("agent/claude requires toolSource none or mcp_catalog")
-    if tool_source == tool_source_modes.mcp_catalog and not _text(getattr(request, "run_grant", "")):
+    if request.tool_source == tool_source_modes.mcp_catalog and not request.run_grant.strip():
         raise ValueError("run_grant is required")
-    if getattr(request, "tools", None):
+    if list(request.tools):
         raise ValueError("resolved tools are not supported by agent/claude")
-    if tool_source == tool_source_modes.none and list(getattr(request, "tool_refs", []) or []):
+    if request.tool_source == tool_source_modes.none and list(request.tool_refs):
         raise ValueError("tool_refs are not supported with toolSource none")
-    if tool_source == tool_source_modes.none and not _has_response_schema(request):
+    response_schema = _response_schema_from_request(request)
+    if request.tool_source == tool_source_modes.none and response_schema is None:
         raise ValueError("response_schema is required with toolSource none")
-    _validate_response_schema(_response_schema_from_request(request))
-    if dict(getattr(request, "model_options", {}) or {}):
+    _validate_response_schema(response_schema)
+    if dict(request.model_options or {}):
         raise ValueError("model_options are not supported by agent/claude")
-    if tool_source == tool_source_modes.mcp_catalog:
-        _validate_tool_refs(list(getattr(request, "tool_refs", []) or []))
+    if request.tool_source == tool_source_modes.mcp_catalog:
+        _validate_tool_refs(list(request.tool_refs))
 
 
 def existing_session_for_create(
@@ -157,19 +159,11 @@ def existing_session_for_create(
 def prepared_workspace_cwd(value: dict[str, str] | None) -> str:
     if not value:
         return ""
-    return _text(value.get("cwd"))
-
-
-def request_session_id(request: Any) -> str:
-    return _text(getattr(request, "session_id", ""))
-
-
-def subject_id(subject: Any) -> str:
-    return _text(getattr(subject, "id", ""))
+    return value.get("cwd", "").strip()
 
 
 def _prepared_workspace_from_request(request: gestalt.CreateAgentProviderSessionRequest) -> dict[str, str] | None:
-    prepared_workspace = gestalt.prepared_workspace_to_dict(getattr(request, "prepared_workspace", None))
+    prepared_workspace = gestalt.prepared_workspace_to_dict(request.prepared_workspace)
     if not prepared_workspace:
         return None
     if not prepared_workspace.get("root") or not prepared_workspace.get("cwd"):
@@ -177,18 +171,10 @@ def _prepared_workspace_from_request(request: gestalt.CreateAgentProviderSession
     return prepared_workspace
 
 
-def _response_schema_from_request(request: Any) -> dict[str, Any] | None:
-    value = getattr(request, "response_schema", None)
-    if value is None:
+def _response_schema_from_request(request: gestalt.CreateAgentProviderTurnRequest) -> dict[str, Any] | None:
+    if request.response_schema is None:
         return None
-    return dict(value)
-
-
-def _has_response_schema(request: Any) -> bool:
-    has_field = getattr(request, "HasField", None)
-    if callable(has_field):
-        return bool(has_field("response_schema"))
-    return _response_schema_from_request(request) is not None
+    return dict(request.response_schema)
 
 
 def _validate_response_schema(schema: dict[str, Any] | None) -> None:
@@ -196,11 +182,11 @@ def _validate_response_schema(schema: dict[str, Any] | None) -> None:
         return
     if not schema:
         raise ValueError("response_schema must be a non-empty JSON schema object with type 'object'")
-    if _text(schema.get("type")) != "object":
+    if str(schema.get("type") or "").strip() != "object":
         raise ValueError("response_schema.type must be 'object'")
 
 
-def _validate_tool_refs(tool_refs: list[Any]) -> None:
+def _validate_tool_refs(tool_refs: list[gestalt.AgentToolRef]) -> None:
     for index, ref in enumerate(tool_refs, start=1):
         tool_ref = _tool_ref_request(index=index, ref=ref)
         if "*" in {tool_ref.system, tool_ref.operation, tool_ref.connection, tool_ref.instance}:
@@ -215,16 +201,16 @@ def _validate_tool_refs(tool_refs: list[Any]) -> None:
             raise ValueError(f"tool_refs[{index}].plugin is required")
 
 
-def _tool_ref_request(*, index: int, ref: Any) -> ToolRefRequest:
+def _tool_ref_request(*, index: int, ref: gestalt.AgentToolRef) -> ToolRefRequest:
     return ToolRefRequest(
         index=index,
-        plugin=_text(getattr(ref, "app", "") or getattr(ref, "plugin", "")),
-        system=_text(getattr(ref, "system", "")),
-        operation=_text(getattr(ref, "operation", "")),
-        connection=_text(getattr(ref, "connection", "")),
-        instance=_text(getattr(ref, "instance", "")),
-        title=_text(getattr(ref, "title", "")),
-        description=_text(getattr(ref, "description", "")),
+        plugin=ref.app.strip(),
+        system=ref.system.strip(),
+        operation=ref.operation.strip(),
+        connection=ref.connection.strip(),
+        instance=ref.instance.strip(),
+        title=ref.title.strip(),
+        description=ref.description.strip(),
     )
 
 
@@ -249,28 +235,7 @@ def _validate_system_tool_ref(ref: ToolRefRequest) -> None:
         )
 
 
-def _tool_source_from_request(request: Any) -> int:
-    return int(getattr(request, "tool_source", 0) or 0)
-
-
-def _timeout_seconds_from_request(request: Any) -> float:
-    if not hasattr(request, "timeout_seconds"):
-        return 0.0
-    raw_value = getattr(request, "timeout_seconds", 0)
-    if raw_value is None or str(raw_value).strip() == "":
-        return 0.0
-    value = float(raw_value)
-    if value < 0:
+def _timeout_seconds_from_request(request: gestalt.CreateAgentProviderTurnRequest) -> float:
+    if request.timeout_seconds < 0:
         raise ValueError("timeout_seconds must be non-negative")
-    return value
-
-
-def _required_text(value: Any, *, field_name: str) -> str:
-    text = _text(value)
-    if not text:
-        raise ValueError(f"{field_name} is required")
-    return text
-
-
-def _text(value: Any) -> str:
-    return str(value or "").strip()
+    return float(request.timeout_seconds)

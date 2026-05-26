@@ -5,6 +5,8 @@ import os
 import subprocess
 from typing import Any
 
+import gestalt
+
 RESERVED_PREFIX = "__gestalt.lifecycle.sessionStart"
 RESULTS_PREFIX = f"{RESERVED_PREFIX}.results"
 ADDITIONAL_CONTEXT_KEY = f"{RESERVED_PREFIX}.additionalContext"
@@ -13,15 +15,17 @@ RESERVED_METADATA_KEYS = {"cwd", "workspacePath", "worktreePath"}
 _DEFAULT_ENV_KEYS = ("HOME", "PATH", "SHELL", "TMPDIR", "USER", "LOGNAME", "LANG", "LC_ALL")
 
 
-def run_session_start_hooks(session_start: Any, metadata: dict[str, Any]) -> dict[str, Any]:
-    hooks = list(getattr(session_start, "hooks", []) or [])
+def run_session_start_hooks(
+    session_start: gestalt.AgentSessionStartConfig, metadata: dict[str, Any]
+) -> dict[str, Any]:
+    hooks = list(session_start.hooks)
     if not hooks:
         return dict(metadata)
     merged = dict(metadata)
     context_chunks: list[str] = []
     for hook in hooks:
         result, additional_context = _run_hook(hook)
-        hook_id = str(getattr(hook, "id", "") or "").strip()
+        hook_id = hook.id.strip()
         merged[f"{RESULTS_PREFIX}.{hook_id}"] = result
         if additional_context:
             context_chunks.append(additional_context)
@@ -49,50 +53,48 @@ def prepend_session_start_context(messages: list[dict[str, Any]], metadata: dict
     ]
 
 
-def _run_hook(hook: Any) -> tuple[dict[str, Any], str]:
-    hook_id = str(getattr(hook, "id", "") or "").strip()
-    hook_type = str(getattr(hook, "type", "") or "command").strip() or "command"
+def _run_hook(hook: gestalt.AgentSessionStartHook) -> tuple[dict[str, Any], str]:
+    hook_id = hook.id.strip()
+    hook_type = hook.type.strip() or "command"
     if hook_type != "command":
         raise ValueError(f"sessionStart hook {hook_id!r} type {hook_type!r} is not supported")
-    command = [str(part) for part in getattr(hook, "command", []) if str(part).strip()]
+    command = [str(part) for part in hook.command if str(part).strip()]
     if not command:
         raise ValueError(f"sessionStart hook {hook_id!r} command is required")
-    timeout = _parse_timeout(str(getattr(hook, "timeout", "") or ""))
+    timeout = _parse_timeout(hook.timeout)
     try:
         completed = subprocess.run(
             command,
-            cwd=str(getattr(hook, "cwd", "") or "") or None,
-            env=_hook_env(getattr(hook, "env", {}) or {}),
+            cwd=hook.cwd or None,
+            env=_hook_env(hook.env),
             text=True,
             capture_output=True,
             timeout=timeout,
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
-        timeout_detail = str(getattr(hook, "timeout", "") or timeout or "").strip()
+        timeout_detail = str(hook.timeout or timeout or "").strip()
         raise RuntimeError(f"sessionStart hook {hook_id!r} timed out after {timeout_detail}") from exc
     stdout = completed.stdout or ""
     stderr = completed.stderr or ""
     if completed.returncode != 0:
         detail = stderr.strip() or stdout.strip() or f"exit code {completed.returncode}"
         raise RuntimeError(f"sessionStart hook {hook_id!r} failed: {detail}")
-    output = getattr(hook, "output", None)
     stdout_payload = _json_stdout_payload(stdout)
-    include_metadata = bool(getattr(output, "metadata", False))
     result: dict[str, Any] = {
         "status": "succeeded",
         "exitCode": completed.returncode,
-        "timeout": str(getattr(hook, "timeout", "") or ""),
+        "timeout": hook.timeout,
         "timedOut": False,
     }
-    if include_metadata:
+    if hook.output is not None and hook.output.metadata:
         payload_metadata = stdout_payload.get("metadata")
         if isinstance(payload_metadata, dict):
             result["metadata"] = payload_metadata
         result["stdout"] = stdout
         result["stderr"] = stderr
     additional_context = ""
-    if bool(getattr(output, "additional_context", False)):
+    if hook.output is not None and hook.output.additional_context:
         payload_context = stdout_payload.get("additionalContext")
         additional_context = str(payload_context).strip() if payload_context is not None else stdout.strip()
     return result, additional_context

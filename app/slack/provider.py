@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from http import HTTPStatus
 from typing import Any, TypeAlias
 
@@ -915,24 +914,10 @@ def _chat_post_message_gestalt_label() -> str:
     return SLACK_POST_MESSAGE_FOOTER_APP_NAME
 
 
-def _external_identity_field(identity: Any, field: str) -> str:
-    if isinstance(identity, Mapping):
-        value = identity.get(field)
-    else:
-        value = getattr(identity, field, None)
-    return str(value or "").strip()
-
-
-def _slack_user_id_from_external_identity(identity: Any) -> str:
-    if identity is None:
+def _slack_user_id_from_external_identity(identity: gestalt.ExternalIdentity) -> str:
+    if identity.type.strip() != _agent.SLACK_EXTERNAL_IDENTITY_TYPE:
         return ""
-    if (
-        _external_identity_field(identity, "type")
-        != _agent.SLACK_EXTERNAL_IDENTITY_TYPE
-    ):
-        return ""
-    identity_id = _external_identity_field(identity, "id")
-    parts = identity_id.split(":")
+    parts = identity.id.strip().split(":")
     if len(parts) != 4 or parts[0] != "team" or parts[2] != "user":
         return ""
     return parts[3].strip()
@@ -940,9 +925,7 @@ def _slack_user_id_from_external_identity(identity: Any) -> str:
 
 def _chat_post_message_footer_text(req: gestalt.Request) -> str:
     gestalt_label = _chat_post_message_gestalt_label()
-    user_id = _slack_user_id_from_external_identity(
-        getattr(req, "agent_external_identity", None)
-    )
+    user_id = _slack_user_id_from_external_identity(req.agent_external_identity)
     if user_id:
         return f"Sent by <@{user_id}> with {gestalt_label}"
     return f"Sent with {gestalt_label}"

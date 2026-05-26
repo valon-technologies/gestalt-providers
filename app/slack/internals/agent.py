@@ -121,10 +121,6 @@ Do not use raw Slack message-posting tools for the final reply.
 """.strip()
 
 
-def _request_subject_id(req: gestalt.Request) -> str:
-    return str(getattr(getattr(req, "subject", None), "id", "") or "").strip()
-
-
 def _log_context(**fields: Any) -> str:
     parts: list[str] = []
     for key, value in fields.items():
@@ -151,7 +147,7 @@ def _slack_event_log_context(
         slack_thread_ts=event.thread_ts,
         slack_reply_thread_ts=event.reply_thread_ts,
         slack_route_id=route.id if route else "",
-        subject_id=_request_subject_id(req),
+        subject_id=req.subject.id.strip(),
         workflow_key=_agent_session_ref(event),
     )
 
@@ -194,7 +190,7 @@ def _slack_interaction_log_context(
         slack_route_id=route.id
         if route
         else (verified_ref.route_id if verified_ref else ""),
-        subject_id=_request_subject_id(req),
+        subject_id=req.subject.id.strip(),
         workflow_key=verified_ref.workflow_key if verified_ref else "",
     )
 
@@ -210,13 +206,8 @@ def _workflow_signal_fields_log_context(fields: dict[str, Any]) -> str:
     )
 
 
-def _request_workflow_context(req: gestalt.Request) -> dict[str, Any]:
-    workflow = getattr(req, "workflow", {}) or {}
-    return workflow if isinstance(workflow, dict) else {}
-
-
 def _workflow_log_context(req: gestalt.Request) -> str:
-    workflow = _request_workflow_context(req)
+    workflow = req.workflow
     metadata = workflow.get("metadata")
     if not isinstance(metadata, dict):
         metadata = {}
@@ -236,15 +227,8 @@ def _workflow_log_context(req: gestalt.Request) -> str:
         workflow_event_trigger_id=trigger.get("triggerId"),
         workflow_signal_id=signal.get("id"),
         workflow_signal_name=signal.get("name"),
-        idempotency_key=getattr(req, "idempotency_key", ""),
+        idempotency_key=req.idempotency_key,
     )
-
-
-def _reply_ref_hash(reply_ref: str) -> str:
-    value = reply_ref.strip()
-    if not value:
-        return ""
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _log_body(value: Any, *, max_bytes: int = 2048) -> str:
@@ -277,11 +261,9 @@ def _slack_delivery_log_context(
 ) -> str:
     return _log_context(
         operation=operation,
-        subject_id=_request_subject_id(req),
-        credential_subject_id=getattr(
-            getattr(req, "credential", None), "subject_id", ""
-        ),
-        agent_subject_id=getattr(getattr(req, "agent_subject", None), "id", ""),
+        subject_id=req.subject.id.strip(),
+        credential_subject_id=req.credential.subject_id,
+        agent_subject_id=req.agent_subject.id,
         slack_team_id=verified_ref.team_id if verified_ref else "",
         slack_channel_id=verified_ref.channel_id if verified_ref else "",
         slack_channel_type=verified_ref.channel_type if verified_ref else "",
@@ -291,7 +273,7 @@ def _slack_delivery_log_context(
         slack_route_id=verified_ref.route_id if verified_ref else "",
         workflow_key=_reply_ref_workflow_key(verified_ref) if verified_ref else "",
         workflow_context=_workflow_log_context(req),
-        reply_ref_sha256=_reply_ref_hash(reply_ref),
+        reply_ref_sha256=_sha256_log_value(reply_ref),
         text_bytes=len(text.encode("utf-8")) if text else "",
         text_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest() if text else "",
         session_id=session_id,
@@ -299,29 +281,23 @@ def _slack_delivery_log_context(
 
 
 def _workflow_signal_response_fields(
-    response: Any,
+    response: gestalt.WorkflowRunSignal,
     fallback_workflow_key: str = "",
     fallback_provider_name: str = "",
 ) -> dict[str, Any]:
-    run = _field_value(response, "run")
-    signal = _field_value(response, "signal")
     return {
-        "workflow_provider": str(
-            _field_value(response, "provider_name", "providerName")
-            or fallback_provider_name
-            or _agent_config.workflow.provider_name
+        "workflow_provider": response.provider_name
+        or fallback_provider_name
+        or _agent_config.workflow.provider_name,
+        "workflow_run_id": response.run.id if response.run is not None else "",
+        "workflow_key": response.workflow_key
+        or (response.run.workflow_key if response.run is not None else "")
+        or fallback_workflow_key,
+        "workflow_signal_id": response.signal.id if response.signal is not None else "",
+        "started_run": response.started_run,
+        "status": _workflow_run_status_name(
+            response.run.status if response.run is not None else 0
         ),
-        "workflow_run_id": str(_field_value(run, "id") or ""),
-        "workflow_key": str(
-            _field_value(response, "workflow_key", "workflowKey")
-            or _field_value(run, "workflow_key", "workflowKey")
-            or fallback_workflow_key
-        ),
-        "workflow_signal_id": str(_field_value(signal, "id") or ""),
-        "started_run": _bool_field_value(
-            _field_value(response, "started_run", "startedRun")
-        ),
-        "status": _workflow_run_status_name(_field_value(run, "status")),
     }
 
 
@@ -333,33 +309,13 @@ def _workflow_dispatched_ack_fallback() -> dict[str, Any]:
     }
 
 
-def _field_value(source: Any, *names: str) -> Any:
-    if source is None:
-        return None
-    if isinstance(source, dict):
-        for name in names:
-            if name in source:
-                return source[name]
-        return None
-    for name in names:
-        try:
-            return getattr(source, name)
-        except AttributeError:
-            continue
-    return None
-
-
 def _workflow_handoff_log_context(
-    workflow_request: Any | None,
+    workflow_request: gestalt.WorkflowSignalOrStartRun | None,
     err: BaseException | None = None,
 ) -> str:
-    idempotency_key = str(
-        _field_value(workflow_request, "idempotency_key", "idempotencyKey") or ""
-    ).strip()
+    idempotency_key = workflow_request.idempotency_key.strip() if workflow_request is not None else ""
     return _log_context(
-        workflow_provider=_field_value(
-            workflow_request, "provider_name", "providerName"
-        ),
+        workflow_provider=workflow_request.provider_name if workflow_request is not None else "",
         idempotency_key_sha256=_sha256_log_value(idempotency_key),
         error_type=type(err).__name__ if err else "",
         error=_log_body(str(err), max_bytes=512) if err else "",
@@ -367,22 +323,10 @@ def _workflow_handoff_log_context(
 
 
 def _sha256_log_value(value: str) -> str:
-    value = str(value or "").strip()
+    value = value.strip()
     if not value:
         return ""
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _bool_field_value(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"true", "1", "yes"}:
-            return True
-        if normalized in {"false", "0", "no", ""}:
-            return False
-    return bool(value)
 
 
 _agent_config = SlackAgentConfig()
@@ -471,7 +415,7 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             return publish_response
 
     log_context = _slack_event_log_context(event, req, route)
-    subject_id = _request_subject_id(req)
+    subject_id = req.subject.id.strip()
     if not _slack_event_subject_allowed(event, route, subject_id):
         publish_response = _publish_matching_workflow_events(input, req)
         if isinstance(publish_response, gestalt.Response):
@@ -771,7 +715,7 @@ def reply_to_slack_event(
             channel=verified_ref.channel_id,
             text=normalized_text,
             thread_ts=verified_ref.reply_thread_ts,
-            client_msg_id=_slack_client_msg_id(getattr(req, "idempotency_key", "")),
+            client_msg_id=_slack_client_msg_id(req.idempotency_key),
         )
     except ValueError as err:
         logger.warning(
@@ -850,9 +794,7 @@ def reply_slack_event_session_started(
             "thread_ts": verified_ref.reply_thread_ts,
         }
 
-    base_url = str(
-        getattr(getattr(req, "host", None), "public_base_url", "") or ""
-    ).strip()
+    base_url = req.host.public_base_url.strip()
     if not base_url:
         logger.warning(
             "failed Slack session-started delivery %s error=host.public_base_url is required",
@@ -882,7 +824,7 @@ def reply_slack_event_session_started(
             thread_ts=verified_ref.reply_thread_ts,
             unfurl_links=False,
             unfurl_media=False,
-            client_msg_id=_slack_client_msg_id(getattr(req, "idempotency_key", "")),
+            client_msg_id=_slack_client_msg_id(req.idempotency_key),
         )
     except ValueError as err:
         logger.warning(
@@ -1477,9 +1419,7 @@ def _notify_unlinked_slack_user(
 
 
 def _unlinked_slack_user_message(req: gestalt.Request) -> str:
-    base_url = str(
-        getattr(getattr(req, "host", None), "public_base_url", "") or ""
-    ).strip()
+    base_url = req.host.public_base_url.strip()
     if base_url:
         return (
             "Your Slack account is not yet connected at "
@@ -3558,14 +3498,12 @@ def _slack_client_msg_id(idempotency_key: str) -> str:
     return str(uuid.UUID(hex=digest[:32]))
 
 
-def _workflow_run_status_name(status: Any) -> str:
+def _workflow_run_status_name(status: int) -> str:
     if not status:
         return ""
-    if isinstance(status, str):
-        return status
     try:
-        return gestalt.workflow_run_status_name(int(status))
-    except (TypeError, ValueError, AttributeError):
+        return gestalt.workflow_run_status_name(status)
+    except ValueError:
         return str(status)
 
 
