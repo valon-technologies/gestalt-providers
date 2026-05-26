@@ -22,10 +22,10 @@ from internals.operations import (
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
 
-plugin = gestalt.App("gmail")
+app = gestalt.App("gmail")
 
 
-@plugin.configure
+@app.configure
 def configure(_name: str, _config: dict[str, Any]) -> None:
     return None
 
@@ -188,7 +188,7 @@ class ForwardMessageInput(gestalt.Model):
     )
 
 
-@plugin.operation(
+@app.operation(
     id="messages.list",
     method="GET",
     description="List Gmail messages",
@@ -217,7 +217,7 @@ def messages_list(input: MessagesListInput, req: gestalt.Request) -> OperationRe
         return _server_error(str(err))
 
 
-@plugin.operation(
+@app.operation(
     id="messages.get",
     method="GET",
     description="Get a Gmail message",
@@ -246,7 +246,7 @@ def messages_get(input: MessageGetInput, req: gestalt.Request) -> OperationResul
         return _server_error(str(err))
 
 
-@plugin.operation(
+@app.operation(
     id="messages.attachments.get",
     method="GET",
     description="Get a Gmail message attachment",
@@ -276,7 +276,7 @@ def messages_attachments_get(
         return _server_error(str(err))
 
 
-@plugin.operation(
+@app.operation(
     id="threads.get",
     method="GET",
     description="Get a Gmail thread",
@@ -305,7 +305,7 @@ def threads_get(input: ThreadGetInput, req: gestalt.Request) -> OperationResult:
         return _server_error(str(err))
 
 
-@plugin.operation(
+@app.operation(
     id="labels.list",
     method="GET",
     description="List Gmail labels",
@@ -326,7 +326,7 @@ def labels_list(input: CommonFieldsInput, req: gestalt.Request) -> OperationResu
         return _server_error(str(err))
 
 
-@plugin.operation(
+@app.operation(
     id="getProfile",
     method="GET",
     description="Get the Gmail profile",
@@ -347,7 +347,7 @@ def get_profile(input: CommonFieldsInput, req: gestalt.Request) -> OperationResu
         return _server_error(str(err))
 
 
-@plugin.operation(
+@app.operation(
     id="messages.send",
     method="POST",
     description="Send an email message",
@@ -368,7 +368,7 @@ def messages_send(input: SendMessageInput, req: gestalt.Request) -> OperationRes
         return _server_error(str(err))
 
 
-@plugin.operation(
+@app.operation(
     id="drafts.create",
     method="POST",
     description="Create an email draft",
@@ -389,7 +389,7 @@ def drafts_create(input: CreateDraftInput, req: gestalt.Request) -> OperationRes
         return _server_error(str(err))
 
 
-@plugin.operation(
+@app.operation(
     id="drafts.update",
     method="PUT",
     description="Update an email draft",
@@ -410,7 +410,7 @@ def drafts_update(input: UpdateDraftInput, req: gestalt.Request) -> OperationRes
         return _server_error(str(err))
 
 
-@plugin.operation(
+@app.operation(
     id="drafts.send",
     method="POST",
     description="Send an existing email draft",
@@ -431,7 +431,7 @@ def drafts_send(input: SendDraftInput, req: gestalt.Request) -> OperationResult:
         return _server_error(str(err))
 
 
-@plugin.operation(
+@app.operation(
     id="messages.reply",
     method="POST",
     description="Reply to an existing message",
@@ -461,7 +461,7 @@ def messages_reply(input: ReplyMessageInput, req: gestalt.Request) -> OperationR
         return _server_error(str(err))
 
 
-@plugin.operation(
+@app.operation(
     id="messages.forward",
     method="POST",
     description="Forward a message to new recipients",
