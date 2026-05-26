@@ -666,7 +666,7 @@ def attempt_review_self_fix(
 def review_self_fix_enabled(req: gestalt.Request, signal: Mapping[str, Any]) -> bool:
     if not review_tool_refs_allow_operation(
         review_agent_tool_refs(req, signal),
-        plugin="github",
+        app="github",
         operation=BOT_COMMIT_FILES_OPERATION,
     ):
         return False
@@ -694,7 +694,7 @@ def review_policy_tool_ref_operations(signal: Mapping[str, Any]) -> list[str]:
     return operations
 
 
-def review_policy_tool_refs(signal: Mapping[str, Any]) -> list[Any]:
+def review_policy_tool_refs(signal: Mapping[str, Any]) -> list[gestalt.AgentToolRef]:
     return [
         gestalt.AgentToolRef(app="github", operation=operation)
         for operation in review_policy_tool_ref_operations(signal)
@@ -704,26 +704,24 @@ def review_policy_tool_refs(signal: Mapping[str, Any]) -> list[Any]:
 def review_agent_tool_refs(
     req: gestalt.Request,
     signal: Mapping[str, Any],
-) -> list[Any]:
-    if bool(getattr(req, "tool_refs_set", False)):
-        return list(getattr(req, "tool_refs", ()) or ())
+) -> list[gestalt.AgentToolRef]:
+    if req.tool_refs_set:
+        return list(req.tool_refs)
     return review_policy_tool_refs(signal)
 
 
 def review_tool_refs_allow_operation(
-    tool_refs: Sequence[Any],
+    tool_refs: Sequence[gestalt.AgentToolRef],
     *,
-    plugin: str,
+    app: str,
     operation: str,
 ) -> bool:
     for ref in tool_refs:
-        if str(getattr(ref, "system", "") or "").strip():
+        if ref.system.strip():
             continue
-        ref_plugin = str(
-            getattr(ref, "app", "") or getattr(ref, "plugin", "") or ""
-        ).strip()
-        ref_operation = str(getattr(ref, "operation", "") or "").strip()
-        if ref_plugin in (plugin, "*") and ref_operation in (operation, ""):
+        ref_app = ref.app.strip()
+        ref_operation = ref.operation.strip()
+        if ref_app in (app, "*") and ref_operation in (operation, ""):
             return True
     return False
 

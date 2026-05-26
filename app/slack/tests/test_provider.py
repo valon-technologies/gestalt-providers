@@ -65,8 +65,8 @@ def new_struct() -> dict[str, Any]:
 
 def authorization_subject(
     *, type: str, id: str, properties: dict[str, Any] | None = None
-) -> types.SimpleNamespace:
-    return types.SimpleNamespace(type=type, id=id, properties=properties or {})
+) -> gestalt.AuthorizationSubject:
+    return gestalt.AuthorizationSubject(type=type, id=id, properties=properties or {})
 
 
 class FakeWorkflowPublishEvent:
@@ -458,37 +458,21 @@ def _manifest_parameter_types(operation: dict[str, Any], name: str) -> list[str]
 
 
 class FakeAuthorization:
-    def __init__(self, subjects: list[Any]) -> None:
-        self.subjects = [_native_subject(subject) for subject in subjects]
-        self.requests: list[Any] = []
+    def __init__(self, subjects: list[gestalt.AuthorizationSubject]) -> None:
+        self.subjects = subjects
+        self.requests: list[gestalt.SubjectSearchRequest] = []
 
-    def search_subjects(self, request: Any) -> Any:
+    def search_subjects(
+        self, request: gestalt.SubjectSearchRequest
+    ) -> gestalt.SubjectSearchResponse:
         self.requests.append(request)
-        if isinstance(request, dict):
-            subject_type = str(request.get("subject_type", "") or "").strip()
-        else:
-            subject_type = str(getattr(request, "subject_type", "") or "").strip()
+        subject_type = request.subject_type.strip()
         subjects = [
             subject
             for subject in self.subjects
-            if not subject_type or str(subject.type or "").strip() == subject_type
+            if not subject_type or subject.type.strip() == subject_type
         ]
-        return types.SimpleNamespace(subjects=subjects)
-
-
-def _native_subject(subject: Any) -> Any:
-    properties = getattr(subject, "properties", None)
-    if properties is None:
-        native_properties = None
-    elif isinstance(properties, dict):
-        native_properties = properties
-    else:
-        native_properties = sdk_value_to_dict(properties)
-    return types.SimpleNamespace(
-        type=str(getattr(subject, "type", "") or ""),
-        id=str(getattr(subject, "id", "") or ""),
-        properties=native_properties,
-    )
+        return gestalt.SubjectSearchResponse(subjects=subjects)
 
 
 class FakeWorkflowClient:
@@ -1863,18 +1847,20 @@ class SlackProviderTests(unittest.TestCase):
 
         self.assertEqual(len(authorization.requests), 1)
         request = authorization.requests[0]
-        resource = request["resource"]
-        action = request["action"]
-        self.assertEqual(resource["type"], "external_identity")
+        resource = request.resource
+        action = request.action
+        self.assertIsNotNone(resource)
+        self.assertIsNotNone(action)
+        self.assertEqual(resource.type, "external_identity")
         self.assertEqual(
-            resource["id"],
+            resource.id,
             provider_module.external_identity_resource_id(
                 "slack_identity",
                 "team:T123:user:U456",
             ),
         )
-        self.assertEqual(action["name"], "assume")
-        self.assertNotIn("subject_type", request)
+        self.assertEqual(action.name, "assume")
+        self.assertEqual(request.subject_type, "")
 
     def test_http_subject_dedupes_equivalent_managed_external_identity_subjects(
         self,
