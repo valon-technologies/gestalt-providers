@@ -46,12 +46,21 @@ var (
 
 type config struct {
 	Region          string `yaml:"region"`
+	Bucket          string `yaml:"bucket"`
+	KeyPrefix       string `yaml:"keyPrefix"`
 	Endpoint        string `yaml:"endpoint"`
 	ForcePathStyle  bool   `yaml:"forcePathStyle"`
 	AccessKeyID     string `yaml:"accessKeyId"`
 	SecretAccessKey string `yaml:"secretAccessKey"`
 	SessionToken    string `yaml:"sessionToken"`
 	PayloadSigning  string `yaml:"payloadSigning"`
+}
+
+type configuredProvider struct {
+	client    *s3sdk.Client
+	presigner *s3sdk.PresignClient
+	bucket    string
+	keyPrefix string
 }
 
 type Provider struct {
@@ -78,6 +87,8 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	}
 
 	cfg.Region = strings.TrimSpace(cfg.Region)
+	cfg.Bucket = strings.TrimSpace(cfg.Bucket)
+	cfg.KeyPrefix = normalizeKeyPrefix(cfg.KeyPrefix)
 	cfg.Endpoint = strings.TrimSpace(cfg.Endpoint)
 	cfg.AccessKeyID = strings.TrimSpace(cfg.AccessKeyID)
 	cfg.SecretAccessKey = strings.TrimSpace(cfg.SecretAccessKey)
@@ -87,6 +98,8 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	switch {
 	case cfg.Region == "":
 		return fmt.Errorf("s3: region is required")
+	case cfg.Bucket == "":
+		return fmt.Errorf("s3: bucket is required")
 	case (cfg.AccessKeyID == "") != (cfg.SecretAccessKey == ""):
 		return fmt.Errorf("s3: accessKeyId and secretAccessKey must be provided together")
 	}
@@ -130,13 +143,13 @@ func (p *Provider) HealthCheck(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	client, _, err := p.configured()
+	cfg, err := p.configured()
 	if err != nil {
 		return err
 	}
 	healthCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	_, err = client.ListBuckets(healthCtx, &s3sdk.ListBucketsInput{})
+	_, err = cfg.client.HeadBucket(healthCtx, &s3sdk.HeadBucketInput{Bucket: aws.String(cfg.bucket)})
 	if err != nil {
 		if isAccessDenied(err) {
 			return nil
@@ -159,7 +172,11 @@ func (p *Provider) HeadObject(ctx context.Context, ref gestalt.ObjectRef) (gesta
 	if err != nil {
 		return gestalt.ObjectMeta{}, err
 	}
-	meta, err := p.headObject(ctx, ref)
+	cfg, err := p.configured()
+	if err != nil {
+		return gestalt.ObjectMeta{}, toStatusError(err)
+	}
+	meta, err := p.headObject(ctx, cfg, ref)
 	if err != nil {
 		return gestalt.ObjectMeta{}, toStatusError(err)
 	}
@@ -172,14 +189,15 @@ func (p *Provider) ReadObject(ctx context.Context, ref gestalt.ObjectRef, opts *
 		return gestalt.ObjectMeta{}, nil, err
 	}
 
-	client, _, err := p.configured()
+	cfg, err := p.configured()
 	if err != nil {
 		return gestalt.ObjectMeta{}, nil, toStatusError(err)
 	}
 
+	key := backendKey(cfg.keyPrefix, ref.Key)
 	input := &s3sdk.GetObjectInput{
-		Bucket: aws.String(ref.Bucket),
-		Key:    aws.String(ref.Key),
+		Bucket: aws.String(cfg.bucket),
+		Key:    aws.String(key),
 	}
 	if ref.VersionID != "" {
 		input.VersionId = aws.String(ref.VersionID)
@@ -206,9 +224,9 @@ func (p *Provider) ReadObject(ctx context.Context, ref gestalt.ObjectRef, opts *
 		}
 	}
 
-	out, err := client.GetObject(ctx, input)
+	out, err := cfg.client.GetObject(ctx, input)
 	if err != nil {
-		return gestalt.ObjectMeta{}, nil, toStatusError(fmt.Errorf("s3: get object %s/%s: %w", ref.Bucket, ref.Key, err))
+		return gestalt.ObjectMeta{}, nil, toStatusError(fmt.Errorf("s3: get object %s/%s: %w", cfg.bucket, key, err))
 	}
 	return objectMetaFromGet(ref, out), out.Body, nil
 }
@@ -218,7 +236,11 @@ func (p *Provider) WriteObject(ctx context.Context, ref gestalt.ObjectRef, body 
 	if err != nil {
 		return gestalt.ObjectMeta{}, err
 	}
-	meta, err := p.writeObject(ctx, ref, opts, body)
+	cfg, err := p.configured()
+	if err != nil {
+		return gestalt.ObjectMeta{}, toStatusError(err)
+	}
+	meta, err := p.writeObject(ctx, cfg, ref, opts, body)
 	return meta, toStatusError(err)
 }
 
@@ -227,37 +249,34 @@ func (p *Provider) DeleteObject(ctx context.Context, ref gestalt.ObjectRef) erro
 	if err != nil {
 		return err
 	}
-	client, _, err := p.configured()
+	cfg, err := p.configured()
 	if err != nil {
 		return toStatusError(err)
 	}
+	key := backendKey(cfg.keyPrefix, ref.Key)
 	input := &s3sdk.DeleteObjectInput{
-		Bucket: aws.String(ref.Bucket),
-		Key:    aws.String(ref.Key),
+		Bucket: aws.String(cfg.bucket),
+		Key:    aws.String(key),
 	}
 	if ref.VersionID != "" {
 		input.VersionId = aws.String(ref.VersionID)
 	}
-	if _, err := client.DeleteObject(ctx, input); err != nil {
-		return toStatusError(fmt.Errorf("s3: delete object %s/%s: %w", ref.Bucket, ref.Key, err))
+	if _, err := cfg.client.DeleteObject(ctx, input); err != nil {
+		return toStatusError(fmt.Errorf("s3: delete object %s/%s: %w", cfg.bucket, key, err))
 	}
 	return nil
 }
 
 func (p *Provider) ListObjects(ctx context.Context, opts gestalt.ListOptions) (gestalt.ListPage, error) {
-	bucket := strings.TrimSpace(opts.Bucket)
-	if bucket == "" {
-		return gestalt.ListPage{}, gestalt.InvalidArgument("bucket is required")
-	}
-	client, _, err := p.configured()
+	cfg, err := p.configured()
 	if err != nil {
 		return gestalt.ListPage{}, toStatusError(err)
 	}
 	input := &s3sdk.ListObjectsV2Input{
-		Bucket: aws.String(bucket),
+		Bucket: aws.String(cfg.bucket),
 	}
-	if opts.Prefix != "" {
-		input.Prefix = aws.String(opts.Prefix)
+	if cfg.keyPrefix != "" || opts.Prefix != "" {
+		input.Prefix = aws.String(backendKey(cfg.keyPrefix, opts.Prefix))
 	}
 	if opts.Delimiter != "" {
 		input.Delimiter = aws.String(opts.Delimiter)
@@ -266,15 +285,15 @@ func (p *Provider) ListObjects(ctx context.Context, opts gestalt.ListOptions) (g
 		input.ContinuationToken = aws.String(opts.ContinuationToken)
 	}
 	if opts.StartAfter != "" {
-		input.StartAfter = aws.String(opts.StartAfter)
+		input.StartAfter = aws.String(backendKey(cfg.keyPrefix, opts.StartAfter))
 	}
 	if opts.MaxKeys > 0 {
 		input.MaxKeys = aws.Int32(opts.MaxKeys)
 	}
 
-	out, err := client.ListObjectsV2(ctx, input)
+	out, err := cfg.client.ListObjectsV2(ctx, input)
 	if err != nil {
-		return gestalt.ListPage{}, toStatusError(fmt.Errorf("s3: list objects in %s: %w", bucket, err))
+		return gestalt.ListPage{}, toStatusError(fmt.Errorf("s3: list objects in %s: %w", cfg.bucket, err))
 	}
 
 	page := gestalt.ListPage{
@@ -284,10 +303,14 @@ func (p *Provider) ListObjects(ctx context.Context, opts gestalt.ListOptions) (g
 		Objects:               make([]gestalt.ObjectMeta, 0, len(out.Contents)),
 	}
 	for _, prefix := range out.CommonPrefixes {
-		page.CommonPrefixes = append(page.CommonPrefixes, aws.ToString(prefix.Prefix))
+		if logicalPrefix, ok := logicalKey(cfg.keyPrefix, aws.ToString(prefix.Prefix)); ok {
+			page.CommonPrefixes = append(page.CommonPrefixes, logicalPrefix)
+		}
 	}
 	for _, object := range out.Contents {
-		page.Objects = append(page.Objects, objectMetaFromList(bucket, object))
+		if meta, ok := objectMetaFromList(cfg.keyPrefix, object); ok {
+			page.Objects = append(page.Objects, meta)
+		}
 	}
 	return page, nil
 }
@@ -302,11 +325,11 @@ func (p *Provider) CopyObject(ctx context.Context, source, destination gestalt.O
 		return gestalt.ObjectMeta{}, err
 	}
 
-	client, _, err := p.configured()
+	cfg, err := p.configured()
 	if err != nil {
 		return gestalt.ObjectMeta{}, toStatusError(err)
 	}
-	sourceHead, err := p.headObject(ctx, source)
+	sourceHead, err := p.headObject(ctx, cfg, source)
 	if err != nil {
 		return gestalt.ObjectMeta{}, toStatusError(err)
 	}
@@ -319,20 +342,24 @@ func (p *Provider) CopyObject(ctx context.Context, source, destination gestalt.O
 		ifNoneMatch = opts.IfNoneMatch
 	}
 
-	copyOut, err := client.CopyObject(ctx, &s3sdk.CopyObjectInput{
-		Bucket:                aws.String(destination.Bucket),
-		Key:                   aws.String(destination.Key),
-		CopySource:            aws.String(copySourceHeader(source)),
+	sourceBackendRef := gestalt.ObjectRef{
+		Key:       backendKey(cfg.keyPrefix, source.Key),
+		VersionID: source.VersionID,
+	}
+	destinationKey := backendKey(cfg.keyPrefix, destination.Key)
+	copyOut, err := cfg.client.CopyObject(ctx, &s3sdk.CopyObjectInput{
+		Bucket:                aws.String(cfg.bucket),
+		Key:                   aws.String(destinationKey),
+		CopySource:            aws.String(copySourceHeader(cfg.bucket, sourceBackendRef)),
 		CopySourceIfMatch:     awsStringIfSet(ifMatch),
 		CopySourceIfNoneMatch: awsStringIfSet(ifNoneMatch),
 	})
 	if err != nil {
-		return gestalt.ObjectMeta{}, toStatusError(fmt.Errorf("s3: copy object %s/%s to %s/%s: %w", source.Bucket, source.Key, destination.Bucket, destination.Key, err))
+		return gestalt.ObjectMeta{}, toStatusError(fmt.Errorf("s3: copy object %s/%s to %s/%s: %w", cfg.bucket, sourceBackendRef.Key, cfg.bucket, destinationKey, err))
 	}
 
 	meta := gestalt.ObjectMeta{
 		Ref: gestalt.ObjectRef{
-			Bucket:    destination.Bucket,
 			Key:       destination.Key,
 			VersionID: aws.ToString(copyOut.VersionId),
 		},
@@ -343,7 +370,7 @@ func (p *Provider) CopyObject(ctx context.Context, source, destination gestalt.O
 			meta.LastModified = copyOut.CopyObjectResult.LastModified.UTC()
 		}
 	}
-	if head, err := p.headObject(ctx, meta.Ref); err == nil {
+	if head, err := p.headObject(ctx, cfg, meta.Ref); err == nil {
 		meta = head
 	}
 	return meta, nil
@@ -354,7 +381,7 @@ func (p *Provider) PresignObject(ctx context.Context, ref gestalt.ObjectRef, opt
 	if err != nil {
 		return gestalt.PresignResult{}, err
 	}
-	_, presigner, err := p.configured()
+	cfg, err := p.configured()
 	if err != nil {
 		return gestalt.PresignResult{}, toStatusError(err)
 	}
@@ -377,12 +404,13 @@ func (p *Provider) PresignObject(ctx context.Context, ref gestalt.ObjectRef, opt
 		return gestalt.PresignResult{}, gestalt.InvalidArgument("expires must be >= 0")
 	}
 
+	key := backendKey(cfg.keyPrefix, ref.Key)
 	var presigned *v4.PresignedHTTPRequest
 	switch method {
 	case gestalt.PresignMethodPut:
 		input := &s3sdk.PutObjectInput{
-			Bucket: aws.String(ref.Bucket),
-			Key:    aws.String(ref.Key),
+			Bucket: aws.String(cfg.bucket),
+			Key:    aws.String(key),
 		}
 		if contentType != "" {
 			input.ContentType = aws.String(contentType)
@@ -394,23 +422,23 @@ func (p *Provider) PresignObject(ctx context.Context, ref gestalt.ObjectRef, opt
 		if contentType != "" {
 			headers = setPresignHeader(headers, "Content-Type", contentType)
 		}
-		presigned, err = presigner.PresignPutObject(ctx, input, presignOptions(expires, headers))
+		presigned, err = cfg.presigner.PresignPutObject(ctx, input, presignOptions(expires, headers))
 	case gestalt.PresignMethodDelete:
-		presigned, err = presigner.PresignDeleteObject(ctx, &s3sdk.DeleteObjectInput{
-			Bucket:    aws.String(ref.Bucket),
-			Key:       aws.String(ref.Key),
+		presigned, err = cfg.presigner.PresignDeleteObject(ctx, &s3sdk.DeleteObjectInput{
+			Bucket:    aws.String(cfg.bucket),
+			Key:       aws.String(key),
 			VersionId: awsStringIfPresent(ref.VersionID),
 		}, presignOptions(expires, headers))
 	case gestalt.PresignMethodHead:
-		presigned, err = presigner.PresignHeadObject(ctx, &s3sdk.HeadObjectInput{
-			Bucket:    aws.String(ref.Bucket),
-			Key:       aws.String(ref.Key),
+		presigned, err = cfg.presigner.PresignHeadObject(ctx, &s3sdk.HeadObjectInput{
+			Bucket:    aws.String(cfg.bucket),
+			Key:       aws.String(key),
 			VersionId: awsStringIfPresent(ref.VersionID),
 		}, presignOptions(expires, headers))
 	default:
 		input := &s3sdk.GetObjectInput{
-			Bucket:    aws.String(ref.Bucket),
-			Key:       aws.String(ref.Key),
+			Bucket:    aws.String(cfg.bucket),
+			Key:       aws.String(key),
 			VersionId: awsStringIfPresent(ref.VersionID),
 		}
 		if contentType != "" {
@@ -419,10 +447,10 @@ func (p *Provider) PresignObject(ctx context.Context, ref gestalt.ObjectRef, opt
 		if contentDisposition != "" {
 			input.ResponseContentDisposition = aws.String(contentDisposition)
 		}
-		presigned, err = presigner.PresignGetObject(ctx, input, presignOptions(expires, headers))
+		presigned, err = cfg.presigner.PresignGetObject(ctx, input, presignOptions(expires, headers))
 	}
 	if err != nil {
-		return gestalt.PresignResult{}, toStatusError(fmt.Errorf("s3: presign object %s/%s: %w", ref.Bucket, ref.Key, err))
+		return gestalt.PresignResult{}, toStatusError(fmt.Errorf("s3: presign object %s/%s: %w", cfg.bucket, key, err))
 	}
 
 	result := gestalt.PresignResult{
@@ -436,43 +464,41 @@ func (p *Provider) PresignObject(ctx context.Context, ref gestalt.ObjectRef, opt
 	return result, nil
 }
 
-func (p *Provider) configured() (*s3sdk.Client, *s3sdk.PresignClient, error) {
+func (p *Provider) configured() (configuredProvider, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	if p.client == nil || p.presigner == nil {
-		return nil, nil, errNotConfigured
+		return configuredProvider{}, errNotConfigured
 	}
-	return p.client, p.presigner, nil
+	return configuredProvider{
+		client:    p.client,
+		presigner: p.presigner,
+		bucket:    p.cfg.Bucket,
+		keyPrefix: p.cfg.KeyPrefix,
+	}, nil
 }
 
-func (p *Provider) headObject(ctx context.Context, ref gestalt.ObjectRef) (gestalt.ObjectMeta, error) {
-	client, _, err := p.configured()
-	if err != nil {
-		return gestalt.ObjectMeta{}, err
-	}
+func (p *Provider) headObject(ctx context.Context, cfg configuredProvider, ref gestalt.ObjectRef) (gestalt.ObjectMeta, error) {
+	key := backendKey(cfg.keyPrefix, ref.Key)
 	input := &s3sdk.HeadObjectInput{
-		Bucket: aws.String(ref.Bucket),
-		Key:    aws.String(ref.Key),
+		Bucket: aws.String(cfg.bucket),
+		Key:    aws.String(key),
 	}
 	if ref.VersionID != "" {
 		input.VersionId = aws.String(ref.VersionID)
 	}
-	out, err := client.HeadObject(ctx, input)
+	out, err := cfg.client.HeadObject(ctx, input)
 	if err != nil {
-		return gestalt.ObjectMeta{}, fmt.Errorf("s3: head object %s/%s: %w", ref.Bucket, ref.Key, err)
+		return gestalt.ObjectMeta{}, fmt.Errorf("s3: head object %s/%s: %w", cfg.bucket, key, err)
 	}
 	return objectMetaFromHead(ref, out), nil
 }
 
-func (p *Provider) writeObject(ctx context.Context, ref gestalt.ObjectRef, opts *gestalt.WriteOptions, body io.Reader) (gestalt.ObjectMeta, error) {
-	client, _, err := p.configured()
-	if err != nil {
-		return gestalt.ObjectMeta{}, err
-	}
-
+func (p *Provider) writeObject(ctx context.Context, cfg configuredProvider, ref gestalt.ObjectRef, opts *gestalt.WriteOptions, body io.Reader) (gestalt.ObjectMeta, error) {
+	key := backendKey(cfg.keyPrefix, ref.Key)
 	staged, size, err := stageBody(body)
 	if err != nil {
-		return gestalt.ObjectMeta{}, fmt.Errorf("s3: stage object %s/%s: %w", ref.Bucket, ref.Key, err)
+		return gestalt.ObjectMeta{}, fmt.Errorf("s3: stage object %s/%s: %w", cfg.bucket, key, err)
 	}
 	defer func() {
 		_ = staged.Close()
@@ -483,8 +509,8 @@ func (p *Provider) writeObject(ctx context.Context, ref gestalt.ObjectRef, opts 
 	}
 
 	input := &s3sdk.PutObjectInput{
-		Bucket:        aws.String(ref.Bucket),
-		Key:           aws.String(ref.Key),
+		Bucket:        aws.String(cfg.bucket),
+		Key:           aws.String(key),
 		Body:          staged,
 		ContentLength: aws.Int64(size),
 	}
@@ -514,13 +540,12 @@ func (p *Provider) writeObject(ctx context.Context, ref gestalt.ObjectRef, opts 
 			input.Metadata = cloneStringMap(opts.Metadata)
 		}
 	}
-	putOut, err := client.PutObject(ctx, input)
+	putOut, err := cfg.client.PutObject(ctx, input)
 	if err != nil {
-		return gestalt.ObjectMeta{}, fmt.Errorf("s3: put object %s/%s: %w", ref.Bucket, ref.Key, err)
+		return gestalt.ObjectMeta{}, fmt.Errorf("s3: put object %s/%s: %w", cfg.bucket, key, err)
 	}
 	meta := gestalt.ObjectMeta{
 		Ref: gestalt.ObjectRef{
-			Bucket:    ref.Bucket,
 			Key:       ref.Key,
 			VersionID: aws.ToString(putOut.VersionId),
 		},
@@ -534,7 +559,7 @@ func (p *Provider) writeObject(ctx context.Context, ref gestalt.ObjectRef, opts 
 	if now := p.now(); !now.IsZero() {
 		meta.LastModified = now.UTC()
 	}
-	if head, err := p.headObject(ctx, meta.Ref); err == nil {
+	if head, err := p.headObject(ctx, cfg, meta.Ref); err == nil {
 		meta = head
 	}
 	return meta, nil
@@ -640,20 +665,39 @@ func (restoreAcceptEncoding) HandleFinalize(ctx context.Context, in smithymiddle
 }
 
 func validateObjectRef(ref gestalt.ObjectRef, field string) (gestalt.ObjectRef, error) {
-	bucket := strings.TrimSpace(ref.Bucket)
 	key := ref.Key
 	switch {
-	case bucket == "":
-		return gestalt.ObjectRef{}, gestalt.InvalidArgument(fmt.Sprintf("%s.bucket is required", field))
 	case key == "":
 		return gestalt.ObjectRef{}, gestalt.InvalidArgument(fmt.Sprintf("%s.key is required", field))
 	default:
 		return gestalt.ObjectRef{
-			Bucket:    bucket,
 			Key:       key,
 			VersionID: ref.VersionID,
 		}, nil
 	}
+}
+
+func normalizeKeyPrefix(value string) string {
+	value = strings.Trim(strings.TrimSpace(value), "/")
+	if value == "" {
+		return ""
+	}
+	return value + "/"
+}
+
+func backendKey(keyPrefix, key string) string {
+	return keyPrefix + key
+}
+
+func logicalKey(keyPrefix, key string) (string, bool) {
+	if keyPrefix == "" {
+		return key, key != ""
+	}
+	logical, ok := strings.CutPrefix(key, keyPrefix)
+	if !ok || logical == "" {
+		return "", false
+	}
+	return logical, true
 }
 
 func byteRangeHeader(r *gestalt.ByteRange) (string, error) {
@@ -709,7 +753,6 @@ func awsStringIfPresent(value string) *string {
 func objectMetaFromHead(ref gestalt.ObjectRef, out *s3sdk.HeadObjectOutput) gestalt.ObjectMeta {
 	meta := gestalt.ObjectMeta{
 		Ref: gestalt.ObjectRef{
-			Bucket:    ref.Bucket,
 			Key:       ref.Key,
 			VersionID: ref.VersionID,
 		},
@@ -731,7 +774,6 @@ func objectMetaFromHead(ref gestalt.ObjectRef, out *s3sdk.HeadObjectOutput) gest
 func objectMetaFromGet(ref gestalt.ObjectRef, out *s3sdk.GetObjectOutput) gestalt.ObjectMeta {
 	meta := gestalt.ObjectMeta{
 		Ref: gestalt.ObjectRef{
-			Bucket:    ref.Bucket,
 			Key:       ref.Key,
 			VersionID: ref.VersionID,
 		},
@@ -753,11 +795,14 @@ func objectMetaFromGet(ref gestalt.ObjectRef, out *s3sdk.GetObjectOutput) gestal
 	return meta
 }
 
-func objectMetaFromList(bucket string, object s3types.Object) gestalt.ObjectMeta {
+func objectMetaFromList(keyPrefix string, object s3types.Object) (gestalt.ObjectMeta, bool) {
+	key, ok := logicalKey(keyPrefix, aws.ToString(object.Key))
+	if !ok {
+		return gestalt.ObjectMeta{}, false
+	}
 	meta := gestalt.ObjectMeta{
 		Ref: gestalt.ObjectRef{
-			Bucket: bucket,
-			Key:    aws.ToString(object.Key),
+			Key: key,
 		},
 		ETag:         aws.ToString(object.ETag),
 		Size:         aws.ToInt64(object.Size),
@@ -766,11 +811,11 @@ func objectMetaFromList(bucket string, object s3types.Object) gestalt.ObjectMeta
 	if object.LastModified != nil {
 		meta.LastModified = object.LastModified.UTC()
 	}
-	return meta
+	return meta, true
 }
 
-func copySourceHeader(ref gestalt.ObjectRef) string {
-	copySource := url.PathEscape(ref.Bucket) + "/" + escapeS3Path(ref.Key)
+func copySourceHeader(bucket string, ref gestalt.ObjectRef) string {
+	copySource := url.PathEscape(bucket) + "/" + escapeS3Path(ref.Key)
 	if ref.VersionID == "" {
 		return copySource
 	}

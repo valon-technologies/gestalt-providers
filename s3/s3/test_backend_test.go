@@ -48,19 +48,24 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func newTestProvider(t *testing.T) *s3provider.Provider {
+func newTestProvider(t *testing.T, keyPrefix ...string) *s3provider.Provider {
 	t.Helper()
 
 	backend := testBackend(t)
 	provider := s3provider.New()
-	if err := provider.Configure(context.Background(), "assets", map[string]any{
+	cfg := map[string]any{
 		"region":          backend.region,
+		"bucket":          backend.bucket,
 		"endpoint":        backend.endpoint,
 		"forcePathStyle":  backend.forcePathStyle,
 		"accessKeyId":     backend.accessKeyID,
 		"secretAccessKey": backend.secretAccessKey,
 		"sessionToken":    backend.sessionToken,
-	}); err != nil {
+	}
+	if len(keyPrefix) > 0 {
+		cfg["keyPrefix"] = keyPrefix[0]
+	}
+	if err := provider.Configure(context.Background(), "assets", cfg); err != nil {
 		t.Fatalf("Configure: %v", err)
 	}
 	t.Cleanup(func() { _ = provider.Close() })
