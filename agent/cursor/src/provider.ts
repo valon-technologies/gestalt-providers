@@ -10,6 +10,7 @@ import {
   type AgentProviderCapabilities,
   type AgentProviderOptions,
   type AgentSession,
+  type AgentSessionStartConfig,
   type AgentTurn,
   type AgentTurnEvent,
   type CancelAgentProviderTurnRequest,
@@ -140,11 +141,10 @@ export class CursorAgentProvider extends SDKAgentProvider {
     const { config } = this.requireRuntime();
     const model = modelFor(config, request.model);
     try {
-      const sessionStart = (request as { sessionStart?: unknown }).sessionStart;
       let metadata = objectOrEmpty(request.metadata);
       validateSessionStartUserMetadata(metadata);
       const preparedWorkspace = preparedWorkspaceFromRequest(request);
-      if (hasSessionStartHooks(sessionStart)) {
+      if (hasSessionStartHooks(request.sessionStart)) {
         return await this.withSessionStartLock(async () => {
           const existing = this.existingSessionForCreate(
             request.sessionId,
@@ -154,7 +154,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
             this.requireReadableSession(existing, request.subject);
             return sessionToAgentSession(existing);
           }
-          metadata = await runSessionStartHooks(sessionStart, metadata);
+          metadata = await runSessionStartHooks(request.sessionStart, metadata);
           const { session } = this.store.createSession({
             sessionId: request.sessionId,
             idempotencyKey: request.idempotencyKey,
@@ -421,7 +421,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     request: ListAgentProviderInteractionsRequest,
   ): Promise<AgentInteractionListInit> {
     this.requireRuntime();
-    const turnId = String((request as { turnId?: unknown }).turnId ?? "").trim();
+    const turnId = String(request.turnId ?? "").trim();
     if (turnId) {
       const turn = this.store.getTurn(turnId);
       const session = turn ? this.store.getSession(turn.sessionId) : undefined;
@@ -707,12 +707,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function preparedWorkspaceFromRequest(
   request: CreateAgentProviderSessionRequest,
 ): PreparedWorkspace | undefined {
-  const workspace = (request as { preparedWorkspace?: unknown }).preparedWorkspace;
-  if (!workspace || typeof workspace !== "object" || Array.isArray(workspace)) {
+  if (!request.preparedWorkspace) {
     return undefined;
   }
-  const root = String((workspace as { root?: unknown }).root ?? "").trim();
-  const cwd = String((workspace as { cwd?: unknown }).cwd ?? "").trim();
+  const root = (request.preparedWorkspace.root ?? "").trim();
+  const cwd = (request.preparedWorkspace.cwd ?? "").trim();
   if (!root && !cwd) {
     return undefined;
   }
@@ -726,12 +725,8 @@ function hasObjectData(value: unknown): boolean {
   return Object.keys(objectOrEmpty(value)).length > 0;
 }
 
-function hasSessionStartHooks(value: unknown): boolean {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const hooks = (value as { hooks?: unknown }).hooks;
-  return Array.isArray(hooks) && hooks.length > 0;
+function hasSessionStartHooks(value: AgentSessionStartConfig | undefined): boolean {
+  return (value?.hooks?.length ?? 0) > 0;
 }
 
 function invalidArgument(message: string): ConnectError {

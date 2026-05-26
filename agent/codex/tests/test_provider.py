@@ -27,7 +27,12 @@ from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.codex_runner import normalize_codex_result
 from internals.gestalt_mcp_bridge import BridgeContext
 from internals.http_bridge import BridgeHTTPServer
-from internals.tool_bridge import MAX_LISTED_TOOLS, ToolBridgeError, list_tools, schema_from_json
+from internals.tool_bridge import (
+    MAX_LISTED_TOOLS,
+    ToolBridgeError,
+    list_tools,
+    schema_from_json,
+)
 
 agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc

@@ -109,9 +109,7 @@ function createMcpServer(
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
-    const name = request.params.name;
-    const args = request.params.arguments ?? {};
-    const response = await executeTool(name, args);
+    const response = await executeTool(request.params.name, request.params.arguments ?? {});
     const body = response.body || "{}";
     return {
       content: [{ type: "text", text: body }],

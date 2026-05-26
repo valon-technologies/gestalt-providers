@@ -1,8 +1,5 @@
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
-import type {
-  ListAgentToolsRequest,
-  ListedAgentTool,
-} from "@valon-technologies/gestalt";
+import type { ListedAgentTool } from "@valon-technologies/gestalt";
 
 import type { GestaltAgentHost } from "./agent_host.ts";
 import { CursorExecutionError } from "./errors.ts";
@@ -60,7 +57,7 @@ export async function listGestaltTools(input: {
       pageSize: DEFAULT_PAGE_SIZE,
       pageToken,
       runGrant: input.runGrant,
-    } as ListAgentToolsRequest);
+    });
     for (const listed of response.tools) {
       const entry = toolEntry(listed);
       if (seenNames.has(entry.mcpName)) {
@@ -93,14 +90,6 @@ export async function listGestaltTools(input: {
 export function toolEntry(tool: ListedAgentTool): ToolEntry {
   const toolId = (tool.id ?? "").trim();
   const mcpName = (tool.mcpName ?? "").trim();
-  if (!toolId) {
-    throw new CursorExecutionError("ListTools returned a tool without an id");
-  }
-  if (!mcpName) {
-    throw new CursorExecutionError(
-      "ListTools returned a tool without an mcp_name",
-    );
-  }
   if (!MCP_TOOL_NAME.test(mcpName)) {
     throw new CursorExecutionError(
       `ListTools returned unsafe mcp_name ${JSON.stringify(mcpName)}`,

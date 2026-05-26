@@ -48,7 +48,9 @@ class ToolExecutor:
         self._lock = threading.Lock()
         self._sequence = 0
 
-    def execute(self, *, entry: ToolEntry, arguments: dict[str, Any]) -> Any:
+    def execute(
+        self, *, entry: ToolEntry, arguments: dict[str, Any]
+    ) -> gestalt.ExecuteAgentToolResponse:
         with self._lock:
             self._sequence += 1
             sequence = self._sequence
@@ -89,9 +91,11 @@ def list_tools(
                 page_token=page_token,
                 run_grant=run_grant,
             )
-            response = _agent_host_call(
-                host=host, rpc_name="ListTools", request=request, timeout_seconds=timeout_seconds
-            )
+            timeout = _coerce_timeout_seconds(timeout_seconds)
+            try:
+                response = host.list_tools(request, timeout_seconds=timeout)
+            except grpc.RpcError as exc:
+                raise ToolBridgeError(_grpc_error_message("ListTools", exc)) from exc
             for listed in response.tools:
                 entry = tool_entry(listed)
                 if entry.mcp_name in seen_names:
@@ -108,13 +112,9 @@ def list_tools(
     return tools
 
 
-def tool_entry(tool: Any) -> ToolEntry:
-    tool_id = str(tool.id or "").strip()
-    mcp_name = str(tool.mcp_name or "").strip()
-    if not tool_id:
-        raise ToolBridgeError("ListTools returned a tool without an id")
-    if not mcp_name:
-        raise ToolBridgeError("ListTools returned a tool without an mcp_name")
+def tool_entry(tool: gestalt.ListedAgentTool) -> ToolEntry:
+    tool_id = tool.id.strip()
+    mcp_name = tool.mcp_name.strip()
     if _UNSAFE_TOOL_NAME.search(mcp_name):
         raise ToolBridgeError(f"ListTools returned unsafe mcp_name {mcp_name!r}")
     return ToolEntry(
@@ -137,7 +137,7 @@ def execute_tool(
     idempotency_key: str,
     arguments: dict[str, Any],
     timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS,
-) -> Any:
+) -> gestalt.ExecuteAgentToolResponse:
     with gestalt.AgentHost() as host:
         request = gestalt.ExecuteAgentToolRequest(
             session_id=session_id,
@@ -148,7 +148,11 @@ def execute_tool(
             run_grant=run_grant,
             idempotency_key=idempotency_key,
         )
-        return _agent_host_call(host=host, rpc_name="ExecuteTool", request=request, timeout_seconds=timeout_seconds)
+        timeout = _coerce_timeout_seconds(timeout_seconds)
+        try:
+            return host.execute_tool(request, timeout_seconds=timeout)
+        except grpc.RpcError as exc:
+            raise ToolBridgeError(_grpc_error_message("ExecuteTool", exc)) from exc
 
 
 def mcp_tool(entry: ToolEntry) -> mcp_types.Tool:
@@ -161,9 +165,11 @@ def mcp_tool(entry: ToolEntry) -> mcp_types.Tool:
     )
 
 
-def mcp_tool_result(response: Any) -> mcp_types.CallToolResult:
-    body = str(getattr(response, "body", "") or "")
-    status = int(getattr(response, "status", 0) or 0)
+def mcp_tool_result(
+    response: gestalt.ExecuteAgentToolResponse,
+) -> mcp_types.CallToolResult:
+    body = str(response.body or "")
+    status = int(response.status or 0)
     if not body:
         body = "{}"
     return mcp_types.CallToolResult(content=[mcp_types.TextContent(type="text", text=body)], isError=status >= 400)
@@ -257,32 +263,22 @@ def schema_required(value: Any, properties: dict[str, Any]) -> set[str]:
     return {item for item in value if isinstance(item, str) and item in properties}
 
 
-def tool_annotations(annotations: Any, *, title: str) -> mcp_types.ToolAnnotations | None:
+def tool_annotations(
+    annotations: gestalt.AgentToolAnnotations | None, *, title: str
+) -> mcp_types.ToolAnnotations | None:
     values: dict[str, Any] = {}
     if title:
         values["title"] = title
-    for source_attr, sdk_name in (
-        ("read_only_hint", "readOnlyHint"),
-        ("idempotent_hint", "idempotentHint"),
-        ("destructive_hint", "destructiveHint"),
-        ("open_world_hint", "openWorldHint"),
-    ):
-        value = getattr(annotations, source_attr, None)
-        if value is not None:
-            values[sdk_name] = bool(value)
+    if annotations is not None:
+        if annotations.read_only_hint is not None:
+            values["readOnlyHint"] = bool(annotations.read_only_hint)
+        if annotations.idempotent_hint is not None:
+            values["idempotentHint"] = bool(annotations.idempotent_hint)
+        if annotations.destructive_hint is not None:
+            values["destructiveHint"] = bool(annotations.destructive_hint)
+        if annotations.open_world_hint is not None:
+            values["openWorldHint"] = bool(annotations.open_world_hint)
     return mcp_types.ToolAnnotations(**values) if values else None
-
-
-def _agent_host_call(*, host: gestalt.AgentHost, rpc_name: str, request: Any, timeout_seconds: float) -> Any:
-    timeout = _coerce_timeout_seconds(timeout_seconds)
-    try:
-        if rpc_name == "ListTools":
-            return host.list_tools(request, timeout_seconds=timeout)
-        if rpc_name == "ExecuteTool":
-            return host.execute_tool(request, timeout_seconds=timeout)
-        raise ToolBridgeError(f"unsupported AgentHost RPC {rpc_name!r}")
-    except grpc.RpcError as exc:
-        raise ToolBridgeError(_grpc_error_message(rpc_name, exc)) from exc
 
 
 def _coerce_timeout_seconds(value: float) -> float:
