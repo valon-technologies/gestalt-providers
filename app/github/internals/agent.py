@@ -47,6 +47,7 @@ from .constants import (
     GITHUB_WORKFLOW_SIGNAL_NAME,
     MAX_AGENT_USER_PROMPT_CHARS,
 )
+from .identity import GitHubPullRequestContext
 from .policy_metadata import policy_base_metadata
 from .webhook import bounded_text
 from .workflow_dispatch import workflow_signal_data
@@ -57,7 +58,7 @@ def build_workflow_signal_or_start_request(
     summary: dict[str, Any],
     policy: GitHubWebhookPolicy | None = None,
     extra_signal_data: dict[str, Any] | None = None,
-    pull_request_context: Any | None = None,
+    pull_request_context: GitHubPullRequestContext | None = None,
 ) -> gestalt.WorkflowSignalOrStartRun:
     idempotency_key = agent_turn_idempotency_key(payload, summary, policy)
     request = gestalt.WorkflowSignalOrStartRun(
@@ -142,7 +143,7 @@ def workflow_signal_payload(
     summary: dict[str, Any],
     policy: GitHubWebhookPolicy | None = None,
     extra_signal_data: dict[str, Any] | None = None,
-    pull_request_context: Any | None = None,
+    pull_request_context: GitHubPullRequestContext | None = None,
 ) -> dict[str, Any]:
     data = workflow_signal_data(
         payload, summary, policy, pull_request_context=pull_request_context

@@ -349,11 +349,11 @@ class GitHubExternalIdentityRequest:
     def __init__(
         self,
         *,
-        external_identity: Mapping[str, str],
+        external_identity: gestalt.ExternalIdentity,
         subject_installation_id: int = 123,
         subject_repo: str = "acme/other",
     ) -> None:
-        self.external_identity = dict(external_identity)
+        self.external_identity = external_identity
         self.subject = github_request(
             installation_id=subject_installation_id, repo=subject_repo
         ).subject
@@ -367,7 +367,10 @@ def github_external_identity_request(
     subject_repo: str = "acme/other",
 ) -> GitHubExternalIdentityRequest:
     return GitHubExternalIdentityRequest(
-        external_identity={"type": identity_type, "id": identity_id},
+        external_identity=gestalt.ExternalIdentity(
+            type=identity_type,
+            id=identity_id,
+        ),
         subject_installation_id=subject_installation_id,
         subject_repo=subject_repo,
     )
@@ -4694,7 +4697,7 @@ class GitHubProviderTests(unittest.TestCase):
                 files_changed=len(request.files),
             )
 
-        def fake_create_check_run(request: Any, *, subject: Any) -> dict[str, Any]:
+        def fake_create_check_run(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
             created_checks.append((request, subject))
             return {
                 "id": 888,
@@ -4704,7 +4707,7 @@ class GitHubProviderTests(unittest.TestCase):
                 "head_sha": request.head_sha,
             }
 
-        def fake_update_check_run(request: Any, *, subject: Any) -> dict[str, Any]:
+        def fake_update_check_run(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
             updated_checks.append((request, subject))
             return {
                 "id": request.check_run_id,
@@ -5186,7 +5189,7 @@ class GitHubProviderTests(unittest.TestCase):
             ]
         }
 
-        def fake_create_check(request: Any, *, subject: Any) -> dict[str, Any]:
+        def fake_create_check(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
             created_checks.append((request, subject))
             return {
                 "id": 501,
@@ -5195,7 +5198,7 @@ class GitHubProviderTests(unittest.TestCase):
                 "head_sha": request.head_sha,
             }
 
-        def fake_update_check(request: Any, *, subject: Any) -> dict[str, Any]:
+        def fake_update_check(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
             updated_checks.append((request, subject))
             return {
                 "id": request.check_run_id,
@@ -5344,7 +5347,7 @@ class GitHubProviderTests(unittest.TestCase):
             ]
         }
 
-        def fake_update_check(request: Any, *, subject: Any) -> dict[str, Any]:
+        def fake_update_check(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
             updated_checks.append((request, subject))
             return {
                 "id": request.check_run_id,
@@ -5422,7 +5425,7 @@ class GitHubProviderTests(unittest.TestCase):
             ]
         }
 
-        def fake_update_check(request: Any, *, subject: Any) -> dict[str, Any]:
+        def fake_update_check(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
             updated_checks.append((request, subject))
             return {
                 "id": request.check_run_id,
@@ -5479,7 +5482,7 @@ class GitHubProviderTests(unittest.TestCase):
             ]
         }
 
-        def fake_update_check(request: Any, *, subject: Any) -> dict[str, Any]:
+        def fake_update_check(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
             updated_checks.append((request, subject))
             return {
                 "id": request.check_run_id,
@@ -5589,7 +5592,7 @@ class GitHubProviderTests(unittest.TestCase):
                     ]
                 }
 
-                def fake_update_check(request: Any, *, subject: Any) -> dict[str, Any]:
+                def fake_update_check(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
                     updated_checks.append((request, subject))
                     return {
                         "id": request.check_run_id,
@@ -5684,11 +5687,11 @@ class GitHubProviderTests(unittest.TestCase):
             ]
         }
 
-        def fake_resolve(request: Any, *, subject: Any) -> dict[str, Any]:
+        def fake_resolve(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
             resolved_requests.append((request, subject))
             return {"id": request.thread_id, "isResolved": True}
 
-        def fake_list_threads(request: Any, *, subject: Any) -> dict[str, Any]:
+        def fake_list_threads(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
             list_thread_cursors.append(request.after)
             if not request.after:
                 return {
@@ -5822,7 +5825,7 @@ class GitHubProviderTests(unittest.TestCase):
             ]
         }
 
-        def fake_list_threads(request: Any, *, subject: Any) -> dict[str, Any]:
+        def fake_list_threads(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
             return {
                 "threads": [
                     {
@@ -6232,7 +6235,7 @@ class GitHubProviderTests(unittest.TestCase):
             ),
             mock.patch(
                 "internals.review.resolve_pull_request_review_thread",
-                side_effect=lambda request, *, subject: (
+                side_effect=lambda request, *, subject, external_identity=None: (
                     resolved_requests.append(request)
                     or {"id": request.thread_id, "isResolved": True}
                 ),
@@ -10242,7 +10245,7 @@ class GitHubProviderTests(unittest.TestCase):
                     installation_id=99,
                 ),
                 GitHubExternalIdentityRequest(
-                    external_identity={"type": "", "id": ""},
+                    external_identity=gestalt.ExternalIdentity(type="", id=""),
                     subject_installation_id=99,
                     subject_repo="acme/widgets",
                 ),

@@ -207,26 +207,17 @@ def _workflow_signal_fields_log_context(fields: dict[str, Any]) -> str:
 
 
 def _workflow_log_context(req: gestalt.Request) -> str:
-    workflow = req.workflow
-    metadata = workflow.get("metadata")
-    if not isinstance(metadata, dict):
-        metadata = {}
-    trigger = workflow.get("trigger")
-    if not isinstance(trigger, dict):
-        trigger = {}
-    signals = workflow.get("signals")
-    signal: dict[str, Any] = {}
-    if isinstance(signals, list) and signals and isinstance(signals[-1], dict):
-        signal = signals[-1]
+    workflow = req.workflow_run_context()
+    signal = workflow.latest_signal
     return _log_context(
-        workflow_provider=workflow.get("provider"),
-        workflow_run_id=workflow.get("runId"),
-        workflow_definition_id=metadata.get("definition_id"),
-        workflow_trigger_kind=trigger.get("kind"),
-        workflow_schedule_id=trigger.get("scheduleId"),
-        workflow_event_trigger_id=trigger.get("triggerId"),
-        workflow_signal_id=signal.get("id"),
-        workflow_signal_name=signal.get("name"),
+        workflow_provider=workflow.provider,
+        workflow_run_id=workflow.run_id,
+        workflow_definition_id=workflow.metadata.get("definition_id"),
+        workflow_trigger_kind=workflow.trigger.kind,
+        workflow_schedule_id=workflow.trigger.schedule_id,
+        workflow_event_trigger_id=workflow.trigger.trigger_id,
+        workflow_signal_id=signal.id if signal is not None else "",
+        workflow_signal_name=signal.name if signal is not None else "",
         idempotency_key=req.idempotency_key,
     )
 
@@ -438,7 +429,7 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
     acknowledgement_reaction_error = ""
     assistant_status_error = ""
     workflow_provider = _workflow_provider_name(route)
-    workflow_request: Any | None = None
+    workflow_request: gestalt.WorkflowSignalOrStartRun | None = None
     try:
         reply_ref = _sign_reply_ref(event, subject_id, route)
         if not workflow_provider:
@@ -649,7 +640,7 @@ def handle_slack_interaction(
             status=HTTPStatus.PRECONDITION_FAILED,
             body={"error": "Slack workflow provider is not configured"},
         )
-    workflow_request: Any | None = None
+    workflow_request: gestalt.WorkflowSignalOrStartRun | None = None
     try:
         workflow_request = _build_workflow_interaction_signal_or_start_request(
             payload, selected_action, verified_ref, route

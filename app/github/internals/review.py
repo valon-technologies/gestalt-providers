@@ -7,7 +7,7 @@ import time
 import datetime as dt
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import gestalt
 
@@ -73,6 +73,7 @@ SELF_FIX_OUTPUT_KEYS = frozenset(("commit_message", "files"))
 SUPPORTED_PULL_REQUEST_ACTIONS = frozenset(
     ("opened", "synchronize", "reopened", "ready_for_review")
 )
+
 
 DEFAULT_SYSTEM_PROMPT = " ".join(
     [
@@ -178,7 +179,7 @@ class ReviewFindingFingerprints:
 
 def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
     settings = normalize_review_settings(input)
-    signal = latest_github_signal(req.workflow)
+    signal = latest_github_signal(req.workflow_run_context())
     if not signal:
         return skipped_result("missing_github_signal")
 
@@ -190,8 +191,8 @@ def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
     if subject is None:
         return skipped_result("missing_pull_request_subject")
 
+    external_identity = non_empty_external_identity(req.external_identity)
     check_run: Mapping[str, Any] | None = signal_review_check_run(signal)
-    identity_kwargs = request_external_identity_kwargs(req)
     try:
         pull_request = get_pull_request(
             GitHubPullRequestRequest(
@@ -201,7 +202,7 @@ def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
                 installation_id=subject.installation_id,
             ),
             subject=req.subject,
-            **identity_kwargs,
+            external_identity=external_identity,
         )
         pull_summary = pull_request_summary(pull_request)
         if check_run is None and not settings.dry_run:
@@ -251,7 +252,7 @@ def _review_pull_request_after_fetch(
     pull_summary: Mapping[str, Any],
     check_run: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
-    identity_kwargs = request_external_identity_kwargs(req)
+    external_identity = non_empty_external_identity(req.external_identity)
     raw_files = list_pull_request_files(
         GitHubListPullRequestFilesRequest(
             owner=subject.owner,
@@ -262,7 +263,7 @@ def _review_pull_request_after_fetch(
             installation_id=subject.installation_id,
         ),
         subject=req.subject,
-        **identity_kwargs,
+        external_identity=external_identity,
     )
     files = review_files(raw_files, settings)
     if not files:
@@ -398,7 +399,7 @@ def _review_pull_request_after_fetch(
                 ),
             ),
             subject=req.subject,
-            **identity_kwargs,
+            external_identity=external_identity,
         )
     resolution = auto_resolve_stale_findings(
         subject,
@@ -494,17 +495,6 @@ def input_value(input: Any, key: str) -> Any:
     return getattr(input, key, None)
 
 
-def request_external_identity_kwargs(req: gestalt.Request) -> dict[str, Any]:
-    external_identity = non_empty_external_identity(
-        getattr(req, "external_identity", None)
-    )
-    return (
-        {"external_identity": external_identity}
-        if external_identity is not None
-        else {}
-    )
-
-
 def create_review_check_run(
     subject: PullRequestSubject,
     req: gestalt.Request,
@@ -528,7 +518,7 @@ def create_review_check_run(
             installation_id=subject.installation_id,
         ),
         subject=req.subject,
-        **request_external_identity_kwargs(req),
+        external_identity=non_empty_external_identity(req.external_identity),
     )
 
 
@@ -557,7 +547,7 @@ def complete_review_check_run(
             installation_id=subject.installation_id,
         ),
         subject=req.subject,
-        **request_external_identity_kwargs(req),
+        external_identity=non_empty_external_identity(req.external_identity),
     )
 
 
@@ -629,7 +619,7 @@ def attempt_review_self_fix(
             ),
             subject=req.subject,
             pull_request_permissions=False,
-            **request_external_identity_kwargs(req),
+            external_identity=non_empty_external_identity(req.external_identity),
         )
     except (
         ValueError,
@@ -765,7 +755,7 @@ def review_self_fix_file_contents(
                 max_bytes=settings.max_patch_chars,
             ),
             subject=req.subject,
-            **request_external_identity_kwargs(req),
+            external_identity=non_empty_external_identity(req.external_identity),
         )
         files.append(ReviewFileContent(path=path, content=content))
     return files
@@ -813,7 +803,7 @@ def create_review_self_fix_check_run(
             installation_id=subject.installation_id,
         ),
         subject=req.subject,
-        **request_external_identity_kwargs(req),
+        external_identity=non_empty_external_identity(req.external_identity),
     )
 
 
@@ -840,15 +830,12 @@ def utc_timestamp() -> str:
     )
 
 
-def latest_github_signal(workflow: Mapping[str, Any]) -> dict[str, Any] | None:
-    signals = workflow.get("signals")
-    if not isinstance(signals, list):
-        return None
-    for item in reversed(signals):
-        signal = object_value(item)
-        payload = object_value(signal.get("payload") if signal else None)
-        if payload and payload.get("github_event"):
-            return payload
+def latest_github_signal(
+    workflow: gestalt.WorkflowRunContext,
+) -> Mapping[str, Any] | None:
+    for signal in reversed(workflow.signals):
+        if signal.payload.get("github_event"):
+            return cast(Mapping[str, Any], signal.payload)
     return None
 
 
@@ -1005,7 +992,7 @@ def ask_agent_for_findings(
                 f"{turn.status_message}"
             )
 
-        findings = parse_review_findings_output(str(getattr(turn, "output_text", "")))
+        findings = parse_review_findings_output(turn.output_text)
         return [finding for item in findings for finding in normalize_finding(item)]
 
 
@@ -1080,10 +1067,12 @@ def ask_agent_for_fix(
                 f"{turn.status_message}"
             )
 
-        return parse_review_fix_output(str(getattr(turn, "output_text", "")))
+        return parse_review_fix_output(turn.output_text)
 
 
-def wait_for_turn(manager: Any, turn: Any, settings: ReviewSettings) -> Any:
+def wait_for_turn(
+    manager: gestalt.AgentProtocol, turn: gestalt.AgentTurn, settings: ReviewSettings
+) -> gestalt.AgentTurn:
     deadline = time.monotonic() + settings.turn_timeout_ms / 1000
     while turn.status in {
         gestalt.AGENT_EXECUTION_STATUS_UNSPECIFIED,
@@ -1428,7 +1417,7 @@ def provider_review_threads(
 ) -> list[tuple[Mapping[str, Any], str]]:
     results: list[tuple[Mapping[str, Any], str]] = []
     after = ""
-    identity_kwargs = request_external_identity_kwargs(req)
+    external_identity = non_empty_external_identity(req.external_identity)
     for _page in range(AUTO_RESOLVE_MAX_THREAD_PAGES):
         try:
             response = list_pull_request_review_threads(
@@ -1442,7 +1431,7 @@ def provider_review_threads(
                     installation_id=subject.installation_id,
                 ),
                 subject=req.subject,
-                **identity_kwargs,
+                external_identity=external_identity,
             )
         except Exception as err:
             results.append(({}, f"list_failed: {err}"))
@@ -1519,7 +1508,7 @@ def auto_resolve_stale_findings(
         }
 
     after = ""
-    identity_kwargs = request_external_identity_kwargs(req)
+    external_identity = non_empty_external_identity(req.external_identity)
     for _page in range(AUTO_RESOLVE_MAX_THREAD_PAGES):
         try:
             response = list_pull_request_review_threads(
@@ -1533,7 +1522,7 @@ def auto_resolve_stale_findings(
                     installation_id=subject.installation_id,
                 ),
                 subject=req.subject,
-                **identity_kwargs,
+                external_identity=external_identity,
             )
         except Exception as err:
             skipped_reasons.append({"threadId": "", "reason": f"list_failed: {err}"})
@@ -1566,7 +1555,7 @@ def auto_resolve_stale_findings(
                         installation_id=subject.installation_id,
                     ),
                     subject=req.subject,
-                    **identity_kwargs,
+                    external_identity=external_identity,
                 )
             except Exception as err:
                 skipped_reasons.append(
