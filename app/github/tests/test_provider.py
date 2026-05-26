@@ -11,7 +11,6 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from email.message import Message
 from http import HTTPStatus
-from types import SimpleNamespace
 from typing import Any, cast
 from unittest import mock
 
@@ -191,17 +190,22 @@ class FakeIndexedDB:
 
 class FakeAuthorization:
     def __init__(
-        self, subjects: list[Any] | None = None, *, fail: bool = False
+        self,
+        subjects: list[gestalt.AuthorizationSubject] | None = None,
+        *,
+        fail: bool = False,
     ) -> None:
         self.subjects = subjects if subjects is not None else []
         self.fail = fail
-        self.requests: list[Any] = []
+        self.requests: list[gestalt.SubjectSearchRequest] = []
 
-    def search_subjects(self, request: Any) -> Any:
+    def search_subjects(
+        self, request: gestalt.SubjectSearchRequest
+    ) -> gestalt.SubjectSearchResponse:
         self.requests.append(request)
         if self.fail:
             raise RuntimeError("authorization unavailable")
-        return SimpleNamespace(subjects=self.subjects)
+        return gestalt.SubjectSearchResponse(subjects=self.subjects)
 
 
 class FakeAgentClient:
@@ -312,18 +316,13 @@ def github_request(
     )
 
 
-class RequestWithToolRefs:
-    def __init__(self, request: gestalt.Request, refs: Sequence[Any]) -> None:
-        self._request = request
-        self.tool_refs_set = True
-        self.tool_refs = list(refs)
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._request, name)
-
-
-def request_with_tool_refs(request: gestalt.Request, refs: Sequence[Any]) -> Any:
-    return RequestWithToolRefs(request, refs)
+def request_with_tool_refs(
+    request: gestalt.Request,
+    refs: Sequence[gestalt.AgentToolRef],
+) -> gestalt.Request:
+    request.tool_refs_set = True
+    request.tool_refs = list(refs)
+    return request
 
 
 def github_agent_request(
@@ -2242,7 +2241,7 @@ class GitHubProviderTests(unittest.TestCase):
             }
         )
         authorization = FakeAuthorization(
-            [SimpleNamespace(type="subject", id="user:ada")]
+            [gestalt.AuthorizationSubject(type="subject", id="user:ada")]
         )
 
         with (
@@ -2252,6 +2251,25 @@ class GitHubProviderTests(unittest.TestCase):
             ),
         ):
             request = self._workflow_signal_request(self._preference_pr_payload())
+
+        self.assertEqual(len(authorization.requests), 1)
+        search_request = authorization.requests[0]
+        self.assertEqual(search_request.page_size, 10)
+        self.assertEqual(search_request.subject_type, "")
+        self.assertEqual(
+            search_request.resource,
+            gestalt.AuthorizationResource(
+                type="external_identity",
+                id=identity_module.external_identity_resource_id(
+                    provider_module.GITHUB_EXTERNAL_IDENTITY_TYPE,
+                    "user:101",
+                ),
+            ),
+        )
+        self.assertEqual(
+            search_request.action,
+            gestalt.AuthorizationAction(name="assume"),
+        )
 
         operations = [tool.operation for tool in workflow_target_agent(request.target).tool_refs]
         self.assertNotIn(
@@ -2315,7 +2333,7 @@ class GitHubProviderTests(unittest.TestCase):
                 gestalt.Request,
                 "authorization",
                 return_value=FakeAuthorization(
-                    [SimpleNamespace(type="subject", id="user:ada")]
+                    [gestalt.AuthorizationSubject(type="subject", id="user:ada")]
                 ),
             ),
         ):

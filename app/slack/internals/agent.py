@@ -2234,14 +2234,14 @@ def _resolve_slack_subject(
         SLACK_EXTERNAL_IDENTITY_TYPE, identity_id
     )
     response = authorization.search_subjects(
-        {
-            "resource": {
-                "type": EXTERNAL_IDENTITY_RESOURCE_TYPE,
-                "id": resource_id,
-            },
-            "action": {"name": EXTERNAL_IDENTITY_ASSUME_ACTION},
-            "page_size": 10,
-        }
+        gestalt.SubjectSearchRequest(
+            resource=gestalt.AuthorizationResource(
+                type=EXTERNAL_IDENTITY_RESOURCE_TYPE,
+                id=resource_id,
+            ),
+            action=gestalt.AuthorizationAction(name=EXTERNAL_IDENTITY_ASSUME_ACTION),
+            page_size=10,
+        )
     )
     subjects = _dedupe_resolved_subjects(response.subjects)
     if len(subjects) > 1:
@@ -2292,25 +2292,26 @@ def _interaction_route_run_as_subject(
     return _agent_route_run_as_subject(route)
 
 
-def _dedupe_resolved_subjects(subjects: Iterable[Any]) -> list[Any]:
-    unique: dict[tuple[str, str], Any] = {}
+def _dedupe_resolved_subjects(
+    subjects: Iterable[gestalt.AuthorizationSubject],
+) -> list[gestalt.AuthorizationSubject]:
+    unique: dict[tuple[str, str], gestalt.AuthorizationSubject] = {}
     for subject in subjects:
-        subject_id = str(getattr(subject, "id", "") or "").strip()
+        subject_id = subject.id.strip()
         if not subject_id:
             continue
         key = (_resolved_subject_kind(subject), subject_id)
         existing = unique.get(key)
         if existing is None or (
-            str(getattr(existing, "type", "") or "").strip() != "subject"
-            and str(getattr(subject, "type", "") or "").strip() == "subject"
+            existing.type.strip() != "subject" and subject.type.strip() == "subject"
         ):
             unique[key] = subject
     return list(unique.values())
 
 
-def _resolved_subject_kind(subject: Any) -> str:
-    subject_type = str(getattr(subject, "type", "") or "").strip()
-    subject_id = str(getattr(subject, "id", "") or "").strip()
+def _resolved_subject_kind(subject: gestalt.AuthorizationSubject) -> str:
+    subject_type = subject.type.strip()
+    subject_id = subject.id.strip()
     if subject_type == "subject" and ":" in subject_id:
         kind = _subject_kind_from_id(subject_id)
         if kind:
@@ -2323,20 +2324,14 @@ def _subject_kind_from_id(subject_id: str) -> str:
     return kind
 
 
-def _subject_display_name(subject: Any) -> str:
-    properties = getattr(subject, "properties", None)
-    if isinstance(properties, dict):
-        data = properties
-    elif properties is not None and getattr(properties, "fields", None):
-        data = gestalt.struct_to_dict(properties)
-    else:
-        data = {}
-    if data:
+def _subject_display_name(subject: gestalt.AuthorizationSubject) -> str:
+    properties = subject.properties or {}
+    if properties:
         for key in ("displayName", "display_name", "email", "name"):
-            value = data.get(key)
+            value = properties.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
-    return str(getattr(subject, "id", "") or "").strip()
+    return subject.id.strip()
 
 
 def _sign_reply_ref(

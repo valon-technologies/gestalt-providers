@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -94,7 +95,7 @@ def preference_identity_from_webhook(
     policy: GitHubWebhookPolicy,
     *,
     pull_request_context: GitHubPullRequestContext | None,
-    authorization: Any | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
 ) -> GitHubPreferenceIdentity:
     subject = action_preference_subject(policy, payload, summary)
     external_subject_id = ""
@@ -197,32 +198,37 @@ def caller_preference_identity(
 
 
 def resolve_subject_id_for_external_identity(
-    authorization: Any | None, *, identity_type: str, identity_id: str
+    authorization: gestalt.AuthorizationProtocol | None,
+    *,
+    identity_type: str,
+    identity_id: str,
 ) -> str:
     if authorization is None or not identity_type or not identity_id:
         return ""
     try:
         response = authorization.search_subjects(
-            {
-                "resource": {
-                    "type": EXTERNAL_IDENTITY_RESOURCE_TYPE,
-                    "id": external_identity_resource_id(identity_type, identity_id),
-                },
-                "action": {"name": EXTERNAL_IDENTITY_ASSUME_ACTION},
-                "page_size": 10,
-            }
+            gestalt.SubjectSearchRequest(
+                resource=gestalt.AuthorizationResource(
+                    type=EXTERNAL_IDENTITY_RESOURCE_TYPE,
+                    id=external_identity_resource_id(identity_type, identity_id),
+                ),
+                action=gestalt.AuthorizationAction(
+                    name=EXTERNAL_IDENTITY_ASSUME_ACTION
+                ),
+                page_size=10,
+            )
         )
     except Exception as err:
         logger.warning("GitHub action preference subject lookup failed: %s", err)
         return ""
-    subjects = _dedupe_resolved_subjects(getattr(response, "subjects", []) or [])
+    subjects = _dedupe_resolved_subjects(response.subjects)
     if len(subjects) != 1:
         if len(subjects) > 1:
             logger.warning(
                 "GitHub action preference external identity resolved multiple subjects"
             )
         return ""
-    return str(getattr(subjects[0], "id", "") or "").strip()
+    return subjects[0].id.strip()
 
 
 def external_identity_resource_id(identity_type: str, identity_id: str) -> str:
@@ -264,13 +270,15 @@ def _human_subject_id(subject: gestalt.Subject) -> str:
     return subject_id
 
 
-def _dedupe_resolved_subjects(subjects: list[Any]) -> list[Any]:
-    unique: dict[tuple[str, str], Any] = {}
+def _dedupe_resolved_subjects(
+    subjects: Sequence[gestalt.AuthorizationSubject],
+) -> list[gestalt.AuthorizationSubject]:
+    unique: dict[tuple[str, str], gestalt.AuthorizationSubject] = {}
     for subject in subjects:
-        subject_id = str(getattr(subject, "id", "") or "").strip()
+        subject_id = subject.id.strip()
         if not subject_id:
             continue
-        subject_type = str(getattr(subject, "type", "") or "").strip()
+        subject_type = subject.type.strip()
         key = (subject_type, subject_id)
         unique[key] = subject
     return list(unique.values())
