@@ -1962,7 +1962,7 @@ def _build_workflow_publish_event_request(
     event: SlackEventPublishCallback,
     route: SlackEventPublishRoute,
     raw_payload: dict[str, Any],
-) -> Any:
+) -> gestalt.WorkflowPublishEvent:
     workflow_request = gestalt.WorkflowPublishEvent(
         event=gestalt.WorkflowEvent(
             id=_workflow_event_id(event, route),
@@ -2703,10 +2703,10 @@ def _build_workflow_signal_or_start_request(
     event: SlackAgentEvent,
     route: SlackAgentRoute | None,
     reply_ref: str,
-) -> Any:
+) -> gestalt.WorkflowSignalOrStartRun:
     workflow_key = _agent_session_ref(event)
     thread_context = _prefetch_thread_context(event, route)
-    request = gestalt.WorkflowSignalOrStartRun(
+    return gestalt.WorkflowSignalOrStartRun(
         provider_name=_workflow_provider_name(route),
         workflow_key=workflow_key,
         idempotency_key=_agent_turn_idempotency_key(event),
@@ -2718,15 +2718,14 @@ def _build_workflow_signal_or_start_request(
             metadata=_agent_metadata(event, route),
         ),
     )
-    return request
 
 
 def _build_workflow_agent_target(
     event: SlackAgentEvent,
     route: SlackAgentRoute | None,
-) -> Any:
+) -> gestalt.BoundWorkflowTarget:
     if route is not None and route.agent_steps:
-        steps: list[Any] = []
+        steps: list[gestalt.WorkflowStep] = []
         for index, config_step in enumerate(route.agent_steps):
             steps.extend(
                 _workflow_steps_for_configured_step(
@@ -2741,7 +2740,12 @@ def _build_workflow_agent_target(
             agent_step_id,
             route,
             prompt=_workflow_agent_prompt(),
-            messages=[_workflow_agent_message("system", _agent_system_prompt(route))],
+            messages=[
+                gestalt.WorkflowAgentMessage(
+                    role="system",
+                    text=gestalt.WorkflowText(template=_agent_system_prompt(route)),
+                )
+            ],
             tools=_agent_event_tool_refs(route),
             model_options=_agent_model_options(route) or None,
             metadata=_agent_session_metadata(event),
@@ -2758,13 +2762,18 @@ def _workflow_steps_for_configured_step(
     step: SlackAgentStep,
     *,
     include_signal_context: bool = False,
-) -> list[Any]:
-    messages = [_workflow_agent_message("system", _agent_system_prompt(route))]
+) -> list[gestalt.WorkflowStep]:
+    messages = [
+        gestalt.WorkflowAgentMessage(
+            role="system",
+            text=gestalt.WorkflowText(template=_agent_system_prompt(route)),
+        )
+    ]
     messages.extend(
-        _workflow_agent_message(
-            message.get("role", "user"),
-            message.get("text", ""),
-            message.get("metadata") or None,
+        gestalt.WorkflowAgentMessage(
+            role=message.get("role", "user"),
+            text=gestalt.WorkflowText(template=message.get("text", "")),
+            metadata=message.get("metadata") or None,
         )
         for message in step.messages
     )
@@ -2778,7 +2787,12 @@ def _workflow_steps_for_configured_step(
                 ]
             )
         else:
-            messages.append(_workflow_agent_message("user", SLACK_SIGNAL_CONTEXT_PROMPT))
+            messages.append(
+                gestalt.WorkflowAgentMessage(
+                    role="user",
+                    text=gestalt.WorkflowText(template=SLACK_SIGNAL_CONTEXT_PROMPT),
+                )
+            )
     when = _workflow_step_when(step.when) if step.when else None
     steps = [
         _workflow_agent_turn_step(
@@ -2806,27 +2820,6 @@ def _workflow_steps_for_configured_step(
         )
     return steps
 
-
-def _workflow_agent_message(role: str, text: str, metadata: Any = None) -> Any:
-    return gestalt.WorkflowAgentMessage(
-        role=role, text=gestalt.WorkflowText(template=text), metadata=metadata or None
-    )
-
-
-def _workflow_value(**kwargs: Any) -> Any:
-    return gestalt.WorkflowValue(**kwargs)
-
-
-def _workflow_step_output(step_id: str, path: str) -> Any:
-    return _workflow_value(
-        step_output=gestalt.WorkflowStepOutputSource(step_id=step_id, path=path),
-    )
-
-
-def _workflow_signal_value(path: str) -> Any:
-    return _workflow_value(signal_payload=path)
-
-
 def _workflow_agent_output_path(agent_output: str) -> str:
     agent_output = agent_output.strip()
     if not agent_output:
@@ -2838,7 +2831,7 @@ def _workflow_agent_output_path(agent_output: str) -> str:
     return f"agent.structuredOutput.{agent_output}"
 
 
-def _workflow_step_when(when: dict[str, Any]) -> Any:
+def _workflow_step_when(when: dict[str, Any]) -> gestalt.WorkflowStepWhen:
     step_id = str(when.get("step_id") or "").strip()
     output_path = str(when.get("output_path") or "").strip()
     equals = when.get("equals")
@@ -2846,28 +2839,11 @@ def _workflow_step_when(when: dict[str, Any]) -> Any:
     if not path.startswith("agent."):
         path = f"agent.{path}"
     return gestalt.WorkflowStepWhen(
-        value=_workflow_step_output(step_id, path),
+        value=gestalt.WorkflowValue(
+            step_output=gestalt.WorkflowStepOutputSource(step_id=step_id, path=path),
+        ),
         equals=equals,
     )
-
-
-def _workflow_slack_app_step(
-    step_id: str,
-    operation: str,
-    *,
-    input_fields: dict[str, Any],
-    when: Any = None,
-) -> Any:
-    app_call = gestalt.WorkflowStepAppCall(
-        name=_agent_config.app_name,
-        operation=operation,
-        credential_mode="none",
-        input=_workflow_value(object=input_fields),
-    )
-    kwargs: dict[str, Any] = {"id": step_id, "app": app_call}
-    if when is not None:
-        kwargs["when"] = when
-    return gestalt.WorkflowStep(**kwargs)
 
 
 def _workflow_reply_app_step(
@@ -2875,15 +2851,26 @@ def _workflow_reply_app_step(
     agent_output_path: str,
     *,
     step_id: str = "reply",
-    when: Any = None,
-) -> Any:
-    return _workflow_slack_app_step(
-        step_id,
-        SLACK_REPLY_OPERATION,
-        input_fields={
-            "text": _workflow_step_output(agent_step_id, agent_output_path),
-            "reply_ref": _workflow_signal_value("reply_ref"),
-        },
+    when: gestalt.WorkflowStepWhen | None = None,
+) -> gestalt.WorkflowStep:
+    return gestalt.WorkflowStep(
+        id=step_id,
+        app=gestalt.WorkflowStepAppCall(
+            name=_agent_config.app_name,
+            operation=SLACK_REPLY_OPERATION,
+            credential_mode="none",
+            input=gestalt.WorkflowValue(
+                object={
+                    "text": gestalt.WorkflowValue(
+                        step_output=gestalt.WorkflowStepOutputSource(
+                            step_id=agent_step_id,
+                            path=agent_output_path,
+                        ),
+                    ),
+                    "reply_ref": gestalt.WorkflowValue(signal_payload="reply_ref"),
+                }
+            ),
+        ),
         when=when,
     )
 
@@ -2892,14 +2879,25 @@ def _workflow_session_ready_app_step(
     agent_step_id: str,
     *,
     step_id: str = "session_ready",
-) -> Any:
-    return _workflow_slack_app_step(
-        step_id,
-        SLACK_SESSION_STARTED_REPLY_OPERATION,
-        input_fields={
-            "session_id": _workflow_step_output(agent_step_id, "agent.sessionId"),
-            "reply_ref": _workflow_signal_value("reply_ref"),
-        },
+) -> gestalt.WorkflowStep:
+    return gestalt.WorkflowStep(
+        id=step_id,
+        app=gestalt.WorkflowStepAppCall(
+            name=_agent_config.app_name,
+            operation=SLACK_SESSION_STARTED_REPLY_OPERATION,
+            credential_mode="none",
+            input=gestalt.WorkflowValue(
+                object={
+                    "session_id": gestalt.WorkflowValue(
+                        step_output=gestalt.WorkflowStepOutputSource(
+                            step_id=agent_step_id,
+                            path="agent.sessionId",
+                        ),
+                    ),
+                    "reply_ref": gestalt.WorkflowValue(signal_payload="reply_ref"),
+                }
+            ),
+        ),
     )
 
 
@@ -2908,37 +2906,30 @@ def _workflow_agent_turn_step(
     route: SlackAgentRoute | None,
     *,
     prompt: str,
-    messages: list[Any],
-    tools: list[Any],
+    messages: list[gestalt.WorkflowAgentMessage],
+    tools: list[gestalt.AgentToolRef],
     session_key: str = "",
-    response_schema: dict[str, Any] | None = None,
-    model_options: dict[str, Any] | None = None,
-    metadata: Any = None,
+    response_schema: gestalt.WorkflowJsonObject | None = None,
+    model_options: gestalt.WorkflowJsonObject | None = None,
+    metadata: gestalt.WorkflowJsonObject | None = None,
     timeout_seconds: int = 0,
-    when: Any = None,
-) -> Any:
-    agent_turn = gestalt.WorkflowStepAgentTurn(
-        provider=_agent_provider(route),
-        model=_agent_model(route),
-        session_key=session_key,
-        prompt=gestalt.WorkflowText(template=prompt),
-        messages=messages,
-        tools=tools,
-        response_schema=response_schema,
-        model_options=model_options,
-    )
-    kwargs: dict[str, Any] = {
-        "id": step_id,
-        "agent": agent_turn,
-    }
-    if metadata:
-        kwargs["metadata"] = metadata
-    if timeout_seconds > 0:
-        kwargs["timeout_seconds"] = timeout_seconds
-    if when is not None:
-        kwargs["when"] = when
+    when: gestalt.WorkflowStepWhen | None = None,
+) -> gestalt.WorkflowStep:
     return gestalt.WorkflowStep(
-        **{key: value for key, value in kwargs.items() if _keep_step_value(value)}
+        id=step_id,
+        agent=gestalt.WorkflowStepAgentTurn(
+            provider=_agent_provider(route),
+            model=_agent_model(route),
+            session_key=session_key,
+            prompt=gestalt.WorkflowText(template=prompt),
+            messages=messages,
+            tools=tools,
+            response_schema=response_schema,
+            model_options=model_options,
+        ),
+        timeout_seconds=timeout_seconds if timeout_seconds > 0 else 0,
+        metadata=metadata or None,
+        when=when,
     )
 
 
@@ -2955,18 +2946,6 @@ def _workflow_agent_prompt() -> str:
             "Return the complete Slack reply as your final assistant answer.",
         ]
     )
-
-
-def _keep_step_value(value: Any) -> bool:
-    if value is None:
-        return False
-    if value == "":
-        return False
-    if value == []:
-        return False
-    if value == 0:
-        return False
-    return True
 
 
 def _prefetch_thread_context(
@@ -3099,7 +3078,7 @@ def _build_workflow_interaction_signal_or_start_request(
     selected_action: dict[str, Any],
     interaction_ref: SlackInteractionRef,
     route: SlackAgentRoute | None,
-) -> Any:
+) -> gestalt.WorkflowSignalOrStartRun:
     event = _interaction_event(payload, interaction_ref)
     signal = gestalt.WorkflowSignal(
         name=SLACK_INTERACTION_WORKFLOW_SIGNAL,
@@ -3207,7 +3186,7 @@ def _agent_tool_ref(
     title: str = "",
     description: str = "",
     run_as_subject_id: str = "",
-) -> Any:
+) -> gestalt.AgentToolRef:
     return gestalt.AgentToolRef(
         system=system,
         app=app,
@@ -3222,14 +3201,14 @@ def _agent_tool_ref(
 
 def _agent_tool_ref_run_as_subject(
     subject_id: str,
-) -> Any | None:
+) -> gestalt.Subject | None:
     subject_id = subject_id.strip()
     if not subject_id:
         return None
     return gestalt.Subject(id=subject_id, kind=_subject_kind_from_id(subject_id))
 
 
-def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[Any]:
+def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[gestalt.AgentToolRef]:
     refs = [
         *_agent_tool_set_refs(_agent_config.agent_tool_set_refs),
         *_agent_config.agent_tools,
@@ -3280,7 +3259,9 @@ def _agent_default_tool_refs(route: SlackAgentRoute | None) -> list[SlackAgentTo
     ]
 
 
-def _agent_step_tool_refs(route: SlackAgentRoute, step: SlackAgentStep) -> list[Any]:
+def _agent_step_tool_refs(
+    route: SlackAgentRoute, step: SlackAgentStep
+) -> list[gestalt.AgentToolRef]:
     refs = [
         *_agent_tool_set_refs(_agent_config.agent_tool_set_refs),
         *_agent_config.agent_tools,

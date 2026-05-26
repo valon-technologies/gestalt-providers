@@ -4,20 +4,33 @@ import { createServer, type Http2Server } from "node:http2";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { Code, ConnectError, createClient } from "@connectrpc/connect";
+import {
+  Code,
+  ConnectError,
+  createClient,
+  type HandlerContext,
+} from "@connectrpc/connect";
 import {
   connectNodeAdapter,
   createGrpcTransport,
 } from "@connectrpc/connect-node";
-import { create as createMessage } from "@bufbuild/protobuf";
+import {
+  create as createMessage,
+  type DescMessage,
+  type MessageInitShape,
+  type MessageShape,
+} from "@bufbuild/protobuf";
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type {
+  CallToolResult,
+  CompatibilityCallToolResult,
+} from "@modelcontextprotocol/sdk/types.js";
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   AgentExecutionStatus,
   AgentToolSourceMode,
   createAgentProviderService,
-  type ExecuteAgentToolRequest,
   type ListedAgentTool,
 } from "@valon-technologies/gestalt";
 import {
@@ -26,6 +39,7 @@ import {
   CancelAgentProviderTurnRequestSchema,
   CreateAgentProviderSessionRequestSchema,
   CreateAgentProviderTurnRequestSchema,
+  type ExecuteAgentToolRequest as ProtoExecuteAgentToolRequest,
   ExecuteAgentToolResponseSchema,
   GetAgentProviderCapabilitiesRequestSchema,
   GetAgentProviderSessionRequestSchema,
@@ -33,6 +47,7 @@ import {
   ListAgentProviderSessionsRequestSchema,
   ListAgentProviderTurnEventsRequestSchema,
   ListAgentProviderTurnsRequestSchema,
+  type ListAgentToolsRequest,
   ListAgentToolsResponseSchema,
   ListedAgentToolSchema,
   UpdateAgentProviderSessionRequestSchema,
@@ -72,9 +87,12 @@ function subjectFixture(id: string, kind: string, displayName: string) {
   return { id, kind, displayName, authSource: "test" };
 }
 
-function create<T = any>(schema: any, input: Record<string, unknown>): T {
+function create<Desc extends DescMessage>(
+  schema: Desc,
+  input: Record<string, unknown>,
+): MessageShape<Desc> {
   let payload = input;
-  if (schema === CreateAgentProviderSessionRequestSchema) {
+  if (schema.typeName === CreateAgentProviderSessionRequestSchema.typeName) {
     payload = { createdBy: OWNER_ACTOR, subject: OWNER_SUBJECT, ...input };
   } else if (
     [
@@ -86,11 +104,11 @@ function create<T = any>(schema: any, input: Record<string, unknown>): T {
       ListAgentProviderTurnEventsRequestSchema,
       ListAgentProviderTurnsRequestSchema,
       UpdateAgentProviderSessionRequestSchema,
-    ].includes(schema)
+    ].some((requestSchema) => requestSchema.typeName === schema.typeName)
   ) {
     payload = { subject: OWNER_SUBJECT, ...input };
   }
-  return createMessage(schema, payload) as T;
+  return createMessage(schema, payload as MessageInitShape<Desc>);
 }
 
 afterEach(async () => {
@@ -199,7 +217,7 @@ describe("Cursor agent provider contract", () => {
           baseUrl: "http://localhost",
           nodeOptions: { path: socketPath },
         }),
-      ) as any;
+      );
       const capabilities = await client.getCapabilities(
         create(GetAgentProviderCapabilitiesRequestSchema, {}),
       );
@@ -852,12 +870,12 @@ describe("Cursor agent provider contract", () => {
         "operation is required",
       ],
       [
-        "missing plugin system",
+        "missing app system",
         { toolRefs: [{ operation: "o" }] },
         "exactly one",
       ],
       [
-        "both plugin system",
+        "both app system",
         { toolRefs: [{ app: "p", system: "workflow", operation: "o" }] },
         "exactly one",
       ],
@@ -1274,11 +1292,13 @@ describe("Cursor agent provider contract", () => {
       await expect(callMcpTools(bridge.url, {})).rejects.toThrow();
       const listed = await listMcpTools(bridge.url, bridge.headers);
       expect(listed.tools.map((entry) => entry.name)).toEqual(["raw_tool"]);
-      const result = await callMcpTool(bridge.url, bridge.headers, "raw_tool", {
-        value: 1,
-      });
+      const result = requireCallToolResult(
+        await callMcpTool(bridge.url, bridge.headers, "raw_tool", {
+          value: 1,
+        }),
+      );
       expect(result.isError).toBe(true);
-      expect((result as any).content[0]).toEqual({
+      expect(result.content[0]).toEqual({
         type: "text",
         text: "nope",
       });
@@ -1591,7 +1611,7 @@ class FakeRun {
 
 class FakeAgentHost {
   readonly listRequests: unknown[] = [];
-  readonly executeRequests: ExecuteAgentToolRequest[] = [];
+  readonly executeRequests: ProtoExecuteAgentToolRequest[] = [];
   readonly relayTokens: string[] = [];
 
   private constructor(
@@ -1614,7 +1634,7 @@ class FakeAgentHost {
         connect: false,
         routes(router) {
           router.service(AgentHostService, {
-            listTools(request: any, context: any) {
+            listTools(request: ListAgentToolsRequest, context: HandlerContext) {
               host.relayTokens.push(
                 context.requestHeader.get(AGENT_HOST_RELAY_TOKEN_HEADER) ?? "",
               );
@@ -1631,7 +1651,7 @@ class FakeAgentHost {
                 nextPageToken: page.nextPageToken ?? "",
               });
             },
-            executeTool(request: any) {
+            executeTool(request: ProtoExecuteAgentToolRequest) {
               host.executeRequests.push(request);
               return create(ExecuteAgentToolResponseSchema, {
                 status: input.executeStatus ?? 200,
@@ -1660,10 +1680,12 @@ async function callFirstMcpTool(
 ): Promise<unknown> {
   const listed = await listMcpTools(url, headers);
   expect(listed.tools[0]?.name).toBe("weather");
-  const result = await callMcpTool(url, headers, listed.tools[0]?.name ?? "", {
-    city: "Oakland",
-  });
-  return (result as any).content[0];
+  const result = requireCallToolResult(
+    await callMcpTool(url, headers, listed.tools[0]?.name ?? "", {
+      city: "Oakland",
+    }),
+  );
+  return result.content[0];
 }
 
 async function listMcpTools(url: string, headers: Record<string, string>) {
@@ -1679,12 +1701,21 @@ async function callMcpTool(
   headers: Record<string, string>,
   name: string,
   args: Record<string, unknown>,
-) {
+): Promise<CompatibilityCallToolResult> {
   return await callMcpTools(
     url,
     headers,
     async (client) => await client.callTool({ name, arguments: args }),
   );
+}
+
+function requireCallToolResult(
+  result: CompatibilityCallToolResult,
+): CallToolResult {
+  if (!("content" in result) || !Array.isArray(result.content)) {
+    throw new Error("expected immediate MCP tool result");
+  }
+  return result as CallToolResult;
 }
 
 async function callMcpTools<T>(

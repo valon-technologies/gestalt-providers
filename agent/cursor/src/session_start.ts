@@ -67,7 +67,7 @@ export function prependSessionStartContext(
       role: "system",
       text: `Session start context:\n\n${context}`,
       metadata: { source: SESSION_START_PREFIX },
-    } as unknown as AgentMessage,
+    },
     ...messages,
   ];
 }
