@@ -2,6 +2,10 @@
 
 IndexedDB provider supporting PostgreSQL, MySQL, SQLite, and SQL Server.
 
+Requires gestaltd built with `GESTALT_PROVIDER_SOCKET` (gestaltd after the plugin→app
+provider env rename). The published `0.0.1-alpha.1` release is incompatible with current
+gestaltd; use `0.0.1-alpha.2` or newer.
+
 ## Configuration
 
 Reference this provider in your Gestalt configuration:
