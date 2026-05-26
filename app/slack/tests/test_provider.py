@@ -13,7 +13,7 @@ import uuid
 from dataclasses import asdict, is_dataclass
 from email.message import Message
 from http import HTTPStatus
-from typing import Any, cast
+from typing import Any, Mapping, cast
 from unittest import mock
 
 import gestalt
@@ -126,69 +126,71 @@ def request_json(request: urllib.request.Request) -> dict[str, Any]:
     return json.loads(cast(bytes, request.data).decode("utf-8"))
 
 
-def tool_ref_pairs(refs: Any) -> list[tuple[str, str]]:
+_WORKFLOW_VALUE_UNSET = gestalt.WorkflowValue().literal
+
+
+def tool_ref_pairs(refs: list[gestalt.AgentToolRef]) -> list[tuple[str, str]]:
     return [
-        (str(getattr(ref, "system", "") or ref.app), str(ref.operation)) for ref in refs
+        (str(ref.system or ref.app), str(ref.operation)) for ref in refs
     ]
 
 
-def tool_ref_details(refs: Any) -> list[tuple[str, str, str, str, str, str]]:
+def tool_ref_details(
+    refs: list[gestalt.AgentToolRef],
+) -> list[tuple[str, str, str, str, str, str]]:
     return [
         (
             str(ref.app),
             str(ref.operation),
-            str(getattr(ref, "connection", "")),
-            str(getattr(ref, "instance", "")),
-            str(getattr(ref, "title", "")),
-            str(getattr(ref, "description", "")),
+            str(ref.connection),
+            str(ref.instance),
+            str(ref.title),
+            str(ref.description),
         )
         for ref in refs
     ]
 
 
-def workflow_text(value: Any) -> str:
-    template = getattr(value, "template", None)
-    if template is not None:
-        return str(template)
+def workflow_text(value: gestalt.WorkflowText | str | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, gestalt.WorkflowText):
+        return value.template
     return str(value)
 
 
 class WorkflowMessageView:
-    def __init__(self, message: Any) -> None:
-        self.role = getattr(message, "role", "")
-        self.text = workflow_text(getattr(message, "text", ""))
+    def __init__(self, message: gestalt.WorkflowAgentMessage) -> None:
+        self.role = message.role
+        self.text = workflow_text(message.text)
 
 
 class WorkflowAppDeliveryView:
-    def __init__(self, app_step: Any) -> None:
-        app = getattr(app_step, "app", None)
+    def __init__(
+        self,
+        app: gestalt.WorkflowStepAppCall,
+        input_fields: Mapping[str, gestalt.WorkflowValue],
+    ) -> None:
         self.target = types.SimpleNamespace(
-            app_name=getattr(app, "name", ""),
-            operation=getattr(app, "operation", ""),
+            app_name=app.name,
+            operation=app.operation,
         )
-        self.credential_mode = getattr(app, "credential_mode", "")
-        input_value = getattr(app, "input", None)
-        fields = getattr(input_value, "object", None)
-        if fields is None and isinstance(input_value, dict):
-            fields = input_value
+        self.credential_mode = app.credential_mode
         self.input_bindings = [
             types.SimpleNamespace(input_field=key, value=value)
-            for key, value in (fields or {}).items()
+            for key, value in input_fields.items()
         ]
 
 
 class WorkflowWhenView:
-    def __init__(self, when: Any) -> None:
-        self.equals = getattr(when, "equals", None)
-        value = getattr(when, "value", None)
-        step_output = getattr(value, "step_output", None)
-        self.step_id = getattr(when, "step_id", "") or getattr(
-            step_output, "step_id", ""
-        )
-        output_path = getattr(when, "output_path", "") or getattr(
-            step_output, "path", ""
-        )
-        output_path = str(output_path)
+    def __init__(
+        self,
+        step_output: gestalt.WorkflowStepOutputSource,
+        equals: gestalt.WorkflowJsonValue,
+    ) -> None:
+        self.equals = equals
+        self.step_id = step_output.step_id
+        output_path = step_output.path
         if output_path.startswith("agent.structuredOutput."):
             output_path = output_path.replace(
                 "agent.structuredOutput.", "structured_output.", 1
@@ -196,132 +198,118 @@ class WorkflowWhenView:
         self.output_path = output_path
 
 
-def workflow_when_view(when: Any) -> WorkflowWhenView | None:
-    if when is None:
-        return None
-    return WorkflowWhenView(when)
-
-
 class WorkflowAgentView:
     def __init__(
         self,
-        step: Any,
-        agent: Any,
-        all_steps: list[Any],
+        step: gestalt.WorkflowStep,
+        agent: gestalt.WorkflowStepAgentTurn,
+        all_steps: list[gestalt.WorkflowStep],
         *,
         include_steps: bool = False,
         compute_deliveries: bool = True,
     ) -> None:
-        self.provider_name = getattr(agent, "provider_name", "") or getattr(
-            agent, "provider", ""
-        )
-        self.id = getattr(step, "id", "")
-        self.model = getattr(agent, "model", "")
-        self.session_key = getattr(agent, "session_key", "") or getattr(
-            agent, "sessionKey", ""
-        )
-        self.prompt = workflow_text(getattr(agent, "prompt", ""))
+        self.provider_name = agent.provider
+        self.id = step.id
+        self.model = agent.model
+        self.session_key = agent.session_key
+        self.prompt = workflow_text(agent.prompt)
         self.messages = [
             WorkflowMessageView(message)
-            for message in (getattr(agent, "messages", None) or [])
+            for message in agent.messages
         ]
-        self.tool_refs = (
-            getattr(agent, "tool_refs", None) or getattr(agent, "tools", None) or []
+        self.tool_refs = list(agent.tools)
+        self.response_schema = agent.response_schema
+        self.when = (
+            WorkflowWhenView(step.when.value.step_output, step.when.equals)
+            if step.when is not None
+            else None
         )
-        self.response_schema: Any = getattr(agent, "response_schema", None)
-        self.when: Any = workflow_when_view(getattr(step, "when", None))
-        self.timeout_seconds = getattr(step, "timeout_seconds", 0) or getattr(
-            agent, "timeout_seconds", 0
-        )
-        self.metadata = (
-            getattr(step, "metadata", None)
-            or getattr(agent, "metadata", None)
-            or new_struct()
-        )
-        self.model_options = (
-            getattr(agent, "model_options", None)
-            or getattr(agent, "provider_options", None)
-            or new_struct()
-        )
-        self.provider_options = self.model_options
+        self.timeout_seconds = step.timeout_seconds
+        self.metadata = step.metadata or new_struct()
+        self.model_options = agent.model_options or new_struct()
         self.reply_delivery: Any = (
             workflow_app_delivery_for_agent(
-                all_steps, getattr(step, "id", ""), "events.reply"
+                all_steps, step.id, "events.reply"
             )
             if compute_deliveries
             else None
         )
         self.session_ready_reply_delivery: Any = (
             workflow_app_delivery_for_agent(
-                all_steps, getattr(step, "id", ""), "events.replySessionStarted"
+                all_steps, step.id, "events.replySessionStarted"
             )
             if compute_deliveries
             else None
         )
-        self.steps = workflow_agent_steps(all_steps) if include_steps else []
+        self.steps = (
+            [
+                WorkflowAgentView(child, child.agent, all_steps)
+                for child in all_steps
+                if child.agent is not None
+            ]
+            if include_steps
+            else []
+        )
+
+    @classmethod
+    def grouped(cls, steps: list[gestalt.WorkflowStep]) -> WorkflowAgentView:
+        view = cls.__new__(cls)
+        view.provider_name = ""
+        view.id = ""
+        view.model = ""
+        view.session_key = ""
+        view.prompt = ""
+        view.messages = []
+        view.tool_refs = []
+        view.response_schema = None
+        view.when = None
+        view.timeout_seconds = 0
+        view.metadata = new_struct()
+        view.model_options = new_struct()
+        view.reply_delivery = None
+        view.session_ready_reply_delivery = None
+        view.steps = [
+            WorkflowAgentView(step, step.agent, steps)
+            for step in steps
+            if step.agent is not None
+        ]
+        return view
 
 
-def workflow_target_agent(target: Any) -> WorkflowAgentView:
-    steps = list(getattr(target, "steps", None) or [])
-    agent_steps = [step for step in steps if getattr(step, "agent", None) is not None]
+def workflow_target_agent(target: gestalt.BoundWorkflowTarget) -> WorkflowAgentView:
+    steps = list(target.steps)
+    agent_steps = [(step, step.agent) for step in steps if step.agent is not None]
     if len(agent_steps) > 1:
-        return WorkflowAgentView(
-            types.SimpleNamespace(id="", timeout_seconds=0, metadata=None),
-            types.SimpleNamespace(prompt="", messages=[], tools=[]),
-            steps,
-            include_steps=True,
-            compute_deliveries=False,
-        )
-    for step in agent_steps:
-        return WorkflowAgentView(
-            step, getattr(step, "agent"), steps, include_steps=True
-        )
+        return WorkflowAgentView.grouped(steps)
+    for step, agent in agent_steps:
+        return WorkflowAgentView(step, agent, steps, include_steps=True)
     raise AssertionError("workflow target has no agent step")
 
 
-def workflow_agent_steps(steps: list[Any]) -> list[WorkflowAgentView]:
-    out: list[WorkflowAgentView] = []
-    for step in steps:
-        agent = getattr(step, "agent", None)
-        if agent is not None:
-            out.append(WorkflowAgentView(step, agent, steps))
-    return out
-
-
 def workflow_app_delivery_for_agent(
-    steps: list[Any],
+    steps: list[gestalt.WorkflowStep],
     agent_step_id: str,
     operation: str,
 ) -> WorkflowAppDeliveryView | None:
     for step in steps:
-        app = getattr(step, "app", None)
-        if app is None or getattr(app, "operation", "") != operation:
+        if (
+            step.app is None
+            or step.app.operation != operation
+            or step.app.input is None
+            or step.app.input.object is None
+        ):
             continue
-        if workflow_app_step_uses_agent_output(step, agent_step_id):
-            return WorkflowAppDeliveryView(step)
+        if any(
+            value.step_output is not None and value.step_output.step_id == agent_step_id
+            for value in step.app.input.object.values()
+        ):
+            return WorkflowAppDeliveryView(step.app, step.app.input.object)
     return None
 
 
-def workflow_app_step_uses_agent_output(step: Any, agent_step_id: str) -> bool:
-    app = getattr(step, "app", None)
-    input_value = getattr(app, "input", None)
-    fields = getattr(input_value, "object", None)
-    if fields is None and isinstance(input_value, dict):
-        fields = input_value
-    for value in (fields or {}).values():
-        step_output = getattr(value, "step_output", None)
-        if getattr(step_output, "step_id", "") == agent_step_id:
-            return True
-    return False
-
-
-def workflow_binding_value(value: Any) -> tuple[str | None, Any]:
-    kind = value.WhichOneof("kind") if hasattr(value, "WhichOneof") else None
-    if kind is not None:
-        return kind, getattr(value, kind, None)
-    step_output = getattr(value, "step_output", None)
-    if step_output is not None:
-        path = str(getattr(step_output, "path", ""))
+def workflow_binding_value(value: gestalt.WorkflowValue) -> tuple[str | None, Any]:
+    if value.step_output is not None:
+        path = value.step_output.path
         if path == "agent.text":
             return "agent_output", "text"
         if path == "agent.sessionId":
@@ -330,25 +318,27 @@ def workflow_binding_value(value: Any) -> tuple[str | None, Any]:
         if path.startswith(structured_prefix):
             return "agent_output", path.removeprefix(structured_prefix)
         return "step_output", {
-            "step_id": getattr(step_output, "step_id", ""),
+            "step_id": value.step_output.step_id,
             "path": path,
         }
-    for candidate in (
-        "agent_output",
-        "signal_payload",
-        "signal_metadata",
-        "agent_session",
-        "literal",
-    ):
-        candidate_value = getattr(value, candidate, None)
-        if candidate_value not in (None, "") and not (
-            candidate == "literal" and type(candidate_value) is object
-        ):
-            return candidate, candidate_value
+    if value.signal_payload:
+        return "signal_payload", value.signal_payload
+    if value.run_input:
+        return "run_input", value.run_input
+    if value.template is not None:
+        return "template", workflow_text(value.template)
+    if value.object is not None:
+        return "object", value.object
+    if value.array is not None:
+        return "array", value.array
+    if value.literal is not _WORKFLOW_VALUE_UNSET:
+        return "literal", value.literal
     return None, None
 
 
-def app_delivery_bindings(delivery: Any) -> dict[str, tuple[str | None, Any]]:
+def app_delivery_bindings(
+    delivery: WorkflowAppDeliveryView,
+) -> dict[str, tuple[str | None, Any]]:
     out: dict[str, tuple[str | None, Any]] = {}
     for binding in delivery.input_bindings:
         out[str(binding.input_field)] = workflow_binding_value(binding.value)
@@ -570,14 +560,6 @@ class DictWorkflowClient(FakeWorkflowClient):
             "startedRun": True,
             "workflowKey": request.workflow_key,
         }
-
-
-def agent_options(agent_target: Any) -> Any:
-    return getattr(
-        agent_target,
-        "provider_options",
-        getattr(agent_target, "model_options", new_struct()),
-    )
 
 
 def slack_replies_response(
@@ -1288,9 +1270,10 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(reply.id, "reply")
         self.assertEqual(reply.session_key, "stepped-session")
         self.assertEqual(reply.prompt, "Write the Slack reply.")
-        self.assertEqual(reply.when.step_id, "collect")
-        self.assertEqual(reply.when.output_path, "structured_output.actionable")
-        self.assertEqual(reply.when.equals, True)
+        reply_when = cast(WorkflowWhenView, reply.when)
+        self.assertEqual(reply_when.step_id, "collect")
+        self.assertEqual(reply_when.output_path, "structured_output.actionable")
+        self.assertEqual(reply_when.equals, True)
         self.assertEqual(
             app_delivery_bindings(reply.reply_delivery),
             {
@@ -2621,7 +2604,7 @@ class SlackProviderTests(unittest.TestCase):
             target_metadata["slack"]["root_message_ts"], "1712161829.000300"
         )
         self.assertNotIn("event_id", target_metadata["slack"])
-        model_options = sdk_value_to_dict(agent_options(agent_target))
+        model_options = sdk_value_to_dict(agent_target.model_options)
         self.assertEqual(model_options["temperature"], 0)
 
         signal = workflow_request.signal
@@ -5190,7 +5173,7 @@ class SlackProviderTests(unittest.TestCase):
         signal_metadata = sdk_value_to_dict(workflow_request.signal.metadata)
         self.assertEqual(signal_metadata["slack"]["agent_route_id"], "triage")
         self.assertEqual(signal_metadata["slack"]["addressed_to_bot"], True)
-        model_options = sdk_value_to_dict(agent_options(agent_target))
+        model_options = sdk_value_to_dict(agent_target.model_options)
         self.assertEqual(model_options["temperature"], 0)
         self.assertEqual(model_options["max_output_tokens"], 2000)
 
