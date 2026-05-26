@@ -22,9 +22,10 @@ contain the tools needed to launch the provider process.
   `execution.runtime.template` is set.
 - `StartSession` builds a Pod from `podDefaults` when
   `execution.runtime.image` is set without a template.
-- `StartApp` injects `GESTALT_PROVIDER_SOCKET=/tmp/gestalt/plugin.sock` and
-  `GESTALT_APP_NAME`, starts `socat` from `appPort` to the Unix socket,
-  and launches the requested command/args/env through `pods/exec`.
+- `StartApp` injects `GESTALT_PROVIDER_SOCKET=/tmp/gestalt/plugin.sock`,
+  compatibility `GESTALT_PLUGIN_SOCKET=/tmp/gestalt/plugin.sock`, and
+  `GESTALT_APP_NAME`, starts `socat` from `appPort` to the Unix socket, and
+  launches the requested command/args/env through `pods/exec`.
 - Session state is derived from Pod phase, the Ready condition, the plugin-start
   Lease, and provider-start annotations.
 - Hostname egress is advertised only when `hostnameEgress.mode: publicProxy` is

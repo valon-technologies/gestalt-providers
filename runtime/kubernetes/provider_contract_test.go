@@ -64,11 +64,25 @@ func TestProviderContractBuildsPluginEnv(t *testing.T) {
 	if got, want := env[envProviderSocket], "/tmp/gestalt/plugin.sock"; got != want {
 		t.Fatalf("%s = %q, want %q", envProviderSocket, got, want)
 	}
+	if got, want := env[envLegacyProviderSocket], "/tmp/gestalt/plugin.sock"; got != want {
+		t.Fatalf("%s = %q, want %q", envLegacyProviderSocket, got, want)
+	}
 	if got, want := env[envProviderName], "claude"; got != want {
 		t.Fatalf("%s = %q, want %q", envProviderName, got, want)
 	}
 	if got, want := env["CUSTOM"], "value"; got != want {
 		t.Fatalf("CUSTOM = %q, want %q", got, want)
+	}
+}
+
+func TestProviderContractProviderSocketEnvIsNotHostServiceSocket(t *testing.T) {
+	for _, key := range []string{envProviderSocket, envLegacyProviderSocket} {
+		if isHostServiceSocketEnv(key) {
+			t.Fatalf("%s classified as host service socket", key)
+		}
+	}
+	if !isHostServiceSocketEnv(gestalt.EnvHostServiceSocket) {
+		t.Fatalf("%s was not classified as host service socket", gestalt.EnvHostServiceSocket)
 	}
 }
 

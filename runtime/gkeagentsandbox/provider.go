@@ -30,7 +30,10 @@ const (
 	sessionStateFailed   = "failed"
 )
 
-const envProviderSocket = "GESTALT_PROVIDER_SOCKET"
+const (
+	envProviderSocket       = "GESTALT_PROVIDER_SOCKET"
+	envLegacyProviderSocket = "GESTALT_PLUGIN_SOCKET"
+)
 
 type Provider struct {
 	name    string
@@ -718,6 +721,7 @@ func buildPluginEnv(req gestalt.StartHostedAppRequest, providerSocket string) ma
 		env = map[string]string{}
 	}
 	env[envProviderSocket] = providerSocket
+	env[envLegacyProviderSocket] = providerSocket
 	return env
 }
 

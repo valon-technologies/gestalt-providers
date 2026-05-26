@@ -131,6 +131,7 @@ func TestRuntimeProviderContractLaunchesHostedApp(t *testing.T) {
 		"TCP-LISTEN:50051",
 		"UNIX-CONNECT:'/tmp/gestalt/plugin.sock'",
 		"'GESTALT_PROVIDER_SOCKET=/tmp/gestalt/plugin.sock'",
+		"'GESTALT_PLUGIN_SOCKET=/tmp/gestalt/plugin.sock'",
 		"'GESTALT_HOST_SERVICE_SOCKET=tls://host-service-relay.gestalt.example:443'",
 		"'GESTALT_HOST_SERVICE_TOKEN=host-service-token'",
 		"'CUSTOM=value'",
@@ -174,6 +175,17 @@ func TestRuntimeProviderContractLaunchesHostedApp(t *testing.T) {
 	}
 	if !fake.tunnel.(*fakeTunnel).Closed() {
 		t.Fatalf("plugin tunnel was not closed")
+	}
+}
+
+func TestRuntimeProviderContractProviderSocketEnvIsNotHostServiceSocket(t *testing.T) {
+	for _, key := range []string{envProviderSocket, envLegacyProviderSocket} {
+		if isHostServiceSocketEnv(key) {
+			t.Fatalf("%s classified as host service socket", key)
+		}
+	}
+	if !isHostServiceSocketEnv(gestalt.EnvHostServiceSocket) {
+		t.Fatalf("%s was not classified as host service socket", gestalt.EnvHostServiceSocket)
 	}
 }
 

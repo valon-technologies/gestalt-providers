@@ -156,7 +156,9 @@ func hostServiceRelayTargetsFromEnv(env map[string]string) []hostServiceBinding 
 
 func isHostServiceSocketEnv(key string) bool {
 	key = strings.TrimSpace(key)
-	return key != envProviderSocket && strings.HasSuffix(key, "_SOCKET")
+	return key != envProviderSocket &&
+		key != envLegacyProviderSocket &&
+		strings.HasSuffix(key, "_SOCKET")
 }
 
 func normalizeHostname(host string) string {
