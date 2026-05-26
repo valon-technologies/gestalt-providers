@@ -35,7 +35,7 @@ from internals.models import (
     VercelBlobPutRequest,
 )
 
-plugin = gestalt.App("vercel")
+app = gestalt.App("vercel")
 
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
@@ -158,13 +158,13 @@ class TeamMembersInviteInput(gestalt.Model):
     )
 
 
-@plugin.configure
+@app.configure
 def configure(_name: str, config: dict[str, Any]) -> None:
     global _blob_config
     _blob_config = blob_config_from_mapping(config)
 
 
-@plugin.operation(
+@app.operation(
     id="blob.put", method="POST", description="Upload a payload to Vercel Blob storage"
 )
 def blob_put(input: BlobPutInput) -> OperationResult:
@@ -198,7 +198,7 @@ def blob_put(input: BlobPutInput) -> OperationResult:
         return _blob_error(err)
 
 
-@plugin.operation(
+@app.operation(
     id="blob.get", method="POST", description="Download a blob from Vercel Blob storage"
 )
 def blob_get(input: BlobGetInput) -> OperationResult:
@@ -231,7 +231,7 @@ def blob_get(input: BlobGetInput) -> OperationResult:
         return _blob_error(err)
 
 
-@plugin.operation(
+@app.operation(
     id="blob.head", method="POST", description="Fetch metadata for a Vercel Blob object"
 )
 def blob_head(input: BlobHeadInput) -> OperationResult:
@@ -248,7 +248,7 @@ def blob_head(input: BlobHeadInput) -> OperationResult:
         return _blob_error(err)
 
 
-@plugin.operation(
+@app.operation(
     id="blob.list",
     method="POST",
     description="List Vercel Blob objects in the configured store",
@@ -274,7 +274,7 @@ def blob_list(input: BlobListInput) -> OperationResult:
         return _blob_error(err)
 
 
-@plugin.operation(
+@app.operation(
     id="blob.delete",
     method="POST",
     description="Delete one or more Vercel Blob objects",
@@ -295,7 +295,7 @@ def blob_delete(input: BlobDeleteInput) -> OperationResult:
         return _blob_error(err)
 
 
-@plugin.operation(
+@app.operation(
     id="blob.copy",
     method="POST",
     description="Copy a blob to a new pathname in the same Vercel Blob store",
@@ -335,7 +335,7 @@ def blob_copy(input: BlobCopyInput) -> OperationResult:
         return _blob_error(err)
 
 
-@plugin.operation(
+@app.operation(
     id="teamMembers.invite",
     method="POST",
     description="Invite a user to a Vercel team using an email and role payload",

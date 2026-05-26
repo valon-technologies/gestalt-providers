@@ -165,7 +165,7 @@ from internals.webhook import (
     webhook_subject_from_payload,
 )
 
-plugin = gestalt.App("github")
+app = gestalt.App("github")
 logger = logging.getLogger(__name__)
 
 _ACTION_PREFERENCE_CONTROL_LABELS = {
@@ -1021,7 +1021,7 @@ class ActionPreferenceTargetsInput(gestalt.Model):
     )
 
 
-@plugin.configure
+@app.configure
 def configure(_name: str, config: dict[str, Any]) -> None:
     reset_action_preference_store()
     configure_from_mapping(config, provider_name=_name)
@@ -1034,7 +1034,7 @@ def post_connect(token: gestalt.ConnectedToken) -> PostConnectMetadata:
     return user_external_identity_metadata(token.access_token)
 
 
-@plugin.http_subject
+@app.http_subject
 def resolve_http_subject(request: gestalt.HTTPSubjectRequest) -> gestalt.Subject | None:
     subject = webhook_subject_from_payload(request.params)
     if subject is None:
@@ -1047,7 +1047,7 @@ def resolve_http_subject(request: gestalt.HTTPSubjectRequest) -> gestalt.Subject
     )
 
 
-@plugin.operation(
+@app.operation(
     id=GITHUB_EVENT_OPERATION,
     method="POST",
     description="Handle GitHub App webhook callbacks and delegate repository events to configured Gestalt workflow targets",
@@ -1654,7 +1654,7 @@ def _single_pull_request_number(value: Any) -> int:
     return int(number) if int(number) > 0 else 0
 
 
-@plugin.operation(
+@app.operation(
     id=REVIEW_PULL_REQUEST_OPERATION,
     method="POST",
     description=(
@@ -1680,7 +1680,7 @@ def github_review_pull_request(
         return _service_unavailable(str(err))
 
 
-@plugin.operation(
+@app.operation(
     id=ACTION_PREFERENCES_LIST_TARGETS_OPERATION,
     method="GET",
     description=(
@@ -1732,7 +1732,7 @@ def github_action_preferences_list_targets(
     }
 
 
-@plugin.operation(
+@app.operation(
     id="actionPreferences.get",
     method="GET",
     description="Get this caller's GitHub webhook action preferences for a policy",
@@ -1769,7 +1769,7 @@ def github_action_preferences_get(
     }
 
 
-@plugin.operation(
+@app.operation(
     id="actionPreferences.set",
     method="POST",
     description="Set this caller's GitHub webhook action preferences for a policy",
@@ -1805,7 +1805,7 @@ def github_action_preferences_set(
     return {"data": {"preference": _preference_summary(preference)}}
 
 
-@plugin.operation(
+@app.operation(
     id="actionPreferences.delete",
     method="POST",
     description="Delete this caller's GitHub webhook action preferences for a policy",
@@ -1837,7 +1837,7 @@ def github_action_preferences_delete(
     return {"data": {"deleted": deleted}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_RESOLVE_INSTALLATION_OPERATION,
     method="GET",
     description="Resolve the GitHub App installation and runAs identities for a repository",
@@ -1856,7 +1856,7 @@ def bot_resolve_installation(
     return {"data": installation_resolution_dict(resolution)}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_GET_REPOSITORY_OPERATION,
     method="GET",
     description="Get repository metadata using a GitHub App installation token",
@@ -1884,7 +1884,7 @@ def bot_get_repository(input: RepositoryInput, req: gestalt.Request) -> Operatio
     return {"data": {"repository": repository_summary(repo)}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_SEARCH_CODE_OPERATION,
     method="GET",
     description="Search code in one repository using a GitHub App installation token",
@@ -1916,7 +1916,7 @@ def bot_search_code(input: SearchCodeInput, req: gestalt.Request) -> OperationRe
     return {"data": code_search_summary(results)}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_GET_CONTENT_OPERATION,
     method="GET",
     description="Get UTF-8 file content using a GitHub App installation token",
@@ -1947,7 +1947,7 @@ def bot_get_content(input: GetContentInput, req: gestalt.Request) -> OperationRe
     return {"data": {"path": input.path, "ref": input.ref, "content": content}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_COMMIT_FILES_OPERATION,
     method="POST",
     description="Create a Git commit on a branch using a GitHub App installation token",
@@ -1971,7 +1971,7 @@ def bot_commit_files(input: CommitFilesInput, req: gestalt.Request) -> Operation
     return {"data": {"commit": commit_result_dict(commit)}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_OPEN_PULL_REQUEST_OPERATION,
     method="POST",
     description="Open a pull request using a GitHub App installation token",
@@ -2008,7 +2008,7 @@ def bot_open_pull_request(
     return {"data": {"pull_request": pull_request_summary(pull)}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_CLOSE_PULL_REQUEST_OPERATION,
     method="POST",
     description="Close a pull request using a GitHub App installation token",
@@ -2039,7 +2039,7 @@ def bot_close_pull_request(
     return {"data": {"pull_request": pull_request_summary(pull)}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_CREATE_PULL_REQUEST_OPERATION,
     method="POST",
     description="Commit file changes to a branch and open a pull request using a GitHub App installation token",
@@ -2092,7 +2092,7 @@ def bot_create_pull_request(
     }
 
 
-@plugin.operation(
+@app.operation(
     id=USER_CREATE_PULL_REQUEST_OPERATION,
     method="POST",
     description="Commit file changes and open a pull request using the caller's GitHub OAuth token",
@@ -2139,7 +2139,7 @@ def user_create_pull_request(
     }
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_CREATE_ISSUE_COMMENT_OPERATION,
     method="POST",
     description="Create an issue comment using a GitHub App installation token",
@@ -2170,7 +2170,7 @@ def bot_create_issue_comment(
     return {"data": {"comment": issue_comment_summary(comment)}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
     method="POST",
     description="Create a pull request review with inline comments using a GitHub App installation token",
@@ -2204,7 +2204,7 @@ def bot_create_pull_request_review(
     return {"data": {"review": pull_request_review_summary(review)}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
     method="GET",
     description="List pull request review threads and their first comments using a GitHub App installation token",
@@ -2238,7 +2238,7 @@ def bot_list_pull_request_review_threads(
     return {"data": threads}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
     method="POST",
     description="Resolve a pull request review thread after verifying it belongs to the requested pull request",
@@ -2270,7 +2270,7 @@ def bot_resolve_pull_request_review_thread(
     return {"data": {"thread": thread}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_ADD_REACTION_OPERATION,
     method="POST",
     description="Add a reaction using a GitHub App installation token",
@@ -2302,7 +2302,7 @@ def bot_add_reaction(input: AddReactionInput, req: gestalt.Request) -> Operation
     return {"data": {"reaction": reaction_summary(reaction)}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_ADD_LABELS_OPERATION,
     method="POST",
     description="Add labels to an issue or pull request using a GitHub App installation token",
@@ -2333,7 +2333,7 @@ def bot_add_labels(input: AddLabelsInput, req: gestalt.Request) -> OperationResu
     return {"data": {"labels": [label_summary(label) for label in labels]}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_REMOVE_LABELS_OPERATION,
     method="POST",
     description="Remove labels from an issue or pull request using a GitHub App installation token",
@@ -2371,7 +2371,7 @@ def bot_remove_labels(
     }
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_REQUEST_REVIEWERS_OPERATION,
     method="POST",
     description="Request individual or team reviewers on a pull request using a GitHub App installation token",
@@ -2404,7 +2404,7 @@ def bot_request_reviewers(
     return {"data": {"pull_request": pull_request_summary(pull_request)}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
     method="POST",
     description="Create a pull request conversation comment using a GitHub App installation token",
@@ -2435,7 +2435,7 @@ def bot_create_pull_request_conversation_comment(
     return {"data": {"comment": issue_comment_summary(comment)}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_GET_PULL_REQUEST_OPERATION,
     method="GET",
     description="Get pull request metadata using a GitHub App installation token",
@@ -2466,7 +2466,7 @@ def bot_get_pull_request(
     return {"data": {"pull_request": pull_request_summary(pull_request)}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_LIST_PULL_REQUEST_FILES_OPERATION,
     method="GET",
     description="List pull request changed files and bounded patches using a GitHub App installation token",
@@ -2504,7 +2504,7 @@ def bot_list_pull_request_files(
     }
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_GET_CHECK_RUN_OPERATION,
     method="GET",
     description="Get a GitHub check run using a GitHub App installation token",
@@ -2532,7 +2532,7 @@ def bot_get_check_run(input: GetCheckRunInput, req: gestalt.Request) -> Operatio
     return {"data": {"check_run": check_run_summary(check_run)}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_CREATE_CHECK_RUN_OPERATION,
     method="POST",
     description="Create a GitHub check run using a GitHub App installation token",
@@ -2568,7 +2568,7 @@ def bot_create_check_run(
     return {"data": {"check_run": check_run_summary(check_run)}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_UPDATE_CHECK_RUN_OPERATION,
     method="POST",
     description="Update a GitHub check run using a GitHub App installation token",
@@ -2604,7 +2604,7 @@ def bot_update_check_run(
     return {"data": {"check_run": check_run_summary(check_run)}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION,
     method="GET",
     description="List check runs in a GitHub check suite using a GitHub App installation token",
@@ -2651,7 +2651,7 @@ def bot_list_check_suite_check_runs(
     }
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
     method="GET",
     description="List annotations for a GitHub check run using a GitHub App installation token",
@@ -2690,7 +2690,7 @@ def bot_list_check_run_annotations(
     }
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_GET_WORKFLOW_RUN_OPERATION,
     method="GET",
     description="Get a GitHub Actions workflow run using a GitHub App installation token",
@@ -2720,7 +2720,7 @@ def bot_get_workflow_run(
     return {"data": {"workflow_run": workflow_run_summary(workflow_run)}}
 
 
-@plugin.operation(
+@app.operation(
     id=BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
     method="GET",
     description="List jobs for a GitHub Actions workflow run using a GitHub App installation token",

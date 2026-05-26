@@ -1,3 +1,5 @@
+import json
+import tomllib
 import unittest
 import urllib.parse
 from http import HTTPStatus
@@ -24,6 +26,17 @@ class GmailCredentialContractTests(unittest.TestCase):
         provider_module.configure(
             "gmail", {"clientId": "client-id", "clientSecret": "client-secret"}
         )
+
+    def test_runtime_target_dispatches_static_python_operations(self) -> None:
+        pyproject = tomllib.loads((PLUGIN_DIR / "pyproject.toml").read_text())
+        self.assertEqual(pyproject["tool"]["gestalt"]["provider"], "provider:app")
+
+        result = provider_module.app.execute(
+            "messages.list", {}, gestalt.Request(token="")
+        )
+
+        self.assertEqual(result.status, HTTPStatus.UNAUTHORIZED)
+        self.assertEqual(json.loads(result.body), {"error": "token is required"})
 
     def test_manifest_and_schema_expose_subject_owned_oauth_contract(self) -> None:
         manifest = yaml.safe_load((PLUGIN_DIR / "manifest.yaml").read_text())

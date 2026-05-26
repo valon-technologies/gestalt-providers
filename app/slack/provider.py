@@ -69,7 +69,7 @@ from internals.operations import (
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
 
-plugin = gestalt.App("slack")
+app = gestalt.App("slack")
 SLACK_POST_MESSAGE_FOOTER_APP_NAME = "Gestalt"
 SLACK_MAX_BLOCKS = 50
 SLACK_MAX_SECTION_TEXT_CHARS = 3000
@@ -84,7 +84,7 @@ external_identity_resource_id = _agent.external_identity_resource_id
 slack_external_identity_id = _agent.slack_external_identity_id
 
 
-@plugin.configure
+@app.configure
 def configure(name: str, config: dict[str, Any]) -> None:
     configure_agent(name, config)
 
@@ -447,7 +447,7 @@ class SlackInteractionRequestInput(gestalt.Model):
     )
 
 
-@plugin.http_subject
+@app.http_subject
 def resolve_http_subject(
     request: gestalt.HTTPSubjectRequest, context: gestalt.Request
 ) -> gestalt.Subject | None:
