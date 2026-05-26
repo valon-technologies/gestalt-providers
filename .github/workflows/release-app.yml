@@ -64,7 +64,11 @@ jobs:
 
           case "$APP_ROOT" in
             agent|runtime|app|auth|authorization|externalcredentials|s3|indexeddb|workflow|cache|secrets|ui)
-              GESTALT_REF="main"
+              if [ ! -s .github/gestalt-ref ]; then
+                echo "ERROR: .github/gestalt-ref is required"
+                exit 1
+              fi
+              GESTALT_REF="$(tr -d '[:space:]' < .github/gestalt-ref)"
               ;;
             *)
               echo "ERROR: unsupported app root ${APP_ROOT}"

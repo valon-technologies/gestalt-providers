@@ -173,14 +173,12 @@ jobs:
 
       # -- Native/generic package --
       - name: Package provider
+        if: needs.metadata.outputs.source-language != 'python'
         run: |
           if [ "${{ needs.metadata.outputs.root }}" = "ui" ]; then
             export GESTALT_CHECKOUT="${GITHUB_WORKSPACE}/../gestalt"
           fi
           cd "${{ inputs.app-dir }}"
-          if [ "${{ needs.metadata.outputs.source-language }}" = "python" ]; then
-            uv sync --frozen --no-dev
-          fi
           gestaltd provider package --version "${{ needs.metadata.outputs.version }}"
       - name: Package Rust linux/amd64 artifact
         if: needs.metadata.outputs.source-language == 'rust'

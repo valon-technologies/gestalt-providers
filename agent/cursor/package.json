@@ -15,7 +15,7 @@
     "@connectrpc/connect-node": "2.1.0",
     "@cursor/sdk": "1.0.11",
     "@modelcontextprotocol/sdk": "1.29.0",
-    "@valon-technologies/gestalt": "0.0.1-alpha.22",
+    "@valon-technologies/gestalt": "0.0.1-alpha.25",
     "sqlite3": "file:./stubs/sqlite3"
   },
   "overrides": {

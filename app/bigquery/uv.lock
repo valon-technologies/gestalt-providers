@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 2
 requires-python = "==3.14.*"
 
 [[package]]
@@ -166,7 +166,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main" },
+    { name = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&rev=87f91f4ed2588752683851a82924c5ecefaf52df" },
     { name = "google-auth", specifier = "==2.53.0" },
     { name = "google-cloud-bigquery", specifier = "==3.41.0" },
 ]
@@ -180,8 +180,8 @@ dev = [
 
 [[package]]
 name = "gestalt-sdk"
-version = "0.0.1a1"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&branch=main#c640c8bc5ff7e79e5e64560875fd44280f9bf3bb" }
+version = "0.0.1a2"
+source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&rev=87f91f4ed2588752683851a82924c5ecefaf52df#87f91f4ed2588752683851a82924c5ecefaf52df" }
 dependencies = [
     { name = "googleapis-common-protos" },
     { name = "grpcio" },
