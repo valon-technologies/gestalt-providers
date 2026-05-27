@@ -1687,7 +1687,7 @@ def github_review_pull_request(
             dry_run=input.dryRun,
             auto_resolve_stale_findings=input.autoResolveStaleFindings,
             check_run_name=input.checkRunName.strip() or "Gestalt Review",
-            turn_timeout_ms=max(10_000, min(600_000, input.turnTimeoutMs)),
+            turn_timeout_ms=max(10_000, min(900_000, input.turnTimeoutMs)),
             poll_interval_ms=max(250, min(10_000, input.pollIntervalMs)),
         )
         return {"data": review_pull_request(settings, req)}
