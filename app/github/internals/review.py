@@ -5,6 +5,7 @@ import json
 import re
 import time
 import datetime as dt
+import urllib.parse
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -12,7 +13,7 @@ from typing import Any
 import gestalt
 
 from .client import bot_identity_or_none
-from .config import SELF_FIX_BRANCH_COMMIT
+from .config import SELF_FIX_BRANCH_COMMIT, get_github_config
 from .constants import BOT_COMMIT_FILES_OPERATION
 from .errors import GitHubAPIError, GitHubAuthorizationError, GitHubConfigError
 from .manual_trigger import (
@@ -54,17 +55,79 @@ DEFAULT_MODEL = "claude-opus-4-7"
 MAX_COMMENT_BODY_CHARS = 1_200
 REVIEW_FINDING_SOURCE = "github.reviewPullRequest"
 REVIEW_FINDING_MARKER_RE = re.compile(
-    r"<!--\s*gestalt:github-review-finding\s+v(?P<version>[12])\s+"
-    r"fingerprint=(?P<fingerprint>\S+)"
-    r"(?:\s+stable_fingerprint=(?P<stable_fingerprint>\S+))?"
+    r"<!--\s*gestalt:github-review-finding\s+v2\s+"
+    r"fingerprint=(?P<fingerprint>\S+)\s+"
+    r"stable_fingerprint=(?P<stable_fingerprint>\S+)"
     r"\s+source=(?P<source>\S+)\s*-->"
 )
 REVIEW_FINDING_FINGERPRINT_RE = re.compile(r"^[0-9a-f]{64}$")
 AUTO_RESOLVE_MAX_THREAD_PAGES = 10
-REVIEW_OUTPUT_CONTRACT = "github.pull_request_review.findings.v1"
+REVIEW_OUTPUT_CONTRACT = "github.pull_request_review.findings.v2"
 REVIEW_OUTPUT_KEYS = frozenset(("findings",))
 SELF_FIX_OUTPUT_CONTRACT = "github.pull_request_review.self_fix.v1"
 SELF_FIX_OUTPUT_KEYS = frozenset(("commit_message", "files"))
+REVIEW_SEVERITIES = frozenset(("critical", "high", "medium", "low"))
+MAX_ADDITIONAL_LOCATIONS = 4
+REVIEW_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["findings"],
+    "properties": {
+        "findings": {
+            "type": "array",
+            "maxItems": 25,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["path", "line", "title", "severity", "description"],
+                "properties": {
+                    "path": {"type": "string", "minLength": 1},
+                    "line": {"type": "integer", "minimum": 1},
+                    "title": {"type": "string", "minLength": 1, "maxLength": 120},
+                    "severity": {"type": "string", "enum": sorted(REVIEW_SEVERITIES)},
+                    "description": {"type": "string", "minLength": 1},
+                    "side": {"type": "string", "enum": ["LEFT", "RIGHT"]},
+                    "locations": {
+                        "type": "array",
+                        "maxItems": MAX_ADDITIONAL_LOCATIONS,
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["path", "line"],
+                            "properties": {
+                                "path": {"type": "string", "minLength": 1},
+                                "line": {"type": "integer", "minimum": 1},
+                                "end_line": {"type": "integer", "minimum": 1},
+                                "side": {"type": "string", "enum": ["LEFT", "RIGHT"]},
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    },
+}
+SELF_FIX_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["commit_message", "files"],
+    "properties": {
+        "commit_message": {"type": "string", "minLength": 1},
+        "files": {
+            "type": "array",
+            "minItems": 0,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["path", "content"],
+                "properties": {
+                    "path": {"type": "string", "minLength": 1},
+                    "content": {"type": "string", "minLength": 1},
+                },
+            },
+        },
+    },
+}
 SUPPORTED_PULL_REQUEST_ACTIONS = frozenset(
     ("opened", "synchronize", "reopened", "ready_for_review")
 )
@@ -81,6 +144,7 @@ DEFAULT_SYSTEM_PROMPT = " ".join(
         "Return only a valid JSON object with a top-level findings array and no",
         "other top-level keys. If there are no concrete line-anchored issues,",
         "return an empty findings array.",
+        "Each finding must include title, severity, path, line, and description.",
     ]
 )
 
@@ -132,12 +196,22 @@ class PullRequestFile:
 
 
 @dataclass(frozen=True, slots=True)
+class ReviewFindingLocation:
+    path: str
+    line: int
+    end_line: int | None = None
+    side: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class ReviewFinding:
     path: str
     line: int
     body: str
+    title: str
+    severity: str
     side: str = ""
-    severity: str = ""
+    locations: tuple[ReviewFindingLocation, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +219,9 @@ class ValidatedFinding:
     path: str
     line: int
     body: str
+    title: str = ""
+    severity: str = ""
+    locations: tuple[ReviewFindingLocation, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,10 +375,7 @@ def _review_pull_request_after_fetch(
     postable_findings: list[tuple[ValidatedFinding, ReviewFindingFingerprints]] = []
     suppressed = 0
     for finding, fingerprints in zip(findings, current_fingerprints, strict=True):
-        if (
-            fingerprints.fingerprint in duplicate_fingerprints
-            or fingerprints.stable_fingerprint in duplicate_fingerprints
-        ):
+        if fingerprint_marker_values([fingerprints]) & duplicate_fingerprints:
             suppressed += 1
             continue
         postable_findings.append((finding, fingerprints))
@@ -386,8 +460,10 @@ def _review_pull_request_after_fetch(
                         path=finding.path,
                         line=finding.line,
                         side="RIGHT",
-                        body=review_comment_body_with_marker(
-                            finding.body,
+                        body=review_finding_comment_body(
+                            subject,
+                            pull_summary,
+                            finding,
                             fingerprints,
                         ),
                     )
@@ -917,6 +993,7 @@ def ask_agent_for_findings(
             ],
             tool_refs=review_agent_tool_refs(req, signal),
             tool_source=gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
+            response_schema=REVIEW_RESPONSE_SCHEMA,
             metadata=metadata,
             idempotency_key=f"{idempotency_base}:turn",
         )
@@ -932,8 +1009,8 @@ def ask_agent_for_findings(
                 f"{turn.status_message}"
             )
 
-        findings = parse_review_findings_output(turn.output_text)
-        return [finding for item in findings for finding in normalize_finding(item)]
+        findings = parse_review_findings_output(agent_turn_output(turn))
+        return [normalize_finding(item) for item in findings]
 
 
 def ask_agent_for_fix(
@@ -992,6 +1069,7 @@ def ask_agent_for_fix(
             ],
             tool_refs=review_agent_tool_refs(req, signal),
             tool_source=gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
+            response_schema=SELF_FIX_RESPONSE_SCHEMA,
             metadata=metadata,
             idempotency_key=f"{idempotency_base}:turn",
         )
@@ -1007,7 +1085,7 @@ def ask_agent_for_fix(
                 f"{turn.status_message}"
             )
 
-        return parse_review_fix_output(turn.output_text)
+        return parse_review_fix_output(agent_turn_output(turn))
 
 
 def wait_for_turn(
@@ -1069,11 +1147,19 @@ def review_prompt(
                                 "new-file RIGHT-side line number allowed by the "
                                 "line_policy"
                             ),
-                            "body": (
-                                "specific review comment explaining the bug and "
-                                "suggested fix"
+                            "title": "short concrete issue title",
+                            "severity": "critical|high|medium|low",
+                            "description": (
+                                "specific review comment explaining the bug, impact, "
+                                "and suggested fix"
                             ),
-                            "severity": "optional: critical|high|medium|low",
+                            "locations": [
+                                {
+                                    "path": "optional additional changed file path",
+                                    "line": "RIGHT-side line number allowed by the line_policy",
+                                    "end_line": "optional inclusive RIGHT-side end line",
+                                }
+                            ],
                         }
                     ]
                 },
@@ -1118,7 +1204,7 @@ def self_fix_prompt(
                     "Return exactly one JSON object with no Markdown wrapper and no "
                     "top-level keys other than commit_message and files."
                 ),
-                "empty_response": {"commit_message": "", "files": []},
+                "empty_response": {"commit_message": "No safe self-fix", "files": []},
                 "schema": {
                     "commit_message": "optional concise Git commit subject",
                     "files": [
@@ -1196,23 +1282,35 @@ def validate_findings(
     seen: set[tuple[str, int, str]] = set()
     for raw in raw_findings:
         path = raw.path.strip()
-        body = bounded_text(raw.body.strip(), MAX_COMMENT_BODY_CHARS)
+        title = sanitize_comment_text(raw.title, max_chars=120, single_line=True)
+        body = sanitize_comment_text(raw.body, max_chars=MAX_COMMENT_BODY_CHARS)
+        severity = raw.severity.strip().lower()
         valid_lines = line_index.get(path, set())
         key = (path, raw.line, body)
         if (
             not path
             or raw.line <= 0
+            or not title
             or not body
+            or severity not in REVIEW_SEVERITIES
             or raw.side.upper() == "LEFT"
             or raw.line not in valid_lines
             or key in seen
         ):
             dropped += 1
             continue
+        locations = validated_additional_locations(
+            raw, line_index, primary_path=path, primary_line=raw.line
+        )
         seen.add(key)
         findings.append(
             ValidatedFinding(
-                path=path, line=raw.line, body=format_comment_body(raw, body)
+                path=path,
+                line=raw.line,
+                body=body,
+                title=title,
+                severity=severity,
+                locations=locations,
             )
         )
         if len(findings) >= settings.max_comments:
@@ -1221,57 +1319,188 @@ def validate_findings(
     return findings, max(0, dropped)
 
 
-def normalize_finding(value: Any) -> list[ReviewFinding]:
+def normalize_finding(value: Any) -> ReviewFinding:
     item = object_value(value)
-    if not item:
-        return []
+    if item is None:
+        raise RuntimeError("agent output findings must be objects")
+    extra_keys = sorted(
+        set(item)
+        - {"path", "line", "title", "severity", "description", "side", "locations"}
+    )
+    if extra_keys:
+        raise RuntimeError(
+            "agent output finding objects must not include keys other than "
+            "path, line, title, severity, description, side, and locations: "
+            f"{', '.join(extra_keys)}"
+        )
     path = string_value(item.get("path"))
     line = int_value(item.get("line"))
-    body = string_value(item.get("body"))
-    if not path or line <= 0 or not body:
-        return []
-    return [
-        ReviewFinding(
-            path=path,
-            line=line,
-            body=body,
-            side=string_value(item.get("side")),
-            severity=string_value(item.get("severity")),
+    title = string_value(item.get("title"))
+    severity = string_value(item.get("severity")).lower()
+    body = string_value(item.get("description"))
+    if not path or line <= 0 or not title or not body:
+        raise RuntimeError(
+            "agent output findings require path, line, title, severity, and description"
         )
-    ]
+    if severity not in REVIEW_SEVERITIES:
+        raise RuntimeError(
+            "agent output finding severity must be critical, high, medium, or low"
+        )
+    locations = normalize_finding_locations(item.get("locations"))
+    return ReviewFinding(
+        path=path,
+        line=line,
+        body=body,
+        title=title,
+        severity=severity,
+        side=string_value(item.get("side")),
+        locations=locations,
+    )
 
 
-def format_comment_body(raw: ReviewFinding, body: str) -> str:
-    severity = raw.severity.strip().lower()
-    if severity in {"critical", "high", "medium", "low"}:
-        return f"[{severity}] {body}"
-    return body
+def normalize_finding_locations(value: Any) -> tuple[ReviewFindingLocation, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise RuntimeError("agent output finding locations must be an array")
+    locations: list[ReviewFindingLocation] = []
+    for item in value[:MAX_ADDITIONAL_LOCATIONS]:
+        location = object_value(item)
+        if location is None:
+            raise RuntimeError("agent output finding locations must be objects")
+        extra_keys = sorted(set(location) - {"path", "line", "end_line", "side"})
+        if extra_keys:
+            raise RuntimeError(
+                "agent output finding locations must not include keys other "
+                f"than path, line, end_line, and side: {', '.join(extra_keys)}"
+            )
+        path = string_value(location.get("path"))
+        line = int_value(location.get("line"))
+        end_line = (
+            int_value(location.get("end_line")) if "end_line" in location else None
+        )
+        side = string_value(location.get("side")).upper()
+        if not path or line <= 0:
+            raise RuntimeError("agent output finding locations require path and line")
+        if end_line is not None and end_line <= 0:
+            raise RuntimeError(
+                "agent output finding location end_line must be positive"
+            )
+        if side and side not in ("LEFT", "RIGHT"):
+            raise RuntimeError(
+                "agent output finding location side must be LEFT or RIGHT"
+            )
+        locations.append(
+            ReviewFindingLocation(path=path, line=line, end_line=end_line, side=side)
+        )
+    return tuple(locations)
+
+
+def validated_additional_locations(
+    raw: ReviewFinding,
+    line_index: Mapping[str, set[int]],
+    *,
+    primary_path: str,
+    primary_line: int,
+) -> tuple[ReviewFindingLocation, ...]:
+    locations: list[ReviewFindingLocation] = []
+    seen: set[tuple[str, int, int | None]] = {(primary_path, primary_line, None)}
+    for location in raw.locations:
+        path = location.path.strip()
+        line = location.line
+        if location.side.upper() == "LEFT":
+            continue
+        end_line = (
+            location.end_line
+            if location.end_line is not None and location.end_line > line
+            else None
+        )
+        key = (path, line, end_line)
+        if key in seen:
+            continue
+        valid_lines = line_index.get(path, set())
+        if not path or line <= 0 or line not in valid_lines:
+            continue
+        if end_line is not None and any(
+            candidate not in valid_lines for candidate in range(line, end_line + 1)
+        ):
+            continue
+        seen.add(key)
+        locations.append(ReviewFindingLocation(path=path, line=line, end_line=end_line))
+        if len(locations) >= MAX_ADDITIONAL_LOCATIONS:
+            break
+    return tuple(locations)
 
 
 def review_finding_fingerprints(
     subject: PullRequestSubject, finding: ValidatedFinding
 ) -> ReviewFindingFingerprints:
-    exact_payload = {
-        "source": REVIEW_FINDING_SOURCE,
-        "repository": subject.repository,
-        "pull_number": subject.pull_number,
-        "path": finding.path.strip().lstrip("/"),
-        "side": "RIGHT",
-        "line": finding.line,
-        "body": finding.body,
-    }
-    stable_payload = {
-        "source": REVIEW_FINDING_SOURCE,
-        "repository": subject.repository,
-        "pull_number": subject.pull_number,
-        "path": finding.path.strip().lstrip("/"),
-        "side": "RIGHT",
-        "body": normalized_finding_body(finding.body),
-    }
+    exact_payload = review_finding_fingerprint_payload(
+        subject, finding, body=finding.body, include_line=True
+    )
+    stable_payload = review_finding_fingerprint_payload(
+        subject,
+        finding,
+        body=normalized_finding_body(finding.body),
+        include_line=False,
+    )
     return ReviewFindingFingerprints(
         fingerprint=sha256_payload(exact_payload),
         stable_fingerprint=sha256_payload(stable_payload),
     )
+
+
+def review_finding_fingerprint_payload(
+    subject: PullRequestSubject,
+    finding: ValidatedFinding,
+    *,
+    body: str,
+    include_line: bool,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "source": REVIEW_FINDING_SOURCE,
+        "repository": subject.repository,
+        "pull_number": subject.pull_number,
+        "path": finding.path.strip().lstrip("/"),
+        "side": "RIGHT",
+        "title": (
+            normalized_finding_body(finding.title)
+            if not include_line
+            else finding.title.strip()
+        ),
+        "severity": normalized_finding_severity(finding.severity),
+        "description": body,
+    }
+    if include_line:
+        payload["line"] = finding.line
+    locations = additional_location_fingerprint_payloads(
+        finding.locations, include_line=include_line
+    )
+    if locations:
+        payload["additional_locations"] = locations
+    return payload
+
+
+def normalized_finding_severity(severity: str) -> str:
+    normalized = severity.strip().lower()
+    return normalized if normalized in REVIEW_SEVERITIES else "medium"
+
+
+def additional_location_fingerprint_payloads(
+    locations: Sequence[ReviewFindingLocation], *, include_line: bool
+) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for location in locations:
+        path = location.path.strip().lstrip("/")
+        if not path:
+            continue
+        payload: dict[str, Any] = {"path": path, "side": "RIGHT"}
+        if include_line:
+            payload["line"] = location.line
+            if location.end_line is not None and location.end_line > location.line:
+                payload["end_line"] = location.end_line
+        payloads.append(payload)
+    return payloads
 
 
 def review_finding_fingerprint(
@@ -1305,12 +1534,121 @@ def review_comment_body_with_marker(
     return f"{body}\n\n{review_comment_marker(fingerprints)}"
 
 
-def review_comment_marker(fingerprints: ReviewFindingFingerprints | str) -> str:
-    if isinstance(fingerprints, str):
-        return (
-            "<!-- gestalt:github-review-finding v1 "
-            f"fingerprint={fingerprints} source={REVIEW_FINDING_SOURCE} -->"
+def review_finding_comment_body(
+    subject: PullRequestSubject,
+    pull_request: Mapping[str, Any],
+    finding: ValidatedFinding,
+    fingerprints: ReviewFindingFingerprints,
+) -> str:
+    title = sanitize_comment_text(finding.title, max_chars=120, single_line=True)
+    description = sanitize_comment_text(finding.body, max_chars=MAX_COMMENT_BODY_CHARS)
+    severity = finding.severity.strip().lower()
+    if severity not in REVIEW_SEVERITIES:
+        severity = "medium"
+    location_lines = primary_and_additional_location_markdown(
+        subject, pull_request, finding
+    )
+    return "\n".join(
+        [
+            f"### {title}",
+            "",
+            f"**{severity.title()} Severity**",
+            "",
+            "<!-- DESCRIPTION START -->",
+            description,
+            "<!-- DESCRIPTION END -->",
+            "",
+            "<!-- LOCATIONS START -->",
+            location_lines,
+            "<!-- LOCATIONS END -->",
+            "",
+            review_comment_marker(fingerprints),
+        ]
+    ).strip()
+
+
+def primary_and_additional_location_markdown(
+    subject: PullRequestSubject,
+    pull_request: Mapping[str, Any],
+    finding: ValidatedFinding,
+) -> str:
+    primary = ReviewFindingLocation(path=finding.path, line=finding.line)
+    primary_url = head_blob_line_url(subject, pull_request, primary)
+    lines = [
+        f"[Primary Location]({primary_url})"
+        if primary_url
+        else f"Primary Location: `{primary.path}:L{primary.line}`"
+    ]
+    if finding.locations:
+        lines.extend(
+            [
+                "",
+                f"<details><summary>Additional Locations ({len(finding.locations)})</summary>",
+                "",
+            ]
         )
+        for location in finding.locations:
+            url = head_blob_line_url(subject, pull_request, location)
+            label = markdown_link_label(location_label(location))
+            if url:
+                lines.append(f"- [{label}]({url})")
+            else:
+                lines.append(f"- `{location_label(location)}`")
+        lines.extend(["", "</details>"])
+    return "\n".join(lines)
+
+
+def location_label(location: ReviewFindingLocation) -> str:
+    if location.end_line is not None and location.end_line > location.line:
+        return f"{location.path}:L{location.line}-L{location.end_line}"
+    return f"{location.path}:L{location.line}"
+
+
+def head_blob_line_url(
+    subject: PullRequestSubject,
+    pull_request: Mapping[str, Any],
+    location: ReviewFindingLocation,
+) -> str:
+    sha = string_value(pull_request.get("head_sha"))
+    if not sha:
+        return ""
+    repo_full_name = (
+        string_value(nested_value(pull_request, "head_repo", "full_name"))
+        or subject.repository
+    )
+    if "/" not in repo_full_name:
+        repo_full_name = subject.repository
+    owner, repo = repo_full_name.split("/", 1)
+    path = location.path.strip().lstrip("/")
+    if not path:
+        return ""
+    web_base = get_github_config().web_base_url.rstrip("/")
+    encoded_owner = urllib.parse.quote(owner, safe="")
+    encoded_repo = urllib.parse.quote(repo, safe="")
+    encoded_sha = urllib.parse.quote(sha, safe="")
+    encoded_path = urllib.parse.quote(path, safe="/")
+    fragment = f"L{location.line}"
+    if location.end_line is not None and location.end_line > location.line:
+        fragment += f"-L{location.end_line}"
+    return f"{web_base}/{encoded_owner}/{encoded_repo}/blob/{encoded_sha}/{encoded_path}#{fragment}"
+
+
+def sanitize_comment_text(
+    value: str, *, max_chars: int, single_line: bool = False
+) -> str:
+    text = REVIEW_FINDING_MARKER_RE.sub("", value)
+    text = text.replace("<!--", "&lt;!--").replace("-->", "-- >")
+    if single_line:
+        text = " ".join(text.splitlines())
+    text = text.strip()
+    return bounded_text(text, max_chars).strip()
+
+
+def markdown_link_label(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
+
+
+def review_comment_marker(fingerprints: ReviewFindingFingerprints) -> str:
     return (
         "<!-- gestalt:github-review-finding v2 "
         f"fingerprint={fingerprints.fingerprint} "
@@ -1565,7 +1903,7 @@ def provider_marker_from_first_comment(
         return None, "missing_marker"
     fingerprint = match.group("fingerprint")
     source = match.group("source")
-    stable_fingerprint = match.group("stable_fingerprint") or fingerprint
+    stable_fingerprint = match.group("stable_fingerprint")
     if not REVIEW_FINDING_FINGERPRINT_RE.fullmatch(fingerprint):
         return None, "malformed_marker"
     if not REVIEW_FINDING_FINGERPRINT_RE.fullmatch(stable_fingerprint):
@@ -1631,7 +1969,11 @@ def nested_value(value: Mapping[str, Any], *keys: str) -> Any:
 
 
 def object_value(value: Any) -> dict[str, Any] | None:
-    return value if isinstance(value, dict) else None
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, Mapping):
+        return dict(value)
+    return None
 
 
 def string_value(value: Any) -> str:
@@ -1656,7 +1998,15 @@ def bounded_text(value: str, max_chars: int) -> str:
     return f"{value[: max(0, max_chars - 16)].rstrip()}\n...[truncated]"
 
 
-def parse_review_findings_output(value: str) -> list[Any]:
+def agent_turn_output(turn: gestalt.AgentTurn) -> dict[str, Any]:
+    structured = getattr(turn, "structured_output", None)
+    structured_object = object_value(structured)
+    if structured_object is not None:
+        return structured_object
+    raise RuntimeError("agent turn did not return structured output")
+
+
+def parse_review_findings_output(value: Any) -> list[Any]:
     parsed = parse_single_review_output_object(value)
     extra_keys = sorted(set(parsed) - REVIEW_OUTPUT_KEYS)
     if extra_keys:
@@ -1669,7 +2019,7 @@ def parse_review_findings_output(value: str) -> list[Any]:
     return findings
 
 
-def parse_review_fix_output(value: str) -> list[ReviewFixFile]:
+def parse_review_fix_output(value: Any) -> list[ReviewFixFile]:
     parsed = parse_single_review_output_object(value)
     extra_keys = sorted(set(parsed) - SELF_FIX_OUTPUT_KEYS)
     if extra_keys:
@@ -1677,6 +2027,9 @@ def parse_review_fix_output(value: str) -> list[ReviewFixFile]:
             "agent output JSON must not include top-level keys other than "
             "commit_message and files"
         )
+    commit_message = string_value(parsed.get("commit_message"))
+    if not commit_message:
+        raise RuntimeError("agent output JSON must include a non-empty commit_message")
     raw_files = parsed.get("files")
     if not isinstance(raw_files, list):
         raise RuntimeError("agent output JSON must include a files array")
@@ -1703,25 +2056,12 @@ def parse_review_fix_output(value: str) -> list[ReviewFixFile]:
     return files
 
 
-def parse_single_review_output_object(value: str) -> dict[str, Any]:
-    text: str = (value or "").strip()
-    if not text:
-        raise RuntimeError("agent returned empty review output")
-
-    parsed = parse_json_exact(text)
-    if parsed is None:
-        raise RuntimeError("agent review output must be exactly one JSON object")
-    return require_review_output_object(parsed)
-
-
-def parse_json_exact(value: str) -> Any | None:
-    try:
-        return json.loads(value)
-    except json.JSONDecodeError:
-        return None
+def parse_single_review_output_object(value: Any) -> dict[str, Any]:
+    return require_review_output_object(value)
 
 
 def require_review_output_object(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise RuntimeError("agent output JSON must be an object with a findings array")
-    return value
+    data = object_value(value)
+    if data is None:
+        raise RuntimeError("agent structured output must be an object")
+    return data

@@ -7,7 +7,7 @@ import unittest
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from email.message import Message
 from http import HTTPStatus
@@ -63,10 +63,7 @@ class _WorkflowAgentView:
         self.metadata = step.metadata
         self.model_options = agent.model_options
         self.tool_refs = list(agent.tools)
-        self.messages = [
-            _WorkflowMessageView(message)
-            for message in agent.messages
-        ]
+        self.messages = [_WorkflowMessageView(message) for message in agent.messages]
 
 
 class _WorkflowMessageView:
@@ -216,6 +213,7 @@ class FakeAgentClient:
         output_text: str | None = None,
         output_texts: list[str] | None = None,
         structured_output: dict[str, Any] | None = None,
+        structured_outputs: list[dict[str, Any] | None] | None = None,
         require_no_response_schema: bool = False,
         turn_error: Exception | None = None,
     ) -> None:
@@ -223,6 +221,7 @@ class FakeAgentClient:
         self.output_text = output_text
         self.output_texts = output_texts or []
         self.structured_output = structured_output
+        self.structured_outputs = structured_outputs or []
         self.require_no_response_schema = require_no_response_schema
         self.turn_error = turn_error
         self.sessions: list[Any] = []
@@ -242,11 +241,14 @@ class FakeAgentClient:
     def create_turn(self, request: Any) -> Any:
         self.turns.append(request)
         response_schema = getattr(request, "response_schema", None)
-        has_response_schema = bool(
-            getattr(response_schema, "fields", None)
-            if response_schema is not None
-            else response_schema
-        )
+        if isinstance(response_schema, Mapping):
+            has_response_schema = bool(response_schema)
+        else:
+            has_response_schema = bool(
+                getattr(response_schema, "fields", None)
+                if response_schema is not None
+                else response_schema
+            )
         if self.require_no_response_schema and has_response_schema:
             raise AssertionError("response_schema should not be set")
         if self.turn_error is not None:
@@ -258,12 +260,38 @@ class FakeAgentClient:
             output_text = self.output_text
         else:
             output_text = json.dumps({"findings": self.findings})
+        structured_output_from_sequence = output_index < len(self.structured_outputs)
+        if structured_output_from_sequence:
+            structured_output = self.structured_outputs[output_index]
+        else:
+            structured_output = self.structured_output
+        if isinstance(structured_output, dict):
+            if isinstance(structured_output.get("findings"), list):
+                structured_output = {
+                    **structured_output,
+                    "findings": normalized_fake_review_findings(
+                        cast(list[dict[str, Any]], structured_output["findings"])
+                    ),
+                }
+            output_text = json.dumps(structured_output)
+        if (
+            structured_output is None
+            and not structured_output_from_sequence
+            and self.structured_output is None
+            and has_response_schema
+            and self.output_text is None
+            and output_index >= len(self.output_texts)
+        ):
+            structured_output = {
+                "findings": normalized_fake_review_findings(self.findings)
+            }
+            output_text = json.dumps(structured_output)
         return gestalt.AgentTurn(
             id="agent-turn-1",
             session_id=request.session_id,
             status=gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED,
             output_text=output_text,
-            structured_output=self.structured_output,
+            structured_output=structured_output,
         )
 
     def get_turn(self, request: Any) -> Any:
@@ -271,6 +299,20 @@ class FakeAgentClient:
 
     def close(self) -> None:
         self.closed = True
+
+
+def normalized_fake_review_findings(
+    findings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for index, finding in enumerate(findings, start=1):
+        item = dict(finding)
+        if "description" not in item and "body" in item:
+            item["description"] = item.pop("body")
+            item.setdefault("title", f"Test finding {index}")
+            item.setdefault("severity", "medium")
+        normalized.append(item)
+    return normalized
 
 
 def request_json(request: urllib.request.Request) -> dict[str, Any]:
@@ -301,6 +343,20 @@ def http_error(
         hdrs=Message(),
         fp=io.BytesIO(body.encode("utf-8")),
     )
+
+
+class MappingWrapper(Mapping[str, Any]):
+    def __init__(self, data: Mapping[str, Any]) -> None:
+        self._data = data
+
+    def __getitem__(self, key: str) -> Any:
+        return self._data[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
 
 
 def github_request(
@@ -803,9 +859,9 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn(provider_module.BOT_UPDATE_CHECK_RUN_OPERATION, enum)
         self.assertIn(provider_module.BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION, enum)
         self.assertNotIn(provider_module.USER_CREATE_PULL_REQUEST_OPERATION, enum)
-        target_schema = schema["properties"]["webhookPolicies"]["items"][
-            "properties"
-        ]["workflow"]["properties"]["target"]
+        target_schema = schema["properties"]["webhookPolicies"]["items"]["properties"][
+            "workflow"
+        ]["properties"]["target"]
         self.assertNotIn("oneOf", target_schema)
         self.assertEqual(target_schema["required"], ["steps"])
         self.assertNotIn("plugin", target_schema["properties"])
@@ -1467,9 +1523,9 @@ class GitHubProviderTests(unittest.TestCase):
                     self.assertEqual(data["summary"]["number"], number)
                 self.assertIn(
                     event_type,
-                    sdk_value_to_dict(workflow_target_agent(request.target).metadata)["github"][
-                        "session_ref"
-                    ],
+                    sdk_value_to_dict(workflow_target_agent(request.target).metadata)[
+                        "github"
+                    ]["session_ref"],
                 )
         digest_fallback = self._workflow_signal_request(
             {
@@ -1707,7 +1763,8 @@ class GitHubProviderTests(unittest.TestCase):
         }
         inline_only = self._workflow_signal_request({**base, "action": "opened"})
         inline_operations = [
-            tool.operation for tool in workflow_target_agent(inline_only.target).tool_refs
+            tool.operation
+            for tool in workflow_target_agent(inline_only.target).tool_refs
         ]
         self.assertEqual(
             inline_operations,
@@ -1739,7 +1796,8 @@ class GitHubProviderTests(unittest.TestCase):
 
         timeline_only = self._workflow_signal_request({**base, "action": "synchronize"})
         timeline_operations = [
-            tool.operation for tool in workflow_target_agent(timeline_only.target).tool_refs
+            tool.operation
+            for tool in workflow_target_agent(timeline_only.target).tool_refs
         ]
         self.assertNotIn(
             provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
@@ -1791,7 +1849,9 @@ class GitHubProviderTests(unittest.TestCase):
             }
         )
 
-        operations = [tool.operation for tool in workflow_target_agent(request.target).tool_refs]
+        operations = [
+            tool.operation for tool in workflow_target_agent(request.target).tool_refs
+        ]
         self.assertEqual(
             operations,
             [
@@ -1873,7 +1933,8 @@ class GitHubProviderTests(unittest.TestCase):
         )
         branch_only = self._workflow_signal_request(payload)
         branch_operations = [
-            tool.operation for tool in workflow_target_agent(branch_only.target).tool_refs
+            tool.operation
+            for tool in workflow_target_agent(branch_only.target).tool_refs
         ]
         self.assertIn(provider_module.BOT_COMMIT_FILES_OPERATION, branch_operations)
         self.assertNotIn(
@@ -1929,7 +1990,9 @@ class GitHubProviderTests(unittest.TestCase):
             request = self._workflow_signal_request(self._pr_issue_comment_payload())
 
         get_pull_request.assert_called_once()
-        operations = [tool.operation for tool in workflow_target_agent(request.target).tool_refs]
+        operations = [
+            tool.operation for tool in workflow_target_agent(request.target).tool_refs
+        ]
         self.assertEqual(
             operations,
             [
@@ -2010,7 +2073,9 @@ class GitHubProviderTests(unittest.TestCase):
             request = self._workflow_signal_request(self._pr_issue_comment_payload())
 
         get_pull_request.assert_called_once()
-        operations = [tool.operation for tool in workflow_target_agent(request.target).tool_refs]
+        operations = [
+            tool.operation for tool in workflow_target_agent(request.target).tool_refs
+        ]
         self.assertIn(provider_module.BOT_COMMIT_FILES_OPERATION, operations)
         self.assertNotIn(provider_module.BOT_OPEN_PULL_REQUEST_OPERATION, operations)
         self.assertNotIn(provider_module.BOT_CREATE_PULL_REQUEST_OPERATION, operations)
@@ -2203,7 +2268,10 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn("action_preferences", data["webhook_policy"])
         self.assertIn(
             provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
-            [tool.operation for tool in workflow_target_agent(request.target).tool_refs],
+            [
+                tool.operation
+                for tool in workflow_target_agent(request.target).tool_refs
+            ],
         )
 
     def test_action_preferences_external_record_disables_inline_review_tool(
@@ -2274,7 +2342,9 @@ class GitHubProviderTests(unittest.TestCase):
             gestalt.AuthorizationAction(name="assume"),
         )
 
-        operations = [tool.operation for tool in workflow_target_agent(request.target).tool_refs]
+        operations = [
+            tool.operation for tool in workflow_target_agent(request.target).tool_refs
+        ]
         self.assertNotIn(
             provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION, operations
         )
@@ -2342,7 +2412,9 @@ class GitHubProviderTests(unittest.TestCase):
         ):
             request = self._workflow_signal_request(self._preference_pr_payload())
 
-        operations = [tool.operation for tool in workflow_target_agent(request.target).tool_refs]
+        operations = [
+            tool.operation for tool in workflow_target_agent(request.target).tool_refs
+        ]
         self.assertNotIn(provider_module.BOT_COMMIT_FILES_OPERATION, operations)
         self.assertNotIn(provider_module.BOT_OPEN_PULL_REQUEST_OPERATION, operations)
         self.assertNotIn(provider_module.BOT_CREATE_PULL_REQUEST_OPERATION, operations)
@@ -2405,7 +2477,9 @@ class GitHubProviderTests(unittest.TestCase):
         ):
             request = self._workflow_signal_request(self._preference_pr_payload())
 
-        operations = [tool.operation for tool in workflow_target_agent(request.target).tool_refs]
+        operations = [
+            tool.operation for tool in workflow_target_agent(request.target).tool_refs
+        ]
         self.assertNotIn(
             provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION, operations
         )
@@ -2462,7 +2536,10 @@ class GitHubProviderTests(unittest.TestCase):
                     )
                 self.assertIn(
                     provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
-                    [tool.operation for tool in workflow_target_agent(request.target).tool_refs],
+                    [
+                        tool.operation
+                        for tool in workflow_target_agent(request.target).tool_refs
+                    ],
                 )
 
     def test_action_preferences_dynamic_false_ignores_builtin_review_target(
@@ -2624,9 +2701,7 @@ class GitHubProviderTests(unittest.TestCase):
                     ),
                 ):
                     request = self._workflow_signal_request(payload)
-                data = cast(
-                    dict[str, Any], sdk_value_to_dict(request.signal.payload)
-                )
+                data = cast(dict[str, Any], sdk_value_to_dict(request.signal.payload))
                 self.assertEqual(
                     data["webhook_policy"]["action_preferences"]["identity"][
                         "external_subject_id"
@@ -3751,9 +3826,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(operation_body(result)["ok"], True)
         self.assertEqual(events, ["check-list", "check-create", "workflow"])
         self.assertEqual(len(workflow_client.requests), 1)
-        signal_payload = sdk_value_to_dict(
-            workflow_client.requests[0].signal.payload
-        )
+        signal_payload = sdk_value_to_dict(workflow_client.requests[0].signal.payload)
         self.assertEqual(signal_payload["review_check_run"]["id"], 456)
         self.assertEqual(signal_payload["review_check_run"]["name"], "Bugbot Review")
 
@@ -4368,27 +4441,31 @@ class GitHubProviderTests(unittest.TestCase):
     def test_review_pull_request_posts_validated_inline_comments(self) -> None:
         agent_client = FakeAgentClient(
             findings=[],
-            output_text=json.dumps(
-                {
-                    "findings": [
-                        {
-                            "path": "src/widget.py",
-                            "line": 2,
-                            "body": "This can throw when config is missing.",
-                            "severity": "high",
-                        },
-                        {
-                            "path": "src/widget.py",
-                            "line": 1,
-                            "body": (
-                                "This is context and cannot receive a RIGHT-side "
-                                "comment."
-                            ),
-                        },
-                    ]
-                }
-            ),
-            require_no_response_schema=True,
+            output_text="not json",
+            structured_output={
+                "findings": [
+                    {
+                        "path": "src/widget.py",
+                        "line": 2,
+                        "title": "Guard missing config",
+                        "severity": "high",
+                        "description": "This can throw when config is missing.",
+                        "locations": [
+                            {"path": "src/helper.py", "line": 1},
+                            {"path": "src/deleted.py", "line": 1, "side": "LEFT"},
+                        ],
+                    },
+                    {
+                        "path": "src/widget.py",
+                        "line": 1,
+                        "title": "Context-only finding",
+                        "severity": "medium",
+                        "description": (
+                            "This is context and cannot receive a RIGHT-side comment."
+                        ),
+                    },
+                ]
+            },
         )
         created_reviews: list[Any] = []
 
@@ -4469,7 +4546,15 @@ class GitHubProviderTests(unittest.TestCase):
                         "deletions": 0,
                         "changes": 1,
                         "patch": "@@ -1,2 +1,3 @@\n context\n+bad = True\n more",
-                    }
+                    },
+                    {
+                        "filename": "src/helper.py",
+                        "status": "modified",
+                        "additions": 1,
+                        "deletions": 0,
+                        "changes": 1,
+                        "patch": "@@ -0,0 +1 @@\n+helper_bad = True",
+                    },
                 ],
             ),
             mock.patch(
@@ -4504,7 +4589,7 @@ class GitHubProviderTests(unittest.TestCase):
         prompt_data = json.loads(prompt)
         self.assertEqual(
             prompt_data["output_contract"]["contract"],
-            "github.pull_request_review.findings.v1",
+            "github.pull_request_review.findings.v2",
         )
         self.assertEqual(
             prompt_data["output_contract"]["empty_response"], {"findings": []}
@@ -4513,7 +4598,33 @@ class GitHubProviderTests(unittest.TestCase):
             "Use only added RIGHT-side lines",
             prompt_data["output_contract"]["line_policy"],
         )
-        self.assertFalse(getattr(agent_client.turns[0], "response_schema", None))
+        self.assertEqual(
+            agent_client.turns[0].response_schema["required"], ["findings"]
+        )
+        finding_schema = agent_client.turns[0].response_schema["properties"][
+            "findings"
+        ]["items"]["properties"]
+        self.assertEqual(
+            agent_client.turns[0].response_schema["properties"]["findings"]["items"][
+                "required"
+            ],
+            ["path", "line", "title", "severity", "description"],
+        )
+        self.assertEqual(
+            finding_schema["severity"],
+            {"type": "string", "enum": ["critical", "high", "low", "medium"]},
+        )
+        self.assertEqual(finding_schema["path"], {"type": "string", "minLength": 1})
+        self.assertEqual(finding_schema["line"], {"type": "integer", "minimum": 1})
+        self.assertEqual(
+            finding_schema["side"], {"type": "string", "enum": ["LEFT", "RIGHT"]}
+        )
+        location_schema = finding_schema["locations"]["items"]["properties"]
+        self.assertEqual(location_schema["line"], {"type": "integer", "minimum": 1})
+        self.assertEqual(location_schema["end_line"], {"type": "integer", "minimum": 1})
+        self.assertEqual(
+            location_schema["side"], {"type": "string", "enum": ["LEFT", "RIGHT"]}
+        )
         self.assertEqual(
             [(ref.app, ref.operation) for ref in agent_client.turns[0].tool_refs],
             [
@@ -4538,17 +4649,57 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(review_request.comments[0].path, "src/widget.py")
         self.assertEqual(review_request.comments[0].line, 2)
         self.assertEqual(review_request.comments[0].side, "RIGHT")
-        self.assertTrue(
-            review_request.comments[0].body.startswith(
-                "[high] This can throw when config is missing.\n\n"
-            )
+        body = review_request.comments[0].body
+        self.assertIn("### Guard missing config", body)
+        self.assertIn("**High Severity**", body)
+        self.assertIn("<!-- DESCRIPTION START -->", body)
+        self.assertIn("This can throw when config is missing.", body)
+        self.assertIn("<!-- DESCRIPTION END -->", body)
+        self.assertIn("<!-- LOCATIONS START -->", body)
+        self.assertIn(
+            "https://github.com/acme/widgets/blob/abc123/src/widget.py#L2",
+            body,
+        )
+        self.assertIn("<details><summary>Additional Locations (1)</summary>", body)
+        self.assertIn(
+            "https://github.com/acme/widgets/blob/abc123/src/helper.py#L1",
+            body,
         )
         self.assertRegex(
-            review_request.comments[0].body,
+            body,
             r"<!-- gestalt:github-review-finding v2 "
             r"fingerprint=[0-9a-f]{64} stable_fingerprint=[0-9a-f]{64} "
             r"source=github\.reviewPullRequest -->$",
         )
+
+    def test_review_pull_request_allows_configured_fifteen_minute_timeout(
+        self,
+    ) -> None:
+        captured_timeouts: list[int] = []
+
+        def fake_review_pull_request(
+            settings: review_module.ReviewSettings, req: gestalt.Request
+        ) -> dict[str, Any]:
+            captured_timeouts.append(settings.turn_timeout_ms)
+            return {"ok": True}
+
+        with mock.patch.object(
+            provider_module,
+            "review_pull_request",
+            side_effect=fake_review_pull_request,
+        ):
+            configured_result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(turnTimeoutMs=900_000),
+                github_request(),
+            )
+            capped_result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(turnTimeoutMs=1_200_000),
+                github_request(),
+            )
+
+        self.assertEqual(operation_body(configured_result)["data"]["ok"], True)
+        self.assertEqual(operation_body(capped_result)["data"]["ok"], True)
+        self.assertEqual(captured_timeouts, [900_000, 900_000])
 
     def test_review_agent_new_sdk_client_is_closed(self) -> None:
         agent_client = FakeAgentClient(findings=[])
@@ -4613,30 +4764,29 @@ class GitHubProviderTests(unittest.TestCase):
         agent_client = FakeAgentClient(
             findings=[],
             output_texts=[
-                json.dumps(
-                    {
-                        "findings": [
-                            {
-                                "path": "src/widget.py",
-                                "line": 2,
-                                "body": "This can throw when config is missing.",
-                            }
-                        ]
-                    }
-                ),
-                json.dumps(
-                    {
-                        "commit_message": "Fix widget config handling",
-                        "files": [
-                            {
-                                "path": "src/widget.py",
-                                "content": "bad = False\n",
-                            }
-                        ],
-                    }
-                ),
+                "not json",
+                "not json",
             ],
-            require_no_response_schema=True,
+            structured_outputs=[
+                {
+                    "findings": [
+                        {
+                            "path": "src/widget.py",
+                            "line": 2,
+                            "body": "This can throw when config is missing.",
+                        }
+                    ]
+                },
+                {
+                    "commit_message": "Fix widget config handling",
+                    "files": [
+                        {
+                            "path": "src/widget.py",
+                            "content": "bad = False\n",
+                        }
+                    ],
+                },
+            ],
         )
         commits: list[Any] = []
         created_checks: list[Any] = []
@@ -4697,7 +4847,9 @@ class GitHubProviderTests(unittest.TestCase):
                 files_changed=len(request.files),
             )
 
-        def fake_create_check_run(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
+        def fake_create_check_run(
+            request: Any, *, subject: Any, external_identity: Any | None = None
+        ) -> dict[str, Any]:
             created_checks.append((request, subject))
             return {
                 "id": 888,
@@ -4707,7 +4859,9 @@ class GitHubProviderTests(unittest.TestCase):
                 "head_sha": request.head_sha,
             }
 
-        def fake_update_check_run(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
+        def fake_update_check_run(
+            request: Any, *, subject: Any, external_identity: Any | None = None
+        ) -> dict[str, Any]:
             updated_checks.append((request, subject))
             return {
                 "id": request.check_run_id,
@@ -4812,6 +4966,37 @@ class GitHubProviderTests(unittest.TestCase):
             fix_prompt["output_contract"]["contract"],
             "github.pull_request_review.self_fix.v1",
         )
+        self.assertEqual(
+            fix_prompt["output_contract"]["empty_response"],
+            {"commit_message": "No safe self-fix", "files": []},
+        )
+        self.assertEqual(
+            agent_client.turns[0].response_schema["required"], ["findings"]
+        )
+        self.assertEqual(
+            agent_client.turns[1].response_schema["required"],
+            ["commit_message", "files"],
+        )
+        self.assertEqual(
+            agent_client.turns[1].response_schema["properties"]["commit_message"],
+            {"type": "string", "minLength": 1},
+        )
+        self.assertEqual(
+            agent_client.turns[1].response_schema["properties"]["files"]["minItems"],
+            0,
+        )
+        self.assertEqual(
+            agent_client.turns[1].response_schema["properties"]["files"]["items"][
+                "properties"
+            ]["content"],
+            {"type": "string", "minLength": 1},
+        )
+        self.assertEqual(
+            agent_client.turns[1].response_schema["properties"]["files"]["items"][
+                "properties"
+            ]["path"],
+            {"type": "string", "minLength": 1},
+        )
         self.assertEqual(len(commits), 1)
         commit_request = commits[0][0]
         self.assertEqual(commit_request.branch, "feature")
@@ -4826,18 +5011,15 @@ class GitHubProviderTests(unittest.TestCase):
     def test_review_pull_request_self_fix_requires_commit_tool_ref(self) -> None:
         agent_client = FakeAgentClient(
             findings=[],
-            output_text=json.dumps(
-                {
-                    "findings": [
-                        {
-                            "path": "src/widget.py",
-                            "line": 2,
-                            "body": "This can throw when config is missing.",
-                        }
-                    ]
-                }
-            ),
-            require_no_response_schema=True,
+            structured_output={
+                "findings": [
+                    {
+                        "path": "src/widget.py",
+                        "line": 2,
+                        "body": "This can throw when config is missing.",
+                    }
+                ]
+            },
         )
         created_reviews: list[Any] = []
         request = request_with_tool_refs(github_request(), [])
@@ -4932,30 +5114,26 @@ class GitHubProviderTests(unittest.TestCase):
     def test_review_pull_request_self_fix_falls_back_when_head_is_stale(self) -> None:
         agent_client = FakeAgentClient(
             findings=[],
-            output_texts=[
-                json.dumps(
-                    {
-                        "findings": [
-                            {
-                                "path": "src/widget.py",
-                                "line": 2,
-                                "body": "This can throw when config is missing.",
-                            }
-                        ]
-                    }
-                ),
-                json.dumps(
-                    {
-                        "files": [
-                            {
-                                "path": "src/widget.py",
-                                "content": "bad = False\n",
-                            }
-                        ]
-                    }
-                ),
+            structured_outputs=[
+                {
+                    "findings": [
+                        {
+                            "path": "src/widget.py",
+                            "line": 2,
+                            "body": "This can throw when config is missing.",
+                        }
+                    ]
+                },
+                {
+                    "commit_message": "Fix widget config handling",
+                    "files": [
+                        {
+                            "path": "src/widget.py",
+                            "content": "bad = False\n",
+                        }
+                    ],
+                },
             ],
-            require_no_response_schema=True,
         )
         created_reviews: list[Any] = []
         request = github_request()
@@ -5056,18 +5234,15 @@ class GitHubProviderTests(unittest.TestCase):
     def test_review_pull_request_self_fix_falls_back_for_unsafe_file(self) -> None:
         agent_client = FakeAgentClient(
             findings=[],
-            output_text=json.dumps(
-                {
-                    "findings": [
-                        {
-                            "path": "src/widget.py",
-                            "line": 2,
-                            "body": "This can throw when config is missing.",
-                        }
-                    ]
-                }
-            ),
-            require_no_response_schema=True,
+            structured_output={
+                "findings": [
+                    {
+                        "path": "src/widget.py",
+                        "line": 2,
+                        "body": "This can throw when config is missing.",
+                    }
+                ]
+            },
         )
         created_reviews: list[Any] = []
         request = github_request()
@@ -5189,7 +5364,9 @@ class GitHubProviderTests(unittest.TestCase):
             ]
         }
 
-        def fake_create_check(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
+        def fake_create_check(
+            request: Any, *, subject: Any, external_identity: Any | None = None
+        ) -> dict[str, Any]:
             created_checks.append((request, subject))
             return {
                 "id": 501,
@@ -5198,7 +5375,9 @@ class GitHubProviderTests(unittest.TestCase):
                 "head_sha": request.head_sha,
             }
 
-        def fake_update_check(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
+        def fake_update_check(
+            request: Any, *, subject: Any, external_identity: Any | None = None
+        ) -> dict[str, Any]:
             updated_checks.append((request, subject))
             return {
                 "id": request.check_run_id,
@@ -5347,7 +5526,9 @@ class GitHubProviderTests(unittest.TestCase):
             ]
         }
 
-        def fake_update_check(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
+        def fake_update_check(
+            request: Any, *, subject: Any, external_identity: Any | None = None
+        ) -> dict[str, Any]:
             updated_checks.append((request, subject))
             return {
                 "id": request.check_run_id,
@@ -5425,7 +5606,9 @@ class GitHubProviderTests(unittest.TestCase):
             ]
         }
 
-        def fake_update_check(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
+        def fake_update_check(
+            request: Any, *, subject: Any, external_identity: Any | None = None
+        ) -> dict[str, Any]:
             updated_checks.append((request, subject))
             return {
                 "id": request.check_run_id,
@@ -5482,7 +5665,9 @@ class GitHubProviderTests(unittest.TestCase):
             ]
         }
 
-        def fake_update_check(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
+        def fake_update_check(
+            request: Any, *, subject: Any, external_identity: Any | None = None
+        ) -> dict[str, Any]:
             updated_checks.append((request, subject))
             return {
                 "id": request.check_run_id,
@@ -5537,24 +5722,25 @@ class GitHubProviderTests(unittest.TestCase):
         self,
     ) -> None:
         cases: list[tuple[str, str, dict[str, Any] | None]] = [
-            ("empty", "", None),
-            ("invalid_json", "not json", None),
-            ("non_object_json", '[{"findings":[]}]', None),
-            ("missing_findings", "{}", None),
-            ("non_array_findings", '{"findings":{}}', None),
-            ("extra_top_level_key", '{"findings":[],"summary":"ok"}', None),
-            ("multiple_objects", '{"findings":[]}{"findings":[]}', None),
-            ("markdown_fence", '```json\n{"findings":[]}\n```', None),
-            ("prose_wrapped", 'Here are findings: {"findings":[]}', None),
+            ("missing_structured_output", "", None),
+            ("legacy_output_text_json", '{"findings":[]}', None),
+            ("missing_findings", "not json", {}),
+            ("non_array_findings", "not json", {"findings": {}}),
             (
-                "structured_output_ignored",
+                "extra_top_level_key",
+                "not json",
+                {"findings": [], "summary": "ok"},
+            ),
+            (
+                "missing_severity",
                 "not json",
                 {
                     "findings": [
                         {
                             "path": "src/widget.py",
                             "line": 2,
-                            "body": "This structured finding must be ignored.",
+                            "title": "Missing severity",
+                            "description": "Bug.",
                         }
                     ]
                 },
@@ -5592,7 +5778,9 @@ class GitHubProviderTests(unittest.TestCase):
                     ]
                 }
 
-                def fake_update_check(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
+                def fake_update_check(
+                    request: Any, *, subject: Any, external_identity: Any | None = None
+                ) -> dict[str, Any]:
                     updated_checks.append((request, subject))
                     return {
                         "id": request.check_run_id,
@@ -5660,6 +5848,55 @@ class GitHubProviderTests(unittest.TestCase):
                 self.assertEqual(updated_checks[0][0].check_run_id, 777)
                 self.assertEqual(updated_checks[0][0].conclusion, "failure")
 
+    def test_agent_turn_output_extracts_mapping_structured_output(self) -> None:
+        output = review_module.agent_turn_output(
+            gestalt.AgentTurn(
+                output_text="not json",
+                structured_output=MappingWrapper({"findings": []}),
+            )
+        )
+
+        self.assertEqual(output, {"findings": []})
+        self.assertIsInstance(output, dict)
+
+    def test_parse_review_fix_output_requires_commit_message(self) -> None:
+        for structured_output in ({"files": []}, {"commit_message": " ", "files": []}):
+            with self.subTest(structured_output=structured_output):
+                with self.assertRaisesRegex(RuntimeError, "commit_message"):
+                    review_module.parse_review_fix_output(structured_output)
+
+    def test_review_finding_marker_requires_v2_stable_fingerprint(self) -> None:
+        fingerprint = "a" * 64
+        marker_bodies = [
+            (
+                "<!-- gestalt:github-review-finding v1 "
+                f"fingerprint={fingerprint} source=github.reviewPullRequest -->"
+            ),
+            (
+                "<!-- gestalt:github-review-finding v2 "
+                f"fingerprint={fingerprint} source=github.reviewPullRequest -->"
+            ),
+        ]
+
+        for body in marker_bodies:
+            with self.subTest(body=body):
+                marker, marker_reason = (
+                    review_module.provider_marker_from_first_comment({"body": body})
+                )
+                self.assertIsNone(marker)
+                self.assertEqual(marker_reason, "missing_marker")
+                decision = review_module.review_thread_resolution_decision(
+                    {
+                        "isResolved": False,
+                        "viewerCanResolve": True,
+                        "commentsTruncated": False,
+                        "comments": [{"authorLogin": "example-app[bot]", "body": body}],
+                    },
+                    bot_login="example-app[bot]",
+                    current_fingerprints={fingerprint},
+                )
+                self.assertEqual(decision, "missing_marker")
+
     def test_review_pull_request_resolves_stale_marked_bot_thread(self) -> None:
         agent_client = FakeAgentClient(
             findings=[
@@ -5687,11 +5924,15 @@ class GitHubProviderTests(unittest.TestCase):
             ]
         }
 
-        def fake_resolve(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
+        def fake_resolve(
+            request: Any, *, subject: Any, external_identity: Any | None = None
+        ) -> dict[str, Any]:
             resolved_requests.append((request, subject))
             return {"id": request.thread_id, "isResolved": True}
 
-        def fake_list_threads(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
+        def fake_list_threads(
+            request: Any, *, subject: Any, external_identity: Any | None = None
+        ) -> dict[str, Any]:
             list_thread_cursors.append(request.after)
             if not request.after:
                 return {
@@ -5808,6 +6049,8 @@ class GitHubProviderTests(unittest.TestCase):
                 path="src/widget.py",
                 line=3,
                 body="Current bug still exists.",
+                title="Test finding 1",
+                severity="medium",
             ),
         )
         request = github_request()
@@ -5825,7 +6068,9 @@ class GitHubProviderTests(unittest.TestCase):
             ]
         }
 
-        def fake_list_threads(request: Any, *, subject: Any, external_identity: Any | None = None) -> dict[str, Any]:
+        def fake_list_threads(
+            request: Any, *, subject: Any, external_identity: Any | None = None
+        ) -> dict[str, Any]:
             return {
                 "threads": [
                     {
@@ -6019,6 +6264,8 @@ class GitHubProviderTests(unittest.TestCase):
                 path="src/widget.py",
                 line=2,
                 body="Current bug still exists.",
+                title="Test finding 1",
+                severity="medium",
             ),
         )
         request = github_request()
@@ -6454,7 +6701,10 @@ class GitHubProviderTests(unittest.TestCase):
             "github:99:acme/widgets:policy:push-observe",
         )
         self.assertEqual(
-            [tool.operation for tool in workflow_target_agent(request.target).tool_refs],
+            [
+                tool.operation
+                for tool in workflow_target_agent(request.target).tool_refs
+            ],
             [
                 provider_module.BOT_GET_REPOSITORY_OPERATION,
                 provider_module.BOT_SEARCH_CODE_OPERATION,
@@ -6975,7 +7225,10 @@ class GitHubProviderTests(unittest.TestCase):
                 "sender": {"login": "octocat"},
             }
         )
-        self.assertEqual([tool.operation for tool in workflow_target_agent(empty.target).tool_refs], [])
+        self.assertEqual(
+            [tool.operation for tool in workflow_target_agent(empty.target).tool_refs],
+            [],
+        )
 
         ordered = self._workflow_signal_request(
             {
@@ -6988,7 +7241,10 @@ class GitHubProviderTests(unittest.TestCase):
             }
         )
         self.assertEqual(
-            [tool.operation for tool in workflow_target_agent(ordered.target).tool_refs],
+            [
+                tool.operation
+                for tool in workflow_target_agent(ordered.target).tool_refs
+            ],
             [
                 provider_module.BOT_GET_CHECK_RUN_OPERATION,
                 provider_module.BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
@@ -7446,9 +7702,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn(
             "please update this workflow", json.dumps(issue_comment["summary"])
         )
-        issue_metadata = sdk_value_to_dict(
-            issue_comment_request.signal.metadata
-        )
+        issue_metadata = sdk_value_to_dict(issue_comment_request.signal.metadata)
         self.assertNotIn("comment_body", issue_metadata["github"])
         self.assertNotIn("please update this workflow", json.dumps(issue_metadata))
         comment = issue_comment["agent_request"]["comment"]
