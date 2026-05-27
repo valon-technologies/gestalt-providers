@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
+from claude_agent_sdk.types import SdkPluginConfig
+
 SettingSource = Literal["user", "project", "local"]
 SkillDiscovery = Literal["none", "all"]
 
@@ -121,7 +123,7 @@ class ClaudeCodeTurnOptions:
         return []
 
     @property
-    def sdk_plugins(self) -> list[Any]:
+    def sdk_plugins(self) -> list[SdkPluginConfig]:
         return [{"type": "local", "path": plugin.path} for plugin in self.plugins]
 
     @property

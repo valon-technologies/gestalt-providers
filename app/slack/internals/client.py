@@ -6,7 +6,8 @@ import time
 import urllib.error
 import urllib.request
 from http import HTTPStatus
-from typing import Any
+from http.client import HTTPMessage
+from typing import Any, IO
 from urllib.parse import urlsplit
 from urllib.parse import urlencode
 
@@ -95,15 +96,16 @@ def is_slack_file_download_url(url: str) -> bool:
 
 
 class _SlackFileRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(  # ty: ignore[invalid-method-override]
+    def redirect_request(
         self,
-        req,
-        _fp,
-        code,
-        _msg,
-        _headers,
-        newurl,
-    ):
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        del fp, msg
         if not is_slack_file_download_url(newurl):
             raise SlackClientError("slack file download redirected to a non-Slack URL")
         authorization = req.get_header("Authorization") or dict(req.header_items()).get(

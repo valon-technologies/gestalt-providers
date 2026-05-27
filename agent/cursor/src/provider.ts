@@ -8,7 +8,6 @@ import {
   type AgentInteraction,
   type AgentMessage,
   type AgentProviderCapabilities,
-  type AgentProviderOptions,
   type AgentSession,
   type AgentSessionStartConfig,
   type AgentTurn,
@@ -57,30 +56,6 @@ export type CursorAgentProviderDependencies = {
   store?: InMemoryRunStore;
   runnerFactory?: (config: CursorAgentConfig) => CursorSDKRunner;
 };
-
-type AgentSessionInit = Awaited<
-  ReturnType<NonNullable<AgentProviderOptions["createSession"]>>
->;
-type AgentSessionListInit = AgentSessionInit[];
-type AgentTurnInit = Awaited<
-  ReturnType<NonNullable<AgentProviderOptions["createTurn"]>>
->;
-type AgentTurnListInit = AgentTurnInit[];
-type AgentTurnEventHandlerReturn = Awaited<
-  ReturnType<NonNullable<AgentProviderOptions["listTurnEvents"]>>
->;
-type AgentTurnEventInit =
-  AgentTurnEventHandlerReturn extends readonly (infer Event)[] ? Event : AgentTurnEvent;
-type AgentTurnEventListInit = AgentTurnEventInit[];
-type AgentInteractionInit = Awaited<
-  ReturnType<NonNullable<AgentProviderOptions["getInteraction"]>>
->;
-type AgentInteractionListInit = Awaited<
-  ReturnType<NonNullable<AgentProviderOptions["listInteractions"]>>
->;
-type AgentCapabilitiesInit = Awaited<
-  ReturnType<NonNullable<AgentProviderOptions["getCapabilities"]>>
->;
 
 export class CursorAgentProvider extends SDKAgentProvider {
   private config?: CursorAgentConfig;
@@ -137,7 +112,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
 
   async createSession(
     request: CreateAgentProviderSessionRequest,
-  ): Promise<AgentSessionInit> {
+  ): Promise<AgentSession> {
     const { config } = this.requireRuntime();
     const model = modelFor(config, request.model);
     try {
@@ -197,7 +172,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
 
   async getSession(
     request: GetAgentProviderSessionRequest,
-  ): Promise<AgentSessionInit> {
+  ): Promise<AgentSession> {
     this.requireRuntime();
     const session = this.store.getSession(request.sessionId);
     if (!session || !canReadSession(session, request.subject)) {
@@ -210,7 +185,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
 
   async listSessions(
     request: ListAgentProviderSessionsRequest,
-  ): Promise<AgentSessionListInit> {
+  ): Promise<AgentSession[]> {
     this.requireRuntime();
     if (request.limit < 0) {
       throw invalidArgument("limit must be non-negative");
@@ -227,7 +202,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
 
   async updateSession(
     request: UpdateAgentProviderSessionRequest,
-  ): Promise<AgentSessionInit> {
+  ): Promise<AgentSession> {
     this.requireRuntime();
     const metadata =
       request.metadata === undefined ? undefined : objectOrEmpty(request.metadata);
@@ -259,7 +234,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
 
   async createTurn(
     request: CreateAgentProviderTurnRequest,
-  ): Promise<AgentTurnInit> {
+  ): Promise<AgentTurn> {
     const { config, runner } = this.requireRuntime();
     validateCreateTurnRequest(request);
     const session = this.store.getSession(request.sessionId);
@@ -310,7 +285,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     return turnToAgentTurn(turn);
   }
 
-  async getTurn(request: GetAgentProviderTurnRequest): Promise<AgentTurnInit> {
+  async getTurn(request: GetAgentProviderTurnRequest): Promise<AgentTurn> {
     this.requireRuntime();
     const turn = this.store.getTurn(request.turnId);
     if (!turn) {
@@ -329,7 +304,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
 
   async listTurns(
     request: ListAgentProviderTurnsRequest,
-  ): Promise<AgentTurnListInit> {
+  ): Promise<AgentTurn[]> {
     this.requireRuntime();
     if (request.limit < 0) {
       throw invalidArgument("limit must be non-negative");
@@ -363,7 +338,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
 
   async cancelTurn(
     request: CancelAgentProviderTurnRequest,
-  ): Promise<AgentTurnInit> {
+  ): Promise<AgentTurn> {
     const { runner } = this.requireRuntime();
     const existing = this.store.getTurn(request.turnId);
     if (!existing) {
@@ -392,7 +367,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
 
   async listTurnEvents(
     request: ListAgentProviderTurnEventsRequest,
-  ): Promise<AgentTurnEventListInit> {
+  ): Promise<AgentTurnEvent[]> {
     this.requireRuntime();
     const turn = this.store.getTurn(request.turnId);
     const session = turn ? this.store.getSession(turn.sessionId) : undefined;
@@ -410,7 +385,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
 
   async getInteraction(
     request: GetAgentProviderInteractionRequest,
-  ): Promise<AgentInteractionInit> {
+  ): Promise<AgentInteraction> {
     this.requireRuntime();
     throw notFound(
       `agent interaction ${JSON.stringify(request.interactionId)} was not found`,
@@ -419,7 +394,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
 
   async listInteractions(
     request: ListAgentProviderInteractionsRequest,
-  ): Promise<AgentInteractionListInit> {
+  ): Promise<AgentInteraction[]> {
     this.requireRuntime();
     const turnId = String(request.turnId ?? "").trim();
     if (turnId) {
@@ -434,7 +409,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
 
   async resolveInteraction(
     request: ResolveAgentProviderInteractionRequest,
-  ): Promise<AgentInteractionInit> {
+  ): Promise<AgentInteraction> {
     this.requireRuntime();
     throw notFound(
       `agent interaction ${JSON.stringify(request.interactionId)} was not found`,
@@ -443,7 +418,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
 
   async getCapabilities(
     _request?: GetAgentProviderCapabilitiesRequest,
-  ): Promise<AgentCapabilitiesInit> {
+  ): Promise<AgentProviderCapabilities> {
     this.requireRuntime();
     return {
       streamingText: false,
@@ -457,7 +432,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
       supportsPreparedWorkspace: true,
       boundedListHydration: true,
       supportedToolSources: [AgentToolSourceMode.MCP_CATALOG],
-    } as AgentCapabilitiesInit;
+    };
   }
 
   private requireRuntime(): {

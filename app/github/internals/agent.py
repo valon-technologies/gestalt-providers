@@ -132,10 +132,11 @@ def workflow_agent_target(
         model_options=model_options or None,
     )
     metadata = agent_session_metadata(summary, policy)
-    step_kwargs: dict[str, Any] = {"id": "run", "agent": agent_turn}
-    if metadata:
-        step_kwargs["metadata"] = metadata
-    return gestalt.BoundWorkflowTarget(steps=[gestalt.WorkflowStep(**step_kwargs)])
+    return gestalt.BoundWorkflowTarget(
+        steps=[
+            gestalt.WorkflowStep(id="run", agent=agent_turn, metadata=metadata or None)
+        ]
+    )
 
 
 def workflow_signal_payload(
@@ -175,7 +176,9 @@ def workflow_agent_prompt() -> str:
     )
 
 
-def agent_tool_refs(policy: GitHubWebhookPolicy | None = None) -> list[gestalt.AgentToolRef]:
+def agent_tool_refs(
+    policy: GitHubWebhookPolicy | None = None,
+) -> list[gestalt.AgentToolRef]:
     return [
         gestalt.AgentToolRef(app="github", operation=operation)
         for operation in agent_operations(policy)

@@ -4,11 +4,17 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, cast
 
 import gestalt
-from claude_agent_sdk.types import McpSdkServerConfig, PermissionResultAllow, PermissionResultDeny
+from claude_agent_sdk.types import (
+    McpSdkServerConfig,
+    PermissionResultAllow,
+    PermissionResultDeny,
+    ToolPermissionContext,
+)
 from mcp.server import Server
 from mcp.types import (
     CallToolResult,
@@ -114,10 +120,7 @@ class GestaltMCPBridge:
                         tool_id=entry.tool_id,
                         arguments=arguments or {},
                         run_grant=self._run_grant,
-                        idempotency_key=(
-                            f"agent/claude-sdk:{self._turn_id}:"
-                            f"{tool_call_id}:{entry.mcp_name}"
-                        ),
+                        idempotency_key=(f"agent/claude-sdk:{self._turn_id}:{tool_call_id}:{entry.mcp_name}"),
                     )
 
             try:
@@ -195,9 +198,14 @@ def allowed_gestalt_mcp_tools() -> list[str]:
     return [f"{_GESTALT_MCP_TOOL_PREFIX}*"]
 
 
-def create_tool_permission_callback(permissions: ClaudeCodeToolPermissions | None) -> Any:
+ToolPermissionCallback = Callable[
+    [str, dict[str, Any], ToolPermissionContext], Awaitable[PermissionResultAllow | PermissionResultDeny]
+]
+
+
+def create_tool_permission_callback(permissions: ClaudeCodeToolPermissions | None) -> ToolPermissionCallback:
     async def can_use_tool(
-        tool_name: str, arguments: dict[str, Any], _context: Any
+        tool_name: str, arguments: dict[str, Any], _context: ToolPermissionContext
     ) -> PermissionResultAllow | PermissionResultDeny:
         return _allow_tool(tool_name, arguments or {}, permissions=permissions)
 

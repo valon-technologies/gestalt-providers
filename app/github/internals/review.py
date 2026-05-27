@@ -7,12 +7,12 @@ import time
 import datetime as dt
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 import gestalt
 
 from .client import bot_identity_or_none
-from .config import SELF_FIX_BRANCH_COMMIT, get_github_config
+from .config import SELF_FIX_BRANCH_COMMIT
 from .constants import BOT_COMMIT_FILES_OPERATION
 from .errors import GitHubAPIError, GitHubAuthorizationError, GitHubConfigError
 from .manual_trigger import (
@@ -51,11 +51,6 @@ from .operations import (
 
 DEFAULT_AGENT_PROVIDER = "claude"
 DEFAULT_MODEL = "claude-opus-4-7"
-DEFAULT_MAX_COMMENTS = 10
-DEFAULT_MAX_FILES = 50
-DEFAULT_MAX_PATCH_CHARS = 80_000
-DEFAULT_TURN_TIMEOUT_MS = 180_000
-DEFAULT_POLL_INTERVAL_MS = 1_000
 MAX_COMMENT_BODY_CHARS = 1_200
 REVIEW_FINDING_SOURCE = "github.reviewPullRequest"
 REVIEW_FINDING_MARKER_RE = re.compile(
@@ -177,8 +172,9 @@ class ReviewFindingFingerprints:
     stable_fingerprint: str
 
 
-def review_pull_request(input: Any, req: gestalt.Request) -> dict[str, Any]:
-    settings = normalize_review_settings(input)
+def review_pull_request(
+    settings: ReviewSettings, req: gestalt.Request
+) -> dict[str, Any]:
     signal = latest_github_signal(req.workflow_run_context())
     if not signal:
         return skipped_result("missing_github_signal")
@@ -437,62 +433,6 @@ def _review_pull_request_after_fetch(
     )
     add_check_run_result(result, completed_check_run or check_run)
     return result
-
-
-def normalize_review_settings(input: Any) -> ReviewSettings:
-    config = get_github_config()
-    return ReviewSettings(
-        agent_provider=string_setting(
-            input, "agentProvider", config.agent_provider or DEFAULT_AGENT_PROVIDER
-        ),
-        model=string_setting(input, "model", config.agent_model or DEFAULT_MODEL),
-        system_prompt=string_setting(input, "systemPrompt", DEFAULT_SYSTEM_PROMPT),
-        max_comments=bounded_int_setting(
-            input, "maxComments", DEFAULT_MAX_COMMENTS, 1, 25
-        ),
-        max_files=bounded_int_setting(input, "maxFiles", DEFAULT_MAX_FILES, 1, 100),
-        max_patch_chars=bounded_int_setting(
-            input, "maxPatchChars", DEFAULT_MAX_PATCH_CHARS, 4_000, 200_000
-        ),
-        changed_lines_only=bool_setting(input, "changedLinesOnly", True),
-        dry_run=bool_setting(input, "dryRun", False),
-        auto_resolve_stale_findings=bool_setting(
-            input, "autoResolveStaleFindings", True
-        ),
-        check_run_name=string_setting(input, "checkRunName", "Gestalt Review"),
-        turn_timeout_ms=bounded_int_setting(
-            input, "turnTimeoutMs", DEFAULT_TURN_TIMEOUT_MS, 10_000, 600_000
-        ),
-        poll_interval_ms=bounded_int_setting(
-            input, "pollIntervalMs", DEFAULT_POLL_INTERVAL_MS, 250, 10_000
-        ),
-    )
-
-
-def string_setting(input: Any, key: str, fallback: str) -> str:
-    value = input_value(input, key)
-    return value.strip() if isinstance(value, str) and value.strip() else fallback
-
-
-def bool_setting(input: Any, key: str, fallback: bool) -> bool:
-    value = input_value(input, key)
-    return value if isinstance(value, bool) else fallback
-
-
-def bounded_int_setting(
-    input: Any, key: str, fallback: int, minimum: int, maximum: int
-) -> int:
-    value = input_value(input, key)
-    parsed = (
-        value if isinstance(value, int) and not isinstance(value, bool) else fallback
-    )
-    return max(minimum, min(maximum, parsed))
-
-
-def input_value(input: Any, key: str) -> Any:
-    if isinstance(input, Mapping):
-        return input.get(key)
-    return getattr(input, key, None)
 
 
 def create_review_check_run(
@@ -835,7 +775,7 @@ def latest_github_signal(
 ) -> Mapping[str, Any] | None:
     for signal in reversed(workflow.signals):
         if signal.payload.get("github_event"):
-            return cast(Mapping[str, Any], signal.payload)
+            return signal.payload
     return None
 
 

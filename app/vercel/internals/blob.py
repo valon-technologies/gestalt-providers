@@ -7,7 +7,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
+from email.message import Message
 from email.utils import parsedate_to_datetime
+from http.client import HTTPMessage
 from typing import Any, Final
 
 from . import config as _config
@@ -328,7 +330,7 @@ def _head_result(result: dict[str, Any]) -> dict[str, Any]:
 def _download_result(
     target_url: str,
     download_url: str,
-    headers: Any,
+    headers: HTTPMessage | Message[str, str],
     content: bytes,
     status_code: int,
 ) -> dict[str, Any]:
@@ -436,7 +438,7 @@ def _parse_last_modified(value: str | None) -> datetime:
         return datetime.now(tz=UTC)
     try:
         return parsedate_to_datetime(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return datetime.now(tz=UTC)
 
 
