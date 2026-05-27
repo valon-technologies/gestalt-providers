@@ -2,7 +2,7 @@
 
 Source: GCP `gitlab-peach-street` Cloud Run stdout audit logs, filter `jsonPayload."log.type"="audit" AND jsonPayload.provider="linear"`, window `2026-04-15T00:00:00Z` through `2026-05-16T00:00:00Z`.
 
-This table records the audited GraphQL root fields with checked-in `operationSelections` in `manifest.yaml`. Rows are sorted by observed invocation count. `graphql`, OAuth lifecycle operations, and legacy helper/MCP-only names were observed in logs but are intentionally excluded from the GraphQL root-field set.
+This table records the audited GraphQL root fields with checked-in document-backed operations in `manifest.yaml`. Rows are sorted by observed invocation count. `graphql`, OAuth lifecycle operations, and legacy helper/MCP-only names were observed in logs but are intentionally excluded from the GraphQL root-field set.
 
 Excluded non-operation observations: `graphql`, `connection.oauth.start`, `connection.oauth.complete`, `connection.disconnect`.
 
@@ -10,7 +10,7 @@ Hosted MCP tool observations: `get_issue`, `get_project`, `list_comments`, `list
 
 The checked-in selection sets intentionally omit Linear team-access fields (`Team.private`, `Team.securitySettings`, `Team.protected`) and issue-sharing fields (`Issue.sharedAccess`, `Issue.inheritsSharedAccess`) because those fields can require workspace features that are not enabled for every caller.
 
-The manifest keeps selection bodies in `spec.surfaces.graphql.operationSelections` for compatibility with the current released `gestaltd`. It does not set provider-wide `allowedOperations` because the Linear provider also declares an MCP surface, and current `gestaltd` applies provider-wide allowlists to MCP tool discovery.
+The manifest keeps full GraphQL documents in `spec.allowedOperations.<operation>.graphql.document`. The `allowedOperations` keys are Gestalt operation IDs and the documents define the upstream query or mutation shape. Hosted MCP tools remain in `allowedOperations` as explicit non-GraphQL entries so the composite GraphQL/MCP provider keeps exposing those audited MCP operations.
 
 | Operation | Kind | Return type | Count | Risk | Selection owner | Audit source |
 | --- | --- | --- | ---: | --- | --- | --- |
