@@ -3,18 +3,10 @@ import {
   AgentSessionState,
   type AgentActor,
   type AgentMessage,
-  type AgentProviderOptions,
   type AgentSession,
   type AgentTurnEvent,
+  type AgentTurn,
 } from "@valon-technologies/gestalt";
-
-type AgentSessionInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["createSession"]>>>;
-type AgentTurnInit = Awaited<ReturnType<NonNullable<AgentProviderOptions["createTurn"]>>>;
-type AgentTurnEventListInit = Awaited<
-  ReturnType<NonNullable<AgentProviderOptions["listTurnEvents"]>>
->;
-type AgentTurnEventInit =
-  AgentTurnEventListInit extends readonly (infer Event)[] ? Event : AgentTurnEvent;
 
 export type PreparedWorkspace = {
   root: string;
@@ -423,30 +415,30 @@ export class InMemoryRunStore {
   }
 }
 
-export function sessionToAgentSession(session: StoredSession, summaryOnly = false): AgentSessionInit {
-  const out: AgentSessionInit = {
+export function sessionToAgentSession(session: StoredSession, summaryOnly = false): AgentSession {
+  const out: AgentSession = {
     id: session.sessionId,
     providerName: session.providerName,
     model: session.model,
     clientRef: session.clientRef,
     state: session.state,
-    createdAt: sdkDate<AgentSessionInit["createdAt"]>(session.createdAt),
-    updatedAt: sdkDate<AgentSessionInit["updatedAt"]>(session.updatedAt),
+    createdAt: new Date(session.createdAt),
+    updatedAt: new Date(session.updatedAt),
   };
   if (!summaryOnly && Object.keys(session.metadata).length > 0) {
-    out.metadata = session.metadata as AgentSession["metadata"];
+    out.metadata = session.metadata;
   }
   if (session.createdBy) {
     out.createdBy = session.createdBy;
   }
   if (session.lastTurnAt) {
-    out.lastTurnAt = sdkDate<AgentSessionInit["lastTurnAt"]>(session.lastTurnAt);
+    out.lastTurnAt = new Date(session.lastTurnAt);
   }
   return out;
 }
 
-export function turnToAgentTurn(turn: StoredTurn, summaryOnly = false): AgentTurnInit {
-  const out: AgentTurnInit = {
+export function turnToAgentTurn(turn: StoredTurn, summaryOnly = false): AgentTurn {
+  const out: AgentTurn = {
     id: turn.turnId,
     sessionId: turn.sessionId,
     providerName: turn.providerName,
@@ -455,7 +447,7 @@ export function turnToAgentTurn(turn: StoredTurn, summaryOnly = false): AgentTur
     outputText: summaryOnly ? "" : turn.outputText,
     statusMessage: turn.statusMessage,
     executionRef: turn.executionRef,
-    createdAt: sdkDate<AgentTurnInit["createdAt"]>(turn.createdAt),
+    createdAt: new Date(turn.createdAt),
   };
   if (!summaryOnly) {
     out.messages = cloneMessages(turn.messages);
@@ -464,15 +456,15 @@ export function turnToAgentTurn(turn: StoredTurn, summaryOnly = false): AgentTur
     out.createdBy = turn.createdBy;
   }
   if (turn.startedAt) {
-    out.startedAt = sdkDate<AgentTurnInit["startedAt"]>(turn.startedAt);
+    out.startedAt = new Date(turn.startedAt);
   }
   if (turn.completedAt) {
-    out.completedAt = sdkDate<AgentTurnInit["completedAt"]>(turn.completedAt);
+    out.completedAt = new Date(turn.completedAt);
   }
   return out;
 }
 
-export function turnEventToAgentTurnEvent(event: StoredTurnEvent): AgentTurnEventInit {
+export function turnEventToAgentTurnEvent(event: StoredTurnEvent): AgentTurnEvent {
   return {
     id: event.eventId,
     turnId: event.turnId,
@@ -480,17 +472,13 @@ export function turnEventToAgentTurnEvent(event: StoredTurnEvent): AgentTurnEven
     type: event.eventType,
     source: event.source,
     visibility: event.visibility,
-    data: event.data as AgentTurnEvent["data"],
-    createdAt: sdkDate<AgentTurnEventInit["createdAt"]>(event.createdAt),
+    data: event.data,
+    createdAt: new Date(event.createdAt),
   };
 }
 
-function sdkDate<T>(value: Date): T {
-  return new Date(value) as T;
-}
-
 export function cloneRecord(value: Record<string, unknown>): Record<string, unknown> {
-  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+  return structuredClone(value);
 }
 
 function cloneSession(session: StoredSession): StoredSession {
@@ -533,9 +521,9 @@ function cloneEvent(event: StoredTurnEvent): StoredTurnEvent {
 }
 
 function cloneMessages(messages: readonly AgentMessage[]): AgentMessage[] {
-  return JSON.parse(JSON.stringify(messages)) as AgentMessage[];
+  return structuredClone([...messages]);
 }
 
 function cloneMaybe<T>(value: T | undefined): T | undefined {
-  return value === undefined ? undefined : (JSON.parse(JSON.stringify(value)) as T);
+  return value === undefined ? undefined : structuredClone(value);
 }

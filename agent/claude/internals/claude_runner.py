@@ -7,8 +7,9 @@ import logging
 import os
 import tempfile
 import threading
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any, Callable, Literal, cast
+from typing import Any, Literal, Protocol, cast
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -49,14 +50,33 @@ class ClaudeExecutionCanceled(ClaudeExecutionError):
     pass
 
 
-ClientFactory = Callable[..., Any]
 PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "dontAsk", "auto"]
+
+
+class ClaudeClient(Protocol):
+    async def connect(self) -> None: ...
+
+    async def query(self, prompt: str, session_id: str = "default") -> None: ...
+
+    def receive_response(self) -> AsyncIterator[object]: ...
+
+    async def interrupt(self) -> None: ...
+
+    async def disconnect(self) -> None: ...
+
+
+class ClientFactory(Protocol):
+    def __call__(self, *, options: ClaudeAgentOptions) -> ClaudeClient: ...
+
+
+def _default_client_factory(*, options: ClaudeAgentOptions) -> ClaudeClient:
+    return ClaudeSDKClient(options=options)
 
 
 @dataclass(slots=True)
 class _ActiveTurn:
     loop: asyncio.AbstractEventLoop
-    client: Any | None = None
+    client: ClaudeClient | None = None
 
 
 @dataclass(slots=True)
@@ -119,7 +139,7 @@ class ClaudeTurnProfile:
 class ClaudeSDKRunner:
     def __init__(self, config: ClaudeAgentConfig, *, client_factory: ClientFactory | None = None) -> None:
         self._config = config
-        self._client_factory = client_factory or ClaudeSDKClient
+        self._client_factory = client_factory or _default_client_factory
         self._lock = threading.RLock()
         self._active_turns: dict[str, _ActiveTurn] = {}
         self._canceled_turns: set[str] = set()
@@ -207,9 +227,11 @@ class ClaudeSDKRunner:
                 except Exception:
                     logger.exception("failed to disconnect Claude SDK client")
 
-    async def _receive_result(self, client: Any, *, turn_id: str, turn_profile: ClaudeTurnProfile) -> ClaudeTurnResult:
+    async def _receive_result(
+        self, client: ClaudeClient, *, turn_id: str, turn_profile: ClaudeTurnProfile
+    ) -> ClaudeTurnResult:
         response = _ClaudeResponse()
-        result_message: Any | None = None
+        result_message: ResultMessage | None = None
         async for message in client.receive_response():
             self._raise_if_canceled(turn_id)
             result_message = _capture_response_message(response, message)
@@ -234,7 +256,7 @@ class ClaudeSDKRunner:
         response_schema: dict[str, Any] | None = None,
         claude_code_options: ClaudeCodeTurnOptions | None = None,
         cwd: str = "",
-    ) -> Any:
+    ) -> ClaudeAgentOptions:
         if turn_profile is None:
             if response_schema is not None and not str(run_grant or "").strip():
                 turn_profile = ClaudeTurnProfile.structured_output(response_schema=response_schema)
@@ -320,7 +342,7 @@ class ClaudeSDKRunner:
         with self._lock:
             self._active_turns[turn_id] = active
 
-    def _register_active_client(self, turn_id: str, client: Any) -> None:
+    def _register_active_client(self, turn_id: str, client: ClaudeClient) -> None:
         should_interrupt = False
         with self._lock:
             active = self._active_turns.get(turn_id)
@@ -347,7 +369,7 @@ class ClaudeSDKRunner:
             return turn_id in self._canceled_turns
 
 
-def _capture_response_message(response: _ClaudeResponse, message: Any) -> Any | None:
+def _capture_response_message(response: _ClaudeResponse, message: object) -> ResultMessage | None:
     if isinstance(message, AssistantMessage):
         _capture_assistant_message(response, message)
         return None
@@ -387,28 +409,28 @@ def _tool_result_json(block: ToolResultBlock) -> str:
 
 
 def _result_output(
-    response: _ClaudeResponse, result_message: Any | None, *, requires_structured_output: bool, canceled: bool
+    response: _ClaudeResponse, result_message: ResultMessage | None, *, requires_structured_output: bool, canceled: bool
 ) -> ClaudeTurnResult:
     if result_message is None:
         raise ClaudeExecutionError("Claude Agent SDK response ended without a result")
     subtype = _result_subtype(result_message)
-    if bool(getattr(result_message, "is_error", False)) or subtype != "success":
+    if result_message.is_error or subtype != "success":
         _raise_result_error(result_message, subtype=subtype, canceled=canceled)
 
-    result_text = str(getattr(result_message, "result", "") or "").strip()
+    result_text = str(result_message.result or "").strip()
     structured_output = _structured_output(result_message, required=requires_structured_output)
     return ClaudeTurnResult(output_text=result_text or response.output_fallback(), structured_output=structured_output)
 
 
-def _raise_result_error(result_message: Any, *, subtype: str, canceled: bool) -> None:
-    detail = str(getattr(result_message, "result", "") or getattr(result_message, "stop_reason", "") or subtype)
+def _raise_result_error(result_message: ResultMessage, *, subtype: str, canceled: bool) -> None:
+    detail = str(result_message.result or result_message.stop_reason or subtype)
     if canceled or subtype in {"interrupted", "canceled", "cancelled"}:
         raise ClaudeExecutionCanceled(_truncate(detail or "Claude Agent SDK turn was canceled"))
     raise ClaudeExecutionError(_truncate(detail or f"Claude Agent SDK returned {subtype!r}"))
 
 
-def _result_subtype(result_message: Any) -> str:
-    return str(getattr(result_message, "subtype", "") or "")
+def _result_subtype(result_message: ResultMessage) -> str:
+    return str(result_message.subtype or "")
 
 
 def _messages_to_prompt(messages: list[dict[str, Any]]) -> str:
@@ -434,8 +456,8 @@ def _configured_system_prompt(configured: str) -> str | None:
     return configured or None
 
 
-def _structured_output(result_message: Any, *, required: bool) -> dict[str, Any] | None:
-    value = getattr(result_message, "structured_output", None)
+def _structured_output(result_message: ResultMessage, *, required: bool) -> dict[str, Any] | None:
+    value = result_message.structured_output
     if value is None:
         if required:
             raise ClaudeExecutionError("Claude Agent SDK response did not include structured output")
@@ -483,15 +505,17 @@ def _log_claude_stderr(line: str) -> None:
         logger.warning("Claude Agent SDK stderr: %s", _truncate(text))
 
 
-def _schedule_interrupt(loop: asyncio.AbstractEventLoop, client: Any) -> concurrent.futures.Future[Any] | None:
+def _schedule_interrupt(
+    loop: asyncio.AbstractEventLoop, client: ClaudeClient
+) -> concurrent.futures.Future[None] | None:
     try:
         return asyncio.run_coroutine_threadsafe(client.interrupt(), loop)
     except RuntimeError:
         return None
 
 
-def _set_config_dir(options: Any, config_dir: str) -> None:
-    env = dict(getattr(options, "env", {}) or {})
+def _set_config_dir(options: ClaudeAgentOptions, config_dir: str) -> None:
+    env = dict(options.env or {})
     env["CLAUDE_CONFIG_DIR"] = config_dir
     options.env = env
 

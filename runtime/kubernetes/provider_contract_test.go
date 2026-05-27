@@ -60,8 +60,8 @@ func TestProviderContractBuildsPluginEnv(t *testing.T) {
 	env := buildPluginEnv(gestalt.StartHostedAppRequest{
 		AppName: "claude",
 		Env:     map[string]string{"CUSTOM": "value"},
-	}, "/tmp/gestalt/plugin.sock")
-	if got, want := env[envProviderSocket], "/tmp/gestalt/plugin.sock"; got != want {
+	}, "/tmp/gestalt/provider.sock")
+	if got, want := env[envProviderSocket], "/tmp/gestalt/provider.sock"; got != want {
 		t.Fatalf("%s = %q, want %q", envProviderSocket, got, want)
 	}
 	if got, want := env[envProviderName], "claude"; got != want {

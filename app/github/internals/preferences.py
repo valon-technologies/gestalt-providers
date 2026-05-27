@@ -195,7 +195,9 @@ def set_action_preference(
             if identity_kind == IDENTITY_EXTERNAL_SUBJECT_ID
             else ""
         ),
-        "subject_id": identity.subject_id if identity_kind == IDENTITY_SUBJECT_ID else "",
+        "subject_id": identity.subject_id
+        if identity_kind == IDENTITY_SUBJECT_ID
+        else "",
         "allow_code_review_comments": allow_code_review_comments,
         "allow_self_fix": allow_self_fix,
         "self_fix_mode": validated_self_fix_mode,
@@ -322,9 +324,8 @@ def _lookup_preference_record(
 
 
 def _repository_from_identity(identity: GitHubPreferenceIdentity) -> str:
-    repository = getattr(identity, "repository", "")
-    if isinstance(repository, str) and repository.strip():
-        return repository.strip()
+    if identity.repository.strip():
+        return identity.repository.strip()
     raise ValueError("repository is required for preference lookup")
 
 
@@ -372,7 +373,9 @@ def _validated_preference_record(record: dict[str, Any]) -> dict[str, Any]:
         "allow_code_review_comments": _optional_bool(
             record.get("allow_code_review_comments"), "allow_code_review_comments"
         ),
-        "allow_self_fix": _optional_bool(record.get("allow_self_fix"), "allow_self_fix"),
+        "allow_self_fix": _optional_bool(
+            record.get("allow_self_fix"), "allow_self_fix"
+        ),
         "self_fix_mode": _optional_self_fix_mode(record.get("self_fix_mode")),
     }
 
@@ -416,7 +419,9 @@ def _optional_self_fix_mode(value: Any) -> str | None:
         return None
     if isinstance(value, str) and value in SELF_FIX_MODES:
         return value
-    raise ValueError("self_fix_mode must be disabled, suggest, branch_commit, pull_request, or null")
+    raise ValueError(
+        "self_fix_mode must be disabled, suggest, branch_commit, pull_request, or null"
+    )
 
 
 def _required_text(value: Any, field_name: str) -> str:

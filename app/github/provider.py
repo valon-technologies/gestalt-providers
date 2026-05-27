@@ -154,6 +154,10 @@ from internals.preferences import (
     set_action_preference,
 )
 from internals.review import (
+    DEFAULT_AGENT_PROVIDER,
+    DEFAULT_MODEL,
+    DEFAULT_SYSTEM_PROMPT,
+    ReviewSettings,
     SUPPORTED_PULL_REQUEST_ACTIONS,
     review_pull_request,
     utc_timestamp,
@@ -1669,7 +1673,24 @@ def github_review_pull_request(
     input: ReviewPullRequestInput, req: gestalt.Request
 ) -> OperationResult:
     try:
-        return {"data": review_pull_request(input, req)}
+        config = get_github_config()
+        settings = ReviewSettings(
+            agent_provider=input.agentProvider.strip()
+            or config.agent_provider
+            or DEFAULT_AGENT_PROVIDER,
+            model=input.model.strip() or config.agent_model or DEFAULT_MODEL,
+            system_prompt=input.systemPrompt.strip() or DEFAULT_SYSTEM_PROMPT,
+            max_comments=max(1, min(25, input.maxComments)),
+            max_files=max(1, min(100, input.maxFiles)),
+            max_patch_chars=max(4_000, min(200_000, input.maxPatchChars)),
+            changed_lines_only=input.changedLinesOnly,
+            dry_run=input.dryRun,
+            auto_resolve_stale_findings=input.autoResolveStaleFindings,
+            check_run_name=input.checkRunName.strip() or "Gestalt Review",
+            turn_timeout_ms=max(10_000, min(600_000, input.turnTimeoutMs)),
+            poll_interval_ms=max(250, min(10_000, input.pollIntervalMs)),
+        )
+        return {"data": review_pull_request(settings, req)}
     except ValueError as err:
         return _bad_request(str(err))
     except GitHubAuthorizationError as err:

@@ -129,8 +129,8 @@ func TestRuntimeProviderContractLaunchesHostedApp(t *testing.T) {
 	for _, want := range []string{
 		"command -v socat",
 		"TCP-LISTEN:50051",
-		"UNIX-CONNECT:'/tmp/gestalt/plugin.sock'",
-		"'GESTALT_PROVIDER_SOCKET=/tmp/gestalt/plugin.sock'",
+		"UNIX-CONNECT:'/tmp/gestalt/provider.sock'",
+		"'GESTALT_PROVIDER_SOCKET=/tmp/gestalt/provider.sock'",
 		"'GESTALT_HOST_SERVICE_SOCKET=tls://host-service-relay.gestalt.example:443'",
 		"'GESTALT_HOST_SERVICE_TOKEN=host-service-token'",
 		"'CUSTOM=value'",
@@ -142,7 +142,7 @@ func TestRuntimeProviderContractLaunchesHostedApp(t *testing.T) {
 	}
 	readyScript := execCalls[1].command[2]
 	for _, want := range []string{
-		"test -S '/tmp/gestalt/plugin.sock'",
+		"test -S '/tmp/gestalt/provider.sock'",
 		"/tmp/gestalt-socket-proxy.pid",
 		":C383",
 		"/proc/net/tcp",

@@ -21,7 +21,7 @@ func buildLaunchScript(req startProcessRequest) string {
 	b.WriteString("rm -f ")
 	b.WriteString(shellQuote(req.SocketPath))
 	b.WriteByte('\n')
-	b.WriteString("command -v socat >/dev/null 2>&1 || { echo 'socat is required to bridge the Gestalt plugin Unix socket to TCP' >&2; exit 127; }\n")
+	b.WriteString("command -v socat >/dev/null 2>&1 || { echo 'socat is required to bridge the Gestalt provider Unix socket to TCP' >&2; exit 127; }\n")
 	b.WriteString("nohup socat ")
 	b.WriteString("TCP-LISTEN:")
 	b.WriteString(intString(req.PluginPort))
@@ -70,7 +70,7 @@ func socketProxyReadyCommand(port int, socketPath string) []string {
 }
 
 func pluginCleanupCommand() []string {
-	return []string{"sh", "-c", "for f in /tmp/gestalt-plugin.pid /tmp/gestalt-socket-proxy.pid; do if test -s \"$f\"; then kill \"$(cat \"$f\")\" >/dev/null 2>&1 || true; rm -f \"$f\"; fi; done; rm -f /tmp/gestalt/plugin.sock"}
+	return []string{"sh", "-c", "for f in /tmp/gestalt-plugin.pid /tmp/gestalt-socket-proxy.pid; do if test -s \"$f\"; then kill \"$(cat \"$f\")\" >/dev/null 2>&1 || true; rm -f \"$f\"; fi; done; rm -f /tmp/gestalt/provider.sock"}
 }
 
 func sortedEnvKeys(env map[string]string) []string {

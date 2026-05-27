@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from http import HTTPStatus
-from typing import Any, TypeAlias
+from typing import TypeAlias
 
 import gestalt
 from google.api_core.exceptions import GoogleAPICallError
 from google.cloud.bigquery import SchemaField
 
 from internals.client import (
+    JSONValue,
     QueryRequest,
     execute_query,
     google_api_message,
@@ -50,7 +51,7 @@ class QuerySchemaField(gestalt.Model):
 
 class QueryOutput(gestalt.Model):
     schema: list[QuerySchemaField]
-    rows: list[dict[str, Any]]
+    rows: list[dict[str, JSONValue]]
     total_rows: int
     job_complete: bool
 

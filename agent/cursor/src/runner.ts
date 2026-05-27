@@ -129,7 +129,7 @@ export class CursorSDKRunner {
       active.bridge = await startMcpBridge({
         tools,
         executeTool: async (entry, toolCallId, args) => {
-          const response = await host.executeTool({
+          const request: ExecuteAgentToolRequest = {
             sessionId: input.sessionId,
             turnId: input.turnId,
             toolCallId,
@@ -137,7 +137,8 @@ export class CursorSDKRunner {
             arguments: args,
             runGrant: input.runGrant,
             idempotencyKey: `agent/cursor-sdk:${input.turnId}:${toolCallId}:${entry.mcpName}`,
-          } as ExecuteAgentToolRequest);
+          };
+          const response = await host.executeTool(request);
           return { status: response.status, body: response.body };
         },
       });
@@ -146,10 +147,10 @@ export class CursorSDKRunner {
 
       active.agent = await this.createAgent(
         input,
-      active.bridge,
-      active.stateRoot,
-      input.cwd,
-    );
+        active.bridge,
+        active.stateRoot,
+        input.cwd,
+      );
       await this.raiseIfCanceled(active);
 
       const prompt = messagesToPrompt(input.messages, this.config.systemPrompt);
