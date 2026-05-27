@@ -34,7 +34,7 @@ must contain the tools required to launch the app process.
   session counter, so a rolling deploy can start replacement runtime sessions
   while the previous `gestaltd` revision is still draining.
 - `StartApp` starts the manifest-derived command with
-  `GESTALT_PROVIDER_SOCKET=/tmp/gestalt/plugin.sock`, bridges that Unix socket to
+  `GESTALT_PROVIDER_SOCKET=/tmp/gestalt/provider.sock`, bridges that Unix socket to
   `config.appPort` with `socat`, and opens the configured connection back to
   `gestaltd`.
 - `BindHostService` accepts relay-backed bindings only. This matches the public

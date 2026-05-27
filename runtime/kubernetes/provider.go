@@ -319,7 +319,7 @@ func (p *Provider) StartApp(ctx context.Context, req gestalt.StartHostedAppReque
 	execCtx, cancel := context.WithTimeout(ctx, cfg.ExecTimeout)
 	defer cancel()
 
-	env := buildPluginEnv(req, "/tmp/gestalt/plugin.sock")
+	env := buildPluginEnv(req, "/tmp/gestalt/provider.sock")
 	if requiresHostnameEgress(req, env) {
 		hostnameEgress, err := buildHostnameEgressConfig(env, session.Template)
 		if err != nil {
