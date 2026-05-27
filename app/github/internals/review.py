@@ -366,19 +366,6 @@ def _review_pull_request_after_fetch(
         review_finding_fingerprints(subject, finding) for finding in findings
     ]
     current_fingerprint_set = fingerprint_marker_values(current_fingerprints)
-    existing = existing_review_findings(
-        subject,
-        req,
-        enabled=not settings.dry_run,
-    )
-    duplicate_fingerprints = set(existing["fingerprints"])
-    postable_findings: list[tuple[ValidatedFinding, ReviewFindingFingerprints]] = []
-    suppressed = 0
-    for finding, fingerprints in zip(findings, current_fingerprints, strict=True):
-        if fingerprint_marker_values([fingerprints]) & duplicate_fingerprints:
-            suppressed += 1
-            continue
-        postable_findings.append((finding, fingerprints))
 
     if not findings:
         resolution = auto_resolve_stale_findings(
@@ -406,6 +393,20 @@ def _review_pull_request_after_fetch(
         )
         add_check_run_result(result, completed_check_run or check_run)
         return result
+
+    existing = existing_review_findings(
+        subject,
+        req,
+        enabled=not settings.dry_run,
+    )
+    duplicate_fingerprints = set(existing["fingerprints"])
+    postable_findings: list[tuple[ValidatedFinding, ReviewFindingFingerprints]] = []
+    suppressed = 0
+    for finding, fingerprints in zip(findings, current_fingerprints, strict=True):
+        if fingerprint_marker_values([fingerprints]) & duplicate_fingerprints:
+            suppressed += 1
+            continue
+        postable_findings.append((finding, fingerprints))
 
     self_fix = (
         attempt_review_self_fix(
