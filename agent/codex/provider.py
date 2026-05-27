@@ -6,6 +6,8 @@ import threading
 from typing import Any
 
 import gestalt
+from jsonschema import SchemaError
+from jsonschema.validators import validator_for
 
 from internals.codex_runner import CodexExecutionCanceled, CodexExecutionError
 from internals.codex_runner import CodexMCPRunner
@@ -186,6 +188,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             raise gestalt.Error(400, str(exc)) from exc
 
         messages = prepend_session_start_context(gestalt.agent_messages_to_dicts(request.messages), session.metadata)
+        response_schema = _response_schema_from_request(request)
         skill_roots = session_start_metadata_paths(
             session.metadata, "codexSkillRoots", allowed_basenames={"mortgage", "vds", "tools", "rnb"}
         )
@@ -216,6 +219,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                     "model": model,
                     "messages": list(turn.messages),
                     "run_grant": request.run_grant.strip(),
+                    "response_schema": response_schema,
                     "skill_roots": skill_roots,
                     "cwd": cwd,
                 },
@@ -229,8 +233,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         if turn is None:
             raise gestalt.Error(404, f"agent turn {request.turn_id!r} was not found")
         _require_session_readable(
-            _session_for_turn(store, turn),
-            request.subject.id.strip() if request.subject is not None else "",
+            _session_for_turn(store, turn), request.subject.id.strip() if request.subject is not None else ""
         )
         return _agent_turn(turn)
 
@@ -250,11 +253,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         turns = _readable_turns(
             store,
             store.list_turns(
-                session_id=session_id,
-                turn_ids=turn_ids,
-                subject_id="",
-                status=request.status,
-                limit=store_limit,
+                session_id=session_id, turn_ids=turn_ids, subject_id="", status=request.status, limit=store_limit
             ),
             request_subject_id,
         )
@@ -270,8 +269,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         if existing is None:
             raise gestalt.Error(404, f"agent turn {request.turn_id!r} was not found")
         _require_session_writable(
-            _session_for_turn(store, existing),
-            request.subject.id.strip() if request.subject is not None else "",
+            _session_for_turn(store, existing), request.subject.id.strip() if request.subject is not None else ""
         )
         turn = store.cancel_turn(turn_id=request.turn_id.strip(), reason=request.reason.strip())
         if turn is None:
@@ -294,9 +292,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             events=[
                 _agent_turn_event(event)
                 for event in store.list_turn_events(
-                    turn_id=request.turn_id.strip(),
-                    after_seq=request.after_seq,
-                    limit=request.limit,
+                    turn_id=request.turn_id.strip(), after_seq=request.after_seq, limit=request.limit
                 )
             ]
         )
@@ -323,7 +319,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             streaming_text=False,
             tool_calls=True,
             parallel_tool_calls=False,
-            structured_output=False,
+            structured_output=True,
             interactions=False,
             resumable_turns=False,
             reasoning_summaries=False,
@@ -349,6 +345,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         model: str,
         messages: list[dict[str, Any]],
         run_grant: str,
+        response_schema: dict[str, Any] | None,
         skill_roots: list[str],
         cwd: str,
     ) -> None:
@@ -359,6 +356,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                 model=model,
                 messages=messages,
                 run_grant=run_grant,
+                response_schema=response_schema,
                 skill_roots=skill_roots,
                 cwd=cwd,
             )
@@ -370,7 +368,9 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             logger.exception("Codex MCP turn failed")
             store.fail_turn(turn_id=turn_id, message=str(exc))
         else:
-            store.complete_turn(turn_id=turn_id, output_text=output)
+            store.complete_turn(
+                turn_id=turn_id, output_text=output.output_text, structured_output=output.structured_output
+            )
 
     def _build_warnings(self, config: CodexAgentConfig) -> list[str]:
         warnings: list[str] = []
@@ -444,6 +444,7 @@ def _agent_turn(turn: StoredTurn, *, summary_only: bool = False) -> gestalt.Agen
         status=turn.status,
         messages=[] if summary_only else turn.messages,
         output_text="" if summary_only else turn.output_text,
+        structured_output=None if summary_only else turn.structured_output,
         status_message=turn.status_message,
         execution_ref=turn.execution_ref,
         created_by=turn.created_by or None,
@@ -491,11 +492,30 @@ def _validate_create_turn_request(request: gestalt.CreateAgentProviderTurnReques
         raise gestalt.Error(400, "run_grant is required")
     if len(list(request.tools)) > 0:
         raise gestalt.Error(400, "resolved tools are not supported; use tool_refs with mcp_catalog")
-    if dict(request.response_schema or {}):
-        raise gestalt.Error(400, "response_schema is not supported by agent/codex")
+    _validate_response_schema(_response_schema_from_request(request))
     if dict(request.model_options or {}):
         raise gestalt.Error(400, "model_options are not supported by agent/codex")
     _validate_tool_refs(list(request.tool_refs))
+
+
+def _response_schema_from_request(request: gestalt.CreateAgentProviderTurnRequest) -> dict[str, Any] | None:
+    if request.response_schema is None:
+        return None
+    return dict(request.response_schema)
+
+
+def _validate_response_schema(schema: dict[str, Any] | None) -> None:
+    if schema is None:
+        return
+    if not schema:
+        raise gestalt.Error(400, "response_schema must be a non-empty JSON schema object with type 'object'")
+    if str(schema.get("type") or "").strip() != "object":
+        raise gestalt.Error(400, "response_schema.type must be 'object'")
+    try:
+        validator_cls = validator_for(schema)
+        validator_cls.check_schema(schema)
+    except SchemaError as exc:
+        raise gestalt.Error(400, f"response_schema is invalid: {exc.message}") from exc
 
 
 def _validate_tool_refs(tool_refs: list[gestalt.AgentToolRef]) -> None:

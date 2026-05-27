@@ -58,6 +58,7 @@ export type StoredTurn = {
   status: AgentExecutionStatus;
   messages: AgentMessage[];
   outputText: string;
+  structuredOutput: Record<string, unknown> | undefined;
   statusMessage: string;
   createdBy: AgentActor | undefined;
   createdAt: Date;
@@ -259,6 +260,7 @@ export class InMemoryRunStore {
       status: AgentExecutionStatus.RUNNING,
       messages: cloneMessages(input.messages),
       outputText: "",
+      structuredOutput: undefined,
       statusMessage: "",
       createdBy: cloneMaybe(input.createdBy),
       createdAt: now,
@@ -322,19 +324,28 @@ export class InMemoryRunStore {
     return turns.map(cloneTurn);
   }
 
-  completeTurn(turnId: string, outputText: string): StoredTurn | undefined {
+  completeTurn(
+    turnId: string,
+    outputText: string,
+    structuredOutput?: Record<string, unknown>,
+  ): StoredTurn | undefined {
     const turn = this.turns.get(turnId.trim());
     if (!turn || TERMINAL_STATUSES.has(turn.status)) {
       return turn ? cloneTurn(turn) : undefined;
     }
     turn.status = AgentExecutionStatus.SUCCEEDED;
     turn.outputText = outputText;
+    turn.structuredOutput = cloneMaybe(structuredOutput);
     turn.completedAt = new Date();
+    const eventData: Record<string, unknown> = { text: outputText };
+    if (structuredOutput) {
+      eventData.structured_output = cloneRecord(structuredOutput);
+    }
     this.appendEvent({
       turnId: turn.turnId,
       eventType: "assistant.message",
       source: turn.providerName,
-      data: { text: outputText },
+      data: eventData,
     });
     this.appendEvent({
       turnId: turn.turnId,
@@ -461,6 +472,9 @@ export function turnToAgentTurn(turn: StoredTurn, summaryOnly = false): AgentTur
   if (turn.completedAt) {
     out.completedAt = new Date(turn.completedAt);
   }
+  if (!summaryOnly && turn.structuredOutput) {
+    out.structuredOutput = cloneRecord(turn.structuredOutput);
+  }
   return out;
 }
 
@@ -500,6 +514,7 @@ function cloneTurn(turn: StoredTurn): StoredTurn {
   const copy: StoredTurn = {
     ...turn,
     messages: cloneMessages(turn.messages),
+    structuredOutput: cloneMaybe(turn.structuredOutput),
     createdBy: cloneMaybe(turn.createdBy),
     createdAt: new Date(turn.createdAt),
   };

@@ -49,6 +49,7 @@ class StoredTurn:
     status: int
     messages: list[dict[str, Any]]
     output_text: str
+    structured_output: dict[str, Any] | None
     status_message: str
     created_by: dict[str, str]
     created_at: datetime
@@ -218,6 +219,7 @@ class InMemoryRunStore:
                 status=gestalt.AGENT_EXECUTION_STATUS_RUNNING,
                 messages=copy.deepcopy(messages),
                 output_text="",
+                structured_output=None,
                 status_message="",
                 created_by=dict(created_by),
                 created_at=now,
@@ -263,19 +265,22 @@ class InMemoryRunStore:
                 turns = turns[:limit]
             return copy.deepcopy(turns)
 
-    def complete_turn(self, *, turn_id: str, output_text: str) -> StoredTurn | None:
+    def complete_turn(
+        self, *, turn_id: str, output_text: str, structured_output: dict[str, Any] | None = None
+    ) -> StoredTurn | None:
         with self._lock:
             turn = self._turns.get(turn_id.strip())
             if turn is None or turn.status in TERMINAL_STATUSES:
                 return copy.deepcopy(turn) if turn is not None else None
             turn.status = gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED
             turn.output_text = output_text
+            turn.structured_output = copy.deepcopy(structured_output)
             turn.completed_at = _utcnow()
+            event_data: dict[str, Any] = {"text": output_text}
+            if structured_output is not None:
+                event_data["structured_output"] = copy.deepcopy(structured_output)
             self.append_event(
-                turn_id=turn.turn_id,
-                event_type="assistant.message",
-                source=turn.provider_name,
-                data={"text": output_text},
+                turn_id=turn.turn_id, event_type="assistant.message", source=turn.provider_name, data=event_data
             )
             self.append_event(
                 turn_id=turn.turn_id,

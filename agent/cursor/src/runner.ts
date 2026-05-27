@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { AgentOptions, Run, SDKAgent, SDKMessage } from "@cursor/sdk";
+import Ajv2020, { type ErrorObject } from "ajv/dist/2020.js";
 import type {
   AgentMessage,
   ExecuteAgentToolRequest,
@@ -25,6 +26,11 @@ export type TurnEventSink = (
   eventType: string,
   data: Record<string, unknown>,
 ) => void;
+
+export type CursorTurnResult = {
+  outputText: string;
+  structuredOutput: Record<string, unknown> | undefined;
+};
 
 type ActiveTurn = {
   canceled: boolean;
@@ -53,9 +59,10 @@ export class CursorSDKRunner {
     model: string;
     messages: readonly AgentMessage[];
     runGrant: string;
+    responseSchema: Record<string, unknown> | undefined;
     cwd: string;
     onEvent: TurnEventSink;
-  }): Promise<string> {
+  }): Promise<CursorTurnResult> {
     const active: ActiveTurn = {
       canceled: this.canceledTurns.delete(input.turnId),
     };
@@ -112,9 +119,10 @@ export class CursorSDKRunner {
       runGrant: string;
       cwd: string;
       onEvent: TurnEventSink;
+      responseSchema: Record<string, unknown> | undefined;
     },
     active: ActiveTurn,
-  ): Promise<string> {
+  ): Promise<CursorTurnResult> {
     try {
       await this.raiseIfCanceled(active);
       const host = this.createHost();
@@ -153,7 +161,11 @@ export class CursorSDKRunner {
       );
       await this.raiseIfCanceled(active);
 
-      const prompt = messagesToPrompt(input.messages, this.config.systemPrompt);
+      const prompt = messagesToPrompt(
+        input.messages,
+        this.config.systemPrompt,
+        input.responseSchema,
+      );
       active.run = await active.agent.send(prompt);
       await this.raiseIfCanceled(active);
 
@@ -174,7 +186,14 @@ export class CursorSDKRunner {
           `Cursor Agent SDK run finished with status ${result.status}`,
         );
       }
-      return result.result?.trim() || assistantText.join("").trim();
+      const outputText = result.result?.trim() || assistantText.join("").trim();
+      return {
+        outputText,
+        structuredOutput: structuredOutputFromText(
+          outputText,
+          input.responseSchema,
+        ),
+      };
     } finally {
       await this.cleanupActiveTurn(input.turnId, active);
     }
@@ -298,6 +317,7 @@ function recordSDKMessage(onEvent: TurnEventSink, message: SDKMessage): string {
 function messagesToPrompt(
   messages: readonly AgentMessage[],
   systemPrompt: string,
+  responseSchema?: Record<string, unknown>,
 ): string {
   const sections: string[] = [];
   const trimmedSystemPrompt = systemPrompt.trim();
@@ -318,7 +338,57 @@ function messagesToPrompt(
       return `<message index="${index + 1}" role="${escapeAttribute(role)}">\n${JSON.stringify(payload)}\n</message>`;
     }),
   );
+  if (responseSchema) {
+    sections.push(
+      `<response_format>\nReturn exactly one JSON object and no surrounding Markdown, prose, or code fences. The object must conform to this JSON Schema:\n${JSON.stringify(responseSchema)}\n</response_format>`,
+    );
+  }
   return sections.join("\n\n");
+}
+
+function structuredOutputFromText(
+  outputText: string,
+  responseSchema: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!responseSchema) {
+    return undefined;
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(outputText);
+  } catch (error) {
+    throw new CursorExecutionError(
+      `structured output was not valid JSON: ${errorMessage(error)}`,
+    );
+  }
+  if (!isPlainObject(value)) {
+    throw new CursorExecutionError("structured output must be a JSON object");
+  }
+  const ajv = new Ajv2020({ allErrors: true, strict: false });
+  const validate = ajv.compile(responseSchema);
+  if (!validate(value)) {
+    throw new CursorExecutionError(
+      `structured output did not match response_schema: ${formatAjvErrors(validate.errors)}`,
+    );
+  }
+  return value;
+}
+
+function formatAjvErrors(errors: ErrorObject[] | null | undefined): string {
+  return (errors ?? [])
+    .map((error) => `${error.instancePath || "/"} ${error.message ?? "is invalid"}`)
+    .join("; ");
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 function escapeAttribute(value: string): string {

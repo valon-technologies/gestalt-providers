@@ -60,8 +60,11 @@ or calling a tool. The proxy searches only catalog metadata returned by
 `AgentHost.ListTools`, and tool execution still goes through
 `AgentHost.ExecuteTool` with the per-turn run grant.
 
-Resolved inline tools and structured output are not supported. Hermes may still
-emit its own ACP tool-progress updates; they are surfaced as turn events only.
+Resolved inline tools are not supported. Hermes does not expose a native
+structured-output option, so response-schema turns append a JSON-only
+instruction, parse the final accumulated assistant text, and validate it before
+populating `structuredOutput`. Hermes may still emit its own ACP tool-progress
+updates; they are surfaced as turn events only.
 
 The provider auto-approves ACP permission requests. Hermes CLI must be installed
 separately; `Hermes Agent v0.12.0` or newer is expected.

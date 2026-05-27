@@ -5,6 +5,7 @@ requires-python = "==3.14.*"
 dependencies = [
   "openai-agents==0.14.8",
   "mcp==1.27.0",
+  "jsonschema==4.26.0",
   "gestalt-sdk",
 ]
 

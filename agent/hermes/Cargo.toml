@@ -18,6 +18,7 @@ agent-client-protocol-tokio = "=0.11.1"
 axum = "0.8"
 gestalt = { package = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git", rev = "5348fc59b5008247405f95aad6c7eef9eced9609" }
 getrandom = "0.4"
+jsonschema = { version = "0.46.5", default-features = false }
 rmcp = { version = "1.6", features = ["transport-streamable-http-server"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

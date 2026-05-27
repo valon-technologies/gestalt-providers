@@ -16,6 +16,8 @@ The first cut is intentionally small:
 - optional Codex surfaces such as apps, multi-agent tools, hooks, skills, and
   web search disabled in the generated per-turn config
 - Gestalt tool calls routed through `AgentHost.ExecuteTool`
+- response-schema turns append a JSON-only instruction, parse the final Codex
+  text, validate it, and populate `structured_output`
 
 `enabled_tools` constrains only the Gestalt MCP tools exposed to Codex. Codex may
 still use its own built-in behavior within the configured sandbox.

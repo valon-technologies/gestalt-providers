@@ -501,7 +501,7 @@ impl gestalt::AgentProvider for HermesAgentProvider {
             streaming_text: true,
             tool_calls: true,
             parallel_tool_calls: false,
-            structured_output: false,
+            structured_output: true,
             interactions: false,
             resumable_turns: false,
             reasoning_summaries: true,
@@ -550,12 +550,13 @@ impl HermesAgentProvider {
             return;
         }
         match result {
-            Ok(()) => {
+            Ok(structured_output) => {
                 store.append_event(&turn_id, "turn.completed", &provider_name, json!({}), None);
-                let _ = store.finish_turn(
+                let _ = store.finish_turn_with_structured_output(
                     &turn_id,
                     gestalt::AgentExecutionStatus::Succeeded,
                     String::new(),
+                    structured_output,
                 );
             }
             Err(err) => {
@@ -576,13 +577,22 @@ impl HermesAgentProvider {
         }
     }
 
-    async fn run_turn(&self, turn_id: &str) -> Result<(), String> {
+    async fn run_turn(&self, turn_id: &str) -> Result<Option<JsonValue>, String> {
         let config = self
             .require_config()
             .await
             .map_err(|err| err.message().to_string())?;
         let provider_name = self.provider_name().await;
-        let (session_id, acp_session_id, model, messages, tool_refs, tool_source, run_grant) = {
+        let (
+            session_id,
+            acp_session_id,
+            model,
+            messages,
+            tool_refs,
+            tool_source,
+            run_grant,
+            response_schema,
+        ) = {
             let store = self.inner.store.lock().await;
             let turn = store
                 .get_turn(turn_id)
@@ -598,6 +608,7 @@ impl HermesAgentProvider {
                 turn.tool_refs,
                 turn.tool_source,
                 turn.run_grant,
+                turn.response_schema,
             )
         };
         let mcp_catalog_enabled = tool_source == gestalt::AgentToolSourceMode::McpCatalog;
@@ -656,7 +667,7 @@ impl HermesAgentProvider {
                 return Err("turn canceled".to_string());
             }
 
-            let prompt = messages_to_prompt(&messages)?;
+            let prompt = messages_to_prompt(&messages, response_schema.as_ref())?;
             let prompt_process = process.clone();
             let prompt_session_id = acp_session_id.clone();
             let timeout = config.timeout;
@@ -682,7 +693,15 @@ impl HermesAgentProvider {
                         if let Some(err) = hermes_terminal_stderr_failure(&process).await {
                             return Err(err);
                         }
-                        return Ok(());
+                        let output_text = self
+                            .inner
+                            .store
+                            .lock()
+                            .await
+                            .get_turn(turn_id)
+                            .map(|turn| turn.output_text)
+                            .unwrap_or_default();
+                        return structured_output_from_text(&output_text, response_schema.as_ref());
                     }
                     notification = process.next_notification() => {
                         match notification {
@@ -910,16 +929,36 @@ fn validate_turn_request(req: &gestalt::CreateAgentProviderTurnRequest) -> gesta
             }
         }
     }
-    if has_object_fields(req.response_schema.as_ref()) {
-        return Err(gestalt::Error::bad_request(
-            "response_schema is not supported by agent/hermes",
-        ));
-    }
+    validate_response_schema(req.response_schema.as_ref())?;
     if has_object_fields(req.model_options.as_ref()) {
         return Err(gestalt::Error::bad_request(
             "model_options are not supported by agent/hermes",
         ));
     }
+    Ok(())
+}
+
+fn validate_response_schema(schema: Option<&JsonValue>) -> gestalt::Result<()> {
+    let Some(schema) = schema else {
+        return Ok(());
+    };
+    let Some(object) = schema.as_object() else {
+        return Err(gestalt::Error::bad_request(
+            "response_schema must be a non-empty JSON schema object with type 'object'",
+        ));
+    };
+    if object.is_empty() {
+        return Err(gestalt::Error::bad_request(
+            "response_schema must be a non-empty JSON schema object with type 'object'",
+        ));
+    }
+    if object.get("type").and_then(JsonValue::as_str) != Some("object") {
+        return Err(gestalt::Error::bad_request(
+            "response_schema.type must be 'object'",
+        ));
+    }
+    jsonschema::meta::validate(schema)
+        .map_err(|err| gestalt::Error::bad_request(format!("response_schema is invalid: {err}")))?;
     Ok(())
 }
 
@@ -989,7 +1028,10 @@ fn validate_mcp_catalog_tool_refs(refs: &[gestalt::AgentToolRef]) -> gestalt::Re
     Ok(())
 }
 
-fn messages_to_prompt(messages: &[gestalt::AgentMessage]) -> Result<String, String> {
+fn messages_to_prompt(
+    messages: &[gestalt::AgentMessage],
+    response_schema: Option<&JsonValue>,
+) -> Result<String, String> {
     let mut prompt = String::new();
     for (index, message) in messages.iter().enumerate() {
         writeln!(
@@ -1010,7 +1052,35 @@ fn messages_to_prompt(messages: &[gestalt::AgentMessage]) -> Result<String, Stri
         }
         writeln!(&mut prompt, "</message>").map_err(|err| err.to_string())?;
     }
+    if let Some(schema) = response_schema {
+        let serialized = serde_json::to_string(schema).map_err(|err| err.to_string())?;
+        writeln!(
+            &mut prompt,
+            "<response_format>\nReturn exactly one JSON object and no surrounding Markdown, prose, or code fences. The object must conform to this JSON Schema:\n{serialized}\n</response_format>"
+        )
+        .map_err(|err| err.to_string())?;
+    }
     Ok(prompt)
+}
+
+fn structured_output_from_text(
+    output_text: &str,
+    response_schema: Option<&JsonValue>,
+) -> Result<Option<JsonValue>, String> {
+    let Some(schema) = response_schema else {
+        return Ok(None);
+    };
+    let value: JsonValue = serde_json::from_str(output_text)
+        .map_err(|err| format!("structured output was not valid JSON: {err}"))?;
+    if !value.is_object() {
+        return Err("structured output must be a JSON object".to_string());
+    }
+    let validator = jsonschema::validator_for(schema)
+        .map_err(|err| format!("response_schema is invalid: {err}"))?;
+    validator
+        .validate(&value)
+        .map_err(|err| format!("structured output did not match response_schema: {err}"))?;
+    Ok(Some(value))
 }
 
 fn message_part_to_json(part: &gestalt::AgentMessagePart) -> JsonValue {

@@ -224,7 +224,7 @@ describe("Cursor agent provider contract", () => {
       expect(capabilities.streamingText).toBe(false);
       expect(capabilities.toolCalls).toBe(true);
       expect(capabilities.boundedListHydration).toBe(true);
-      expect(capabilities.structuredOutput).toBe(false);
+      expect(capabilities.structuredOutput).toBe(true);
       expect(capabilities.interactions).toBe(false);
       expect(capabilities.resumableTurns).toBe(false);
       expect(capabilities.supportedToolSources).toEqual([
@@ -759,6 +759,166 @@ describe("Cursor agent provider contract", () => {
     );
   });
 
+  test("returns structured output for response schema turns", async () => {
+    const host = await FakeAgentHost.start({
+      pages: [{ tools: [tool({ id: "tool", mcpName: "tool" })] }],
+    });
+    activeHosts.push(host);
+    process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
+    let prompt = "";
+    const cursor = new FakeCursorAgentFactory(async (_options, runPrompt) => {
+      prompt = runPrompt;
+      return {
+        waitResult: '{"answer":"done"}',
+        messages: [
+          {
+            type: "assistant",
+            agent_id: "fake-agent",
+            run_id: "fake-run",
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: '{"answer":"done"}' }],
+            },
+          },
+        ],
+      };
+    });
+    const provider = await configuredProvider({
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, { agentFactory: cursor }),
+    });
+    await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "session-structured",
+      }),
+    );
+    await provider.createTurn(
+      create(CreateAgentProviderTurnRequestSchema, {
+        turnId: "turn-structured",
+        sessionId: "session-structured",
+        messages: [{ role: "user", text: "answer" }],
+        toolSource: AgentToolSourceMode.MCP_CATALOG,
+        runGrant: "grant",
+        toolRefs: [{ app: "p", operation: "o" }],
+        responseSchema: {
+          type: "object",
+          properties: { answer: { type: "string" } },
+          required: ["answer"],
+          additionalProperties: false,
+        },
+      }),
+    );
+
+    const turn = await waitForTurn(
+      provider,
+      "turn-structured",
+      AgentExecutionStatus.SUCCEEDED,
+    );
+    expect(turn.outputText).toBe('{"answer":"done"}');
+    expect(turn.structuredOutput).toEqual({ answer: "done" });
+    expect(prompt).toContain("<response_format>");
+    expect(prompt).toContain('"required":["answer"]');
+    const events = await provider.listTurnEvents(
+      create(ListAgentProviderTurnEventsRequestSchema, {
+        turnId: "turn-structured",
+      }),
+    );
+    const message = events.find((event) => event.type === "assistant.message");
+    expect(message?.data).toEqual({
+      text: '{"answer":"done"}',
+      structured_output: { answer: "done" },
+    });
+  });
+
+  test("fails response schema turns when final output does not validate", async () => {
+    const host = await FakeAgentHost.start({
+      pages: [{ tools: [tool({ id: "tool", mcpName: "tool" })] }],
+    });
+    activeHosts.push(host);
+    process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
+    const cursor = new FakeCursorAgentFactory(async () => ({
+      waitResult: '{"wrong":true}',
+    }));
+    const provider = await configuredProvider({
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, { agentFactory: cursor }),
+    });
+    await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "session-structured-invalid",
+      }),
+    );
+    await provider.createTurn(
+      create(CreateAgentProviderTurnRequestSchema, {
+        turnId: "turn-structured-invalid",
+        sessionId: "session-structured-invalid",
+        messages: [{ role: "user", text: "answer" }],
+        toolSource: AgentToolSourceMode.MCP_CATALOG,
+        runGrant: "grant",
+        toolRefs: [{ app: "p", operation: "o" }],
+        responseSchema: { type: "object", required: ["answer"] },
+      }),
+    );
+
+    const turn = await waitForTurn(
+      provider,
+      "turn-structured-invalid",
+      AgentExecutionStatus.FAILED,
+    );
+    expect(turn.statusMessage).toContain(
+      "structured output did not match response_schema",
+    );
+  });
+
+  test("validates draft 2020-12 structured output keywords", async () => {
+    const host = await FakeAgentHost.start({
+      pages: [{ tools: [tool({ id: "tool", mcpName: "tool" })] }],
+    });
+    activeHosts.push(host);
+    process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
+    const cursor = new FakeCursorAgentFactory(async () => ({
+      waitResult: '{"tuple":["ok",2]}',
+    }));
+    const provider = await configuredProvider({
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, { agentFactory: cursor }),
+    });
+    await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "session-structured-2020",
+      }),
+    );
+    await provider.createTurn(
+      create(CreateAgentProviderTurnRequestSchema, {
+        turnId: "turn-structured-2020",
+        sessionId: "session-structured-2020",
+        messages: [{ role: "user", text: "answer" }],
+        toolSource: AgentToolSourceMode.MCP_CATALOG,
+        runGrant: "grant",
+        toolRefs: [{ app: "p", operation: "o" }],
+        responseSchema: {
+          type: "object",
+          properties: {
+            tuple: {
+              type: "array",
+              prefixItems: [{ type: "string" }, { type: "string" }],
+            },
+          },
+          required: ["tuple"],
+        },
+      }),
+    );
+
+    const turn = await waitForTurn(
+      provider,
+      "turn-structured-2020",
+      AgentExecutionStatus.FAILED,
+    );
+    expect(turn.statusMessage).toContain(
+      "structured output did not match response_schema",
+    );
+  });
+
   test("prepared workspace requires both root and cwd", async () => {
     const provider = await configuredProvider();
     await expect(
@@ -890,9 +1050,19 @@ describe("Cursor agent provider contract", () => {
         "resolved tools are not supported",
       ],
       [
-        "response schema",
-        { responseSchema: { type: "object" } },
-        "response_schema",
+        "bad response schema",
+        { responseSchema: { type: "array" } },
+        "response_schema.type",
+      ],
+      [
+        "invalid response schema",
+        {
+          responseSchema: {
+            type: "object",
+            properties: { answer: { type: "bogus" } },
+          },
+        },
+        "response_schema is invalid",
       ],
       [
         "model options",

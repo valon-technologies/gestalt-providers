@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Protocol
 
+from jsonschema import SchemaError, ValidationError
+from jsonschema.validators import validator_for
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp import types as mcp_types
@@ -41,20 +43,14 @@ class CodexMCPServerProtocol(Protocol):
 
     async def list_tools(self) -> list[mcp_types.Tool]: ...
 
-    async def call_tool(
-        self, name: str, arguments: dict[str, Any]
-    ) -> mcp_types.CallToolResult: ...
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> mcp_types.CallToolResult: ...
 
     async def cleanup(self) -> None: ...
 
 
 class ServerFactory(Protocol):
     def __call__(
-        self,
-        *,
-        params: dict[str, Any],
-        name: str,
-        client_session_timeout_seconds: float,
+        self, *, params: dict[str, Any], name: str, client_session_timeout_seconds: float
     ) -> CodexMCPServerProtocol: ...
 
 
@@ -62,6 +58,12 @@ class ServerFactory(Protocol):
 class _ActiveTurn:
     loop: asyncio.AbstractEventLoop
     server: CodexMCPServerProtocol | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CodexTurnResult:
+    output_text: str
+    structured_output: dict[str, Any] | None = None
 
 
 class CodexMCPStdioServer:
@@ -131,9 +133,10 @@ class CodexMCPRunner:
         model: str,
         messages: list[dict[str, Any]],
         run_grant: str,
+        response_schema: dict[str, Any] | None = None,
         skill_roots: list[str] | None = None,
         cwd: str = "",
-    ) -> str:
+    ) -> CodexTurnResult:
         try:
             return asyncio.run(
                 asyncio.wait_for(
@@ -143,6 +146,7 @@ class CodexMCPRunner:
                         model=model,
                         messages=messages,
                         run_grant=run_grant,
+                        response_schema=response_schema,
                         skill_roots=skill_roots or [],
                         cwd=cwd,
                     ),
@@ -179,16 +183,17 @@ class CodexMCPRunner:
         model: str,
         messages: list[dict[str, Any]],
         run_grant: str,
+        response_schema: dict[str, Any] | None,
         skill_roots: list[str],
         cwd: str,
-    ) -> str:
+    ) -> CodexTurnResult:
         loop = asyncio.get_running_loop()
         self._register_active_turn(turn_id, _ActiveTurn(loop=loop))
         server: CodexMCPServerProtocol | None = None
         bridge: BridgeHTTPServer | None = None
         try:
             self._raise_if_canceled(turn_id)
-            prompt = messages_to_prompt(messages)
+            prompt = messages_to_prompt(messages, response_schema=response_schema)
             if not prompt:
                 raise CodexExecutionError("turn prompt is empty")
 
@@ -234,7 +239,9 @@ class CodexMCPRunner:
                     ),
                 )
                 self._raise_if_canceled(turn_id)
-                return normalize_codex_result(result)
+                output_text = normalize_codex_result(result)
+                structured_output = structured_output_from_text(output_text, response_schema)
+                return CodexTurnResult(output_text=output_text, structured_output=structured_output)
         except asyncio.CancelledError:
             self.cancel_turn(turn_id)
             raise
@@ -383,7 +390,7 @@ def _materialize_codex_skills(*, codex_home: str, skill_roots: list[str]) -> Non
                 shutil.copytree(skill_dir, target, symlinks=True, dirs_exist_ok=True)
 
 
-def messages_to_prompt(messages: list[dict[str, Any]]) -> str:
+def messages_to_prompt(messages: list[dict[str, Any]], *, response_schema: dict[str, Any] | None = None) -> str:
     lines: list[str] = []
     for index, message in enumerate(messages, start=1):
         role = str(message.get("role") or "user").strip() or "user"
@@ -391,7 +398,35 @@ def messages_to_prompt(messages: list[dict[str, Any]]) -> str:
         if not content:
             continue
         lines.append(f"<message {index} role={json.dumps(role)}>\n{content}\n</message {index}>")
+    if response_schema is not None:
+        lines.append(
+            "<response_format>\n"
+            "Return exactly one JSON object and no surrounding Markdown, prose, or code fences. "
+            "The object must conform to this JSON Schema:\n"
+            f"{json.dumps(response_schema, sort_keys=True, separators=(',', ':'))}\n"
+            "</response_format>"
+        )
     return "\n\n".join(lines).strip()
+
+
+def structured_output_from_text(output_text: str, response_schema: dict[str, Any] | None) -> dict[str, Any] | None:
+    if response_schema is None:
+        return None
+    try:
+        value = json.loads(output_text)
+    except json.JSONDecodeError as exc:
+        raise CodexExecutionError(f"structured output was not valid JSON: {exc.msg}") from exc
+    if not isinstance(value, dict):
+        raise CodexExecutionError("structured output must be a JSON object")
+    try:
+        validator_cls = validator_for(response_schema)
+        validator_cls.check_schema(response_schema)
+        validator_cls(response_schema).validate(value)
+    except SchemaError as exc:
+        raise CodexExecutionError(f"response_schema is invalid: {exc.message}") from exc
+    except ValidationError as exc:
+        raise CodexExecutionError(f"structured output did not match response_schema: {exc.message}") from exc
+    return value
 
 
 def _message_content(message: dict[str, Any]) -> str:

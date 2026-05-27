@@ -26,6 +26,7 @@ import {
   type ResolveAgentProviderInteractionRequest,
   type UpdateAgentProviderSessionRequest,
 } from "@valon-technologies/gestalt";
+import Ajv2020 from "ajv/dist/2020.js";
 
 import {
   parseCursorAgentConfig,
@@ -249,6 +250,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     }
 
     const model = modelFor(config, request.model || session.model);
+    const responseSchema = responseSchemaFromRequest(request.responseSchema);
     let turn;
     let created = false;
     try {
@@ -279,6 +281,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         model,
         messages: turn.messages,
         runGrant: request.runGrant.trim(),
+        responseSchema,
         cwd: session.preparedWorkspace?.cwd ?? "",
       });
     }
@@ -424,7 +427,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
       streamingText: false,
       toolCalls: true,
       parallelToolCalls: false,
-      structuredOutput: false,
+      structuredOutput: true,
       interactions: false,
       resumableTurns: false,
       reasoningSummaries: false,
@@ -455,6 +458,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     model: string;
     messages: AgentMessage[];
     runGrant: string;
+    responseSchema: Record<string, unknown> | undefined;
     cwd: string;
   }): Promise<void> {
     try {
@@ -464,6 +468,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         model: input.model,
         messages: input.messages,
         runGrant: input.runGrant,
+        responseSchema: input.responseSchema,
         cwd: input.cwd,
         onEvent: (eventType, data) => {
           this.store.appendEvent({
@@ -474,7 +479,11 @@ export class CursorAgentProvider extends SDKAgentProvider {
           });
         },
       });
-      this.store.completeTurn(input.turnId, output);
+      this.store.completeTurn(
+        input.turnId,
+        output.outputText,
+        output.structuredOutput,
+      );
     } catch (error) {
       if (error instanceof CursorExecutionCanceled) {
         this.store.cancelTurn(input.turnId, error.message);
@@ -549,13 +558,40 @@ function validateCreateTurnRequest(
       "resolved tools are not supported; use tool_refs with mcp_catalog",
     );
   }
-  if (hasObjectData(request.responseSchema)) {
-    throw invalidArgument("response_schema is not supported by agent/cursor");
-  }
+  validateResponseSchema(request.responseSchema);
   if (hasObjectData(request.modelOptions)) {
     throw invalidArgument("model_options are not supported by agent/cursor");
   }
   validateToolRefs(request.toolRefs);
+}
+
+function validateResponseSchema(
+  schema: CreateAgentProviderTurnRequest["responseSchema"],
+): void {
+  if (schema === undefined) {
+    return;
+  }
+  if (!hasObjectData(schema)) {
+    throw invalidArgument(
+      "response_schema must be a non-empty JSON schema object with type 'object'",
+    );
+  }
+  if ((schema as Record<string, unknown>).type !== "object") {
+    throw invalidArgument("response_schema.type must be 'object'");
+  }
+  try {
+    new Ajv2020({ allErrors: true, strict: false }).compile(
+      schema as Record<string, unknown>,
+    );
+  } catch (error) {
+    throw invalidArgument(`response_schema is invalid: ${errorMessage(error)}`);
+  }
+}
+
+function responseSchemaFromRequest(
+  schema: CreateAgentProviderTurnRequest["responseSchema"],
+): Record<string, unknown> | undefined {
+  return hasObjectData(schema) ? objectOrEmpty(schema) : undefined;
 }
 
 function validateToolRefs(

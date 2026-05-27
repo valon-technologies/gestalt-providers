@@ -36,6 +36,7 @@ async fn completes_turn_and_refreshes_adc_token_per_turn() {
     assert!(capabilities.streaming_text);
     assert!(capabilities.tool_calls);
     assert!(capabilities.bounded_list_hydration);
+    assert!(capabilities.structured_output);
     assert_eq!(
         capabilities.supported_tool_sources,
         vec![gestalt::AgentToolSourceMode::McpCatalog]
@@ -103,6 +104,93 @@ async fn completes_turn_and_refreshes_adc_token_per_turn() {
         log.iter().filter(|event| event["event"] == "load").count(),
         2,
         "{log:?}"
+    );
+}
+
+#[tokio::test]
+async fn returns_structured_output_for_response_schema_turns() {
+    let fixture = Fixture::new("structured");
+    let provider = fixture.configure_provider().await;
+    create_session(&provider).await;
+
+    provider
+        .create_turn(gestalt::CreateAgentProviderTurnRequest {
+            turn_id: "turn-structured".to_string(),
+            session_id: "session-1".to_string(),
+            messages: vec![gestalt::AgentMessage {
+                role: "user".to_string(),
+                text: "answer".to_string(),
+                ..Default::default()
+            }],
+            response_schema: Some(json!({
+                "type": "object",
+                "properties": {"answer": {"type": "string"}},
+                "required": ["answer"],
+                "additionalProperties": false
+            })),
+            created_by: Some(owner_actor()),
+            subject: Some(owner_subject()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+    let turn = wait_for_turn(
+        &provider,
+        "turn-structured",
+        gestalt::AgentExecutionStatus::Succeeded,
+    )
+    .await;
+    assert_eq!(turn.output_text, r#"{"answer":"done"}"#);
+    assert_eq!(turn.structured_output, Some(json!({"answer": "done"})));
+
+    let log = fixture.log_events();
+    let prompt = log
+        .iter()
+        .find(|event| event["event"] == "prompt")
+        .and_then(|event| event["params"]["prompt"][0]["text"].as_str())
+        .unwrap_or_default();
+    assert!(prompt.contains("<response_format>"), "{prompt}");
+    assert!(prompt.contains(r#""required":["answer"]"#), "{prompt}");
+}
+
+#[tokio::test]
+async fn fails_turn_when_structured_output_does_not_match_schema() {
+    let fixture = Fixture::new("structured-invalid");
+    let provider = fixture.configure_provider().await;
+    create_session(&provider).await;
+
+    provider
+        .create_turn(gestalt::CreateAgentProviderTurnRequest {
+            turn_id: "turn-structured-invalid".to_string(),
+            session_id: "session-1".to_string(),
+            messages: vec![gestalt::AgentMessage {
+                role: "user".to_string(),
+                text: "answer".to_string(),
+                ..Default::default()
+            }],
+            response_schema: Some(json!({
+                "type": "object",
+                "required": ["answer"]
+            })),
+            created_by: Some(owner_actor()),
+            subject: Some(owner_subject()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+    let turn = wait_for_turn(
+        &provider,
+        "turn-structured-invalid",
+        gestalt::AgentExecutionStatus::Failed,
+    )
+    .await;
+    assert!(
+        turn.status_message
+            .contains("structured output did not match response_schema"),
+        "{}",
+        turn.status_message
     );
 }
 
@@ -1000,7 +1088,7 @@ async fn rejects_unsupported_tool_and_model_options() {
                 text: "hi".to_string(),
                 ..Default::default()
             }],
-            response_schema: Some(json!({ "type": "object" })),
+            response_schema: Some(json!({ "type": "array" })),
             created_by: Some(owner_actor()),
             subject: Some(owner_subject()),
             ..Default::default()
@@ -1008,6 +1096,29 @@ async fn rejects_unsupported_tool_and_model_options() {
         .await
         .unwrap_err();
     assert_eq!(err.status(), Some(400));
+    assert!(err.message().contains("response_schema.type"));
+
+    let err = provider
+        .create_turn(gestalt::CreateAgentProviderTurnRequest {
+            turn_id: "turn-invalid-schema".to_string(),
+            session_id: "session-1".to_string(),
+            messages: vec![gestalt::AgentMessage {
+                role: "user".to_string(),
+                text: "hi".to_string(),
+                ..Default::default()
+            }],
+            response_schema: Some(json!({
+                "type": "object",
+                "properties": {"answer": {"type": "bogus"}}
+            })),
+            created_by: Some(owner_actor()),
+            subject: Some(owner_subject()),
+            ..Default::default()
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.status(), Some(400));
+    assert!(err.message().contains("response_schema is invalid"));
 
     let err = provider
         .create_turn(gestalt::CreateAgentProviderTurnRequest {

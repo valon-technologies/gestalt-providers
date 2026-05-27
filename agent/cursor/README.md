@@ -2,7 +2,7 @@
 
 This agent provider runs the official Cursor Agent SDK and exposes Gestalt MCP catalog tools through a per-turn localhost MCP server.
 
-The provider is intentionally in-memory. It does not support durable turn resume, branching, forking, structured output, interactions, custom prompts, subagents, plugins, skills, or hooks. Cursor SDK currently does not expose a general switch for disabling built-in local harness tools; the provider limits ambient configuration with `local.settingSources: []`, uses only the Gestalt MCP server in `mcpServers`, isolates per-turn state, and can enable Cursor sandboxing when configured.
+The provider is intentionally in-memory. It does not support durable turn resume, branching, forking, interactions, custom prompts, subagents, plugins, skills, or hooks. Cursor SDK currently does not expose a native structured-output option, so response-schema turns append a JSON-only instruction, parse the final assistant text, and validate it before populating `structuredOutput`. Cursor SDK currently does not expose a general switch for disabling built-in local harness tools; the provider limits ambient configuration with `local.settingSources: []`, uses only the Gestalt MCP server in `mcpServers`, isolates per-turn state, and can enable Cursor sandboxing when configured.
 
 Configuration:
 

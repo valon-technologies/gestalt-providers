@@ -39,6 +39,8 @@ pub struct StoredTurn {
     pub status: AgentExecutionStatus,
     pub messages: Vec<AgentMessage>,
     pub output_text: String,
+    pub response_schema: Option<serde_json::Value>,
+    pub structured_output: Option<serde_json::Value>,
     pub status_message: String,
     pub created_by: Option<AgentActor>,
     pub created_at: Option<SystemTime>,
@@ -288,6 +290,8 @@ impl Store {
             status: AgentExecutionStatus::Running,
             messages: req.messages.clone(),
             output_text: String::new(),
+            response_schema: req.response_schema.clone(),
+            structured_output: None,
             status_message: String::new(),
             created_by: req.created_by.clone(),
             created_at: Some(now),
@@ -400,6 +404,16 @@ impl Store {
         status: AgentExecutionStatus,
         status_message: String,
     ) -> Option<StoredTurn> {
+        self.finish_turn_with_structured_output(turn_id, status, status_message, None)
+    }
+
+    pub fn finish_turn_with_structured_output(
+        &mut self,
+        turn_id: &str,
+        status: AgentExecutionStatus,
+        status_message: String,
+        structured_output: Option<serde_json::Value>,
+    ) -> Option<StoredTurn> {
         let now = SystemTime::now();
         let turn = self.turns.get_mut(turn_id.trim())?;
         if is_terminal(turn.status) {
@@ -407,6 +421,7 @@ impl Store {
         }
         turn.status = status;
         turn.status_message = status_message;
+        turn.structured_output = structured_output;
         turn.completed_at = Some(now);
         if let Some(session) = self.sessions.get_mut(&turn.session_id) {
             if session.active_turn_id.as_deref() == Some(turn_id.trim()) {
@@ -522,7 +537,11 @@ pub fn agent_turn(turn: StoredTurn, summary_only: bool) -> AgentTurn {
         } else {
             turn.output_text
         },
-        structured_output: None,
+        structured_output: if summary_only {
+            None
+        } else {
+            turn.structured_output
+        },
         status_message: turn.status_message,
         created_by: turn.created_by,
         created_at: turn.created_at,
