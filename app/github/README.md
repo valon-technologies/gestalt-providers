@@ -156,6 +156,18 @@ apps:
           match:
             events: [pull_request]
             actions: [opened, synchronize, reopened, ready_for_review]
+          trigger:
+            frequency: once_per_head_sha
+            includeDrafts: false
+          dedupe:
+            scope: pr_head
+          comments:
+            timelinePolicy: never
+            inlinePolicy: findings_only
+          action:
+            mode: observe
+            allowCodeReviewComments: true
+            selfFixMode: disabled
           workflow:
             provider: temporal
             target:
@@ -164,9 +176,11 @@ apps:
                   app:
                     name: github
                     operation: reviewPullRequest
+                    credentialMode: none
                     input:
                       maxComments: 10
                       changedLinesOnly: true
+                      autoResolveStaleFindings: true
         - id: failed-ci-comment
           match:
             events: [check_run, check_suite, workflow_run]
@@ -399,13 +413,17 @@ deterministic workflow app target instead of the generated agent target. The
 target `input` is static configuration only; webhook event details are delivered
 through the workflow signal payload and are not merged into `input`. Use an app
 step with `name: github` and `operation: reviewPullRequest` for the built-in
-workflow-backed PR reviewer; it fetches the PR, validates agent findings against
-changed RIGHT-side diff lines, and posts one inline review only when it has
-line-anchored findings. It rejects draft pull requests and only supports exact
-manual `gestalt review`-style comment triggers when invoked from
-`issue_comment` signals. Workflow providers derive app-target access from the
-target app; grant cross-app access through the workflow definition rather than
-target input.
+workflow-backed PR reviewer; this is the deterministic path for resolving
+addressed provider-owned inline threads. It fetches the PR, validates agent
+findings against changed RIGHT-side diff lines, posts one inline review only
+when it has line-anchored findings, and, unless `autoResolveStaleFindings` is
+false, resolves older marked bot-owned threads whose fingerprints are not in the
+current review. Put this target under each `webhookPolicies[*]` entry; a
+top-level `workflow.target` is not supported. It rejects draft pull requests and
+only supports exact manual `gestalt review`-style comment triggers when invoked
+from `issue_comment` signals. Workflow providers derive app-target access from
+the target app; grant cross-app access through the workflow definition rather
+than target input.
 
 After signature validation, the hosted HTTP binding invokes `events.handle`
 before acknowledging the GitHub delivery. `events.handle` filters the event and

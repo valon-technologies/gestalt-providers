@@ -3717,6 +3717,154 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(signal_payload["repository"]["full_name"], "acme/widgets")
         self.assertEqual(signal_payload["agent_request"]["pull_request"]["number"], 7)
 
+    def test_builtin_review_app_target_uses_read_only_inner_agent_tools(
+        self,
+    ) -> None:
+        agent_client = FakeAgentClient(
+            findings=[
+                {
+                    "path": "src/widget.py",
+                    "line": 2,
+                    "body": "Review finding.",
+                }
+            ]
+        )
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "agent": {"provider": "simple", "model": "deep"},
+                "webhookPolicies": [
+                    {
+                        "id": "pr-review",
+                        "match": {
+                            "events": ["pull_request"],
+                            "actions": ["synchronize"],
+                        },
+                        "action": {
+                            "mode": "observe",
+                            "allowCodeReviewComments": True,
+                            "selfFixMode": "disabled",
+                        },
+                        "workflow": {
+                            "target": {
+                                "steps": [
+                                    {
+                                        "id": "reviewPullRequest",
+                                        "app": {
+                                            "name": "github",
+                                            "operation": "reviewPullRequest",
+                                            "credentialMode": "none",
+                                            "input": {
+                                                "dryRun": True,
+                                                "autoResolveStaleFindings": True
+                                            },
+                                        },
+                                    }
+                                ]
+                            }
+                        },
+                    }
+                ],
+            },
+        )
+        workflow_request = self._workflow_signal_request(
+            {
+                "action": "synchronize",
+                "installation": {"id": 99},
+                "repository": {"full_name": "acme/widgets"},
+                "pull_request": {
+                    "number": 7,
+                    "title": "Fix widgets",
+                    "state": "open",
+                    "html_url": "https://github.com/acme/widgets/pull/7",
+                    "head": {"ref": "feature", "sha": "abc123"},
+                    "base": {"ref": "main", "sha": "def456"},
+                },
+                "headers": {"X-GitHub-Event": "pull_request"},
+                "sender": {"login": "octocat"},
+            }
+        )
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {"payload": sdk_value_to_dict(workflow_request.signal.payload)}
+            ]
+        }
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent",
+                return_value=agent_client,
+                create=True,
+            ),
+            mock.patch(
+                "internals.review.get_pull_request",
+                return_value={
+                    "number": 7,
+                    "draft": False,
+                    "head": {"ref": "feature", "sha": "abc123"},
+                    "base": {"ref": "main", "sha": "def456"},
+                },
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_files",
+                return_value=[
+                    {
+                        "filename": "src/widget.py",
+                        "status": "modified",
+                        "patch": "@@ -1 +1,2 @@\n context\n+bad = True",
+                    }
+                ],
+            ),
+            mock.patch(
+                "internals.review.create_pull_request_review",
+                side_effect=AssertionError("dry run should not post a review"),
+            ),
+            mock.patch(
+                "internals.review.resolve_pull_request_review_thread",
+                side_effect=AssertionError("dry run should not resolve threads"),
+            ),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(
+                    dryRun=True,
+                    autoResolveStaleFindings=False,
+                ),
+                request,
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["dry_run"], True)
+        inner_agent_operations = {
+            ref.operation for ref in agent_client.turns[0].tool_refs
+        }
+        self.assertIn(
+            provider_module.BOT_GET_PULL_REQUEST_OPERATION, inner_agent_operations
+        )
+        self.assertIn(
+            provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+            inner_agent_operations,
+        )
+        self.assertNotIn(
+            provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
+            inner_agent_operations,
+        )
+        self.assertNotIn(
+            provider_module.BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
+            inner_agent_operations,
+        )
+        self.assertNotIn(
+            provider_module.BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
+            inner_agent_operations,
+        )
+        self.assertNotIn(
+            provider_module.BOT_COMMIT_FILES_OPERATION, inner_agent_operations
+        )
+
     def test_builtin_review_policy_creates_check_run_before_workflow_enqueue(
         self,
     ) -> None:
@@ -5896,6 +6044,306 @@ class GitHubProviderTests(unittest.TestCase):
                     current_fingerprints={fingerprint},
                 )
                 self.assertEqual(decision, "missing_marker")
+
+    def test_review_thread_resolution_decision_skip_matrix(self) -> None:
+        current_fingerprint = "a" * 64
+        stale_fingerprint = "b" * 64
+        current_body = review_module.review_comment_body_with_marker(
+            "Current bug",
+            review_module.ReviewFindingFingerprints(
+                fingerprint=current_fingerprint,
+                stable_fingerprint=current_fingerprint,
+            ),
+        )
+        stale_body = review_module.review_comment_body_with_marker(
+            "Old bug",
+            review_module.ReviewFindingFingerprints(
+                fingerprint=stale_fingerprint,
+                stable_fingerprint=stale_fingerprint,
+            ),
+        )
+        wrong_source_body = (
+            "<!-- gestalt:github-review-finding v2 "
+            f"fingerprint={stale_fingerprint} "
+            f"stable_fingerprint={stale_fingerprint} "
+            "source=other.review -->"
+        )
+        bot_login = "example-app[bot]"
+        base_thread = {
+            "isResolved": False,
+            "viewerCanResolve": True,
+            "commentsTruncated": False,
+            "comments": [{"authorLogin": bot_login, "body": stale_body}],
+        }
+        cases: list[tuple[str, dict[str, Any], str]] = [
+            ("stale_provider_thread", dict(base_thread), ""),
+            (
+                "already_resolved",
+                {**base_thread, "isResolved": True},
+                "already_resolved",
+            ),
+            (
+                "viewer_cannot_resolve",
+                {**base_thread, "viewerCanResolve": False},
+                "viewer_cannot_resolve",
+            ),
+            (
+                "comments_truncated",
+                {**base_thread, "commentsTruncated": True},
+                "comments_truncated",
+            ),
+            (
+                "malformed_comment",
+                {**base_thread, "comments": ["not-a-comment-object"]},
+                "malformed_comment",
+            ),
+            (
+                "missing_marker",
+                {
+                    **base_thread,
+                    "comments": [{"authorLogin": bot_login, "body": "No marker"}],
+                },
+                "missing_marker",
+            ),
+            (
+                "wrong_marker_source",
+                {
+                    **base_thread,
+                    "comments": [
+                        {"authorLogin": bot_login, "body": wrong_source_body}
+                    ],
+                },
+                "wrong_marker_source",
+            ),
+            (
+                "non_bot_first_author",
+                {
+                    **base_thread,
+                    "comments": [{"authorLogin": "octocat", "body": stale_body}],
+                },
+                "human_reply",
+            ),
+            (
+                "human_reply",
+                {
+                    **base_thread,
+                    "comments": [
+                        {"authorLogin": bot_login, "body": stale_body},
+                        {"authorLogin": "octocat", "body": "I still see this."},
+                    ],
+                },
+                "human_reply",
+            ),
+            (
+                "current_finding",
+                {
+                    **base_thread,
+                    "comments": [{"authorLogin": bot_login, "body": current_body}],
+                },
+                "current_finding",
+            ),
+        ]
+
+        for name, thread, expected in cases:
+            with self.subTest(name=name):
+                decision = review_module.review_thread_resolution_decision(
+                    thread,
+                    bot_login=bot_login,
+                    current_fingerprints={current_fingerprint},
+                )
+                self.assertEqual(decision, expected)
+
+    def test_review_pull_request_resolves_stale_marked_bot_thread_with_no_findings(
+        self,
+    ) -> None:
+        agent_client = FakeAgentClient(findings=[])
+        resolved_requests: list[Any] = []
+        list_thread_cursors: list[str] = []
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "pull_request",
+                        "github_action": "synchronize",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                    }
+                }
+            ]
+        }
+
+        def fake_resolve(
+            request: Any, *, subject: Any, external_identity: Any | None = None
+        ) -> dict[str, Any]:
+            resolved_requests.append((request, subject))
+            return {"id": request.thread_id, "isResolved": True}
+
+        def fake_list_threads(
+            request: Any, *, subject: Any, external_identity: Any | None = None
+        ) -> dict[str, Any]:
+            list_thread_cursors.append(request.after)
+            return {
+                "threads": [
+                    {
+                        "id": "thread-stale",
+                        "isResolved": False,
+                        "viewerCanResolve": True,
+                        "commentsTruncated": False,
+                        "comments": [
+                            {
+                                "authorLogin": "example-app[bot]",
+                                "body": review_module.review_comment_body_with_marker(
+                                    "Old bug no longer exists.",
+                                    review_module.ReviewFindingFingerprints(
+                                        fingerprint="c" * 64,
+                                        stable_fingerprint="c" * 64,
+                                    ),
+                                ),
+                            }
+                        ],
+                    }
+                ],
+                "pageInfo": {"hasNextPage": False, "endCursor": ""},
+            }
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent",
+                return_value=agent_client,
+                create=True,
+            ),
+            mock.patch(
+                "internals.review.get_pull_request",
+                return_value={
+                    "number": 7,
+                    "draft": False,
+                    "head": {"ref": "feature", "sha": "abc123"},
+                    "base": {"ref": "main", "sha": "def456"},
+                },
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_files",
+                return_value=[
+                    {
+                        "filename": "src/widget.py",
+                        "status": "modified",
+                        "patch": "@@ -1 +1,2 @@\n context\n+ok = True",
+                    }
+                ],
+            ),
+            mock.patch(
+                "internals.review.create_pull_request_review",
+                side_effect=AssertionError("review should not be posted"),
+            ),
+            mock.patch(
+                "internals.review.bot_identity_or_none",
+                return_value=GitHubBotIdentity(
+                    name="Example App Bot",
+                    login="example-app[bot]",
+                    user_id="12345678",
+                    email="12345678+example-app[bot]@users.noreply.github.com",
+                ),
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_review_threads",
+                side_effect=fake_list_threads,
+            ),
+            mock.patch(
+                "internals.review.resolve_pull_request_review_thread",
+                side_effect=fake_resolve,
+            ),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(), request
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["posted"], False)
+        self.assertEqual(data["comments"], 0)
+        self.assertEqual(data["reason"], "no_valid_findings")
+        self.assertEqual(data["resolvedThreads"], ["thread-stale"])
+        self.assertEqual(data["skippedResolutionReasons"], [])
+        self.assertEqual(list_thread_cursors, [""])
+        self.assertEqual(len(resolved_requests), 1)
+        resolve_request, resolve_subject = resolved_requests[0]
+        self.assertEqual(resolve_request.thread_id, "thread-stale")
+        self.assertEqual(resolve_request.installation_id, 99)
+        self.assertEqual(resolve_subject.id, request.subject.id)
+
+    def test_review_pull_request_auto_resolve_false_leaves_stale_threads_open(
+        self,
+    ) -> None:
+        agent_client = FakeAgentClient(findings=[])
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "pull_request",
+                        "github_action": "synchronize",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                    }
+                }
+            ]
+        }
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "agent",
+                return_value=agent_client,
+                create=True,
+            ),
+            mock.patch(
+                "internals.review.get_pull_request",
+                return_value={
+                    "number": 7,
+                    "draft": False,
+                    "head": {"ref": "feature", "sha": "abc123"},
+                    "base": {"ref": "main", "sha": "def456"},
+                },
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_files",
+                return_value=[
+                    {
+                        "filename": "src/widget.py",
+                        "status": "modified",
+                        "patch": "@@ -1 +1,2 @@\n context\n+ok = True",
+                    }
+                ],
+            ),
+            mock.patch(
+                "internals.review.create_pull_request_review",
+                side_effect=AssertionError("review should not be posted"),
+            ),
+            mock.patch(
+                "internals.review.list_pull_request_review_threads",
+                side_effect=AssertionError("threads should not be listed"),
+            ),
+            mock.patch(
+                "internals.review.resolve_pull_request_review_thread",
+                side_effect=AssertionError("threads should not be resolved"),
+            ),
+        ):
+            result = provider_module.github_review_pull_request(
+                provider_module.ReviewPullRequestInput(
+                    autoResolveStaleFindings=False
+                ),
+                request,
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["posted"], False)
+        self.assertEqual(data["comments"], 0)
+        self.assertEqual(data["reason"], "no_valid_findings")
+        self.assertEqual(data["resolvedThreads"], [])
+        self.assertEqual(data["skippedResolutionReasons"], [])
 
     def test_review_pull_request_resolves_stale_marked_bot_thread(self) -> None:
         agent_client = FakeAgentClient(
