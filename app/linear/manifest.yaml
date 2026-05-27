@@ -27,1471 +27,1463 @@ spec:
   allowedOperations:
     issue:
       graphql:
-        operationType: query
-        arguments:
-        - name: id
-          type: String!
-        selectionSet: |
-          id
-          identifier
-          title
-          url
-          createdAt
-          updatedAt
-          description
-          priority
-          priorityLabel
-          estimate
-          state { id name type color }
-          team { id name key displayName }
-          assignee { id name displayName email url }
-          creator { id name displayName email url }
-          project { id name url slugId icon color }
+        operationName: Issue
+        document: |
+          query Issue(
+            $id: String!
+          ) {
+            issue(id: $id) {
+              id
+              identifier
+              title
+              url
+              createdAt
+              updatedAt
+              description
+              priority
+              priorityLabel
+              estimate
+              state { id name type color }
+              team { id name key displayName }
+              assignee { id name displayName email url }
+              creator { id name displayName email url }
+              project { id name url slugId icon color }
+            }
+          }
     searchIssues:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: IssueFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        - name: term
-          type: String!
-        - name: includeComments
-          type: Boolean
-        - name: teamId
-          type: String
-        selectionSet: |
-          nodes { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
-          pageInfo { hasNextPage endCursor }
-          totalCount
+        operationName: SearchIssues
+        document: |
+          query SearchIssues(
+            $filter: IssueFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+            $term: String!
+            $includeComments: Boolean
+            $teamId: String
+          ) {
+            searchIssues(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy, term: $term, includeComments: $includeComments, teamId: $teamId) {
+              nodes { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+              pageInfo { hasNextPage endCursor }
+              totalCount
+            }
+          }
     issueLabels:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: IssueLabelFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id name description color isGroup team { id name key displayName } }
-          pageInfo { hasNextPage endCursor }
+        operationName: IssueLabels
+        document: |
+          query IssueLabels(
+            $filter: IssueLabelFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            issueLabels(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id name description color isGroup team { id name key displayName } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     issues:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: IssueFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        - name: sort
-          type: '[IssueSortInput!]'
-        selectionSet: |
-          nodes { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
-          pageInfo { hasNextPage endCursor }
+        operationName: Issues
+        document: |
+          query Issues(
+            $filter: IssueFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+            $sort: [IssueSortInput!]
+          ) {
+            issues(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy, sort: $sort) {
+              nodes { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     projects:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: ProjectFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        - name: sort
-          type: '[ProjectSortInput!]'
-        selectionSet: |
-          nodes { id name description url slugId icon color createdAt updatedAt startDate targetDate progress priority priorityLabel status { id name type color } lead { id name displayName email url } creator { id name displayName email url } }
-          pageInfo { hasNextPage endCursor }
+        operationName: Projects
+        document: |
+          query Projects(
+            $filter: ProjectFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+            $sort: [ProjectSortInput!]
+          ) {
+            projects(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy, sort: $sort) {
+              nodes { id name description url slugId icon color createdAt updatedAt startDate targetDate progress priority priorityLabel status { id name type color } lead { id name displayName email url } creator { id name displayName email url } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     viewer:
       graphql:
-        operationType: query
-        arguments: []
-        selectionSet: |
-          id
-          name
-          displayName
-          email
-          url
-          active
-          isMe
+        operationName: Viewer
+        document: |
+          query Viewer {
+            viewer {
+              id
+              name
+              displayName
+              email
+              url
+              active
+              isMe
+            }
+          }
     issueCreate:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: input
-          type: IssueCreateInput!
-          parameterType: object
-        selectionSet: |
-          success
-          lastSyncId
-          issue { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+        operationName: IssueCreate
+        document: |
+          mutation IssueCreate(
+            $input: IssueCreateInput!
+          ) {
+            issueCreate(input: $input) {
+              success
+              lastSyncId
+              issue { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+            }
+          }
     teams:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: TeamFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id name key displayName description icon color createdAt updatedAt }
-          pageInfo { hasNextPage endCursor }
+        operationName: Teams
+        document: |
+          query Teams(
+            $filter: TeamFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            teams(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id name key displayName description icon color createdAt updatedAt }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     commentCreate:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: input
-          type: CommentCreateInput!
-          parameterType: object
-        selectionSet: |
-          success
-          lastSyncId
-          comment { id body url createdAt updatedAt editedAt issue { id identifier title url } user { id name displayName email url } }
+        operationName: CommentCreate
+        document: |
+          mutation CommentCreate(
+            $input: CommentCreateInput!
+          ) {
+            commentCreate(input: $input) {
+              success
+              lastSyncId
+              comment { id body url createdAt updatedAt editedAt issue { id identifier title url } user { id name displayName email url } }
+            }
+          }
     project:
       graphql:
-        operationType: query
-        arguments:
-        - name: id
-          type: String!
-        selectionSet: |
-          id
-          name
-          description
-          url
-          slugId
-          icon
-          color
-          createdAt
-          updatedAt
-          startDate
-          targetDate
-          progress
-          priority
-          priorityLabel
-          status { id name type color }
-          lead { id name displayName email url }
-          creator { id name displayName email url }
+        operationName: Project
+        document: |
+          query Project(
+            $id: String!
+          ) {
+            project(id: $id) {
+              id
+              name
+              description
+              url
+              slugId
+              icon
+              color
+              createdAt
+              updatedAt
+              startDate
+              targetDate
+              progress
+              priority
+              priorityLabel
+              status { id name type color }
+              lead { id name displayName email url }
+              creator { id name displayName email url }
+            }
+          }
     comments:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: CommentFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id body url createdAt updatedAt editedAt issue { id identifier title url } user { id name displayName email url } }
-          pageInfo { hasNextPage endCursor }
+        operationName: Comments
+        document: |
+          query Comments(
+            $filter: CommentFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            comments(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id body url createdAt updatedAt editedAt issue { id identifier title url } user { id name displayName email url } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     issueUpdate:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: input
-          type: IssueUpdateInput!
-          parameterType: object
-        - name: id
-          type: String!
-        selectionSet: |
-          success
-          lastSyncId
-          issue { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+        operationName: IssueUpdate
+        document: |
+          mutation IssueUpdate(
+            $input: IssueUpdateInput!
+            $id: String!
+          ) {
+            issueUpdate(input: $input, id: $id) {
+              success
+              lastSyncId
+              issue { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+            }
+          }
     initiatives:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: InitiativeFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        - name: sort
-          type: '[InitiativeSortInput!]'
-        selectionSet: |
-          nodes { id name description url slugId color icon createdAt updatedAt targetDate health startedAt completedAt owner { id name displayName email url } creator { id name displayName email url } }
-          pageInfo { hasNextPage endCursor }
+        operationName: Initiatives
+        document: |
+          query Initiatives(
+            $filter: InitiativeFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+            $sort: [InitiativeSortInput!]
+          ) {
+            initiatives(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy, sort: $sort) {
+              nodes { id name description url slugId color icon createdAt updatedAt targetDate health startedAt completedAt owner { id name displayName email url } creator { id name displayName email url } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     semanticSearch:
       graphql:
-        operationType: query
-        arguments:
-        - name: query
-          type: String!
-        - name: types
-          type: '[SemanticSearchResultType!]'
-        - name: maxResults
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: filters
-          type: SemanticSearchFilters
-          parameterType: object
-        selectionSet: |
-          results { id type issue { id identifier title url } project { id name url slugId icon color } initiative { id name url slugId color icon } document { id title url } }
+        operationName: SemanticSearch
+        document: |
+          query SemanticSearch(
+            $query: String!
+            $types: [SemanticSearchResultType!]
+            $maxResults: Int
+            $includeArchived: Boolean
+            $filters: SemanticSearchFilters
+          ) {
+            semanticSearch(query: $query, types: $types, maxResults: $maxResults, includeArchived: $includeArchived, filters: $filters) {
+              results { id type issue { id identifier title url } project { id name url slugId icon color } initiative { id name url slugId color icon } document { id title url } }
+            }
+          }
     workflowStates:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: WorkflowStateFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id name type color description team { id name key displayName } }
-          pageInfo { hasNextPage endCursor }
+        operationName: WorkflowStates
+        document: |
+          query WorkflowStates(
+            $filter: WorkflowStateFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            workflowStates(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id name type color description team { id name key displayName } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     fetchData:
       graphql:
-        operationType: query
-        arguments:
-        - name: query
-          type: String!
-        selectionSet: |
-          success
-          query
-          filters
-          data
+        operationName: FetchData
+        document: |
+          query FetchData(
+            $query: String!
+          ) {
+            fetchData(query: $query) {
+              success
+              query
+              filters
+              data
+            }
+          }
     initiativeToProjects:
       graphql:
-        operationType: query
-        arguments:
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id sortOrder createdAt updatedAt project { id name url slugId icon color } initiative { id name url slugId color icon } }
-          pageInfo { hasNextPage endCursor }
+        operationName: InitiativeToProjects
+        document: |
+          query InitiativeToProjects(
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            initiativeToProjects(before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id sortOrder createdAt updatedAt project { id name url slugId icon color } initiative { id name url slugId color icon } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     team:
       graphql:
-        operationType: query
-        arguments:
-        - name: id
-          type: String!
-        selectionSet: |
-          id
-          name
-          key
-          displayName
-          description
-          icon
-          color
-          createdAt
-          updatedAt
+        operationName: Team
+        document: |
+          query Team(
+            $id: String!
+          ) {
+            team(id: $id) {
+              id
+              name
+              key
+              displayName
+              description
+              icon
+              color
+              createdAt
+              updatedAt
+            }
+          }
     searchProjects:
       graphql:
-        operationType: query
-        arguments:
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        - name: term
-          type: String!
-        - name: includeComments
-          type: Boolean
-        - name: teamId
-          type: String
-        selectionSet: |
-          nodes { id name description url slugId icon color createdAt updatedAt startDate targetDate progress priority priorityLabel status { id name type color } lead { id name displayName email url } creator { id name displayName email url } }
-          pageInfo { hasNextPage endCursor }
-          totalCount
+        operationName: SearchProjects
+        document: |
+          query SearchProjects(
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+            $term: String!
+            $includeComments: Boolean
+            $teamId: String
+          ) {
+            searchProjects(before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy, term: $term, includeComments: $includeComments, teamId: $teamId) {
+              nodes { id name description url slugId icon color createdAt updatedAt startDate targetDate progress priority priorityLabel status { id name type color } lead { id name displayName email url } creator { id name displayName email url } }
+              pageInfo { hasNextPage endCursor }
+              totalCount
+            }
+          }
     attachments:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: AttachmentFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id title subtitle url sourceType metadata createdAt updatedAt issue { id identifier title url } creator { id name displayName email url } }
-          pageInfo { hasNextPage endCursor }
+        operationName: Attachments
+        document: |
+          query Attachments(
+            $filter: AttachmentFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            attachments(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id title subtitle url sourceType metadata createdAt updatedAt issue { id identifier title url } creator { id name displayName email url } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     issueSearch:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: IssueFilter
-          parameterType: object
-        - name: query
-          type: String
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
-          pageInfo { hasNextPage endCursor }
+        operationName: IssueSearch
+        document: |
+          query IssueSearch(
+            $filter: IssueFilter
+            $query: String
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            issueSearch(filter: $filter, query: $query, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     administrableTeams:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: TeamFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id name key displayName description icon color createdAt updatedAt }
-          pageInfo { hasNextPage endCursor }
+        operationName: AdministrableTeams
+        document: |
+          query AdministrableTeams(
+            $filter: TeamFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            administrableTeams(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id name key displayName description icon color createdAt updatedAt }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     customerNeeds:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: CustomerNeedFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id body url priority createdAt updatedAt issue { id identifier title url } project { id name url slugId icon color } creator { id name displayName email url } }
-          pageInfo { hasNextPage endCursor }
+        operationName: CustomerNeeds
+        document: |
+          query CustomerNeeds(
+            $filter: CustomerNeedFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            customerNeeds(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id body url priority createdAt updatedAt issue { id identifier title url } project { id name url slugId icon color } creator { id name displayName email url } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     issueVcsBranchSearch:
       graphql:
-        operationType: query
-        arguments:
-        - name: branchName
-          type: String!
-        selectionSet: |
-          id
-          identifier
-          title
-          url
-          createdAt
-          updatedAt
-          description
-          priority
-          priorityLabel
-          estimate
-          state { id name type color }
-          team { id name key displayName }
-          assignee { id name displayName email url }
-          creator { id name displayName email url }
-          project { id name url slugId icon color }
+        operationName: IssueVcsBranchSearch
+        document: |
+          query IssueVcsBranchSearch(
+            $branchName: String!
+          ) {
+            issueVcsBranchSearch(branchName: $branchName) {
+              id
+              identifier
+              title
+              url
+              createdAt
+              updatedAt
+              description
+              priority
+              priorityLabel
+              estimate
+              state { id name type color }
+              team { id name key displayName }
+              assignee { id name displayName email url }
+              creator { id name displayName email url }
+              project { id name url slugId icon color }
+            }
+          }
     users:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: UserFilter
-          parameterType: object
-        - name: includeDisabled
-          type: Boolean
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        - name: sort
-          type: '[UserSortInput!]'
-        selectionSet: |
-          nodes { id name displayName email url active isMe }
-          pageInfo { hasNextPage endCursor }
+        operationName: Users
+        document: |
+          query Users(
+            $filter: UserFilter
+            $includeDisabled: Boolean
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+            $sort: [UserSortInput!]
+          ) {
+            users(filter: $filter, includeDisabled: $includeDisabled, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy, sort: $sort) {
+              nodes { id name displayName email url active isMe }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     cycles:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: CycleFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id number name description startsAt endsAt completedAt isActive isFuture isPast progress team { id name key displayName } }
-          pageInfo { hasNextPage endCursor }
+        operationName: Cycles
+        document: |
+          query Cycles(
+            $filter: CycleFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            cycles(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id number name description startsAt endsAt completedAt isActive isFuture isPast progress team { id name key displayName } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     documents:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: DocumentFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        - name: sort
-          type: '[DocumentSortInput!]'
-        selectionSet: |
-          nodes { id title summary icon color url createdAt updatedAt team { id name key displayName } project { id name url slugId icon color } issue { id identifier title url } creator { id name displayName email url } }
-          pageInfo { hasNextPage endCursor }
+        operationName: Documents
+        document: |
+          query Documents(
+            $filter: DocumentFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+            $sort: [DocumentSortInput!]
+          ) {
+            documents(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy, sort: $sort) {
+              nodes { id title summary icon color url createdAt updatedAt team { id name key displayName } project { id name url slugId icon color } issue { id identifier title url } creator { id name displayName email url } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     issueBatchUpdate:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: input
-          type: IssueUpdateInput!
-          parameterType: object
-        - name: ids
-          type: '[UUID!]!'
-        selectionSet: |
-          success
-          lastSyncId
-          issues { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+        operationName: IssueBatchUpdate
+        document: |
+          mutation IssueBatchUpdate(
+            $input: IssueUpdateInput!
+            $ids: [UUID!]!
+          ) {
+            issueBatchUpdate(input: $input, ids: $ids) {
+              success
+              lastSyncId
+              issues { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+            }
+          }
     projectUpdate:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: input
-          type: ProjectUpdateInput!
-          parameterType: object
-        - name: id
-          type: String!
-        selectionSet: |
-          success
-          lastSyncId
-          project { id name description url slugId icon color createdAt updatedAt startDate targetDate progress priority priorityLabel status { id name type color } lead { id name displayName email url } creator { id name displayName email url } }
+        operationName: ProjectUpdate
+        document: |
+          mutation ProjectUpdate(
+            $input: ProjectUpdateInput!
+            $id: String!
+          ) {
+            projectUpdate(input: $input, id: $id) {
+              success
+              lastSyncId
+              project { id name description url slugId icon color createdAt updatedAt startDate targetDate progress priority priorityLabel status { id name type color } lead { id name displayName email url } creator { id name displayName email url } }
+            }
+          }
     attachmentsForURL:
       graphql:
-        operationType: query
-        arguments:
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        - name: url
-          type: String!
-        selectionSet: |
-          nodes { id title subtitle url sourceType metadata createdAt updatedAt issue { id identifier title url } creator { id name displayName email url } }
-          pageInfo { hasNextPage endCursor }
+        operationName: AttachmentsForURL
+        document: |
+          query AttachmentsForURL(
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+            $url: String!
+          ) {
+            attachmentsForURL(before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy, url: $url) {
+              nodes { id title subtitle url sourceType metadata createdAt updatedAt issue { id identifier title url } creator { id name displayName email url } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     template:
       graphql:
-        operationType: query
-        arguments:
-        - name: id
-          type: String!
-        selectionSet: |
-          id
-          type
-          name
-          description
-          icon
-          color
-          createdAt
-          updatedAt
-          team { id name key displayName }
-          creator { id name displayName email url }
+        operationName: Template
+        document: |
+          query Template(
+            $id: String!
+          ) {
+            template(id: $id) {
+              id
+              type
+              name
+              description
+              icon
+              color
+              createdAt
+              updatedAt
+              team { id name key displayName }
+              creator { id name displayName email url }
+            }
+          }
     teamMemberships:
       graphql:
-        operationType: query
-        arguments:
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id owner sortOrder createdAt updatedAt user { id name displayName email url } team { id name key displayName } }
-          pageInfo { hasNextPage endCursor }
+        operationName: TeamMemberships
+        document: |
+          query TeamMemberships(
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            teamMemberships(before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id owner sortOrder createdAt updatedAt user { id name displayName email url } team { id name key displayName } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     notifications:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: NotificationFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id type title subtitle url createdAt updatedAt readAt }
-          pageInfo { hasNextPage endCursor }
+        operationName: Notifications
+        document: |
+          query Notifications(
+            $filter: NotificationFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            notifications(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id type title subtitle url createdAt updatedAt readAt }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     issueLabel:
       graphql:
-        operationType: query
-        arguments:
-        - name: id
-          type: String!
-        selectionSet: |
-          id
-          name
-          description
-          color
-          isGroup
-          team { id name key displayName }
+        operationName: IssueLabel
+        document: |
+          query IssueLabel(
+            $id: String!
+          ) {
+            issueLabel(id: $id) {
+              id
+              name
+              description
+              color
+              isGroup
+              team { id name key displayName }
+            }
+          }
     templates:
       graphql:
-        operationType: query
-        arguments: []
-        selectionSet: |
-          id
-          type
-          name
-          description
-          icon
-          color
-          createdAt
-          updatedAt
-          team { id name key displayName }
-          creator { id name displayName email url }
+        operationName: Templates
+        document: |
+          query Templates {
+            templates {
+              id
+              type
+              name
+              description
+              icon
+              color
+              createdAt
+              updatedAt
+              team { id name key displayName }
+              creator { id name displayName email url }
+            }
+          }
     issueRelations:
       graphql:
-        operationType: query
-        arguments:
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id type createdAt updatedAt issue { id identifier title url } relatedIssue { id identifier title url } }
-          pageInfo { hasNextPage endCursor }
+        operationName: IssueRelations
+        document: |
+          query IssueRelations(
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            issueRelations(before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id type createdAt updatedAt issue { id identifier title url } relatedIssue { id identifier title url } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     customViews:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: CustomViewFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        - name: sort
-          type: '[CustomViewSortInput!]'
-        selectionSet: |
-          nodes { id name description icon color shared slugId modelName createdAt updatedAt team { id name key displayName } creator { id name displayName email url } }
-          pageInfo { hasNextPage endCursor }
+        operationName: CustomViews
+        document: |
+          query CustomViews(
+            $filter: CustomViewFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+            $sort: [CustomViewSortInput!]
+          ) {
+            customViews(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy, sort: $sort) {
+              nodes { id name description icon color shared slugId modelName createdAt updatedAt team { id name key displayName } creator { id name displayName email url } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     customView:
       graphql:
-        operationType: query
-        arguments:
-        - name: id
-          type: String!
-        selectionSet: |
-          id
-          name
-          description
-          icon
-          color
-          shared
-          slugId
-          modelName
-          createdAt
-          updatedAt
-          team { id name key displayName }
-          creator { id name displayName email url }
+        operationName: CustomView
+        document: |
+          query CustomView(
+            $id: String!
+          ) {
+            customView(id: $id) {
+              id
+              name
+              description
+              icon
+              color
+              shared
+              slugId
+              modelName
+              createdAt
+              updatedAt
+              team { id name key displayName }
+              creator { id name displayName email url }
+            }
+          }
     user:
       graphql:
-        operationType: query
-        arguments:
-        - name: id
-          type: String!
-        selectionSet: |
-          id
-          name
-          displayName
-          email
-          url
-          active
-          isMe
+        operationName: User
+        document: |
+          query User(
+            $id: String!
+          ) {
+            user(id: $id) {
+              id
+              name
+              displayName
+              email
+              url
+              active
+              isMe
+            }
+          }
     projectMilestones:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: ProjectMilestoneFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id name description targetDate progress createdAt updatedAt project { id name url slugId icon color } }
-          pageInfo { hasNextPage endCursor }
+        operationName: ProjectMilestones
+        document: |
+          query ProjectMilestones(
+            $filter: ProjectMilestoneFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            projectMilestones(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id name description targetDate progress createdAt updatedAt project { id name url slugId icon color } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     issueDelete:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: permanentlyDelete
-          type: Boolean
-        - name: id
-          type: String!
-        selectionSet: |
-          success
-          lastSyncId
-          entity { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+        operationName: IssueDelete
+        document: |
+          mutation IssueDelete(
+            $permanentlyDelete: Boolean
+            $id: String!
+          ) {
+            issueDelete(permanentlyDelete: $permanentlyDelete, id: $id) {
+              success
+              lastSyncId
+              entity { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+            }
+          }
     fileUpload:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: metaData
-          type: JSON
-          parameterType: object
-        - name: makePublic
-          type: Boolean
-        - name: size
-          type: Int!
-        - name: contentType
-          type: String!
-        - name: filename
-          type: String!
-        selectionSet: |
-          success
-          lastSyncId
-          uploadFile { filename contentType size uploadUrl assetUrl }
+        operationName: FileUpload
+        document: |
+          mutation FileUpload(
+            $metaData: JSON
+            $makePublic: Boolean
+            $size: Int!
+            $contentType: String!
+            $filename: String!
+          ) {
+            fileUpload(metaData: $metaData, makePublic: $makePublic, size: $size, contentType: $contentType, filename: $filename) {
+              success
+              lastSyncId
+              uploadFile { filename contentType size uploadUrl assetUrl }
+            }
+          }
     favorites:
       graphql:
-        operationType: query
-        arguments:
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id type title detail url folderName color icon createdAt updatedAt owner { id name displayName email url } }
-          pageInfo { hasNextPage endCursor }
+        operationName: Favorites
+        document: |
+          query Favorites(
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            favorites(before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id type title detail url folderName color icon createdAt updatedAt owner { id name displayName email url } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     commentDelete:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: id
-          type: String!
-        selectionSet: |
-          success
-          lastSyncId
-          entityId
+        operationName: CommentDelete
+        document: |
+          mutation CommentDelete(
+            $id: String!
+          ) {
+            commentDelete(id: $id) {
+              success
+              lastSyncId
+              entityId
+            }
+          }
     searchDocuments:
       graphql:
-        operationType: query
-        arguments:
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        - name: term
-          type: String!
-        - name: includeComments
-          type: Boolean
-        - name: teamId
-          type: String
-        selectionSet: |
-          nodes { id title summary icon color url createdAt updatedAt team { id name key displayName } project { id name url slugId icon color } issue { id identifier title url } creator { id name displayName email url } }
-          pageInfo { hasNextPage endCursor }
-          totalCount
+        operationName: SearchDocuments
+        document: |
+          query SearchDocuments(
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+            $term: String!
+            $includeComments: Boolean
+            $teamId: String
+          ) {
+            searchDocuments(before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy, term: $term, includeComments: $includeComments, teamId: $teamId) {
+              nodes { id title summary icon color url createdAt updatedAt team { id name key displayName } project { id name url slugId icon color } issue { id identifier title url } creator { id name displayName email url } }
+              pageInfo { hasNextPage endCursor }
+              totalCount
+            }
+          }
     projectMilestone:
       graphql:
-        operationType: query
-        arguments:
-        - name: id
-          type: String!
-        selectionSet: |
-          id
-          name
-          description
-          targetDate
-          progress
-          createdAt
-          updatedAt
-          project { id name url slugId icon color }
+        operationName: ProjectMilestone
+        document: |
+          query ProjectMilestone(
+            $id: String!
+          ) {
+            projectMilestone(id: $id) {
+              id
+              name
+              description
+              targetDate
+              progress
+              createdAt
+              updatedAt
+              project { id name url slugId icon color }
+            }
+          }
     organization:
       graphql:
-        operationType: query
-        arguments: []
-        selectionSet: |
-          id
-          name
-          urlKey
-          logoUrl
-          gitBranchFormat
-          roadmapEnabled
-          customersEnabled
-          releasesEnabled
-          createdAt
-          updatedAt
-          userCount
-          teams { pageInfo { hasNextPage endCursor } }
+        operationName: Organization
+        document: |
+          query Organization {
+            organization {
+              id
+              name
+              urlKey
+              logoUrl
+              gitBranchFormat
+              roadmapEnabled
+              customersEnabled
+              releasesEnabled
+              createdAt
+              updatedAt
+              userCount
+              teams { pageInfo { hasNextPage endCursor } }
+            }
+          }
     issueRelationCreate:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: overrideCreatedAt
-          type: DateTime
-        - name: input
-          type: IssueRelationCreateInput!
-          parameterType: object
-        selectionSet: |
-          success
-          lastSyncId
-          issueRelation { id type createdAt updatedAt issue { id identifier title url } relatedIssue { id identifier title url } }
+        operationName: IssueRelationCreate
+        document: |
+          mutation IssueRelationCreate(
+            $overrideCreatedAt: DateTime
+            $input: IssueRelationCreateInput!
+          ) {
+            issueRelationCreate(overrideCreatedAt: $overrideCreatedAt, input: $input) {
+              success
+              lastSyncId
+              issueRelation { id type createdAt updatedAt issue { id identifier title url } relatedIssue { id identifier title url } }
+            }
+          }
     attachmentCreate:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: input
-          type: AttachmentCreateInput!
-          parameterType: object
-        selectionSet: |
-          success
-          lastSyncId
-          attachment { id title subtitle url sourceType metadata createdAt updatedAt issue { id identifier title url } creator { id name displayName email url } }
+        operationName: AttachmentCreate
+        document: |
+          mutation AttachmentCreate(
+            $input: AttachmentCreateInput!
+          ) {
+            attachmentCreate(input: $input) {
+              success
+              lastSyncId
+              attachment { id title subtitle url sourceType metadata createdAt updatedAt issue { id identifier title url } creator { id name displayName email url } }
+            }
+          }
     projectUpdates:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: ProjectUpdateFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id body url createdAt updatedAt editedAt health project { id name url slugId icon color } user { id name displayName email url } }
-          pageInfo { hasNextPage endCursor }
+        operationName: ProjectUpdates
+        document: |
+          query ProjectUpdates(
+            $filter: ProjectUpdateFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            projectUpdates(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id body url createdAt updatedAt editedAt health project { id name url slugId icon color } user { id name displayName email url } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     issueArchive:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: trash
-          type: Boolean
-        - name: id
-          type: String!
-        selectionSet: |
-          success
-          lastSyncId
-          entity { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+        operationName: IssueArchive
+        document: |
+          mutation IssueArchive(
+            $trash: Boolean
+            $id: String!
+          ) {
+            issueArchive(trash: $trash, id: $id) {
+              success
+              lastSyncId
+              entity { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+            }
+          }
     projectLabels:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: ProjectLabelFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id name description color isGroup createdAt updatedAt }
-          pageInfo { hasNextPage endCursor }
+        operationName: ProjectLabels
+        document: |
+          query ProjectLabels(
+            $filter: ProjectLabelFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            projectLabels(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id name description color isGroup createdAt updatedAt }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     issuePriorityValues:
       graphql:
-        operationType: query
-        arguments: []
-        selectionSet: |
-          priority
-          label
+        operationName: IssuePriorityValues
+        document: |
+          query IssuePriorityValues {
+            issuePriorityValues {
+              priority
+              label
+            }
+          }
     issueLabelUpdate:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: replaceTeamLabels
-          type: Boolean
-        - name: input
-          type: IssueLabelUpdateInput!
-          parameterType: object
-        - name: id
-          type: String!
-        selectionSet: |
-          success
-          lastSyncId
-          issueLabel { id name description color isGroup team { id name key displayName } }
+        operationName: IssueLabelUpdate
+        document: |
+          mutation IssueLabelUpdate(
+            $replaceTeamLabels: Boolean
+            $input: IssueLabelUpdateInput!
+            $id: String!
+          ) {
+            issueLabelUpdate(replaceTeamLabels: $replaceTeamLabels, input: $input, id: $id) {
+              success
+              lastSyncId
+              issueLabel { id name description color isGroup team { id name key displayName } }
+            }
+          }
     issueLabelCreate:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: replaceTeamLabels
-          type: Boolean
-        - name: input
-          type: IssueLabelCreateInput!
-          parameterType: object
-        selectionSet: |
-          success
-          lastSyncId
-          issueLabel { id name description color isGroup team { id name key displayName } }
+        operationName: IssueLabelCreate
+        document: |
+          mutation IssueLabelCreate(
+            $replaceTeamLabels: Boolean
+            $input: IssueLabelCreateInput!
+          ) {
+            issueLabelCreate(replaceTeamLabels: $replaceTeamLabels, input: $input) {
+              success
+              lastSyncId
+              issueLabel { id name description color isGroup team { id name key displayName } }
+            }
+          }
     attachmentDelete:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: id
-          type: String!
-        selectionSet: |
-          success
-          lastSyncId
-          entityId
+        operationName: AttachmentDelete
+        document: |
+          mutation AttachmentDelete(
+            $id: String!
+          ) {
+            attachmentDelete(id: $id) {
+              success
+              lastSyncId
+              entityId
+            }
+          }
     archivedTeams:
       graphql:
-        operationType: query
-        arguments: []
-        selectionSet: |
-          id
-          name
-          key
-          displayName
-          description
-          icon
-          color
-          createdAt
-          updatedAt
+        operationName: ArchivedTeams
+        document: |
+          query ArchivedTeams {
+            archivedTeams {
+              id
+              name
+              key
+              displayName
+              description
+              icon
+              color
+              createdAt
+              updatedAt
+            }
+          }
     agentSessions:
       graphql:
-        operationType: query
-        arguments:
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id slugId status summary url createdAt updatedAt startedAt endedAt creator { id name displayName email url } issue { id identifier title url } }
-          pageInfo { hasNextPage endCursor }
+        operationName: AgentSessions
+        document: |
+          query AgentSessions(
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            agentSessions(before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id slugId status summary url createdAt updatedAt startedAt endedAt creator { id name displayName email url } issue { id identifier title url } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     userSettings:
       graphql:
-        operationType: query
-        arguments: []
-        selectionSet: |
-          id
-          createdAt
-          updatedAt
-          theme { preset }
-          autoAssignToSelf
-          showFullUserNames
-          user { id name displayName email url }
+        operationName: UserSettings
+        document: |
+          query UserSettings {
+            userSettings {
+              id
+              createdAt
+              updatedAt
+              theme { preset }
+              autoAssignToSelf
+              showFullUserNames
+              user { id name displayName email url }
+            }
+          }
     projectStatuses:
       graphql:
-        operationType: query
-        arguments:
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id name color description position type indefinite }
-          pageInfo { hasNextPage endCursor }
+        operationName: ProjectStatuses
+        document: |
+          query ProjectStatuses(
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            projectStatuses(before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id name color description position type indefinite }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     initiativeToProjectCreate:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: input
-          type: InitiativeToProjectCreateInput!
-          parameterType: object
-        selectionSet: |
-          success
-          lastSyncId
-          initiativeToProject { id sortOrder createdAt updatedAt project { id name url slugId icon color } initiative { id name url slugId color icon } }
+        operationName: InitiativeToProjectCreate
+        document: |
+          mutation InitiativeToProjectCreate(
+            $input: InitiativeToProjectCreateInput!
+          ) {
+            initiativeToProjectCreate(input: $input) {
+              success
+              lastSyncId
+              initiativeToProject { id sortOrder createdAt updatedAt project { id name url slugId icon color } initiative { id name url slugId color icon } }
+            }
+          }
     initiative:
       graphql:
-        operationType: query
-        arguments:
-        - name: id
-          type: String!
-        selectionSet: |
-          id
-          name
-          description
-          url
-          slugId
-          color
-          icon
-          createdAt
-          updatedAt
-          targetDate
-          health
-          startedAt
-          completedAt
-          owner { id name displayName email url }
-          creator { id name displayName email url }
+        operationName: Initiative
+        document: |
+          query Initiative(
+            $id: String!
+          ) {
+            initiative(id: $id) {
+              id
+              name
+              description
+              url
+              slugId
+              color
+              icon
+              createdAt
+              updatedAt
+              targetDate
+              health
+              startedAt
+              completedAt
+              owner { id name displayName email url }
+              creator { id name displayName email url }
+            }
+          }
     customViewCreate:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: input
-          type: CustomViewCreateInput!
-          parameterType: object
-        selectionSet: |
-          success
-          lastSyncId
-          customView { id name description icon color shared slugId modelName createdAt updatedAt team { id name key displayName } creator { id name displayName email url } }
+        operationName: CustomViewCreate
+        document: |
+          mutation CustomViewCreate(
+            $input: CustomViewCreateInput!
+          ) {
+            customViewCreate(input: $input) {
+              success
+              lastSyncId
+              customView { id name description icon color shared slugId modelName createdAt updatedAt team { id name key displayName } creator { id name displayName email url } }
+            }
+          }
     commentUpdate:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: skipEditedAt
-          type: Boolean
-        - name: input
-          type: CommentUpdateInput!
-          parameterType: object
-        - name: id
-          type: String!
-        selectionSet: |
-          success
-          lastSyncId
-          comment { id body url createdAt updatedAt editedAt issue { id identifier title url } user { id name displayName email url } }
+        operationName: CommentUpdate
+        document: |
+          mutation CommentUpdate(
+            $skipEditedAt: Boolean
+            $input: CommentUpdateInput!
+            $id: String!
+          ) {
+            commentUpdate(skipEditedAt: $skipEditedAt, input: $input, id: $id) {
+              success
+              lastSyncId
+              comment { id body url createdAt updatedAt editedAt issue { id identifier title url } user { id name displayName email url } }
+            }
+          }
     availableUsers:
       graphql:
-        operationType: query
-        arguments: []
-        selectionSet: |
-          id
-          email
-          allowDomainAccess
-          service
-          lastUsedOrganizationId
-          users { id name displayName email active }
-          lockedUsers { id name displayName email active }
-          availableOrganizations { id name urlKey enabled }
-          lockedOrganizations { id name urlKey enabled }
+        operationName: AvailableUsers
+        document: |
+          query AvailableUsers {
+            availableUsers {
+              id
+              email
+              allowDomainAccess
+              service
+              lastUsedOrganizationId
+              users { id name displayName email active }
+              lockedUsers { id name displayName email active }
+              availableOrganizations { id name urlKey enabled }
+              lockedOrganizations { id name urlKey enabled }
+            }
+          }
     attachmentLinkGitHubPR:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: createAsUser
-          type: String
-        - name: displayIconUrl
-          type: String
-        - name: title
-          type: String
-        - name: issueId
-          type: String!
-        - name: id
-          type: String
-        - name: url
-          type: String!
-        - name: linkKind
-          type: GitLinkKind
-        selectionSet: |
-          success
-          lastSyncId
-          attachment { id title subtitle url sourceType metadata createdAt updatedAt issue { id identifier title url } creator { id name displayName email url } }
+        operationName: AttachmentLinkGitHubPR
+        document: |
+          mutation AttachmentLinkGitHubPR(
+            $createAsUser: String
+            $displayIconUrl: String
+            $title: String
+            $issueId: String!
+            $id: String
+            $url: String!
+            $linkKind: GitLinkKind
+          ) {
+            attachmentLinkGitHubPR(createAsUser: $createAsUser, displayIconUrl: $displayIconUrl, title: $title, issueId: $issueId, id: $id, url: $url, linkKind: $linkKind) {
+              success
+              lastSyncId
+              attachment { id title subtitle url sourceType metadata createdAt updatedAt issue { id identifier title url } creator { id name displayName email url } }
+            }
+          }
     attachment:
       graphql:
-        operationType: query
-        arguments:
-        - name: id
-          type: String!
-        selectionSet: |
-          id
-          title
-          subtitle
-          url
-          sourceType
-          metadata
-          createdAt
-          updatedAt
-          issue { id identifier title url }
-          creator { id name displayName email url }
+        operationName: Attachment
+        document: |
+          query Attachment(
+            $id: String!
+          ) {
+            attachment(id: $id) {
+              id
+              title
+              subtitle
+              url
+              sourceType
+              metadata
+              createdAt
+              updatedAt
+              issue { id identifier title url }
+              creator { id name displayName email url }
+            }
+          }
     workflowState:
       graphql:
-        operationType: query
-        arguments:
-        - name: id
-          type: String!
-        selectionSet: |
-          id
-          name
-          type
-          color
-          description
-          team { id name key displayName }
+        operationName: WorkflowState
+        document: |
+          query WorkflowState(
+            $id: String!
+          ) {
+            workflowState(id: $id) {
+              id
+              name
+              type
+              color
+              description
+              team { id name key displayName }
+            }
+          }
     viewPreferencesCreate:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: input
-          type: ViewPreferencesCreateInput!
-          parameterType: object
-        selectionSet: |
-          success
-          lastSyncId
-          viewPreferences { id type viewType createdAt updatedAt }
+        operationName: ViewPreferencesCreate
+        document: |
+          mutation ViewPreferencesCreate(
+            $input: ViewPreferencesCreateInput!
+          ) {
+            viewPreferencesCreate(input: $input) {
+              success
+              lastSyncId
+              viewPreferences { id type viewType createdAt updatedAt }
+            }
+          }
     templatesForIntegration:
       graphql:
-        operationType: query
-        arguments:
-        - name: integrationType
-          type: String!
-        selectionSet: |
-          id
-          type
-          name
-          description
-          icon
-          color
-          createdAt
-          updatedAt
-          team { id name key displayName }
-          creator { id name displayName email url }
+        operationName: TemplatesForIntegration
+        document: |
+          query TemplatesForIntegration(
+            $integrationType: String!
+          ) {
+            templatesForIntegration(integrationType: $integrationType) {
+              id
+              type
+              name
+              description
+              icon
+              color
+              createdAt
+              updatedAt
+              team { id name key displayName }
+              creator { id name displayName email url }
+            }
+          }
     releaseSearch:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: ReleaseFilter
-          parameterType: object
-        - name: first
-          type: Int
-        - name: term
-          type: String
-        selectionSet: |
-          id
-          name
-          description
-          version
-          commitSha
-          slugId
-          url
-          startDate
-          targetDate
-          startedAt
-          completedAt
-          canceledAt
-          createdAt
-          updatedAt
-          issueCount
-          creator { id name displayName email url }
+        operationName: ReleaseSearch
+        document: |
+          query ReleaseSearch(
+            $filter: ReleaseFilter
+            $first: Int
+            $term: String
+          ) {
+            releaseSearch(filter: $filter, first: $first, term: $term) {
+              id
+              name
+              description
+              version
+              commitSha
+              slugId
+              url
+              startDate
+              targetDate
+              startedAt
+              completedAt
+              canceledAt
+              createdAt
+              updatedAt
+              issueCount
+              creator { id name displayName email url }
+            }
+          }
     projectRelations:
       graphql:
-        operationType: query
-        arguments:
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        selectionSet: |
-          nodes { id type anchorType relatedAnchorType createdAt updatedAt project { id name url slugId icon color } relatedProject { id name url slugId icon color } user { id name displayName email url } }
-          pageInfo { hasNextPage endCursor }
+        operationName: ProjectRelations
+        document: |
+          query ProjectRelations(
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+          ) {
+            projectRelations(before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy) {
+              nodes { id type anchorType relatedAnchorType createdAt updatedAt project { id name url slugId icon color } relatedProject { id name url slugId icon color } user { id name displayName email url } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     projectDelete:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: id
-          type: String!
-        selectionSet: |
-          success
-          lastSyncId
-          entity { id name description url slugId icon color createdAt updatedAt startDate targetDate progress priority priorityLabel status { id name type color } lead { id name displayName email url } creator { id name displayName email url } }
+        operationName: ProjectDelete
+        document: |
+          mutation ProjectDelete(
+            $id: String!
+          ) {
+            projectDelete(id: $id) {
+              success
+              lastSyncId
+              entity { id name description url slugId icon color createdAt updatedAt startDate targetDate progress priority priorityLabel status { id name type color } lead { id name displayName email url } creator { id name displayName email url } }
+            }
+          }
     issueFigmaFileKeySearch:
       graphql:
-        operationType: query
-        arguments:
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        - name: fileKey
-          type: String!
-        selectionSet: |
-          nodes { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
-          pageInfo { hasNextPage endCursor }
+        operationName: IssueFigmaFileKeySearch
+        document: |
+          query IssueFigmaFileKeySearch(
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+            $fileKey: String!
+          ) {
+            issueFigmaFileKeySearch(before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy, fileKey: $fileKey) {
+              nodes { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     issueDescriptionUpdateFromFront:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: description
-          type: String!
-        - name: id
-          type: String!
-        selectionSet: |
-          success
-          lastSyncId
-          issue { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+        operationName: IssueDescriptionUpdateFromFront
+        document: |
+          mutation IssueDescriptionUpdateFromFront(
+            $description: String!
+            $id: String!
+          ) {
+            issueDescriptionUpdateFromFront(description: $description, id: $id) {
+              success
+              lastSyncId
+              issue { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+            }
+          }
     cycle:
       graphql:
-        operationType: query
-        arguments:
-        - name: id
-          type: String!
-        selectionSet: |
-          id
-          number
-          name
-          description
-          startsAt
-          endsAt
-          completedAt
-          isActive
-          isFuture
-          isPast
-          progress
-          team { id name key displayName }
+        operationName: Cycle
+        document: |
+          query Cycle(
+            $id: String!
+          ) {
+            cycle(id: $id) {
+              id
+              number
+              name
+              description
+              startsAt
+              endsAt
+              completedAt
+              isActive
+              isFuture
+              isPast
+              progress
+              team { id name key displayName }
+            }
+          }
     customers:
       graphql:
-        operationType: query
-        arguments:
-        - name: filter
-          type: CustomerFilter
-          parameterType: object
-        - name: before
-          type: String
-        - name: after
-          type: String
-        - name: first
-          type: Int
-        - name: last
-          type: Int
-        - name: includeArchived
-          type: Boolean
-        - name: orderBy
-          type: PaginationOrderBy
-        - name: sorts
-          type: '[CustomerSortInput!]'
-        selectionSet: |
-          nodes { id name logoUrl domains externalIds status { id name color displayName } revenue size tier { id name color displayName } slugId url createdAt updatedAt owner { id name displayName email url } }
-          pageInfo { hasNextPage endCursor }
+        operationName: Customers
+        document: |
+          query Customers(
+            $filter: CustomerFilter
+            $before: String
+            $after: String
+            $first: Int
+            $last: Int
+            $includeArchived: Boolean
+            $orderBy: PaginationOrderBy
+            $sorts: [CustomerSortInput!]
+          ) {
+            customers(filter: $filter, before: $before, after: $after, first: $first, last: $last, includeArchived: $includeArchived, orderBy: $orderBy, sorts: $sorts) {
+              nodes { id name logoUrl domains externalIds status { id name color displayName } revenue size tier { id name color displayName } slugId url createdAt updatedAt owner { id name displayName email url } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
     comment:
       graphql:
-        operationType: query
-        arguments:
-        - name: id
-          type: String
-        - name: hash
-          type: String
-        selectionSet: |
-          id
-          body
-          url
-          createdAt
-          updatedAt
-          editedAt
-          issue { id identifier title url }
-          user { id name displayName email url }
+        operationName: Comment
+        document: |
+          query Comment(
+            $id: String
+            $hash: String
+          ) {
+            comment(id: $id, hash: $hash) {
+              id
+              body
+              url
+              createdAt
+              updatedAt
+              editedAt
+              issue { id identifier title url }
+              user { id name displayName email url }
+            }
+          }
     attachmentSources:
       graphql:
-        operationType: query
-        arguments:
-        - name: teamId
-          type: String
-        selectionSet: |
-          sources
+        operationName: AttachmentSources
+        document: |
+          query AttachmentSources(
+            $teamId: String
+          ) {
+            attachmentSources(teamId: $teamId) {
+              sources
+            }
+          }
     attachmentLinkURL:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: createAsUser
-          type: String
-        - name: displayIconUrl
-          type: String
-        - name: title
-          type: String
-        - name: url
-          type: String!
-        - name: issueId
-          type: String!
-        - name: id
-          type: String
-        selectionSet: |
-          success
-          lastSyncId
-          attachment { id title subtitle url sourceType metadata createdAt updatedAt issue { id identifier title url } creator { id name displayName email url } }
+        operationName: AttachmentLinkURL
+        document: |
+          mutation AttachmentLinkURL(
+            $createAsUser: String
+            $displayIconUrl: String
+            $title: String
+            $url: String!
+            $issueId: String!
+            $id: String
+          ) {
+            attachmentLinkURL(createAsUser: $createAsUser, displayIconUrl: $displayIconUrl, title: $title, url: $url, issueId: $issueId, id: $id) {
+              success
+              lastSyncId
+              attachment { id title subtitle url sourceType metadata createdAt updatedAt issue { id identifier title url } creator { id name displayName email url } }
+            }
+          }
     issueAddLabel:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: labelId
-          type: String!
-        - name: id
-          type: String!
-        selectionSet: |
-          success
-          lastSyncId
-          issue { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+        operationName: IssueAddLabel
+        document: |
+          mutation IssueAddLabel(
+            $labelId: String!
+            $id: String!
+          ) {
+            issueAddLabel(labelId: $labelId, id: $id) {
+              success
+              lastSyncId
+              issue { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+            }
+          }
     issueBatchCreate:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: input
-          type: IssueBatchCreateInput!
-          parameterType: object
-        selectionSet: |
-          success
-          lastSyncId
-          issues { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+        operationName: IssueBatchCreate
+        document: |
+          mutation IssueBatchCreate(
+            $input: IssueBatchCreateInput!
+          ) {
+            issueBatchCreate(input: $input) {
+              success
+              lastSyncId
+              issues { id identifier title url createdAt updatedAt description priority priorityLabel estimate state { id name type color } team { id name key displayName } assignee { id name displayName email url } creator { id name displayName email url } project { id name url slugId icon color } }
+            }
+          }
     issueLabelDelete:
       graphql:
-        operationType: mutation
-        arguments:
-        - name: id
-          type: String!
-        selectionSet: |
-          success
-          lastSyncId
-          entityId
+        operationName: IssueLabelDelete
+        document: |
+          mutation IssueLabelDelete(
+            $id: String!
+          ) {
+            issueLabelDelete(id: $id) {
+              success
+              lastSyncId
+              entityId
+            }
+          }
     issueFilterSuggestion:
       graphql:
-        operationType: query
-        arguments:
-        - name: teamId
-          type: String
-        - name: projectId
-          type: String
-        - name: prompt
-          type: String!
-        selectionSet: |
-          filter
-          logId
+        operationName: IssueFilterSuggestion
+        document: |
+          query IssueFilterSuggestion(
+            $teamId: String
+            $projectId: String
+            $prompt: String!
+          ) {
+            issueFilterSuggestion(teamId: $teamId, projectId: $projectId, prompt: $prompt) {
+              filter
+              logId
+            }
+          }
+    get_issue:
+      description: Hosted Linear MCP tool for retrieving an issue.
+    get_project:
+      description: Hosted Linear MCP tool for retrieving a project.
+    list_comments:
+      description: Hosted Linear MCP tool for listing comments.
+    list_issues:
+      description: Hosted Linear MCP tool for listing issues.
+    list_projects:
+      description: Hosted Linear MCP tool for listing projects.
+    list_teams:
+      description: Hosted Linear MCP tool for listing teams.
+    save_comment:
+      description: Hosted Linear MCP tool for creating or updating comments.
+    save_issue:
+      description: Hosted Linear MCP tool for creating or updating issues.
