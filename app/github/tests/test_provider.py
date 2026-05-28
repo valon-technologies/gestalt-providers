@@ -4744,15 +4744,15 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("+bad = True", prompt)
         prompt_data = json.loads(prompt)
         self.assertEqual(
-            prompt_data["output_contract"]["contract"],
+            prompt_data["output"]["name"],
             "github.pull_request_review.findings.v2",
         )
         self.assertEqual(
-            prompt_data["output_contract"]["empty_response"], {"findings": []}
+            prompt_data["output"]["empty_response"], {"findings": []}
         )
         self.assertIn(
             "Use only added RIGHT-side lines",
-            prompt_data["output_contract"]["line_policy"],
+            prompt_data["output"]["line_policy"],
         )
         schema = _turn_schema(agent_client.turns[0])
         self.assertIsNotNone(schema)
@@ -5116,11 +5116,11 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn("findings array", agent_client.turns[1].messages[0].text)
         fix_prompt = json.loads(agent_client.turns[1].messages[1].text)
         self.assertEqual(
-            fix_prompt["output_contract"]["contract"],
+            fix_prompt["output"]["name"],
             "github.pull_request_review.self_fix.v1",
         )
         self.assertEqual(
-            fix_prompt["output_contract"]["empty_response"],
+            fix_prompt["output"]["empty_response"],
             {"commit_message": "No safe self-fix", "files": []},
         )
         review_schema = _turn_schema(agent_client.turns[0])
@@ -7030,10 +7030,10 @@ class GitHubProviderTests(unittest.TestCase):
         prompt_data = json.loads(agent_client.turns[0].messages[1].text)
         self.assertIn(
             "Use RIGHT-side lines that are present",
-            prompt_data["output_contract"]["line_policy"],
+            prompt_data["output"]["line_policy"],
         )
         self.assertIn(
-            "allowed by output_contract.line_policy",
+            "allowed by output.line_policy",
             prompt_data["task"],
         )
         self.assertNotIn("added RIGHT-side diff lines only", prompt_data["task"])

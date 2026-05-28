@@ -92,6 +92,7 @@ def turn_create_request_from_provider_request(
     config: ClaudeAgentConfig,
     session: StoredSession,
     tool_source_modes: ToolSourceModes,
+    schema: dict[str, Any] | None,
 ) -> TurnCreateRequest:
     request_messages = list(request.messages)
     if not request_messages:
@@ -99,7 +100,6 @@ def turn_create_request_from_provider_request(
 
     model = config.resolve_model(request.model.strip() or session.model)
     messages = gestalt.agent_messages_to_dicts(request_messages)
-    schema = _schema_from_output(request.output)
     if request.tool_source == tool_source_modes.none:
         turn_profile = ClaudeTurnProfile.direct(schema=schema)
     else:
@@ -126,7 +126,7 @@ def turn_create_request_from_provider_request(
 
 def validate_turn_contract(
     request: gestalt.CreateAgentProviderTurnRequest, *, tool_source_modes: ToolSourceModes
-) -> None:
+) -> dict[str, Any] | None:
     if request.tool_source not in {tool_source_modes.mcp_catalog, tool_source_modes.none}:
         raise ValueError("agent/claude requires toolSource none or mcp_catalog")
     if request.tool_source == tool_source_modes.mcp_catalog and not request.run_grant.strip():
@@ -141,6 +141,7 @@ def validate_turn_contract(
         raise ValueError("model_options are not supported by agent/claude")
     if request.tool_source == tool_source_modes.mcp_catalog:
         _validate_tool_refs(list(request.tool_refs))
+    return schema
 
 
 def existing_session_for_create(

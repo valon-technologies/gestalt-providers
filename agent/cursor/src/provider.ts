@@ -236,8 +236,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     request: CreateAgentProviderTurnRequest,
   ): Promise<AgentTurn> {
     const { config, runner } = this.requireRuntime();
-    validateCreateTurnRequest(request);
-    const schema = schemaFromOutput(request.output);
+    const schema = validateCreateTurnRequest(request);
     const session = this.store.getSession(request.sessionId);
     if (!session) {
       throw notFound(
@@ -540,7 +539,7 @@ export const provider = createCursorAgentProvider();
 
 function validateCreateTurnRequest(
   request: CreateAgentProviderTurnRequest,
-): void {
+): Record<string, unknown> | undefined {
   if (request.toolSource !== AgentToolSourceMode.MCP_CATALOG) {
     throw invalidArgument("agent/cursor requires toolSource mcp_catalog");
   }
@@ -564,6 +563,7 @@ function validateCreateTurnRequest(
     throw invalidArgument("model_options are not supported by agent/cursor");
   }
   validateToolRefs(request.toolRefs);
+  return schema;
 }
 
 function schemaFromOutput(

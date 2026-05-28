@@ -173,8 +173,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
 
     def create_turn(self, request: gestalt.CreateAgentProviderTurnRequest) -> gestalt.AgentTurn:
         runner, store, config = self._require_runtime()
-        _validate_create_turn_request(request)
-        schema = _schema_from_output(request.output)
+        schema = _validate_create_turn_request(request)
         session = store.get_session(request.session_id.strip())
         if session is None:
             raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
@@ -487,7 +486,7 @@ def _which(binary: str) -> str | None:
     return None
 
 
-def _validate_create_turn_request(request: gestalt.CreateAgentProviderTurnRequest) -> None:
+def _validate_create_turn_request(request: gestalt.CreateAgentProviderTurnRequest) -> dict[str, Any] | None:
     if request.tool_source != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
         raise gestalt.Error(400, "agent/codex requires toolSource mcp_catalog")
     if not request.run_grant.strip():
@@ -503,6 +502,7 @@ def _validate_create_turn_request(request: gestalt.CreateAgentProviderTurnReques
     if dict(request.model_options or {}):
         raise gestalt.Error(400, "model_options are not supported by agent/codex")
     _validate_tool_refs(list(request.tool_refs))
+    return schema
 
 
 def _schema_from_output(output: gestalt.AgentOutput | None) -> dict[str, Any] | None:

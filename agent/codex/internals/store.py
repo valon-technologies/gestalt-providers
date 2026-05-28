@@ -57,7 +57,7 @@ class StoredTurn:
     execution_ref: str
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class StoredTurnEvent:
     event_id: str
     turn_id: str
