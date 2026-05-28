@@ -340,6 +340,7 @@ class SlackAgentConfig:
     app_name: str = "slack"
     bot: SlackBotConfig = field(default_factory=SlackBotConfig)
     bots: dict[str, SlackBotConfig] = field(default_factory=dict)
+    signing_secrets: tuple[str, ...] = ()
     reply_ref_signing_secret: str = ""
     events: SlackEventsConfig = field(default_factory=SlackEventsConfig)
     assistant: SlackAssistantConfig = field(default_factory=SlackAssistantConfig)

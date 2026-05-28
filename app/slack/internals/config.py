@@ -76,6 +76,7 @@ def agent_config_from_provider_config(
         app_name=app_name.strip() or "slack",
         bot=bots[DEFAULT_BOT_REF],
         bots=bots,
+        signing_secrets=_signing_secrets_from_provider_config(config),
         reply_ref_signing_secret=_config_string(
             config,
             "replyRefSigningSecret",
@@ -198,6 +199,54 @@ def _bot_configs_from_provider_config(
             or base.user_id,
         )
     return bots
+
+
+def _signing_secrets_from_provider_config(config: dict[str, Any]) -> tuple[str, ...]:
+    secrets: list[str] = []
+    configured = _config_string(
+        config,
+        "signingSecret",
+        "signing_secret",
+        "slackSigningSecret",
+        "slack_signing_secret",
+    )
+    if configured:
+        secrets.append(configured)
+
+    for item in _config_list(config, "signingSecrets", "signing_secrets"):
+        if isinstance(item, str):
+            secret = item.strip()
+        elif isinstance(item, dict):
+            secret = _config_string(
+                item,
+                "secret",
+                "signingSecret",
+                "signing_secret",
+                "slackSigningSecret",
+                "slack_signing_secret",
+            )
+        else:
+            secret = ""
+        if secret:
+            secrets.append(secret)
+
+    raw_apps = _config_mapping(config, "slackApps", "slack_apps")
+    for raw_ref, raw_app in raw_apps.items():
+        ref = str(raw_ref or "").strip()
+        if not ref:
+            raise ValueError("slackApps contains an empty app ref")
+        if not isinstance(raw_app, dict):
+            raise ValueError(f"slackApps.{ref} must be an object")
+        secret = _config_string(
+            raw_app,
+            "signingSecret",
+            "signing_secret",
+            "slackSigningSecret",
+            "slack_signing_secret",
+        )
+        if secret:
+            secrets.append(secret)
+    return tuple(dict.fromkeys(secrets))
 
 
 def _assistant_suggested_prompts_from_config(

@@ -64,6 +64,12 @@ OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
 logger = logging.getLogger(__name__)
 WORKFLOW_KEY_TEMPLATE_FIELD_RE = re.compile(r"\$\{([^}]+)\}")
 DEFAULT_BOT_REF = "default"
+CONFIG_VERIFIED_SECURITY_SCHEMES = frozenset({"slack"})
+CONFIG_VERIFIED_HTTP_BINDINGS = frozenset({"event", "interactions"})
+SLACK_SIGNATURE_HEADER = "X-Slack-Signature"
+SLACK_SIGNATURE_PREFIX = "v0="
+SLACK_TIMESTAMP_HEADER = "X-Slack-Request-Timestamp"
+SLACK_SIGNATURE_MAX_AGE_SECONDS = 300
 
 SLACK_EVENT_WORKFLOW_SIGNAL = "slack.event"
 SLACK_INTERACTION_WORKFLOW_SIGNAL = "slack.interaction"
@@ -311,6 +317,7 @@ def configure_agent(name: str, config: dict[str, Any]) -> None:
 def resolve_slack_http_subject(
     request: gestalt.HTTPSubjectRequest, context: gestalt.Request
 ) -> gestalt.Subject | None:
+    _verify_config_secured_slack_request(request)
     payload = _json_payload_from_http_request(request)
     publish_event, _publish_ignored_reason = _slack_publish_callback_from_payload(
         payload
@@ -353,6 +360,65 @@ def resolve_slack_http_subject(
     if subject is None:
         return None
     return subject
+
+
+def _verify_config_secured_slack_request(
+    request: gestalt.HTTPSubjectRequest,
+) -> None:
+    if (
+        request.security_scheme not in CONFIG_VERIFIED_SECURITY_SCHEMES
+        and request.binding not in CONFIG_VERIFIED_HTTP_BINDINGS
+    ):
+        return
+    timestamp = _http_subject_header(request, SLACK_TIMESTAMP_HEADER)
+    signature = _http_subject_header(request, SLACK_SIGNATURE_HEADER)
+    if not timestamp or not signature:
+        raise gestalt.http_subject_error(
+            HTTPStatus.UNAUTHORIZED, "Slack request signature is required"
+        )
+    try:
+        timestamp_seconds = int(timestamp)
+    except ValueError as err:
+        raise gestalt.http_subject_error(
+            HTTPStatus.UNAUTHORIZED, "Slack request timestamp is invalid"
+        ) from err
+    if abs(int(time.time()) - timestamp_seconds) > SLACK_SIGNATURE_MAX_AGE_SECONDS:
+        raise gestalt.http_subject_error(
+            HTTPStatus.UNAUTHORIZED, "Slack request timestamp is too old"
+        )
+    signing_secrets = _slack_request_signing_secrets()
+    if not signing_secrets:
+        raise gestalt.http_subject_error(
+            HTTPStatus.UNAUTHORIZED, "Slack signing secret is not configured"
+        )
+    signed_payload = f"v0:{timestamp}:".encode("utf-8") + bytes(request.raw_body or b"")
+    for secret in signing_secrets:
+        expected = (
+            SLACK_SIGNATURE_PREFIX
+            + hmac.new(
+                secret.encode("utf-8"), signed_payload, hashlib.sha256
+            ).hexdigest()
+        )
+        if hmac.compare_digest(signature, expected):
+            return
+    raise gestalt.http_subject_error(
+        HTTPStatus.UNAUTHORIZED, "Slack request signature is invalid"
+    )
+
+
+def _slack_request_signing_secrets() -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(secret for secret in _agent_config.signing_secrets if secret)
+    )
+
+
+def _http_subject_header(request: gestalt.HTTPSubjectRequest, header_name: str) -> str:
+    expected = header_name.lower()
+    for name, values in request.headers.items():
+        if name.lower() != expected or not values:
+            continue
+        return str(values[-1] or "").strip()
+    return ""
 
 
 def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> OperationResult:
