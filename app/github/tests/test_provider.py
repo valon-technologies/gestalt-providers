@@ -3767,7 +3767,7 @@ class GitHubProviderTests(unittest.TestCase):
                                             "credentialMode": "none",
                                             "input": {
                                                 "dryRun": True,
-                                                "autoResolveStaleFindings": True
+                                                "autoResolveStaleFindings": True,
                                             },
                                         },
                                     }
@@ -3797,9 +3797,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         request = github_request()
         request.workflow = {
-            "signals": [
-                {"payload": sdk_value_to_dict(workflow_request.signal.payload)}
-            ]
+            "signals": [{"payload": sdk_value_to_dict(workflow_request.signal.payload)}]
         }
 
         with (
@@ -4747,9 +4745,7 @@ class GitHubProviderTests(unittest.TestCase):
             prompt_data["output"]["name"],
             "github.pull_request_review.findings.v2",
         )
-        self.assertEqual(
-            prompt_data["output"]["empty_response"], {"findings": []}
-        )
+        self.assertEqual(prompt_data["output"]["empty_response"], {"findings": []})
         self.assertIn(
             "Use only added RIGHT-side lines",
             prompt_data["output"]["line_policy"],
@@ -4824,6 +4820,85 @@ class GitHubProviderTests(unittest.TestCase):
             r"fingerprint=[0-9a-f]{64} stable_fingerprint=[0-9a-f]{64} "
             r"source=github\.reviewPullRequest -->$",
         )
+
+    def test_review_pull_request_failure_check_run_includes_error_detail(self) -> None:
+        updated_checks: list[Any] = []
+        request = github_request()
+        request.workflow = {
+            "signals": [
+                {
+                    "payload": {
+                        "github_event": "pull_request",
+                        "github_action": "synchronize",
+                        "delivery_id": "delivery-pr-review",
+                        "installation": {"id": 99},
+                        "repository": {"full_name": "acme/widgets"},
+                        "summary": {"repository": "acme/widgets", "number": 7},
+                        "review_check_run": {
+                            "id": 777,
+                            "name": "Gestalt Review",
+                            "status": "in_progress",
+                            "head_sha": "abc123",
+                        },
+                    }
+                }
+            ]
+        }
+        settings = review_module.ReviewSettings(
+            agent_provider="claude",
+            model="claude-opus-4-7",
+            system_prompt="Review the diff.",
+            max_comments=10,
+            max_files=10,
+            max_patch_chars=4000,
+            changed_lines_only=True,
+            dry_run=False,
+            auto_resolve_stale_findings=True,
+            check_run_name="Gestalt Review",
+            turn_timeout_ms=1000,
+            poll_interval_ms=1,
+        )
+
+        def fake_update_check_run(
+            update_request: Any, *, subject: Any, external_identity: Any | None = None
+        ) -> dict[str, Any]:
+            updated_checks.append((update_request, subject, external_identity))
+            return {
+                "id": update_request.check_run_id,
+                "name": "Gestalt Review",
+                "status": "completed",
+                "conclusion": update_request.conclusion,
+                "head_sha": "abc123",
+            }
+
+        with (
+            mock.patch(
+                "internals.review.get_pull_request",
+                side_effect=RuntimeError("agent client unavailable"),
+            ),
+            mock.patch(
+                "internals.review.update_check_run",
+                side_effect=fake_update_check_run,
+            ),
+            self.assertRaisesRegex(RuntimeError, "agent client unavailable"),
+        ):
+            review_module.review_pull_request(settings, request)
+
+        self.assertEqual(len(updated_checks), 1)
+        update_request, subject, external_identity = updated_checks[0]
+        self.assertEqual(update_request.check_run_id, 777)
+        self.assertEqual(update_request.conclusion, "failure")
+        self.assertEqual(update_request.output.title, "Review failed")
+        self.assertIn(
+            "Gestalt review failed before it could complete.",
+            update_request.output.summary,
+        )
+        self.assertIn(
+            "Error: RuntimeError: agent client unavailable",
+            update_request.output.summary,
+        )
+        self.assertEqual(subject.id, request.subject.id)
+        self.assertIsNone(external_identity)
 
     def test_review_pull_request_allows_configured_fifteen_minute_timeout(
         self,
@@ -5131,7 +5206,10 @@ class GitHubProviderTests(unittest.TestCase):
         assert fix_schema is not None
         self.assertEqual(review_schema["required"], ["findings"])
         self.assertEqual(fix_schema["required"], ["commit_message", "files"])
-        self.assertEqual(fix_schema["properties"]["commit_message"], {"type": "string", "minLength": 1})
+        self.assertEqual(
+            fix_schema["properties"]["commit_message"],
+            {"type": "string", "minLength": 1},
+        )
         self.assertEqual(fix_schema["properties"]["files"]["minItems"], 0)
         self.assertEqual(
             fix_schema["properties"]["files"]["items"]["properties"]["content"],
@@ -6108,9 +6186,7 @@ class GitHubProviderTests(unittest.TestCase):
                 "wrong_marker_source",
                 {
                     **base_thread,
-                    "comments": [
-                        {"authorLogin": bot_login, "body": wrong_source_body}
-                    ],
+                    "comments": [{"authorLogin": bot_login, "body": wrong_source_body}],
                 },
                 "wrong_marker_source",
             ),
@@ -6331,9 +6407,7 @@ class GitHubProviderTests(unittest.TestCase):
             ),
         ):
             result = provider_module.github_review_pull_request(
-                provider_module.ReviewPullRequestInput(
-                    autoResolveStaleFindings=False
-                ),
+                provider_module.ReviewPullRequestInput(autoResolveStaleFindings=False),
                 request,
             )
 
