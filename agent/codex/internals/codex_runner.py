@@ -14,6 +14,9 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Protocol
 
+import gestalt
+from jsonschema import exceptions as jsonschema_exceptions
+from jsonschema.validators import validator_for
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp import types as mcp_types
@@ -133,7 +136,8 @@ class CodexMCPRunner:
         run_grant: str,
         skill_roots: list[str] | None = None,
         cwd: str = "",
-    ) -> str:
+        schema: dict[str, Any] | None = None,
+    ) -> gestalt.AgentTurnOutput:
         try:
             return asyncio.run(
                 asyncio.wait_for(
@@ -145,6 +149,7 @@ class CodexMCPRunner:
                         run_grant=run_grant,
                         skill_roots=skill_roots or [],
                         cwd=cwd,
+                        schema=schema,
                     ),
                     timeout=self._config.timeout_seconds,
                 )
@@ -181,7 +186,8 @@ class CodexMCPRunner:
         run_grant: str,
         skill_roots: list[str],
         cwd: str,
-    ) -> str:
+        schema: dict[str, Any] | None,
+    ) -> gestalt.AgentTurnOutput:
         loop = asyncio.get_running_loop()
         self._register_active_turn(turn_id, _ActiveTurn(loop=loop))
         server: CodexMCPServerProtocol | None = None
@@ -191,6 +197,8 @@ class CodexMCPRunner:
             prompt = messages_to_prompt(messages)
             if not prompt:
                 raise CodexExecutionError("turn prompt is empty")
+            if schema is not None:
+                prompt = structured_output_prompt(prompt, schema)
 
             try:
                 listed_tools = await asyncio.to_thread(
@@ -234,7 +242,15 @@ class CodexMCPRunner:
                     ),
                 )
                 self._raise_if_canceled(turn_id)
-                return normalize_codex_result(result)
+                output_text = normalize_codex_result(result)
+                if schema is not None:
+                    return gestalt.AgentTurnOutput(
+                        structured=gestalt.AgentTurnStructuredOutput(
+                            text=output_text,
+                            value=structured_output_from_text(output_text, schema),
+                        )
+                    )
+                return gestalt.AgentTurnOutput(text=output_text)
         except asyncio.CancelledError:
             self.cancel_turn(turn_id)
             raise
@@ -417,6 +433,85 @@ def _message_content(message: dict[str, Any]) -> str:
         if isinstance(image_ref, dict):
             chunks.append(json.dumps({"image_ref": image_ref}, sort_keys=True, separators=(",", ":")))
     return "\n".join(chunks).strip()
+
+
+def structured_output_prompt(prompt: str, schema: dict[str, Any]) -> str:
+    return (
+        f"{prompt}\n\n"
+        "<gestalt_structured_output>\n"
+        "Return only one JSON object matching this JSON Schema. Do not wrap it in Markdown or include explanatory text.\n"
+        f"{json.dumps(schema, sort_keys=True, separators=(',', ':'))}\n"
+        "</gestalt_structured_output>"
+    )
+
+
+def validate_schema(schema: dict[str, Any]) -> None:
+    if not schema or str(schema.get("type") or "").strip() != "object":
+        raise CodexExecutionError("output.structured.schema must be a non-empty JSON schema object with type 'object'")
+    validator_cls = validator_for(schema)
+    try:
+        validator_cls.check_schema(schema)
+    except jsonschema_exceptions.SchemaError as exc:
+        raise CodexExecutionError(f"invalid output.structured.schema: {exc.message}") from exc
+
+
+def structured_output_from_text(text: str, schema: dict[str, Any]) -> dict[str, Any]:
+    validate_schema(schema)
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError:
+        value = _extract_json_object(text)
+    if not isinstance(value, dict):
+        raise CodexExecutionError("structured output must be a JSON object")
+    validator_cls = validator_for(schema)
+    validator = validator_cls(schema)
+    try:
+        validator.validate(value)
+    except jsonschema_exceptions.ValidationError as exc:
+        raise CodexExecutionError(f"structured output did not match response schema: {exc.message}") from exc
+    return value
+
+
+def _extract_json_object(text: str) -> dict[str, Any]:
+    start = text.find("{")
+    while start >= 0:
+        end = _balanced_json_object_end(text, start)
+        if end is not None:
+            candidate = text[start:end]
+            try:
+                value = json.loads(candidate)
+            except json.JSONDecodeError:
+                pass
+            else:
+                if isinstance(value, dict):
+                    return value
+        start = text.find("{", start + 1)
+    raise CodexExecutionError("structured output did not contain a JSON object")
+
+
+def _balanced_json_object_end(text: str, start: int) -> int | None:
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return None
 
 
 def _schedule_cleanup(

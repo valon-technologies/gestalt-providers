@@ -608,9 +608,7 @@ def _agent_steps_from_config(
                     step, "toolSetRefs", "tool_set_refs"
                 ),
                 tools=_agent_tool_refs_from_config(step, f"{path}.tools"),
-                response_schema=_config_json_object(
-                    step, path, "responseSchema", "response_schema"
-                ),
+                output=_agent_output_from_config(step, path),
                 model_options=_config_json_object(
                     step, path, "modelOptions", "model_options"
                 ),
@@ -625,6 +623,28 @@ def _agent_steps_from_config(
             )
         )
     return tuple(steps)
+
+
+def _agent_output_from_config(config: dict[str, Any], path: str) -> dict[str, Any]:
+    output = _config_json_object(config, path, "output")
+    if not output:
+        return {"text": {}}
+    text_set = "text" in output
+    structured = output.get("structured")
+    structured_set = "structured" in output
+    if text_set == structured_set:
+        raise ValueError(f"{path}.output must set exactly one of text or structured")
+    if text_set:
+        text = output.get("text")
+        if text is not None and not isinstance(text, dict):
+            raise ValueError(f"{path}.output.text must be an object")
+        return {"text": {}}
+    if not isinstance(structured, dict):
+        raise ValueError(f"{path}.output.structured must be an object")
+    schema = structured.get("schema")
+    if not isinstance(schema, dict):
+        raise ValueError(f"{path}.output.structured.schema must be an object")
+    return {"structured": {"schema": dict(schema)}}
 
 
 def _agent_step_messages_from_config(

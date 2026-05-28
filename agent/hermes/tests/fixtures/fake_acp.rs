@@ -126,7 +126,16 @@ fn main() {
                     respond(&request, json!({"stopReason": "end_turn"}));
                     continue;
                 }
-                update("agent_message_chunk", "Hermes says hi");
+                if mode == "structured-json" {
+                    update(
+                        "agent_message_chunk",
+                        r#"{"score":1,"reasoning":"correct"}"#,
+                    );
+                } else if mode == "structured-invalid" {
+                    update("agent_message_chunk", "not json");
+                } else {
+                    update("agent_message_chunk", "Hermes says hi");
+                }
                 tool_update("tool-call-1", "completed");
                 if mode == "wrong-session" {
                     update_for_session("other-session", "agent_message_chunk", "ignored");

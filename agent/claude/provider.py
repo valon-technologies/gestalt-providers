@@ -343,7 +343,6 @@ class ClaudeCodeAgentProvider(
             streaming_text=False,
             tool_calls=True,
             parallel_tool_calls=False,
-            structured_output=True,
             interactions=False,
             resumable_turns=False,
             reasoning_summaries=False,
@@ -425,9 +424,7 @@ class ClaudeCodeAgentProvider(
             logger.exception("Claude Agent SDK turn failed")
             store.fail_turn(turn_id=turn_id, message=str(exc))
         else:
-            store.complete_turn(
-                turn_id=turn_id, output_text=output.output_text, structured_output=output.structured_output
-            )
+            store.complete_turn(turn_id=turn_id, output=output)
 
     def _build_warnings(self, config: ClaudeAgentConfig) -> list[str]:
         warnings: list[str] = []

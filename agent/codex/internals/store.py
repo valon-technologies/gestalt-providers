@@ -48,7 +48,7 @@ class StoredTurn:
     model: str
     status: int
     messages: list[dict[str, Any]]
-    output_text: str
+    output: gestalt.AgentTurnOutput | None
     status_message: str
     created_by: dict[str, str]
     created_at: datetime
@@ -217,7 +217,7 @@ class InMemoryRunStore:
                 model=model,
                 status=gestalt.AGENT_EXECUTION_STATUS_RUNNING,
                 messages=copy.deepcopy(messages),
-                output_text="",
+                output=None,
                 status_message="",
                 created_by=dict(created_by),
                 created_at=now,
@@ -263,19 +263,19 @@ class InMemoryRunStore:
                 turns = turns[:limit]
             return copy.deepcopy(turns)
 
-    def complete_turn(self, *, turn_id: str, output_text: str) -> StoredTurn | None:
+    def complete_turn(self, *, turn_id: str, output: gestalt.AgentTurnOutput) -> StoredTurn | None:
         with self._lock:
             turn = self._turns.get(turn_id.strip())
             if turn is None or turn.status in TERMINAL_STATUSES:
                 return copy.deepcopy(turn) if turn is not None else None
             turn.status = gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED
-            turn.output_text = output_text
+            turn.output = copy.deepcopy(output)
             turn.completed_at = _utcnow()
             self.append_event(
                 turn_id=turn.turn_id,
                 event_type="assistant.message",
                 source=turn.provider_name,
-                data={"text": output_text},
+                data=_assistant_message_event_data(output),
             )
             self.append_event(
                 turn_id=turn.turn_id,
@@ -338,6 +338,18 @@ class InMemoryRunStore:
 
 def _utcnow() -> datetime:
     return datetime.now(tz=UTC)
+
+
+def _assistant_message_event_data(output: gestalt.AgentTurnOutput) -> dict[str, Any]:
+    if output.text is not None:
+        return {"text": str(output.text or "")}
+    structured = output.structured
+    if structured is None:
+        raise ValueError("completed turn output must include text or structured")
+    data: dict[str, Any] = {"text": str(structured.text or "")}
+    if structured.value is not None:
+        data["value"] = copy.deepcopy(structured.value)
+    return data
 
 
 def session_visibility_for_create(metadata: dict[str, Any], created_by: dict[str, str]) -> str:

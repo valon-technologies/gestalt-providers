@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, cast
 
+import gestalt
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
@@ -93,16 +94,10 @@ class _ClaudeResponse:
 
 
 @dataclass(frozen=True, slots=True)
-class ClaudeTurnResult:
-    output_text: str
-    structured_output: dict[str, Any] | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class ClaudeTurnProfile:
-    kind: Literal["catalog", "structured_output"]
+    kind: Literal["catalog", "direct"]
     run_grant: str = ""
-    response_schema: dict[str, Any] | None = None
+    schema: dict[str, Any] | None = None
     claude_code_options: ClaudeCodeTurnOptions | None = None
     cwd: str | None = None
 
@@ -111,29 +106,25 @@ class ClaudeTurnProfile:
         cls,
         *,
         run_grant: str,
-        response_schema: dict[str, Any] | None = None,
+        schema: dict[str, Any] | None = None,
         claude_code_options: ClaudeCodeTurnOptions,
         cwd: str,
     ) -> "ClaudeTurnProfile":
         return cls(
             kind="catalog",
             run_grant=run_grant,
-            response_schema=response_schema,
+            schema=schema,
             claude_code_options=claude_code_options,
             cwd=cwd,
         )
 
     @classmethod
-    def structured_output(cls, *, response_schema: dict[str, Any]) -> "ClaudeTurnProfile":
-        return cls(kind="structured_output", response_schema=response_schema)
+    def direct(cls, *, schema: dict[str, Any] | None = None) -> "ClaudeTurnProfile":
+        return cls(kind="direct", schema=schema)
 
     @property
     def uses_catalog_tools(self) -> bool:
         return self.kind == "catalog"
-
-    @property
-    def requires_structured_output(self) -> bool:
-        return self.response_schema is not None
 
 
 class ClaudeSDKRunner:
@@ -153,7 +144,7 @@ class ClaudeSDKRunner:
         messages: list[dict[str, Any]],
         turn_profile: ClaudeTurnProfile,
         timeout_seconds: float = 0.0,
-    ) -> ClaudeTurnResult:
+    ) -> gestalt.AgentTurnOutput:
         effective_timeout = timeout_seconds if timeout_seconds > 0 else self._config.timeout_seconds
         try:
             return asyncio.run(
@@ -199,7 +190,7 @@ class ClaudeSDKRunner:
         model: str,
         messages: list[dict[str, Any]],
         turn_profile: ClaudeTurnProfile,
-    ) -> ClaudeTurnResult:
+    ) -> gestalt.AgentTurnOutput:
         loop = asyncio.get_running_loop()
         self._register_active_turn(turn_id, _ActiveTurn(loop=loop))
         try:
@@ -229,7 +220,7 @@ class ClaudeSDKRunner:
 
     async def _receive_result(
         self, client: ClaudeClient, *, turn_id: str, turn_profile: ClaudeTurnProfile
-    ) -> ClaudeTurnResult:
+    ) -> gestalt.AgentTurnOutput:
         response = _ClaudeResponse()
         result_message: ResultMessage | None = None
         async for message in client.receive_response():
@@ -241,7 +232,7 @@ class ClaudeSDKRunner:
         return _result_output(
             response,
             result_message,
-            requires_structured_output=turn_profile.requires_structured_output,
+            requires_structured_output=turn_profile.schema is not None,
             canceled=self._is_canceled(turn_id),
         )
 
@@ -253,25 +244,25 @@ class ClaudeSDKRunner:
         turn_id: str,
         turn_profile: ClaudeTurnProfile | None = None,
         run_grant: str = "",
-        response_schema: dict[str, Any] | None = None,
+        schema: dict[str, Any] | None = None,
         claude_code_options: ClaudeCodeTurnOptions | None = None,
         cwd: str = "",
     ) -> ClaudeAgentOptions:
         if turn_profile is None:
-            if response_schema is not None and not str(run_grant or "").strip():
-                turn_profile = ClaudeTurnProfile.structured_output(response_schema=response_schema)
+            if schema is not None and not str(run_grant or "").strip():
+                turn_profile = ClaudeTurnProfile.direct(schema=schema)
             else:
                 if claude_code_options is None:
                     claude_code_options = self._config.claude_code.resolve_turn_options({})
                 turn_profile = ClaudeTurnProfile.catalog(
                     run_grant=str(run_grant or "").strip(),
-                    response_schema=response_schema,
+                    schema=schema,
                     claude_code_options=claude_code_options,
                     cwd=cwd,
                 )
         if turn_profile.uses_catalog_tools:
             return self._catalog_options(model=model, session_id=session_id, turn_id=turn_id, turn_profile=turn_profile)
-        return self._structured_output_options(model=model, turn_profile=turn_profile)
+        return self._direct_options(model=model, turn_profile=turn_profile)
 
     def _base_options_kwargs(
         self, *, model: str, env: dict[str, str], cwd: str | None, system_prompt: str | None
@@ -316,17 +307,17 @@ class ClaudeSDKRunner:
             skills=claude_code_options.sdk_skills,
             plugins=claude_code_options.sdk_plugins,
             can_use_tool=create_tool_permission_callback(claude_code_options.tool_permissions),
-            output_format=_output_format(turn_profile.response_schema),
+            output_format=_output_format(turn_profile.schema),
         )
 
-    def _structured_output_options(self, *, model: str, turn_profile: ClaudeTurnProfile) -> ClaudeAgentOptions:
+    def _direct_options(self, *, model: str, turn_profile: ClaudeTurnProfile) -> ClaudeAgentOptions:
         anthropic_api_key = self._config.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         env: dict[str, str] = {}
         if anthropic_api_key:
             env["ANTHROPIC_API_KEY"] = anthropic_api_key
         system_prompt = _configured_system_prompt(self._config.system_prompt)
-        schema = turn_profile.response_schema
-        assert schema is not None
+        schema = turn_profile.schema
+        output_format = {"type": "json_schema", "schema": schema} if schema is not None else None
         return ClaudeAgentOptions(
             **self._base_options_kwargs(model=model, env=env, cwd=None, system_prompt=system_prompt),
             tools=[],
@@ -335,7 +326,7 @@ class ClaudeSDKRunner:
             setting_sources=[],
             skills=[],
             plugins=[],
-            output_format={"type": "json_schema", "schema": schema},
+            output_format=output_format,
         )
 
     def _register_active_turn(self, turn_id: str, active: _ActiveTurn) -> None:
@@ -410,16 +401,20 @@ def _tool_result_json(block: ToolResultBlock) -> str:
 
 def _result_output(
     response: _ClaudeResponse, result_message: ResultMessage | None, *, requires_structured_output: bool, canceled: bool
-) -> ClaudeTurnResult:
+) -> gestalt.AgentTurnOutput:
     if result_message is None:
         raise ClaudeExecutionError("Claude Agent SDK response ended without a result")
     subtype = _result_subtype(result_message)
     if result_message.is_error or subtype != "success":
         _raise_result_error(result_message, subtype=subtype, canceled=canceled)
 
-    result_text = str(result_message.result or "").strip()
+    output_text = str(result_message.result or "").strip() or response.output_fallback()
     structured_output = _structured_output(result_message, required=requires_structured_output)
-    return ClaudeTurnResult(output_text=result_text or response.output_fallback(), structured_output=structured_output)
+    if structured_output is not None:
+        return gestalt.AgentTurnOutput(
+            structured=gestalt.AgentTurnStructuredOutput(text=output_text, value=structured_output)
+        )
+    return gestalt.AgentTurnOutput(text=output_text)
 
 
 def _raise_result_error(result_message: ResultMessage, *, subtype: str, canceled: bool) -> None:
@@ -468,10 +463,10 @@ def _structured_output(result_message: ResultMessage, *, required: bool) -> dict
     return value
 
 
-def _output_format(response_schema: dict[str, Any] | None) -> dict[str, Any] | None:
-    if response_schema is None:
+def _output_format(schema: dict[str, Any] | None) -> dict[str, Any] | None:
+    if schema is None:
         return None
-    return {"type": "json_schema", "schema": response_schema}
+    return {"type": "json_schema", "schema": schema}
 
 
 def _message_content(message: dict[str, Any]) -> str:

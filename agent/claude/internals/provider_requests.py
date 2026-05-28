@@ -4,6 +4,8 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 import gestalt
+from jsonschema import exceptions as jsonschema_exceptions
+from jsonschema.validators import validator_for
 
 from .claude_runner import ClaudeTurnProfile
 from .config import ClaudeAgentConfig
@@ -97,16 +99,14 @@ def turn_create_request_from_provider_request(
 
     model = config.resolve_model(request.model.strip() or session.model)
     messages = gestalt.agent_messages_to_dicts(request_messages)
-    response_schema = _response_schema_from_request(request)
+    schema = _schema_from_output(request.output)
     if request.tool_source == tool_source_modes.none:
-        if response_schema is None:
-            raise ValueError("response_schema is required with toolSource none")
-        turn_profile = ClaudeTurnProfile.structured_output(response_schema=response_schema)
+        turn_profile = ClaudeTurnProfile.direct(schema=schema)
     else:
         claude_code_options = config.claude_code.resolve_turn_options(session.metadata)
         turn_profile = ClaudeTurnProfile.catalog(
             run_grant=request.run_grant.strip(),
-            response_schema=response_schema,
+            schema=schema,
             claude_code_options=claude_code_options,
             cwd=prepared_workspace_cwd(session.prepared_workspace),
         )
@@ -135,10 +135,8 @@ def validate_turn_contract(
         raise ValueError("resolved tools are not supported by agent/claude")
     if request.tool_source == tool_source_modes.none and list(request.tool_refs):
         raise ValueError("tool_refs are not supported with toolSource none")
-    response_schema = _response_schema_from_request(request)
-    if request.tool_source == tool_source_modes.none and response_schema is None:
-        raise ValueError("response_schema is required with toolSource none")
-    _validate_response_schema(response_schema)
+    schema = _schema_from_output(request.output)
+    _validate_schema(schema)
     if dict(request.model_options or {}):
         raise ValueError("model_options are not supported by agent/claude")
     if request.tool_source == tool_source_modes.mcp_catalog:
@@ -171,19 +169,31 @@ def _prepared_workspace_from_request(request: gestalt.CreateAgentProviderSession
     return prepared_workspace
 
 
-def _response_schema_from_request(request: gestalt.CreateAgentProviderTurnRequest) -> dict[str, Any] | None:
-    if request.response_schema is None:
-        return None
-    return dict(request.response_schema)
+def _schema_from_output(output: gestalt.AgentOutput | None) -> dict[str, Any] | None:
+    if output is None:
+        raise ValueError("output is required")
+    text_set = output.text is not None
+    structured_set = output.structured is not None
+    if text_set == structured_set:
+        raise ValueError("exactly one of output.text or output.structured is required")
+    if structured_set:
+        assert output.structured is not None
+        return dict(output.structured.schema)
+    return None
 
 
-def _validate_response_schema(schema: dict[str, Any] | None) -> None:
+def _validate_schema(schema: dict[str, Any] | None) -> None:
     if schema is None:
         return
     if not schema:
-        raise ValueError("response_schema must be a non-empty JSON schema object with type 'object'")
+        raise ValueError("output.structured.schema must be a non-empty JSON schema object with type 'object'")
     if str(schema.get("type") or "").strip() != "object":
-        raise ValueError("response_schema.type must be 'object'")
+        raise ValueError("output.structured.schema.type must be 'object'")
+    validator_cls = validator_for(schema)
+    try:
+        validator_cls.check_schema(schema)
+    except jsonschema_exceptions.SchemaError as exc:
+        raise ValueError(f"invalid output.structured.schema: {exc.message}") from exc
 
 
 def _validate_tool_refs(tool_refs: list[gestalt.AgentToolRef]) -> None:

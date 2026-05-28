@@ -31,6 +31,8 @@ import {
   AgentExecutionStatus,
   AgentToolSourceMode,
   createAgentProviderService,
+  type AgentTurn,
+  type CreateAgentProviderTurnRequest,
   type ListedAgentTool,
 } from "@valon-technologies/gestalt";
 import {
@@ -38,7 +40,6 @@ import {
   AgentProvider as VendoredAgentProviderService,
   CancelAgentProviderTurnRequestSchema,
   CreateAgentProviderSessionRequestSchema,
-  CreateAgentProviderTurnRequestSchema,
   type ExecuteAgentToolRequest as ProtoExecuteAgentToolRequest,
   ExecuteAgentToolResponseSchema,
   GetAgentProviderCapabilitiesRequestSchema,
@@ -84,7 +85,14 @@ function actorFixture(subjectId: string, subjectKind: string, displayName: strin
 }
 
 function subjectFixture(id: string, kind: string, displayName: string) {
-  return { id, kind, displayName, authSource: "test" };
+  return {
+    id,
+    kind,
+    credentialSubjectId: id,
+    displayName,
+    authSource: "test",
+    email: kind === "user" ? id.replace(/^user:/, "") : "",
+  };
 }
 
 function create<Desc extends DescMessage>(
@@ -97,7 +105,6 @@ function create<Desc extends DescMessage>(
   } else if (
     [
       CancelAgentProviderTurnRequestSchema,
-      CreateAgentProviderTurnRequestSchema,
       GetAgentProviderSessionRequestSchema,
       GetAgentProviderTurnRequestSchema,
       ListAgentProviderSessionsRequestSchema,
@@ -109,6 +116,35 @@ function create<Desc extends DescMessage>(
     payload = { subject: OWNER_SUBJECT, ...input };
   }
   return createMessage(schema, payload as MessageInitShape<Desc>);
+}
+
+function turnRequest(
+  input: Partial<CreateAgentProviderTurnRequest> &
+    Pick<CreateAgentProviderTurnRequest, "turnId" | "sessionId" | "messages">,
+): CreateAgentProviderTurnRequest {
+  return {
+    turnId: input.turnId,
+    sessionId: input.sessionId,
+    idempotencyKey: input.idempotencyKey ?? "",
+    model: input.model ?? "",
+    messages: input.messages,
+    tools: input.tools ?? [],
+    output: input.output ?? { text: {} },
+    metadata: input.metadata,
+    createdBy: input.createdBy ?? OWNER_ACTOR,
+    executionRef: input.executionRef ?? "",
+    toolRefs: input.toolRefs ?? [],
+    toolSource: input.toolSource ?? AgentToolSourceMode.UNSPECIFIED,
+    subject: input.subject ?? OWNER_SUBJECT,
+    modelOptions: input.modelOptions,
+    runGrant: input.runGrant ?? "",
+    timeoutSeconds: input.timeoutSeconds ?? 0,
+    invocationToken: input.invocationToken ?? "",
+  };
+}
+
+function turnText(turn: AgentTurn): string {
+  return turn.output?.text ?? turn.output?.structured?.text ?? "";
 }
 
 afterEach(async () => {
@@ -224,7 +260,6 @@ describe("Cursor agent provider contract", () => {
       expect(capabilities.streamingText).toBe(false);
       expect(capabilities.toolCalls).toBe(true);
       expect(capabilities.boundedListHydration).toBe(true);
-      expect(capabilities.structuredOutput).toBe(false);
       expect(capabilities.interactions).toBe(false);
       expect(capabilities.resumableTurns).toBe(false);
       expect(capabilities.supportedToolSources).toEqual([
@@ -303,7 +338,7 @@ describe("Cursor agent provider contract", () => {
     expect(replay.id).toBe("session-start");
 
     await provider.createTurn(
-      create(CreateAgentProviderTurnRequestSchema, {
+      turnRequest({
         turnId: "session-start-turn",
         sessionId: "session-start",
         messages: [{ role: "user", text: "hi" }],
@@ -395,7 +430,7 @@ describe("Cursor agent provider contract", () => {
       }),
     );
     await provider.createTurn(
-      create(CreateAgentProviderTurnRequestSchema, {
+      turnRequest({
         turnId: "access-company-turn",
         sessionId: "access-company",
         messages: [{ role: "user", text: "hi" }],
@@ -524,7 +559,7 @@ describe("Cursor agent provider contract", () => {
       }),
     );
     await provider.createTurn(
-      create(CreateAgentProviderTurnRequestSchema, {
+      turnRequest({
         turnId: "access-private-turn",
         sessionId: "access-private-turns",
         messages: [{ role: "user", text: "hi" }],
@@ -546,7 +581,7 @@ describe("Cursor agent provider contract", () => {
     );
     await expectConnectCode(
       provider.createTurn(
-        create(CreateAgentProviderTurnRequestSchema, {
+        turnRequest({
           turnId: "access-private-turn-other",
           sessionId: "access-private-turns",
           subject: OTHER_SUBJECT,
@@ -681,7 +716,7 @@ describe("Cursor agent provider contract", () => {
     );
 
     await provider.createTurn(
-      create(CreateAgentProviderTurnRequestSchema, {
+      turnRequest({
         turnId: "turn-1",
         sessionId: "session-1",
         idempotencyKey: "turn-key",
@@ -696,7 +731,7 @@ describe("Cursor agent provider contract", () => {
       "turn-1",
       AgentExecutionStatus.SUCCEEDED,
     );
-    expect(turn.outputText).toBe("Forecast: sunny");
+    expect(turnText(turn)).toBe("Forecast: sunny");
     expect(host.relayTokens).toContain("relay-token");
     expect(host.listRequests).toHaveLength(1);
     expect(host.executeRequests).toHaveLength(1);
@@ -706,6 +741,127 @@ describe("Cursor agent provider contract", () => {
     );
     expect(host.executeRequests[0]?.arguments).toEqual({ city: "Oakland" });
     expect(existsSync(cursor.stateRoots[0] ?? "")).toBe(false);
+  });
+
+  test("structured output requests return validated values", async () => {
+    const host = await FakeAgentHost.start({
+      pages: [{ tools: [tool({ id: "tool", mcpName: "grader" })] }],
+    });
+    activeHosts.push(host);
+    process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
+    let prompt = "";
+    const cursor = new FakeCursorAgentFactory(async (_options, runPrompt) => {
+      prompt = runPrompt;
+      return [
+        {
+          type: "assistant",
+          agent_id: "fake-agent",
+          run_id: "fake-run",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: '{"score":1,"reasoning":"correct"}' }],
+          },
+        },
+      ];
+    });
+    const provider = await configuredProvider({
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, { agentFactory: cursor }),
+    });
+    await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "structured-session",
+      }),
+    );
+
+    await provider.createTurn(
+      turnRequest({
+        turnId: "structured-turn",
+        sessionId: "structured-session",
+        messages: [{ role: "user", text: "grade" }],
+        toolSource: AgentToolSourceMode.MCP_CATALOG,
+        runGrant: "grant",
+        toolRefs: [{ app: "grader-plugin", operation: "grade" }],
+        output: {
+          structured: {
+            schema: {
+              type: "object",
+              required: ["score", "reasoning"],
+              properties: {
+                score: { type: "number" },
+                reasoning: { type: "string" },
+              },
+            },
+          },
+        },
+      }),
+    );
+    const turn = await waitForTurn(
+      provider,
+      "structured-turn",
+      AgentExecutionStatus.SUCCEEDED,
+    );
+
+    expect(prompt).toContain("gestalt_structured_output");
+    expect(turn.output?.structured?.value).toEqual({
+      score: 1,
+      reasoning: "correct",
+    });
+  });
+
+  test("structured output requests fail invalid JSON", async () => {
+    const host = await FakeAgentHost.start({
+      pages: [{ tools: [tool({ id: "tool", mcpName: "grader" })] }],
+    });
+    activeHosts.push(host);
+    process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
+    const cursor = new FakeCursorAgentFactory(async () => [
+      {
+        type: "assistant",
+        agent_id: "fake-agent",
+        run_id: "fake-run",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "not json" }],
+        },
+      },
+    ]);
+    const provider = await configuredProvider({
+      runnerFactory: (config) =>
+        new CursorSDKRunner(config, { agentFactory: cursor }),
+    });
+    await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "structured-invalid-session",
+      }),
+    );
+
+    await provider.createTurn(
+      turnRequest({
+        turnId: "structured-invalid-turn",
+        sessionId: "structured-invalid-session",
+        messages: [{ role: "user", text: "grade" }],
+        toolSource: AgentToolSourceMode.MCP_CATALOG,
+        runGrant: "grant",
+        toolRefs: [{ app: "grader-plugin", operation: "grade" }],
+        output: {
+          structured: {
+            schema: {
+              type: "object",
+              required: ["score"],
+              properties: { score: { type: "number" } },
+            },
+          },
+        },
+      }),
+    );
+    const turn = await waitForTurn(
+      provider,
+      "structured-invalid-turn",
+      AgentExecutionStatus.FAILED,
+    );
+
+    expect(turn.statusMessage).toContain("structured output");
   });
 
   test("prepared workspace cwd overrides configured working directory", async () => {
@@ -743,7 +899,7 @@ describe("Cursor agent provider contract", () => {
       preparedWorkspace: { root: tmpdir(), cwd: preparedCwd },
     } as never);
     await provider.createTurn(
-      create(CreateAgentProviderTurnRequestSchema, {
+      turnRequest({
         turnId: "turn-workspace",
         sessionId: "session-workspace",
         messages: [{ role: "user", text: "inspect repo" }],
@@ -802,7 +958,7 @@ describe("Cursor agent provider contract", () => {
       create(CreateAgentProviderSessionRequestSchema, { sessionId: "s" }),
     );
     await provider.createTurn(
-      create(CreateAgentProviderTurnRequestSchema, {
+      turnRequest({
         turnId: "t",
         sessionId: "s",
         messages: [{ role: "user", text: "hi" }],
@@ -890,9 +1046,9 @@ describe("Cursor agent provider contract", () => {
         "resolved tools are not supported",
       ],
       [
-        "response schema",
-        { responseSchema: { type: "object" } },
-        "response_schema",
+        "empty structured output schema",
+        { output: { structured: { schema: {} } } },
+        "output.structured.schema",
       ],
       [
         "model options",
@@ -903,7 +1059,7 @@ describe("Cursor agent provider contract", () => {
     for (const [name, patch, message] of invalidCases) {
       await expect(
         provider.createTurn(
-          create(CreateAgentProviderTurnRequestSchema, { ...base, ...patch }),
+          turnRequest({ ...base, ...patch }),
         ),
         name,
       ).rejects.toThrow(message);
@@ -929,7 +1085,7 @@ describe("Cursor agent provider contract", () => {
       create(CreateAgentProviderSessionRequestSchema, { sessionId: "failure" }),
     );
     await failureProvider.createTurn(
-      create(CreateAgentProviderTurnRequestSchema, {
+      turnRequest({
         turnId: "failure-turn",
         sessionId: "failure",
         messages: [{ role: "user", text: "fail" }],
@@ -968,7 +1124,7 @@ describe("Cursor agent provider contract", () => {
       create(CreateAgentProviderSessionRequestSchema, { sessionId: "timeout" }),
     );
     await timeoutProvider.createTurn(
-      create(CreateAgentProviderTurnRequestSchema, {
+      turnRequest({
         turnId: "timeout-turn",
         sessionId: "timeout",
         messages: [{ role: "user", text: "timeout" }],
@@ -999,7 +1155,7 @@ describe("Cursor agent provider contract", () => {
       }),
     );
     await preRunProvider.createTurn(
-      create(CreateAgentProviderTurnRequestSchema, {
+      turnRequest({
         turnId: "pre-run-turn",
         sessionId: "pre-run-cancel",
         messages: [{ role: "user", text: "cancel" }],
@@ -1041,7 +1197,7 @@ describe("Cursor agent provider contract", () => {
       }),
     );
     await pendingSendProvider.createTurn(
-      create(CreateAgentProviderTurnRequestSchema, {
+      turnRequest({
         turnId: "send-turn",
         sessionId: "send-cancel",
         messages: [{ role: "user", text: "cancel while sending" }],
@@ -1102,7 +1258,7 @@ describe("Cursor agent provider contract", () => {
       }),
     );
     await liveProvider.createTurn(
-      create(CreateAgentProviderTurnRequestSchema, {
+      turnRequest({
         turnId: "live-turn",
         sessionId: "live-cancel",
         messages: [{ role: "user", text: "cancel" }],
@@ -1156,7 +1312,7 @@ describe("Cursor agent provider contract", () => {
       create(CreateAgentProviderSessionRequestSchema, { sessionId: "close" }),
     );
     await provider.createTurn(
-      create(CreateAgentProviderTurnRequestSchema, {
+      turnRequest({
         turnId: "close-turn",
         sessionId: "close",
         messages: [{ role: "user", text: "close" }],
@@ -1241,7 +1397,7 @@ describe("Cursor agent provider contract", () => {
         create(CreateAgentProviderSessionRequestSchema, { sessionId: name }),
       );
       await provider.createTurn(
-        create(CreateAgentProviderTurnRequestSchema, {
+        turnRequest({
           turnId: `turn-${name}`,
           sessionId: name,
           messages: [{ role: "user", text: "hi" }],
@@ -1340,7 +1496,7 @@ describe("Cursor agent provider contract", () => {
       create(CreateAgentProviderSessionRequestSchema, { sessionId: "events" }),
     );
     await eventProvider.createTurn(
-      create(CreateAgentProviderTurnRequestSchema, {
+      turnRequest({
         turnId: "events-turn",
         sessionId: "events",
         messages: [{ role: "user", text: "hi" }],

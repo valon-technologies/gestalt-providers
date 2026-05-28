@@ -372,8 +372,7 @@ export interface AgentRun {
   model?: string;
   status?: AgentExecutionStatus;
   messages?: AgentMessage[];
-  outputText?: string;
-  structuredOutput?: Record<string, unknown>;
+  output?: AgentTurnOutput;
   statusMessage?: string;
   sessionRef?: string;
   createdBy?: AgentActor;
@@ -389,7 +388,7 @@ export interface AgentRunCreate {
   messages: AgentMessage[];
   toolRefs?: Array<AgentToolRef | LegacyAgentToolRef>;
   toolSource?: "mcp_catalog" | "explicit" | "inherit_invokes";
-  responseSchema?: Record<string, unknown>;
+  output?: AgentOutput;
   sessionRef?: string;
   metadata?: Record<string, unknown>;
   modelOptions?: Record<string, unknown>;
@@ -415,11 +414,18 @@ export type AgentTurn = Omit<AgentRun, "sessionRef"> & {
 
 type AgentTurnWire = AgentTurn;
 
+export type AgentOutput =
+  | { text: Record<string, never>; structured?: never }
+  | { text?: never; structured: { schema: Record<string, unknown> } };
+
+export type AgentTurnOutput =
+  | { text: { text?: string }; structured?: never }
+  | { text?: never; structured: { text?: string; value?: Record<string, unknown> } };
+
 export interface AgentProviderCapabilities {
   streamingText?: boolean;
   toolCalls?: boolean;
   parallelToolCalls?: boolean;
-  structuredOutput?: boolean;
   interactions?: boolean;
   resumableTurns?: boolean;
   reasoningSummaries?: boolean;
@@ -457,7 +463,7 @@ export interface AgentTurnCreate {
   messages: AgentMessage[];
   toolRefs?: AgentToolRef[];
   toolSource?: "mcp_catalog";
-  responseSchema?: Record<string, unknown>;
+  output?: AgentOutput;
   metadata?: Record<string, unknown>;
   modelOptions?: Record<string, unknown>;
   idempotencyKey?: string;
@@ -1047,12 +1053,14 @@ export async function createAgentTurn(
   sessionID: string,
   body: AgentTurnCreate,
 ): Promise<AgentTurn> {
+  const output = body.output ?? { text: {} };
   return fetchAPI<AgentTurn>(
     `/api/v1/agent/sessions/${encodeURIComponent(sessionID)}/turns`,
     {
       method: "POST",
       body: JSON.stringify({
         ...body,
+        output,
         toolSource: agentToolSourceToRequest(body.toolSource),
       }),
     },
@@ -1266,7 +1274,7 @@ export async function createAgentRun(body: AgentRunCreate): Promise<AgentRun> {
         messages: body.messages,
         toolRefs,
         toolSource,
-        responseSchema: body.responseSchema,
+        output: body.output ?? { text: {} },
         metadata: body.metadata,
         modelOptions: body.modelOptions,
         idempotencyKey: idempotencyKeyPart("turn", body.idempotencyKey),

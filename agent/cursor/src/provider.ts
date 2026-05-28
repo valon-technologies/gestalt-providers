@@ -33,7 +33,7 @@ import {
   type CursorAgentConfig,
 } from "./config.ts";
 import { CursorExecutionCanceled, CursorExecutionError } from "./errors.ts";
-import { CursorSDKRunner } from "./runner.ts";
+import { CursorSDKRunner, validateResponseSchema } from "./runner.ts";
 import {
   prependSessionStartContext,
   runSessionStartHooks,
@@ -237,6 +237,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
   ): Promise<AgentTurn> {
     const { config, runner } = this.requireRuntime();
     validateCreateTurnRequest(request);
+    const schema = schemaFromOutput(request.output);
     const session = this.store.getSession(request.sessionId);
     if (!session) {
       throw notFound(
@@ -280,6 +281,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         messages: turn.messages,
         runGrant: request.runGrant.trim(),
         cwd: session.preparedWorkspace?.cwd ?? "",
+        schema,
       });
     }
     return turnToAgentTurn(turn);
@@ -424,7 +426,6 @@ export class CursorAgentProvider extends SDKAgentProvider {
       streamingText: false,
       toolCalls: true,
       parallelToolCalls: false,
-      structuredOutput: false,
       interactions: false,
       resumableTurns: false,
       reasoningSummaries: false,
@@ -456,6 +457,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     messages: AgentMessage[];
     runGrant: string;
     cwd: string;
+    schema?: Record<string, unknown> | undefined;
   }): Promise<void> {
     try {
       const output = await input.runner.runTurn({
@@ -465,6 +467,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         messages: input.messages,
         runGrant: input.runGrant,
         cwd: input.cwd,
+        schema: input.schema,
         onEvent: (eventType, data) => {
           this.store.appendEvent({
             turnId: input.turnId,
@@ -549,13 +552,35 @@ function validateCreateTurnRequest(
       "resolved tools are not supported; use tool_refs with mcp_catalog",
     );
   }
-  if (hasObjectData(request.responseSchema)) {
-    throw invalidArgument("response_schema is not supported by agent/cursor");
+  const schema = schemaFromOutput(request.output);
+  if (schema) {
+    try {
+      validateResponseSchema(schema);
+    } catch (error) {
+      throw invalidArgument(errorMessage(error));
+    }
   }
   if (hasObjectData(request.modelOptions)) {
     throw invalidArgument("model_options are not supported by agent/cursor");
   }
   validateToolRefs(request.toolRefs);
+}
+
+function schemaFromOutput(
+  output: CreateAgentProviderTurnRequest["output"] | undefined,
+): Record<string, unknown> | undefined {
+  if (!output) {
+    throw invalidArgument("output is required");
+  }
+  const textSet = output.text !== undefined;
+  const structuredSet = output.structured !== undefined;
+  if (textSet === structuredSet) {
+    throw invalidArgument("exactly one of output.text or output.structured is required");
+  }
+  if (output.structured) {
+    return { ...output.structured.schema };
+  }
+  return undefined;
 }
 
 function validateToolRefs(

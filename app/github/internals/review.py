@@ -994,7 +994,9 @@ def ask_agent_for_findings(
             ],
             tool_refs=review_agent_tool_refs(req, signal),
             tool_source=gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
-            response_schema=REVIEW_RESPONSE_SCHEMA,
+            output=gestalt.AgentOutput(
+                structured=gestalt.AgentStructuredOutput(schema=REVIEW_RESPONSE_SCHEMA)
+            ),
             metadata=metadata,
             idempotency_key=f"{idempotency_base}:turn",
         )
@@ -1070,7 +1072,9 @@ def ask_agent_for_fix(
             ],
             tool_refs=review_agent_tool_refs(req, signal),
             tool_source=gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
-            response_schema=SELF_FIX_RESPONSE_SCHEMA,
+            output=gestalt.AgentOutput(
+                structured=gestalt.AgentStructuredOutput(schema=SELF_FIX_RESPONSE_SCHEMA)
+            ),
             metadata=metadata,
             idempotency_key=f"{idempotency_base}:turn",
         )
@@ -2000,8 +2004,9 @@ def bounded_text(value: str, max_chars: int) -> str:
 
 
 def agent_turn_output(turn: gestalt.AgentTurn) -> dict[str, Any]:
-    structured = getattr(turn, "structured_output", None)
-    structured_object = object_value(structured)
+    output = getattr(turn, "output", None)
+    structured = getattr(output, "structured", None)
+    structured_object = object_value(getattr(structured, "value", None))
     if structured_object is not None:
         return structured_object
     raise RuntimeError("agent turn did not return structured output")

@@ -135,22 +135,24 @@ export function finishTurnSnapshot(
     pushItem(next, turn.id, "error", "Turn failed", turn.statusMessage);
   } else if (turn.status === "canceled" && turn.statusMessage) {
     pushItem(next, turn.id, "system", "Turn canceled", turn.statusMessage);
-  } else if (turn.status === "succeeded" && turn.outputText) {
+  } else if (turn.status === "succeeded" && turnText(turn)) {
+    const outputText = turnText(turn);
     const hasAssistant = next.items.some(
-      (item) => item.kind === "assistant" && item.text === turn.outputText,
+      (item) => item.kind === "assistant" && item.text === outputText,
     );
     if (!hasAssistant) {
-      pushItem(next, turn.id, "assistant", "Assistant", turn.outputText);
+      pushItem(next, turn.id, "assistant", "Assistant", outputText);
     }
   }
 
-  if (turn.structuredOutput && isTurnTerminal(turn.status)) {
+  const structuredOutput = turn.output?.structured?.value;
+  if (structuredOutput && isTurnTerminal(turn.status)) {
     pushItem(
       next,
       turn.id,
       "system",
       "Structured output",
-      prettyJSON(turn.structuredOutput),
+      prettyJSON(structuredOutput),
     );
   }
   return next;
@@ -570,6 +572,10 @@ function valueText(value: unknown): string {
   if (typeof value === "string") return value;
   if (value === undefined || value === null) return "";
   return compactJSON(value);
+}
+
+function turnText(turn: AgentTurn): string {
+  return turn.output?.text?.text ?? turn.output?.structured?.text ?? "";
 }
 
 function compactJSON(value: unknown): string {

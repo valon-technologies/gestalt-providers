@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gestalt::{
-    AgentActor, AgentExecutionStatus, AgentMessage, AgentSession, AgentSessionState, AgentToolRef,
-    AgentToolSourceMode, AgentTurn, AgentTurnDisplay, AgentTurnEvent,
-    CreateAgentProviderSessionRequest, CreateAgentProviderTurnRequest,
+    AgentActor, AgentExecutionStatus, AgentMessage, AgentOutput, AgentSession, AgentSessionState,
+    AgentToolRef, AgentToolSourceMode, AgentTurn, AgentTurnDisplay, AgentTurnEvent,
+    AgentTurnOutput, CreateAgentProviderSessionRequest, CreateAgentProviderTurnRequest,
 };
 
 #[derive(Clone)]
@@ -38,7 +38,9 @@ pub struct StoredTurn {
     pub model: String,
     pub status: AgentExecutionStatus,
     pub messages: Vec<AgentMessage>,
-    pub output_text: String,
+    pub output_request: AgentOutput,
+    pub output_buffer: String,
+    pub output: Option<AgentTurnOutput>,
     pub status_message: String,
     pub created_by: Option<AgentActor>,
     pub created_at: Option<SystemTime>,
@@ -287,7 +289,9 @@ impl Store {
             model,
             status: AgentExecutionStatus::Running,
             messages: req.messages.clone(),
-            output_text: String::new(),
+            output_request: req.output.clone(),
+            output_buffer: String::new(),
+            output: None,
             status_message: String::new(),
             created_by: req.created_by.clone(),
             created_at: Some(now),
@@ -390,8 +394,14 @@ impl Store {
 
     pub fn append_output(&mut self, turn_id: &str, text: &str) {
         if let Some(turn) = self.turns.get_mut(turn_id) {
-            turn.output_text.push_str(text);
+            turn.output_buffer.push_str(text);
         }
+    }
+
+    pub fn set_output(&mut self, turn_id: &str, output: AgentTurnOutput) -> Option<StoredTurn> {
+        let turn = self.turns.get_mut(turn_id.trim())?;
+        turn.output = Some(output);
+        Some(turn.clone())
     }
 
     pub fn finish_turn(
@@ -517,12 +527,7 @@ pub fn agent_turn(turn: StoredTurn, summary_only: bool) -> AgentTurn {
         } else {
             turn.messages
         },
-        output_text: if summary_only {
-            String::new()
-        } else {
-            turn.output_text
-        },
-        structured_output: None,
+        output: if summary_only { None } else { turn.output },
         status_message: turn.status_message,
         created_by: turn.created_by,
         created_at: turn.created_at,

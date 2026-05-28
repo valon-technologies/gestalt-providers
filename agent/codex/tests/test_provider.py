@@ -141,6 +141,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
 class _FakeCodexMCPServer:
     mode = "success"
     result_style = "structured"
+    result_text = "Codex completed"
     instances: list["_FakeCodexMCPServer"] = []
 
     def __init__(self, *, params: dict[str, Any], name: str, client_session_timeout_seconds: float) -> None:
@@ -189,7 +190,7 @@ class _FakeCodexMCPServer:
                     mcp_types.TextContent(type="text", text="Codex text part 2"),
                 ]
             )
-        return _structured_result("Codex completed")
+        return _structured_result(self.result_text)
 
     async def cleanup(self) -> None:
         self.cleanup_count += 1
@@ -203,6 +204,7 @@ class CodexProviderTests(unittest.TestCase):
         _host_servicer.reset()
         _FakeCodexMCPServer.mode = "success"
         _FakeCodexMCPServer.result_style = "structured"
+        _FakeCodexMCPServer.result_text = "Codex completed"
         _FakeCodexMCPServer.instances.clear()
 
     def test_agent_tool_schema_projection_merges_provider_hostile_combinators(self) -> None:
@@ -245,7 +247,6 @@ class CodexProviderTests(unittest.TestCase):
         self.assertFalse(capabilities.streaming_text)
         self.assertTrue(capabilities.tool_calls)
         self.assertFalse(capabilities.parallel_tool_calls)
-        self.assertFalse(capabilities.structured_output)
         self.assertFalse(capabilities.interactions)
         self.assertFalse(capabilities.resumable_turns)
         self.assertTrue(capabilities.bounded_list_hydration)
@@ -271,7 +272,7 @@ class CodexProviderTests(unittest.TestCase):
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
 
         fetched = _wait_for_turn(provider_client, "turn-codex", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
-        self.assertEqual(fetched.output_text, "Codex completed")
+        self.assertEqual(fetched.text.text, "Codex completed")
 
         self.assertEqual(len(_FakeCodexMCPServer.instances), 1)
         fake_server = _FakeCodexMCPServer.instances[0]
@@ -560,7 +561,7 @@ class CodexProviderTests(unittest.TestCase):
         _create_owned_session(provider_client, "session-content")
         provider_client.CreateTurn(_turn_request(turn_id="turn-content", session_id="session-content"))
         fetched = _wait_for_turn(provider_client, "turn-content", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
-        self.assertEqual(fetched.output_text, "Codex text part 1\nCodex text part 2")
+        self.assertEqual(fetched.text.text, "Codex text part 1\nCodex text part 2")
 
     def test_create_turn_rejects_unsupported_tool_contract_inputs(self) -> None:
         _, provider_client = _configure_provider()
@@ -581,12 +582,9 @@ class CodexProviderTests(unittest.TestCase):
         wildcard_ref.tool_refs[0].app = "*"
         _assert_invalid(provider_client, wildcard_ref, "wildcard tool_refs are not supported")
 
-        response_schema = struct_pb2.Struct()
-        response_schema.update({"type": "object"})
-        bad_schema = _turn_request(
-            turn_id="turn-response-schema", session_id="session-validation", response_schema=response_schema
-        )
-        _assert_invalid(provider_client, bad_schema, "response_schema is not supported")
+        empty_schema = _turn_request(turn_id="turn-empty-schema", session_id="session-validation")
+        empty_schema.output.structured.schema.CopyFrom(struct_pb2.Struct())
+        _assert_invalid(provider_client, empty_schema, "output.structured.schema")
 
         model_options = struct_pb2.Struct()
         model_options.update({"temperature": 0.2})
@@ -598,6 +596,44 @@ class CodexProviderTests(unittest.TestCase):
         resolved_tools = _turn_request(turn_id="turn-resolved-tools", session_id="session-validation")
         resolved_tools.tools.add(id="resolved-tool", name="legacy", description="legacy")
         _assert_invalid(provider_client, resolved_tools, "resolved tools are not supported")
+
+    def test_structured_output_request_returns_validated_structured_value(self) -> None:
+        _FakeCodexMCPServer.result_text = '{"score":1,"reasoning":"correct"}'
+        _, provider_client = _configure_provider()
+        _create_owned_session(provider_client, "session-structured")
+        schema = struct_pb2.Struct()
+        schema.update(
+            {
+                "type": "object",
+                "required": ["score", "reasoning"],
+                "properties": {"score": {"type": "number"}, "reasoning": {"type": "string"}},
+            }
+        )
+        provider_client.CreateTurn(
+            _turn_request(turn_id="turn-structured", session_id="session-structured", output_schema=schema)
+        )
+        fetched = _wait_for_turn(provider_client, "turn-structured", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        self.assertEqual(fetched.structured.value.fields["score"].number_value, 1)
+        self.assertEqual(fetched.structured.value.fields["reasoning"].string_value, "correct")
+        self.assertIn("gestalt_structured_output", _FakeCodexMCPServer.instances[-1].called_arguments["prompt"])
+
+    def test_structured_output_request_fails_invalid_json(self) -> None:
+        _FakeCodexMCPServer.result_text = "not json"
+        _, provider_client = _configure_provider()
+        _create_owned_session(provider_client, "session-structured-invalid")
+        schema = struct_pb2.Struct()
+        schema.update({"type": "object", "required": ["score"], "properties": {"score": {"type": "number"}}})
+        provider_client.CreateTurn(
+            _turn_request(
+                turn_id="turn-structured-invalid",
+                session_id="session-structured-invalid",
+                output_schema=schema,
+            )
+        )
+        fetched = _wait_for_turn(
+            provider_client, "turn-structured-invalid", agent_pb2.AGENT_EXECUTION_STATUS_FAILED
+        )
+        self.assertIn("structured output", fetched.status_message)
 
     def test_configure_rejects_interactive_approval_policy(self) -> None:
         channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
@@ -792,7 +828,7 @@ def _turn_request(
     messages: list[Any] | None = None,
     run_grant: str = "grant-codex",
     execution_ref: str = "",
-    response_schema: Any | None = None,
+    output_schema: Any | None = None,
     model_options: Any | None = None,
 ) -> Any:
     request = agent_pb2.CreateAgentProviderTurnRequest(
@@ -806,14 +842,16 @@ def _turn_request(
         created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
         subject=_subject_context("user-123"),
     )
+    if output_schema is None:
+        request.output.text.SetInParent()
+    else:
+        request.output.structured.schema.CopyFrom(output_schema)
     linear = request.tool_refs.add()
     linear.app = "linear"
     linear.operation = "searchIssues"
     github = request.tool_refs.add()
     github.app = "github"
     github.operation = "pulls/list"
-    if response_schema is not None:
-        request.response_schema.CopyFrom(response_schema)
     if model_options is not None:
         request.model_options.CopyFrom(model_options)
     return request

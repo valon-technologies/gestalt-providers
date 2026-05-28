@@ -218,7 +218,7 @@ class SlackAgentStep:
     messages: tuple[dict[str, Any], ...] = ()
     tool_set_refs: tuple[str, ...] = ()
     tools: tuple[SlackAgentToolRef, ...] = ()
-    response_schema: dict[str, Any] = field(default_factory=dict)
+    output: dict[str, Any] = field(default_factory=dict)
     model_options: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
     timeout_seconds: int = 0
