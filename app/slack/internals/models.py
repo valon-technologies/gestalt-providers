@@ -199,34 +199,6 @@ class SlackAgentRouteMatch:
 
 
 @dataclass(frozen=True, slots=True)
-class SlackAgentToolRef:
-    system: str = ""
-    app: str = ""
-    operation: str = ""
-    connection: str = ""
-    instance: str = ""
-    title: str = ""
-    description: str = ""
-    run_as_subject_id: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class SlackAgentStep:
-    id: str = ""
-    session_key: str = ""
-    prompt: str = ""
-    messages: tuple[dict[str, Any], ...] = ()
-    tool_set_refs: tuple[str, ...] = ()
-    tools: tuple[SlackAgentToolRef, ...] = ()
-    output: dict[str, Any] = field(default_factory=dict)
-    model_options: dict[str, Any] = field(default_factory=dict)
-    metadata: dict[str, Any] = field(default_factory=dict)
-    timeout_seconds: int = 0
-    when: dict[str, Any] = field(default_factory=dict)
-    slack_reply_agent_output: str = ""
-
-
-@dataclass(frozen=True, slots=True)
 class SlackAgentRoute:
     id: str = ""
     match: SlackAgentRouteMatch = field(default_factory=SlackAgentRouteMatch)
@@ -237,14 +209,6 @@ class SlackAgentRoute:
     assistant: SlackAssistantConfig | None = None
     acknowledgement: SlackAcknowledgementConfig | None = None
     thread_context: SlackThreadContextConfig | None = None
-    agent_provider: str = ""
-    agent_model: str = ""
-    agent_system_prompt: str = ""
-    agent_model_options: dict[str, Any] = field(default_factory=dict)
-    agent_tool_set_refs: tuple[str, ...] = ()
-    agent_tools: tuple[SlackAgentToolRef, ...] = ()
-    agent_steps: tuple[SlackAgentStep, ...] = ()
-    agent_timeout_seconds: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -383,17 +347,7 @@ class SlackAgentConfig:
     thread_context: SlackThreadContextConfig = field(
         default_factory=SlackThreadContextConfig
     )
-    agent_provider: str = ""
-    agent_model: str = ""
-    agent_system_prompt: str = ""
-    agent_model_options: dict[str, Any] = field(default_factory=dict)
-    agent_tool_sets: dict[str, tuple[SlackAgentToolRef, ...]] = field(
-        default_factory=dict
-    )
-    agent_tool_set_refs: tuple[str, ...] = ()
-    agent_tools: tuple[SlackAgentToolRef, ...] = ()
     routes: tuple[SlackAgentRoute, ...] = ()
-    agent_timeout_seconds: int = 0
 
 
 @dataclass(frozen=True, slots=True)

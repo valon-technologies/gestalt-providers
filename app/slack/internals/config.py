@@ -9,8 +9,6 @@ from .models import (
     SlackAgentConfig,
     SlackAgentRoute,
     SlackAgentRouteMatch,
-    SlackAgentStep,
-    SlackAgentToolRef,
     SlackAssistantConfig,
     SlackBotConfig,
     SlackEventPublishConfig,
@@ -24,7 +22,43 @@ from .models import (
     SUPPORTED_AGENT_ROUTE_THREAD_MATCHES,
 )
 
-MAX_WORKFLOW_AGENT_TIMEOUT_SECONDS = 2_147_483_647
+LEGACY_AGENT_TARGET_KEYS = frozenset(
+    {
+        "agentModel",
+        "agentOptions",
+        "agentProvider",
+        "agentSystemPrompt",
+        "agentTools",
+        "agent_model",
+        "agent_model_options",
+        "agent_provider",
+        "agent_system_prompt",
+        "agent_tools",
+        "model",
+        "modelOptions",
+        "model_options",
+        "prompt",
+        "provider",
+        "responseSchema",
+        "response_schema",
+        "sessionKey",
+        "session_key",
+        "slackReply",
+        "slack_reply",
+        "steps",
+        "systemPrompt",
+        "system_prompt",
+        "timeoutSeconds",
+        "timeout_seconds",
+        "toolRefs",
+        "toolSetRefs",
+        "toolSets",
+        "tool_refs",
+        "tool_set_refs",
+        "tool_sets",
+        "tools",
+    }
+)
 WORKFLOW_KEY_TEMPLATE_FIELDS = frozenset(
     {
         "team_id",
@@ -43,19 +77,24 @@ def agent_config_from_provider_config(
     app_name: str, config: dict[str, Any]
 ) -> SlackAgentConfig:
     agent = _config_dict(config, "agent")
-    provider = _config_string(agent, "provider", "agentProvider", "agent_provider")
-    model = _config_string(agent, "model", "agentModel", "agent_model")
-    system_prompt = _config_string(
-        agent, "systemPrompt", "system_prompt", "agentSystemPrompt", "prompt"
+    _reject_legacy_agent_target_config(
+        config,
+        "config",
+        {
+            "agentModel",
+            "agentModelOptions",
+            "agentProvider",
+            "agentSystemPrompt",
+            "agentTools",
+            "agent_model",
+            "agent_model_options",
+            "agent_provider",
+            "agent_system_prompt",
+            "agent_tools",
+            "prompt",
+        },
     )
-    model_options = _config_dict(
-        agent, "modelOptions", "model_options", "agentModelOptions"
-    )
-    timeout_seconds = _config_timeout_seconds(
-        agent, "timeoutSeconds", "timeout_seconds"
-    )
-    agent_tool_sets = _agent_tool_sets_from_config(agent)
-    agent_tool_set_refs = _config_string_tuple(agent, "toolSetRefs", "tool_set_refs")
+    _reject_legacy_agent_target_config(agent, "agent")
     events = _events_config_from_provider_config(config)
     bot = _config_dict(config, "bot")
     assistant = _assistant_config_from_provider_config(config, agent)
@@ -70,8 +109,6 @@ def agent_config_from_provider_config(
         thread_context=thread_context,
     )
     _validate_agent_route_ids(routes)
-    _validate_agent_steps(routes)
-    _validate_agent_tool_set_refs(agent_tool_sets, agent_tool_set_refs, routes)
 
     return SlackAgentConfig(
         app_name=app_name.strip() or "slack",
@@ -94,20 +131,6 @@ def agent_config_from_provider_config(
         acknowledgement=acknowledgement,
         workflow=workflow,
         thread_context=thread_context,
-        agent_provider=provider
-        or _config_string(config, "agentProvider", "agent_provider"),
-        agent_model=model or _config_string(config, "agentModel", "agent_model"),
-        agent_system_prompt=system_prompt
-        or _config_string(config, "agentSystemPrompt", "agent_system_prompt", "prompt"),
-        agent_model_options=model_options
-        or _config_dict(config, "agentModelOptions", "agent_model_options"),
-        agent_timeout_seconds=timeout_seconds,
-        agent_tool_sets=agent_tool_sets,
-        agent_tool_set_refs=agent_tool_set_refs,
-        agent_tools=_agent_tool_refs_from_config(agent, "agent.tools")
-        or _agent_tool_refs_from_config(
-            config, "agentTools", "agentTools", "agent_tools"
-        ),
         routes=routes,
     )
 
@@ -129,6 +152,30 @@ def normalize_suggested_prompts(
     if require_one and not normalized:
         raise ValueError("at least one prompt with title and message is required")
     return normalized
+
+
+def _reject_legacy_agent_target_config(
+    config: dict[str, Any],
+    path: str,
+    keys: set[str] | frozenset[str] | None = None,
+    *,
+    allowed_keys: set[str] | frozenset[str] | None = None,
+) -> None:
+    if not config:
+        return
+    if allowed_keys is not None:
+        unsupported = sorted(str(key) for key in config if str(key) not in allowed_keys)
+    else:
+        unsupported = sorted(
+            str(key) for key in config if str(key) in (keys or LEGACY_AGENT_TARGET_KEYS)
+        )
+    if unsupported:
+        joined = ", ".join(unsupported)
+        raise ValueError(
+            f"{path} contains unsupported Slack agent target field(s): {joined}; "
+            "define workflow steps in a global workflow definition and set "
+            "workflow.definitionId"
+        )
 
 
 def _assistant_config_from_provider_config(
@@ -337,21 +384,49 @@ def _agent_route_from_config(
     thread_context: SlackThreadContextConfig,
 ) -> SlackAgentRoute:
     agent = _config_dict(config, "agent")
-    provider = _config_string(agent, "provider", "agentProvider", "agent_provider")
-    model = _config_string(agent, "model", "agentModel", "agent_model")
-    system_prompt = _config_string(
-        agent, "systemPrompt", "system_prompt", "agentSystemPrompt", "prompt"
+    _reject_legacy_agent_target_config(
+        config,
+        f"agent.routes[{index}]",
+        {
+            "agentModel",
+            "agentModelOptions",
+            "agentProvider",
+            "agentSystemPrompt",
+            "model",
+            "modelOptions",
+            "model_options",
+            "prompt",
+            "provider",
+            "responseSchema",
+            "response_schema",
+            "sessionKey",
+            "session_key",
+            "slackReply",
+            "slack_reply",
+            "steps",
+            "systemPrompt",
+            "system_prompt",
+            "timeoutSeconds",
+            "timeout_seconds",
+            "toolRefs",
+            "toolSetRefs",
+            "tools",
+            "tool_refs",
+            "tool_set_refs",
+        },
     )
-    model_options = _config_dict(
-        agent, "modelOptions", "model_options", "agentModelOptions"
+    _reject_legacy_agent_target_config(
+        agent,
+        f"agent.routes[{index}].agent",
+        allowed_keys={
+            "ack",
+            "acknowledgement",
+            "acknowledgment",
+            "assistant",
+            "threadContext",
+            "thread_context",
+        },
     )
-    timeout_seconds = _config_timeout_seconds(
-        agent, "timeoutSeconds", "timeout_seconds"
-    )
-    if timeout_seconds <= 0:
-        timeout_seconds = _config_timeout_seconds(
-            config, "timeoutSeconds", "timeout_seconds"
-        )
 
     match = _agent_route_match_from_config(_config_dict(config, "match"))
     run_as_subject_id = _agent_route_run_as_subject_id(config, index)
@@ -360,7 +435,7 @@ def _agent_route_from_config(
             f"agent.routes[{index}].runAs requires match.botIds or an explicit "
             "top-level unaddressed channel message match"
         )
-    workflow = _route_workflow_config_from_config(config, agent, index)
+    workflow = _route_workflow_config_from_config(config, index)
 
     return SlackAgentRoute(
         id=_config_string(config, "id", "name") or f"route_{index}",
@@ -376,22 +451,6 @@ def _agent_route_from_config(
         thread_context=_route_thread_context_config_from_config(
             config, agent, thread_context
         ),
-        agent_provider=provider
-        or _config_string(config, "provider", "agentProvider", "agent_provider"),
-        agent_model=model
-        or _config_string(config, "model", "agentModel", "agent_model"),
-        agent_system_prompt=system_prompt
-        or _config_string(config, "systemPrompt", "agentSystemPrompt", "prompt"),
-        agent_model_options=model_options
-        or _config_dict(config, "modelOptions", "agentModelOptions"),
-        agent_timeout_seconds=timeout_seconds,
-        agent_tool_set_refs=_config_string_tuple(agent, "toolSetRefs", "tool_set_refs")
-        or _config_string_tuple(config, "toolSetRefs", "tool_set_refs"),
-        agent_tools=_agent_tool_refs_from_config(
-            agent, f"agent.routes[{index}].agent.tools"
-        )
-        or _agent_tool_refs_from_config(config, f"agent.routes[{index}].tools"),
-        agent_steps=_agent_steps_from_config(agent, index),
     )
 
 
@@ -476,21 +535,12 @@ def _agent_route_run_as_subject_config(
 
 
 def _route_workflow_config_from_config(
-    config: dict[str, Any], agent: dict[str, Any], index: int
+    config: dict[str, Any], index: int
 ) -> SlackWorkflowConfig | None:
-    workflow = _config_dict_or_none(agent, "workflow")
-    if workflow is None:
-        workflow = _config_dict_or_none(config, "workflow")
+    workflow = _config_dict_or_none(config, "workflow")
     workflow_data = workflow or {}
     provider = _config_string(
         workflow_data, "provider", "providerName", "provider_name"
-    )
-    provider = provider or _config_string(
-        agent,
-        "workflowProvider",
-        "workflow_provider",
-        "workflowProviderName",
-        "workflow_provider_name",
     )
     provider = provider or _config_string(
         config,
@@ -648,162 +698,6 @@ def _route_thread_context_config_from_config(
     )
 
 
-def _agent_steps_from_config(
-    agent: dict[str, Any], route_index: int
-) -> tuple[SlackAgentStep, ...]:
-    raw_steps = _config_list(agent, "steps")
-    if not raw_steps:
-        return ()
-    steps: list[SlackAgentStep] = []
-    for step_index, raw_step in enumerate(raw_steps, start=1):
-        path = f"agent.routes[{route_index}].agent.steps[{step_index}]"
-        if not isinstance(raw_step, dict):
-            raise ValueError(f"{path} must be an object")
-        step = cast(dict[str, Any], raw_step)
-        slack_reply = _config_dict_or_none(step, "slackReply", "slack_reply")
-        steps.append(
-            SlackAgentStep(
-                id=_config_string(step, "id", "name"),
-                session_key=_config_string(step, "sessionKey", "session_key"),
-                prompt=_config_string(step, "prompt"),
-                messages=tuple(_agent_step_messages_from_config(step, path)),
-                tool_set_refs=_config_string_tuple(
-                    step, "toolSetRefs", "tool_set_refs"
-                ),
-                tools=_agent_tool_refs_from_config(step, f"{path}.tools"),
-                output=_agent_output_from_config(step, path),
-                model_options=_config_json_object(
-                    step, path, "modelOptions", "model_options"
-                ),
-                metadata=_config_json_object(step, path, "metadata"),
-                timeout_seconds=_config_timeout_seconds(
-                    step, "timeoutSeconds", "timeout_seconds"
-                ),
-                when=_agent_step_when_from_config(step, path),
-                slack_reply_agent_output=_config_string(
-                    slack_reply or {}, "agentOutput", "agent_output"
-                ),
-            )
-        )
-    return tuple(steps)
-
-
-def _agent_output_from_config(config: dict[str, Any], path: str) -> dict[str, Any]:
-    output = _config_json_object(config, path, "output")
-    if not output:
-        return {"text": {}}
-    text_set = "text" in output
-    structured = output.get("structured")
-    structured_set = "structured" in output
-    if text_set == structured_set:
-        raise ValueError(f"{path}.output must set exactly one of text or structured")
-    if text_set:
-        text = output.get("text")
-        if text is not None and not isinstance(text, dict):
-            raise ValueError(f"{path}.output.text must be an object")
-        return {"text": {}}
-    if not isinstance(structured, dict):
-        raise ValueError(f"{path}.output.structured must be an object")
-    schema = structured.get("schema")
-    if not isinstance(schema, dict):
-        raise ValueError(f"{path}.output.structured.schema must be an object")
-    return {"structured": {"schema": dict(schema)}}
-
-
-def _agent_step_messages_from_config(
-    config: dict[str, Any], path: str
-) -> list[dict[str, Any]]:
-    raw_messages = _config_list(config, "messages")
-    messages: list[dict[str, Any]] = []
-    for index, raw_message in enumerate(raw_messages, start=1):
-        message_path = f"{path}.messages[{index}]"
-        if not isinstance(raw_message, dict):
-            raise ValueError(f"{message_path} must be an object")
-        message = cast(dict[str, Any], raw_message)
-        role = _config_string(message, "role") or "user"
-        text = _config_string(message, "text", "content")
-        metadata = _config_json_object(message, message_path, "metadata")
-        item: dict[str, Any] = {"role": role, "text": text}
-        if metadata:
-            item["metadata"] = metadata
-        messages.append(item)
-    return messages
-
-
-def _agent_step_when_from_config(config: dict[str, Any], path: str) -> dict[str, Any]:
-    if "when" not in config:
-        return {}
-    value = config.get("when")
-    if value is None:
-        return {}
-    if not isinstance(value, dict):
-        raise ValueError(f"{path}.when must be an object")
-    raw = cast(dict[str, Any], value)
-    allowed = {"stepId", "step_id", "outputPath", "output_path", "equals"}
-    unknown = sorted(str(key) for key in raw if str(key) not in allowed)
-    if unknown:
-        raise ValueError(f"{path}.when has unknown keys: {', '.join(unknown)}")
-    step_id = _config_string(raw, "stepId", "step_id")
-    output_path = _config_string(raw, "outputPath", "output_path")
-    if not step_id:
-        raise ValueError(f"{path}.when.stepId is required")
-    if not output_path:
-        raise ValueError(f"{path}.when.outputPath is required")
-    if "equals" not in raw:
-        raise ValueError(f"{path}.when.equals is required")
-    equals = raw.get("equals")
-    if not _config_scalar(equals):
-        raise ValueError(f"{path}.when.equals must be a scalar JSON value")
-    return {"step_id": step_id, "output_path": output_path, "equals": equals}
-
-
-def _config_scalar(value: Any) -> bool:
-    return value is None or isinstance(value, (str, bool, int, float))
-
-
-def _agent_tool_sets_from_config(
-    agent: dict[str, Any],
-) -> dict[str, tuple[SlackAgentToolRef, ...]]:
-    raw_tool_sets = _config_mapping(agent, "toolSets", "tool_sets")
-    if not raw_tool_sets:
-        return {}
-    tool_sets: dict[str, tuple[SlackAgentToolRef, ...]] = {}
-    for raw_name, raw_tool_set in raw_tool_sets.items():
-        name = str(raw_name or "").strip()
-        if not name:
-            raise ValueError("agent.toolSets contains an empty tool set name")
-        if isinstance(raw_tool_set, list):
-            tool_set_config = {"tools": list(raw_tool_set)}
-        elif isinstance(raw_tool_set, dict):
-            tool_set_config = dict(raw_tool_set)
-        else:
-            raise ValueError(f"agent.toolSets.{name} must be a list or object")
-        tool_sets[name] = _agent_tool_refs_from_config(
-            tool_set_config, f"agent.toolSets.{name}"
-        )
-    return tool_sets
-
-
-def _validate_agent_tool_set_refs(
-    tool_sets: dict[str, tuple[SlackAgentToolRef, ...]],
-    refs: tuple[str, ...],
-    routes: tuple[SlackAgentRoute, ...],
-) -> None:
-    _validate_tool_set_refs(tool_sets, refs, "agent.toolSetRefs")
-    for index, route in enumerate(routes, start=1):
-        _validate_tool_set_refs(
-            tool_sets,
-            route.agent_tool_set_refs,
-            f"agent.routes[{index}].agent.toolSetRefs",
-        )
-        for step_index, step in enumerate(route.agent_steps, start=1):
-            _validate_tool_set_refs(
-                tool_sets,
-                step.tool_set_refs,
-                f"agent.routes[{index}].agent.steps[{step_index}].toolSetRefs",
-            )
-
-
 def _validate_agent_route_ids(routes: tuple[SlackAgentRoute, ...]) -> None:
     seen: set[str] = set()
     for index, route in enumerate(routes, start=1):
@@ -812,141 +706,6 @@ def _validate_agent_route_ids(routes: tuple[SlackAgentRoute, ...]) -> None:
                 f"agent.routes[{index}].id duplicates another agent route: {route.id}"
             )
         seen.add(route.id)
-
-
-def _validate_agent_steps(routes: tuple[SlackAgentRoute, ...]) -> None:
-    for route_index, route in enumerate(routes, start=1):
-        seen: set[str] = set()
-        for step_index, step in enumerate(route.agent_steps, start=1):
-            path = f"agent.routes[{route_index}].agent.steps[{step_index}]"
-            if not step.id:
-                raise ValueError(f"{path}.id is required")
-            if step.id in seen:
-                raise ValueError(f"{path}.id duplicates another step: {step.id}")
-            if not step.prompt and not step.messages:
-                raise ValueError(f"{path}.prompt or messages is required")
-            if step.when:
-                step_id = str(step.when.get("step_id") or "").strip()
-                if step_id not in seen:
-                    raise ValueError(
-                        f"{path}.when.stepId {step_id!r} must reference an earlier step"
-                    )
-            seen.add(step.id)
-
-
-def _validate_tool_set_refs(
-    tool_sets: dict[str, tuple[SlackAgentToolRef, ...]],
-    refs: tuple[str, ...],
-    path: str,
-) -> None:
-    for index, ref in enumerate(refs, start=1):
-        if ref not in tool_sets:
-            raise ValueError(f"{path}[{index}] references unknown tool set: {ref}")
-
-
-def _agent_tool_refs_from_config(
-    config: dict[str, Any], path: str, *keys: str
-) -> tuple[SlackAgentToolRef, ...]:
-    if not keys:
-        keys = ("tools", "toolRefs", "tool_refs")
-    raw_tools = _config_list(config, *keys)
-    if not raw_tools:
-        return ()
-    refs: list[SlackAgentToolRef] = []
-    for index, raw_tool in enumerate(raw_tools, start=1):
-        ref_path = f"{path}[{index}]"
-        if not isinstance(raw_tool, dict):
-            raise ValueError(f"{ref_path} must be an object")
-        tool = cast(dict[str, Any], raw_tool)
-        unsupported_fields = [
-            name
-            for name in (
-                "credentialMode",
-                "credential_mode",
-                "input",
-                "inputBindings",
-                "input_bindings",
-                "permissions",
-            )
-            if name in tool
-        ]
-        if unsupported_fields:
-            joined = ", ".join(unsupported_fields)
-            raise ValueError(f"{ref_path} contains unsupported field(s): {joined}")
-        if "system" in tool and not isinstance(tool.get("system"), str):
-            raise ValueError(f"{ref_path}.system must be an exact system name")
-        system = _config_string(tool, "system")
-        app = _config_string(tool, "app", "appName", "app_name")
-        operation = _config_string(tool, "operation", "operationName", "operation_name")
-        connection = _config_string(tool, "connection", "connectionName")
-        instance = _config_string(tool, "instance", "instanceName")
-        title = _config_string(tool, "title")
-        description = _config_string(tool, "description")
-        run_as_subject_id = _agent_tool_ref_run_as_subject_id_from_config(
-            tool, ref_path
-        )
-        if system:
-            if app:
-                raise ValueError(f"{ref_path} must set exactly one of app or system")
-            if system != "workflow":
-                raise ValueError(f"{ref_path}.system must be workflow")
-            if not operation or operation == "*":
-                raise ValueError(
-                    f"{ref_path}.operation must be an exact operation name"
-                )
-            if connection or instance or title or description or run_as_subject_id:
-                raise ValueError(
-                    f"{ref_path} system refs cannot include connection, instance, title, description, or runAs"
-                )
-            refs.append(SlackAgentToolRef(system=system, operation=operation))
-            continue
-        if not app or app == "*" or app.lower() == "system":
-            raise ValueError(f"{ref_path}.app must be an exact app name")
-        if not operation or operation == "*":
-            raise ValueError(f"{ref_path}.operation must be an exact operation name")
-        if connection == "*" or instance == "*":
-            raise ValueError(f"{ref_path} connection and instance must be exact")
-        refs.append(
-            SlackAgentToolRef(
-                app=app,
-                operation=operation,
-                connection=connection,
-                instance=instance,
-                title=title,
-                description=description,
-                run_as_subject_id=run_as_subject_id,
-            )
-        )
-    return tuple(refs)
-
-
-def _agent_tool_ref_run_as_subject_id_from_config(
-    config: dict[str, Any], path: str
-) -> str:
-    run_as = _config_object(config, path, "runAs", "run_as")
-    if run_as is None:
-        return ""
-    if "externalIdentity" in run_as or "external_identity" in run_as:
-        raise ValueError(f"{path}.runAs.externalIdentity is not supported")
-    subject = _config_object(run_as, f"{path}.runAs", "subject")
-    if subject is None:
-        raise ValueError(f"{path}.runAs.subject is required")
-    subject_id = _config_string(subject, "id")
-    if not subject_id:
-        raise ValueError(f"{path}.runAs.subject.id is required")
-    return subject_id
-
-
-def _config_object(
-    config: dict[str, Any], path: str, *keys: str
-) -> dict[str, Any] | None:
-    for key in keys:
-        if key in config:
-            value = config.get(key)
-            if not isinstance(value, dict):
-                raise ValueError(f"{path}.{key} must be an object")
-            return dict(value)
-    return None
 
 
 def _agent_route_match_from_config(config: dict[str, Any]) -> SlackAgentRouteMatch:
@@ -1124,21 +883,6 @@ def _config_dict_or_none(config: dict[str, Any], *keys: str) -> dict[str, Any] |
     return None
 
 
-def _config_json_object(
-    config: dict[str, Any], path: str, *keys: str
-) -> dict[str, Any]:
-    for key in keys:
-        if key not in config:
-            continue
-        value = config.get(key)
-        if value is None:
-            return {}
-        if not isinstance(value, dict):
-            raise ValueError(f"{path}.{key} must be an object")
-        return dict(value)
-    return {}
-
-
 def _config_mapping(config: dict[str, Any], *keys: str) -> dict[str, Any]:
     for key in keys:
         value = config.get(key)
@@ -1212,38 +956,6 @@ def _config_int(config: dict[str, Any], *keys: str, default: int) -> int:
             except ValueError:
                 continue
     return default
-
-
-def _config_timeout_seconds(config: dict[str, Any], *keys: str) -> int:
-    for key in keys:
-        if key not in config:
-            continue
-        value = config.get(key)
-        if value is None:
-            return 0
-        if isinstance(value, bool):
-            raise ValueError(f"{key} must be a positive integer number of seconds")
-        if isinstance(value, int):
-            seconds = value
-        elif isinstance(value, float) and value.is_integer():
-            seconds = int(value)
-        elif isinstance(value, str):
-            normalized = value.strip()
-            if not normalized:
-                return 0
-            if not normalized.isdecimal():
-                raise ValueError(f"{key} must be a positive integer number of seconds")
-            seconds = int(normalized)
-        else:
-            raise ValueError(f"{key} must be a positive integer number of seconds")
-        if seconds <= 0:
-            raise ValueError(f"{key} must be a positive integer number of seconds")
-        if seconds > MAX_WORKFLOW_AGENT_TIMEOUT_SECONDS:
-            raise ValueError(
-                f"{key} must be at most {MAX_WORKFLOW_AGENT_TIMEOUT_SECONDS} seconds"
-            )
-        return seconds
-    return 0
 
 
 def _clamp_int(value: int, *, minimum: int, maximum: int) -> int:
