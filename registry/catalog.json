@@ -2169,26 +2169,18 @@
       },
       "description": "Authorization provider backed by the host IndexedDB service.",
       "displayName": "IndexedDB Authorization",
-      "docs": [
-        {
-          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/authorization/indexeddb/README.md",
-          "path": "/",
-          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/authorization/indexeddb/README.md",
-          "sourcePath": "authorization/indexeddb/README.md",
-          "title": "IndexedDB Authorization"
-        }
-      ],
+      "docs": [],
       "iconUrl": null,
       "kind": "authorization",
       "latestInstallableVersion": "0.0.1-alpha.1",
-      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/authorization/indexeddb/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.1",
+      "manifestUrl": null,
+      "manifestVersion": null,
       "name": "indexeddb",
       "package": "github.com/valon-technologies/gestalt-providers/authorization/indexeddb",
       "packagePath": "authorization/indexeddb",
-      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/authorization/indexeddb/README.md",
+      "readmeUrl": null,
       "registryPath": "/providers/authorization/indexeddb/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/authorization/indexeddb",
+      "sourceUrl": null,
       "versions": [
         {
           "kind": "authorization",
