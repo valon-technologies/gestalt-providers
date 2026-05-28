@@ -62,9 +62,9 @@ REVIEW_FINDING_MARKER_RE = re.compile(
 )
 REVIEW_FINDING_FINGERPRINT_RE = re.compile(r"^[0-9a-f]{64}$")
 AUTO_RESOLVE_MAX_THREAD_PAGES = 10
-REVIEW_OUTPUT_CONTRACT = "github.pull_request_review.findings.v2"
+REVIEW_OUTPUT_NAME = "github.pull_request_review.findings.v2"
 REVIEW_OUTPUT_KEYS = frozenset(("findings",))
-SELF_FIX_OUTPUT_CONTRACT = "github.pull_request_review.self_fix.v1"
+SELF_FIX_OUTPUT_NAME = "github.pull_request_review.self_fix.v1"
 SELF_FIX_OUTPUT_KEYS = frozenset(("commit_message", "files"))
 REVIEW_SEVERITIES = frozenset(("critical", "high", "medium", "low"))
 MAX_ADDITIONAL_LOCATIONS = 4
@@ -994,7 +994,9 @@ def ask_agent_for_findings(
             ],
             tool_refs=review_agent_tool_refs(req, signal),
             tool_source=gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
-            response_schema=REVIEW_RESPONSE_SCHEMA,
+            output=gestalt.AgentOutput(
+                structured=gestalt.AgentStructuredOutput(schema=REVIEW_RESPONSE_SCHEMA)
+            ),
             metadata=metadata,
             idempotency_key=f"{idempotency_base}:turn",
         )
@@ -1070,7 +1072,9 @@ def ask_agent_for_fix(
             ],
             tool_refs=review_agent_tool_refs(req, signal),
             tool_source=gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
-            response_schema=SELF_FIX_RESPONSE_SCHEMA,
+            output=gestalt.AgentOutput(
+                structured=gestalt.AgentStructuredOutput(schema=SELF_FIX_RESPONSE_SCHEMA)
+            ),
             metadata=metadata,
             idempotency_key=f"{idempotency_base}:turn",
         )
@@ -1115,7 +1119,7 @@ def review_prompt(
         {
             "task": (
                 "Return findings for concrete bugs on RIGHT-side diff lines allowed "
-                "by output_contract.line_policy."
+                "by output.line_policy."
             ),
             "repository": subject.repository,
             "pull_number": subject.pull_number,
@@ -1132,8 +1136,8 @@ def review_prompt(
                 }
                 for file in files
             ],
-            "output_contract": {
-                "contract": REVIEW_OUTPUT_CONTRACT,
+            "output": {
+                "name": REVIEW_OUTPUT_NAME,
                 "format": (
                     "Return exactly one JSON object with no Markdown wrapper and no "
                     "top-level keys other than findings."
@@ -1199,8 +1203,8 @@ def self_fix_prompt(
                 }
                 for file in files
             ],
-            "output_contract": {
-                "contract": SELF_FIX_OUTPUT_CONTRACT,
+            "output": {
+                "name": SELF_FIX_OUTPUT_NAME,
                 "format": (
                     "Return exactly one JSON object with no Markdown wrapper and no "
                     "top-level keys other than commit_message and files."
@@ -2000,15 +2004,16 @@ def bounded_text(value: str, max_chars: int) -> str:
 
 
 def agent_turn_output(turn: gestalt.AgentTurn) -> dict[str, Any]:
-    structured = getattr(turn, "structured_output", None)
-    structured_object = object_value(structured)
+    output = getattr(turn, "output", None)
+    structured = getattr(output, "structured", None)
+    structured_object = object_value(getattr(structured, "value", None))
     if structured_object is not None:
         return structured_object
     raise RuntimeError("agent turn did not return structured output")
 
 
 def parse_review_findings_output(value: Any) -> list[Any]:
-    parsed = parse_single_review_output_object(value)
+    parsed = require_review_output_object(value)
     extra_keys = sorted(set(parsed) - REVIEW_OUTPUT_KEYS)
     if extra_keys:
         raise RuntimeError(
@@ -2021,7 +2026,7 @@ def parse_review_findings_output(value: Any) -> list[Any]:
 
 
 def parse_review_fix_output(value: Any) -> list[ReviewFixFile]:
-    parsed = parse_single_review_output_object(value)
+    parsed = require_review_output_object(value)
     extra_keys = sorted(set(parsed) - SELF_FIX_OUTPUT_KEYS)
     if extra_keys:
         raise RuntimeError(
@@ -2055,10 +2060,6 @@ def parse_review_fix_output(value: Any) -> list[ReviewFixFile]:
         seen.add(path)
         files.append(ReviewFixFile(path=path, content=content))
     return files
-
-
-def parse_single_review_output_object(value: Any) -> dict[str, Any]:
-    return require_review_output_object(value)
 
 
 def require_review_output_object(value: Any) -> dict[str, Any]:

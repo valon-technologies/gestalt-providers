@@ -129,6 +129,7 @@ def workflow_agent_target(
         prompt=prompt,
         messages=messages,
         tools=agent_tool_refs(policy),
+        output=gestalt.AgentOutput(text=gestalt.AgentTextOutput()),
         model_options=model_options or None,
     )
     metadata = agent_session_metadata(summary, policy)

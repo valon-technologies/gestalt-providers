@@ -6,6 +6,7 @@ import {
   type AgentSession,
   type AgentTurnEvent,
   type AgentTurn,
+  type AgentTurnOutput,
 } from "@valon-technologies/gestalt";
 
 export type PreparedWorkspace = {
@@ -57,7 +58,7 @@ export type StoredTurn = {
   model: string;
   status: AgentExecutionStatus;
   messages: AgentMessage[];
-  outputText: string;
+  output: AgentTurnOutput | undefined;
   statusMessage: string;
   createdBy: AgentActor | undefined;
   createdAt: Date;
@@ -258,7 +259,7 @@ export class InMemoryRunStore {
       model: input.model,
       status: AgentExecutionStatus.RUNNING,
       messages: cloneMessages(input.messages),
-      outputText: "",
+      output: undefined,
       statusMessage: "",
       createdBy: cloneMaybe(input.createdBy),
       createdAt: now,
@@ -322,19 +323,19 @@ export class InMemoryRunStore {
     return turns.map(cloneTurn);
   }
 
-  completeTurn(turnId: string, outputText: string): StoredTurn | undefined {
+  completeTurn(turnId: string, output: AgentTurnOutput): StoredTurn | undefined {
     const turn = this.turns.get(turnId.trim());
     if (!turn || TERMINAL_STATUSES.has(turn.status)) {
       return turn ? cloneTurn(turn) : undefined;
     }
     turn.status = AgentExecutionStatus.SUCCEEDED;
-    turn.outputText = outputText;
+    turn.output = cloneMaybe(output);
     turn.completedAt = new Date();
     this.appendEvent({
       turnId: turn.turnId,
       eventType: "assistant.message",
       source: turn.providerName,
-      data: { text: outputText },
+      data: assistantMessageData(output),
     });
     this.appendEvent({
       turnId: turn.turnId,
@@ -444,7 +445,7 @@ export function turnToAgentTurn(turn: StoredTurn, summaryOnly = false): AgentTur
     providerName: turn.providerName,
     model: turn.model,
     status: turn.status,
-    outputText: summaryOnly ? "" : turn.outputText,
+    output: summaryOnly ? undefined : cloneMaybe(turn.output),
     statusMessage: turn.statusMessage,
     executionRef: turn.executionRef,
     createdAt: new Date(turn.createdAt),
@@ -500,6 +501,7 @@ function cloneTurn(turn: StoredTurn): StoredTurn {
   const copy: StoredTurn = {
     ...turn,
     messages: cloneMessages(turn.messages),
+    output: cloneMaybe(turn.output),
     createdBy: cloneMaybe(turn.createdBy),
     createdAt: new Date(turn.createdAt),
   };
@@ -526,4 +528,18 @@ function cloneMessages(messages: readonly AgentMessage[]): AgentMessage[] {
 
 function cloneMaybe<T>(value: T | undefined): T | undefined {
   return value === undefined ? undefined : structuredClone(value);
+}
+
+function assistantMessageData(output: AgentTurnOutput): Record<string, unknown> {
+  if (output.text !== undefined) {
+    return { text: output.text };
+  }
+  if (output.structured) {
+    const data: Record<string, unknown> = { text: output.structured.text ?? "" };
+    if (output.structured.value !== undefined) {
+      data.value = cloneMaybe(output.structured.value);
+    }
+    return data;
+  }
+  throw new Error("completed turn output must include text or structured");
 }

@@ -2678,7 +2678,7 @@ def _build_workflow_agent_target(
             timeout_seconds=_agent_timeout_seconds(route),
         ),
         _workflow_session_ready_app_step(agent_step_id),
-        _workflow_reply_app_step(agent_step_id, "agent.text"),
+        _workflow_reply_app_step(agent_step_id, "agent.output.text.text"),
     ]
     return gestalt.BoundWorkflowTarget(steps=steps)
 
@@ -2728,7 +2728,7 @@ def _workflow_steps_for_configured_step(
             prompt=prompt,
             messages=messages,
             tools=_agent_step_tool_refs(route, step),
-            response_schema=step.response_schema or None,
+            output=step.output or {"text": {}},
             model_options=step.model_options or None,
             metadata=step.metadata or None,
             timeout_seconds=step.timeout_seconds,
@@ -2740,28 +2740,31 @@ def _workflow_steps_for_configured_step(
         steps.append(
             _workflow_reply_app_step(
                 step.id,
-                _workflow_agent_output_path(agent_output),
+                _workflow_agent_output_path(agent_output, step.output),
                 step_id=f"{step.id}_reply",
             )
         )
     return steps
 
-def _workflow_agent_output_path(agent_output: str) -> str:
+
+def _workflow_agent_output_path(agent_output: str, output: dict[str, Any] | None = None) -> str:
     agent_output = agent_output.strip()
     if not agent_output:
-        return "agent.text"
+        return "agent.output.text.text"
     if agent_output.startswith("agent."):
         return agent_output
     if agent_output == "text":
-        return "agent.text"
-    return f"agent.structuredOutput.{agent_output}"
+        if isinstance(output, dict) and output.get("structured") is not None:
+            return "agent.output.structured.text"
+        return "agent.output.text.text"
+    return f"agent.output.structured.value.{agent_output}"
 
 
 def _workflow_step_when(when: dict[str, Any]) -> gestalt.WorkflowStepWhen:
     step_id = str(when.get("step_id") or "").strip()
     output_path = str(when.get("output_path") or "").strip()
     equals = when.get("equals")
-    path = output_path.replace("structured_output.", "structuredOutput.", 1)
+    path = output_path
     if not path.startswith("agent."):
         path = f"agent.{path}"
     return gestalt.WorkflowStepWhen(
@@ -2835,7 +2838,7 @@ def _workflow_agent_turn_step(
     messages: list[gestalt.WorkflowAgentMessage],
     tools: list[gestalt.AgentToolRef],
     session_key: str = "",
-    response_schema: gestalt.WorkflowJsonObject | None = None,
+    output: gestalt.AgentOutput | dict[str, Any] | None = None,
     model_options: gestalt.WorkflowJsonObject | None = None,
     metadata: gestalt.WorkflowJsonObject | None = None,
     timeout_seconds: int = 0,
@@ -2850,7 +2853,7 @@ def _workflow_agent_turn_step(
             prompt=gestalt.WorkflowText(template=prompt),
             messages=messages,
             tools=tools,
-            response_schema=response_schema,
+            output=output or {"text": {}},
             model_options=model_options,
         ),
         timeout_seconds=timeout_seconds if timeout_seconds > 0 else 0,

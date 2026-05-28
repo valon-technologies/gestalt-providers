@@ -7,8 +7,8 @@ from typing import Any
 
 import gestalt
 
-from internals.codex_runner import CodexExecutionCanceled, CodexExecutionError
-from internals.codex_runner import CodexMCPRunner
+from internals.codex_runner import CodexExecutionCanceled, CodexExecutionError, CodexMCPRunner
+from internals.codex_runner import validate_schema
 from internals.config import CodexAgentConfig
 from internals.session_start import (
     prepend_session_start_context,
@@ -173,7 +173,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
 
     def create_turn(self, request: gestalt.CreateAgentProviderTurnRequest) -> gestalt.AgentTurn:
         runner, store, config = self._require_runtime()
-        _validate_create_turn_request(request)
+        schema = _validate_create_turn_request(request)
         session = store.get_session(request.session_id.strip())
         if session is None:
             raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
@@ -218,6 +218,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                     "run_grant": request.run_grant.strip(),
                     "skill_roots": skill_roots,
                     "cwd": cwd,
+                    "schema": schema,
                 },
                 daemon=True,
             ).start()
@@ -323,7 +324,6 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             streaming_text=False,
             tool_calls=True,
             parallel_tool_calls=False,
-            structured_output=False,
             interactions=False,
             resumable_turns=False,
             reasoning_summaries=False,
@@ -351,6 +351,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         run_grant: str,
         skill_roots: list[str],
         cwd: str,
+        schema: dict[str, Any] | None,
     ) -> None:
         try:
             output = runner.run_turn(
@@ -361,6 +362,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                 run_grant=run_grant,
                 skill_roots=skill_roots,
                 cwd=cwd,
+                schema=schema,
             )
         except CodexExecutionCanceled as exc:
             store.cancel_turn(turn_id=turn_id, reason=str(exc))
@@ -370,7 +372,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             logger.exception("Codex MCP turn failed")
             store.fail_turn(turn_id=turn_id, message=str(exc))
         else:
-            store.complete_turn(turn_id=turn_id, output_text=output)
+            store.complete_turn(turn_id=turn_id, output=output)
 
     def _build_warnings(self, config: CodexAgentConfig) -> list[str]:
         warnings: list[str] = []
@@ -443,7 +445,7 @@ def _agent_turn(turn: StoredTurn, *, summary_only: bool = False) -> gestalt.Agen
         model=turn.model,
         status=turn.status,
         messages=[] if summary_only else turn.messages,
-        output_text="" if summary_only else turn.output_text,
+        output=None if summary_only else turn.output,
         status_message=turn.status_message,
         execution_ref=turn.execution_ref,
         created_by=turn.created_by or None,
@@ -484,18 +486,36 @@ def _which(binary: str) -> str | None:
     return None
 
 
-def _validate_create_turn_request(request: gestalt.CreateAgentProviderTurnRequest) -> None:
+def _validate_create_turn_request(request: gestalt.CreateAgentProviderTurnRequest) -> dict[str, Any] | None:
     if request.tool_source != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
         raise gestalt.Error(400, "agent/codex requires toolSource mcp_catalog")
     if not request.run_grant.strip():
         raise gestalt.Error(400, "run_grant is required")
     if len(list(request.tools)) > 0:
         raise gestalt.Error(400, "resolved tools are not supported; use tool_refs with mcp_catalog")
-    if dict(request.response_schema or {}):
-        raise gestalt.Error(400, "response_schema is not supported by agent/codex")
+    try:
+        schema = _schema_from_output(request.output)
+        if schema is not None:
+            validate_schema(schema)
+    except CodexExecutionError as exc:
+        raise gestalt.Error(400, str(exc)) from exc
     if dict(request.model_options or {}):
         raise gestalt.Error(400, "model_options are not supported by agent/codex")
     _validate_tool_refs(list(request.tool_refs))
+    return schema
+
+
+def _schema_from_output(output: gestalt.AgentOutput | None) -> dict[str, Any] | None:
+    if output is None:
+        raise gestalt.Error(400, "output is required")
+    text_set = output.text is not None
+    structured_set = output.structured is not None
+    if text_set == structured_set:
+        raise gestalt.Error(400, "exactly one of output.text or output.structured is required")
+    if structured_set:
+        assert output.structured is not None
+        return dict(output.structured.schema)
+    return None
 
 
 def _validate_tool_refs(tool_refs: list[gestalt.AgentToolRef]) -> None:

@@ -50,7 +50,7 @@ async fn completes_turn_and_refreshes_adc_token_per_turn() {
         gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
-    assert_eq!(turn.output_text, "Hermes says hi");
+    assert_eq!(turn_text(&turn), "Hermes says hi");
     create_turn(&provider, "turn-1").await;
 
     create_turn(&provider, "turn-2").await;
@@ -149,7 +149,7 @@ async fn fixed_profile_mode_skips_acp_model_switching() {
         gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
-    assert_eq!(turn.output_text, "Hermes says hi");
+    assert_eq!(turn_text(&turn), "Hermes says hi");
 
     let log = fixture.log_events();
     assert_eq!(
@@ -180,7 +180,7 @@ async fn mcp_catalog_turn_bridges_gestalt_tools_to_hermes() {
         gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
-    assert_eq!(turn.output_text, "Hermes used Gestalt MCP");
+    assert_eq!(turn_text(&turn), "Hermes used Gestalt MCP");
 
     let list_requests = host.list_requests.lock().expect("list requests").clone();
     assert!(
@@ -283,7 +283,7 @@ async fn mcp_catalog_turn_does_not_prefetch_tools_before_mcp_use() {
         gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
-    assert_eq!(turn.output_text, "Hermes used Gestalt MCP");
+    assert_eq!(turn_text(&turn), "Hermes used Gestalt MCP");
 
     let list_requests = host.list_requests.lock().expect("list requests").clone();
     assert!(
@@ -341,7 +341,7 @@ async fn mcp_catalog_turn_marks_unavailable_sentinel_call_as_error() {
         gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
-    assert_eq!(turn.output_text, "Hermes used Gestalt MCP");
+    assert_eq!(turn_text(&turn), "Hermes used Gestalt MCP");
 
     let execute_requests = host
         .execute_requests
@@ -842,7 +842,7 @@ async fn mcp_catalog_does_not_require_advertised_acp_http_mcp_support() {
         gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
-    assert_eq!(turn.output_text, "Hermes used Gestalt MCP");
+    assert_eq!(turn_text(&turn), "Hermes used Gestalt MCP");
     let log = fixture.log_events();
     assert!(log.iter().any(|event| event["event"] == "mcp_result"));
 
@@ -866,9 +866,10 @@ async fn explicit_no_tool_turn_allows_run_grant_without_mcp_servers() {
                 text: "say hi".to_string(),
                 ..Default::default()
             }],
+            output: gestalt::AgentOutput::text(),
             created_by: Some(owner_actor()),
             subject: Some(owner_subject()),
-            ..Default::default()
+            ..empty_turn_request()
         })
         .await
         .unwrap();
@@ -889,9 +890,10 @@ async fn explicit_no_tool_turn_allows_run_grant_without_mcp_servers() {
                 text: "say hi again".to_string(),
                 ..Default::default()
             }],
+            output: gestalt::AgentOutput::text(),
             created_by: Some(owner_actor()),
             subject: Some(owner_subject()),
-            ..Default::default()
+            ..empty_turn_request()
         })
         .await
         .unwrap();
@@ -911,6 +913,95 @@ async fn explicit_no_tool_turn_allows_run_grant_without_mcp_servers() {
         load["params"]["mcpServers"].as_array().map(Vec::len),
         Some(0),
         "{log:?}"
+    );
+}
+
+#[tokio::test]
+async fn structured_output_turn_returns_validated_value() {
+    let fixture = Fixture::new("structured-json");
+    let provider = fixture.configure_provider().await;
+
+    create_session(&provider).await;
+    provider
+        .create_turn(gestalt::CreateAgentProviderTurnRequest {
+            turn_id: "turn-structured".to_string(),
+            session_id: "session-1".to_string(),
+            messages: vec![gestalt::AgentMessage {
+                role: "user".to_string(),
+                text: "grade".to_string(),
+                ..Default::default()
+            }],
+            output: gestalt::AgentOutput::Structured(gestalt::AgentStructuredOutput {
+                schema: json!({
+                    "type": "object",
+                    "required": ["score", "reasoning"],
+                    "properties": {
+                        "score": {"type": "number"},
+                        "reasoning": {"type": "string"}
+                    }
+                }),
+            }),
+            created_by: Some(owner_actor()),
+            subject: Some(owner_subject()),
+            ..empty_turn_request()
+        })
+        .await
+        .unwrap();
+    let turn = wait_for_turn(
+        &provider,
+        "turn-structured",
+        gestalt::AgentExecutionStatus::Succeeded,
+    )
+    .await;
+    match turn.output {
+        Some(gestalt::AgentTurnOutput::Structured(output)) => {
+            assert_eq!(
+                output.value,
+                Some(json!({"score": 1, "reasoning": "correct"}))
+            );
+        }
+        other => panic!("expected structured output, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn structured_output_turn_fails_invalid_json() {
+    let fixture = Fixture::new("structured-invalid");
+    let provider = fixture.configure_provider().await;
+
+    create_session(&provider).await;
+    provider
+        .create_turn(gestalt::CreateAgentProviderTurnRequest {
+            turn_id: "turn-structured-invalid".to_string(),
+            session_id: "session-1".to_string(),
+            messages: vec![gestalt::AgentMessage {
+                role: "user".to_string(),
+                text: "grade".to_string(),
+                ..Default::default()
+            }],
+            output: gestalt::AgentOutput::Structured(gestalt::AgentStructuredOutput {
+                schema: json!({
+                    "type": "object",
+                    "required": ["score"],
+                    "properties": {"score": {"type": "number"}}
+                }),
+            }),
+            created_by: Some(owner_actor()),
+            subject: Some(owner_subject()),
+            ..empty_turn_request()
+        })
+        .await
+        .unwrap();
+    let turn = wait_for_turn(
+        &provider,
+        "turn-structured-invalid",
+        gestalt::AgentExecutionStatus::Failed,
+    )
+    .await;
+    assert!(
+        turn.status_message.contains("structured output"),
+        "{}",
+        turn.status_message
     );
 }
 
@@ -956,6 +1047,7 @@ async fn rejects_unsupported_tool_and_model_options() {
                 text: "hi".to_string(),
                 ..Default::default()
             }],
+            output: gestalt::AgentOutput::text(),
             tools: vec![gestalt::ResolvedAgentTool {
                 id: "tool-1".to_string(),
                 name: "tool".to_string(),
@@ -963,7 +1055,7 @@ async fn rejects_unsupported_tool_and_model_options() {
             }],
             created_by: Some(owner_actor()),
             subject: Some(owner_subject()),
-            ..Default::default()
+            ..empty_turn_request()
         })
         .await
         .unwrap_err();
@@ -978,6 +1070,7 @@ async fn rejects_unsupported_tool_and_model_options() {
                 text: "hi".to_string(),
                 ..Default::default()
             }],
+            output: gestalt::AgentOutput::text(),
             tool_source: gestalt::AgentToolSourceMode::McpCatalog,
             tool_refs: vec![gestalt::AgentToolRef {
                 app: "*".to_string(),
@@ -985,7 +1078,7 @@ async fn rejects_unsupported_tool_and_model_options() {
             }],
             created_by: Some(owner_actor()),
             subject: Some(owner_subject()),
-            ..Default::default()
+            ..empty_turn_request()
         })
         .await
         .unwrap_err();
@@ -1000,10 +1093,12 @@ async fn rejects_unsupported_tool_and_model_options() {
                 text: "hi".to_string(),
                 ..Default::default()
             }],
-            response_schema: Some(json!({ "type": "object" })),
+            output: gestalt::AgentOutput::Structured(gestalt::AgentStructuredOutput {
+                schema: json!({}),
+            }),
             created_by: Some(owner_actor()),
             subject: Some(owner_subject()),
-            ..Default::default()
+            ..empty_turn_request()
         })
         .await
         .unwrap_err();
@@ -1018,10 +1113,11 @@ async fn rejects_unsupported_tool_and_model_options() {
                 text: "hi".to_string(),
                 ..Default::default()
             }],
+            output: gestalt::AgentOutput::text(),
             model_options: Some(json!({ "type": "object" })),
             created_by: Some(owner_actor()),
             subject: Some(owner_subject()),
-            ..Default::default()
+            ..empty_turn_request()
         })
         .await
         .unwrap_err();
@@ -1065,6 +1161,7 @@ async fn owner_can_read_and_mutate_private_session() {
         .get_session(gestalt::GetAgentProviderSessionRequest {
             session_id: "session-owner-private".to_string(),
             subject: Some(owner_subject()),
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -1134,6 +1231,7 @@ async fn slack_metadata_makes_session_company_visible_at_create_only() {
         .get_session(gestalt::GetAgentProviderSessionRequest {
             session_id: "session-company".to_string(),
             subject: Some(other_subject()),
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -1172,6 +1270,7 @@ async fn slack_metadata_makes_session_company_visible_at_create_only() {
         .get_session(gestalt::GetAgentProviderSessionRequest {
             session_id: "session-company".to_string(),
             subject: Some(other_subject()),
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -1194,6 +1293,7 @@ async fn slack_metadata_makes_session_company_visible_at_create_only() {
         .get_turn(gestalt::GetAgentProviderTurnRequest {
             turn_id: "turn-company".to_string(),
             subject: Some(other_subject()),
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -1255,6 +1355,7 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
         .get_session(gestalt::GetAgentProviderSessionRequest {
             session_id: "session-private-hidden".to_string(),
             subject: Some(other_subject()),
+            ..Default::default()
         })
         .await
         .unwrap_err();
@@ -1288,6 +1389,7 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
         .get_turn(gestalt::GetAgentProviderTurnRequest {
             turn_id: "turn-private-hidden".to_string(),
             subject: Some(other_subject()),
+            ..Default::default()
         })
         .await
         .unwrap_err();
@@ -1332,6 +1434,7 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
         .get_session(gestalt::GetAgentProviderSessionRequest {
             session_id: "session-private-hidden".to_string(),
             subject: Some(other_subject()),
+            ..Default::default()
         })
         .await
         .unwrap_err();
@@ -1349,6 +1452,7 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
         .get_session(gestalt::GetAgentProviderSessionRequest {
             session_id: "session-incomplete-slack".to_string(),
             subject: Some(other_subject()),
+            ..Default::default()
         })
         .await
         .unwrap_err();
@@ -1395,9 +1499,10 @@ async fn non_owner_cannot_mutate_company_visible_session_or_turn() {
                 text: "hi".to_string(),
                 ..Default::default()
             }],
+            output: gestalt::AgentOutput::text(),
             subject: Some(other_subject()),
             created_by: Some(subject_actor(OTHER_SUBJECT_ID)),
-            ..Default::default()
+            ..empty_turn_request()
         })
         .await
         .unwrap_err();
@@ -1963,9 +2068,10 @@ async fn create_turn_in_session_as(
                 text: "say hi".to_string(),
                 ..Default::default()
             }],
+            output: gestalt::AgentOutput::text(),
             created_by: Some(created_by),
             subject: Some(subject),
-            ..Default::default()
+            ..empty_turn_request()
         })
         .await
         .unwrap()
@@ -1981,6 +2087,7 @@ async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> gesta
                 text: "show me my linear tickets".to_string(),
                 ..Default::default()
             }],
+            output: gestalt::AgentOutput::text(),
             tool_source: gestalt::AgentToolSourceMode::McpCatalog,
             tool_refs: vec![gestalt::AgentToolRef {
                 app: "*".to_string(),
@@ -1989,7 +2096,7 @@ async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> gesta
             run_grant: "grant-mcp".to_string(),
             created_by: Some(owner_actor()),
             subject: Some(owner_subject()),
-            ..Default::default()
+            ..empty_turn_request()
         })
         .await
         .unwrap()
@@ -2013,6 +2120,36 @@ fn slack_subject() -> gestalt::Subject {
 
 fn other_subject() -> gestalt::Subject {
     subject_context(OTHER_SUBJECT_ID)
+}
+
+fn turn_text(turn: &gestalt::AgentTurn) -> &str {
+    match turn.output.as_ref() {
+        Some(gestalt::AgentTurnOutput::Text(output)) => output.text.as_str(),
+        Some(gestalt::AgentTurnOutput::Structured(output)) => output.text.as_str(),
+        None => "",
+    }
+}
+
+fn empty_turn_request() -> gestalt::CreateAgentProviderTurnRequest {
+    gestalt::CreateAgentProviderTurnRequest {
+        turn_id: String::new(),
+        session_id: String::new(),
+        idempotency_key: String::new(),
+        model: String::new(),
+        messages: Vec::new(),
+        tools: Vec::new(),
+        output: gestalt::AgentOutput::text(),
+        metadata: None,
+        created_by: None,
+        execution_ref: String::new(),
+        tool_refs: Vec::new(),
+        tool_source: gestalt::AgentToolSourceMode::Unspecified,
+        subject: None,
+        model_options: None,
+        run_grant: String::new(),
+        timeout_seconds: 0,
+        invocation_token: String::new(),
+    }
 }
 
 fn subject_actor(subject_id: &str) -> gestalt::AgentActor {

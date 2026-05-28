@@ -185,7 +185,7 @@ class ClaudeCodeAgentProvider(
             mcp_catalog=AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
         )
         try:
-            validate_turn_contract(request, tool_source_modes=tool_source_modes)
+            schema = validate_turn_contract(request, tool_source_modes=tool_source_modes)
         except ValueError as exc:
             raise gestalt.Error(400, str(exc)) from exc
 
@@ -196,7 +196,11 @@ class ClaudeCodeAgentProvider(
         _require_session_writable(session, request.subject.id.strip() if request.subject is not None else "")
         try:
             create_request = turn_create_request_from_provider_request(
-                request, config=config, session=session, tool_source_modes=tool_source_modes
+                request,
+                config=config,
+                session=session,
+                tool_source_modes=tool_source_modes,
+                schema=schema,
             )
         except ValueError as exc:
             raise gestalt.Error(400, str(exc)) from exc
@@ -343,7 +347,6 @@ class ClaudeCodeAgentProvider(
             streaming_text=False,
             tool_calls=True,
             parallel_tool_calls=False,
-            structured_output=True,
             interactions=False,
             resumable_turns=False,
             reasoning_summaries=False,
@@ -425,9 +428,7 @@ class ClaudeCodeAgentProvider(
             logger.exception("Claude Agent SDK turn failed")
             store.fail_turn(turn_id=turn_id, message=str(exc))
         else:
-            store.complete_turn(
-                turn_id=turn_id, output_text=output.output_text, structured_output=output.structured_output
-            )
+            store.complete_turn(turn_id=turn_id, output=output)
 
     def _build_warnings(self, config: ClaudeAgentConfig) -> list[str]:
         warnings: list[str] = []

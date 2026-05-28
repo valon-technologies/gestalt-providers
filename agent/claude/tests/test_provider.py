@@ -668,7 +668,7 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
 
         fetched = _wait_for_turn(provider_client, "turn-claude", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
-        self.assertEqual(fetched.output_text, "Claude completed")
+        self.assertEqual(fetched.text.text, "Claude completed")
         events = provider_client.ListTurnEvents(
             agent_pb2.ListAgentProviderTurnEventsRequest(
                 turn_id="turn-claude",
@@ -680,7 +680,7 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         self.assertEqual([event.visibility for event in events.events], ["external", "external", "external"])
         message_events = [event for event in events.events if event.type == "assistant.message"]
-        self.assertNotIn("structured_output", message_events[0].data.fields)
+        self.assertNotIn("value", message_events[0].data.fields)
 
         self.assertEqual(len(_FakeClaudeSDKClient.instances), 1)
         fake_client = _FakeClaudeSDKClient.instances[0]
@@ -752,16 +752,16 @@ class ClaudeProviderTests(unittest.TestCase):
                 messages=[agent_pb2.AgentMessage(role="user", text="Grade the answer")],
                 run_grant="",
                 tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
-                response_schema=schema,
+                output_schema=schema,
                 include_tool_refs=False,
             )
         )
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
 
         fetched = _wait_for_turn(provider_client, "turn-structured", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
-        self.assertEqual(fetched.output_text, "graded")
-        self.assertEqual(fetched.structured_output.fields["score"].number_value, 1)
-        self.assertEqual(fetched.structured_output.fields["reasoning"].string_value, "correct")
+        self.assertEqual(fetched.structured.text, "graded")
+        self.assertEqual(fetched.structured.value.fields["score"].number_value, 1)
+        self.assertEqual(fetched.structured.value.fields["reasoning"].string_value, "correct")
         summary = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
                 session_id="session-structured",
@@ -770,8 +770,7 @@ class ClaudeProviderTests(unittest.TestCase):
                 summary_only=True,
             )
         )
-        self.assertEqual(summary.turns[0].output_text, "")
-        self.assertFalse(summary.turns[0].HasField("structured_output"))
+        self.assertIsNone(summary.turns[0].WhichOneof("output"))
 
         fake_client = _FakeClaudeSDKClient.instances[0]
         self.assertEqual(fake_client.options.tools, [])
@@ -795,10 +794,10 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         message_events = [event for event in events.events if event.type == "assistant.message"]
         self.assertEqual(
-            message_events[0].data.fields["structured_output"].struct_value.fields["score"].number_value, 1
+            message_events[0].data.fields["value"].struct_value.fields["score"].number_value, 1
         )
 
-    def test_provider_allows_catalog_tools_with_response_schema(self) -> None:
+    def test_provider_allows_catalog_tools_with_schema(self) -> None:
         _FakeClaudeSDKClient.mode = "catalog_structured_success"
         _, provider_client = _configure_provider()
         _create_owned_session(provider_client, "session-catalog-schema")
@@ -806,12 +805,12 @@ class ClaudeProviderTests(unittest.TestCase):
         schema.update({"type": "object", "properties": {"answer": {"type": "string"}}})
 
         provider_client.CreateTurn(
-            _turn_request(turn_id="turn-catalog-schema", session_id="session-catalog-schema", response_schema=schema)
+            _turn_request(turn_id="turn-catalog-schema", session_id="session-catalog-schema", output_schema=schema)
         )
 
         fetched = _wait_for_turn(provider_client, "turn-catalog-schema", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
-        self.assertEqual(fetched.output_text, "catalog structured")
-        self.assertEqual(fetched.structured_output.fields["answer"].string_value, "done")
+        self.assertEqual(fetched.structured.text, "catalog structured")
+        self.assertEqual(fetched.structured.value.fields["answer"].string_value, "done")
         fake_client = _FakeClaudeSDKClient.instances[-1]
         self.assertEqual(fake_client.session_id, "session-catalog-schema")
         self.assertEqual(fake_client.options.output_format["schema"]["type"], "object")
@@ -945,7 +944,7 @@ class ClaudeProviderTests(unittest.TestCase):
                         session_id=f"session-{mode}",
                         run_grant="",
                         tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
-                        response_schema=schema,
+                        output_schema=schema,
                         include_tool_refs=False,
                     )
                 )
@@ -989,12 +988,13 @@ class ClaudeProviderTests(unittest.TestCase):
                 turn_id="turn-timeout",
                 model="sonnet-session",
                 messages=[{"role": "user", "text": "hello"}],
-                turn_profile=provider_module.ClaudeTurnProfile.structured_output(response_schema={"type": "object"}),
+                turn_profile=provider_module.ClaudeTurnProfile.direct(schema={"type": "object"}),
                 timeout_seconds=1.25,
             )
 
         self.assertEqual(captured_timeouts, [1.25])
-        self.assertEqual(result.structured_output, {"score": 1, "reasoning": "correct"})
+        assert result.structured is not None
+        self.assertEqual(result.structured.value, {"score": 1, "reasoning": "correct"})
         self.assertEqual(_FakeClaudeSDKClient.instances[-1].session_id, "session-timeout")
 
     def test_provider_uses_request_timeout_override(self) -> None:
@@ -1018,7 +1018,7 @@ class ClaudeProviderTests(unittest.TestCase):
                 _turn_request(
                     turn_id="turn-request-timeout",
                     session_id="session-request-timeout",
-                    response_schema=schema,
+                    output_schema=schema,
                     tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
                     timeout_seconds=2,
                     include_tool_refs=False,
@@ -1030,7 +1030,7 @@ class ClaudeProviderTests(unittest.TestCase):
             "turn-request-timeout",
             agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
         )
-        self.assertEqual(fetched.structured_output.fields["score"].number_value, 1)
+        self.assertEqual(fetched.structured.value.fields["score"].number_value, 1)
         self.assertEqual(captured_timeouts, [2.0])
 
     def test_provider_launches_agent_sdk_from_prepared_workspace(self) -> None:
@@ -1173,7 +1173,7 @@ class ClaudeProviderTests(unittest.TestCase):
                 "model": "sonnet-seeded",
                 "status": agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
                 "messages": [{"role": "user", "text": "seeded message"}],
-                "output_text": "seeded output",
+                "output": {"text": "seeded output"},
                 "status_message": "",
                 "created_by": {"subject_id": "user-seeded", "subject_kind": "human"},
                 "created_at": updated_at,
@@ -1217,7 +1217,7 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(fetched_turn.status, agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
         self.assertEqual(fetched_turn.messages[0].role, "user")
         self.assertEqual(fetched_turn.messages[0].text, "seeded message")
-        self.assertEqual(fetched_turn.output_text, "seeded output")
+        self.assertEqual(fetched_turn.text.text, "seeded output")
         self.assertEqual(fetched_turn.execution_ref, "exec-seeded")
         self.assertEqual([turn.id for turn in listed_turns.turns], ["turn-seeded"])
 
@@ -1364,10 +1364,10 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(full_sessions.sessions[0].metadata.fields["suffix"].string_value, "b")
         self.assertEqual([turn.id for turn in summary_turns.turns], ["turn-stream-a"])
         self.assertEqual(len(summary_turns.turns[0].messages), 0)
-        self.assertEqual(summary_turns.turns[0].output_text, "")
+        self.assertIsNone(summary_turns.turns[0].WhichOneof("output"))
         self.assertEqual([turn.id for turn in full_turns.turns], ["turn-stream-a"])
         self.assertEqual(full_turns.turns[0].messages[0].text, "stream a")
-        self.assertEqual(full_turns.turns[0].output_text, "Claude completed")
+        self.assertEqual(full_turns.turns[0].text.text, "Claude completed")
         self.assertEqual(list(running_turns.turns), [])
         self.assertEqual([turn.id for turn in succeeded_turns.turns], ["turn-stream-a"])
         self.assertEqual(list(exact_session_without_subject.sessions), [])
@@ -1524,7 +1524,7 @@ class ClaudeProviderTests(unittest.TestCase):
                     "model": "sonnet-config",
                     "status": agent_pb2.AGENT_EXECUTION_STATUS_RUNNING,
                     "messages": [{"role": "user", "text": "winner"}],
-                    "output_text": "",
+                    "output": None,
                     "status_message": "",
                     "created_by": {"subject_id": "user-123", "subject_kind": "human"},
                     "created_at": now,
@@ -1704,9 +1704,9 @@ class ClaudeProviderTests(unittest.TestCase):
             session_id="session-validation",
             tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
             include_tool_refs=False,
-            response_schema=struct_pb2.Struct(),
+            output_schema=struct_pb2.Struct(),
         )
-        _assert_invalid(provider_client, empty_schema, "response_schema must be a non-empty")
+        _assert_invalid(provider_client, empty_schema, "output.structured.schema")
 
         scalar_schema = struct_pb2.Struct()
         scalar_schema.update({"type": "array"})
@@ -1715,9 +1715,9 @@ class ClaudeProviderTests(unittest.TestCase):
             session_id="session-validation",
             tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
             include_tool_refs=False,
-            response_schema=scalar_schema,
+            output_schema=scalar_schema,
         )
-        _assert_invalid(provider_client, bad_schema, "response_schema.type must be")
+        _assert_invalid(provider_client, bad_schema, "output.structured.schema.type must be")
 
         model_options = struct_pb2.Struct()
         model_options.update({"temperature": 0.2})
@@ -1744,7 +1744,12 @@ class ClaudeProviderTests(unittest.TestCase):
             tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
             include_tool_refs=False,
         )
-        _assert_invalid(provider_client, none_without_schema, "response_schema is required with toolSource none")
+        _FakeClaudeSDKClient.mode = "text_fallback"
+        self.assertEqual(provider_client.CreateTurn(none_without_schema).status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
+        fetched = _wait_for_turn(
+            provider_client, "turn-none-without-schema", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED
+        )
+        self.assertEqual(fetched.text.text, "fallback assistant text")
 
     def test_create_turn_accepts_broad_catalog_tool_refs(self) -> None:
         _, provider_client = _configure_provider()
@@ -1852,7 +1857,7 @@ class ClaudeProviderTests(unittest.TestCase):
         provider_client.CreateTurn(_turn_request(turn_id="turn-text-fallback", session_id="session-text-fallback"))
 
         turn = _wait_for_turn(provider_client, "turn-text-fallback", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
-        self.assertEqual(turn.output_text, "fallback assistant text")
+        self.assertEqual(turn.text.text, "fallback assistant text")
 
     def test_sdk_empty_result_falls_back_to_tool_json(self) -> None:
         _FakeClaudeSDKClient.mode = "tool_fallback"
@@ -1861,7 +1866,7 @@ class ClaudeProviderTests(unittest.TestCase):
         provider_client.CreateTurn(_turn_request(turn_id="turn-tool-fallback", session_id="session-tool-fallback"))
 
         turn = _wait_for_turn(provider_client, "turn-tool-fallback", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
-        use_line, result_line = turn.output_text.splitlines()
+        use_line, result_line = turn.text.text.splitlines()
         self.assertEqual(
             json.loads(use_line), {"tool_use": {"id": "tool-1", "input": {"query": "AIT"}, "name": "linear__issues"}}
         )
@@ -2014,7 +2019,7 @@ def _turn_request(
     run_grant: str = "grant-claude",
     execution_ref: str = "",
     idempotency_key: str = "",
-    response_schema: Any | None = None,
+    output_schema: Any | None = None,
     model_options: Any | None = None,
     tool_source: int | None = None,
     timeout_seconds: int = 0,
@@ -2040,8 +2045,10 @@ def _turn_request(
         github = request.tool_refs.add()
         github.app = "github"
         github.operation = "pulls/list"
-    if response_schema is not None:
-        request.response_schema.CopyFrom(response_schema)
+    if output_schema is None:
+        request.output.text.SetInParent()
+    else:
+        request.output.structured.schema.CopyFrom(output_schema)
     if model_options is not None:
         request.model_options.CopyFrom(model_options)
     return request

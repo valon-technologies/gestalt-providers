@@ -2,9 +2,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import Ajv from "ajv";
+import Ajv2020 from "ajv/dist/2020.js";
 import type { AgentOptions, Run, SDKAgent, SDKMessage } from "@cursor/sdk";
 import type {
   AgentMessage,
+  AgentTurnOutput,
   ExecuteAgentToolRequest,
 } from "@valon-technologies/gestalt";
 
@@ -55,7 +58,8 @@ export class CursorSDKRunner {
     runGrant: string;
     cwd: string;
     onEvent: TurnEventSink;
-  }): Promise<string> {
+    schema?: Record<string, unknown> | undefined;
+  }): Promise<AgentTurnOutput> {
     const active: ActiveTurn = {
       canceled: this.canceledTurns.delete(input.turnId),
     };
@@ -112,9 +116,10 @@ export class CursorSDKRunner {
       runGrant: string;
       cwd: string;
       onEvent: TurnEventSink;
+      schema?: Record<string, unknown> | undefined;
     },
     active: ActiveTurn,
-  ): Promise<string> {
+  ): Promise<AgentTurnOutput> {
     try {
       await this.raiseIfCanceled(active);
       const host = this.createHost();
@@ -153,7 +158,10 @@ export class CursorSDKRunner {
       );
       await this.raiseIfCanceled(active);
 
-      const prompt = messagesToPrompt(input.messages, this.config.systemPrompt);
+      let prompt = messagesToPrompt(input.messages, this.config.systemPrompt);
+      if (input.schema) {
+        prompt = structuredOutputPrompt(prompt, input.schema);
+      }
       active.run = await active.agent.send(prompt);
       await this.raiseIfCanceled(active);
 
@@ -174,7 +182,16 @@ export class CursorSDKRunner {
           `Cursor Agent SDK run finished with status ${result.status}`,
         );
       }
-      return result.result?.trim() || assistantText.join("").trim();
+      const outputText = result.result?.trim() || assistantText.join("").trim();
+      if (input.schema) {
+        return {
+          structured: {
+            text: outputText,
+            value: structuredOutputFromText(outputText, input.schema),
+          },
+        };
+      }
+      return { text: outputText };
     } finally {
       await this.cleanupActiveTurn(input.turnId, active);
     }
@@ -257,6 +274,110 @@ export class CursorSDKRunner {
   }
 }
 
+export function validateSchema(schema: Record<string, unknown>): void {
+  if (Object.keys(schema).length === 0 || schema.type !== "object") {
+    throw new CursorExecutionError(
+      "output.structured.schema must be a non-empty JSON schema object with type 'object'",
+    );
+  }
+  compileSchema(schema);
+}
+
+function structuredOutputPrompt(
+  prompt: string,
+  schema: Record<string, unknown>,
+): string {
+  return `${prompt}
+
+<gestalt_structured_output>
+Return only one JSON object matching this JSON Schema. Do not wrap it in Markdown or include explanatory text.
+${JSON.stringify(schema)}
+</gestalt_structured_output>`;
+}
+
+function structuredOutputFromText(
+  text: string,
+  schema: Record<string, unknown>,
+): Record<string, unknown> {
+  const value = parseJsonObject(text);
+  const validate = compileSchema(schema);
+  if (!validate(value)) {
+    const message = validate.errors?.map((error) => error.message).filter(Boolean).join("; ");
+    throw new CursorExecutionError(
+      `structured output did not match output schema${message ? `: ${message}` : ""}`,
+    );
+  }
+  return value;
+}
+
+function compileSchema(schema: Record<string, unknown>) {
+  const validator =
+    typeof schema.$schema === "string" && !schema.$schema.includes("2020")
+      ? new Ajv({ allErrors: true, strict: true })
+      : new Ajv2020({ allErrors: true, strict: true });
+  try {
+    return validator.compile(schema);
+  } catch (error) {
+    throw new CursorExecutionError(`invalid output.structured.schema: ${errorMessage(error)}`);
+  }
+}
+
+function parseJsonObject(text: string): Record<string, unknown> {
+  try {
+    const value = JSON.parse(text);
+    if (isRecord(value)) {
+      return value;
+    }
+  } catch {
+    // Fall through to extraction from mixed text.
+  }
+  for (let start = text.indexOf("{"); start >= 0; start = text.indexOf("{", start + 1)) {
+    const end = balancedJsonObjectEnd(text, start);
+    if (end === undefined) {
+      continue;
+    }
+    try {
+      const value = JSON.parse(text.slice(start, end));
+      if (isRecord(value)) {
+        return value;
+      }
+    } catch {
+      // Try the next object boundary.
+    }
+  }
+  throw new CursorExecutionError("structured output did not contain a JSON object");
+}
+
+function balancedJsonObjectEnd(text: string, start: number): number | undefined {
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+    if (inString) {
+      if (escape) {
+        escape = false;
+      } else if (char === "\\") {
+        escape = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+    } else if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return index + 1;
+      }
+    }
+  }
+  return undefined;
+}
+
 function recordSDKMessage(onEvent: TurnEventSink, message: SDKMessage): string {
   switch (message.type) {
     case "assistant": {
@@ -328,6 +449,10 @@ function escapeAttribute(value: string): string {
     .replaceAll("<", "&lt;");
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 async function disposeAgent(agent: SDKAgent | undefined): Promise<void> {
   if (!agent) {
     return;
@@ -353,4 +478,8 @@ async function cancelRun(run: Run | undefined): Promise<void> {
   } catch {
     // Cancellation is best-effort; the canceled flag still controls provider state.
   }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

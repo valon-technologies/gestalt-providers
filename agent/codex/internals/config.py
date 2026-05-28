@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 DEFAULT_CODEX_COMMAND = "codex"
@@ -13,12 +13,12 @@ SUPPORTED_APPROVAL_POLICIES = frozenset({"never"})
 SUPPORTED_SANDBOXES = frozenset({"read-only", "workspace-write", "danger-full-access"})
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class CodexAgentConfig:
     name: str
     default_model: str = ""
     codex_command: str = DEFAULT_CODEX_COMMAND
-    codex_args: list[str] = field(default_factory=lambda: list(DEFAULT_CODEX_ARGS))
+    codex_args: tuple[str, ...] = DEFAULT_CODEX_ARGS
     working_directory: str = ""
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS
     system_prompt: str = ""
@@ -41,7 +41,7 @@ class CodexAgentConfig:
             raise ValueError("workingDirectory must be an existing directory")
 
         codex_command = _trimmed_text(raw_config.get("codexCommand")) or DEFAULT_CODEX_COMMAND
-        codex_args = _coerce_string_list(raw_config.get("codexArgs"), default=list(DEFAULT_CODEX_ARGS))
+        codex_args = _coerce_string_tuple(raw_config.get("codexArgs"), default=DEFAULT_CODEX_ARGS)
 
         return cls(
             name=name.strip() or "codex",
@@ -71,12 +71,12 @@ def _coerce_positive_float(raw_value: Any, *, default: float, field_name: str) -
     return value
 
 
-def _coerce_string_list(raw_value: Any, *, default: list[str]) -> list[str]:
+def _coerce_string_tuple(raw_value: Any, *, default: tuple[str, ...]) -> tuple[str, ...]:
     if raw_value is None:
-        return list(default)
+        return default
     if not isinstance(raw_value, list) or not all(isinstance(value, str) for value in raw_value):
         raise ValueError("codexArgs must be a list of strings")
-    return [value for value in raw_value]
+    return tuple(raw_value)
 
 
 def _trimmed_text(raw_value: Any) -> str:

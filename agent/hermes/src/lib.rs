@@ -10,6 +10,7 @@ use std::sync::Arc;
 use acp::{AcpNotification, AcpProcess};
 use config::HermesConfig;
 use mcp_bridge::McpBridgeHandle;
+use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 use store::{
     BeginTurnResult, CreateSessionResult, Store, agent_session, agent_turn, agent_turn_event,
@@ -501,7 +502,6 @@ impl gestalt::AgentProvider for HermesAgentProvider {
             streaming_text: true,
             tool_calls: true,
             parallel_tool_calls: false,
-            structured_output: false,
             interactions: false,
             resumable_turns: false,
             reasoning_summaries: true,
@@ -550,14 +550,44 @@ impl HermesAgentProvider {
             return;
         }
         match result {
-            Ok(()) => {
-                store.append_event(&turn_id, "turn.completed", &provider_name, json!({}), None);
-                let _ = store.finish_turn(
-                    &turn_id,
-                    gestalt::AgentExecutionStatus::Succeeded,
-                    String::new(),
-                );
-            }
+            Ok(()) => match current
+                .as_ref()
+                .ok_or_else(|| format!("agent turn {turn_id:?} was not found"))
+                .and_then(turn_output_for)
+            {
+                Ok(output) => {
+                    let event_data = turn_output_event_data(&output);
+                    let _ = store.set_output(&turn_id, output);
+                    store.append_event(
+                        &turn_id,
+                        "assistant.message",
+                        &provider_name,
+                        event_data,
+                        None,
+                    );
+                    store.append_event(&turn_id, "turn.completed", &provider_name, json!({}), None);
+                    let _ = store.finish_turn(
+                        &turn_id,
+                        gestalt::AgentExecutionStatus::Succeeded,
+                        String::new(),
+                    );
+                }
+                Err(err) => {
+                    store.append_event(
+                        &turn_id,
+                        "turn.failed",
+                        &provider_name,
+                        json!({ "message": err }),
+                        Some(gestalt::AgentTurnDisplay {
+                            kind: "error".to_string(),
+                            phase: "completed".to_string(),
+                            text: err.clone(),
+                            ..Default::default()
+                        }),
+                    );
+                    let _ = store.finish_turn(&turn_id, gestalt::AgentExecutionStatus::Failed, err);
+                }
+            },
             Err(err) => {
                 store.append_event(
                     &turn_id,
@@ -582,7 +612,16 @@ impl HermesAgentProvider {
             .await
             .map_err(|err| err.message().to_string())?;
         let provider_name = self.provider_name().await;
-        let (session_id, acp_session_id, model, messages, tool_refs, tool_source, run_grant) = {
+        let (
+            session_id,
+            acp_session_id,
+            model,
+            messages,
+            output_request,
+            tool_refs,
+            tool_source,
+            run_grant,
+        ) = {
             let store = self.inner.store.lock().await;
             let turn = store
                 .get_turn(turn_id)
@@ -595,6 +634,7 @@ impl HermesAgentProvider {
                 session.acp_session_id,
                 turn.model,
                 turn.messages,
+                turn.output_request,
                 turn.tool_refs,
                 turn.tool_source,
                 turn.run_grant,
@@ -656,7 +696,7 @@ impl HermesAgentProvider {
                 return Err("turn canceled".to_string());
             }
 
-            let prompt = messages_to_prompt(&messages)?;
+            let prompt = messages_to_prompt(&messages, &output_request)?;
             let prompt_process = process.clone();
             let prompt_session_id = acp_session_id.clone();
             let timeout = config.timeout;
@@ -893,6 +933,9 @@ fn validate_turn_request(req: &gestalt::CreateAgentProviderTurnRequest) -> gesta
             "resolved tools are not supported by agent/hermes; use tool_source=MCP_CATALOG",
         ));
     }
+    if let gestalt::AgentOutput::Structured(output) = &req.output {
+        validate_schema(&output.schema).map_err(gestalt::Error::bad_request)?;
+    }
     validate_mcp_catalog_tool_refs(&req.tool_refs)?;
     match req.tool_source {
         gestalt::AgentToolSourceMode::Unspecified | gestalt::AgentToolSourceMode::None => {
@@ -909,11 +952,6 @@ fn validate_turn_request(req: &gestalt::CreateAgentProviderTurnRequest) -> gesta
                 ));
             }
         }
-    }
-    if has_object_fields(req.response_schema.as_ref()) {
-        return Err(gestalt::Error::bad_request(
-            "response_schema is not supported by agent/hermes",
-        ));
     }
     if has_object_fields(req.model_options.as_ref()) {
         return Err(gestalt::Error::bad_request(
@@ -989,7 +1027,83 @@ fn validate_mcp_catalog_tool_refs(refs: &[gestalt::AgentToolRef]) -> gestalt::Re
     Ok(())
 }
 
-fn messages_to_prompt(messages: &[gestalt::AgentMessage]) -> Result<String, String> {
+fn turn_output_for(turn: &store::StoredTurn) -> Result<gestalt::AgentTurnOutput, String> {
+    match &turn.output_request {
+        gestalt::AgentOutput::Text(_) => Ok(gestalt::AgentTurnOutput::Text(
+            gestalt::AgentTurnTextOutput {
+                text: turn.output_buffer.clone(),
+            },
+        )),
+        gestalt::AgentOutput::Structured(output) => {
+            let value = structured_output_from_text(&turn.output_buffer, &output.schema)?;
+            Ok(gestalt::AgentTurnOutput::Structured(
+                gestalt::AgentTurnStructuredOutput {
+                    text: turn.output_buffer.clone(),
+                    value: Some(value),
+                },
+            ))
+        }
+    }
+}
+
+fn turn_output_event_data(output: &gestalt::AgentTurnOutput) -> JsonValue {
+    match output {
+        gestalt::AgentTurnOutput::Text(output) => json!({ "text": output.text }),
+        gestalt::AgentTurnOutput::Structured(output) => {
+            json!({ "text": output.text, "value": output.value })
+        }
+    }
+}
+
+fn validate_schema(schema: &JsonValue) -> Result<(), String> {
+    let object = schema.as_object().ok_or_else(|| {
+        "output.structured.schema must be a JSON schema object".to_string()
+    })?;
+    if object.is_empty() || schema.get("type").and_then(JsonValue::as_str) != Some("object") {
+        return Err(
+            "output.structured.schema must be a non-empty JSON schema object with type 'object'".to_string(),
+        );
+    }
+    jsonschema::validator_for(schema)
+        .map_err(|err| format!("invalid output.structured.schema: {err}"))?;
+    Ok(())
+}
+
+fn structured_output_from_text(text: &str, schema: &JsonValue) -> Result<JsonValue, String> {
+    validate_schema(schema)?;
+    let value = parse_json_object(text)?;
+    let validator = jsonschema::validator_for(schema)
+        .map_err(|err| format!("invalid output.structured.schema: {err}"))?;
+    validator
+        .validate(&value)
+        .map_err(|err| format!("structured output did not match output schema: {err}"))?;
+    Ok(value)
+}
+
+fn parse_json_object(text: &str) -> Result<JsonValue, String> {
+    if let Ok(value) = serde_json::from_str::<JsonValue>(text) {
+        if value.is_object() {
+            return Ok(value);
+        }
+    }
+    for (start, ch) in text.char_indices() {
+        if ch != '{' {
+            continue;
+        }
+        let mut deserializer = serde_json::Deserializer::from_str(&text[start..]);
+        if let Ok(value) = JsonValue::deserialize(&mut deserializer) {
+            if value.is_object() {
+                return Ok(value);
+            }
+        }
+    }
+    Err("structured output did not contain a JSON object".to_string())
+}
+
+fn messages_to_prompt(
+    messages: &[gestalt::AgentMessage],
+    output_request: &gestalt::AgentOutput,
+) -> Result<String, String> {
     let mut prompt = String::new();
     for (index, message) in messages.iter().enumerate() {
         writeln!(
@@ -1009,6 +1123,15 @@ fn messages_to_prompt(messages: &[gestalt::AgentMessage]) -> Result<String, Stri
             writeln!(&mut prompt, "<parts>{serialized}</parts>").map_err(|err| err.to_string())?;
         }
         writeln!(&mut prompt, "</message>").map_err(|err| err.to_string())?;
+    }
+    if let gestalt::AgentOutput::Structured(output) = output_request {
+        let schema =
+            serde_json::to_string(&output.schema).map_err(|err| err.to_string())?;
+        writeln!(
+            &mut prompt,
+            "\n<gestalt_structured_output>\nReturn only one JSON object matching this JSON Schema. Do not wrap it in Markdown or include explanatory text.\n{schema}\n</gestalt_structured_output>"
+        )
+        .map_err(|err| err.to_string())?;
     }
     Ok(prompt)
 }

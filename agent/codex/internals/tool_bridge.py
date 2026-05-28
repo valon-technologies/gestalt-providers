@@ -22,7 +22,7 @@ class ToolBridgeError(RuntimeError):
     pass
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class ToolEntry:
     tool_id: str
     mcp_name: str

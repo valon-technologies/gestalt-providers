@@ -11,7 +11,7 @@ from .tool_bridge import DEFAULT_HOST_RPC_TIMEOUT_SECONDS, ToolBridgeError, Tool
 from .tool_bridge import list_tools, mcp_tool, mcp_tool_result
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class BridgeContext:
     session_id: str
     turn_id: str

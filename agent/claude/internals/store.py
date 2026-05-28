@@ -384,9 +384,7 @@ class IndexedDBRunStore:
             filtered = filtered[:limit]
         return copy.deepcopy(filtered)
 
-    def complete_turn(
-        self, *, turn_id: str, output_text: str, structured_output: dict[str, Any] | None = None
-    ) -> StoredTurn | None:
+    def complete_turn(self, *, turn_id: str, output: gestalt.AgentTurnOutput) -> StoredTurn | None:
         def complete(stores: dict[str, Any]) -> StoredTurn | None:
             turns = stores[self._run_store_name]
             turn_projections = stores[self._turn_projection_store_name]
@@ -399,8 +397,7 @@ class IndexedDBRunStore:
             completed = replace(
                 turn,
                 status=gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED,
-                output_text=output_text,
-                structured_output=copy.deepcopy(structured_output),
+                output=copy.deepcopy(output),
                 status_message="",
                 completed_at=_utcnow(),
             )
@@ -410,7 +407,7 @@ class IndexedDBRunStore:
                 turn_id=completed.turn_id,
                 event_type="assistant.message",
                 source=completed.provider_name,
-                data=_assistant_message_event_data(output_text, structured_output),
+                data=_assistant_message_event_data(output),
                 events_store=events,
             )
             self._append_turn_event_locked(
@@ -805,8 +802,7 @@ def _new_running_turn(
         model=model,
         status=gestalt.AGENT_EXECUTION_STATUS_RUNNING,
         messages=copy.deepcopy(messages),
-        output_text="",
-        structured_output=None,
+        output=None,
         status_message="",
         created_by=_coerce_string_dict(created_by),
         created_at=now,
@@ -816,10 +812,15 @@ def _new_running_turn(
     )
 
 
-def _assistant_message_event_data(output_text: str, structured_output: dict[str, Any] | None) -> dict[str, Any]:
-    data: dict[str, Any] = {"text": output_text}
-    if structured_output is not None:
-        data["structured_output"] = copy.deepcopy(structured_output)
+def _assistant_message_event_data(output: gestalt.AgentTurnOutput) -> dict[str, Any]:
+    if output.text is not None:
+        return {"text": str(output.text or "")}
+    structured = output.structured
+    if structured is None:
+        raise ValueError("completed turn output must include text or structured")
+    data: dict[str, Any] = {"text": str(structured.text or "")}
+    if structured.value is not None:
+        data["value"] = copy.deepcopy(structured.value)
     return data
 
 

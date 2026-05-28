@@ -43,8 +43,7 @@ class StoredTurn:
     model: str
     status: int
     messages: list[dict[str, Any]]
-    output_text: str
-    structured_output: dict[str, Any] | None
+    output: gestalt.AgentTurnOutput | None
     status_message: str
     created_by: dict[str, str]
     created_at: datetime
@@ -112,8 +111,7 @@ def _turn_to_record(turn: StoredTurn) -> dict[str, Any]:
         "model": turn.model,
         "status": turn.status,
         "messages": copy.deepcopy(turn.messages),
-        "output_text": turn.output_text,
-        "structured_output": copy.deepcopy(turn.structured_output),
+        "output": _turn_output_to_record(turn.output) if turn.output is not None else None,
         "status_message": turn.status_message,
         "created_by": dict(turn.created_by),
         "created_at": turn.created_at,
@@ -134,8 +132,7 @@ def _record_to_turn(record: dict[str, Any] | None) -> StoredTurn | None:
         model=str(record.get("model") or ""),
         status=int(record.get("status") or gestalt.AGENT_EXECUTION_STATUS_UNSPECIFIED),
         messages=_coerce_messages(record.get("messages")),
-        output_text=str(record.get("output_text") or ""),
-        structured_output=_coerce_optional_dict(record.get("structured_output")),
+        output=_turn_output_from_record(record.get("output")),
         status_message=str(record.get("status_message") or ""),
         created_by=_coerce_string_dict(record.get("created_by")),
         created_at=_coerce_required_datetime(record.get("created_at")),
@@ -171,6 +168,41 @@ def _record_to_turn_event(record: dict[str, Any] | None) -> StoredTurnEvent | No
         data=_coerce_optional_dict(record.get("data")) or {},
         created_at=_coerce_required_datetime(record.get("created_at")),
     )
+
+
+def _turn_output_to_record(output: gestalt.AgentTurnOutput) -> dict[str, Any]:
+    if output.text is not None:
+        return {"text": str(output.text or "")}
+    structured = output.structured
+    if structured is None:
+        raise ValueError("stored turn output must include text or structured")
+    record: dict[str, Any] = {"structured": {"text": str(structured.text or "")}}
+    if structured.value is not None:
+        record["structured"]["value"] = copy.deepcopy(structured.value)
+    return record
+
+
+def _turn_output_from_record(value: Any) -> gestalt.AgentTurnOutput | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise TypeError(
+            f"Stored turn output must be a mapping, got {type(value).__name__}"
+        )
+    if "text" in value:
+        return gestalt.AgentTurnOutput(text=str(value.get("text") or ""))
+    structured = value.get("structured")
+    if isinstance(structured, dict):
+        structured_value = structured.get("value")
+        return gestalt.AgentTurnOutput(
+            structured=gestalt.AgentTurnStructuredOutput(
+                text=str(structured.get("text") or ""),
+                value=copy.deepcopy(structured_value)
+                if isinstance(structured_value, dict)
+                else None,
+            )
+        )
+    return None
 
 
 def _coerce_messages(raw_value: Any) -> list[dict[str, Any]]:

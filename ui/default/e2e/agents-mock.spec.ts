@@ -68,7 +68,7 @@ test.describe("Agents", () => {
             model: "fast",
             status: "succeeded",
             messages: [{ role: "user", text: "Read the shared context." }],
-            outputText: "Shared context loaded.",
+            output: { text: { text: "Shared context loaded." } },
             createdAt: "2026-04-23T00:00:00Z",
             completedAt: "2026-04-23T00:02:00Z",
           },
@@ -116,8 +116,12 @@ test.describe("Agents", () => {
             model: "fast",
             status: "succeeded",
             messages: [{ role: "user", text: "Summarize open incidents." }],
-            outputText: "Two incidents are open.",
-            structuredOutput: { count: 2 },
+            output: {
+              structured: {
+                text: "Two incidents are open.",
+                value: { count: 2 },
+              },
+            },
             createdAt: "2026-04-23T00:00:00Z",
             completedAt: "2026-04-23T00:02:00Z",
           },

@@ -502,11 +502,13 @@ apps:
                   prompt: Classify the Slack request and identify the next action.
                   toolSetRefs:
                     - directory
-                  responseSchema:
-                    type: object
-                    properties:
-                      category:
-                        type: string
+                  output:
+                    structured:
+                      schema:
+                        type: object
+                        properties:
+                          category:
+                            type: string
                 - id: reply
                   prompt: Write the final Slack response.
                   slackReply:
@@ -552,7 +554,7 @@ Route `agent.timeoutSeconds` overrides the top-level agent timeout for both
 Slack events and signed Slack interaction callbacks generated from that route.
 Route `agent.steps` is passed through to workflow agents that support the
 step-based interface. Each step must set a stable `id` and may set `prompt`,
-`sessionKey`, `messages`, `toolSetRefs`, `tools`, `responseSchema`,
+`sessionKey`, `messages`, `toolSetRefs`, `tools`, `output`,
 `modelOptions`, `metadata`, `timeoutSeconds`, and `when`. Set the same
 `sessionKey` on multiple steps when those steps should share one agent session.
 Set `slackReply.agentOutput` on a

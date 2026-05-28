@@ -214,7 +214,7 @@ class FakeAgentClient:
         output_texts: list[str] | None = None,
         structured_output: dict[str, Any] | None = None,
         structured_outputs: list[dict[str, Any] | None] | None = None,
-        require_no_response_schema: bool = False,
+        require_structured_output_request: bool = False,
         turn_error: Exception | None = None,
     ) -> None:
         self.findings = findings
@@ -222,7 +222,7 @@ class FakeAgentClient:
         self.output_texts = output_texts or []
         self.structured_output = structured_output
         self.structured_outputs = structured_outputs or []
-        self.require_no_response_schema = require_no_response_schema
+        self.require_structured_output_request = require_structured_output_request
         self.turn_error = turn_error
         self.sessions: list[Any] = []
         self.turns: list[Any] = []
@@ -240,17 +240,9 @@ class FakeAgentClient:
 
     def create_turn(self, request: Any) -> Any:
         self.turns.append(request)
-        response_schema = getattr(request, "response_schema", None)
-        if isinstance(response_schema, Mapping):
-            has_response_schema = bool(response_schema)
-        else:
-            has_response_schema = bool(
-                getattr(response_schema, "fields", None)
-                if response_schema is not None
-                else response_schema
-            )
-        if self.require_no_response_schema and has_response_schema:
-            raise AssertionError("response_schema should not be set")
+        has_structured_output = _turn_schema(request) is not None
+        if self.require_structured_output_request and not has_structured_output:
+            raise AssertionError("output.structured.schema should be set")
         if self.turn_error is not None:
             raise self.turn_error
         output_index = len(self.turns) - 1
@@ -278,7 +270,7 @@ class FakeAgentClient:
             structured_output is None
             and not structured_output_from_sequence
             and self.structured_output is None
-            and has_response_schema
+            and has_structured_output
             and self.output_text is None
             and output_index >= len(self.output_texts)
         ):
@@ -290,8 +282,12 @@ class FakeAgentClient:
             id="agent-turn-1",
             session_id=request.session_id,
             status=gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED,
-            output_text=output_text,
-            structured_output=structured_output,
+            output=gestalt.AgentTurnOutput(
+                structured=gestalt.AgentTurnStructuredOutput(
+                    text=output_text,
+                    value=structured_output,
+                )
+            ),
         )
 
     def get_turn(self, request: Any) -> Any:
@@ -299,6 +295,18 @@ class FakeAgentClient:
 
     def close(self) -> None:
         self.closed = True
+
+
+def _turn_schema(request: Any) -> dict[str, Any] | None:
+    output = getattr(request, "output", None)
+    structured = getattr(output, "structured", None)
+    schema = getattr(structured, "schema", None)
+    if isinstance(schema, Mapping):
+        return dict(schema)
+    fields = getattr(schema, "fields", None)
+    if fields:
+        return cast(dict[str, Any], review_module.object_value(schema))
+    return None
 
 
 def normalized_fake_review_findings(
@@ -4736,26 +4744,23 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("+bad = True", prompt)
         prompt_data = json.loads(prompt)
         self.assertEqual(
-            prompt_data["output_contract"]["contract"],
+            prompt_data["output"]["name"],
             "github.pull_request_review.findings.v2",
         )
         self.assertEqual(
-            prompt_data["output_contract"]["empty_response"], {"findings": []}
+            prompt_data["output"]["empty_response"], {"findings": []}
         )
         self.assertIn(
             "Use only added RIGHT-side lines",
-            prompt_data["output_contract"]["line_policy"],
+            prompt_data["output"]["line_policy"],
         )
+        schema = _turn_schema(agent_client.turns[0])
+        self.assertIsNotNone(schema)
+        assert schema is not None
+        self.assertEqual(schema["required"], ["findings"])
+        finding_schema = schema["properties"]["findings"]["items"]["properties"]
         self.assertEqual(
-            agent_client.turns[0].response_schema["required"], ["findings"]
-        )
-        finding_schema = agent_client.turns[0].response_schema["properties"][
-            "findings"
-        ]["items"]["properties"]
-        self.assertEqual(
-            agent_client.turns[0].response_schema["properties"]["findings"]["items"][
-                "required"
-            ],
+            schema["properties"]["findings"]["items"]["required"],
             ["path", "line", "title", "severity", "description"],
         )
         self.assertEqual(
@@ -5111,38 +5116,29 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn("findings array", agent_client.turns[1].messages[0].text)
         fix_prompt = json.loads(agent_client.turns[1].messages[1].text)
         self.assertEqual(
-            fix_prompt["output_contract"]["contract"],
+            fix_prompt["output"]["name"],
             "github.pull_request_review.self_fix.v1",
         )
         self.assertEqual(
-            fix_prompt["output_contract"]["empty_response"],
+            fix_prompt["output"]["empty_response"],
             {"commit_message": "No safe self-fix", "files": []},
         )
+        review_schema = _turn_schema(agent_client.turns[0])
+        fix_schema = _turn_schema(agent_client.turns[1])
+        self.assertIsNotNone(review_schema)
+        self.assertIsNotNone(fix_schema)
+        assert review_schema is not None
+        assert fix_schema is not None
+        self.assertEqual(review_schema["required"], ["findings"])
+        self.assertEqual(fix_schema["required"], ["commit_message", "files"])
+        self.assertEqual(fix_schema["properties"]["commit_message"], {"type": "string", "minLength": 1})
+        self.assertEqual(fix_schema["properties"]["files"]["minItems"], 0)
         self.assertEqual(
-            agent_client.turns[0].response_schema["required"], ["findings"]
-        )
-        self.assertEqual(
-            agent_client.turns[1].response_schema["required"],
-            ["commit_message", "files"],
-        )
-        self.assertEqual(
-            agent_client.turns[1].response_schema["properties"]["commit_message"],
+            fix_schema["properties"]["files"]["items"]["properties"]["content"],
             {"type": "string", "minLength": 1},
         )
         self.assertEqual(
-            agent_client.turns[1].response_schema["properties"]["files"]["minItems"],
-            0,
-        )
-        self.assertEqual(
-            agent_client.turns[1].response_schema["properties"]["files"]["items"][
-                "properties"
-            ]["content"],
-            {"type": "string", "minLength": 1},
-        )
-        self.assertEqual(
-            agent_client.turns[1].response_schema["properties"]["files"]["items"][
-                "properties"
-            ]["path"],
+            fix_schema["properties"]["files"]["items"]["properties"]["path"],
             {"type": "string", "minLength": 1},
         )
         self.assertEqual(len(commits), 1)
@@ -5871,7 +5867,6 @@ class GitHubProviderTests(unittest.TestCase):
     ) -> None:
         cases: list[tuple[str, str, dict[str, Any] | None]] = [
             ("missing_structured_output", "", None),
-            ("legacy_output_text_json", '{"findings":[]}', None),
             ("missing_findings", "not json", {}),
             ("non_array_findings", "not json", {"findings": {}}),
             (
@@ -5999,8 +5994,12 @@ class GitHubProviderTests(unittest.TestCase):
     def test_agent_turn_output_extracts_mapping_structured_output(self) -> None:
         output = review_module.agent_turn_output(
             gestalt.AgentTurn(
-                output_text="not json",
-                structured_output=MappingWrapper({"findings": []}),
+                output=gestalt.AgentTurnOutput(
+                    structured=gestalt.AgentTurnStructuredOutput(
+                        text="not json",
+                        value=MappingWrapper({"findings": []}),
+                    )
+                ),
             )
         )
 
@@ -7031,10 +7030,10 @@ class GitHubProviderTests(unittest.TestCase):
         prompt_data = json.loads(agent_client.turns[0].messages[1].text)
         self.assertIn(
             "Use RIGHT-side lines that are present",
-            prompt_data["output_contract"]["line_policy"],
+            prompt_data["output"]["line_policy"],
         )
         self.assertIn(
-            "allowed by output_contract.line_policy",
+            "allowed by output.line_policy",
             prompt_data["task"],
         )
         self.assertNotIn("added RIGHT-side diff lines only", prompt_data["task"])

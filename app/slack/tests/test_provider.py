@@ -190,12 +190,7 @@ class WorkflowWhenView:
     ) -> None:
         self.equals = equals
         self.step_id = step_output.step_id
-        output_path = step_output.path
-        if output_path.startswith("agent.structuredOutput."):
-            output_path = output_path.replace(
-                "agent.structuredOutput.", "structured_output.", 1
-            )
-        self.output_path = output_path
+        self.output_path = step_output.path
 
 
 class WorkflowAgentView:
@@ -218,7 +213,8 @@ class WorkflowAgentView:
             for message in agent.messages
         ]
         self.tool_refs = list(agent.tools)
-        self.response_schema = agent.response_schema
+        self.output = agent.output
+        self.schema = workflow_agent_schema(agent.output)
         self.when = (
             WorkflowWhenView(step.when.value.step_output, step.when.equals)
             if step.when is not None
@@ -261,7 +257,8 @@ class WorkflowAgentView:
         view.prompt = ""
         view.messages = []
         view.tool_refs = []
-        view.response_schema = None
+        view.output = None
+        view.schema = None
         view.when = None
         view.timeout_seconds = 0
         view.metadata = new_struct()
@@ -310,11 +307,11 @@ def workflow_app_delivery_for_agent(
 def workflow_binding_value(value: gestalt.WorkflowValue) -> tuple[str | None, Any]:
     if value.step_output is not None:
         path = value.step_output.path
-        if path == "agent.text":
+        if path in ("agent.output.text.text", "agent.output.structured.text"):
             return "agent_output", "text"
         if path == "agent.sessionId":
             return "agent_session", "id"
-        structured_prefix = "agent.structuredOutput."
+        structured_prefix = "agent.output.structured.value."
         if path.startswith(structured_prefix):
             return "agent_output", path.removeprefix(structured_prefix)
         return "step_output", {
@@ -334,6 +331,18 @@ def workflow_binding_value(value: gestalt.WorkflowValue) -> tuple[str | None, An
     if value.literal is not _WORKFLOW_VALUE_UNSET:
         return "literal", value.literal
     return None, None
+
+
+def workflow_agent_schema(output: Any) -> dict[str, Any] | None:
+    if isinstance(output, dict):
+        structured = output.get("structured")
+        if isinstance(structured, dict):
+            schema = structured.get("schema") or structured.get("schema")
+            return dict(schema) if isinstance(schema, dict) else None
+        return None
+    structured = getattr(output, "structured", None)
+    schema = getattr(structured, "schema", None)
+    return dict(schema) if isinstance(schema, dict) else None
 
 
 def app_delivery_bindings(
@@ -1138,10 +1147,14 @@ class SlackProviderTests(unittest.TestCase):
                                                 "operation": "pulls/list",
                                             }
                                         ],
-                                        "responseSchema": {
-                                            "type": "object",
-                                            "properties": {
-                                                "summary": {"type": "string"}
+                                        "output": {
+                                            "structured": {
+                                                "schema": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "summary": {"type": "string"}
+                                                    },
+                                                }
                                             },
                                         },
                                         "modelOptions": {"temperature": 0},
@@ -1154,7 +1167,7 @@ class SlackProviderTests(unittest.TestCase):
                                         "prompt": "Write the Slack reply.",
                                         "when": {
                                             "stepId": "collect",
-                                            "outputPath": "structured_output.actionable",
+                                            "outputPath": "agent.output.structured.value.actionable",
                                             "equals": True,
                                         },
                                         "slackReply": {
@@ -1228,7 +1241,9 @@ class SlackProviderTests(unittest.TestCase):
             [("jira", "search"), ("linear", "searchIssues"), ("github", "pulls/list")],
         )
         self.assertEqual(collect_tool_pairs[3:], BASE_EVENT_TOOL_REFS)
-        self.assertEqual(collect.response_schema["type"], "object")
+        collect_schema = collect.schema
+        assert collect_schema is not None
+        self.assertEqual(collect_schema["type"], "object")
         self.assertEqual(collect.model_options["temperature"], 0)
         self.assertEqual(collect.metadata["phase"], "collect")
         self.assertEqual(collect.timeout_seconds, 120)
@@ -1240,7 +1255,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(reply.prompt, "Write the Slack reply.")
         reply_when = cast(WorkflowWhenView, reply.when)
         self.assertEqual(reply_when.step_id, "collect")
-        self.assertEqual(reply_when.output_path, "structured_output.actionable")
+        self.assertEqual(reply_when.output_path, "agent.output.structured.value.actionable")
         self.assertEqual(reply_when.equals, True)
         self.assertEqual(
             app_delivery_bindings(reply.reply_delivery),
@@ -1350,7 +1365,7 @@ class SlackProviderTests(unittest.TestCase):
                         "prompt": "fix",
                         "when": {
                             "stepId": "diagnosis",
-                            "outputPath": "structured_output.actionable",
+                            "outputPath": "agent.output.structured.value.actionable",
                             "equals": True,
                         },
                     }

@@ -272,19 +272,19 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         if: matrix.app.has_typescript
         with:
+          bun-version: 1.3.11
           token: ${{ github.token }}
       - name: Install Python
         if: matrix.app.has_python
         run: uv python install 3.13 3.14
       - name: Prepare sibling Gestalt checkout for local SDK validation
-        if: matrix.app.has_go || matrix.app.has_python || matrix.app.has_typescript
+        if: matrix.app.has_go || matrix.app.has_python
         run: |
           set -euo pipefail
           GESTALT_REF="$(cat "$GESTALT_REF_FILE")"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
           .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "$GESTALT_REF"
           echo "GESTALT_CHECKOUT=$toolchain_dir" >> "$GITHUB_ENV"
-          echo "GESTALT_TYPESCRIPT_SDK_DIR=$toolchain_dir/sdk/typescript" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v4
         with:
           name: gestaltd
@@ -327,11 +327,7 @@ jobs:
           fi
 
           if [ "${{ matrix.app.has_typescript }}" = "true" ]; then
-            (cd "${GESTALT_CHECKOUT}/sdk/typescript" && bun install --frozen-lockfile)
             (cd "$app_dir" && bun install --frozen-lockfile)
-            rm -rf "${app_dir}/node_modules/@valon-technologies/gestalt"
-            mkdir -p "${app_dir}/node_modules/@valon-technologies"
-            ln -s "${GESTALT_CHECKOUT}/sdk/typescript" "${app_dir}/node_modules/@valon-technologies/gestalt"
             (cd "$app_dir" && bun run check)
           fi
 

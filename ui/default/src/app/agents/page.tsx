@@ -72,7 +72,7 @@ interface AgentComposerState {
   systemPrompt: string;
   userPrompt: string;
   idempotencyKey: string;
-  responseSchemaJSON: string;
+  schemaJSON: string;
   metadataJSON: string;
   modelOptionsJSON: string;
   toolMode: AgentToolMode;
@@ -1811,7 +1811,7 @@ function defaultComposer(): AgentComposerState {
     systemPrompt: "",
     userPrompt: "",
     idempotencyKey: "",
-    responseSchemaJSON: "",
+    schemaJSON: "",
     metadataJSON: "",
     modelOptionsJSON: "",
     toolMode: "none",
@@ -1854,16 +1854,18 @@ function composerToTurnCreate(
   const idempotencyKey = composer.idempotencyKey.trim();
   if (idempotencyKey) body.idempotencyKey = idempotencyKey;
 
-  const responseSchema = parseOptionalObject(
-    composer.responseSchemaJSON,
-    "Response schema",
+  const schema = parseOptionalObject(
+    composer.schemaJSON,
+    "Schema",
   );
   const metadata = parseOptionalObject(composer.metadataJSON, "Metadata");
   const modelOptions = parseOptionalObject(
     composer.modelOptionsJSON,
     "Model options",
   );
-  if (responseSchema) body.responseSchema = responseSchema;
+  body.output = schema
+    ? { structured: { schema } }
+    : { text: {} };
   if (metadata) body.metadata = metadata;
   if (modelOptions) body.modelOptions = modelOptions;
 
@@ -2005,7 +2007,8 @@ function turnLabel(turn: AgentTurn): string {
     .reverse()
     .find((message) => message.role === "user" && message.text?.trim());
   if (userMessage?.text) return truncate(userMessage.text.replace(/\s+/g, " "), 48);
-  if (turn.outputText) return truncate(turn.outputText.replace(/\s+/g, " "), 48);
+  const output = turn.output?.text?.text ?? turn.output?.structured?.text;
+  if (output) return truncate(output.replace(/\s+/g, " "), 48);
   return turn.id;
 }
 
