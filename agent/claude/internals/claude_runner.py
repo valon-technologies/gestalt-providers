@@ -7,9 +7,8 @@ import logging
 import os
 import tempfile
 import threading
-from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol, cast
+from typing import Any, Literal, cast
 
 import gestalt
 from claude_agent_sdk import (
@@ -54,30 +53,10 @@ class ClaudeExecutionCanceled(ClaudeExecutionError):
 PermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "dontAsk", "auto"]
 
 
-class ClaudeClient(Protocol):
-    async def connect(self) -> None: ...
-
-    async def query(self, prompt: str, session_id: str = "default") -> None: ...
-
-    def receive_response(self) -> AsyncIterator[object]: ...
-
-    async def interrupt(self) -> None: ...
-
-    async def disconnect(self) -> None: ...
-
-
-class ClientFactory(Protocol):
-    def __call__(self, *, options: ClaudeAgentOptions) -> ClaudeClient: ...
-
-
-def _default_client_factory(*, options: ClaudeAgentOptions) -> ClaudeClient:
-    return ClaudeSDKClient(options=options)
-
-
 @dataclass(slots=True)
 class _ActiveTurn:
     loop: asyncio.AbstractEventLoop
-    client: ClaudeClient | None = None
+    client: ClaudeSDKClient | None = None
 
 
 @dataclass(slots=True)
@@ -110,13 +89,7 @@ class ClaudeTurnProfile:
         claude_code_options: ClaudeCodeTurnOptions,
         cwd: str,
     ) -> "ClaudeTurnProfile":
-        return cls(
-            kind="catalog",
-            run_grant=run_grant,
-            schema=schema,
-            claude_code_options=claude_code_options,
-            cwd=cwd,
-        )
+        return cls(kind="catalog", run_grant=run_grant, schema=schema, claude_code_options=claude_code_options, cwd=cwd)
 
     @classmethod
     def direct(cls, *, schema: dict[str, Any] | None = None) -> "ClaudeTurnProfile":
@@ -128,9 +101,8 @@ class ClaudeTurnProfile:
 
 
 class ClaudeSDKRunner:
-    def __init__(self, config: ClaudeAgentConfig, *, client_factory: ClientFactory | None = None) -> None:
+    def __init__(self, config: ClaudeAgentConfig) -> None:
         self._config = config
-        self._client_factory = client_factory or _default_client_factory
         self._lock = threading.RLock()
         self._active_turns: dict[str, _ActiveTurn] = {}
         self._canceled_turns: set[str] = set()
@@ -202,7 +174,7 @@ class ClaudeSDKRunner:
             with tempfile.TemporaryDirectory(prefix="gestalt-claude-sdk-") as config_dir:
                 options = self._options(model=model, session_id=session_id, turn_id=turn_id, turn_profile=turn_profile)
                 _set_config_dir(options, config_dir)
-                client = self._client_factory(options=options)
+                client = ClaudeSDKClient(options=options)
                 self._register_active_client(turn_id, client)
                 self._raise_if_canceled(turn_id)
                 await client.connect()
@@ -219,7 +191,7 @@ class ClaudeSDKRunner:
                     logger.exception("failed to disconnect Claude SDK client")
 
     async def _receive_result(
-        self, client: ClaudeClient, *, turn_id: str, turn_profile: ClaudeTurnProfile
+        self, client: ClaudeSDKClient, *, turn_id: str, turn_profile: ClaudeTurnProfile
     ) -> gestalt.AgentTurnOutput:
         response = _ClaudeResponse()
         result_message: ResultMessage | None = None
@@ -333,7 +305,7 @@ class ClaudeSDKRunner:
         with self._lock:
             self._active_turns[turn_id] = active
 
-    def _register_active_client(self, turn_id: str, client: ClaudeClient) -> None:
+    def _register_active_client(self, turn_id: str, client: ClaudeSDKClient) -> None:
         should_interrupt = False
         with self._lock:
             active = self._active_turns.get(turn_id)
@@ -501,7 +473,7 @@ def _log_claude_stderr(line: str) -> None:
 
 
 def _schedule_interrupt(
-    loop: asyncio.AbstractEventLoop, client: ClaudeClient
+    loop: asyncio.AbstractEventLoop, client: ClaudeSDKClient
 ) -> concurrent.futures.Future[None] | None:
     try:
         return asyncio.run_coroutine_threadsafe(client.interrupt(), loop)
