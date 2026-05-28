@@ -419,8 +419,10 @@ class SlackProviderTests(unittest.TestCase):
             {"agent": {"toolSetRefs": ["shared"]}},
             {"agent": {"tools": [{"app": "linear", "operation": "searchIssues"}]}},
             {"agent": {"timeoutSeconds": 120}},
+            {"agent": {"workflow": {"definitionId": "nested"}}},
             {"agentProvider": "simple"},
             {"agentModel": "deep"},
+            {"workflowProvider": "local"},
             {
                 "agent": {
                     "routes": [
@@ -428,6 +430,17 @@ class SlackProviderTests(unittest.TestCase):
                             "id": "bad-route",
                             "match": {"channel": "C_SUPPORT"},
                             "provider": "simple",
+                        }
+                    ]
+                }
+            },
+            {
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "bad-route",
+                            "match": {"channel": "C_SUPPORT"},
+                            "workflowProvider": "local",
                         }
                     ]
                 }
@@ -890,6 +903,27 @@ class SlackProviderTests(unittest.TestCase):
                     }
                 },
             )
+
+    def test_workflow_config_rejects_legacy_aliases(self) -> None:
+        invalid_configs = [
+            {"workflow": {"providerName": "local"}},
+            {"workflow": {"definition_id": "slack-agent"}},
+            {
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "bad-workflow",
+                            "workflow": {"key_template": "slack:${event_id}"},
+                        }
+                    ]
+                }
+            },
+        ]
+
+        for config in invalid_configs:
+            with self.subTest(config=config):
+                with self.assertRaisesRegex(ValueError, "unsupported key"):
+                    provider_module.configure("slack", config)
 
     def test_top_level_workflow_definition_maps_to_signal_or_start_request(
         self,

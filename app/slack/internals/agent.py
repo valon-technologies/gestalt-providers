@@ -82,7 +82,6 @@ SLACK_ASSISTANT_PROMPTS_OPERATION = "events.setSuggestedPrompts"
 SLACK_STREAM_START_OPERATION = "events.startStream"
 SLACK_STREAM_APPEND_OPERATION = "events.appendStream"
 SLACK_STREAM_STOP_OPERATION = "events.stopStream"
-SLACK_MESSAGE_OPERATION = "conversations.getMessage"
 SLACK_CONTEXT_OPERATION = "conversations.getThreadContext"
 SLACK_FILE_GET_OPERATION = "files.get"
 MAX_PROMPT_MESSAGE_URLS = 5

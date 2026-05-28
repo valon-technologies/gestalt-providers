@@ -62,10 +62,10 @@ apps:
             name: slack-bot-token
       acknowledgement:
         reaction: eyes
+      workflow:
+        provider: local
+        definitionId: slack-default-agent
       agent:
-        provider: simple
-        model: deep
-        systemPrompt: Use Slack formatting and keep replies concise.
         threadContext:
           enabled: true
           maxMessages: 200
@@ -97,10 +97,8 @@ apps:
     config:
       workflow:
         provider: local
+        definitionId: slack-default-agent
       agent:
-        provider: simple
-        model: deep
-        timeoutSeconds: 1800
         threadContext:
           enabled: true
           maxMessages: 200
@@ -108,12 +106,13 @@ apps:
 
 `events.handle` calls `req.workflows().signal_or_start_run(WorkflowSignalOrStartRun(...))`
 with `provider_name=workflow.provider`, a thread-scoped workflow key, and a
-`slack.event` signal. When `workflow.definitionId` is configured, the request
-references that global workflow definition and omits an inline target. Later
-Slack messages in the same thread signal the existing keyed run instead of
-replacing its target or authorization context. Set positive
-`agent.timeoutSeconds` to pass an explicit workflow-agent run budget to Gestalt.
-When omitted, Gestalt's workflow-agent default applies.
+`slack.event` signal. The request must reference a global workflow definition
+with `workflow.definitionId`; the Slack provider does not generate an inline
+workflow target from agent prompts, tools, or steps. Later Slack messages in the
+same thread signal the existing keyed run instead of replacing its workflow
+definition or authorization context. The global workflow should call Slack helper
+operations such as `events.reply`, `events.replySessionStarted`, status,
+reactions, and interactions explicitly.
 
 When `acknowledgement.reaction` is configured, `events.handle` adds that
 reaction to the source Slack message only after the workflow signal-or-start
@@ -209,8 +208,8 @@ Use the returned stream timestamp with `events.appendStream` and
 
 ## Agent Routes
 
-Use `agent.routes` when one Slack app should dispatch different workflows,
-assistants, prompts, tools, acknowledgement reactions, or thread context
+Use `agent.routes` when one Slack app should dispatch different workflow
+definitions, assistant settings, acknowledgement reactions, or thread context
 behavior for different channels or event types.
 
 ```yaml
@@ -219,22 +218,10 @@ apps:
     config:
       workflow:
         provider: local
+        definitionId: slack-default-agent
       agent:
-        provider: simple
-        model: deep
-        timeoutSeconds: 1800
-        toolSets:
-          directory:
-            - app: companyDirectory
-              operation: lookupProfile
-          status:
-            - app: statusPage
-              operation: getStatus
-        toolSetRefs:
-          - directory
-        tools:
-          - app: tickets
-            operation: search
+        threadContext:
+          maxMessages: 200
         routes:
           - id: team-help-new-messages
             match:
@@ -243,27 +230,11 @@ apps:
               eventTypes:
                 - message.channels
               thread: root
+            workflow:
+              definitionId: slack-team-help-new-message
             agent:
               acknowledgement:
                 reaction: eyes
-              timeoutSeconds: 900
-              systemPrompt: Help with team questions.
-              steps:
-                - id: classify
-                  prompt: Classify the Slack request and identify the next action.
-                  toolSetRefs:
-                    - directory
-                  output:
-                    structured:
-                      schema:
-                        type: object
-                        properties:
-                          category:
-                            type: string
-                - id: reply
-                  prompt: Write the final Slack response.
-                  slackReply:
-                    agentOutput: text
           - id: team-help-mentions
             match:
               channels:
@@ -271,8 +242,8 @@ apps:
               eventTypes:
                 - app_mention
               thread: any
-            agent:
-              systemPrompt: Help with team questions.
+            workflow:
+              definitionId: slack-team-help-mention
           - id: operations-help
             match:
               channels:
@@ -283,6 +254,7 @@ apps:
                 - assistant_thread_context_changed
             workflow:
               provider: operations
+              definitionId: slack-operations-help
             agent:
               assistant:
                 enabled: true
@@ -297,9 +269,6 @@ apps:
               threadContext:
                 maxMessages: 50
                 includeFiles: false
-              toolSetRefs:
-                - status
-              systemPrompt: Help engineers inspect service status.
           - id: alert-triage
             match:
               channels:
@@ -319,33 +288,21 @@ Set `enabled: false` on route `agent.assistant`, `agent.acknowledgement`, or
 `workflow.provider` overrides the global `workflow.provider` for Slack events
 and Slack interaction button callbacks generated from that route. Route
 `workflow.definitionId` starts or signals the configured global workflow
-definition instead of generating agent, session-started, or reply steps. Use
+definition. The Slack provider selects the route, signs `reply_ref`, prefetches
+configured thread context, and signals the workflow; all agent prompts, tools,
+timeouts, steps, and Slack replies live in the global workflow definition. Use
 `slack.events.reply` explicitly in the workflow when it should post back to
 Slack. `workflow.keyTemplate` is optional; when omitted, the provider uses the
 default Slack thread workflow key. Supported template fields are
 `team_id`, `channel_id`, `message_ts`, `thread_ts`, `reply_thread_ts`,
 `event_id`, and `route_id`.
-Route `agent.timeoutSeconds` overrides the top-level agent timeout for both
-Slack events and signed Slack interaction callbacks generated from that route.
-Route `agent.steps` is passed through to workflow agents that support the
-step-based interface. Steps must set a stable `id` and may set `prompt`,
-`sessionKey`, `messages`, `toolSetRefs`, `tools`, `output`,
-`modelOptions`, `metadata`, `timeoutSeconds`, and `when`. Set the same
-`sessionKey` on multiple steps when those steps should share one agent session.
-Set `slackReply.agentOutput` to deliver that step output through
-`slack.events.reply`.
 Route `runAs.subject` can name a managed service-account subject, such as
 `service_account:slack-bot`; matching Slack events then resolve to that subject
 instead of requiring the Slack bot user to have a linked external identity. This
 is only allowed for trusted bot-originated routes selected with `botIds`. Signed
 Slack interaction callbacks generated from that route use `runAs.subject` only
 when the signed ref subject ID already equals the configured runAs subject.
-
-Tool sets are named groups under `agent.toolSets`. Tool references expand in
-this order and deduplicate by exact app/operation/connection/instance with
-first reference winning: top-level `agent.toolSetRefs`, top-level
-`agent.tools`, route `agent.toolSetRefs`, route `agent.tools`, then Slack
-helper operations.
+Route `runAs` changes the Slack invocation subject for the workflow signal.
 
 When a route uses `match.eventTypes`, include
 `assistant_thread_started` and `assistant_thread_context_changed` on routes that

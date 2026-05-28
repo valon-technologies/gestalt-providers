@@ -34,6 +34,8 @@ LEGACY_AGENT_TARGET_KEYS = frozenset(
         "agent_provider",
         "agent_system_prompt",
         "agent_tools",
+        "definitionId",
+        "definition_id",
         "model",
         "modelOptions",
         "model_options",
@@ -57,6 +59,15 @@ LEGACY_AGENT_TARGET_KEYS = frozenset(
         "tool_set_refs",
         "tool_sets",
         "tools",
+        "workflow",
+        "workflowDefinitionId",
+        "workflowProvider",
+        "workflowProviderName",
+        "workflow_definition_id",
+        "workflow_provider",
+        "workflow_provider_name",
+        "workflowId",
+        "workflow_id",
     }
 )
 WORKFLOW_KEY_TEMPLATE_FIELDS = frozenset(
@@ -91,6 +102,10 @@ def agent_config_from_provider_config(
             "agent_provider",
             "agent_system_prompt",
             "agent_tools",
+            "workflowProvider",
+            "workflow_provider",
+            "workflowProviderName",
+            "workflow_provider_name",
             "prompt",
         },
     )
@@ -257,26 +272,19 @@ def _workflow_config_from_provider_config(
     config: dict[str, Any],
 ) -> SlackWorkflowConfig:
     workflow = _config_dict(config, "workflow")
+    _validate_workflow_config_keys(
+        workflow,
+        "workflow",
+        allowed_keys={"provider", "definitionId", "target"},
+    )
     if "target" in workflow:
         raise ValueError(
             "workflow.target is not supported; define the workflow globally and "
             "set workflow.definitionId"
         )
     return SlackWorkflowConfig(
-        provider_name=_config_string(
-            workflow, "provider", "providerName", "provider_name"
-        )
-        or _config_string(config, "workflowProvider", "workflow_provider"),
-        definition_id=_config_string(
-            workflow,
-            "definitionId",
-            "definition_id",
-            "workflowDefinitionId",
-            "workflow_definition_id",
-            "workflowId",
-            "workflow_id",
-            "id",
-        ),
+        provider_name=_config_string(workflow, "provider"),
+        definition_id=_config_string(workflow, "definitionId"),
     )
 
 
@@ -413,6 +421,14 @@ def _agent_route_from_config(
             "tools",
             "tool_refs",
             "tool_set_refs",
+            "workflowDefinitionId",
+            "workflowId",
+            "workflowProvider",
+            "workflowProviderName",
+            "workflow_definition_id",
+            "workflow_id",
+            "workflow_provider",
+            "workflow_provider_name",
         },
     )
     _reject_legacy_agent_target_config(
@@ -539,31 +555,18 @@ def _route_workflow_config_from_config(
 ) -> SlackWorkflowConfig | None:
     workflow = _config_dict_or_none(config, "workflow")
     workflow_data = workflow or {}
-    provider = _config_string(
-        workflow_data, "provider", "providerName", "provider_name"
+    _validate_workflow_config_keys(
+        workflow_data,
+        f"agent.routes[{index}].workflow",
+        allowed_keys={"provider", "definitionId", "keyTemplate", "target"},
     )
-    provider = provider or _config_string(
-        config,
-        "workflowProvider",
-        "workflow_provider",
-        "workflowProviderName",
-        "workflow_provider_name",
-    )
+    provider = _config_string(workflow_data, "provider")
     if "target" in workflow_data:
         raise ValueError(
             f"agent.routes[{index}].workflow.target is not supported; "
             "define the workflow globally and set workflow.definitionId"
         )
-    definition_id = _config_string(
-        workflow_data,
-        "definitionId",
-        "definition_id",
-        "workflowDefinitionId",
-        "workflow_definition_id",
-        "workflowId",
-        "workflow_id",
-        "id",
-    )
+    definition_id = _config_string(workflow_data, "definitionId")
     key_template = _workflow_key_template_from_config(
         workflow_data, f"agent.routes[{index}].workflow"
     )
@@ -576,8 +579,22 @@ def _route_workflow_config_from_config(
     )
 
 
+def _validate_workflow_config_keys(
+    config: dict[str, Any],
+    path: str,
+    *,
+    allowed_keys: set[str],
+) -> None:
+    unknown = sorted(str(key) for key in config if str(key) not in allowed_keys)
+    if unknown:
+        raise ValueError(
+            f"{path} has unsupported key(s): {', '.join(unknown)}; use "
+            "workflow.provider and workflow.definitionId"
+        )
+
+
 def _workflow_key_template_from_config(config: dict[str, Any], path: str) -> str:
-    key_template = _config_string(config, "keyTemplate", "key_template")
+    key_template = _config_string(config, "keyTemplate")
     for field in WORKFLOW_KEY_TEMPLATE_FIELD_RE.findall(key_template):
         if field not in WORKFLOW_KEY_TEMPLATE_FIELDS:
             allowed = ", ".join(sorted(WORKFLOW_KEY_TEMPLATE_FIELDS))
@@ -881,14 +898,6 @@ def _config_dict_or_none(config: dict[str, Any], *keys: str) -> dict[str, Any] |
         if isinstance(value, dict):
             return dict(value)
     return None
-
-
-def _config_mapping(config: dict[str, Any], *keys: str) -> dict[str, Any]:
-    for key in keys:
-        value = config.get(key)
-        if isinstance(value, dict):
-            return dict(value)
-    return {}
 
 
 def _config_list(config: dict[str, Any], *keys: str) -> list[Any]:
