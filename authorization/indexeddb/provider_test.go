@@ -2,34 +2,66 @@ package indexeddb
 
 import (
 	"context"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
-	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-func TestProviderLifecycleStubs(t *testing.T) {
+func TestProviderConfigureAndClose(t *testing.T) {
+	ctx := context.Background()
+	raw := map[string]any{"indexeddb": "test-db"}
 	provider := New()
-
-	if err := provider.Configure(context.Background(), "test", map[string]any{"ignored": true}); err != nil {
-		t.Fatalf("Configure() error = %v", err)
+	fakeDB := &fakeIndexedDB{}
+	successfulOpenIndexedDB := func(ctx context.Context, name ...string) (indexeddb.Database, error) {
+		if len(name) != 1 || name[0] != "test-db" {
+			t.Fatalf("IndexedDB binding = %v, want test-db", name)
+		}
+		return fakeDB, nil
 	}
-	if err := provider.HealthCheck(context.Background()); err != nil {
+
+	err := configure(ctx, raw, successfulOpenIndexedDB, provider)
+	if err != nil {
+		t.Fatalf("configure() error = %v", err)
+	}
+
+	wantStores := getStoreNames().all()
+	if !reflect.DeepEqual(fakeDB.createdStores, wantStores) {
+		t.Fatalf("created stores = %#v, want %#v", fakeDB.createdStores, wantStores)
+	}
+	if fakeDB.closed {
+		t.Fatalf("database closed = true, want false")
+	}
+
+	err = provider.HealthCheck(ctx)
+	if err != nil {
 		t.Fatalf("HealthCheck() error = %v", err)
 	}
-	if err := provider.Close(); err != nil {
+
+	err = provider.Close()
+	if err != nil {
 		t.Fatalf("Close() error = %v", err)
 	}
-
-	metadata := provider.Metadata()
-	if metadata.Kind != gestalt.ProviderKindAuthorization {
-		t.Fatalf("Metadata().Kind = %q, want %q", metadata.Kind, gestalt.ProviderKindAuthorization)
+	if !fakeDB.closed {
+		t.Fatalf("database closed = false, want true")
 	}
-	if metadata.Name != "indexeddb" {
-		t.Fatalf("Metadata().Name = %q, want indexeddb", metadata.Name)
+
+	wantErr := errors.New("connection failed")
+	failingOpenIndexedDB := func(context.Context, ...string) (indexeddb.Database, error) {
+		return nil, wantErr
+	}
+
+	err = configure(ctx, nil, failingOpenIndexedDB, New())
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("configure() error = %v, want wrapped %v", err, wantErr)
+	}
+	if got, want := err.Error(), "authorization: connect indexeddb: connection failed"; got != want {
+		t.Fatalf("configure() error = %q, want %q", got, want)
 	}
 }
 
