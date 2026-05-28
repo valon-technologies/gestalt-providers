@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 import urllib.parse
 import uuid
@@ -63,6 +64,7 @@ ErrorResponse: TypeAlias = gestalt.Response[dict[str, Any]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
 
 logger = logging.getLogger(__name__)
+WORKFLOW_KEY_TEMPLATE_FIELD_RE = re.compile(r"\$\{([^}]+)\}")
 
 SLACK_EVENT_WORKFLOW_SIGNAL = "slack.event"
 SLACK_INTERACTION_WORKFLOW_SIGNAL = "slack.interaction"
@@ -148,7 +150,7 @@ def _slack_event_log_context(
         slack_reply_thread_ts=event.reply_thread_ts,
         slack_route_id=route.id if route else "",
         subject_id=req.subject.id.strip(),
-        workflow_key=_agent_session_ref(event),
+        workflow_key=_workflow_key(event, route),
     )
 
 
@@ -304,9 +306,13 @@ def _workflow_handoff_log_context(
     workflow_request: gestalt.WorkflowSignalOrStartRun | None,
     err: BaseException | None = None,
 ) -> str:
-    idempotency_key = workflow_request.idempotency_key.strip() if workflow_request is not None else ""
+    idempotency_key = (
+        workflow_request.idempotency_key.strip() if workflow_request is not None else ""
+    )
     return _log_context(
-        workflow_provider=workflow_request.provider_name if workflow_request is not None else "",
+        workflow_provider=workflow_request.provider_name
+        if workflow_request is not None
+        else "",
         idempotency_key_sha256=_sha256_log_value(idempotency_key),
         error_type=type(err).__name__ if err else "",
         error=_log_body(str(err), max_bytes=512) if err else "",
@@ -457,7 +463,7 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
     try:
         fields = _workflow_signal_response_fields(
             workflow_response,
-            fallback_workflow_key=_agent_session_ref(event),
+            fallback_workflow_key=_workflow_key(event, route),
             fallback_provider_name=workflow_provider,
         )
         logger.info(
@@ -1469,7 +1475,7 @@ def _json_payload_from_http_request(
         return {"payload": form_payload}
     try:
         payload = json.loads(raw_body)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except UnicodeDecodeError, json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -2340,6 +2346,7 @@ def _sign_reply_ref(
         "client_msg_id": event.client_msg_id,
         "subject_id": subject_id,
         "route_id": route.id if route is not None else "",
+        "workflow_key": _workflow_key(event, route),
         "expires_at": int(time.time()) + SLACK_REPLY_REF_TTL_SECONDS,
     }
     encoded_payload = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
@@ -2403,6 +2410,7 @@ def _reply_ref_from_payload(payload: dict[str, Any]) -> SlackReplyRef:
         channel_type=str(payload.get("channel_type") or "").strip(),
         route_id=str(payload.get("route_id") or "").strip(),
         client_msg_id=str(payload.get("client_msg_id") or "").strip(),
+        workflow_key=str(payload.get("workflow_key") or "").strip(),
     )
     if not ref.team_id or not ref.channel_id or not ref.subject_id:
         raise ValueError("invalid reply_ref")
@@ -2410,6 +2418,8 @@ def _reply_ref_from_payload(payload: dict[str, Any]) -> SlackReplyRef:
 
 
 def _reply_ref_workflow_key(ref: SlackReplyRef) -> str:
+    if ref.workflow_key:
+        return ref.workflow_key
     if ref.channel_type in DIRECT_MESSAGE_CHANNEL_TYPES and not ref.reply_thread_ts:
         return f"slack:{ref.team_id}:{ref.channel_id}"
     root_ts = ref.reply_thread_ts or ref.message_ts
@@ -2462,6 +2472,7 @@ def _resign_reply_ref(ref: SlackReplyRef, *, expires_at: int) -> str:
         "client_msg_id": ref.client_msg_id,
         "subject_id": ref.subject_id,
         "route_id": ref.route_id,
+        "workflow_key": _reply_ref_workflow_key(ref),
         "expires_at": expires_at,
     }
     encoded_payload = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
@@ -2630,13 +2641,15 @@ def _build_workflow_signal_or_start_request(
     route: SlackAgentRoute | None,
     reply_ref: str,
 ) -> gestalt.WorkflowSignalOrStartRun:
-    workflow_key = _agent_session_ref(event)
+    workflow_key = _workflow_key(event, route)
     thread_context = _prefetch_thread_context(event, route)
+    definition_id = _workflow_definition_id(route)
     return gestalt.WorkflowSignalOrStartRun(
         provider_name=_workflow_provider_name(route),
         workflow_key=workflow_key,
         idempotency_key=_agent_turn_idempotency_key(event),
-        target=_build_workflow_agent_target(event, route),
+        target=None if definition_id else _build_workflow_agent_target(event, route),
+        definition_id=definition_id,
         signal=gestalt.WorkflowSignal(
             name=SLACK_EVENT_WORKFLOW_SIGNAL,
             idempotency_key=_agent_turn_idempotency_key(event),
@@ -2747,7 +2760,9 @@ def _workflow_steps_for_configured_step(
     return steps
 
 
-def _workflow_agent_output_path(agent_output: str, output: dict[str, Any] | None = None) -> str:
+def _workflow_agent_output_path(
+    agent_output: str, output: dict[str, Any] | None = None
+) -> str:
     agent_output = agent_output.strip()
     if not agent_output:
         return "agent.output.text.text"
@@ -3009,6 +3024,7 @@ def _build_workflow_interaction_signal_or_start_request(
     route: SlackAgentRoute | None,
 ) -> gestalt.WorkflowSignalOrStartRun:
     event = _interaction_event(payload, interaction_ref)
+    definition_id = _workflow_definition_id(route)
     signal = gestalt.WorkflowSignal(
         name=SLACK_INTERACTION_WORKFLOW_SIGNAL,
         idempotency_key=_interaction_idempotency_key(payload, selected_action),
@@ -3021,7 +3037,8 @@ def _build_workflow_interaction_signal_or_start_request(
         provider_name=_workflow_provider_name(route),
         workflow_key=interaction_ref.workflow_key,
         idempotency_key=signal.idempotency_key,
-        target=_build_workflow_agent_target(event, route),
+        target=None if definition_id else _build_workflow_agent_target(event, route),
+        definition_id=definition_id,
         signal=signal,
     )
 
@@ -3288,8 +3305,36 @@ def _agent_provider(route: SlackAgentRoute | None) -> str:
 
 def _workflow_provider_name(route: SlackAgentRoute | None) -> str:
     if route is not None and route.workflow is not None:
-        return route.workflow.provider_name
+        return route.workflow.provider_name or _agent_config.workflow.provider_name
     return _agent_config.workflow.provider_name
+
+
+def _workflow_definition_id(route: SlackAgentRoute | None) -> str:
+    if route is not None and route.workflow is not None:
+        return route.workflow.definition_id or _agent_config.workflow.definition_id
+    return _agent_config.workflow.definition_id
+
+
+def _workflow_key(event: SlackAgentEvent, route: SlackAgentRoute | None) -> str:
+    if route is None or route.workflow is None or not route.workflow.key_template:
+        return _agent_session_ref(event)
+    values = {
+        "team_id": event.team_id,
+        "channel_id": event.channel_id,
+        "message_ts": event.message_ts,
+        "thread_ts": event.thread_ts,
+        "reply_thread_ts": event.reply_thread_ts,
+        "event_id": event.event_id,
+        "route_id": route.id,
+    }
+
+    def replace(match: re.Match[str]) -> str:
+        return values.get(match.group(1), "")
+
+    workflow_key = WORKFLOW_KEY_TEMPLATE_FIELD_RE.sub(
+        replace, route.workflow.key_template
+    ).strip()
+    return workflow_key or _agent_session_ref(event)
 
 
 def _assistant_config(route: SlackAgentRoute | None) -> SlackAssistantConfig:

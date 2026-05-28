@@ -354,6 +354,8 @@ class SlackAcknowledgementConfig:
 @dataclass(frozen=True, slots=True)
 class SlackWorkflowConfig:
     provider_name: str = ""
+    key_template: str = ""
+    definition_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -407,6 +409,7 @@ class SlackReplyRef:
     channel_type: str = ""
     route_id: str = ""
     client_msg_id: str = ""
+    workflow_key: str = ""
 
 
 @dataclass(frozen=True, slots=True)

@@ -108,8 +108,10 @@ apps:
 
 `events.handle` calls `req.workflows().signal_or_start_run(WorkflowSignalOrStartRun(...))`
 with `provider_name=workflow.provider`, a thread-scoped workflow key, and a
-`slack.event` signal. Later Slack messages in the same thread signal the existing
-keyed run instead of replacing its target or authorization context. Set positive
+`slack.event` signal. When `workflow.definitionId` is configured, the request
+references that global workflow definition and omits an inline target. Later
+Slack messages in the same thread signal the existing keyed run instead of
+replacing its target or authorization context. Set positive
 `agent.timeoutSeconds` to pass an explicit workflow-agent run budget to Gestalt.
 When omitted, Gestalt's workflow-agent default applies.
 
@@ -298,13 +300,31 @@ apps:
               toolSetRefs:
                 - status
               systemPrompt: Help engineers inspect service status.
+          - id: alert-triage
+            match:
+              channels:
+                - C0246800000
+              eventTypes:
+                - message.channels
+              thread: root
+            workflow:
+              provider: local
+              definitionId: slack-alert-triage
+              keyTemplate: slack:${team_id}:${channel_id}:${reply_thread_ts}:${route_id}
 ```
 
 Route settings inherit from the top-level provider configuration when omitted.
 Set `enabled: false` on route `agent.assistant`, `agent.acknowledgement`, or
 `agent.threadContext` to explicitly disable an inherited global setting. Route
 `workflow.provider` overrides the global `workflow.provider` for Slack events
-and Slack interaction button callbacks generated from that route.
+and Slack interaction button callbacks generated from that route. Route
+`workflow.definitionId` starts or signals the configured global workflow
+definition instead of generating agent, session-started, or reply steps. Use
+`slack.events.reply` explicitly in the workflow when it should post back to
+Slack. `workflow.keyTemplate` is optional; when omitted, the provider uses the
+default Slack thread workflow key. Supported template fields are
+`team_id`, `channel_id`, `message_ts`, `thread_ts`, `reply_thread_ts`,
+`event_id`, and `route_id`.
 Route `agent.timeoutSeconds` overrides the top-level agent timeout for both
 Slack events and signed Slack interaction callbacks generated from that route.
 Route `agent.steps` is passed through to workflow agents that support the

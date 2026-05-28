@@ -412,7 +412,7 @@ def get_thread_participants(
                 user_data = slack_get(
                     "users.info", {"user": str(participant["user_id"])}, token
                 )
-            except (SlackAPIError, SlackClientError):
+            except SlackAPIError, SlackClientError:
                 continue
             user = map_field(user_data, "user")
             profile = map_field(user, "profile")
@@ -628,7 +628,7 @@ def _thread_participants_from_messages(
                 user_data = slack_get(
                     "users.info", {"user": str(participant["user_id"])}, token
                 )
-            except (SlackAPIError, SlackClientError):
+            except SlackAPIError, SlackClientError:
                 continue
             user = map_field(user_data, "user")
             profile = map_field(user, "profile")

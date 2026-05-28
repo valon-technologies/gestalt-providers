@@ -130,9 +130,7 @@ _WORKFLOW_VALUE_UNSET = gestalt.WorkflowValue().literal
 
 
 def tool_ref_pairs(refs: list[gestalt.AgentToolRef]) -> list[tuple[str, str]]:
-    return [
-        (str(ref.system or ref.app), str(ref.operation)) for ref in refs
-    ]
+    return [(str(ref.system or ref.app), str(ref.operation)) for ref in refs]
 
 
 def tool_ref_details(
@@ -208,10 +206,7 @@ class WorkflowAgentView:
         self.model = agent.model
         self.session_key = agent.session_key
         self.prompt = workflow_text(agent.prompt)
-        self.messages = [
-            WorkflowMessageView(message)
-            for message in agent.messages
-        ]
+        self.messages = [WorkflowMessageView(message) for message in agent.messages]
         self.tool_refs = list(agent.tools)
         self.output = agent.output
         self.schema = workflow_agent_schema(agent.output)
@@ -224,9 +219,7 @@ class WorkflowAgentView:
         self.metadata = step.metadata or new_struct()
         self.model_options = agent.model_options or new_struct()
         self.reply_delivery: Any = (
-            workflow_app_delivery_for_agent(
-                all_steps, step.id, "events.reply"
-            )
+            workflow_app_delivery_for_agent(all_steps, step.id, "events.reply")
             if compute_deliveries
             else None
         )
@@ -1255,7 +1248,9 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(reply.prompt, "Write the Slack reply.")
         reply_when = cast(WorkflowWhenView, reply.when)
         self.assertEqual(reply_when.step_id, "collect")
-        self.assertEqual(reply_when.output_path, "agent.output.structured.value.actionable")
+        self.assertEqual(
+            reply_when.output_path, "agent.output.structured.value.actionable"
+        )
         self.assertEqual(reply_when.equals, True)
         self.assertEqual(
             app_delivery_bindings(reply.reply_delivery),
@@ -1266,6 +1261,167 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(reply.reply_delivery.target.app_name, "slack")
         self.assertEqual(reply.reply_delivery.target.operation, "events.reply")
+
+    def test_route_workflow_definition_maps_to_signal_or_start_request(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "raw-workflow",
+                            "match": {"channel": "C_WORKFLOW"},
+                            "workflow": {
+                                "provider": "route-provider",
+                                "definitionId": "slack-alert-triage",
+                                "keyTemplate": (
+                                    "slack:${team_id}:${channel_id}:"
+                                    "${reply_thread_ts}:${route_id}"
+                                ),
+                            },
+                        }
+                    ]
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_client = FakeWorkflowClient()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvRawWorkflow",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C_WORKFLOW",
+                "channel_type": "channel",
+                "text": "<@UBOT> classify this",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "workflows",
+                return_value=workflow_client,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(operation_body(response)["ok"], True)
+        self.assertEqual(
+            operation_body(response)["workflow_provider"], "route-provider"
+        )
+        self.assertEqual(len(workflow_client.signal_or_start_requests), 1)
+        workflow_request = workflow_client.signal_or_start_requests[0]
+        self.assertEqual(workflow_request.provider_name, "route-provider")
+        self.assertEqual(
+            workflow_request.workflow_key,
+            "slack:T123:C_WORKFLOW:1712161829.000300:raw-workflow",
+        )
+        self.assertEqual(workflow_request.definition_id, "slack-alert-triage")
+        self.assertIsNone(workflow_request.target)
+        signal_payload = sdk_value_to_dict(workflow_request.signal.payload)
+        self.assertEqual(signal_payload["slack"]["channel_id"], "C_WORKFLOW")
+        self.assertIn("<@UBOT> classify this", signal_payload["user_prompt"])
+        verified_ref = provider_module._verify_reply_ref(
+            signal_payload["reply_ref"], "user:gestalt-123"
+        )
+        self.assertEqual(verified_ref.workflow_key, workflow_request.workflow_key)
+
+    def test_route_workflow_rejects_inline_target(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "workflow.target is not supported; define the workflow globally",
+        ):
+            provider_module.configure(
+                "slack",
+                {
+                    "agent": {
+                        "routes": [
+                            {
+                                "id": "bad-workflow",
+                                "workflow": {
+                                    "target": {"steps": []},
+                                },
+                            }
+                        ]
+                    }
+                },
+            )
+
+    def test_top_level_workflow_rejects_inline_target(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "workflow.target is not supported; define the workflow globally",
+        ):
+            provider_module.configure(
+                "slack",
+                {
+                    "workflow": {
+                        "target": {"steps": []},
+                    }
+                },
+            )
+
+    def test_top_level_workflow_definition_maps_to_signal_or_start_request(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "workflow": {
+                    "provider": "local",
+                    "definitionId": "slack-default-agent",
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_client = FakeWorkflowClient()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvDefaultWorkflow",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "channel_type": "channel",
+                "text": "<@UBOT> use global workflow",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        with mock.patch.object(
+            gestalt.Request,
+            "workflows",
+            return_value=workflow_client,
+            create=True,
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(operation_body(response)["ok"], True)
+        workflow_request = workflow_client.signal_or_start_requests[0]
+        self.assertEqual(workflow_request.provider_name, "local")
+        self.assertEqual(workflow_request.definition_id, "slack-default-agent")
+        self.assertIsNone(workflow_request.target)
+        signal_payload = sdk_value_to_dict(workflow_request.signal.payload)
+        self.assertIn("<@UBOT> use global workflow", signal_payload["user_prompt"])
 
     def test_route_agent_steps_append_signal_context_to_message_only_first_step(
         self,
@@ -4463,6 +4619,132 @@ class SlackProviderTests(unittest.TestCase):
         )
         signal_payload = sdk_value_to_dict(workflow_request.signal.payload)
         self.assertNotIn("Native assistant status tool:", signal_payload["user_prompt"])
+
+    def test_slack_interaction_request_preserves_route_workflow_key_template(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "provider": "simple",
+                    "model": "deep",
+                    "routes": [
+                        {
+                            "id": "templated-route",
+                            "match": {"channel": "C_ROUTE"},
+                            "workflow": {
+                                "provider": "route-provider",
+                                "definitionId": "slack-route-interactions",
+                                "keyTemplate": (
+                                    "slack:${team_id}:${channel_id}:"
+                                    "${reply_thread_ts}:${route_id}"
+                                ),
+                            },
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="EvRouteButtons",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C_ROUTE",
+            channel_type="channel",
+            text="<@UBOT> deploy?",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts="1712161829.000300",
+        )
+        route = provider_module._agent._agent_route_by_id("templated-route")
+        reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123", route)
+        captured: dict[str, Any] = {}
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.full_url, "https://slack.com/api/chat.postMessage")
+            captured["payload"] = json.loads(cast(bytes, request.data).decode("utf-8"))
+            return FakeHTTPResponse(
+                '{"ok": true, "channel": "C_ROUTE", "ts": "1712161831.000500"}'
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            request_result = provider_module.slack_interactions_request(
+                provider_module.SlackInteractionRequestInput(
+                    reply_ref=reply_ref,
+                    text="Approve deployment?",
+                    actions=[
+                        provider_module.SlackInteractionActionInput(
+                            action_id="approve",
+                            label="Approve",
+                            value="approved",
+                        )
+                    ],
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        workflow_key = "slack:T123:C_ROUTE:1712161829.000300:templated-route"
+        self.assertEqual(request_result["workflow_key"], workflow_key)
+        interaction_ref = captured["payload"]["blocks"][1]["elements"][0]["value"]
+        workflow_client = FakeWorkflowClient()
+        interaction_payload = {
+            "type": "block_actions",
+            "team": {"id": "T123"},
+            "user": {"id": "U456"},
+            "channel": {"id": "C_ROUTE"},
+            "container": {
+                "type": "message",
+                "channel_id": "C_ROUTE",
+                "message_ts": "1712161831.000500",
+            },
+            "trigger_id": "1337.abcdef",
+            "actions": [
+                {
+                    "action_id": "approve",
+                    "value": interaction_ref,
+                    "action_ts": "1712161832.000600",
+                }
+            ],
+        }
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "workflows",
+                return_value=workflow_client,
+                create=True,
+            ),
+        ):
+            response = provider_module.slack_interactions_handle(
+                {"payload": json.dumps(interaction_payload)},
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(operation_body(response)["ok"], True)
+        self.assertEqual(
+            operation_body(response)["workflow_provider"], "route-provider"
+        )
+        self.assertEqual(operation_body(response)["workflow_key"], workflow_key)
+        workflow_request = workflow_client.signal_or_start_requests[0]
+        self.assertEqual(workflow_request.provider_name, "route-provider")
+        self.assertEqual(workflow_request.workflow_key, workflow_key)
+        self.assertEqual(workflow_request.definition_id, "slack-route-interactions")
+        self.assertIsNone(workflow_request.target)
 
     def test_slack_interaction_ack_failure_still_acks_dispatched_workflow(
         self,

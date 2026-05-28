@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import re
 from typing import Any, cast
 
 from .models import (
@@ -24,6 +25,18 @@ from .models import (
 )
 
 MAX_WORKFLOW_AGENT_TIMEOUT_SECONDS = 2_147_483_647
+WORKFLOW_KEY_TEMPLATE_FIELDS = frozenset(
+    {
+        "team_id",
+        "channel_id",
+        "message_ts",
+        "thread_ts",
+        "reply_thread_ts",
+        "event_id",
+        "route_id",
+    }
+)
+WORKFLOW_KEY_TEMPLATE_FIELD_RE = re.compile(r"\$\{([^}]+)\}")
 
 
 def agent_config_from_provider_config(
@@ -197,11 +210,26 @@ def _workflow_config_from_provider_config(
     config: dict[str, Any],
 ) -> SlackWorkflowConfig:
     workflow = _config_dict(config, "workflow")
+    if "target" in workflow:
+        raise ValueError(
+            "workflow.target is not supported; define the workflow globally and "
+            "set workflow.definitionId"
+        )
     return SlackWorkflowConfig(
         provider_name=_config_string(
             workflow, "provider", "providerName", "provider_name"
         )
         or _config_string(config, "workflowProvider", "workflow_provider"),
+        definition_id=_config_string(
+            workflow,
+            "definitionId",
+            "definition_id",
+            "workflowDefinitionId",
+            "workflow_definition_id",
+            "workflowId",
+            "workflow_id",
+            "id",
+        ),
     )
 
 
@@ -332,6 +360,7 @@ def _agent_route_from_config(
             f"agent.routes[{index}].runAs requires match.botIds or an explicit "
             "top-level unaddressed channel message match"
         )
+    workflow = _route_workflow_config_from_config(config, agent, index)
 
     return SlackAgentRoute(
         id=_config_string(config, "id", "name") or f"route_{index}",
@@ -339,7 +368,7 @@ def _agent_route_from_config(
         run_as_subject_id=run_as_subject_id,
         run_as_subject_kind=_agent_route_run_as_subject_kind(config, index),
         run_as_display_name=_agent_route_run_as_display_name(config, index),
-        workflow=_route_workflow_config_from_config(config, agent),
+        workflow=workflow,
         assistant=_route_assistant_config_from_config(config, agent, assistant),
         acknowledgement=_route_acknowledgement_config_from_config(
             config, agent, acknowledgement
@@ -447,7 +476,7 @@ def _agent_route_run_as_subject_config(
 
 
 def _route_workflow_config_from_config(
-    config: dict[str, Any], agent: dict[str, Any]
+    config: dict[str, Any], agent: dict[str, Any], index: int
 ) -> SlackWorkflowConfig | None:
     workflow = _config_dict_or_none(agent, "workflow")
     if workflow is None:
@@ -470,9 +499,43 @@ def _route_workflow_config_from_config(
         "workflowProviderName",
         "workflow_provider_name",
     )
-    if workflow is None and not provider:
+    if "target" in workflow_data:
+        raise ValueError(
+            f"agent.routes[{index}].workflow.target is not supported; "
+            "define the workflow globally and set workflow.definitionId"
+        )
+    definition_id = _config_string(
+        workflow_data,
+        "definitionId",
+        "definition_id",
+        "workflowDefinitionId",
+        "workflow_definition_id",
+        "workflowId",
+        "workflow_id",
+        "id",
+    )
+    key_template = _workflow_key_template_from_config(
+        workflow_data, f"agent.routes[{index}].workflow"
+    )
+    if workflow is None and not provider and not definition_id and not key_template:
         return None
-    return SlackWorkflowConfig(provider_name=provider)
+    return SlackWorkflowConfig(
+        provider_name=provider,
+        key_template=key_template,
+        definition_id=definition_id,
+    )
+
+
+def _workflow_key_template_from_config(config: dict[str, Any], path: str) -> str:
+    key_template = _config_string(config, "keyTemplate", "key_template")
+    for field in WORKFLOW_KEY_TEMPLATE_FIELD_RE.findall(key_template):
+        if field not in WORKFLOW_KEY_TEMPLATE_FIELDS:
+            allowed = ", ".join(sorted(WORKFLOW_KEY_TEMPLATE_FIELDS))
+            raise ValueError(
+                f"{path}.keyTemplate references unsupported field {field!r}; "
+                f"supported fields: {allowed}"
+            )
+    return key_template
 
 
 def _route_assistant_config_from_config(

@@ -179,14 +179,16 @@ event. Emoji names may be written with or without colons, and Slack's
 `events.handle` calls `req.workflows().signal_or_start_run(WorkflowSignalOrStartRun(...))`
 with `provider_name=workflow.provider`,
 `workflow_key="slack:${team_id}:${channel_id}:${root_ts}"`, and
-`signal.name="slack.event"`.
-The workflow target is an agent target built from the `agent` and `agent.routes`
-configuration. The Slack event, `reply_ref`, and generated user prompt are
-delivered in the signal payload, so later Slack messages in the same thread
-signal the existing keyed run instead of replacing its target or authorization
-context. Set positive `agent.timeoutSeconds` to pass an explicit workflow-agent
-run budget to Gestalt; when omitted, Gestalt's workflow-agent default applies.
-The target also includes Slack app steps that post an early
+`signal.name="slack.event"`. When `workflow.definitionId` is configured, the
+request references that global workflow definition and omits an inline target.
+Otherwise, the workflow target is an agent target built from the `agent` and
+`agent.routes` configuration. The Slack event, `reply_ref`, and generated user
+prompt are delivered in the signal payload, so later Slack messages in the same
+thread signal the existing keyed run instead of replacing its target or
+authorization context. Set positive `agent.timeoutSeconds` to pass an explicit
+workflow-agent run budget to Gestalt; when omitted, Gestalt's workflow-agent
+default applies. The generated target also includes Slack app steps that post an
+early
 `events.replySessionStarted` link after the agent session is created and deliver
 the agent's final assistant answer through `events.reply` with `text` sourced
 from the agent output and `reply_ref` sourced from the current signal payload.
@@ -561,6 +563,35 @@ Set `slackReply.agentOutput` on a
 step to deliver that step's agent output through `slack.events.reply`; the
 provider binds the reply text from the named agent output and the `reply_ref`
 from the Slack workflow signal.
+
+Routes can also select a globally defined workflow. Set
+`workflow.definitionId` to the reusable workflow definition and keep the steps
+in the workflow registry. The Slack provider still selects the route, signs
+`reply_ref`, prefetches configured thread context, and signals the workflow; it
+does not generate agent, session-started, or reply steps when a definition ID is
+set. The global workflow should call Slack helper operations explicitly when it
+needs to post back to Slack:
+
+```yaml
+agent:
+  routes:
+    - id: alert-triage
+      match:
+        channels:
+          - C1234567890
+        eventTypes:
+          - message.channels
+        thread: root
+      workflow:
+        provider: local
+        definitionId: slack-alert-triage
+        keyTemplate: slack:${team_id}:${channel_id}:${reply_thread_ts}:${route_id}
+```
+
+`workflow.keyTemplate` is optional. When omitted, the provider uses the default
+Slack thread workflow key. Supported template fields are `team_id`,
+`channel_id`, `message_ts`, `thread_ts`, `reply_thread_ts`, `event_id`, and
+`route_id`.
 Route `runAs.subject` can name a managed service-account subject, such as
 `service_account:slack-bot`; matching Slack events then resolve to that subject
 instead of requiring the Slack bot user to have a linked external identity. This
