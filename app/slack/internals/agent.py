@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import time
 import urllib.parse
 import uuid
@@ -25,8 +26,6 @@ from .models import (
     SlackAgentConfig,
     SlackAgentEvent,
     SlackAgentRoute,
-    SlackAgentStep,
-    SlackAgentToolRef,
     SlackCallbackType,
     SlackChannelType,
     SlackEventPublishCallback,
@@ -63,6 +62,7 @@ ErrorResponse: TypeAlias = gestalt.Response[dict[str, Any]]
 OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
 
 logger = logging.getLogger(__name__)
+WORKFLOW_KEY_TEMPLATE_FIELD_RE = re.compile(r"\$\{([^}]+)\}")
 
 SLACK_EVENT_WORKFLOW_SIGNAL = "slack.event"
 SLACK_INTERACTION_WORKFLOW_SIGNAL = "slack.interaction"
@@ -82,43 +82,14 @@ SLACK_ASSISTANT_PROMPTS_OPERATION = "events.setSuggestedPrompts"
 SLACK_STREAM_START_OPERATION = "events.startStream"
 SLACK_STREAM_APPEND_OPERATION = "events.appendStream"
 SLACK_STREAM_STOP_OPERATION = "events.stopStream"
-SLACK_MESSAGE_OPERATION = "conversations.getMessage"
 SLACK_CONTEXT_OPERATION = "conversations.getThreadContext"
 SLACK_FILE_GET_OPERATION = "files.get"
 MAX_PROMPT_MESSAGE_URLS = 5
-SLACK_SIGNAL_CONTEXT_PROMPT = "\n".join(
-    [
-        "Current Slack request:",
-        "${signalPayload.user_prompt}",
-        (
-            "Treat Background thread context inside this request as supporting "
-            "context only, not as the current request."
-        ),
-    ]
-)
 SLACK_EXTERNAL_IDENTITY_TYPE = "slack_identity"
 SLACK_REPLY_REF_TTL_SECONDS = 60 * 60
 SLACK_INTERACTION_REF_TTL_SECONDS = 24 * 60 * 60
 EXTERNAL_IDENTITY_RESOURCE_TYPE = "external_identity"
 EXTERNAL_IDENTITY_ASSUME_ACTION = "assume"
-DEFAULT_AGENT_SYSTEM_PROMPT_TEMPLATE = """
-You are a Slack bot running inside Gestalt.
-Use the available Gestalt tools under the Slack user's authorization.
-Use {status_tool} only when you intentionally want a visible progress message
-in the Slack thread; reuse the returned status_ts to update or delete the same
-status message.
-Use {context_tool} when you need the current Slack thread history, participants,
-or attached files. Use {file_tool} to read Slack file contents or image bytes.
-For Slack message permalinks, call the Slack message or thread-context tool with
-the URL directly. If the current Slack request includes a "Slack message
-permalink tools" section, use the listed operation and URL input exactly. Do not
-enumerate channels or scan channel history just to resolve a Slack permalink.
-Use the current signal's reply_ref only for Slack event helper tools that require
-it, such as visible progress, reactions, or interactions.
-When you answer the Slack user, return the complete Slack message body as your
-final assistant answer. Gestalt will deliver that final answer to Slack.
-Do not use raw Slack message-posting tools for the final reply.
-""".strip()
 
 
 def _log_context(**fields: Any) -> str:
@@ -148,7 +119,7 @@ def _slack_event_log_context(
         slack_reply_thread_ts=event.reply_thread_ts,
         slack_route_id=route.id if route else "",
         subject_id=req.subject.id.strip(),
-        workflow_key=_agent_session_ref(event),
+        workflow_key=_workflow_key(event, route),
     )
 
 
@@ -304,9 +275,16 @@ def _workflow_handoff_log_context(
     workflow_request: gestalt.WorkflowSignalOrStartRun | None,
     err: BaseException | None = None,
 ) -> str:
-    idempotency_key = workflow_request.idempotency_key.strip() if workflow_request is not None else ""
+    idempotency_key = (
+        workflow_request.idempotency_key.strip() if workflow_request is not None else ""
+    )
     return _log_context(
-        workflow_provider=workflow_request.provider_name if workflow_request is not None else "",
+        workflow_provider=workflow_request.provider_name
+        if workflow_request is not None
+        else "",
+        workflow_definition_id=workflow_request.definition_id
+        if workflow_request is not None
+        else "",
         idempotency_key_sha256=_sha256_log_value(idempotency_key),
         error_type=type(err).__name__ if err else "",
         error=_log_body(str(err), max_bytes=512) if err else "",
@@ -398,16 +376,24 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             return publish_response
         _log_ignored_slack_event(event, req, ignored_reason)
         return {"ok": True, "ignored": ignored_reason}
-    if not _agent_dispatch_configured(route):
-        publish_response = _publish_matching_workflow_events(input, req)
-        if isinstance(publish_response, gestalt.Response):
-            return publish_response
-        if publish_response is not None:
-            return publish_response
-
     log_context = _slack_event_log_context(event, req, route)
     subject_id = req.subject.id.strip()
-    if not _slack_event_subject_allowed(event, route, subject_id):
+    dispatch_requested = bool(
+        route is not None
+        or _agent_config.workflow.provider_name
+        or _agent_config.workflow.definition_id
+    )
+    if event.event_type in ASSISTANT_THREAD_EVENT_TYPES:
+        if not _agent_config.bot.token:
+            logger.error("Slack event bot token is not configured %s", log_context)
+            return gestalt.Response(
+                status=HTTPStatus.PRECONDITION_FAILED,
+                body={"error": "Slack bot token is not configured"},
+            )
+        return _handle_assistant_thread_event(event, route)
+    if dispatch_requested and not _slack_event_subject_allowed(
+        event, route, subject_id
+    ):
         publish_response = _publish_matching_workflow_events(input, req)
         if isinstance(publish_response, gestalt.Response):
             return publish_response
@@ -417,14 +403,29 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
         if _should_notify_unlinked_slack_user_for_event(event):
             _notify_unlinked_slack_user_for_event(event, req)
         return {"ok": True, "unlinked": True}
-    if not _agent_config.bot.token:
+    if dispatch_requested and not _agent_config.bot.token:
         logger.error("Slack event bot token is not configured %s", log_context)
         return gestalt.Response(
             status=HTTPStatus.PRECONDITION_FAILED,
             body={"error": "Slack bot token is not configured"},
         )
-    if event.event_type in ASSISTANT_THREAD_EVENT_TYPES:
-        return _handle_assistant_thread_event(event, route)
+    if not _agent_dispatch_configured(route):
+        publish_response = _publish_matching_workflow_events(input, req)
+        if isinstance(publish_response, gestalt.Response):
+            return publish_response
+        if publish_response is not None:
+            return publish_response
+        if dispatch_requested:
+            logger.error(
+                "Slack workflow definition ID is not configured %s",
+                log_context,
+            )
+            return gestalt.Response(
+                status=HTTPStatus.PRECONDITION_FAILED,
+                body={"error": "Slack workflow definition ID is not configured"},
+            )
+        _log_ignored_slack_event(event, req, "workflow_definition_not_configured")
+        return {"ok": True, "ignored": "workflow_definition_not_configured"}
 
     acknowledgement_reaction_error = ""
     assistant_status_error = ""
@@ -457,7 +458,7 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
     try:
         fields = _workflow_signal_response_fields(
             workflow_response,
-            fallback_workflow_key=_agent_session_ref(event),
+            fallback_workflow_key=_workflow_key(event, route),
             fallback_provider_name=workflow_provider,
         )
         logger.info(
@@ -514,16 +515,7 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
 
 
 def _agent_dispatch_configured(route: SlackAgentRoute | None) -> bool:
-    if route is not None:
-        return True
-    return bool(
-        _agent_config.bot.token
-        or _agent_config.workflow.provider_name
-        or _agent_config.agent_provider
-        or _agent_config.agent_model
-        or _agent_config.agent_tool_set_refs
-        or _agent_config.agent_tools
-    )
+    return bool(_workflow_definition_id(route))
 
 
 def _log_ignored_slack_event(
@@ -639,6 +631,15 @@ def handle_slack_interaction(
         return gestalt.Response(
             status=HTTPStatus.PRECONDITION_FAILED,
             body={"error": "Slack workflow provider is not configured"},
+        )
+    if not _workflow_definition_id(route):
+        logger.error(
+            "Slack interaction workflow definition ID is not configured %s",
+            log_context,
+        )
+        return gestalt.Response(
+            status=HTTPStatus.PRECONDITION_FAILED,
+            body={"error": "Slack workflow definition ID is not configured"},
         )
     workflow_request: gestalt.WorkflowSignalOrStartRun | None = None
     try:
@@ -1469,7 +1470,7 @@ def _json_payload_from_http_request(
         return {"payload": form_payload}
     try:
         payload = json.loads(raw_body)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except UnicodeDecodeError, json.JSONDecodeError:
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -1905,9 +1906,8 @@ def _build_workflow_publish_event_request(
             data=_slack_publish_event_data(event, route, raw_payload),
         )
     )
-    workflow_provider = route.workflow_provider or _agent_config.workflow.provider_name
-    if workflow_provider:
-        workflow_request.provider_name = workflow_provider
+    if route.workflow_provider:
+        workflow_request.provider_name = route.workflow_provider
     return workflow_request
 
 
@@ -2340,6 +2340,7 @@ def _sign_reply_ref(
         "client_msg_id": event.client_msg_id,
         "subject_id": subject_id,
         "route_id": route.id if route is not None else "",
+        "workflow_key": _workflow_key(event, route),
         "expires_at": int(time.time()) + SLACK_REPLY_REF_TTL_SECONDS,
     }
     encoded_payload = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
@@ -2403,6 +2404,7 @@ def _reply_ref_from_payload(payload: dict[str, Any]) -> SlackReplyRef:
         channel_type=str(payload.get("channel_type") or "").strip(),
         route_id=str(payload.get("route_id") or "").strip(),
         client_msg_id=str(payload.get("client_msg_id") or "").strip(),
+        workflow_key=str(payload.get("workflow_key") or "").strip(),
     )
     if not ref.team_id or not ref.channel_id or not ref.subject_id:
         raise ValueError("invalid reply_ref")
@@ -2410,6 +2412,8 @@ def _reply_ref_from_payload(payload: dict[str, Any]) -> SlackReplyRef:
 
 
 def _reply_ref_workflow_key(ref: SlackReplyRef) -> str:
+    if ref.workflow_key:
+        return ref.workflow_key
     if ref.channel_type in DIRECT_MESSAGE_CHANNEL_TYPES and not ref.reply_thread_ts:
         return f"slack:{ref.team_id}:{ref.channel_id}"
     root_ts = ref.reply_thread_ts or ref.message_ts
@@ -2462,6 +2466,7 @@ def _resign_reply_ref(ref: SlackReplyRef, *, expires_at: int) -> str:
         "client_msg_id": ref.client_msg_id,
         "subject_id": ref.subject_id,
         "route_id": ref.route_id,
+        "workflow_key": _reply_ref_workflow_key(ref),
         "expires_at": expires_at,
     }
     encoded_payload = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
@@ -2630,250 +2635,22 @@ def _build_workflow_signal_or_start_request(
     route: SlackAgentRoute | None,
     reply_ref: str,
 ) -> gestalt.WorkflowSignalOrStartRun:
-    workflow_key = _agent_session_ref(event)
+    workflow_key = _workflow_key(event, route)
     thread_context = _prefetch_thread_context(event, route)
+    definition_id = _workflow_definition_id(route)
+    if not definition_id:
+        raise RuntimeError("Slack workflow definition ID is not configured")
     return gestalt.WorkflowSignalOrStartRun(
         provider_name=_workflow_provider_name(route),
         workflow_key=workflow_key,
         idempotency_key=_agent_turn_idempotency_key(event),
-        target=_build_workflow_agent_target(event, route),
+        definition_id=definition_id,
         signal=gestalt.WorkflowSignal(
             name=SLACK_EVENT_WORKFLOW_SIGNAL,
             idempotency_key=_agent_turn_idempotency_key(event),
             payload=_slack_workflow_signal_payload(event, reply_ref, thread_context),
             metadata=_agent_metadata(event, route),
         ),
-    )
-
-
-def _build_workflow_agent_target(
-    event: SlackAgentEvent,
-    route: SlackAgentRoute | None,
-) -> gestalt.BoundWorkflowTarget:
-    if route is not None and route.agent_steps:
-        steps: list[gestalt.WorkflowStep] = []
-        for index, config_step in enumerate(route.agent_steps):
-            steps.extend(
-                _workflow_steps_for_configured_step(
-                    route, config_step, include_signal_context=index == 0
-                )
-            )
-        return gestalt.BoundWorkflowTarget(steps=steps)
-
-    agent_step_id = "run"
-    steps = [
-        _workflow_agent_turn_step(
-            agent_step_id,
-            route,
-            prompt=_workflow_agent_prompt(),
-            messages=[
-                gestalt.WorkflowAgentMessage(
-                    role="system",
-                    text=gestalt.WorkflowText(template=_agent_system_prompt(route)),
-                )
-            ],
-            tools=_agent_event_tool_refs(route),
-            model_options=_agent_model_options(route) or None,
-            metadata=_agent_session_metadata(event),
-            timeout_seconds=_agent_timeout_seconds(route),
-        ),
-        _workflow_session_ready_app_step(agent_step_id),
-        _workflow_reply_app_step(agent_step_id, "agent.output.text.text"),
-    ]
-    return gestalt.BoundWorkflowTarget(steps=steps)
-
-
-def _workflow_steps_for_configured_step(
-    route: SlackAgentRoute,
-    step: SlackAgentStep,
-    *,
-    include_signal_context: bool = False,
-) -> list[gestalt.WorkflowStep]:
-    messages = [
-        gestalt.WorkflowAgentMessage(
-            role="system",
-            text=gestalt.WorkflowText(template=_agent_system_prompt(route)),
-        )
-    ]
-    messages.extend(
-        gestalt.WorkflowAgentMessage(
-            role=message.get("role", "user"),
-            text=gestalt.WorkflowText(template=message.get("text", "")),
-            metadata=message.get("metadata") or None,
-        )
-        for message in step.messages
-    )
-    prompt = step.prompt
-    if include_signal_context:
-        if prompt:
-            prompt = "\n\n".join(
-                [
-                    SLACK_SIGNAL_CONTEXT_PROMPT,
-                    f"Configured task:\n{prompt}",
-                ]
-            )
-        else:
-            messages.append(
-                gestalt.WorkflowAgentMessage(
-                    role="user",
-                    text=gestalt.WorkflowText(template=SLACK_SIGNAL_CONTEXT_PROMPT),
-                )
-            )
-    when = _workflow_step_when(step.when) if step.when else None
-    steps = [
-        _workflow_agent_turn_step(
-            step.id,
-            route,
-            session_key=step.session_key,
-            prompt=prompt,
-            messages=messages,
-            tools=_agent_step_tool_refs(route, step),
-            output=step.output or {"text": {}},
-            model_options=step.model_options or None,
-            metadata=step.metadata or None,
-            timeout_seconds=step.timeout_seconds,
-            when=when,
-        )
-    ]
-    agent_output = step.slack_reply_agent_output.strip()
-    if agent_output:
-        steps.append(
-            _workflow_reply_app_step(
-                step.id,
-                _workflow_agent_output_path(agent_output, step.output),
-                step_id=f"{step.id}_reply",
-            )
-        )
-    return steps
-
-
-def _workflow_agent_output_path(agent_output: str, output: dict[str, Any] | None = None) -> str:
-    agent_output = agent_output.strip()
-    if not agent_output:
-        return "agent.output.text.text"
-    if agent_output.startswith("agent."):
-        return agent_output
-    if agent_output == "text":
-        if isinstance(output, dict) and output.get("structured") is not None:
-            return "agent.output.structured.text"
-        return "agent.output.text.text"
-    return f"agent.output.structured.value.{agent_output}"
-
-
-def _workflow_step_when(when: dict[str, Any]) -> gestalt.WorkflowStepWhen:
-    step_id = str(when.get("step_id") or "").strip()
-    output_path = str(when.get("output_path") or "").strip()
-    equals = when.get("equals")
-    path = output_path
-    if not path.startswith("agent."):
-        path = f"agent.{path}"
-    return gestalt.WorkflowStepWhen(
-        value=gestalt.WorkflowValue(
-            step_output=gestalt.WorkflowStepOutputSource(step_id=step_id, path=path),
-        ),
-        equals=equals,
-    )
-
-
-def _workflow_reply_app_step(
-    agent_step_id: str,
-    agent_output_path: str,
-    *,
-    step_id: str = "reply",
-    when: gestalt.WorkflowStepWhen | None = None,
-) -> gestalt.WorkflowStep:
-    return gestalt.WorkflowStep(
-        id=step_id,
-        app=gestalt.WorkflowStepAppCall(
-            name=_agent_config.app_name,
-            operation=SLACK_REPLY_OPERATION,
-            credential_mode="none",
-            input=gestalt.WorkflowValue(
-                object={
-                    "text": gestalt.WorkflowValue(
-                        step_output=gestalt.WorkflowStepOutputSource(
-                            step_id=agent_step_id,
-                            path=agent_output_path,
-                        ),
-                    ),
-                    "reply_ref": gestalt.WorkflowValue(signal_payload="reply_ref"),
-                }
-            ),
-        ),
-        when=when,
-    )
-
-
-def _workflow_session_ready_app_step(
-    agent_step_id: str,
-    *,
-    step_id: str = "session_ready",
-) -> gestalt.WorkflowStep:
-    return gestalt.WorkflowStep(
-        id=step_id,
-        app=gestalt.WorkflowStepAppCall(
-            name=_agent_config.app_name,
-            operation=SLACK_SESSION_STARTED_REPLY_OPERATION,
-            credential_mode="none",
-            input=gestalt.WorkflowValue(
-                object={
-                    "session_id": gestalt.WorkflowValue(
-                        step_output=gestalt.WorkflowStepOutputSource(
-                            step_id=agent_step_id,
-                            path="agent.sessionId",
-                        ),
-                    ),
-                    "reply_ref": gestalt.WorkflowValue(signal_payload="reply_ref"),
-                }
-            ),
-        ),
-    )
-
-
-def _workflow_agent_turn_step(
-    step_id: str,
-    route: SlackAgentRoute | None,
-    *,
-    prompt: str,
-    messages: list[gestalt.WorkflowAgentMessage],
-    tools: list[gestalt.AgentToolRef],
-    session_key: str = "",
-    output: gestalt.AgentOutput | dict[str, Any] | None = None,
-    model_options: gestalt.WorkflowJsonObject | None = None,
-    metadata: gestalt.WorkflowJsonObject | None = None,
-    timeout_seconds: int = 0,
-    when: gestalt.WorkflowStepWhen | None = None,
-) -> gestalt.WorkflowStep:
-    return gestalt.WorkflowStep(
-        id=step_id,
-        agent=gestalt.WorkflowStepAgentTurn(
-            provider=_agent_provider(route),
-            model=_agent_model(route),
-            session_key=session_key,
-            prompt=gestalt.WorkflowText(template=prompt),
-            messages=messages,
-            tools=tools,
-            output=output or {"text": {}},
-            model_options=model_options,
-        ),
-        timeout_seconds=timeout_seconds if timeout_seconds > 0 else 0,
-        metadata=metadata or None,
-        when=when,
-    )
-
-
-def _workflow_agent_prompt() -> str:
-    return "\n".join(
-        [
-            "Handle the current Slack event or interaction.",
-            SLACK_SIGNAL_CONTEXT_PROMPT,
-            "Treat the Slack request above as the current user request.",
-            (
-                "Use reply_ref only when a Slack helper tool requires it; do not "
-                "include reply_ref in the visible Slack reply."
-            ),
-            "Return the complete Slack reply as your final assistant answer.",
-        ]
     )
 
 
@@ -3009,6 +2786,9 @@ def _build_workflow_interaction_signal_or_start_request(
     route: SlackAgentRoute | None,
 ) -> gestalt.WorkflowSignalOrStartRun:
     event = _interaction_event(payload, interaction_ref)
+    definition_id = _workflow_definition_id(route)
+    if not definition_id:
+        raise RuntimeError("Slack workflow definition ID is not configured")
     signal = gestalt.WorkflowSignal(
         name=SLACK_INTERACTION_WORKFLOW_SIGNAL,
         idempotency_key=_interaction_idempotency_key(payload, selected_action),
@@ -3021,7 +2801,7 @@ def _build_workflow_interaction_signal_or_start_request(
         provider_name=_workflow_provider_name(route),
         workflow_key=interaction_ref.workflow_key,
         idempotency_key=signal.idempotency_key,
-        target=_build_workflow_agent_target(event, route),
+        definition_id=definition_id,
         signal=signal,
     )
 
@@ -3105,152 +2885,6 @@ def _interaction_user_prompt(
     return "\n".join(lines)
 
 
-def _agent_tool_ref(
-    *,
-    system: str = "",
-    app: str = "",
-    operation: str = "",
-    connection: str = "",
-    instance: str = "",
-    title: str = "",
-    description: str = "",
-    run_as_subject_id: str = "",
-) -> gestalt.AgentToolRef:
-    return gestalt.AgentToolRef(
-        system=system,
-        app=app,
-        operation=operation,
-        connection=connection,
-        instance=instance,
-        title=title,
-        description=description,
-        run_as=_agent_tool_ref_run_as_subject(run_as_subject_id),
-    )
-
-
-def _agent_tool_ref_run_as_subject(
-    subject_id: str,
-) -> gestalt.Subject | None:
-    subject_id = subject_id.strip()
-    if not subject_id:
-        return None
-    return gestalt.Subject(id=subject_id, kind=_subject_kind_from_id(subject_id))
-
-
-def _agent_event_tool_refs(route: SlackAgentRoute | None) -> list[gestalt.AgentToolRef]:
-    refs = [
-        *_agent_tool_set_refs(_agent_config.agent_tool_set_refs),
-        *_agent_config.agent_tools,
-        *_agent_tool_set_refs(route.agent_tool_set_refs if route is not None else ()),
-        *(route.agent_tools if route is not None else ()),
-    ]
-    refs.extend(_agent_default_tool_refs(route))
-    return [
-        _agent_tool_ref(
-            system=ref.system,
-            app=ref.app,
-            operation=ref.operation,
-            connection=ref.connection,
-            instance=ref.instance,
-            title=ref.title,
-            description=ref.description,
-            run_as_subject_id=ref.run_as_subject_id,
-        )
-        for ref in _dedupe_agent_tool_refs(refs)
-    ]
-
-
-def _agent_default_tool_refs(route: SlackAgentRoute | None) -> list[SlackAgentToolRef]:
-    operations = [
-        SLACK_CONTEXT_OPERATION,
-        SLACK_MESSAGE_OPERATION,
-        SLACK_FILE_GET_OPERATION,
-        SLACK_STATUS_OPERATION,
-        SLACK_DELETE_STATUS_OPERATION,
-        SLACK_ADD_REACTION_OPERATION,
-        SLACK_REMOVE_REACTION_OPERATION,
-    ]
-    if _assistant_config(route).enabled:
-        operations.extend(
-            [
-                SLACK_ASSISTANT_STATUS_OPERATION,
-                SLACK_ASSISTANT_CLEAR_STATUS_OPERATION,
-                SLACK_ASSISTANT_TITLE_OPERATION,
-                SLACK_ASSISTANT_PROMPTS_OPERATION,
-            ]
-        )
-    return [
-        SlackAgentToolRef(
-            app=_agent_config.app_name,
-            operation=operation,
-        )
-        for operation in operations
-    ]
-
-
-def _agent_step_tool_refs(
-    route: SlackAgentRoute, step: SlackAgentStep
-) -> list[gestalt.AgentToolRef]:
-    refs = [
-        *_agent_tool_set_refs(_agent_config.agent_tool_set_refs),
-        *_agent_config.agent_tools,
-        *_agent_tool_set_refs(route.agent_tool_set_refs),
-        *route.agent_tools,
-        *_agent_tool_set_refs(step.tool_set_refs),
-        *step.tools,
-        *_agent_default_tool_refs(route),
-    ]
-    return [
-        _agent_tool_ref(
-            system=ref.system,
-            app=ref.app,
-            operation=ref.operation,
-            connection=ref.connection,
-            instance=ref.instance,
-            title=ref.title,
-            description=ref.description,
-            run_as_subject_id=ref.run_as_subject_id,
-        )
-        for ref in _dedupe_agent_tool_refs(refs)
-    ]
-
-
-def _agent_tool_set_refs(tool_set_refs: Iterable[str]) -> list[SlackAgentToolRef]:
-    refs: list[SlackAgentToolRef] = []
-    for tool_set_ref in tool_set_refs:
-        refs.extend(_agent_config.agent_tool_sets.get(tool_set_ref, ()))
-    return refs
-
-
-def _dedupe_agent_tool_refs(
-    refs: Iterable[SlackAgentToolRef],
-) -> list[SlackAgentToolRef]:
-    deduped: list[SlackAgentToolRef] = []
-    seen: set[tuple[str, str, str, str, str]] = set()
-    for ref in refs:
-        key = (ref.system, ref.app, ref.operation, ref.connection, ref.instance)
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(ref)
-    return deduped
-
-
-def _agent_session_metadata(event: SlackAgentEvent) -> dict[str, Any]:
-    root_ts = event.thread_ts or event.message_ts
-    return {
-        "slack": {
-            "team_id": event.team_id,
-            "channel_id": event.channel_id,
-            "channel_type": event.channel_type,
-            "bot_id": event.bot_id,
-            "is_bot_event": event.is_bot_event,
-            "root_message_ts": root_ts,
-            "session_ref": _agent_session_ref(event),
-        }
-    }
-
-
 def _agent_metadata(
     event: SlackAgentEvent,
     route: SlackAgentRoute | None,
@@ -3280,16 +2914,38 @@ def _agent_metadata(
     }
 
 
-def _agent_provider(route: SlackAgentRoute | None) -> str:
-    if route is not None and route.agent_provider:
-        return route.agent_provider
-    return _agent_config.agent_provider
-
-
 def _workflow_provider_name(route: SlackAgentRoute | None) -> str:
     if route is not None and route.workflow is not None:
-        return route.workflow.provider_name
+        return route.workflow.provider_name or _agent_config.workflow.provider_name
     return _agent_config.workflow.provider_name
+
+
+def _workflow_definition_id(route: SlackAgentRoute | None) -> str:
+    if route is not None and route.workflow is not None:
+        return route.workflow.definition_id or _agent_config.workflow.definition_id
+    return _agent_config.workflow.definition_id
+
+
+def _workflow_key(event: SlackAgentEvent, route: SlackAgentRoute | None) -> str:
+    if route is None or route.workflow is None or not route.workflow.key_template:
+        return _agent_session_ref(event)
+    values = {
+        "team_id": event.team_id,
+        "channel_id": event.channel_id,
+        "message_ts": event.message_ts,
+        "thread_ts": event.thread_ts,
+        "reply_thread_ts": event.reply_thread_ts,
+        "event_id": event.event_id,
+        "route_id": route.id,
+    }
+
+    def replace(match: re.Match[str]) -> str:
+        return values.get(match.group(1), "")
+
+    workflow_key = WORKFLOW_KEY_TEMPLATE_FIELD_RE.sub(
+        replace, route.workflow.key_template
+    ).strip()
+    return workflow_key or _agent_session_ref(event)
 
 
 def _assistant_config(route: SlackAgentRoute | None) -> SlackAssistantConfig:
@@ -3316,40 +2972,6 @@ def _thread_context_config(route: SlackAgentRoute | None) -> SlackThreadContextC
     if route is not None and route.thread_context is not None:
         return route.thread_context
     return _agent_config.thread_context
-
-
-def _agent_model(route: SlackAgentRoute | None) -> str:
-    if route is not None and route.agent_model:
-        return route.agent_model
-    return _agent_config.agent_model
-
-
-def _agent_model_options(route: SlackAgentRoute | None) -> dict[str, Any]:
-    options = dict(_agent_config.agent_model_options)
-    if route is not None and route.agent_model_options:
-        options.update(route.agent_model_options)
-    return options
-
-
-def _agent_timeout_seconds(route: SlackAgentRoute | None) -> int:
-    if route is not None and route.agent_timeout_seconds > 0:
-        return route.agent_timeout_seconds
-    return _agent_config.agent_timeout_seconds
-
-
-def _agent_system_prompt(route: SlackAgentRoute | None) -> str:
-    parts = [
-        DEFAULT_AGENT_SYSTEM_PROMPT_TEMPLATE.format(
-            status_tool=f"{_agent_config.app_name}.{SLACK_STATUS_OPERATION}",
-            context_tool=f"{_agent_config.app_name}.{SLACK_CONTEXT_OPERATION}",
-            file_tool=f"{_agent_config.app_name}.{SLACK_FILE_GET_OPERATION}",
-        )
-    ]
-    if _agent_config.agent_system_prompt:
-        parts.append(_agent_config.agent_system_prompt.strip())
-    if route is not None and route.agent_system_prompt:
-        parts.append(route.agent_system_prompt.strip())
-    return "\n\n".join(parts)
 
 
 def _agent_user_prompt(
