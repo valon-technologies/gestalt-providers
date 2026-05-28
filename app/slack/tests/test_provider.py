@@ -3160,6 +3160,287 @@ class SlackProviderTests(unittest.TestCase):
         self.assertNotIn("acknowledgement_reaction_error", operation_body(response))
         self.assertEqual(len(workflow_client.signal_or_start_requests), 1)
 
+    def test_route_bot_ref_selects_token_for_acknowledgement_and_replies(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-default-bot", "userId": "UDEFAULT"},
+                "bots": {"alerts": {"token": "xoxb-alerts-bot", "userId": "UALERTS"}},
+                "workflow": {"provider": "local", "definitionId": "slack-agent"},
+                "acknowledgement": {"reaction": "eyes"},
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "alerts",
+                            "botRef": "alerts",
+                            "match": {"channel": "C_ALERTS"},
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        workflow_client = FakeWorkflowClient()
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvRouteBotRef",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C_ALERTS",
+                "channel_type": "channel",
+                "text": "<@UALERTS> deploy?",
+                "ts": "1712161829.000300",
+            },
+        }
+        authorizations: list[str] = []
+
+        def fake_ack_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            authorizations.append(authorization_header(request) or "")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            self.assertEqual(parsed.path, "/api/reactions.add")
+            return FakeHTTPResponse('{"ok": true}')
+
+        with (
+            mock.patch.object(
+                gestalt.Request,
+                "workflows",
+                return_value=workflow_client,
+                create=True,
+            ),
+            mock.patch(
+                "internals.client.urllib.request.urlopen",
+                side_effect=fake_ack_urlopen,
+            ),
+        ):
+            response = provider_module.slack_events_handle(
+                payload,
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(operation_body(response)["ok"], True)
+        self.assertEqual(authorizations, ["Bearer xoxb-alerts-bot"])
+        signal_payload = sdk_value_to_dict(
+            workflow_client.signal_or_start_requests[0].signal.payload
+        )
+        reply_ref = signal_payload["reply_ref"]
+        verified_ref = provider_module._verify_reply_ref(reply_ref, "user:gestalt-123")
+        self.assertEqual(verified_ref.bot_ref, "alerts")
+
+        def fake_reply_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(authorization_header(request), "Bearer xoxb-alerts-bot")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            self.assertEqual(parsed.path, "/api/chat.postMessage")
+            return FakeHTTPResponse(
+                '{"ok": true, "channel": "C_ALERTS", "ts": "1712161830.000400"}'
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen",
+            side_effect=fake_reply_urlopen,
+        ):
+            reply_response = provider_module.slack_events_reply(
+                provider_module.SlackEventReplyInput(
+                    reply_ref=reply_ref, text="Investigating."
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(reply_response["ok"], True)
+
+    def test_bots_default_merges_top_level_bot_config(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-default-bot", "userId": "UDEFAULT"},
+                "bots": {"default": {"userId": "UDEFAULT_OVERRIDE"}},
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+
+        self.assertEqual(
+            provider_module._agent._agent_config.bot.token, "xoxb-default-bot"
+        )
+        self.assertEqual(
+            provider_module._agent._agent_config.bot.user_id, "UDEFAULT_OVERRIDE"
+        )
+        self.assertEqual(
+            provider_module._agent._agent_config.bots["default"].token,
+            "xoxb-default-bot",
+        )
+
+    def test_reply_ref_signing_secret_survives_bot_token_rotation(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-default-bot"},
+                "bots": {"alerts": {"token": "xoxb-alerts-old"}},
+                "replyRefSigningSecret": "stable-reply-secret",
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "alerts",
+                            "botRef": "alerts",
+                            "match": {"channel": "C_ALERTS"},
+                        }
+                    ]
+                },
+            },
+        )
+        route = provider_module._agent._agent_route_by_id("alerts")
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="EvRotation",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C_ALERTS",
+            channel_type="channel",
+            text="<@UALERTS> deploy?",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts="1712161829.000300",
+        )
+        reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123", route)
+
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-default-bot"},
+                "bots": {"alerts": {"token": "xoxb-alerts-new"}},
+                "replyRefSigningSecret": "stable-reply-secret",
+                "workflow": {"provider": "local"},
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "alerts",
+                            "botRef": "alerts",
+                            "match": {"channel": "C_ALERTS"},
+                        }
+                    ]
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(authorization_header(request), "Bearer xoxb-alerts-new")
+            return FakeHTTPResponse(
+                '{"ok": true, "channel": "C_ALERTS", "ts": "1712161830.000400"}'
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            response = provider_module.slack_events_reply(
+                provider_module.SlackEventReplyInput(
+                    reply_ref=reply_ref, text="Still valid."
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertEqual(response["ok"], True)
+
+    def test_reply_ref_rejects_removed_non_default_bot_ref(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-default-bot"},
+                "bots": {"alerts": {"token": "xoxb-alerts-old"}},
+                "replyRefSigningSecret": "stable-reply-secret",
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "alerts",
+                            "botRef": "alerts",
+                            "match": {"channel": "C_ALERTS"},
+                        }
+                    ]
+                },
+            },
+        )
+        route = provider_module._agent._agent_route_by_id("alerts")
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="EvRemovedBot",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C_ALERTS",
+            channel_type="channel",
+            text="<@UALERTS> deploy?",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts="1712161829.000300",
+        )
+        reply_ref = provider_module._sign_reply_ref(event, "user:gestalt-123", route)
+
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-default-bot"},
+                "replyRefSigningSecret": "stable-reply-secret",
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen",
+            side_effect=AssertionError("removed bot ref should not use default token"),
+        ):
+            result = provider_module.slack_events_reply(
+                provider_module.SlackEventReplyInput(
+                    reply_ref=reply_ref, text="Still valid."
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user")
+                ),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.PRECONDITION_FAILED)
+        self.assertEqual(
+            response.body,
+            {"error": "Slack bot ref is not configured: alerts"},
+        )
+
+    def test_route_bot_ref_rejects_unknown_bot(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unknown bot"):
+            provider_module.configure(
+                "slack",
+                {
+                    "agent": {
+                        "routes": [
+                            {
+                                "id": "bad-bot",
+                                "botRef": "missing",
+                                "match": {"channel": "C_ALERTS"},
+                            }
+                        ]
+                    }
+                },
+            )
+
     def test_assistant_thread_started_sets_configured_suggested_prompts(
         self,
     ) -> None:
@@ -3932,6 +4213,74 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(workflow_request.workflow_key, workflow_key)
         self.assertEqual(workflow_request.definition_id, "slack-route-interactions")
         self.assertIsNone(workflow_request.target)
+
+    def test_slack_interaction_unlinked_notice_uses_signed_route_bot_ref(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-default-bot"},
+                "bots": {"alerts": {"token": "xoxb-alerts-bot"}},
+                "workflow": {"provider": "local", "definitionId": "slack-agent"},
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "alerts",
+                            "botRef": "alerts",
+                            "match": {"channel": "C_ALERTS"},
+                        }
+                    ],
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        interaction_payload = signed_route_block_action_payload(
+            "alerts", channel_id="C_ALERTS"
+        )
+        calls: list[tuple[str, dict[str, Any]]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(authorization_header(request), "Bearer xoxb-alerts-bot")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            body = json.loads(cast(bytes, request.data).decode("utf-8"))
+            calls.append((parsed.path, body))
+            return FakeHTTPResponse('{"ok": true}')
+
+        request = types.SimpleNamespace(
+            subject=gestalt.Subject(id="system:http_binding:slack:interactions"),
+            host=types.SimpleNamespace(public_base_url="https://gestalt.example.test/"),
+        )
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            response = provider_module.slack_interactions_handle(
+                {"payload": json.dumps(interaction_payload)}, cast(Any, request)
+            )
+
+        self.assertEqual(operation_body(response), {"ok": True, "unlinked": True})
+        self.assertEqual(
+            calls,
+            [
+                (
+                    "/api/chat.postMessage",
+                    {
+                        "channel": "C_ALERTS",
+                        "text": (
+                            "Your Slack account is not yet connected at "
+                            "https://gestalt.example.test, please connect it "
+                            "first before trying again."
+                        ),
+                        "thread_ts": "1712161831.000500",
+                        "unfurl_links": False,
+                        "unfurl_media": False,
+                    },
+                )
+            ],
+        )
 
     def test_slack_interaction_ack_failure_still_acks_dispatched_workflow(
         self,
@@ -5005,12 +5354,16 @@ class SlackProviderTests(unittest.TestCase):
             "slack",
             {
                 "bot": {"token": "xoxb-test-bot", "userId": "UBOT"},
+                "bots": {
+                    "context": {"token": "xoxb-context-bot", "userId": "UCONTEXT"}
+                },
                 "workflow": {"provider": "local", "definitionId": "slack-agent"},
                 "agent": {
                     "threadContext": {"maxMessages": 200},
                     "routes": [
                         {
                             "id": "context-route",
+                            "botRef": "context",
                             "match": {"channel": "C_ROUTE"},
                             "agent": {
                                 "threadContext": {
@@ -5074,7 +5427,7 @@ class SlackProviderTests(unittest.TestCase):
 
         self.assertEqual(operation_body(response)["ok"], True)
         get_context.assert_called_once_with(
-            "xoxb-test-bot",
+            "xoxb-context-bot",
             channel="C_ROUTE",
             ts="1712161829.000300",
             cursor="",
@@ -5527,7 +5880,7 @@ class SlackProviderTests(unittest.TestCase):
                 )
                 self.assertEqual(signal_metadata["slack"]["agent_route_id"], route_id)
 
-    def test_event_type_route_ordering_skips_generic_message_route(self) -> None:
+    def test_event_type_route_ordering_prefers_slack_subscription_literal(self) -> None:
         provider_module.configure(
             "slack",
             {
@@ -5536,7 +5889,7 @@ class SlackProviderTests(unittest.TestCase):
                 "agent": {
                     "routes": [
                         {
-                            "id": "generic-message-route",
+                            "id": "payload-message-route",
                             "match": {
                                 "channel": "C_SUPPORT",
                                 "eventTypes": ["message"],

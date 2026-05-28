@@ -202,6 +202,7 @@ class SlackAgentRouteMatch:
 class SlackAgentRoute:
     id: str = ""
     match: SlackAgentRouteMatch = field(default_factory=SlackAgentRouteMatch)
+    bot_ref: str = "default"
     run_as_subject_id: str = ""
     run_as_subject_kind: str = ""
     run_as_display_name: str = ""
@@ -338,6 +339,8 @@ class SlackThreadContextConfig:
 class SlackAgentConfig:
     app_name: str = "slack"
     bot: SlackBotConfig = field(default_factory=SlackBotConfig)
+    bots: dict[str, SlackBotConfig] = field(default_factory=dict)
+    reply_ref_signing_secret: str = ""
     events: SlackEventsConfig = field(default_factory=SlackEventsConfig)
     assistant: SlackAssistantConfig = field(default_factory=SlackAssistantConfig)
     acknowledgement: SlackAcknowledgementConfig = field(
@@ -364,6 +367,7 @@ class SlackReplyRef:
     route_id: str = ""
     client_msg_id: str = ""
     workflow_key: str = ""
+    bot_ref: str = "default"
 
 
 @dataclass(frozen=True, slots=True)
@@ -381,3 +385,4 @@ class SlackInteractionRef:
     action_id: str
     action_value: str
     expires_at: int
+    bot_ref: str = "default"
