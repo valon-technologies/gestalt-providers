@@ -2,146 +2,9 @@ name: github
 operations:
 - id: events.handle
   method: POST
-  description: Handle GitHub App webhook callbacks and delegate repository events
-    to configured Gestalt workflow targets
+  description: Handle GitHub App webhook callbacks by publishing canonical workflow
+    events
   visible: false
-- id: reviewPullRequest
-  method: POST
-  description: Review the latest GitHub pull_request workflow signal and post validated
-    inline comments
-  tags: [pr, prs, review]
-  parameters:
-  - name: agentProvider
-    type: string
-    description: Agent provider used to inspect the pull request diff
-    default: ''
-  - name: model
-    type: string
-    description: Agent model used to inspect the pull request diff
-    default: ''
-  - name: systemPrompt
-    type: string
-    description: System prompt for the pull request review agent
-    default: ''
-  - name: maxComments
-    type: integer
-    description: Maximum inline review comments to post
-    default: 10
-  - name: maxFiles
-    type: integer
-    description: Maximum changed files to inspect
-    default: 50
-  - name: maxPatchChars
-    type: integer
-    description: Maximum patch characters per changed file to send to the agent
-    default: 80000
-  - name: changedLinesOnly
-    type: boolean
-    description: Only allow comments on added RIGHT-side diff lines
-    default: true
-  - name: dryRun
-    type: boolean
-    description: Return validated findings without posting a GitHub review
-    default: false
-  - name: autoResolveStaleFindings
-    type: boolean
-    description: Resolve prior provider-owned inline comments when the latest review
-      no longer reports the same finding
-    default: true
-  - name: checkRunName
-    type: string
-    description: GitHub check run name to create for the review
-    default: Gestalt Review
-  - name: turnTimeoutMs
-    type: integer
-    description: Maximum time to wait for the review agent turn
-    default: 180000
-  - name: pollIntervalMs
-    type: integer
-    description: Polling interval while waiting for the review agent turn
-    default: 1000
-- id: actionPreferences.get
-  method: GET
-  description: Get this caller's GitHub webhook action preferences for a policy
-  parameters:
-  - name: repository
-    type: string
-    description: Repository full name, owner/repo
-    required: true
-  - name: policy_id
-    type: string
-    description: GitHub webhook policy id
-    required: true
-  - name: identity_kind
-    type: string
-    description: >-
-      Preference identity kind: external_subject_id or subject_id. Defaults to
-      the caller's linked GitHub identity when present.
-    default: ''
-- id: actionPreferences.listTargets
-  method: GET
-  description: List repositories and GitHub webhook action controls this caller can configure
-  parameters:
-  - name: identity_kind
-    type: string
-    description: >-
-      Preference identity kind: external_subject_id or subject_id. Defaults to
-      the caller's linked GitHub identity when present.
-    default: ''
-- id: actionPreferences.set
-  method: POST
-  description: Set this caller's GitHub webhook action preferences for a policy
-  parameters:
-  - name: repository
-    type: string
-    description: Repository full name, owner/repo
-    required: true
-  - name: policy_id
-    type: string
-    description: GitHub webhook policy id
-    required: true
-  - name: identity_kind
-    type: string
-    description: >-
-      Preference identity kind: external_subject_id or subject_id. Defaults to
-      the caller's linked GitHub identity when present.
-    default: ''
-  - name: allow_code_review_comments
-    type: boolean
-    description: >-
-      Whether this caller allows inline code review comments for this policy.
-      Null leaves the policy default in effect.
-    default: null
-  - name: allow_self_fix
-    type: boolean
-    description: >-
-      Deprecated boolean self-fix preference. False disables self-fix; true/null
-      leave self_fix_mode in effect.
-    default: null
-  - name: self_fix_mode
-    type: string
-    description: >-
-      Self-fix mode: disabled, suggest, branch_commit for same-PR commits,
-      pull_request for follow-up PRs, or null for policy default.
-    default: null
-- id: actionPreferences.delete
-  method: POST
-  description: Delete this caller's GitHub webhook action preferences for a policy
-  parameters:
-  - name: repository
-    type: string
-    description: Repository full name, owner/repo
-    required: true
-  - name: policy_id
-    type: string
-    description: GitHub webhook policy id
-    required: true
-  - name: identity_kind
-    type: string
-    description: >-
-      Preference identity kind: external_subject_id or subject_id. Defaults to
-      the caller's linked GitHub identity when present.
-    default: ''
 - id: bot.resolveInstallation
   method: GET
   description: Resolve the GitHub App installation and runAs identities for a repository
@@ -167,11 +30,6 @@ operations:
     type: string
     description: Repository name
     required: true
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is resolved from
-      external_identity or the legacy webhook service account subject.
-    default: 0
 - id: bot.searchCode
   method: GET
   description: Search code in one repository using a GitHub App installation token
@@ -201,11 +59,6 @@ operations:
     type: integer
     description: Page number, starting at 1
     default: 0
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is resolved from
-      external_identity or the legacy webhook service account subject.
-    default: 0
 - id: bot.getContent
   method: GET
   description: Get UTF-8 file content using a GitHub App installation token
@@ -231,11 +84,6 @@ operations:
     type: integer
     description: Maximum UTF-8 bytes to return
     default: 80000
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is resolved from
-      external_identity or the legacy webhook service account subject.
-    default: 0
 - id: bot.commitFiles
   method: POST
   description: Create a Git commit on a branch using a GitHub App installation token
@@ -271,11 +119,6 @@ operations:
     description: Require the target branch to still point at this commit SHA before
       writing.
     default: ''
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is resolved from
-      external_identity or the legacy webhook service account subject.
-    default: 0
   - name: coauthors
     type: array
     description: Co-authors to append as commit trailers. Each item accepts name and
@@ -338,11 +181,6 @@ operations:
     type: string
     description: Pull request body
     default: ''
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is resolved from
-      external_identity or the legacy webhook service account subject.
-    default: 0
   - name: head_owner
     type: string
     description: Optional owner for cross-repository pull requests
@@ -372,11 +210,6 @@ operations:
     type: integer
     description: Pull request number
     required: true
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
-    default: 0
 - id: bot.createPullRequest
   method: POST
   description: Commit file changes to a branch and open a pull request using a GitHub
@@ -416,11 +249,6 @@ operations:
     type: string
     description: Base branch. Defaults to the repository default branch.
     default: ''
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is resolved from
-      external_identity or the legacy webhook service account subject.
-    default: 0
   - name: coauthors
     type: array
     description: Co-authors to append as commit trailers. Each item accepts name and
@@ -458,66 +286,6 @@ operations:
     type: boolean
     description: Allow maintainers to modify the pull request branch
     default: true
-- id: user.createPullRequest
-  method: POST
-  description: Commit file changes and open a pull request using the caller's GitHub
-    OAuth token
-  tags: [pr, prs]
-  parameters:
-  - name: owner
-    type: string
-    description: Repository owner
-    required: true
-  - name: repo
-    type: string
-    description: Repository name
-    required: true
-  - name: title
-    type: string
-    description: Pull request title
-    required: true
-  - name: message
-    type: string
-    description: Commit message
-    required: true
-  - name: files
-    type: array
-    description: Files to create, update, or delete. Each item accepts path, content,
-      content_base64, delete, and executable.
-    required: true
-  - name: body
-    type: string
-    description: Pull request body
-    default: ''
-  - name: branch
-    type: string
-    description: Head branch to create or update. Defaults to a generated branch.
-    default: ''
-  - name: base
-    type: string
-    description: Base branch. Defaults to the repository default branch.
-    default: ''
-  - name: coauthors
-    type: array
-    description: Co-authors to append as commit trailers. Each item accepts name and
-      email.
-  - name: include_bot_coauthor
-    type: boolean
-    description: Append the GitHub App bot as a co-author when its no-reply identity
-      can be derived
-    default: true
-  - name: force
-    type: boolean
-    description: Force-update the head branch ref
-    default: false
-  - name: draft
-    type: boolean
-    description: Create the pull request as a draft
-    default: false
-  - name: maintainer_can_modify
-    type: boolean
-    description: Allow maintainers to modify the pull request branch
-    default: true
 - id: bot.getPullRequest
   method: GET
   description: Get pull request metadata using a GitHub App installation token
@@ -535,11 +303,6 @@ operations:
     type: integer
     description: Pull request number
     required: true
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is resolved from
-      external_identity or the legacy webhook service account subject.
-    default: 0
 - id: bot.listPullRequestFiles
   method: GET
   description: List pull request changed files and bounded patches using a GitHub App
@@ -566,11 +329,6 @@ operations:
     type: integer
     description: Page number, starting at 1
     default: 0
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is resolved from
-      external_identity or the legacy webhook service account subject.
-    default: 0
 - id: bot.createPullRequestReview
   method: POST
   description: Create a pull request review with inline comments using a GitHub App
@@ -596,17 +354,12 @@ operations:
   - name: comments
     type: array
     description: Inline review comments. Each item accepts path, body, line, side,
-      start_line, start_side, and position.
+      start_line, and start_side.
     required: true
   - name: commit_id
     type: string
     description: Optional commit SHA to review. Defaults to GitHub's latest PR commit.
     default: ''
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is resolved from
-      external_identity or the legacy webhook service account subject.
-    default: 0
 - id: bot.listPullRequestReviewThreads
   method: GET
   description: List pull request review threads and their first comments using a GitHub
@@ -637,11 +390,6 @@ operations:
     type: integer
     description: Number of comments to fetch per thread, from 1 through 50
     default: 20
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
-    default: 0
 - id: bot.resolvePullRequestReviewThread
   method: POST
   description: Resolve a pull request review thread after verifying it belongs to
@@ -664,11 +412,6 @@ operations:
     type: string
     description: GitHub GraphQL pull request review thread node ID
     required: true
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
-    default: 0
 - id: bot.createPullRequestConversationComment
   method: POST
   description: Create a pull request conversation comment using a GitHub App installation
@@ -690,11 +433,6 @@ operations:
     type: string
     description: Comment body
     required: true
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is resolved from
-      external_identity or the legacy webhook service account subject.
-    default: 0
 - id: bot.createIssueComment
   method: POST
   description: Create an issue comment using a GitHub App installation token
@@ -715,11 +453,6 @@ operations:
     type: string
     description: Comment body
     required: true
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is resolved from
-      external_identity or the legacy webhook service account subject.
-    default: 0
 - id: bot.addReaction
   method: POST
   description: Add a reaction using a GitHub App installation token
@@ -754,11 +487,6 @@ operations:
     type: integer
     description: Comment ID when subject_type is issue_comment or pull_request_review_comment
     default: 0
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
-    default: 0
 - id: bot.addLabels
   method: POST
   description: Add labels to an issue or pull request using a GitHub App installation
@@ -787,11 +515,6 @@ operations:
   - name: pull_number
     type: integer
     description: Pull request number when subject_type is pull_request
-    default: 0
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
     default: 0
 - id: bot.removeLabels
   method: POST
@@ -822,11 +545,6 @@ operations:
     type: integer
     description: Pull request number when subject_type is pull_request
     default: 0
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
-    default: 0
 - id: bot.requestReviewers
   method: POST
   description: Request individual or team reviewers on a pull request using a GitHub
@@ -853,11 +571,6 @@ operations:
     type: array
     description: GitHub team slugs to request as reviewers
     default: []
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
-    default: 0
 - id: bot.getCheckRun
   method: GET
   description: Get a GitHub check run using a GitHub App installation token
@@ -874,11 +587,6 @@ operations:
     type: integer
     description: GitHub check run ID
     required: true
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is resolved from
-      external_identity or the legacy webhook service account subject.
-    default: 0
 - id: bot.createCheckRun
   method: POST
   description: Create a GitHub check run using a GitHub App installation token
@@ -919,11 +627,6 @@ operations:
     type: object
     description: Optional check run output
     default: null
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
-    default: 0
 - id: bot.updateCheckRun
   method: POST
   description: Update a GitHub check run using a GitHub App installation token
@@ -964,11 +667,6 @@ operations:
     type: string
     description: Optional ISO timestamp for completed check runs
     default: ''
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
-    default: 0
 - id: bot.listCheckSuiteCheckRuns
   method: GET
   description: List check runs in a GitHub check suite using a GitHub App installation
@@ -1006,11 +704,6 @@ operations:
     type: integer
     description: Page number, starting at 1
     default: 0
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is taken from the webhook
-      service account subject.
-    default: 0
 - id: bot.listCheckRunAnnotations
   method: GET
   description: List annotations for a GitHub check run using a GitHub App installation
@@ -1036,11 +729,6 @@ operations:
     type: integer
     description: Page number, starting at 1
     default: 0
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is resolved from
-      external_identity or the legacy webhook service account subject.
-    default: 0
 - id: bot.getWorkflowRun
   method: GET
   description: Get a GitHub Actions workflow run using a GitHub App installation token
@@ -1057,11 +745,6 @@ operations:
     type: integer
     description: GitHub Actions workflow run ID
     required: true
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is resolved from
-      external_identity or the legacy webhook service account subject.
-    default: 0
 - id: bot.listWorkflowRunJobs
   method: GET
   description: List jobs for a GitHub Actions workflow run using a GitHub App installation
@@ -1090,9 +773,4 @@ operations:
   - name: page
     type: integer
     description: Page number, starting at 1
-    default: 0
-  - name: installation_id
-    type: integer
-    description: GitHub App installation ID. If omitted, it is resolved from
-      external_identity or the legacy webhook service account subject.
     default: 0

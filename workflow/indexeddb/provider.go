@@ -1261,7 +1261,6 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 		return nil, status.Errorf(codes.Internal, "list event triggers: %v", err)
 	}
 	now := p.clock().UTC()
-	publishedBy := cloneActor(req.PublishedBy)
 	enqueued := false
 	preferredRunID := ""
 	for _, trigger := range triggers {
@@ -1279,9 +1278,6 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 			continue
 		}
 		createdBy := cloneActor(trigger.CreatedBy)
-		if actorHasSubject(publishedBy) {
-			createdBy = cloneActor(publishedBy)
-		}
 		invocationToken := strings.TrimSpace(trigger.InvocationToken)
 		if invocationToken == "" {
 			invocationToken = strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx))
@@ -3991,13 +3987,6 @@ func idempotentManualRunID(ownerKey, key string) string {
 
 func eventRunID(triggerID, eventSource, eventID string) string {
 	return hashScopedID("event", triggerID, eventSource, eventID)
-}
-
-func actorHasSubject(actor *gestalt.WorkflowActor) bool {
-	if actor == nil {
-		return false
-	}
-	return strings.TrimSpace(actor.SubjectID) != ""
 }
 
 func createdByForUpsert(existing, requested *gestalt.WorkflowActor) *gestalt.WorkflowActor {

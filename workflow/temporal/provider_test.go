@@ -1823,6 +1823,7 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 			Match:        &gestalt.WorkflowEventMatch{Type: "message.created"},
 			Target:       nativeAppTargetInput("slack", "postMessage"),
 			DefinitionID: "definition-app-1",
+			CreatedBy:    actor("owner-app-1"),
 			CreatedAt:    time.Now().UTC(),
 			UpdatedAt:    time.Now().UTC(),
 		},
@@ -1831,6 +1832,7 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 			Match:        &gestalt.WorkflowEventMatch{Type: "message.created"},
 			Target:       nativeAppTargetInput("slack", "sendMessage"),
 			DefinitionID: "definition-app-2",
+			CreatedBy:    actor("owner-app-2"),
 			CreatedAt:    time.Now().UTC(),
 			UpdatedAt:    time.Now().UTC(),
 		},
@@ -1872,6 +1874,10 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 	if len(tc.executions) != 2 {
 		t.Fatalf("executions = %d, want 2", len(tc.executions))
 	}
+	wantCreatorsByDefinition := map[string]string{
+		"definition-app-1": "owner-app-1",
+		"definition-app-2": "owner-app-2",
+	}
 	gotDefinitions := map[string]bool{}
 	for _, execution := range tc.executions {
 		input, ok := execution.Args[0].(runWorkflowV4Input)
@@ -1879,8 +1885,9 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 			t.Fatalf("execution input = %T, want runWorkflowV4Input", execution.Args[0])
 		}
 		gotDefinitions[input.DefinitionID] = true
-		if input.CreatedBy == nil || input.CreatedBy.SubjectID != "publisher-1" {
-			t.Fatalf("execution created_by = %#v, want publisher-1", input.CreatedBy)
+		wantCreator := wantCreatorsByDefinition[input.DefinitionID]
+		if input.CreatedBy == nil || input.CreatedBy.SubjectID != wantCreator {
+			t.Fatalf("execution created_by = %#v, want trigger owner %q", input.CreatedBy, wantCreator)
 		}
 	}
 	if !gotDefinitions["definition-app-1"] || !gotDefinitions["definition-app-2"] {
