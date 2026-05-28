@@ -5,7 +5,6 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func (p *Provider) CheckAccess(context.Context, *CheckAccessRequest) (*CheckAccessResponse, error) {
@@ -30,18 +29,6 @@ func (p *Provider) DeleteRelationship(context.Context, *DeleteRelationshipReques
 
 func (p *Provider) SetRelationships(context.Context, *SetRelationshipsRequest) (*SetRelationshipsResponse, error) {
 	return nil, unimplemented("SetRelationships")
-}
-
-func (p *Provider) GetActiveModelRef(context.Context, *emptypb.Empty) (*GetActiveModelRefResponse, error) {
-	return nil, unimplemented("GetActiveModelRef")
-}
-
-func (p *Provider) SetActiveModel(context.Context, *SetActiveModelRequest) (*SetActiveModelResponse, error) {
-	return nil, unimplemented("SetActiveModel")
-}
-
-func (p *Provider) ListActiveModelResourceTypes(context.Context, *ListActiveModelResourceTypesRequest) (*ListActiveModelResourceTypesResponse, error) {
-	return nil, unimplemented("ListActiveModelResourceTypes")
 }
 
 func unimplemented(method string) error {

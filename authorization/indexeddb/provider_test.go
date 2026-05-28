@@ -65,6 +65,62 @@ func TestProviderConfigureAndClose(t *testing.T) {
 	}
 }
 
+func TestProviderSetAndGetActiveModel(t *testing.T) {
+	ctx := context.Background()
+	provider := New()
+	fakeDB := &fakeIndexedDB{}
+	provider.configureDatabase(fakeDB)
+	t.Cleanup(func() {
+		if err := provider.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	})
+
+	model := &AuthorizationModel{
+		Id:      "model-1",
+		Version: "v1",
+		ResourceTypes: []*AuthorizationModelResourceType{
+			{Name: "document"},
+			{Name: "folder"},
+		},
+	}
+
+	setResp, err := provider.SetActiveModel(ctx, &SetActiveModelRequest{Model: model})
+	if err != nil {
+		t.Fatalf("SetActiveModel() error = %v", err)
+	}
+	if setResp.Model.Id != "model-1" {
+		t.Fatalf("SetActiveModel().Model.Id = %q, want model-1", setResp.Model.Id)
+	}
+	if setResp.Model.Version != "v1" {
+		t.Fatalf("SetActiveModel().Model.Version = %q, want v1", setResp.Model.Version)
+	}
+
+	refResp, err := provider.GetActiveModelRef(ctx, &emptypb.Empty{})
+	if err != nil {
+		t.Fatalf("GetActiveModelRef() error = %v", err)
+	}
+	if !reflect.DeepEqual(refResp.Model, setResp.Model) {
+		t.Fatalf("GetActiveModelRef().Model = %#v, want %#v", refResp.Model, setResp.Model)
+	}
+
+	listResp, err := provider.ListActiveModelResourceTypes(ctx, &ListActiveModelResourceTypesRequest{})
+	if err != nil {
+		t.Fatalf("ListActiveModelResourceTypes(active) error = %v", err)
+	}
+	if !reflect.DeepEqual(listResp.ResourceTypes, model.ResourceTypes) {
+		t.Fatalf("ListActiveModelResourceTypes(active) = %#v, want %#v", listResp.ResourceTypes, model.ResourceTypes)
+	}
+
+	listResp, err = provider.ListActiveModelResourceTypes(ctx, &ListActiveModelResourceTypesRequest{ModelID: "model-1"})
+	if err != nil {
+		t.Fatalf("ListActiveModelResourceTypes(model-1) error = %v", err)
+	}
+	if !reflect.DeepEqual(listResp.ResourceTypes, model.ResourceTypes) {
+		t.Fatalf("ListActiveModelResourceTypes(model-1) = %#v, want %#v", listResp.ResourceTypes, model.ResourceTypes)
+	}
+}
+
 func TestProposedAuthorizationProviderStubs(t *testing.T) {
 	ctx := context.Background()
 	provider := New()
@@ -112,27 +168,6 @@ func TestProposedAuthorizationProviderStubs(t *testing.T) {
 			name: "SetRelationships",
 			call: func() error {
 				_, err := provider.SetRelationships(ctx, &SetRelationshipsRequest{})
-				return err
-			},
-		},
-		{
-			name: "GetActiveModelRef",
-			call: func() error {
-				_, err := provider.GetActiveModelRef(ctx, &emptypb.Empty{})
-				return err
-			},
-		},
-		{
-			name: "SetActiveModel",
-			call: func() error {
-				_, err := provider.SetActiveModel(ctx, &SetActiveModelRequest{})
-				return err
-			},
-		},
-		{
-			name: "ListActiveModelResourceTypes",
-			call: func() error {
-				_, err := provider.ListActiveModelResourceTypes(ctx, &ListActiveModelResourceTypesRequest{})
 				return err
 			},
 		},

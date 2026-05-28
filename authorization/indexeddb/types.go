@@ -37,10 +37,47 @@ type DeleteRelationshipResponse struct{}
 type SetRelationshipsRequest struct{}
 type SetRelationshipsResponse struct{}
 
-type GetActiveModelRefResponse struct{}
+// AuthorizationModel is currently stored with a shape like:
+//
+//	{
+//	  "id": "model-1",
+//	  "version": "v1",
+//	  "resource_types": [
+//	    {"name": "document"},
+//	    {"name": "folder"}
+//	  ]
+//	}
+type AuthorizationModel struct {
+	Id            string                            `json:"id"`
+	Version       string                            `json:"version"`
+	ResourceTypes []*AuthorizationModelResourceType `json:"resource_types"`
+}
 
-type SetActiveModelRequest struct{}
-type SetActiveModelResponse struct{}
+type AuthorizationModelRef struct {
+	Id      string `json:"id"`
+	Version string `json:"version"`
+}
 
-type ListActiveModelResourceTypesRequest struct{}
-type ListActiveModelResourceTypesResponse struct{}
+type AuthorizationModelResourceType struct {
+	Name string `json:"name"`
+}
+
+type GetActiveModelRefResponse struct {
+	Model *AuthorizationModelRef
+}
+
+type SetActiveModelRequest struct {
+	Model *AuthorizationModel
+}
+
+type SetActiveModelResponse struct {
+	Model *AuthorizationModelRef
+}
+
+type ListActiveModelResourceTypesRequest struct {
+	ModelID string
+}
+
+type ListActiveModelResourceTypesResponse struct {
+	ResourceTypes []*AuthorizationModelResourceType
+}
