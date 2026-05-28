@@ -2511,6 +2511,35 @@
         "entryKind": "s3",
         "section": "providers.s3"
       },
+      "description": "S3 provider backed by Google Cloud Storage with generation-aware object versions.",
+      "displayName": "Google Cloud Storage",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/s3/gcs/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/s3/gcs/README.md",
+          "sourcePath": "s3/gcs/README.md",
+          "title": "Google Cloud Storage S3 Provider"
+        }
+      ],
+      "iconUrl": null,
+      "kind": "s3",
+      "latestInstallableVersion": null,
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/s3/gcs/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "gcs",
+      "package": "github.com/valon-technologies/gestalt-providers/s3/gcs",
+      "packagePath": "s3/gcs",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/s3/gcs/README.md",
+      "registryPath": "/providers/s3/gcs/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/s3/gcs",
+      "versions": []
+    },
+    {
+      "configTarget": {
+        "entryKind": "s3",
+        "section": "providers.s3"
+      },
       "description": "S3 provider for AWS S3, GCS XML interoperability, MinIO, and similar backends.",
       "displayName": "S3",
       "docs": [
