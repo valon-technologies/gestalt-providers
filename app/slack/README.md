@@ -172,13 +172,12 @@ event. Emoji names may be written with or without colons, and Slack's
 `events.handle` calls `req.workflows().signal_or_start_run(WorkflowSignalOrStartRun(...))`
 with `provider_name=workflow.provider`,
 `workflow_key="slack:${team_id}:${channel_id}:${root_ts}"`, and
-`signal.name="slack.event"`. The request must reference a global workflow
-definition with `workflow.definitionId`; the Slack provider does not generate an
-inline workflow target from agent prompts, tools, or steps. The Slack event,
-`reply_ref`, and generated user prompt are delivered in the signal payload, so
-later Slack messages in the same thread signal the existing keyed run instead of
-replacing its workflow definition or authorization context. The global workflow
-should call Slack helper operations such as `events.reply`,
+`signal.name="slack.event"`. The request references a global workflow
+definition with `workflow.definitionId`. The Slack event, `reply_ref`, and
+generated user prompt are delivered in the signal payload, so later Slack
+messages in the same thread signal the existing keyed run instead of replacing
+its workflow definition or authorization context. The global workflow should
+call Slack helper operations such as `events.reply`,
 `events.replySessionStarted`, status, reactions, and interactions explicitly.
 If the workflow handoff fails, `events.handle` returns an error so Slack can
 retry the callback. Once the workflow provider accepts the event, workflow state,
@@ -499,8 +498,8 @@ Set `enabled: false` on route `agent.assistant`, `agent.acknowledgement`, or
 `workflow.definitionId` overrides the global `workflow.definitionId`, for both
 Slack events and Slack interaction button callbacks generated from that route.
 The Slack provider selects the route, signs `reply_ref`, prefetches configured
-thread context, and signals the workflow; all agent prompts, tools, timeouts,
-steps, and Slack replies live in the global workflow definition. Signed
+thread context, and signals the workflow; workflow behavior and Slack replies
+live in the global workflow definition. Signed
 interaction callbacks include the route ID; if a non-empty signed route ID no
 longer exists in the provider configuration, the provider rejects the callback
 instead of silently falling back to global behavior. The global workflow should
@@ -551,14 +550,13 @@ Slack Events API subscription literals: `app_mention`, `message.channels`,
 match Slack's literals exactly.
 
 Slack delivers `message.*` subscriptions as payloads whose inner event type is
-`message`, so `match.eventTypes` remains available for payload-type matching and
-backward compatibility. However, `eventTypes: [message]` does not opt a non-DM
-route into every plain channel message. A non-DM `message` event that does not
-mention the bot or include assistant context starts an agent only when the
-selected route explicitly matches the corresponding `message.*` Slack event
-literal. Configure `eventTypes: [message.channels]` for a public channel
-where incoming channel messages should trigger the agent. By default this also
-matches normal thread replies. Slack does not provide a top-level-only
+`message`, so `match.eventTypes: [message]` matches the payload type only. It
+does not opt a non-DM route into every plain channel message. A non-DM `message`
+event that does not mention the bot or include assistant context starts an agent
+only when the selected route explicitly matches the corresponding `message.*`
+Slack event literal. Configure `eventTypes: [message.channels]` for a public
+channel where incoming channel messages should trigger the agent. By default
+this also matches normal thread replies. Slack does not provide a top-level-only
 subscription; configure `thread: root` to match only messages with no
 `thread_ts` or with `thread_ts` equal to the message `ts`, and configure a
 separate `app_mention` route with `thread: any` or `thread: reply` when the

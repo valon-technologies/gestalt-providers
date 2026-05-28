@@ -409,73 +409,6 @@ class SlackProviderTests(unittest.TestCase):
         ):
             self.assertIs(getattr(agent_module, name), getattr(models_module, name))
 
-    def test_legacy_agent_target_config_is_rejected(self) -> None:
-        invalid_configs = [
-            {"agent": {"provider": "simple"}},
-            {"agent": {"model": "deep"}},
-            {"agent": {"systemPrompt": "answer carefully"}},
-            {"agent": {"modelOptions": {"temperature": 0}}},
-            {"agent": {"toolSets": {"shared": []}}},
-            {"agent": {"toolSetRefs": ["shared"]}},
-            {"agent": {"tools": [{"app": "linear", "operation": "searchIssues"}]}},
-            {"agent": {"timeoutSeconds": 120}},
-            {"agent": {"workflow": {"definitionId": "nested"}}},
-            {"agentProvider": "simple"},
-            {"agentModel": "deep"},
-            {"workflowProvider": "local"},
-            {
-                "agent": {
-                    "routes": [
-                        {
-                            "id": "bad-route",
-                            "match": {"channel": "C_SUPPORT"},
-                            "provider": "simple",
-                        }
-                    ]
-                }
-            },
-            {
-                "agent": {
-                    "routes": [
-                        {
-                            "id": "bad-route",
-                            "match": {"channel": "C_SUPPORT"},
-                            "workflowProvider": "local",
-                        }
-                    ]
-                }
-            },
-            {
-                "agent": {
-                    "routes": [
-                        {
-                            "id": "bad-route",
-                            "match": {"channel": "C_SUPPORT"},
-                            "agent": {"steps": [{"id": "run", "prompt": "triage"}]},
-                        }
-                    ]
-                }
-            },
-            {
-                "agent": {
-                    "routes": [
-                        {
-                            "id": "bad-route",
-                            "match": {"channel": "C_SUPPORT"},
-                            "agent": {"workflow": {"definitionId": "nested"}},
-                        }
-                    ]
-                }
-            },
-        ]
-
-        for config in invalid_configs:
-            with self.subTest(config=config):
-                with self.assertRaisesRegex(
-                    ValueError, "unsupported Slack agent target field"
-                ):
-                    provider_module.configure("slack", config)
-
     def test_agent_routes_reject_duplicate_ids(self) -> None:
         with self.assertRaisesRegex(ValueError, "duplicates another agent route"):
             provider_module.configure(
@@ -869,51 +802,26 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(verified_ref.workflow_key, workflow_request.workflow_key)
 
-    def test_route_workflow_rejects_inline_target(self) -> None:
-        with self.assertRaisesRegex(
-            ValueError,
-            "workflow.target is not supported; define the workflow globally",
-        ):
-            provider_module.configure(
-                "slack",
-                {
-                    "agent": {
-                        "routes": [
-                            {
-                                "id": "bad-workflow",
-                                "workflow": {
-                                    "target": {"steps": []},
-                                },
-                            }
-                        ]
-                    }
-                },
-            )
-
-    def test_top_level_workflow_rejects_inline_target(self) -> None:
-        with self.assertRaisesRegex(
-            ValueError,
-            "workflow.target is not supported; define the workflow globally",
-        ):
-            provider_module.configure(
-                "slack",
-                {
-                    "workflow": {
-                        "target": {"steps": []},
-                    }
-                },
-            )
-
-    def test_workflow_config_rejects_legacy_aliases(self) -> None:
+    def test_workflow_config_rejects_unsupported_keys(self) -> None:
         invalid_configs = [
-            {"workflow": {"providerName": "local"}},
-            {"workflow": {"definition_id": "slack-agent"}},
+            {"workflow": {"target": {"steps": []}}},
+            {"workflow": {"unexpected": "value"}},
             {
                 "agent": {
                     "routes": [
                         {
                             "id": "bad-workflow",
-                            "workflow": {"key_template": "slack:${event_id}"},
+                            "workflow": {"target": {"steps": []}},
+                        }
+                    ]
+                }
+            },
+            {
+                "agent": {
+                    "routes": [
+                        {
+                            "id": "bad-workflow",
+                            "workflow": {"unexpected": "value"},
                         }
                     ]
                 }
@@ -924,7 +832,7 @@ class SlackProviderTests(unittest.TestCase):
                         "routes": [
                             {
                                 "id": "bad-publish",
-                                "workflowProvider": "local",
+                                "unexpected": "value",
                             }
                         ]
                     }
@@ -936,7 +844,7 @@ class SlackProviderTests(unittest.TestCase):
                         "routes": [
                             {
                                 "id": "bad-publish",
-                                "workflow": {"providerName": "local"},
+                                "workflow": {"definitionId": "slack-agent"},
                             }
                         ]
                     }
@@ -1447,8 +1355,8 @@ class SlackProviderTests(unittest.TestCase):
     ) -> None:
         canonical = authorization_subject(type="subject", id="user:gestalt-123")
         canonical.properties.update({"email": "ada@example.com"})
-        legacy = authorization_subject(type="user", id="user:gestalt-123")
-        authorization = FakeAuthorization([legacy, canonical])
+        equivalent_user = authorization_subject(type="user", id="user:gestalt-123")
+        authorization = FakeAuthorization([equivalent_user, canonical])
         payload = {
             "type": "event_callback",
             "event_id": "Ev123",
@@ -5619,7 +5527,7 @@ class SlackProviderTests(unittest.TestCase):
                 )
                 self.assertEqual(signal_metadata["slack"]["agent_route_id"], route_id)
 
-    def test_event_type_route_ordering_skips_legacy_message_route(self) -> None:
+    def test_event_type_route_ordering_skips_generic_message_route(self) -> None:
         provider_module.configure(
             "slack",
             {
@@ -5628,7 +5536,7 @@ class SlackProviderTests(unittest.TestCase):
                 "agent": {
                     "routes": [
                         {
-                            "id": "legacy-message-route",
+                            "id": "generic-message-route",
                             "match": {
                                 "channel": "C_SUPPORT",
                                 "eventTypes": ["message"],

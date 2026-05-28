@@ -101,11 +101,10 @@ apps:
 
 `events.handle` calls `req.workflows().signal_or_start_run(WorkflowSignalOrStartRun(...))`
 with `provider_name=workflow.provider`, a thread-scoped workflow key, and a
-`slack.event` signal. The request must reference a global workflow definition
-with `workflow.definitionId`; the Slack provider does not generate an inline
-workflow target from agent prompts, tools, or steps. Later Slack messages in the
-same thread signal the existing keyed run instead of replacing its workflow
-definition or authorization context. The global workflow should call Slack helper
+`slack.event` signal. The request references a global workflow definition with
+`workflow.definitionId`. Later Slack messages in the same thread signal the
+existing keyed run instead of replacing its workflow definition or authorization
+context. The global workflow should call Slack helper
 operations such as `events.reply`, `events.replySessionStarted`, status,
 reactions, and interactions explicitly.
 
@@ -284,8 +283,8 @@ Set `enabled: false` on route `agent.assistant`, `agent.acknowledgement`, or
 and Slack interaction button callbacks generated from that route. Route
 `workflow.definitionId` starts or signals the configured global workflow
 definition. The Slack provider selects the route, signs `reply_ref`, prefetches
-configured thread context, and signals the workflow; all agent prompts, tools,
-timeouts, steps, and Slack replies live in the global workflow definition. Use
+configured thread context, and signals the workflow; workflow behavior and Slack
+replies live in the global workflow definition. Use
 `slack.events.reply` explicitly in the workflow when it should post back to
 Slack. `workflow.keyTemplate` is optional; when omitted, the provider uses the
 default Slack thread workflow key. Supported template fields are

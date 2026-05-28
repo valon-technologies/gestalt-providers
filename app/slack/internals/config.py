@@ -22,54 +22,6 @@ from .models import (
     SUPPORTED_AGENT_ROUTE_THREAD_MATCHES,
 )
 
-LEGACY_AGENT_TARGET_KEYS = frozenset(
-    {
-        "agentModel",
-        "agentOptions",
-        "agentProvider",
-        "agentSystemPrompt",
-        "agentTools",
-        "agent_model",
-        "agent_model_options",
-        "agent_provider",
-        "agent_system_prompt",
-        "agent_tools",
-        "definitionId",
-        "definition_id",
-        "model",
-        "modelOptions",
-        "model_options",
-        "prompt",
-        "provider",
-        "responseSchema",
-        "response_schema",
-        "sessionKey",
-        "session_key",
-        "slackReply",
-        "slack_reply",
-        "steps",
-        "systemPrompt",
-        "system_prompt",
-        "timeoutSeconds",
-        "timeout_seconds",
-        "toolRefs",
-        "toolSetRefs",
-        "toolSets",
-        "tool_refs",
-        "tool_set_refs",
-        "tool_sets",
-        "tools",
-        "workflow",
-        "workflowDefinitionId",
-        "workflowProvider",
-        "workflowProviderName",
-        "workflow_definition_id",
-        "workflow_provider",
-        "workflow_provider_name",
-        "workflowId",
-        "workflow_id",
-    }
-)
 WORKFLOW_KEY_TEMPLATE_FIELDS = frozenset(
     {
         "team_id",
@@ -88,28 +40,6 @@ def agent_config_from_provider_config(
     app_name: str, config: dict[str, Any]
 ) -> SlackAgentConfig:
     agent = _config_dict(config, "agent")
-    _reject_legacy_agent_target_config(
-        config,
-        "config",
-        {
-            "agentModel",
-            "agentModelOptions",
-            "agentProvider",
-            "agentSystemPrompt",
-            "agentTools",
-            "agent_model",
-            "agent_model_options",
-            "agent_provider",
-            "agent_system_prompt",
-            "agent_tools",
-            "workflowProvider",
-            "workflow_provider",
-            "workflowProviderName",
-            "workflow_provider_name",
-            "prompt",
-        },
-    )
-    _reject_legacy_agent_target_config(agent, "agent")
     events = _events_config_from_provider_config(config)
     bot = _config_dict(config, "bot")
     assistant = _assistant_config_from_provider_config(config, agent)
@@ -167,30 +97,6 @@ def normalize_suggested_prompts(
     if require_one and not normalized:
         raise ValueError("at least one prompt with title and message is required")
     return normalized
-
-
-def _reject_legacy_agent_target_config(
-    config: dict[str, Any],
-    path: str,
-    keys: set[str] | frozenset[str] | None = None,
-    *,
-    allowed_keys: set[str] | frozenset[str] | None = None,
-) -> None:
-    if not config:
-        return
-    if allowed_keys is not None:
-        unsupported = sorted(str(key) for key in config if str(key) not in allowed_keys)
-    else:
-        unsupported = sorted(
-            str(key) for key in config if str(key) in (keys or LEGACY_AGENT_TARGET_KEYS)
-        )
-    if unsupported:
-        joined = ", ".join(unsupported)
-        raise ValueError(
-            f"{path} contains unsupported Slack agent target field(s): {joined}; "
-            "define workflow steps in a global workflow definition and set "
-            "workflow.definitionId"
-        )
 
 
 def _assistant_config_from_provider_config(
@@ -275,13 +181,8 @@ def _workflow_config_from_provider_config(
     _validate_workflow_config_keys(
         workflow,
         "workflow",
-        allowed_keys={"provider", "definitionId", "target"},
+        allowed_keys={"provider", "definitionId"},
     )
-    if "target" in workflow:
-        raise ValueError(
-            "workflow.target is not supported; define the workflow globally and "
-            "set workflow.definitionId"
-        )
     return SlackWorkflowConfig(
         provider_name=_config_string(workflow, "provider"),
         definition_id=_config_string(workflow, "definitionId"),
@@ -392,58 +293,6 @@ def _agent_route_from_config(
     thread_context: SlackThreadContextConfig,
 ) -> SlackAgentRoute:
     agent = _config_dict(config, "agent")
-    _reject_legacy_agent_target_config(
-        config,
-        f"agent.routes[{index}]",
-        {
-            "agentModel",
-            "agentModelOptions",
-            "agentProvider",
-            "agentSystemPrompt",
-            "model",
-            "modelOptions",
-            "model_options",
-            "prompt",
-            "provider",
-            "responseSchema",
-            "response_schema",
-            "sessionKey",
-            "session_key",
-            "slackReply",
-            "slack_reply",
-            "steps",
-            "systemPrompt",
-            "system_prompt",
-            "timeoutSeconds",
-            "timeout_seconds",
-            "toolRefs",
-            "toolSetRefs",
-            "tools",
-            "tool_refs",
-            "tool_set_refs",
-            "workflowDefinitionId",
-            "workflowId",
-            "workflowProvider",
-            "workflowProviderName",
-            "workflow_definition_id",
-            "workflow_id",
-            "workflow_provider",
-            "workflow_provider_name",
-        },
-    )
-    _reject_legacy_agent_target_config(
-        agent,
-        f"agent.routes[{index}].agent",
-        allowed_keys={
-            "ack",
-            "acknowledgement",
-            "acknowledgment",
-            "assistant",
-            "threadContext",
-            "thread_context",
-        },
-    )
-
     match = _agent_route_match_from_config(_config_dict(config, "match"))
     run_as_subject_id = _agent_route_run_as_subject_id(config, index)
     if run_as_subject_id and not _agent_route_run_as_match_guarded(match):
@@ -558,14 +407,9 @@ def _route_workflow_config_from_config(
     _validate_workflow_config_keys(
         workflow_data,
         f"agent.routes[{index}].workflow",
-        allowed_keys={"provider", "definitionId", "keyTemplate", "target"},
+        allowed_keys={"provider", "definitionId", "keyTemplate"},
     )
     provider = _config_string(workflow_data, "provider")
-    if "target" in workflow_data:
-        raise ValueError(
-            f"agent.routes[{index}].workflow.target is not supported; "
-            "define the workflow globally and set workflow.definitionId"
-        )
     definition_id = _config_string(workflow_data, "definitionId")
     key_template = _workflow_key_template_from_config(
         workflow_data, f"agent.routes[{index}].workflow"
