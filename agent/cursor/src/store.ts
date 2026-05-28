@@ -541,5 +541,5 @@ function assistantMessageData(output: AgentTurnOutput): Record<string, unknown> 
     }
     return data;
   }
-  return {};
+  throw new Error("completed turn output must include text or structured");
 }

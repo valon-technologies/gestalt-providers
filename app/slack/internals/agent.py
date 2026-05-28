@@ -2754,14 +2754,10 @@ def _workflow_agent_output_path(agent_output: str, output: dict[str, Any] | None
     if agent_output.startswith("agent."):
         return agent_output
     if agent_output == "text":
-        if _agent_output_is_structured(output):
+        if isinstance(output, dict) and output.get("structured") is not None:
             return "agent.output.structured.text"
         return "agent.output.text.text"
     return f"agent.output.structured.value.{agent_output}"
-
-
-def _agent_output_is_structured(output: Any | None) -> bool:
-    return isinstance(output, dict) and output.get("structured") is not None
 
 
 def _workflow_step_when(when: dict[str, Any]) -> gestalt.WorkflowStepWhen:

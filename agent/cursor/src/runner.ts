@@ -7,6 +7,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import type { AgentOptions, Run, SDKAgent, SDKMessage } from "@cursor/sdk";
 import type {
   AgentMessage,
+  AgentTurnOutput,
   ExecuteAgentToolRequest,
 } from "@valon-technologies/gestalt";
 
@@ -27,10 +28,6 @@ export type TurnEventSink = (
   eventType: string,
   data: Record<string, unknown>,
 ) => void;
-
-export type CursorTurnOutput =
-  | { text: string; structured?: undefined }
-  | { text?: undefined; structured: { text: string; value: Record<string, unknown> } };
 
 type ActiveTurn = {
   canceled: boolean;
@@ -62,7 +59,7 @@ export class CursorSDKRunner {
     cwd: string;
     onEvent: TurnEventSink;
     schema?: Record<string, unknown> | undefined;
-  }): Promise<CursorTurnOutput> {
+  }): Promise<AgentTurnOutput> {
     const active: ActiveTurn = {
       canceled: this.canceledTurns.delete(input.turnId),
     };
@@ -122,7 +119,7 @@ export class CursorSDKRunner {
       schema?: Record<string, unknown> | undefined;
     },
     active: ActiveTurn,
-  ): Promise<CursorTurnOutput> {
+  ): Promise<AgentTurnOutput> {
     try {
       await this.raiseIfCanceled(active);
       const host = this.createHost();
@@ -277,13 +274,13 @@ export class CursorSDKRunner {
   }
 }
 
-export function validateResponseSchema(schema: Record<string, unknown>): void {
+export function validateSchema(schema: Record<string, unknown>): void {
   if (Object.keys(schema).length === 0 || schema.type !== "object") {
     throw new CursorExecutionError(
       "output.structured.schema must be a non-empty JSON schema object with type 'object'",
     );
   }
-  compileResponseSchema(schema);
+  compileSchema(schema);
 }
 
 function structuredOutputPrompt(
@@ -303,17 +300,17 @@ function structuredOutputFromText(
   schema: Record<string, unknown>,
 ): Record<string, unknown> {
   const value = parseJsonObject(text);
-  const validate = compileResponseSchema(schema);
+  const validate = compileSchema(schema);
   if (!validate(value)) {
     const message = validate.errors?.map((error) => error.message).filter(Boolean).join("; ");
     throw new CursorExecutionError(
-      `structured output did not match response schema${message ? `: ${message}` : ""}`,
+      `structured output did not match output schema${message ? `: ${message}` : ""}`,
     );
   }
   return value;
 }
 
-function compileResponseSchema(schema: Record<string, unknown>) {
+function compileSchema(schema: Record<string, unknown>) {
   const validator =
     typeof schema.$schema === "string" && !schema.$schema.includes("2020")
       ? new Ajv({ allErrors: true, strict: true })

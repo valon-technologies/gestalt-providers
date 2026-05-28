@@ -33,7 +33,7 @@ import {
   type CursorAgentConfig,
 } from "./config.ts";
 import { CursorExecutionCanceled, CursorExecutionError } from "./errors.ts";
-import { CursorSDKRunner, validateResponseSchema } from "./runner.ts";
+import { CursorSDKRunner, validateSchema } from "./runner.ts";
 import {
   prependSessionStartContext,
   runSessionStartHooks,
@@ -555,7 +555,7 @@ function validateCreateTurnRequest(
   const schema = schemaFromOutput(request.output);
   if (schema) {
     try {
-      validateResponseSchema(schema);
+      validateSchema(schema);
     } catch (error) {
       throw invalidArgument(errorMessage(error));
     }

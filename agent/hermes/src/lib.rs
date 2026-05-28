@@ -10,6 +10,7 @@ use std::sync::Arc;
 use acp::{AcpNotification, AcpProcess};
 use config::HermesConfig;
 use mcp_bridge::McpBridgeHandle;
+use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 use store::{
     BeginTurnResult, CreateSessionResult, Store, agent_session, agent_turn, agent_turn_event,
@@ -1063,8 +1064,6 @@ fn validate_schema(schema: &JsonValue) -> Result<(), String> {
             "output.structured.schema must be a non-empty JSON schema object with type 'object'".to_string(),
         );
     }
-    jsonschema::meta::validate(schema)
-        .map_err(|err| format!("invalid output.structured.schema: {err}"))?;
     jsonschema::validator_for(schema)
         .map_err(|err| format!("invalid output.structured.schema: {err}"))?;
     Ok(())
@@ -1077,7 +1076,7 @@ fn structured_output_from_text(text: &str, schema: &JsonValue) -> Result<JsonVal
         .map_err(|err| format!("invalid output.structured.schema: {err}"))?;
     validator
         .validate(&value)
-        .map_err(|err| format!("structured output did not match response schema: {err}"))?;
+        .map_err(|err| format!("structured output did not match output schema: {err}"))?;
     Ok(value)
 }
 
@@ -1091,45 +1090,14 @@ fn parse_json_object(text: &str) -> Result<JsonValue, String> {
         if ch != '{' {
             continue;
         }
-        let Some(end) = balanced_json_object_end(text, start) else {
-            continue;
-        };
-        if let Ok(value) = serde_json::from_str::<JsonValue>(&text[start..end]) {
+        let mut deserializer = serde_json::Deserializer::from_str(&text[start..]);
+        if let Ok(value) = JsonValue::deserialize(&mut deserializer) {
             if value.is_object() {
                 return Ok(value);
             }
         }
     }
     Err("structured output did not contain a JSON object".to_string())
-}
-
-fn balanced_json_object_end(text: &str, start: usize) -> Option<usize> {
-    let mut depth = 0_i32;
-    let mut in_string = false;
-    let mut escape = false;
-    for (offset, ch) in text[start..].char_indices() {
-        if in_string {
-            if escape {
-                escape = false;
-            } else if ch == '\\' {
-                escape = true;
-            } else if ch == '"' {
-                in_string = false;
-            }
-            continue;
-        }
-        if ch == '"' {
-            in_string = true;
-        } else if ch == '{' {
-            depth += 1;
-        } else if ch == '}' {
-            depth -= 1;
-            if depth == 0 {
-                return Some(start + offset + ch.len_utf8());
-            }
-        }
-    }
-    None
 }
 
 fn messages_to_prompt(

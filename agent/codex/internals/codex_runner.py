@@ -468,50 +468,23 @@ def structured_output_from_text(text: str, schema: dict[str, Any]) -> dict[str, 
     try:
         validator.validate(value)
     except jsonschema_exceptions.ValidationError as exc:
-        raise CodexExecutionError(f"structured output did not match response schema: {exc.message}") from exc
+        raise CodexExecutionError(f"structured output did not match output schema: {exc.message}") from exc
     return value
 
 
 def _extract_json_object(text: str) -> dict[str, Any]:
+    decoder = json.JSONDecoder()
     start = text.find("{")
     while start >= 0:
-        end = _balanced_json_object_end(text, start)
-        if end is not None:
-            candidate = text[start:end]
-            try:
-                value = json.loads(candidate)
-            except json.JSONDecodeError:
-                pass
-            else:
-                if isinstance(value, dict):
-                    return value
+        try:
+            value, _end = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            pass
+        else:
+            if isinstance(value, dict):
+                return value
         start = text.find("{", start + 1)
     raise CodexExecutionError("structured output did not contain a JSON object")
-
-
-def _balanced_json_object_end(text: str, start: int) -> int | None:
-    depth = 0
-    in_string = False
-    escape = False
-    for index in range(start, len(text)):
-        char = text[index]
-        if in_string:
-            if escape:
-                escape = False
-            elif char == "\\":
-                escape = True
-            elif char == '"':
-                in_string = False
-            continue
-        if char == '"':
-            in_string = True
-        elif char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return index + 1
-    return None
 
 
 def _schedule_cleanup(
