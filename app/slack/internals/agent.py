@@ -63,6 +63,7 @@ OperationResult: TypeAlias = dict[str, Any] | ErrorResponse
 
 logger = logging.getLogger(__name__)
 WORKFLOW_KEY_TEMPLATE_FIELD_RE = re.compile(r"\$\{([^}]+)\}")
+DEFAULT_BOT_REF = "default"
 
 SLACK_EVENT_WORKFLOW_SIGNAL = "slack.event"
 SLACK_INTERACTION_WORKFLOW_SIGNAL = "slack.interaction"
@@ -384,11 +385,13 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
         or _agent_config.workflow.definition_id
     )
     if event.event_type in ASSISTANT_THREAD_EVENT_TYPES:
-        if not _agent_config.bot.token:
+        try:
+            _bot_token_for_route(route)
+        except SlackClientError as err:
             logger.error("Slack event bot token is not configured %s", log_context)
             return gestalt.Response(
                 status=HTTPStatus.PRECONDITION_FAILED,
-                body={"error": "Slack bot token is not configured"},
+                body={"error": str(err)},
             )
         return _handle_assistant_thread_event(event, route)
     if dispatch_requested and not _slack_event_subject_allowed(
@@ -401,14 +404,8 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             return publish_response
         logger.warning("rejected Slack event without linked subject %s", log_context)
         if _should_notify_unlinked_slack_user_for_event(event):
-            _notify_unlinked_slack_user_for_event(event, req)
+            _notify_unlinked_slack_user_for_event(event, req, route)
         return {"ok": True, "unlinked": True}
-    if dispatch_requested and not _agent_config.bot.token:
-        logger.error("Slack event bot token is not configured %s", log_context)
-        return gestalt.Response(
-            status=HTTPStatus.PRECONDITION_FAILED,
-            body={"error": "Slack bot token is not configured"},
-        )
     if not _agent_dispatch_configured(route):
         publish_response = _publish_matching_workflow_events(input, req)
         if isinstance(publish_response, gestalt.Response):
@@ -426,6 +423,14 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             )
         _log_ignored_slack_event(event, req, "workflow_definition_not_configured")
         return {"ok": True, "ignored": "workflow_definition_not_configured"}
+    try:
+        _bot_token_for_route(route)
+    except SlackClientError as err:
+        logger.error("Slack event bot token is not configured %s", log_context)
+        return gestalt.Response(
+            status=HTTPStatus.PRECONDITION_FAILED,
+            body={"error": str(err)},
+        )
 
     acknowledgement_reaction_error = ""
     assistant_status_error = ""
@@ -567,7 +572,7 @@ def request_slack_interaction(
             expires_in,
         )
         result = post_message(
-            _agent_config.bot.token,
+            _bot_token_for_reply_ref(verified_ref),
             channel=verified_ref.channel_id,
             text=normalized_text,
             thread_ts=verified_ref.reply_thread_ts,
@@ -703,7 +708,7 @@ def reply_to_slack_event(
         )
         logger.info("attempting Slack event reply delivery %s", log_context)
         result = post_message(
-            _agent_config.bot.token,
+            _bot_token_for_reply_ref(verified_ref),
             channel=verified_ref.channel_id,
             text=normalized_text,
             thread_ts=verified_ref.reply_thread_ts,
@@ -810,7 +815,7 @@ def reply_slack_event_session_started(
     try:
         logger.info("attempting Slack session-started delivery %s", log_context)
         result = post_message(
-            _agent_config.bot.token,
+            _bot_token_for_reply_ref(verified_ref),
             channel=verified_ref.channel_id,
             text=text,
             thread_ts=verified_ref.reply_thread_ts,
@@ -870,9 +875,10 @@ def set_slack_event_status(
 
     try:
         verified_ref = _event_reply_ref(reply_ref, req)
+        token = _bot_token_for_reply_ref(verified_ref)
         if status_ts:
             result = update_message(
-                _agent_config.bot.token,
+                token,
                 channel=verified_ref.channel_id,
                 ts=status_ts,
                 text=normalized_text,
@@ -881,7 +887,7 @@ def set_slack_event_status(
             created = False
         else:
             result = post_message(
-                _agent_config.bot.token,
+                token,
                 channel=verified_ref.channel_id,
                 text=normalized_text,
                 thread_ts=verified_ref.reply_thread_ts,
@@ -916,7 +922,7 @@ def delete_slack_event_status(
     try:
         verified_ref = _event_reply_ref(reply_ref, req)
         result = delete_message(
-            _agent_config.bot.token,
+            _bot_token_for_reply_ref(verified_ref),
             channel=verified_ref.channel_id,
             ts=normalized_status_ts,
         )
@@ -952,7 +958,7 @@ def set_slack_event_assistant_status(
             loading_messages, max_items=10
         )
         result = set_assistant_thread_status(
-            _agent_config.bot.token,
+            _bot_token_for_reply_ref(verified_ref),
             channel_id=verified_ref.channel_id,
             thread_ts=thread_ts,
             status=status.strip(),
@@ -1003,7 +1009,7 @@ def set_slack_event_thread_title(
         if not thread_ts:
             return _bad_request("assistant thread timestamp is required")
         result = set_assistant_thread_title(
-            _agent_config.bot.token,
+            _bot_token_for_reply_ref(verified_ref),
             channel_id=verified_ref.channel_id,
             thread_ts=thread_ts,
             title=normalized_title,
@@ -1037,7 +1043,7 @@ def set_slack_event_suggested_prompts(
         if not thread_ts:
             return _bad_request("assistant thread timestamp is required")
         result = set_assistant_thread_suggested_prompts(
-            _agent_config.bot.token,
+            _bot_token_for_reply_ref(verified_ref),
             channel_id=verified_ref.channel_id,
             thread_ts=thread_ts,
             prompts=[prompt.as_slack_payload() for prompt in normalized_prompts],
@@ -1076,7 +1082,7 @@ def start_slack_event_stream(
         if not thread_ts:
             return _bad_request("assistant thread timestamp is required")
         result = start_stream(
-            _agent_config.bot.token,
+            _bot_token_for_reply_ref(verified_ref),
             channel=verified_ref.channel_id,
             thread_ts=thread_ts,
             markdown_text=markdown_text.strip(),
@@ -1119,7 +1125,7 @@ def append_slack_event_stream(
     try:
         verified_ref = _event_reply_ref(reply_ref, req)
         result = append_stream(
-            _agent_config.bot.token,
+            _bot_token_for_reply_ref(verified_ref),
             channel=verified_ref.channel_id,
             ts=normalized_stream_ts,
             markdown_text=markdown_text.strip(),
@@ -1155,7 +1161,7 @@ def stop_slack_event_stream(
     try:
         verified_ref = _event_reply_ref(reply_ref, req)
         result = stop_stream(
-            _agent_config.bot.token,
+            _bot_token_for_reply_ref(verified_ref),
             channel=verified_ref.channel_id,
             ts=normalized_stream_ts,
             markdown_text=markdown_text.strip(),
@@ -1192,17 +1198,50 @@ def remove_slack_event_reaction(
     return _slack_event_reaction(reply_ref, name, target_ts, req, remove=True)
 
 
+def _bot_ref_for_route(route: SlackAgentRoute | None) -> str:
+    if route is not None and route.bot_ref:
+        return route.bot_ref
+    return DEFAULT_BOT_REF
+
+
+def _bot_config_for_ref(bot_ref: str) -> SlackBotConfig:
+    normalized_ref = bot_ref.strip() or DEFAULT_BOT_REF
+    if normalized_ref == DEFAULT_BOT_REF:
+        return _agent_config.bots.get(DEFAULT_BOT_REF, _agent_config.bot)
+    bot = _agent_config.bots.get(normalized_ref)
+    if bot is None:
+        raise SlackClientError(f"Slack bot ref is not configured: {normalized_ref}")
+    return bot
+
+
+def _bot_token_for_ref(bot_ref: str) -> str:
+    token = _bot_config_for_ref(bot_ref).token.strip()
+    if not token:
+        raise SlackClientError("Slack bot token is not configured")
+    return token
+
+
+def _bot_token_for_route(route: SlackAgentRoute | None) -> str:
+    return _bot_token_for_ref(_bot_ref_for_route(route))
+
+
+def _bot_token_for_reply_ref(ref: SlackReplyRef) -> str:
+    return _bot_token_for_ref(ref.bot_ref)
+
+
 def _event_reply_ref(reply_ref: str, req: gestalt.Request) -> SlackReplyRef:
     if not req.subject.id or req.subject.id.startswith("system:"):
         raise ValueError("Slack user is not linked")
-    if not _agent_config.bot.token:
-        raise SlackClientError("Slack bot token is not configured")
-    return _verify_reply_ref(reply_ref, req.subject.id)
+    ref = _verify_reply_ref(reply_ref, req.subject.id)
+    _bot_token_for_reply_ref(ref)
+    return ref
 
 
 def _event_client_error(err: SlackClientError) -> ErrorResponse:
     message = str(err)
-    if message == "Slack bot token is not configured":
+    if message == "Slack bot token is not configured" or message.startswith(
+        "Slack bot ref is not configured:"
+    ):
         return gestalt.Response(
             status=HTTPStatus.PRECONDITION_FAILED,
             body={"error": message},
@@ -1224,19 +1263,20 @@ def _slack_event_reaction(
 
     try:
         verified_ref = _event_reply_ref(reply_ref, req)
+        token = _bot_token_for_reply_ref(verified_ref)
         normalized_target_ts = target_ts.strip() or verified_ref.message_ts
         if not normalized_target_ts:
             return _bad_request("target_ts is required")
         if remove:
             result = remove_reaction(
-                _agent_config.bot.token,
+                token,
                 channel=verified_ref.channel_id,
                 timestamp=normalized_target_ts,
                 name=normalized_name,
             )
         else:
             result = add_reaction(
-                _agent_config.bot.token,
+                token,
                 channel=verified_ref.channel_id,
                 timestamp=normalized_target_ts,
                 name=normalized_name,
@@ -1270,7 +1310,7 @@ def _set_initial_assistant_status(
     if not status or not thread_ts:
         return
     set_assistant_thread_status(
-        _agent_config.bot.token,
+        _bot_token_for_route(route),
         channel_id=event.channel_id,
         thread_ts=thread_ts,
         status=status,
@@ -1291,7 +1331,7 @@ def _add_acknowledgement_reaction(
     if not reaction or not event.message_ts:
         return
     add_reaction(
-        _agent_config.bot.token,
+        _bot_token_for_route(route),
         channel=event.channel_id,
         timestamp=event.message_ts,
         name=reaction,
@@ -1320,7 +1360,7 @@ def _handle_assistant_thread_event(
 
     try:
         result = set_assistant_thread_suggested_prompts(
-            _agent_config.bot.token,
+            _bot_token_for_route(route),
             channel_id=event.channel_id,
             thread_ts=event.reply_thread_ts or event.message_ts,
             prompts=[
@@ -1344,7 +1384,7 @@ def _handle_assistant_thread_event(
 
 
 def _notify_unlinked_slack_user_for_event(
-    event: SlackAgentEvent, req: gestalt.Request
+    event: SlackAgentEvent, req: gestalt.Request, route: SlackAgentRoute | None
 ) -> None:
     thread_ts = event.reply_thread_ts or event.message_ts
     _notify_unlinked_slack_user(
@@ -1352,6 +1392,7 @@ def _notify_unlinked_slack_user_for_event(
         channel_id=event.channel_id,
         thread_ts=thread_ts,
         log_context=_slack_event_log_context(event, req, None),
+        token=_bot_config_for_ref(_bot_ref_for_route(route)).token,
     )
 
 
@@ -1369,14 +1410,31 @@ def _notify_unlinked_slack_user_for_interaction(
         channel_id=_interaction_channel_id(payload),
         thread_ts=thread_ts,
         log_context=_slack_interaction_log_context(payload, req),
+        token=_bot_token_for_unlinked_interaction(payload),
     )
 
 
+def _bot_token_for_unlinked_interaction(payload: dict[str, Any]) -> str:
+    try:
+        interaction_ref, _ = _interaction_ref_from_payload(payload)
+        ref = _decode_interaction_ref(interaction_ref)
+        return _bot_token_for_ref(ref.bot_ref)
+    except ValueError:
+        return _bot_config_for_ref(DEFAULT_BOT_REF).token
+    except SlackClientError:
+        return ""
+
+
 def _notify_unlinked_slack_user(
-    req: gestalt.Request, *, channel_id: str, thread_ts: str, log_context: str
+    req: gestalt.Request,
+    *,
+    channel_id: str,
+    thread_ts: str,
+    log_context: str,
+    token: str,
 ) -> None:
-    token = _agent_config.bot.token
-    if not token:
+    normalized_token = token.strip()
+    if not normalized_token:
         logger.warning(
             "cannot notify unlinked Slack user without bot token %s", log_context
         )
@@ -1388,7 +1446,7 @@ def _notify_unlinked_slack_user(
         return
     try:
         post_message(
-            token,
+            normalized_token,
             channel=channel_id,
             thread_ts=thread_ts,
             text=_unlinked_slack_user_message(req),
@@ -2104,9 +2162,10 @@ def _slack_team_id(payload: dict[str, Any], event: dict[str, Any]) -> str:
 
 def _slack_bot_user_ids(payload: dict[str, Any]) -> tuple[str, ...]:
     user_ids: list[str] = []
-    configured = _agent_config.bot.user_id.strip()
-    if configured:
-        user_ids.append(configured)
+    for bot in _agent_config.bots.values():
+        configured = bot.user_id.strip()
+        if configured:
+            user_ids.append(configured)
     authorizations = payload.get("authorizations")
     if isinstance(authorizations, list):
         for authorization in authorizations:
@@ -2341,13 +2400,16 @@ def _sign_reply_ref(
         "subject_id": subject_id,
         "route_id": route.id if route is not None else "",
         "workflow_key": _workflow_key(event, route),
+        "bot_ref": _bot_ref_for_route(route),
         "expires_at": int(time.time()) + SLACK_REPLY_REF_TTL_SECONDS,
     }
     encoded_payload = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
         "utf-8"
     )
     signature = hmac.new(
-        _reply_ref_signing_key(), encoded_payload, hashlib.sha256
+        _reply_ref_signing_key(_bot_ref_for_route(route)),
+        encoded_payload,
+        hashlib.sha256,
     ).digest()
     return f"{_base64url_encode(encoded_payload)}.{_base64url_encode(signature)}"
 
@@ -2363,18 +2425,18 @@ def _verify_reply_ref(reply_ref: str, subject_id: str) -> SlackReplyRef:
     except (binascii.Error, ValueError) as err:
         raise ValueError("invalid reply_ref") from err
 
-    expected_signature = hmac.new(
-        _reply_ref_signing_key(), encoded_payload, hashlib.sha256
-    ).digest()
-    if not hmac.compare_digest(signature, expected_signature):
-        raise ValueError("invalid reply_ref")
-
     try:
         payload = json.loads(encoded_payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as err:
         raise ValueError("invalid reply_ref") from err
     if not isinstance(payload, dict):
         raise ValueError("invalid reply_ref")
+    _verify_signed_payload(
+        encoded_payload,
+        signature,
+        _reply_ref_verification_keys(payload),
+        "invalid reply_ref",
+    )
 
     ref = _reply_ref_from_payload(payload)
     if ref.subject_id != subject_id:
@@ -2405,6 +2467,8 @@ def _reply_ref_from_payload(payload: dict[str, Any]) -> SlackReplyRef:
         route_id=str(payload.get("route_id") or "").strip(),
         client_msg_id=str(payload.get("client_msg_id") or "").strip(),
         workflow_key=str(payload.get("workflow_key") or "").strip(),
+        bot_ref=str(payload.get("bot_ref") or DEFAULT_BOT_REF).strip()
+        or DEFAULT_BOT_REF,
     )
     if not ref.team_id or not ref.channel_id or not ref.subject_id:
         raise ValueError("invalid reply_ref")
@@ -2440,6 +2504,7 @@ def _sign_interaction_ref(
         "subject_id": ref.subject_id,
         "user_id": ref.user_id,
         "route_id": ref.route_id,
+        "bot_ref": ref.bot_ref,
         "action_id": action_id,
         "action_value": action_value,
         "expires_at": expires_at,
@@ -2448,7 +2513,7 @@ def _sign_interaction_ref(
         "utf-8"
     )
     signature = hmac.new(
-        _reply_ref_signing_key(), encoded_payload, hashlib.sha256
+        _reply_ref_signing_key(ref.bot_ref), encoded_payload, hashlib.sha256
     ).digest()
     return f"{_base64url_encode(encoded_payload)}.{_base64url_encode(signature)}"
 
@@ -2467,13 +2532,14 @@ def _resign_reply_ref(ref: SlackReplyRef, *, expires_at: int) -> str:
         "subject_id": ref.subject_id,
         "route_id": ref.route_id,
         "workflow_key": _reply_ref_workflow_key(ref),
+        "bot_ref": ref.bot_ref,
         "expires_at": expires_at,
     }
     encoded_payload = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
         "utf-8"
     )
     signature = hmac.new(
-        _reply_ref_signing_key(), encoded_payload, hashlib.sha256
+        _reply_ref_signing_key(ref.bot_ref), encoded_payload, hashlib.sha256
     ).digest()
     return f"{_base64url_encode(encoded_payload)}.{_base64url_encode(signature)}"
 
@@ -2497,17 +2563,18 @@ def _decode_interaction_ref(interaction_ref: str) -> SlackInteractionRef:
     except (binascii.Error, ValueError) as err:
         raise ValueError("invalid interaction_ref") from err
 
-    expected_signature = hmac.new(
-        _reply_ref_signing_key(), encoded_payload, hashlib.sha256
-    ).digest()
-    if not hmac.compare_digest(signature, expected_signature):
-        raise ValueError("invalid interaction_ref")
     try:
         payload = json.loads(encoded_payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as err:
         raise ValueError("invalid interaction_ref") from err
     if not isinstance(payload, dict) or payload.get("v") != 1:
         raise ValueError("invalid interaction_ref")
+    _verify_signed_payload(
+        encoded_payload,
+        signature,
+        _reply_ref_verification_keys(payload),
+        "invalid interaction_ref",
+    )
     try:
         expires_at = int(payload.get("expires_at") or 0)
     except (TypeError, ValueError) as err:
@@ -2523,6 +2590,8 @@ def _decode_interaction_ref(interaction_ref: str) -> SlackInteractionRef:
         subject_id=str(payload.get("subject_id") or "").strip(),
         user_id=str(payload.get("user_id") or "").strip(),
         route_id=str(payload.get("route_id") or "").strip(),
+        bot_ref=str(payload.get("bot_ref") or DEFAULT_BOT_REF).strip()
+        or DEFAULT_BOT_REF,
         action_id=str(payload.get("action_id") or "").strip(),
         action_value=str(payload.get("action_value") or "").strip(),
         expires_at=expires_at,
@@ -2553,11 +2622,32 @@ def _base64url_decode(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + padding)
 
 
-def _reply_ref_signing_key() -> bytes:
-    token = _agent_config.bot.token
-    if not token:
-        raise RuntimeError("Slack bot token is not configured")
-    return token.encode("utf-8")
+def _reply_ref_signing_key(bot_ref: str = DEFAULT_BOT_REF) -> bytes:
+    secret = _agent_config.reply_ref_signing_secret.strip()
+    if secret:
+        return secret.encode("utf-8")
+    return _bot_token_for_ref(bot_ref).encode("utf-8")
+
+
+def _reply_ref_verification_keys(payload: dict[str, Any]) -> tuple[bytes, ...]:
+    secret = _agent_config.reply_ref_signing_secret.strip()
+    if secret:
+        return (secret.encode("utf-8"),)
+    bot_ref = str(payload.get("bot_ref") or DEFAULT_BOT_REF).strip() or DEFAULT_BOT_REF
+    return (_bot_token_for_ref(bot_ref).encode("utf-8"),)
+
+
+def _verify_signed_payload(
+    encoded_payload: bytes,
+    signature: bytes,
+    keys: tuple[bytes, ...],
+    error_message: str,
+) -> None:
+    for key in keys:
+        expected_signature = hmac.new(key, encoded_payload, hashlib.sha256).digest()
+        if hmac.compare_digest(signature, expected_signature):
+            return
+    raise ValueError(error_message)
 
 
 def _select_agent_route(event: SlackAgentEvent) -> tuple[SlackAgentRoute | None, str]:
@@ -2668,7 +2758,7 @@ def _prefetch_thread_context(
 
     try:
         result = get_thread_context(
-            _agent_config.bot.token,
+            _bot_token_for_route(route),
             channel=event.channel_id,
             ts=root_ts,
             cursor="",

@@ -38,6 +38,21 @@ apps:
           secret:
             provider: secrets
             name: slack-bot-token
+      # Optional: named bots let routes use different bot tokens for Slack
+      # helper operations while sharing the same verified Slack app endpoint.
+      bots:
+        alerts:
+          userId: U0246800000
+          token:
+            secret:
+              provider: secrets
+              name: slack-alerts-bot-token
+      # Recommended before rotating bot tokens. Old bot-token-signed refs are
+      # accepted as a compatibility fallback while they remain within TTL.
+      replyRefSigningSecret:
+        secret:
+          provider: secrets
+          name: slack-reply-ref-signing-secret
     connections:
       bot:
         ref: slack-bot
@@ -494,6 +509,11 @@ apps:
 Route settings inherit from the top-level provider configuration when omitted.
 Set `enabled: false` on route `agent.assistant`, `agent.acknowledgement`, or
 `agent.threadContext` to explicitly disable an inherited global setting. Route
+`botRef` selects a named entry from top-level `bots`; when omitted, the route
+uses the top-level `bot` / `bots.default` token. The selected bot signs into
+`reply_ref`, so Slack helper operations such as `events.reply`,
+`events.setStatus`, native assistant helpers, reactions, streams, and thread
+prefetch continue to use the same bot for later workflow steps. Route
 `workflow.provider` overrides the global `workflow.provider`, and
 `workflow.definitionId` overrides the global `workflow.definitionId`, for both
 Slack events and Slack interaction button callbacks generated from that route.

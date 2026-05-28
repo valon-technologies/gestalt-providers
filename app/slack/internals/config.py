@@ -22,6 +22,7 @@ from .models import (
     SUPPORTED_AGENT_ROUTE_THREAD_MATCHES,
 )
 
+DEFAULT_BOT_REF = "default"
 WORKFLOW_KEY_TEMPLATE_FIELDS = frozenset(
     {
         "team_id",
@@ -42,6 +43,21 @@ def agent_config_from_provider_config(
     agent = _config_dict(config, "agent")
     events = _events_config_from_provider_config(config)
     bot = _config_dict(config, "bot")
+    default_bot = SlackBotConfig(
+        token=_config_string(
+            bot, "token", "botToken", "bot_token", "accessToken", "access_token"
+        )
+        or _config_string(
+            config,
+            "botToken",
+            "bot_token",
+            "slackBotToken",
+            "slack_bot_token",
+        ),
+        user_id=_config_string(bot, "userId", "user_id", "botUserId", "bot_user_id")
+        or _config_string(config, "botUserId", "bot_user_id"),
+    )
+    bots = _bot_configs_from_provider_config(config, default_bot)
     assistant = _assistant_config_from_provider_config(config, agent)
     acknowledgement = _acknowledgement_config_from_provider_config(config, agent)
     workflow = _workflow_config_from_provider_config(config)
@@ -54,22 +70,18 @@ def agent_config_from_provider_config(
         thread_context=thread_context,
     )
     _validate_agent_route_ids(routes)
+    _validate_agent_route_bot_refs(bots, routes)
 
     return SlackAgentConfig(
         app_name=app_name.strip() or "slack",
-        bot=SlackBotConfig(
-            token=_config_string(
-                bot, "token", "botToken", "bot_token", "accessToken", "access_token"
-            )
-            or _config_string(
-                config,
-                "botToken",
-                "bot_token",
-                "slackBotToken",
-                "slack_bot_token",
-            ),
-            user_id=_config_string(bot, "userId", "user_id", "botUserId", "bot_user_id")
-            or _config_string(config, "botUserId", "bot_user_id"),
+        bot=bots[DEFAULT_BOT_REF],
+        bots=bots,
+        reply_ref_signing_secret=_config_string(
+            config,
+            "replyRefSigningSecret",
+            "reply_ref_signing_secret",
+            "replyRefSigningKey",
+            "reply_ref_signing_key",
         ),
         events=events,
         assistant=assistant,
@@ -155,6 +167,37 @@ def _acknowledgement_config_from_provider_config(
     return SlackAcknowledgementConfig(
         enabled=True, reaction=reaction.strip().strip(":")
     )
+
+
+def _bot_configs_from_provider_config(
+    config: dict[str, Any], default_bot: SlackBotConfig
+) -> dict[str, SlackBotConfig]:
+    bots = {DEFAULT_BOT_REF: default_bot}
+    raw_bots = _config_mapping(config, "bots", "slackBots", "slack_bots")
+    for raw_ref, raw_bot in raw_bots.items():
+        ref = str(raw_ref or "").strip()
+        if not ref:
+            raise ValueError("bots contains an empty bot ref")
+        if not isinstance(raw_bot, dict):
+            raise ValueError(f"bots.{ref} must be an object")
+        bot_config = cast(dict[str, Any], raw_bot)
+        base = bots[DEFAULT_BOT_REF] if ref == DEFAULT_BOT_REF else SlackBotConfig()
+        bots[ref] = SlackBotConfig(
+            token=_config_string(
+                bot_config,
+                "token",
+                "botToken",
+                "bot_token",
+                "accessToken",
+                "access_token",
+            )
+            or base.token,
+            user_id=_config_string(
+                bot_config, "userId", "user_id", "botUserId", "bot_user_id"
+            )
+            or base.user_id,
+        )
+    return bots
 
 
 def _assistant_suggested_prompts_from_config(
@@ -305,6 +348,7 @@ def _agent_route_from_config(
     return SlackAgentRoute(
         id=_config_string(config, "id", "name") or f"route_{index}",
         match=match,
+        bot_ref=_config_string(config, "botRef", "bot_ref") or DEFAULT_BOT_REF,
         run_as_subject_id=run_as_subject_id,
         run_as_subject_kind=_agent_route_run_as_subject_kind(config, index),
         run_as_display_name=_agent_route_run_as_display_name(config, index),
@@ -569,6 +613,16 @@ def _validate_agent_route_ids(routes: tuple[SlackAgentRoute, ...]) -> None:
         seen.add(route.id)
 
 
+def _validate_agent_route_bot_refs(
+    bots: dict[str, SlackBotConfig], routes: tuple[SlackAgentRoute, ...]
+) -> None:
+    for index, route in enumerate(routes, start=1):
+        if route.bot_ref not in bots:
+            raise ValueError(
+                f"agent.routes[{index}].botRef references unknown bot: {route.bot_ref}"
+            )
+
+
 def _agent_route_match_from_config(config: dict[str, Any]) -> SlackAgentRouteMatch:
     return SlackAgentRouteMatch(
         team_ids=_config_string_tuple(
@@ -745,6 +799,14 @@ def _config_string(config: dict[str, Any], *keys: str) -> str:
 
 
 def _config_dict(config: dict[str, Any], *keys: str) -> dict[str, Any]:
+    for key in keys:
+        value = config.get(key)
+        if isinstance(value, dict):
+            return dict(value)
+    return {}
+
+
+def _config_mapping(config: dict[str, Any], *keys: str) -> dict[str, Any]:
     for key in keys:
         value = config.get(key)
         if isinstance(value, dict):

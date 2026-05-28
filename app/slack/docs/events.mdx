@@ -54,10 +54,22 @@ apps:
         operation: files.get
     config:
       bot:
+        userId: U0123456789
         token:
           secret:
             provider: secrets
             name: slack-bot-token
+      bots:
+        alerts:
+          userId: U0246800000
+          token:
+            secret:
+              provider: secrets
+              name: slack-alerts-bot-token
+      replyRefSigningSecret:
+        secret:
+          provider: secrets
+          name: slack-reply-ref-signing-secret
       acknowledgement:
         reaction: eyes
       workflow:
@@ -270,6 +282,7 @@ apps:
               eventTypes:
                 - message.channels
               thread: root
+            botRef: alerts
             workflow:
               provider: local
               definitionId: slack-alert-triage
@@ -279,6 +292,9 @@ apps:
 Route settings inherit from the top-level provider configuration when omitted.
 Set `enabled: false` on route `agent.assistant`, `agent.acknowledgement`, or
 `agent.threadContext` to explicitly disable an inherited global setting. Route
+`botRef` selects a named entry from top-level `bots`; when omitted, the route
+uses the top-level `bot` / `bots.default` token. The selected bot is recorded in
+`reply_ref`, so later workflow Slack helper operations use the same bot token. Route
 `workflow.provider` overrides the global `workflow.provider` for Slack events
 and Slack interaction button callbacks generated from that route. Route
 `workflow.definitionId` starts or signals the configured global workflow
