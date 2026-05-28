@@ -52,8 +52,6 @@ apps:
         operation: conversations.getThreadContext
       - app: slack
         operation: files.get
-      - app: companyDirectory
-        operation: lookupProfile
     config:
       bot:
         token:
@@ -69,9 +67,6 @@ apps:
         threadContext:
           enabled: true
           maxMessages: 200
-        tools:
-          - app: companyDirectory
-            operation: lookupProfile
       assistant:
         enabled: true
         status: is checking that...
@@ -354,7 +349,8 @@ apps:
         publish:
           routes:
             - id: message-events
-              workflowProvider: local
+              workflow:
+                provider: local
               workflowEventType: slack.event.received
               source: slack
               subject: route:message-events
@@ -366,8 +362,7 @@ apps:
                   - C0123456789
 ```
 
-`workflowProvider` selects the Gestalt workflow provider that should receive the
-published event; if omitted, the route uses the top-level `workflow.provider`
-when configured, otherwise Gestalt publishes through the workflow manager's
-default behavior. `workflowEventType` defaults to `slack.event.received`,
+`workflow.provider` selects the Gestalt workflow provider that should receive
+the published event; if omitted, Gestalt publishes through the workflow
+manager's default behavior. `workflowEventType` defaults to `slack.event.received`,
 `source` defaults to `slack`, and `subject` defaults to `route:<routeId>`.

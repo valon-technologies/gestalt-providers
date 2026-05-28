@@ -1906,9 +1906,8 @@ def _build_workflow_publish_event_request(
             data=_slack_publish_event_data(event, route, raw_payload),
         )
     )
-    workflow_provider = route.workflow_provider or _agent_config.workflow.provider_name
-    if workflow_provider:
-        workflow_request.provider_name = workflow_provider
+    if route.workflow_provider:
+        workflow_request.provider_name = route.workflow_provider
     return workflow_request
 
 

@@ -918,6 +918,30 @@ class SlackProviderTests(unittest.TestCase):
                     ]
                 }
             },
+            {
+                "events": {
+                    "publish": {
+                        "routes": [
+                            {
+                                "id": "bad-publish",
+                                "workflowProvider": "local",
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "events": {
+                    "publish": {
+                        "routes": [
+                            {
+                                "id": "bad-publish",
+                                "workflow": {"providerName": "local"},
+                            }
+                        ]
+                    }
+                }
+            },
         ]
 
         for config in invalid_configs:
@@ -6381,7 +6405,7 @@ class SlackProviderTests(unittest.TestCase):
                         "routes": [
                             {
                                 "id": "deployments",
-                                "workflowProvider": "local",
+                                "workflow": {"provider": "local"},
                                 "workflowEventType": "deployment.slack_event",
                                 "source": "slack/events",
                                 "subject": "deployments",
@@ -6494,7 +6518,7 @@ class SlackProviderTests(unittest.TestCase):
                         "routes": [
                             {
                                 "id": "brain-ingest",
-                                "workflowProvider": "local",
+                                "workflow": {"provider": "local"},
                                 "workflowEventType": "slack.event.received",
                                 "source": "slack",
                                 "subject": "route:brain-ingest",
@@ -6558,7 +6582,7 @@ class SlackProviderTests(unittest.TestCase):
                         "routes": [
                             {
                                 "id": "brain-ingest",
-                                "workflowProvider": "local",
+                                "workflow": {"provider": "local"},
                                 "workflowEventType": "slack.event.received",
                                 "source": "slack",
                                 "subject": "route:brain-ingest",
@@ -6623,7 +6647,7 @@ class SlackProviderTests(unittest.TestCase):
                         "routes": [
                             {
                                 "id": "brain-ingest",
-                                "workflowProvider": "local",
+                                "workflow": {"provider": "local"},
                                 "workflowEventType": "slack.event.received",
                                 "source": "slack",
                                 "subject": "route:brain-ingest",
@@ -6697,7 +6721,7 @@ class SlackProviderTests(unittest.TestCase):
                         "routes": [
                             {
                                 "id": "brain-ingest",
-                                "workflowProvider": "local",
+                                "workflow": {"provider": "local"},
                                 "workflowEventType": "slack.event.received",
                                 "source": "slack",
                                 "subject": "route:brain-ingest",

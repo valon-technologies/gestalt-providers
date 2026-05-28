@@ -799,17 +799,33 @@ def _events_config_from_provider_config(config: dict[str, Any]) -> SlackEventsCo
 def _event_publish_route_from_config(
     config: dict[str, Any], index: int
 ) -> SlackEventPublishRoute:
+    _validate_workflow_config_keys(
+        config,
+        f"events.publish.routes[{index}]",
+        allowed_keys={
+            "id",
+            "name",
+            "workflow",
+            "workflowEventType",
+            "workflow_event_type",
+            "eventType",
+            "event_type",
+            "type",
+            "source",
+            "workflowEventSource",
+            "subject",
+            "workflowEventSubject",
+            "match",
+        },
+    )
     route_id = _config_string(config, "id", "name") or f"route_{index}"
     workflow = _config_dict(config, "workflow")
-    workflow_provider = _config_string(
-        workflow, "provider", "providerName", "provider_name"
-    ) or _config_string(
-        config,
-        "workflowProvider",
-        "workflow_provider",
-        "workflowProviderName",
-        "workflow_provider_name",
+    _validate_workflow_config_keys(
+        workflow,
+        f"events.publish.routes[{index}].workflow",
+        allowed_keys={"provider"},
     )
+    workflow_provider = _config_string(workflow, "provider")
     workflow_event_type = _config_string(
         config,
         "workflowEventType",

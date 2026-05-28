@@ -119,8 +119,6 @@ apps:
         operation: conversations.getThreadContext
       - app: slack
         operation: files.get
-      - app: companyDirectory
-        operation: lookupProfile
     config:
       bot:
         token:
@@ -248,7 +246,8 @@ apps:
         publish:
           routes:
             - id: message-events
-              workflowProvider: local
+              workflow:
+                provider: local
               workflowEventType: slack.event.received
               source: slack
               subject: route:message-events
@@ -260,10 +259,9 @@ apps:
                   - C0123456789
 ```
 
-`workflowProvider` selects the Gestalt workflow provider that should receive the
-published event; if omitted, the route uses the top-level `workflow.provider`
-when configured, otherwise Gestalt publishes through the workflow manager's
-default behavior. `workflowEventType` defaults to `slack.event.received`,
+`workflow.provider` selects the Gestalt workflow provider that should receive
+the published event; if omitted, Gestalt publishes through the workflow
+manager's default behavior. `workflowEventType` defaults to `slack.event.received`,
 `source` defaults to `slack`, and `subject` defaults to `route:<routeId>`.
 Workflow triggers can match that subject exactly with
 `workflows.eventTriggers.match.subject`. Match rules support `eventTypes`,
@@ -432,10 +430,6 @@ apps:
       - app: slack
         operation: interactions.request
         credentialMode: none
-      - app: companyDirectory
-        operation: lookupProfile
-      - app: statusPage
-        operation: getStatus
     config:
       bot:
         userId: U0123456789
