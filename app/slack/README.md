@@ -53,6 +53,14 @@ apps:
         secret:
           provider: secrets
           name: slack-reply-ref-signing-secret
+      # Optional: configure one or more Slack app signing secrets when multiple
+      # Slack apps share the provider's config-verified webhook routes.
+      slackApps:
+        alerts:
+          signingSecret:
+            secret:
+              provider: secrets
+              name: slack-alerts-signing-secret
     connections:
       bot:
         ref: slack-bot
@@ -220,12 +228,13 @@ settings. If `enabled: false` is set on the route, prefetch is disabled for that
 route even when it is enabled globally.
 
 Slack should send Events API requests to `POST /api/v1/slack/event` and Slack
-interactivity requests to `POST /api/v1/slack/interactions`. Both routes are
-declared in `manifest.yaml` under `spec.http`, validate Slack HMAC signatures
-with `SLACK_SIGNING_SECRET`, and by default resolve the Slack team/user through
-the managed `external_identity` authorization relationship. Matching
-bot-selected agent routes with `runAs.subject` can instead resolve to the
-configured service account before external identity lookup.
+interactivity requests to `POST /api/v1/slack/interactions`. Configure
+secret-backed `signingSecrets` or `slackApps.<ref>.signingSecret`; the provider
+verifies Slack HMAC signatures against those configured secrets before resolving
+the Slack team/user through the managed `external_identity` authorization
+relationship. Matching bot-selected agent routes with `runAs.subject` can
+instead resolve to the configured service account before external identity
+lookup.
 
 `events.handle`, `events.reply`, `events.setStatus`, `events.deleteStatus`,
 `events.addReaction`, `events.removeReaction`, the native assistant helpers,

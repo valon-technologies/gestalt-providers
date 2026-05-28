@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import io
 import json
 import pathlib
+import time
 import types
 import unittest
 import urllib.error
@@ -200,6 +202,43 @@ def signed_route_block_action_payload(
             }
         ],
     }
+
+
+def signed_slack_http_subject_request(
+    payload: dict[str, Any],
+    secret: str,
+    *,
+    binding: str = "event",
+    security_scheme: str = "slack",
+    timestamp: int | None = None,
+) -> gestalt.HTTPSubjectRequest:
+    if binding == "interactions":
+        content_type = "application/x-www-form-urlencoded"
+        raw_body = urllib.parse.urlencode(
+            {"payload": json.dumps(payload, separators=(",", ":"))}
+        ).encode("utf-8")
+    else:
+        content_type = "application/json"
+        raw_body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    timestamp_value = str(timestamp or int(time.time()))
+    signature = (
+        "v0="
+        + hmac.new(
+            secret.encode("utf-8"),
+            f"v0:{timestamp_value}:".encode("utf-8") + raw_body,
+            hashlib.sha256,
+        ).hexdigest()
+    )
+    return gestalt.HTTPSubjectRequest(
+        binding=binding,
+        security_scheme=security_scheme,
+        content_type=content_type,
+        headers={
+            "X-Slack-Request-Timestamp": [timestamp_value],
+            "X-Slack-Signature": [signature],
+        },
+        raw_body=raw_body,
+    )
 
 
 def _catalog_parameter_names(operation: dict[str, Any]) -> list[str]:
@@ -960,7 +999,13 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertNotIn("assistant.reconcileStuckRequests", catalog_ops)
         self.assertNotIn("chat.postMessage", rest_ops)
+        self.assertEqual(manifest["spec"]["securitySchemes"]["slack"]["type"], "none")
+        self.assertEqual(set(http_routes), {"event", "interactions"})
+        self.assertEqual(http_routes["event"]["path"], "/event")
+        self.assertEqual(http_routes["event"]["security"], "slack")
+        self.assertEqual(http_routes["event"]["target"], "events.handle")
         self.assertEqual(http_routes["interactions"]["path"], "/interactions")
+        self.assertEqual(http_routes["interactions"]["security"], "slack")
         self.assertEqual(http_routes["interactions"]["target"], "interactions.handle")
 
         self.assertEqual(
@@ -1349,6 +1394,153 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(action.name, "assume")
         self.assertEqual(request.subject_type, "")
+
+    def test_http_subject_config_verified_route_accepts_named_app_signing_secret(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "signingSecrets": ["default-secret"],
+                "slackApps": {
+                    "alerts": {"signingSecret": "alerts-signing-secret"},
+                },
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        subject = authorization_subject(type="subject", id="user:gestalt-123")
+        authorization = FakeAuthorization([subject])
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvSignedConfigRoute",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "text": "<@UBOT> hello",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        with mock.patch.object(
+            gestalt.Request, "authorization", return_value=authorization
+        ):
+            resolved = provider_module.resolve_http_subject(
+                signed_slack_http_subject_request(payload, "alerts-signing-secret"),
+                gestalt.Request(),
+            )
+
+        self.assertIsNotNone(resolved)
+        assert resolved is not None
+        self.assertEqual(resolved.id, "user:gestalt-123")
+        self.assertEqual(len(authorization.requests), 1)
+
+    def test_http_subject_config_verified_route_rejects_bad_signature(self) -> None:
+        provider_module.configure(
+            "slack",
+            {"slackApps": {"alerts": {"signingSecret": "alerts-signing-secret"}}},
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        authorization = FakeAuthorization([])
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvBadSignature",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "text": "<@UBOT> hello",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        with (
+            mock.patch.object(
+                gestalt.Request, "authorization", return_value=authorization
+            ),
+            self.assertRaisesRegex(
+                gestalt.HTTPSubjectResolutionError,
+                "Slack request signature is invalid",
+            ) as raised,
+        ):
+            provider_module.resolve_http_subject(
+                signed_slack_http_subject_request(payload, "wrong-secret"),
+                gestalt.Request(),
+            )
+
+        self.assertEqual(raised.exception.status, HTTPStatus.UNAUTHORIZED)
+        self.assertEqual(authorization.requests, [])
+
+    def test_http_subject_config_verified_route_rejects_stale_signature(self) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "signingSecret": "slack-signing-secret",
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        payload = {
+            "type": "event_callback",
+            "event_id": "EvStaleSignature",
+            "team_id": "T123",
+            "event": {
+                "type": "app_mention",
+                "user": "U456",
+                "channel": "C789",
+                "text": "<@UBOT> hello",
+                "ts": "1712161829.000300",
+            },
+        }
+
+        with self.assertRaisesRegex(
+            gestalt.HTTPSubjectResolutionError,
+            "Slack request timestamp is too old",
+        ) as raised:
+            provider_module.resolve_http_subject(
+                signed_slack_http_subject_request(
+                    payload,
+                    "slack-signing-secret",
+                    timestamp=int(time.time()) - 1_000,
+                ),
+                gestalt.Request(),
+            )
+
+        self.assertEqual(raised.exception.status, HTTPStatus.UNAUTHORIZED)
+
+    def test_http_subject_config_verified_interaction_uses_canonical_binding(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "slack",
+            {
+                "bot": {"token": "xoxb-test-bot"},
+                "signingSecret": "slack-signing-secret",
+            },
+        )
+        self.addCleanup(provider_module.configure, "slack", {})
+        subject = authorization_subject(type="subject", id="user:gestalt-123")
+        authorization = FakeAuthorization([subject])
+        payload = signed_block_action_payload()
+
+        with mock.patch.object(
+            gestalt.Request, "authorization", return_value=authorization
+        ):
+            resolved = provider_module.resolve_http_subject(
+                signed_slack_http_subject_request(
+                    payload,
+                    "slack-signing-secret",
+                    binding="interactions",
+                ),
+                gestalt.Request(),
+            )
+
+        self.assertIsNotNone(resolved)
+        assert resolved is not None
+        self.assertEqual(resolved.id, "user:gestalt-123")
+        self.assertEqual(len(authorization.requests), 1)
 
     def test_http_subject_dedupes_equivalent_managed_external_identity_subjects(
         self,

@@ -70,6 +70,12 @@ apps:
         secret:
           provider: secrets
           name: slack-reply-ref-signing-secret
+      slackApps:
+        alerts:
+          signingSecret:
+            secret:
+              provider: secrets
+              name: slack-alerts-signing-secret
       acknowledgement:
         reaction: eyes
       workflow:
@@ -173,10 +179,11 @@ POST /api/v1/slack/interactions
 ```
 
 Both routes are declared in `manifest.yaml` under `spec.http`, validate Slack
-HMAC signatures with `SLACK_SIGNING_SECRET`, and by default resolve the Slack
-team/user through the managed `external_identity` authorization relationship.
-Matching bot-selected agent routes with `runAs.subject` can instead resolve to
-the configured service account before external identity lookup.
+HMAC signatures against configured `signingSecrets` or
+`slackApps.<ref>.signingSecret`, and by default resolve the Slack team/user
+through the managed `external_identity` authorization relationship. Matching
+bot-selected agent routes with `runAs.subject` can instead resolve to the
+configured service account before external identity lookup.
 
 ## Hidden Helper Operations
 

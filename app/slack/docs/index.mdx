@@ -122,6 +122,10 @@ The internal `bot` connection uses a deployment-owned bearer token. Configure it
 only when using bot REST operations, Slack Events API agent replies, native
 assistant helpers, interactions, or streaming helpers.
 
+For multiple Slack apps, configure secret-backed `signingSecrets` or
+`slackApps.<ref>.signingSecret`; the `/event` and `/interactions` webhook
+routes verify Slack signatures against those configured secrets.
+
 Representative public operations include:
 
 - `conversations.getMessage`

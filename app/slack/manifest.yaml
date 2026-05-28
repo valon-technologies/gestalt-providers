@@ -9,14 +9,7 @@ spec:
   mcp: true
   securitySchemes:
     slack:
-      type: hmac
-      secret:
-        env: SLACK_SIGNING_SECRET
-      signatureHeader: X-Slack-Signature
-      signaturePrefix: v0=
-      payloadTemplate: "v0:{header:X-Slack-Request-Timestamp}:{raw_body}"
-      timestampHeader: X-Slack-Request-Timestamp
-      maxAgeSeconds: 300
+      type: none
   http:
     event:
       path: /event
