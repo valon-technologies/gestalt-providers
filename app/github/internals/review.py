@@ -68,6 +68,7 @@ SELF_FIX_OUTPUT_NAME = "github.pull_request_review.self_fix.v1"
 SELF_FIX_OUTPUT_KEYS = frozenset(("commit_message", "files"))
 REVIEW_SEVERITIES = frozenset(("critical", "high", "medium", "low"))
 MAX_ADDITIONAL_LOCATIONS = 4
+MAX_REVIEW_FAILURE_DETAIL_CHARS = 1_000
 REVIEW_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
@@ -304,14 +305,14 @@ def review_pull_request(
             pull_summary=pull_summary,
             check_run=check_run,
         )
-    except Exception:
+    except Exception as err:
         complete_review_check_run(
             check_run,
             subject,
             req,
             conclusion="failure",
             title="Review failed",
-            summary="Gestalt review failed before it could complete.",
+            summary=review_failure_summary(err),
         )
         raise
 
@@ -566,6 +567,21 @@ def complete_review_check_run(
         subject=req.subject,
         external_identity=non_empty_external_identity(req.external_identity),
     )
+
+
+def review_failure_summary(err: BaseException) -> str:
+    detail = error_detail(err)
+    return f"Gestalt review failed before it could complete.\n\nError: {detail}"
+
+
+def error_detail(err: BaseException) -> str:
+    message = " ".join(str(err).split())
+    detail = type(err).__name__
+    if message:
+        detail = f"{detail}: {message}"
+    if len(detail) <= MAX_REVIEW_FAILURE_DETAIL_CHARS:
+        return detail
+    return detail[: MAX_REVIEW_FAILURE_DETAIL_CHARS - 3] + "..."
 
 
 def add_check_run_result(
@@ -1073,7 +1089,9 @@ def ask_agent_for_fix(
             tool_refs=review_agent_tool_refs(req, signal),
             tool_source=gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
             output=gestalt.AgentOutput(
-                structured=gestalt.AgentStructuredOutput(schema=SELF_FIX_RESPONSE_SCHEMA)
+                structured=gestalt.AgentStructuredOutput(
+                    schema=SELF_FIX_RESPONSE_SCHEMA
+                )
             ),
             metadata=metadata,
             idempotency_key=f"{idempotency_base}:turn",
