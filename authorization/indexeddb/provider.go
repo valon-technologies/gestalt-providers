@@ -3,6 +3,8 @@ package indexeddb
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -75,6 +77,126 @@ func (p *Provider) getDbWithLock() (indexeddb.Database, error) {
 		return nil, fmt.Errorf("provider is not configured")
 	}
 	return p.db, nil
+}
+
+func (p *Provider) SetRelationships(ctx context.Context, req *SetRelationshipsRequest) (*SetRelationshipsResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+
+	relationships := make([]*Relationship, 0, len(req.Relationships))
+	records := make([]indexeddb.Record, 0, len(req.Relationships))
+	seenIDs := make(map[string]struct{}, len(req.Relationships))
+	for _, relationship := range req.Relationships {
+		cloned := cloneRelationship(relationship)
+		if err := normalizeRelationship(cloned); err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "relationship is invalid: %v", err)
+		}
+		record, err := relationshipToRecord(cloned)
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "relationship is invalid: %v", err)
+		}
+		id := stringField(record, "id")
+		if _, ok := seenIDs[id]; ok {
+			continue
+		}
+		seenIDs[id] = struct{}{}
+		relationships = append(relationships, cloned)
+		records = append(records, record)
+	}
+
+	db, err := p.getDbWithLock()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	stores := getStoreNames()
+	tx, err := db.Transaction(ctx, []string{stores.relationships}, indexeddb.TransactionReadwrite, indexeddb.TransactionOptions{})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "start relationships transaction: %v", err)
+	}
+	defer func() {
+		_ = tx.Abort(ctx)
+	}()
+
+	store := tx.ObjectStore(stores.relationships)
+	if err := store.Clear(ctx); err != nil {
+		return nil, status.Errorf(codes.Internal, "clear relationships: %v", err)
+	}
+	for _, record := range records {
+		if err := store.Put(ctx, record); err != nil {
+			return nil, status.Errorf(codes.Internal, "set relationship: %v", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, status.Errorf(codes.Internal, "commit relationships: %v", err)
+	}
+
+	return &SetRelationshipsResponse{Relationships: cloneRelationships(relationships)}, nil
+}
+
+func (p *Provider) ListRelationships(ctx context.Context, req *ListRelationshipsRequest) (*ListRelationshipsResponse, error) {
+	db, err := p.getDbWithLock()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	records, err := db.ObjectStore(getStoreNames().relationships).GetAll(ctx, nil)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list relationships: %v", err)
+	}
+	sort.Slice(records, func(i, j int) bool {
+		return stringField(records[i], "id") < stringField(records[j], "id")
+	})
+
+	filter := (*RelationshipFilter)(nil)
+	pageSize := int32(defaultRelationshipPageSize)
+	pageToken := ""
+	if req != nil {
+		filter = req.Filter
+		if req.PageSize < 0 {
+			return nil, status.Error(codes.InvalidArgument, "page size must be non-negative")
+		}
+		if req.PageSize > 0 {
+			pageSize = req.PageSize
+		}
+		pageToken = strings.TrimSpace(req.PageToken)
+	}
+
+	offset, err := parseRelationshipPageToken(pageToken)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "page token is invalid: %v", err)
+	}
+
+	matches := make([]*Relationship, 0, len(records))
+	for _, record := range records {
+		relationship, err := relationshipFromRecord(record)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "decode relationship: %v", err)
+		}
+		if relationshipMatchesFilter(relationship, filter) {
+			matches = append(matches, relationship)
+		}
+	}
+	if offset > len(matches) {
+		return nil, status.Error(codes.InvalidArgument, "page token is out of range")
+	}
+
+	limit := int(pageSize)
+	if limit == 0 {
+		limit = len(matches)
+	}
+	end := offset + limit
+	if end > len(matches) {
+		end = len(matches)
+	}
+	nextPageToken := ""
+	if end < len(matches) {
+		nextPageToken = strconv.Itoa(end)
+	}
+
+	return &ListRelationshipsResponse{
+		Relationships: cloneRelationships(matches[offset:end]),
+		NextPageToken: nextPageToken,
+	}, nil
 }
 
 func (p *Provider) GetActiveModelRef(ctx context.Context, _ *emptypb.Empty) (*GetActiveModelRefResponse, error) {

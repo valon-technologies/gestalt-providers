@@ -121,6 +121,123 @@ func TestProviderSetAndGetActiveModel(t *testing.T) {
 	}
 }
 
+func TestProviderSetAndListRelationships(t *testing.T) {
+	ctx := context.Background()
+	provider := New()
+	fakeDB := &fakeIndexedDB{}
+	provider.configureDatabase(fakeDB)
+	t.Cleanup(func() {
+		if err := provider.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	})
+
+	relationships := []*Relationship{
+		{
+			Tuple: &RelationshipTuple{
+				Target:   &RelationshipTarget{Subject: &Subject{Type: "subject", Id: "user:alice"}},
+				Relation: "member",
+				Resource: &Resource{Type: "group", Id: "engineering"},
+			},
+			SourceLayer: SourceLayerStaticConfig,
+		},
+		{
+			Tuple: &RelationshipTuple{
+				Target: &RelationshipTarget{
+					SubjectSet: &SubjectSet{
+						Resource: &Resource{Type: "group", Id: "engineering"},
+						Relation: "member",
+					},
+				},
+				Relation: "reader",
+				Resource: &Resource{Type: "repository", Id: "valon-tools"},
+			},
+			SourceLayer: SourceLayerRuntime,
+		},
+		{
+			Tuple: &RelationshipTuple{
+				Target:   &RelationshipTarget{Subject: &Subject{Type: "subject", Id: "user:bob"}},
+				Relation: "maintainer",
+				Resource: &Resource{Type: "repository", Id: "valon-tools"},
+			},
+			Properties:  map[string]any{"reason": "break-glass"},
+			SourceLayer: SourceLayerRuntime,
+		},
+	}
+
+	setResp, err := provider.SetRelationships(ctx, &SetRelationshipsRequest{Relationships: relationships})
+	if err != nil {
+		t.Fatalf("SetRelationships() error = %v", err)
+	}
+	if !sameRelationshipSet(setResp.Relationships, relationships) {
+		t.Fatalf("SetRelationships().Relationships = %#v, want %#v", setResp.Relationships, relationships)
+	}
+
+	listResp, err := provider.ListRelationships(ctx, &ListRelationshipsRequest{})
+	if err != nil {
+		t.Fatalf("ListRelationships() error = %v", err)
+	}
+	if !sameRelationshipSet(listResp.Relationships, relationships) {
+		t.Fatalf("ListRelationships().Relationships = %#v, want %#v", listResp.Relationships, relationships)
+	}
+
+	firstPage, err := provider.ListRelationships(ctx, &ListRelationshipsRequest{PageSize: 2})
+	if err != nil {
+		t.Fatalf("ListRelationships(first page) error = %v", err)
+	}
+	if len(firstPage.Relationships) != 2 {
+		t.Fatalf("ListRelationships(first page) count = %d, want 2", len(firstPage.Relationships))
+	}
+	if firstPage.NextPageToken == "" {
+		t.Fatalf("ListRelationships(first page) next page token is empty")
+	}
+
+	secondPage, err := provider.ListRelationships(ctx, &ListRelationshipsRequest{PageSize: 2, PageToken: firstPage.NextPageToken})
+	if err != nil {
+		t.Fatalf("ListRelationships(second page) error = %v", err)
+	}
+	if len(secondPage.Relationships) != 1 {
+		t.Fatalf("ListRelationships(second page) count = %d, want 1", len(secondPage.Relationships))
+	}
+	if secondPage.NextPageToken != "" {
+		t.Fatalf("ListRelationships(second page) next page token = %q, want empty", secondPage.NextPageToken)
+	}
+	if !sameRelationshipSet(append(firstPage.Relationships, secondPage.Relationships...), relationships) {
+		t.Fatalf("paged relationships = %#v, want %#v", append(firstPage.Relationships, secondPage.Relationships...), relationships)
+	}
+
+	runtimeResp, err := provider.ListRelationships(ctx, &ListRelationshipsRequest{
+		Filter: &RelationshipFilter{
+			ResourceType: "repository",
+			SourceLayer:  SourceLayerRuntime,
+		},
+	})
+	if err != nil {
+		t.Fatalf("ListRelationships(runtime repository) error = %v", err)
+	}
+	if len(runtimeResp.Relationships) != 2 {
+		t.Fatalf("ListRelationships(runtime repository) count = %d, want 2", len(runtimeResp.Relationships))
+	}
+
+	subjectSetResp, err := provider.ListRelationships(ctx, &ListRelationshipsRequest{
+		Filter: &RelationshipFilter{
+			TargetType:       RelationshipTargetTypeSubjectSet,
+			TargetEntityType: "group",
+			Relation:         "reader",
+			Resource:         &Resource{Type: "repository", Id: "valon-tools"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ListRelationships(subject set) error = %v", err)
+	}
+	if len(subjectSetResp.Relationships) != 1 {
+		t.Fatalf("ListRelationships(subject set) count = %d, want 1", len(subjectSetResp.Relationships))
+	}
+	if !reflect.DeepEqual(subjectSetResp.Relationships[0], relationships[1]) {
+		t.Fatalf("ListRelationships(subject set) = %#v, want %#v", subjectSetResp.Relationships[0], relationships[1])
+	}
+}
+
 func TestProposedAuthorizationProviderStubs(t *testing.T) {
 	ctx := context.Background()
 	provider := New()
@@ -144,13 +261,6 @@ func TestProposedAuthorizationProviderStubs(t *testing.T) {
 			},
 		},
 		{
-			name: "ListRelationships",
-			call: func() error {
-				_, err := provider.ListRelationships(ctx, &ListRelationshipsRequest{})
-				return err
-			},
-		},
-		{
 			name: "AddRelationship",
 			call: func() error {
 				_, err := provider.AddRelationship(ctx, &AddRelationshipRequest{})
@@ -161,13 +271,6 @@ func TestProposedAuthorizationProviderStubs(t *testing.T) {
 			name: "DeleteRelationship",
 			call: func() error {
 				_, err := provider.DeleteRelationship(ctx, &DeleteRelationshipRequest{})
-				return err
-			},
-		},
-		{
-			name: "SetRelationships",
-			call: func() error {
-				_, err := provider.SetRelationships(ctx, &SetRelationshipsRequest{})
 				return err
 			},
 		},
@@ -184,4 +287,21 @@ func TestProposedAuthorizationProviderStubs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func sameRelationshipSet(a, b []*Relationship) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	aByID := make(map[string]*Relationship, len(a))
+	for _, relationship := range a {
+		aByID[relationshipID(relationship.Tuple)] = relationship
+	}
+	for _, relationship := range b {
+		got, ok := aByID[relationshipID(relationship.Tuple)]
+		if !ok || !reflect.DeepEqual(got, relationship) {
+			return false
+		}
+	}
+	return true
 }
