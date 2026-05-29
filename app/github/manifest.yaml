@@ -5,7 +5,6 @@ description: Repository, issue, pull request, workflow, and code search operatio
 iconFile: assets/icon.svg
 kind: app
 spec:
-  defaultConnection: default
   configSchemaPath: schemas/config.schema.yaml
   securitySchemes:
     github_app:
@@ -26,19 +25,3 @@ spec:
         required: true
         content:
           application/json: {}
-  surfaces:
-    openapi:
-      connection: default
-      document: https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.yaml
-    graphql:
-      connection: default
-      url: https://api.github.com/graphql
-  connections:
-    default:
-      auth:
-        type: oauth2
-        authorizationUrl: https://github.com/login/oauth/authorize
-        tokenUrl: https://github.com/login/oauth/access_token
-        acceptHeader: application/json
-        scopes:
-        - repo

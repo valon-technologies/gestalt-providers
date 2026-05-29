@@ -8,8 +8,7 @@ from typing import Any
 from .client import bot_identity
 from .config import get_github_config
 from .constants import (
-    GITHUB_INSTALLATION_SUBJECT_PREFIX,
-    GITHUB_REPOSITORY_SUBJECT_SEPARATOR,
+    GITHUB_WEBHOOK_SUBJECT_PREFIX,
     MAX_GITHUB_TITLE_CHARS,
 )
 from .errors import GitHubAPIError, GitHubConfigError
@@ -32,21 +31,15 @@ def webhook_subject_from_payload(
         return None
 
     repo = repository_full_name(payload)
-    # TODO(hughhan1): Webhook subjects use the same brittle string grammar that
-    # bot operations parse later:
-    # `service_account:github_app_installation:<installation_id>:repo:<owner>/<repo>`.
-    # This should become structured provider-owned installation metadata rather
-    # than relying on every caller to preserve this exact subject id format.
-    subject_id = f"{GITHUB_INSTALLATION_SUBJECT_PREFIX}{installation_id}"
+    subject_id = f"{GITHUB_WEBHOOK_SUBJECT_PREFIX}{installation_id}"
     display_name = f"GitHub App installation {installation_id}"
     if repo:
-        subject_id = f"{subject_id}{GITHUB_REPOSITORY_SUBJECT_SEPARATOR}{repo}"
         display_name = f"{display_name} ({repo})"
     return GitHubWebhookSubject(
         id=subject_id,
         kind="service_account",
         display_name=display_name,
-        auth_source="github_app_webhook",
+        auth_source="github_webhook",
     )
 
 

@@ -1826,7 +1826,7 @@ func TestProviderPublishEventDoesNotWaitForConcurrentScheduleList(t *testing.T) 
 	}
 }
 
-func TestProviderPublishEventUsesPublishedByAsCreator(t *testing.T) {
+func TestProviderPublishEventUsesTriggerOwnerAsCreator(t *testing.T) {
 	ctx := context.Background()
 	host := newStepExecutorStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
@@ -1843,17 +1843,18 @@ func TestProviderPublishEventUsesPublishedByAsCreator(t *testing.T) {
 	t.Cleanup(func() { _ = provider.Close() })
 
 	target := workflowTarget(t, "github", "events.runAgentFromWorkflowEvent", map[string]any{"repository": "gestalt"})
+	triggerOwner := &gestalt.WorkflowActor{
+		SubjectID:   "service_account:github-review",
+		SubjectKind: "service_account",
+		DisplayName: "GitHub review workflow",
+		AuthSource:  "api_token",
+	}
 	if _, err := provider.UpsertEventTrigger(ctx, &gestalt.UpsertWorkflowProviderEventTriggerRequest{
 		TriggerID:    "github-webhook",
 		Match:        &gestalt.WorkflowEventMatch{Type: "github.app.webhook", Source: "github"},
 		Target:       target,
 		DefinitionID: "github-webhook-definition",
-		RequestedBy: &gestalt.WorkflowActor{
-			SubjectID:   "system:config",
-			SubjectKind: "system",
-			DisplayName: "Gestalt config",
-			AuthSource:  "config",
-		},
+		RequestedBy:  triggerOwner,
 	}); err != nil {
 		t.Fatalf("UpsertEventTrigger: %v", err)
 	}
@@ -1879,8 +1880,8 @@ func TestProviderPublishEventUsesPublishedByAsCreator(t *testing.T) {
 	if got := anyMap(call.Metadata)[workflowInvokeMetadataDefinitionID]; got != "github-webhook-definition" {
 		t.Fatalf("definition_id = %v, want github-webhook-definition", got)
 	}
-	if call.CreatedBy.SubjectID != publishedBy.SubjectID {
-		t.Fatalf("created_by.subject_id = %q, want %q", call.CreatedBy.SubjectID, publishedBy.SubjectID)
+	if call.CreatedBy == nil || call.CreatedBy.SubjectID != triggerOwner.SubjectID {
+		t.Fatalf("created_by = %#v, want trigger owner %q", call.CreatedBy, triggerOwner.SubjectID)
 	}
 	run, err := provider.GetRun(ctx, &gestalt.GetWorkflowProviderRunRequest{RunID: call.RunID})
 	if err != nil {
@@ -1889,8 +1890,8 @@ func TestProviderPublishEventUsesPublishedByAsCreator(t *testing.T) {
 	if run.DefinitionID != "github-webhook-definition" {
 		t.Fatalf("run definition_id = %q, want github-webhook-definition", run.DefinitionID)
 	}
-	if run.CreatedBy.SubjectID != publishedBy.SubjectID {
-		t.Fatalf("run created_by.subject_id = %q, want %q", run.CreatedBy.SubjectID, publishedBy.SubjectID)
+	if run.CreatedBy == nil || run.CreatedBy.SubjectID != triggerOwner.SubjectID {
+		t.Fatalf("run created_by = %#v, want trigger owner %q", run.CreatedBy, triggerOwner.SubjectID)
 	}
 
 	duplicatePublisher := &gestalt.WorkflowActor{
@@ -1913,8 +1914,8 @@ func TestProviderPublishEventUsesPublishedByAsCreator(t *testing.T) {
 	if len(runs.Runs) != 1 {
 		t.Fatalf("runs len = %d, want duplicate event to keep one run", len(runs.Runs))
 	}
-	if runs.Runs[0].CreatedBy.SubjectID != publishedBy.SubjectID {
-		t.Fatalf("duplicate publish changed created_by.subject_id = %q, want %q", runs.Runs[0].CreatedBy.SubjectID, publishedBy.SubjectID)
+	if runs.Runs[0].CreatedBy == nil || runs.Runs[0].CreatedBy.SubjectID != triggerOwner.SubjectID {
+		t.Fatalf("duplicate publish changed created_by = %#v, want trigger owner %q", runs.Runs[0].CreatedBy, triggerOwner.SubjectID)
 	}
 }
 

@@ -24,10 +24,7 @@ from .config import (
     set_cached_bot_identity,
 )
 from .constants import (
-    EXTERNAL_IDENTITY_ID_METADATA_KEY,
-    EXTERNAL_IDENTITY_TYPE_METADATA_KEY,
     GITHUB_API_VERSION,
-    GITHUB_EXTERNAL_IDENTITY_TYPE,
 )
 from .errors import GitHubAPIError, GitHubConfigError
 from .helpers import int_field, nested_str, str_field
@@ -76,8 +73,6 @@ class GitHubAPIClient(Protocol):
     def repository_default_branch(self, token: str, owner: str, repo: str) -> str: ...
 
     def repository_installation(self, owner: str, repo: str) -> JsonObject: ...
-
-    def current_user_identity(self, access_token: str) -> GitHubUserIdentity: ...
 
     def app_installations(
         self, *, per_page: int = 100, page: int = 1
@@ -156,9 +151,6 @@ class GitHubAppClient:
     def repository_installation(self, owner: str, repo: str) -> JsonObject:
         return repository_installation(owner, repo)
 
-    def current_user_identity(self, access_token: str) -> GitHubUserIdentity:
-        return current_user_identity(access_token)
-
     def app_installations(
         self, *, per_page: int = 100, page: int = 1
     ) -> list[JsonObject]:
@@ -193,45 +185,6 @@ class GitHubAppClient:
 
 
 DEFAULT_GITHUB_CLIENT = GitHubAppClient()
-
-
-def user_external_identity_metadata(access_token: str) -> dict[str, str]:
-    if not access_token:
-        raise RuntimeError("GitHub post-connect requires an access token")
-
-    identity = current_user_identity(access_token)
-
-    metadata = {
-        EXTERNAL_IDENTITY_TYPE_METADATA_KEY: GITHUB_EXTERNAL_IDENTITY_TYPE,
-        EXTERNAL_IDENTITY_ID_METADATA_KEY: f"user:{identity.user_id}",
-        "github.user_id": identity.user_id,
-    }
-    if identity.login:
-        metadata["github.login"] = identity.login
-    return metadata
-
-
-def current_user_identity(access_token: str) -> GitHubUserIdentity:
-    if not access_token:
-        raise RuntimeError("GitHub user identity lookup requires an access token")
-    user = github_json("GET", "/user", access_token)
-    user_id = int_field(user, "id")
-    if user_id <= 0:
-        raise GitHubAPIError(502, "GitHub user response did not include id")
-    login = str_field(user, "login")
-    if not login:
-        raise GitHubAPIError(502, "GitHub user response did not include login")
-    normalized_user_id = str(user_id)
-    name = str_field(user, "name") or login
-    email = str_field(user, "email") or (
-        f"{normalized_user_id}+{login}@users.noreply.github.com"
-    )
-    return GitHubUserIdentity(
-        name=name,
-        login=login,
-        user_id=normalized_user_id,
-        email=email,
-    )
 
 
 def app_installations(*, per_page: int = 100, page: int = 1) -> list[JsonObject]:
@@ -533,7 +486,7 @@ def object_sha(ref: Mapping[str, Any], name: str) -> str:
 def bot_identity_or_none() -> GitHubBotIdentity | None:
     try:
         return bot_identity()
-    except (GitHubAPIError, GitHubConfigError):
+    except GitHubAPIError, GitHubConfigError:
         return None
 
 
