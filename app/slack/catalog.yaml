@@ -47,6 +47,46 @@ operations:
     description: Required complete Slack message body to post in the event thread
     required: true
   visible: false
+- id: events.uploadFile
+  method: POST
+  description: Upload a file to the Slack event thread using Slack external upload
+  parameters:
+  - name: reply_ref
+    type: string
+    description: Opaque Slack event reply reference from the current Slack signal
+    required: true
+  - name: filename
+    type: string
+    description: Filename to show in Slack
+    required: true
+  - name: content_base64
+    type: string
+    description: Base64-encoded file content for PDFs, binary files, or UTF-8 text files.
+    required: true
+  - name: title
+    type: string
+    description: Optional file title
+    default: ''
+  - name: initial_comment
+    type: string
+    description: Optional message text introducing the file
+    default: ''
+  - name: content_type
+    type: string
+    description: Optional upload content type such as application/pdf
+    default: ''
+  - name: alt_txt
+    type: string
+    description: Optional image alt text for screen readers
+    default: ''
+  - name: snippet_type
+    type: string
+    description: Optional Slack snippet syntax type
+    default: ''
+  - name: blocks
+    type: array
+    description: Optional Slack blocks for the upload message
+  visible: false
 - id: events.replySessionStarted
   method: POST
   description: Reply to the Slack event thread with a link to the started Gestalt
@@ -322,6 +362,50 @@ operations:
     description: Optional Slack message metadata. Omit for default Gestalt metadata;
       pass {} for no metadata.
     default: null
+- id: files.upload
+  method: POST
+  description: Upload and share a Slack file using Slack external upload
+  parameters:
+  - name: channel
+    type: string
+    description: Channel ID where the file will be shared
+    required: true
+  - name: filename
+    type: string
+    description: Filename to show in Slack
+    required: true
+  - name: content_base64
+    type: string
+    description: Base64-encoded file content for PDFs, binary files, or UTF-8 text files.
+    required: true
+  - name: thread_ts
+    type: string
+    description: Thread timestamp to attach the file to
+    default: ''
+  - name: title
+    type: string
+    description: Optional file title
+    default: ''
+  - name: initial_comment
+    type: string
+    description: Optional message text introducing the file
+    default: ''
+  - name: content_type
+    type: string
+    description: Optional upload content type such as application/pdf
+    default: ''
+  - name: alt_txt
+    type: string
+    description: Optional image alt text for screen readers
+    default: ''
+  - name: snippet_type
+    type: string
+    description: Optional Slack snippet syntax type
+    default: ''
+  - name: blocks
+    type: array
+    description: Optional Slack blocks for the upload message. Gestalt appends an attribution
+      context footer.
 - id: conversations.getMessage
   method: POST
   description: Fetch a single message by Slack URL or channel and timestamp

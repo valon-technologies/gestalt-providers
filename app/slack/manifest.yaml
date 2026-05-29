@@ -547,6 +547,7 @@ spec:
         - users:read
         - users:read.email
         - files:read
+        - files:write
         - chat:write
         - reactions:write
         - channels:write

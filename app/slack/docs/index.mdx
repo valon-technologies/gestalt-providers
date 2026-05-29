@@ -72,6 +72,7 @@ The full scope set used by this provider's bot behaviors is:
 - `mpim:write`
 - `users:read`
 - `files:read`
+- `files:write`
 - `chat:write`
 - `assistant:write`
 - `reactions:write`
@@ -88,7 +89,7 @@ It exposes operations for listing and creating channels, reading message history
 and threads, sending, updating, deleting, scheduling, and streaming messages,
 opening or resuming DMs, searching messages, reading user profiles, managing
 reactions, setting channel topics, inviting users, creating canvases, building
-thread context, and reading Slack file or image contents.
+thread context, reading Slack file or image contents, and uploading Slack files.
 
 User operations authenticate with Slack OAuth 2.0 user scope. Operations with
 fixed bot behavior use the subject-owned `bot` bearer connection.
@@ -115,8 +116,11 @@ The default user connection uses Slack OAuth 2.0. Requested user scopes are
 `channels:read`, `channels:history`, `groups:read`, `groups:history`,
 `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`,
 `mpim:write`, `search:read`, `users:read`, `users:read.email`, `files:read`,
-`chat:write`, `reactions:write`, `channels:write`, `groups:write`, and
+`files:write`, `chat:write`, `reactions:write`, `channels:write`, `groups:write`, and
 `canvases:write`.
+
+Existing Slack OAuth installations may need to reconnect or reauthorize before
+file upload operations can run.
 
 The internal `bot` connection uses a deployment-owned bearer token. Configure it
 only when using bot REST operations, Slack Events API agent replies, native
@@ -129,6 +133,7 @@ Representative public operations include:
 - `conversations.findUserMentions`
 - `conversations.getThreadParticipants`
 - `files.get`
+- `files.upload`
 - `chat.postMessage`
 - `chat.update`
 - `chat.delete`
@@ -150,6 +155,11 @@ apps:
         operation: conversations.getThreadContext
       - plugin: slack
         operation: files.get
+      - plugin: slack
+        operation: files.upload
+      - plugin: slack
+        operation: events.uploadFile
+        credentialMode: none
 ```
 
 Fetch a thread by permalink:
@@ -173,6 +183,25 @@ await app.invoke("slack", "files.get", {
 });
 ```
 
+Upload a PDF to a Slack thread:
+
+```ts
+await app.invoke("slack", "files.upload", {
+  channel: "C0123456789",
+  thread_ts: "1712161829.000300",
+  filename: "report.pdf",
+  content_base64: "JVBERi0xLjQK...",
+  content_type: "application/pdf",
+  initial_comment: "Attached report",
+});
+```
+
+Slack upload operations use Slack's external upload flow, not Slack's deprecated
+`files.upload` endpoint. They are not idempotent; retrying a completed request
+can create duplicate files. Public `files.upload` messages include the same
+visible Gestalt attribution footer as `chat.postMessage`. Upload content is
+capped at 20 MiB per request.
+
 When responding from a Slack event workflow, use the event helper operations with
 the opaque `reply_ref` supplied in the event payload. For native streaming:
 
@@ -192,6 +221,18 @@ await app.invoke("slack", "events.stopStream", {
   reply_ref: "...",
   stream_ts: started.ts,
   markdown_text: "Done.",
+});
+```
+
+Attach a generated file to the current Slack event thread:
+
+```ts
+await app.invoke("slack", "events.uploadFile", {
+  reply_ref: "...",
+  filename: "report.pdf",
+  content_base64: "JVBERi0xLjQK...",
+  content_type: "application/pdf",
+  initial_comment: "Attached report",
 });
 ```
 

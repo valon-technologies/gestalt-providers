@@ -14,6 +14,8 @@ from urllib.parse import urlencode
 SLACK_BASE_URL = "https://slack.com/api"
 SLACK_FILE_DOWNLOAD_HOSTS = {"files.slack.com"}
 SLACK_FILE_DOWNLOAD_HOST_SUFFIXES = (".slack-files.com",)
+SLACK_FILE_UPLOAD_HOST = "files.slack.com"
+SLACK_FILE_UPLOAD_PATH_PREFIX = "/upload/v1/"
 MAX_RATE_LIMIT_RETRIES = 2
 MAX_RETRY_AFTER_SECONDS = 5.0
 
@@ -53,6 +55,21 @@ def slack_post(endpoint: str, payload: dict[str, Any], token: str) -> dict[str, 
     return _request_json(request)
 
 
+def slack_post_form(
+    endpoint: str, payload: dict[str, str], token: str
+) -> dict[str, Any]:
+    request = urllib.request.Request(
+        f"{slack_base_url()}/{endpoint.lstrip('/')}",
+        data=urlencode(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
+        },
+        method="POST",
+    )
+    return _request_json(request)
+
+
 def get_json(url: str, token: str) -> dict[str, Any]:
     request = urllib.request.Request(
         url=url,
@@ -60,6 +77,34 @@ def get_json(url: str, token: str) -> dict[str, Any]:
         headers={"Authorization": f"Bearer {token}"},
     )
     return _request_json(request)
+
+
+def upload_bytes_to_slack_url(
+    url: str, body: bytes, content_type: str = ""
+) -> None:
+    if not is_slack_file_upload_url(url):
+        raise SlackClientError("slack file upload URL must be a Slack HTTPS upload URL")
+    request = urllib.request.Request(
+        url=url,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": content_type or "application/octet-stream",
+            "Content-Length": str(len(body)),
+        },
+    )
+    try:
+        opener = urllib.request.build_opener(_SlackFileUploadRedirectHandler())
+        with opener.open(request, timeout=30) as response:
+            status = int(getattr(response, "status", 200) or 200)
+            response_body = response.read()
+    except urllib.error.HTTPError as exc:
+        raise SlackAPIError(exc.code, _decode_error_body(exc.read(), exc.code)) from exc
+    except urllib.error.URLError as exc:
+        raise SlackClientError(f"slack file upload failed: {exc.reason}") from exc
+
+    if status != HTTPStatus.OK:
+        raise SlackAPIError(status, _decode_error_body(response_body, status))
 
 
 def get_bytes(url: str, token: str, max_bytes: int) -> tuple[bytes, bool]:
@@ -95,6 +140,16 @@ def is_slack_file_download_url(url: str) -> bool:
     )
 
 
+def is_slack_file_upload_url(url: str) -> bool:
+    parsed = urlsplit(url)
+    hostname = parsed.hostname or ""
+    return (
+        parsed.scheme == "https"
+        and hostname == SLACK_FILE_UPLOAD_HOST
+        and parsed.path.startswith(SLACK_FILE_UPLOAD_PATH_PREFIX)
+    )
+
+
 class _SlackFileRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(
         self,
@@ -116,6 +171,22 @@ class _SlackFileRedirectHandler(urllib.request.HTTPRedirectHandler):
             method=req.get_method(),
             headers={"Authorization": authorization},
         )
+
+
+class _SlackFileUploadRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        del req, fp, code, msg, headers
+        if not is_slack_file_upload_url(newurl):
+            raise SlackClientError("slack file upload redirected to a non-Slack URL")
+        raise SlackClientError("slack file upload redirects are not supported")
 
 
 def _request_json(request: urllib.request.Request) -> dict[str, Any]:

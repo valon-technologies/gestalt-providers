@@ -56,6 +56,7 @@ from .operations import (
     start_stream,
     stop_stream,
     update_message,
+    upload_file,
 )
 
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, Any]]
@@ -82,6 +83,7 @@ SLACK_ASSISTANT_PROMPTS_OPERATION = "events.setSuggestedPrompts"
 SLACK_STREAM_START_OPERATION = "events.startStream"
 SLACK_STREAM_APPEND_OPERATION = "events.appendStream"
 SLACK_STREAM_STOP_OPERATION = "events.stopStream"
+SLACK_UPLOAD_FILE_OPERATION = "events.uploadFile"
 SLACK_CONTEXT_OPERATION = "conversations.getThreadContext"
 SLACK_FILE_GET_OPERATION = "files.get"
 MAX_PROMPT_MESSAGE_URLS = 5
@@ -740,6 +742,77 @@ def reply_to_slack_event(
         "ts": str(result.get("ts") or ""),
         "thread_ts": verified_ref.reply_thread_ts,
     }
+
+
+def upload_slack_event_file(
+    reply_ref: str,
+    filename: str,
+    content: str,
+    content_base64: str,
+    title: str,
+    initial_comment: str,
+    content_type: str,
+    alt_txt: str,
+    snippet_type: str,
+    blocks: list[dict[str, Any]] | None,
+    req: gestalt.Request,
+) -> OperationResult:
+    log_context = _slack_delivery_log_context(
+        req, SLACK_UPLOAD_FILE_OPERATION, reply_ref=reply_ref
+    )
+    verified_ref: SlackReplyRef | None = None
+    try:
+        verified_ref = _event_reply_ref(reply_ref, req)
+        log_context = _slack_delivery_log_context(
+            req,
+            SLACK_UPLOAD_FILE_OPERATION,
+            reply_ref=reply_ref,
+            verified_ref=verified_ref,
+        )
+        logger.info("attempting Slack event file upload %s", log_context)
+        result = upload_file(
+            _agent_config.bot.token,
+            channel=verified_ref.channel_id,
+            filename=filename,
+            content=content,
+            content_base64=content_base64,
+            thread_ts=verified_ref.reply_thread_ts,
+            title=title,
+            initial_comment=initial_comment,
+            content_type=content_type,
+            alt_txt=alt_txt,
+            snippet_type=snippet_type,
+            blocks=blocks,
+        )
+    except ValueError as err:
+        if verified_ref is None:
+            logger.warning("failed Slack event file upload %s error=%s", log_context, err)
+            return gestalt.Response(
+                status=HTTPStatus.FORBIDDEN, body={"error": str(err)}
+            )
+        logger.warning(
+            "rejected Slack event file upload %s error=%s", log_context, err
+        )
+        return _bad_request(str(err))
+    except SlackAPIError as err:
+        logger.warning(
+            "failed Slack event file upload %s status=%s slack_response_body=%s",
+            log_context,
+            err.status,
+            _log_body(err.body),
+        )
+        return gestalt.Response(status=err.status, body=err.body)
+    except SlackClientError as err:
+        logger.warning("failed Slack event file upload %s error=%s", log_context, err)
+        return _event_client_error(err)
+
+    logger.info(
+        "delivered Slack event file upload %s slack_channel_id=%s slack_file_id=%s",
+        log_context,
+        str(result.get("channel") or verified_ref.channel_id),
+        str(result.get("file_id") or ""),
+    )
+    return result
 
 
 def reply_slack_event_session_started(

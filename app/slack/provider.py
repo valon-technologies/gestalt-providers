@@ -25,6 +25,7 @@ from internals.agent import (
     SLACK_STREAM_APPEND_OPERATION,
     SLACK_STREAM_START_OPERATION,
     SLACK_STREAM_STOP_OPERATION,
+    SLACK_UPLOAD_FILE_OPERATION,
     add_slack_event_reaction,
     append_slack_event_stream,
     clear_slack_event_assistant_status,
@@ -43,6 +44,7 @@ from internals.agent import (
     set_slack_event_thread_title,
     start_slack_event_stream,
     stop_slack_event_stream,
+    upload_slack_event_file,
 )
 from internals.client import SlackAPIError, SlackClientError, is_slack_file_download_url
 from internals.models import (
@@ -63,6 +65,7 @@ from internals.operations import (
     get_thread_participants,
     parse_message_url,
     post_message,
+    upload_file,
 )
 
 ErrorResponse: TypeAlias = gestalt.Response[dict[str, str]]
@@ -229,12 +232,107 @@ class GetFileInput(gestalt.Model):
     )
 
 
+class UploadFileInput(gestalt.Model):
+    channel: str = gestalt.field(
+        description="Channel ID where the file will be shared", default=""
+    )
+    filename: str = gestalt.field(description="Filename to show in Slack", default="")
+    content: str = gestalt.field(
+        description="Compatibility field for direct UTF-8 text uploads. Catalog callers should use content_base64.",
+        default="",
+        required=False,
+    )
+    content_base64: str = gestalt.field(
+        description="Base64-encoded file content for PDFs, binary files, or UTF-8 text files.",
+        default="",
+        required=False,
+    )
+    thread_ts: str = gestalt.field(
+        description="Thread timestamp to attach the file to",
+        default="",
+        required=False,
+    )
+    title: str = gestalt.field(
+        description="Optional file title", default="", required=False
+    )
+    initial_comment: str = gestalt.field(
+        description="Optional message text introducing the file",
+        default="",
+        required=False,
+    )
+    content_type: str = gestalt.field(
+        description="Optional upload content type such as application/pdf",
+        default="",
+        required=False,
+    )
+    alt_txt: str = gestalt.field(
+        description="Optional image alt text for screen readers",
+        default="",
+        required=False,
+    )
+    snippet_type: str = gestalt.field(
+        description="Optional Slack snippet syntax type",
+        default="",
+        required=False,
+    )
+    blocks: list[dict[str, Any]] | None = gestalt.field(
+        description="Optional Slack blocks for the upload message. Gestalt appends an attribution context footer.",
+        default_factory=list,
+        required=False,
+    )
+
+
 class SlackEventReplyInput(gestalt.Model):
     reply_ref: str = gestalt.field(
         description="Opaque Slack event reply reference from the current Slack signal"
     )
     text: str = gestalt.field(
         description="Required complete Slack message body to post in the event thread"
+    )
+
+
+class SlackEventUploadFileInput(gestalt.Model):
+    reply_ref: str = gestalt.field(
+        description="Opaque Slack event reply reference from the current Slack signal"
+    )
+    filename: str = gestalt.field(description="Filename to show in Slack", default="")
+    content: str = gestalt.field(
+        description="Compatibility field for direct UTF-8 text uploads. Catalog callers should use content_base64.",
+        default="",
+        required=False,
+    )
+    content_base64: str = gestalt.field(
+        description="Base64-encoded file content for PDFs, binary files, or UTF-8 text files.",
+        default="",
+        required=False,
+    )
+    title: str = gestalt.field(
+        description="Optional file title", default="", required=False
+    )
+    initial_comment: str = gestalt.field(
+        description="Optional message text introducing the file",
+        default="",
+        required=False,
+    )
+    content_type: str = gestalt.field(
+        description="Optional upload content type such as application/pdf",
+        default="",
+        required=False,
+    )
+    alt_txt: str = gestalt.field(
+        description="Optional image alt text for screen readers",
+        default="",
+        required=False,
+    )
+    snippet_type: str = gestalt.field(
+        description="Optional Slack snippet syntax type",
+        default="",
+        required=False,
+    )
+    blocks: list[dict[str, Any]] | None = gestalt.field(
+        description="Optional Slack blocks for the upload message",
+        default_factory=list,
+        required=False,
     )
 
 
@@ -514,6 +612,35 @@ def slack_events_reply(
 
 
 @gestalt.operation(
+    id=SLACK_UPLOAD_FILE_OPERATION,
+    method="POST",
+    description="Upload a file to the Slack event thread using Slack external upload",
+    visible=False,
+)
+def slack_events_upload_file(
+    input: SlackEventUploadFileInput, req: gestalt.Request
+) -> OperationResult:
+    content_error = _upload_file_content_argument_error(
+        input.content, input.content_base64
+    )
+    if content_error:
+        return _bad_request(content_error)
+    return upload_slack_event_file(
+        input.reply_ref,
+        input.filename,
+        input.content,
+        input.content_base64,
+        input.title,
+        input.initial_comment,
+        input.content_type,
+        input.alt_txt,
+        input.snippet_type,
+        input.blocks,
+        req,
+    )
+
+
+@gestalt.operation(
     id=SLACK_SESSION_STARTED_REPLY_OPERATION,
     method="POST",
     description="Reply to the Slack event thread with a link to the started Gestalt agent session",
@@ -736,6 +863,46 @@ def chat_post_message(
 
 
 @gestalt.operation(
+    id="files.upload",
+    method="POST",
+    description="Upload and share a Slack file using Slack external upload",
+)
+def files_upload(input: UploadFileInput, req: gestalt.Request) -> OperationResult:
+    token_error = _validate_token(req)
+    if token_error is not None:
+        return token_error
+    content_error = _upload_file_content_argument_error(
+        input.content, input.content_base64
+    )
+    if content_error:
+        return _bad_request(content_error)
+    blocks_or_error = _files_upload_blocks(input.initial_comment, input.blocks, req)
+    if isinstance(blocks_or_error, gestalt.Response):
+        return blocks_or_error
+    try:
+        return upload_file(
+            req.token,
+            channel=input.channel,
+            filename=input.filename,
+            content=input.content,
+            content_base64=input.content_base64,
+            thread_ts=input.thread_ts,
+            title=input.title,
+            initial_comment="",
+            content_type=input.content_type,
+            alt_txt=input.alt_txt,
+            snippet_type=input.snippet_type,
+            blocks=blocks_or_error,
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except SlackAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except SlackClientError as err:
+        return _server_error(str(err))
+
+
+@gestalt.operation(
     id="conversations.getMessage",
     method="POST",
     description="Fetch a single message by Slack URL or channel and timestamp",
@@ -938,6 +1105,33 @@ def _chat_post_message_footer_block(req: gestalt.Request) -> dict[str, Any]:
     }
 
 
+def _files_upload_blocks(
+    initial_comment: str, blocks: list[dict[str, Any]] | None, req: gestalt.Request
+) -> list[dict[str, Any]] | ErrorResponse:
+    if blocks is not None and not isinstance(blocks, list):
+        return _bad_request("blocks must be an array of Slack block objects")
+    if blocks and not all(isinstance(block, dict) for block in blocks):
+        return _bad_request("blocks must be an array of Slack block objects")
+
+    comment_blocks = _slack_section_blocks(initial_comment)
+    upload_blocks = [*comment_blocks, *(blocks or [])]
+    if len(upload_blocks) >= SLACK_MAX_BLOCKS:
+        return _bad_request(
+            "initial_comment and blocks must leave room for the Gestalt footer"
+        )
+    return [*upload_blocks, _chat_post_message_footer_block(req)]
+
+
+def _upload_file_content_argument_error(content: str, content_base64: str) -> str:
+    has_content = bool(content)
+    has_content_base64 = bool(content_base64.strip())
+    if has_content and has_content_base64:
+        return "content and content_base64 are mutually exclusive"
+    if not has_content and not has_content_base64:
+        return "content or content_base64 is required"
+    return ""
+
+
 def _chat_post_message_blocks(
     text: str, blocks: list[dict[str, Any]] | None, req: gestalt.Request
 ) -> list[dict[str, Any]] | ErrorResponse:
@@ -952,18 +1146,18 @@ def _chat_post_message_blocks(
     if blocks is not None and not isinstance(blocks, list):
         return _bad_request("blocks must be an array of Slack block objects")
 
-    chunks = [
-        text[index : index + SLACK_MAX_SECTION_TEXT_CHARS]
-        for index in range(0, len(text), SLACK_MAX_SECTION_TEXT_CHARS)
-    ]
-    if len(chunks) > SLACK_MAX_SYNTHESIZED_TEXT_BLOCKS:
+    synthesized = _slack_section_blocks(text)
+    if len(synthesized) > SLACK_MAX_SYNTHESIZED_TEXT_BLOCKS:
         return _bad_request("text is too long to send with the Gestalt footer")
-    synthesized = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": chunk}}
-        for chunk in chunks
-        if chunk
-    ]
     return [*synthesized, _chat_post_message_footer_block(req)]
+
+
+def _slack_section_blocks(text: str) -> list[dict[str, Any]]:
+    return [
+        {"type": "section", "text": {"type": "mrkdwn", "text": chunk}}
+        for index in range(0, len(text), SLACK_MAX_SECTION_TEXT_CHARS)
+        if (chunk := text[index : index + SLACK_MAX_SECTION_TEXT_CHARS])
+    ]
 
 
 def _chat_post_message_metadata(
