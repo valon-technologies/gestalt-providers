@@ -13,12 +13,14 @@ import uuid
 from dataclasses import asdict, is_dataclass
 from email.message import Message
 from http import HTTPStatus
+from http.client import HTTPMessage
 from typing import Any, cast
 from unittest import mock
 
 import gestalt
 import yaml
 
+import internals.client as client_module
 from internals.agent_links import agent_session_url
 import provider as provider_module
 
@@ -61,8 +63,9 @@ class FakeWorkflowPublishEvent:
 
 
 class FakeHTTPResponse:
-    def __init__(self, body: str) -> None:
-        self._body = body.encode("utf-8")
+    def __init__(self, body: str | bytes, status: int = 200) -> None:
+        self._body = body if isinstance(body, bytes) else body.encode("utf-8")
+        self.status = status
 
     def __enter__(self) -> FakeHTTPResponse:
         return self
@@ -102,8 +105,17 @@ def authorization_header(request: urllib.request.Request) -> str | None:
     )
 
 
+def request_header(request: urllib.request.Request, name: str) -> str:
+    headers = {key.lower(): value for key, value in request.header_items()}
+    return str(request.get_header(name) or headers.get(name.lower()) or "")
+
+
 def request_json(request: urllib.request.Request) -> dict[str, Any]:
     return json.loads(cast(bytes, request.data).decode("utf-8"))
+
+
+def request_form(request: urllib.request.Request) -> dict[str, list[str]]:
+    return urllib.parse.parse_qs(cast(bytes, request.data).decode("utf-8"))
 
 
 def signed_block_action_payload(
@@ -204,6 +216,13 @@ def signed_route_block_action_payload(
 
 def _catalog_parameter_names(operation: dict[str, Any]) -> list[str]:
     return [parameter["name"] for parameter in operation.get("parameters", [])]
+
+
+def _catalog_parameter(operation: dict[str, Any], name: str) -> dict[str, Any]:
+    for parameter in operation.get("parameters", []):
+        if parameter["name"] == name:
+            return cast(dict[str, Any], parameter)
+    raise AssertionError(f"missing catalog parameter {name}")
 
 
 def _manifest_parameter_names(operation: dict[str, Any]) -> list[str]:
@@ -348,6 +367,27 @@ class SlackProviderTests(unittest.TestCase):
         ):
             result = provider_module.chat_post_message(input, req)
         return result, captured
+
+    def _signed_reply_ref(
+        self,
+        *,
+        subject_id: str = "user:gestalt-123",
+        reply_thread_ts: str = "1712161829.000300",
+    ) -> str:
+        event = provider_module.SlackAgentEvent(
+            callback_type="event_callback",
+            event_type="app_mention",
+            event_id="EvUpload",
+            team_id="T123",
+            user_id="U456",
+            channel_id="C789",
+            channel_type="channel",
+            text="<@UBOT> attach report",
+            message_ts="1712161829.000300",
+            thread_ts="",
+            reply_thread_ts=reply_thread_ts,
+        )
+        return provider_module._agent._sign_reply_ref(event, subject_id)
 
     def _slack_bot_service_account_request(
         self, token: str = "xoxb-resolved-bot", agent_slack_user_id: str = ""
@@ -920,6 +960,40 @@ class SlackProviderTests(unittest.TestCase):
             _catalog_parameter_names(catalog_ops["events.reply"]),
             ["reply_ref", "text"],
         )
+        self.assertEqual(
+            _catalog_parameter_names(catalog_ops["events.uploadFile"]),
+            [
+                "reply_ref",
+                "filename",
+                "content_base64",
+                "title",
+                "initial_comment",
+                "content_type",
+                "alt_txt",
+                "snippet_type",
+                "blocks",
+            ],
+        )
+        self.assertFalse(catalog_ops["events.uploadFile"]["visible"])
+        self.assertNotIn(
+            "default", _catalog_parameter(catalog_ops["events.uploadFile"], "filename")
+        )
+        self.assertEqual(
+            _catalog_parameter(catalog_ops["events.uploadFile"], "content_base64")[
+                "required"
+            ],
+            True,
+        )
+        self.assertIn(
+            "UTF-8 text files",
+            _catalog_parameter(catalog_ops["events.uploadFile"], "content_base64")[
+                "description"
+            ],
+        )
+        self.assertNotIn(
+            "default",
+            _catalog_parameter(catalog_ops["events.uploadFile"], "content_base64"),
+        )
         self.assertIn(
             "requires reply_ref and text", catalog_ops["events.reply"]["description"]
         )
@@ -958,8 +1032,48 @@ class SlackProviderTests(unittest.TestCase):
                 "metadata",
             ],
         )
+        self.assertEqual(
+            _catalog_parameter_names(catalog_ops["files.upload"]),
+            [
+                "channel",
+                "filename",
+                "content_base64",
+                "thread_ts",
+                "title",
+                "initial_comment",
+                "content_type",
+                "alt_txt",
+                "snippet_type",
+                "blocks",
+            ],
+        )
+        self.assertNotIn(
+            "default", _catalog_parameter(catalog_ops["files.upload"], "channel")
+        )
+        self.assertNotIn(
+            "default", _catalog_parameter(catalog_ops["files.upload"], "filename")
+        )
+        self.assertIn(
+            "UTF-8 text files",
+            _catalog_parameter(catalog_ops["files.upload"], "content_base64")[
+                "description"
+            ],
+        )
+        self.assertEqual(
+            _catalog_parameter(catalog_ops["files.upload"], "content_base64")[
+                "required"
+            ],
+            True,
+        )
+        self.assertNotIn(
+            "default",
+            _catalog_parameter(catalog_ops["files.upload"], "content_base64"),
+        )
         self.assertNotIn("assistant.reconcileStuckRequests", catalog_ops)
         self.assertNotIn("chat.postMessage", rest_ops)
+        self.assertNotIn("files.upload", rest_ops)
+        self.assertNotIn("files.getUploadURLExternal", rest_ops)
+        self.assertNotIn("files.completeUploadExternal", rest_ops)
         self.assertEqual(http_routes["interactions"]["path"], "/interactions")
         self.assertEqual(http_routes["interactions"]["target"], "interactions.handle")
 
@@ -1051,6 +1165,12 @@ class SlackProviderTests(unittest.TestCase):
         self.assertIn("im:write", connections["default"]["auth"]["scopes"])
         self.assertIn("mpim:write", connections["default"]["auth"]["scopes"])
         self.assertIn("users:read.email", connections["default"]["auth"]["scopes"])
+        self.assertIn("files:write", connections["default"]["auth"]["scopes"])
+        docs = (PLUGIN_DIR / "docs" / "index.mdx").read_text()
+        self.assertIn("operation: files.upload", docs)
+        self.assertIn("operation: events.uploadFile", docs)
+        self.assertIn("content_base64", docs)
+        self.assertIn("reconnect or reauthorize", docs)
         self.assertEqual(
             _manifest_parameter_names(rest_ops["conversations.open"]),
             ["actor", "users", "channel", "return_im", "prevent_creation"],
@@ -7324,6 +7444,660 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(data["channel"], "C123ABC456")
         self.assertEqual(data["thread_ts"], "1712161829.000300")
         self.assertEqual(data["root_message"]["text"], "hello")
+
+    def test_files_upload_uses_external_upload_contract(self) -> None:
+        api_calls: list[str] = []
+        upload_calls = 0
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            api_calls.append(request.full_url)
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(authorization_header(request), "Bearer test-token")
+            self.assertIn(
+                "application/x-www-form-urlencoded",
+                request_header(request, "Content-Type"),
+            )
+            parsed = urllib.parse.urlsplit(request.full_url)
+
+            if parsed.path == "/api/files.getUploadURLExternal":
+                self.assertEqual(
+                    request_form(request),
+                    {
+                        "filename": ["report.txt"],
+                        "length": [str(len("hello thread".encode("utf-8")))],
+                        "alt_txt": ["Quarterly report"],
+                        "snippet_type": ["text"],
+                    },
+                )
+                return FakeHTTPResponse(
+                    """
+                    {
+                      "ok": true,
+                      "upload_url": "https://files.slack.com/upload/v1/ABC123",
+                      "file_id": "F123"
+                    }
+                    """
+                )
+
+            if parsed.path == "/api/files.completeUploadExternal":
+                form = request_form(request)
+                self.assertEqual(
+                    json.loads(form["files"][0]),
+                    [{"id": "F123", "title": "Report"}],
+                )
+                self.assertEqual(form["channel_id"], ["C123"])
+                self.assertEqual(form["thread_ts"], ["1.0"])
+                self.assertNotIn("initial_comment", form)
+                blocks = json.loads(form["blocks"][0])
+                self.assertEqual(
+                    blocks[0],
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": "Attached"},
+                    },
+                )
+                self.assertEqual(
+                    blocks[1],
+                    {"type": "section", "text": {"type": "mrkdwn", "text": "Hi"}},
+                )
+                self.assertEqual(blocks[-1]["type"], "context")
+                self.assertEqual(blocks[-1]["elements"][0]["text"], "Sent with Gestalt")
+                return FakeHTTPResponse(
+                    '{"ok": true, "files": [{"id": "F123", "title": "Report"}]}'
+                )
+
+            raise AssertionError(f"unexpected request {request.full_url}")
+
+        def fake_upload_open(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            nonlocal upload_calls
+            upload_calls += 1
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(
+                request.full_url, "https://files.slack.com/upload/v1/ABC123"
+            )
+            self.assertIsNone(authorization_header(request))
+            self.assertEqual(request_header(request, "Content-Type"), "text/plain")
+            self.assertEqual(
+                request_header(request, "Content-Length"),
+                str(len(b"hello thread")),
+            )
+            self.assertEqual(request.data, b"hello thread")
+            return FakeHTTPResponse("OK - 12")
+
+        with (
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch(
+                "internals.client.urllib.request.build_opener",
+                return_value=FakeOpener(fake_upload_open),
+            ),
+        ):
+            result = provider_module.files_upload(
+                provider_module.UploadFileInput(
+                    channel="C123",
+                    filename="report.txt",
+                    content="hello thread",
+                    thread_ts="1.0",
+                    title="Report",
+                    initial_comment="Attached",
+                    content_type="text/plain",
+                    alt_txt="Quarterly report",
+                    snippet_type="text",
+                    blocks=[
+                        {
+                            "type": "section",
+                            "text": {"type": "mrkdwn", "text": "Hi"},
+                        }
+                    ],
+                ),
+                gestalt.Request(token="test-token"),
+            )
+
+        self.assertEqual(upload_calls, 1)
+        self.assertEqual(
+            [urllib.parse.urlsplit(url).path for url in api_calls],
+            [
+                "/api/files.getUploadURLExternal",
+                "/api/files.completeUploadExternal",
+            ],
+        )
+        self.assertEqual(operation_body(result)["ok"], True)
+        self.assertEqual(operation_body(result)["file_id"], "F123")
+        self.assertEqual(operation_body(result)["channel"], "C123")
+        self.assertEqual(operation_body(result)["thread_ts"], "1.0")
+
+    def test_files_upload_accepts_base64_pdf_contract(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            parsed = urllib.parse.urlsplit(request.full_url)
+            if parsed.path == "/api/files.getUploadURLExternal":
+                self.assertEqual(
+                    request_form(request),
+                    {"filename": ["report.pdf"], "length": ["8"]},
+                )
+                return FakeHTTPResponse(
+                    '{"ok": true, "upload_url": "https://files.slack.com/upload/v1/PDF", "file_id": "FPDF"}'
+                )
+            if parsed.path == "/api/files.completeUploadExternal":
+                form = request_form(request)
+                blocks = json.loads(form["blocks"][0])
+                self.assertNotIn("initial_comment", form)
+                self.assertEqual(
+                    blocks,
+                    [
+                        {
+                            "type": "context",
+                            "elements": [
+                                {"type": "mrkdwn", "text": "Sent with Gestalt"}
+                            ],
+                        }
+                    ],
+                )
+                return FakeHTTPResponse('{"ok": true, "files": [{"id": "FPDF"}]}')
+            raise AssertionError(f"unexpected request {request.full_url}")
+
+        def fake_upload_open(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request_header(request, "Content-Type"), "application/pdf")
+            self.assertEqual(request.data, b"%PDF-1.4")
+            return FakeHTTPResponse("OK - 8")
+
+        with (
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch(
+                "internals.client.urllib.request.build_opener",
+                return_value=FakeOpener(fake_upload_open),
+            ),
+        ):
+            result = provider_module.files_upload(
+                provider_module.UploadFileInput(
+                    channel="C123",
+                    filename="report.pdf",
+                    content_base64="JVBERi0xLjQ=",
+                    content_type="application/pdf",
+                ),
+                gestalt.Request(token="test-token"),
+            )
+
+        self.assertEqual(operation_body(result)["file_id"], "FPDF")
+
+    def test_files_upload_uses_utf8_byte_length_contract(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            parsed = urllib.parse.urlsplit(request.full_url)
+            if parsed.path == "/api/files.getUploadURLExternal":
+                self.assertEqual(
+                    request_form(request),
+                    {"filename": ["unicode.txt"], "length": ["2"]},
+                )
+                return FakeHTTPResponse(
+                    '{"ok": true, "upload_url": "https://files.slack.com/upload/v1/TXT", "file_id": "FTXT"}'
+                )
+            if parsed.path == "/api/files.completeUploadExternal":
+                return FakeHTTPResponse('{"ok": true, "files": [{"id": "FTXT"}]}')
+            raise AssertionError(f"unexpected request {request.full_url}")
+
+        def fake_upload_open(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.data, "é".encode("utf-8"))
+            return FakeHTTPResponse("OK - 2")
+
+        with (
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch(
+                "internals.client.urllib.request.build_opener",
+                return_value=FakeOpener(fake_upload_open),
+            ),
+        ):
+            result = provider_module.files_upload(
+                provider_module.UploadFileInput(
+                    channel="C123", filename="unicode.txt", content="é"
+                ),
+                gestalt.Request(token="test-token"),
+            )
+
+        self.assertEqual(operation_body(result)["ok"], True)
+
+    def test_files_upload_validates_request_contract(self) -> None:
+        cases = [
+            (
+                provider_module.UploadFileInput(filename="a.txt", content="hi"),
+                "channel is required",
+            ),
+            (
+                provider_module.UploadFileInput(channel="C123", content="hi"),
+                "filename is required",
+            ),
+            (
+                provider_module.UploadFileInput(
+                    channel="C123",
+                    filename="a.txt",
+                    content="hi",
+                    content_base64="aGk=",
+                ),
+                "content and content_base64 are mutually exclusive",
+            ),
+            (
+                provider_module.UploadFileInput(channel="C123", filename="a.txt"),
+                "content or content_base64 is required",
+            ),
+            (
+                provider_module.UploadFileInput(
+                    channel="C123", filename="a.txt", content_base64="not-base64!"
+                ),
+                "content_base64 must be valid base64",
+            ),
+            (
+                provider_module.UploadFileInput(
+                    channel="C123",
+                    filename="a.txt",
+                    content="hi",
+                    blocks=cast(Any, ["bad"]),
+                ),
+                "blocks must be an array of Slack block objects",
+            ),
+            (
+                provider_module.UploadFileInput(
+                    channel="C123",
+                    filename="a.txt",
+                    content="hi",
+                    blocks=[{"type": "divider"} for _ in range(50)],
+                ),
+                "initial_comment and blocks must leave room for the Gestalt footer",
+            ),
+        ]
+
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            for input, error in cases:
+                with self.subTest(error=error):
+                    result = provider_module.files_upload(
+                        input, gestalt.Request(token="test-token")
+                    )
+                    self.assertIsInstance(result, gestalt.Response)
+                    response = cast(gestalt.Response[dict[str, str]], result)
+                    self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
+                    self.assertEqual(response.body, {"error": error})
+
+        urlopen.assert_not_called()
+
+    def test_files_upload_rejects_oversize_payload_contract(self) -> None:
+        cases = [
+            provider_module.UploadFileInput(
+                channel="C123", filename="a.txt", content="hello"
+            ),
+            provider_module.UploadFileInput(
+                channel="C123", filename="a.txt", content_base64="aGVsbG8="
+            ),
+        ]
+
+        with (
+            mock.patch("internals.operations.MAX_UPLOAD_BYTES", 4),
+            mock.patch("internals.client.urllib.request.urlopen") as urlopen,
+        ):
+            for input in cases:
+                with self.subTest(input=input):
+                    result = provider_module.files_upload(
+                        input, gestalt.Request(token="test-token")
+                    )
+                    self.assertIsInstance(result, gestalt.Response)
+                    response = cast(gestalt.Response[dict[str, str]], result)
+                    self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
+                    self.assertEqual(
+                        response.body, {"error": "file content exceeds 4 bytes"}
+                    )
+
+        urlopen.assert_not_called()
+
+    def test_files_upload_rejects_malformed_init_response_contract(self) -> None:
+        responses = [
+            (
+                '{"ok": true, "file_id": "F123"}',
+                "Slack upload URL response missing upload_url",
+            ),
+            (
+                '{"ok": true, "upload_url": "https://files.slack.com/upload/v1/ABC"}',
+                "Slack upload URL response missing file_id",
+            ),
+        ]
+
+        for body, error in responses:
+            with self.subTest(error=error):
+                def fake_urlopen(
+                    request: urllib.request.Request, timeout: float = 30
+                ) -> FakeHTTPResponse:
+                    self.assertEqual(timeout, 30)
+                    self.assertEqual(
+                        urllib.parse.urlsplit(request.full_url).path,
+                        "/api/files.getUploadURLExternal",
+                    )
+                    return FakeHTTPResponse(body)
+
+                with (
+                    mock.patch(
+                        "internals.client.urllib.request.urlopen",
+                        side_effect=fake_urlopen,
+                    ),
+                    mock.patch("internals.client.urllib.request.build_opener") as opener,
+                ):
+                    result = provider_module.files_upload(
+                        provider_module.UploadFileInput(
+                            channel="C123", filename="a.txt", content="hi"
+                        ),
+                        gestalt.Request(token="test-token"),
+                    )
+
+                self.assertIsInstance(result, gestalt.Response)
+                response = cast(gestalt.Response[dict[str, str]], result)
+                self.assertEqual(response.status, HTTPStatus.BAD_GATEWAY)
+                self.assertEqual(response.body, {"error": error})
+                opener.assert_not_called()
+
+    def test_files_upload_rejects_non_slack_upload_url_contract(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(
+                urllib.parse.urlsplit(request.full_url).path,
+                "/api/files.getUploadURLExternal",
+            )
+            return FakeHTTPResponse(
+                '{"ok": true, "upload_url": "https://example.com/upload/v1/ABC", "file_id": "F123"}'
+            )
+
+        with (
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch("internals.client.urllib.request.build_opener") as opener,
+        ):
+            result = provider_module.files_upload(
+                provider_module.UploadFileInput(
+                    channel="C123", filename="a.txt", content="hi"
+                ),
+                gestalt.Request(token="test-token"),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.INTERNAL_SERVER_ERROR)
+        self.assertEqual(
+            response.body,
+            {"error": "slack file upload URL must be a Slack HTTPS upload URL"},
+        )
+        opener.assert_not_called()
+
+    def test_files_upload_redirect_handler_rejects_redirects_contract(self) -> None:
+        handler = client_module._SlackFileUploadRedirectHandler()
+        request = urllib.request.Request(
+            "https://files.slack.com/upload/v1/ABC", data=b"hi", method="POST"
+        )
+        cases = [
+            (
+                "https://example.com/upload/v1/ABC",
+                "slack file upload redirected to a non-Slack URL",
+            ),
+            (
+                "https://files.slack.com/upload/v1/DEF",
+                "slack file upload redirects are not supported",
+            ),
+        ]
+
+        for newurl, error in cases:
+            with self.subTest(newurl=newurl):
+                with self.assertRaises(client_module.SlackClientError) as raised:
+                    handler.redirect_request(
+                        request, io.BytesIO(), 302, "Found", HTTPMessage(), newurl
+                    )
+                self.assertEqual(str(raised.exception), error)
+
+    def test_files_upload_propagates_raw_upload_error_contract(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(
+                urllib.parse.urlsplit(request.full_url).path,
+                "/api/files.getUploadURLExternal",
+            )
+            return FakeHTTPResponse(
+                '{"ok": true, "upload_url": "https://files.slack.com/upload/v1/ABC", "file_id": "F123"}'
+            )
+
+        def fake_upload_open(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            raise make_http_error(request.full_url, 403, '{"error": "access_denied"}')
+
+        with (
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch(
+                "internals.client.urllib.request.build_opener",
+                return_value=FakeOpener(fake_upload_open),
+            ),
+        ):
+            result = provider_module.files_upload(
+                provider_module.UploadFileInput(
+                    channel="C123", filename="a.txt", content="hi"
+                ),
+                gestalt.Request(token="test-token"),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(response.body, {"error": "access_denied"})
+
+    def test_events_upload_file_uses_reply_ref_thread_and_bot_token_contract(
+        self,
+    ) -> None:
+        provider_module.configure("slack", {"bot": {"token": "xoxb-bot"}})
+        self.addCleanup(provider_module.configure, "slack", {})
+        reply_ref = self._signed_reply_ref()
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(authorization_header(request), "Bearer xoxb-bot")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            if parsed.path == "/api/files.getUploadURLExternal":
+                self.assertEqual(
+                    request_form(request),
+                    {"filename": ["event.pdf"], "length": ["8"]},
+                )
+                return FakeHTTPResponse(
+                    '{"ok": true, "upload_url": "https://files.slack.com/upload/v1/EVENT", "file_id": "FEVENT"}'
+                )
+            if parsed.path == "/api/files.completeUploadExternal":
+                form = request_form(request)
+                self.assertEqual(form["channel_id"], ["C789"])
+                self.assertEqual(form["thread_ts"], ["1712161829.000300"])
+                self.assertEqual(form["initial_comment"], ["Attached"])
+                return FakeHTTPResponse(
+                    '{"ok": true, "files": [{"id": "FEVENT"}]}'
+                )
+            raise AssertionError(f"unexpected request {request.full_url}")
+
+        def fake_upload_open(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertIsNone(authorization_header(request))
+            self.assertEqual(request.data, b"%PDF-1.4")
+            return FakeHTTPResponse("OK - 8")
+
+        with (
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch(
+                "internals.client.urllib.request.build_opener",
+                return_value=FakeOpener(fake_upload_open),
+            ),
+        ):
+            result = provider_module.slack_events_upload_file(
+                provider_module.SlackEventUploadFileInput(
+                    reply_ref=reply_ref,
+                    filename="event.pdf",
+                    content_base64="JVBERi0xLjQ=",
+                    content_type="application/pdf",
+                    initial_comment="Attached",
+                ),
+                gestalt.Request(subject=gestalt.Subject(id="user:gestalt-123")),
+            )
+
+        self.assertEqual(operation_body(result)["ok"], True)
+        self.assertEqual(operation_body(result)["file_id"], "FEVENT")
+        self.assertEqual(operation_body(result)["channel"], "C789")
+
+    def test_events_upload_file_preserves_blocks_with_initial_comment_contract(
+        self,
+    ) -> None:
+        provider_module.configure("slack", {"bot": {"token": "xoxb-bot"}})
+        self.addCleanup(provider_module.configure, "slack", {})
+        reply_ref = self._signed_reply_ref()
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(authorization_header(request), "Bearer xoxb-bot")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            if parsed.path == "/api/files.getUploadURLExternal":
+                return FakeHTTPResponse(
+                    '{"ok": true, "upload_url": "https://files.slack.com/upload/v1/EVENT", "file_id": "FEVENT"}'
+                )
+            if parsed.path == "/api/files.completeUploadExternal":
+                form = request_form(request)
+                self.assertNotIn("initial_comment", form)
+                blocks = json.loads(form["blocks"][0])
+                self.assertEqual(
+                    blocks,
+                    [
+                        {
+                            "type": "section",
+                            "text": {"type": "mrkdwn", "text": "Attached"},
+                        },
+                        {"type": "divider"},
+                    ],
+                )
+                return FakeHTTPResponse(
+                    '{"ok": true, "files": [{"id": "FEVENT"}]}'
+                )
+            raise AssertionError(f"unexpected request {request.full_url}")
+
+        def fake_upload_open(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertIsNone(authorization_header(request))
+            self.assertEqual(request.data, b"%PDF-1.4")
+            return FakeHTTPResponse("OK - 8")
+
+        with (
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch(
+                "internals.client.urllib.request.build_opener",
+                return_value=FakeOpener(fake_upload_open),
+            ),
+        ):
+            result = provider_module.slack_events_upload_file(
+                provider_module.SlackEventUploadFileInput(
+                    reply_ref=reply_ref,
+                    filename="event.pdf",
+                    content_base64="JVBERi0xLjQ=",
+                    content_type="application/pdf",
+                    initial_comment="Attached",
+                    blocks=[{"type": "divider"}],
+                ),
+                gestalt.Request(subject=gestalt.Subject(id="user:gestalt-123")),
+            )
+
+        self.assertEqual(operation_body(result)["ok"], True)
+
+    def test_events_upload_file_rejects_foreign_reply_ref_contract(self) -> None:
+        provider_module.configure("slack", {"bot": {"token": "xoxb-bot"}})
+        self.addCleanup(provider_module.configure, "slack", {})
+        reply_ref = self._signed_reply_ref(subject_id="user:other")
+
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            result = provider_module.slack_events_upload_file(
+                provider_module.SlackEventUploadFileInput(
+                    reply_ref=reply_ref,
+                    filename="event.pdf",
+                    content_base64="JVBERi0xLjQ=",
+                ),
+                gestalt.Request(subject=gestalt.Subject(id="user:gestalt-123")),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(
+            response.body, {"error": "reply_ref does not belong to this subject"}
+        )
+        urlopen.assert_not_called()
+
+    def test_events_upload_file_validates_content_before_slack_contract(self) -> None:
+        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
+            result = provider_module.slack_events_upload_file(
+                provider_module.SlackEventUploadFileInput(
+                    reply_ref="invalid",
+                    filename="event.pdf",
+                ),
+                gestalt.Request(subject=gestalt.Subject(id="user:gestalt-123")),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(
+            response.body, {"error": "content or content_base64 is required"}
+        )
+        urlopen.assert_not_called()
+
+    def test_events_upload_file_requires_bot_token_contract(self) -> None:
+        provider_module.configure("slack", {})
+        self.addCleanup(provider_module.configure, "slack", {})
+
+        result = provider_module.slack_events_upload_file(
+            provider_module.SlackEventUploadFileInput(
+                reply_ref="missing-token",
+                filename="event.pdf",
+                content_base64="JVBERi0xLjQ=",
+            ),
+            gestalt.Request(subject=gestalt.Subject(id="user:gestalt-123")),
+        )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.PRECONDITION_FAILED)
+        self.assertEqual(response.body, {"error": "Slack bot token is not configured"})
 
     def test_files_get_rejects_non_slack_private_url_contract(self) -> None:
         result = provider_module.files_get(

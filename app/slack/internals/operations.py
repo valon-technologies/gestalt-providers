@@ -1,9 +1,19 @@
 import base64
+import binascii
+import json
 import re
 from http import HTTPStatus
 from typing import Any, cast
 
-from .client import SlackAPIError, SlackClientError, get_bytes, slack_get, slack_post
+from .client import (
+    SlackAPIError,
+    SlackClientError,
+    get_bytes,
+    slack_get,
+    slack_post,
+    slack_post_form,
+    upload_bytes_to_slack_url,
+)
 from .helpers import bool_field, map_field, map_slice, string_field
 
 SLACK_MESSAGE_URL_PATTERN = re.compile(
@@ -12,6 +22,9 @@ SLACK_MESSAGE_URL_PATTERN = re.compile(
 USER_MENTION_PATTERN = re.compile(r"<@(U[A-Z0-9]+)>")
 DEFAULT_FILE_MAX_BYTES = 200_000
 HARD_FILE_MAX_BYTES = 5 * 1024 * 1024
+DEFAULT_UPLOAD_CONTENT_TYPE = "application/octet-stream"
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+SLACK_MAX_SECTION_TEXT_CHARS = 3000
 
 
 def parse_message_url(url: str) -> tuple[str, str] | None:
@@ -469,6 +482,94 @@ def get_file(
     return {"data": result}
 
 
+def upload_file(
+    token: str,
+    *,
+    channel: str,
+    filename: str,
+    content: str = "",
+    content_base64: str = "",
+    thread_ts: str = "",
+    title: str = "",
+    initial_comment: str = "",
+    content_type: str = "",
+    alt_txt: str = "",
+    snippet_type: str = "",
+    blocks: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    channel = channel.strip()
+    filename = filename.strip()
+    thread_ts = thread_ts.strip()
+    title = title.strip()
+    initial_comment = initial_comment.strip()
+    content_type = content_type.strip() or DEFAULT_UPLOAD_CONTENT_TYPE
+    alt_txt = alt_txt.strip()
+    snippet_type = snippet_type.strip()
+    body = _upload_payload(content=content, content_base64=content_base64)
+    normalized_blocks = _upload_blocks(blocks)
+
+    if not channel:
+        raise ValueError("channel is required")
+    if not filename:
+        raise ValueError("filename is required")
+
+    upload_request: dict[str, str] = {
+        "filename": filename,
+        "length": str(len(body)),
+    }
+    if alt_txt:
+        upload_request["alt_txt"] = alt_txt
+    if snippet_type:
+        upload_request["snippet_type"] = snippet_type
+
+    upload_response = slack_post_form(
+        "files.getUploadURLExternal", upload_request, token
+    )
+    upload_url = string_field(upload_response, "upload_url")
+    file_id = string_field(upload_response, "file_id")
+    if not upload_url:
+        raise SlackAPIError(
+            HTTPStatus.BAD_GATEWAY,
+            {"error": "Slack upload URL response missing upload_url"},
+        )
+    if not file_id:
+        raise SlackAPIError(
+            HTTPStatus.BAD_GATEWAY,
+            {"error": "Slack upload URL response missing file_id"},
+        )
+
+    upload_bytes_to_slack_url(upload_url, body, content_type)
+
+    complete_file: dict[str, str] = {"id": file_id}
+    if title:
+        complete_file["title"] = title
+    complete_request: dict[str, str] = {
+        "files": json.dumps([complete_file], separators=(",", ":")),
+        "channel_id": channel,
+    }
+    if thread_ts:
+        complete_request["thread_ts"] = thread_ts
+    initial_comment, normalized_blocks = _upload_complete_message_fields(
+        initial_comment, normalized_blocks
+    )
+    if initial_comment:
+        complete_request["initial_comment"] = initial_comment
+    if normalized_blocks:
+        complete_request["blocks"] = json.dumps(
+            normalized_blocks, separators=(",", ":")
+        )
+
+    complete_response = slack_post_form(
+        "files.completeUploadExternal", complete_request, token
+    )
+    result = dict(complete_response)
+    result.setdefault("file_id", file_id)
+    result.setdefault("channel", channel)
+    if thread_ts:
+        result.setdefault("thread_ts", thread_ts)
+    return result
+
+
 def _context_message(
     token: str,
     *,
@@ -534,6 +635,62 @@ def _context_file(
                 include_image_data=include_image_data,
             )
     return normalized
+
+
+def _upload_payload(*, content: str, content_base64: str) -> bytes:
+    has_content = bool(content)
+    normalized_base64 = content_base64.strip()
+    has_content_base64 = bool(normalized_base64)
+    if has_content and has_content_base64:
+        raise ValueError("content and content_base64 are mutually exclusive")
+    if not has_content and not has_content_base64:
+        raise ValueError("content or content_base64 is required")
+    if has_content_base64:
+        if _base64_decoded_length(normalized_base64) > MAX_UPLOAD_BYTES:
+            raise ValueError(f"file content exceeds {MAX_UPLOAD_BYTES} bytes")
+        try:
+            body = base64.b64decode(normalized_base64, validate=True)
+        except binascii.Error as err:
+            raise ValueError("content_base64 must be valid base64") from err
+    else:
+        body = content.encode("utf-8")
+    if len(body) > MAX_UPLOAD_BYTES:
+        raise ValueError(f"file content exceeds {MAX_UPLOAD_BYTES} bytes")
+    if not body:
+        raise ValueError("file content must not be empty")
+    return body
+
+
+def _base64_decoded_length(content_base64: str) -> int:
+    padding = len(content_base64) - len(content_base64.rstrip("="))
+    return (len(content_base64) // 4) * 3 - min(padding, 2)
+
+
+def _upload_blocks(blocks: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    if blocks is None:
+        return []
+    if not isinstance(blocks, list) or not all(
+        isinstance(block, dict) for block in blocks
+    ):
+        raise ValueError("blocks must be an array of Slack block objects")
+    return blocks
+
+
+def _upload_complete_message_fields(
+    initial_comment: str, blocks: list[dict[str, Any]]
+) -> tuple[str, list[dict[str, Any]]]:
+    if not initial_comment or not blocks:
+        return initial_comment, blocks
+    comment_blocks = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": chunk}}
+        for index in range(0, len(initial_comment), SLACK_MAX_SECTION_TEXT_CHARS)
+        if (
+            chunk := initial_comment[
+                index : index + SLACK_MAX_SECTION_TEXT_CHARS
+            ]
+        )
+    ]
+    return "", [*comment_blocks, *blocks]
 
 
 def _normalize_file(
