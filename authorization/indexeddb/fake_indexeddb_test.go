@@ -81,8 +81,9 @@ func (s *fakeObjectStore) GetKey(_ context.Context, id string) (string, error) {
 	return "", indexeddb.ErrUnsupported
 }
 
-func (s *fakeObjectStore) Delete(context.Context, string) error {
-	return indexeddb.ErrUnsupported
+func (s *fakeObjectStore) Delete(_ context.Context, id string) error {
+	delete(s.records, id)
+	return nil
 }
 
 func (s *fakeObjectStore) Clear(context.Context) error {

@@ -236,6 +236,43 @@ func TestProviderSetAndListRelationships(t *testing.T) {
 	if !reflect.DeepEqual(subjectSetResp.Relationships[0], relationships[1]) {
 		t.Fatalf("ListRelationships(subject set) = %#v, want %#v", subjectSetResp.Relationships[0], relationships[1])
 	}
+
+	addedRelationship := &Relationship{
+		Tuple: &RelationshipTuple{
+			Target:   &RelationshipTarget{Subject: &Subject{Type: "subject", Id: "user:carol"}},
+			Relation: "reader",
+			Resource: &Resource{Type: "repository", Id: "valon-tools"},
+		},
+		SourceLayer: SourceLayerRuntime,
+	}
+	addResp, err := provider.AddRelationship(ctx, &AddRelationshipRequest{Relationship: addedRelationship})
+	if err != nil {
+		t.Fatalf("AddRelationship() error = %v", err)
+	}
+	if !reflect.DeepEqual(addResp.Relationship, addedRelationship) {
+		t.Fatalf("AddRelationship().Relationship = %#v, want %#v", addResp.Relationship, addedRelationship)
+	}
+
+	withAdded := append(append([]*Relationship{}, relationships...), addedRelationship)
+	listResp, err = provider.ListRelationships(ctx, &ListRelationshipsRequest{})
+	if err != nil {
+		t.Fatalf("ListRelationships(after add) error = %v", err)
+	}
+	if !sameRelationshipSet(listResp.Relationships, withAdded) {
+		t.Fatalf("ListRelationships(after add).Relationships = %#v, want %#v", listResp.Relationships, withAdded)
+	}
+
+	_, err = provider.DeleteRelationship(ctx, &DeleteRelationshipRequest{RelationshipTuple: addedRelationship.Tuple})
+	if err != nil {
+		t.Fatalf("DeleteRelationship() error = %v", err)
+	}
+	listResp, err = provider.ListRelationships(ctx, &ListRelationshipsRequest{})
+	if err != nil {
+		t.Fatalf("ListRelationships(after delete) error = %v", err)
+	}
+	if !sameRelationshipSet(listResp.Relationships, relationships) {
+		t.Fatalf("ListRelationships(after delete).Relationships = %#v, want %#v", listResp.Relationships, relationships)
+	}
 }
 
 func TestProposedAuthorizationProviderStubs(t *testing.T) {
@@ -257,20 +294,6 @@ func TestProposedAuthorizationProviderStubs(t *testing.T) {
 			name: "CheckAccessMany",
 			call: func() error {
 				_, err := provider.CheckAccessMany(ctx, &CheckAccessManyRequest{})
-				return err
-			},
-		},
-		{
-			name: "AddRelationship",
-			call: func() error {
-				_, err := provider.AddRelationship(ctx, &AddRelationshipRequest{})
-				return err
-			},
-		},
-		{
-			name: "DeleteRelationship",
-			call: func() error {
-				_, err := provider.DeleteRelationship(ctx, &DeleteRelationshipRequest{})
 				return err
 			},
 		},

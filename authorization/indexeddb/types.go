@@ -9,6 +9,8 @@ import (
 // AuthorizationProvider is the proposed authorization provider shape.
 type AuthorizationProvider interface {
 	ListRelationships(context.Context, *ListRelationshipsRequest) (*ListRelationshipsResponse, error)
+	AddRelationship(context.Context, *AddRelationshipRequest) (*AddRelationshipResponse, error)
+	DeleteRelationship(context.Context, *DeleteRelationshipRequest) (*DeleteRelationshipResponse, error)
 	SetRelationships(context.Context, *SetRelationshipsRequest) (*SetRelationshipsResponse, error)
 	GetActiveModelRef(context.Context, *emptypb.Empty) (*GetActiveModelRefResponse, error)
 	SetActiveModel(context.Context, *SetActiveModelRequest) (*SetActiveModelResponse, error)
@@ -16,8 +18,6 @@ type AuthorizationProvider interface {
 
 	CheckAccess(context.Context, *CheckAccessRequest) (*CheckAccessResponse, error)
 	CheckAccessMany(context.Context, *CheckAccessManyRequest) (*CheckAccessManyResponse, error)
-	AddRelationship(context.Context, *AddRelationshipRequest) (*AddRelationshipResponse, error)
-	DeleteRelationship(context.Context, *DeleteRelationshipRequest) (*DeleteRelationshipResponse, error)
 }
 
 type CheckAccessRequest struct{}
@@ -47,10 +47,18 @@ type ListRelationshipsResponse struct {
 	NextPageToken string
 }
 
-type AddRelationshipRequest struct{}
-type AddRelationshipResponse struct{}
+type AddRelationshipRequest struct {
+	Relationship *Relationship
+}
 
-type DeleteRelationshipRequest struct{}
+type AddRelationshipResponse struct {
+	Relationship *Relationship
+}
+
+type DeleteRelationshipRequest struct {
+	RelationshipTuple *RelationshipTuple
+}
+
 type DeleteRelationshipResponse struct{}
 
 type SetRelationshipsRequest struct {

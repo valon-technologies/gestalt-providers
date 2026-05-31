@@ -79,6 +79,50 @@ func (p *Provider) getDbWithLock() (indexeddb.Database, error) {
 	return p.db, nil
 }
 
+func (p *Provider) AddRelationship(ctx context.Context, req *AddRelationshipRequest) (*AddRelationshipResponse, error) {
+	if req == nil || req.Relationship == nil {
+		return nil, status.Error(codes.InvalidArgument, "relationship is required")
+	}
+	relationship := cloneRelationship(req.Relationship)
+	if err := normalizeRelationship(relationship); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "relationship is invalid: %v", err)
+	}
+	record, err := relationshipToRecord(relationship)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "relationship is invalid: %v", err)
+	}
+
+	db, err := p.getDbWithLock()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	if err := db.ObjectStore(getStoreNames().relationships).Put(ctx, record); err != nil {
+		return nil, status.Errorf(codes.Internal, "add relationship: %v", err)
+	}
+
+	return &AddRelationshipResponse{Relationship: cloneRelationship(relationship)}, nil
+}
+
+func (p *Provider) DeleteRelationship(ctx context.Context, req *DeleteRelationshipRequest) (*DeleteRelationshipResponse, error) {
+	if req == nil || req.RelationshipTuple == nil {
+		return nil, status.Error(codes.InvalidArgument, "relationship tuple is required")
+	}
+	relationship := &Relationship{Tuple: cloneRelationshipTuple(req.RelationshipTuple)}
+	if err := normalizeRelationship(relationship); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "relationship tuple is invalid: %v", err)
+	}
+
+	db, err := p.getDbWithLock()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	if err := db.ObjectStore(getStoreNames().relationships).Delete(ctx, relationshipID(relationship.Tuple)); err != nil {
+		return nil, status.Errorf(codes.Internal, "delete relationship: %v", err)
+	}
+
+	return &DeleteRelationshipResponse{}, nil
+}
+
 func (p *Provider) SetRelationships(ctx context.Context, req *SetRelationshipsRequest) (*SetRelationshipsResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
