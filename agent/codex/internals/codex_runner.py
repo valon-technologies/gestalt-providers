@@ -4,7 +4,6 @@ import asyncio
 import concurrent.futures
 import json
 import logging
-import os
 import pathlib
 import shutil
 import tempfile
@@ -270,9 +269,8 @@ class CodexMCPRunner:
 
     def _server_params(self, *, codex_home: str, cwd: str = "") -> dict[str, Any]:
         env: dict[str, str] = {"CODEX_HOME": codex_home}
-        openai_api_key = self._config.openai_api_key or os.environ.get("OPENAI_API_KEY", "")
-        if openai_api_key:
-            env["OPENAI_API_KEY"] = openai_api_key
+        if self._config.openai_api_key:
+            env["OPENAI_API_KEY"] = self._config.openai_api_key
         params: dict[str, Any] = {
             "command": self._config.codex_command,
             "args": list(self._config.codex_args),

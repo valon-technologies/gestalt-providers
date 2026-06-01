@@ -376,9 +376,9 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
 
     def _build_warnings(self, config: CodexAgentConfig) -> list[str]:
         warnings: list[str] = []
-        if not config.openai_api_key and not os.environ.get("OPENAI_API_KEY"):
+        if not config.openai_api_key:
             warnings.append(
-                "set config.openaiApiKey or OPENAI_API_KEY before live turns; "
+                "set config.openaiApiKey before live turns; "
                 "agent/codex uses an isolated per-turn CODEX_HOME and does not read Codex CLI login state"
             )
         if _resolve_codex_command(config) is None:

@@ -934,26 +934,6 @@ class ClaudeProviderTests(unittest.TestCase):
                 failed = _wait_for_turn(provider_client, f"turn-{mode}", agent_pb2.AGENT_EXECUTION_STATUS_FAILED)
                 self.assertIn(message, failed.status_message)
 
-    def test_provider_passes_host_injected_anthropic_env_to_agent_sdk(self) -> None:
-        previous = os.environ.get("ANTHROPIC_API_KEY")
-        os.environ["ANTHROPIC_API_KEY"] = "env-anthropic-key"
-        try:
-            _, provider_client = _configure_provider({"anthropicApiKey": ""})
-            _create_owned_session(provider_client, "session-env-key")
-            provider_client.CreateTurn(
-                _turn_request(
-                    turn_id="turn-env-key",
-                    session_id="session-env-key",
-                    messages=[agent_pb2.AgentMessage(role="user", text="hello")],
-                    execution_ref="exec-env-key",
-                )
-            )
-            _wait_for_turn(provider_client, "turn-env-key", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
-        finally:
-            _restore_env("ANTHROPIC_API_KEY", previous)
-
-        self.assertEqual(_FakeClaudeSDKClient.instances[-1].options.env["ANTHROPIC_API_KEY"], "env-anthropic-key")
-
     def test_runner_uses_per_turn_timeout_override(self) -> None:
         _FakeClaudeSDKClient.mode = "structured_success"
         _configure_provider()
