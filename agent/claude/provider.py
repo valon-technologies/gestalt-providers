@@ -432,8 +432,8 @@ class ClaudeCodeAgentProvider(
 
     def _build_warnings(self, config: ClaudeAgentConfig) -> list[str]:
         warnings: list[str] = []
-        if not config.anthropic_api_key and not os.environ.get("ANTHROPIC_API_KEY"):
-            warnings.append("set config.anthropicApiKey or ANTHROPIC_API_KEY before running live Claude turns")
+        if not config.anthropic_api_key:
+            warnings.append("set config.anthropicApiKey before running live Claude turns")
         if config.cli_path and _resolve_claude_cli(config) is None:
             warnings.append(f"configured cliPath {config.cli_path!r} could not be resolved")
         return warnings

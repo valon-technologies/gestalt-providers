@@ -4,7 +4,6 @@ import asyncio
 import concurrent.futures
 import json
 import logging
-import os
 import tempfile
 import threading
 from dataclasses import dataclass, field
@@ -256,9 +255,8 @@ class ClaudeSDKRunner:
         claude_code_options = turn_profile.claude_code_options
         assert claude_code_options is not None
         env: dict[str, str] = {"ENABLE_TOOL_SEARCH": "auto:5"}
-        anthropic_api_key = self._config.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-        if anthropic_api_key:
-            env["ANTHROPIC_API_KEY"] = anthropic_api_key
+        if self._config.anthropic_api_key:
+            env["ANTHROPIC_API_KEY"] = self._config.anthropic_api_key
         if claude_code_options.disable_auto_memory:
             env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
         return ClaudeAgentOptions(
@@ -283,10 +281,9 @@ class ClaudeSDKRunner:
         )
 
     def _direct_options(self, *, model: str, turn_profile: ClaudeTurnProfile) -> ClaudeAgentOptions:
-        anthropic_api_key = self._config.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY", "")
         env: dict[str, str] = {}
-        if anthropic_api_key:
-            env["ANTHROPIC_API_KEY"] = anthropic_api_key
+        if self._config.anthropic_api_key:
+            env["ANTHROPIC_API_KEY"] = self._config.anthropic_api_key
         system_prompt = _configured_system_prompt(self._config.system_prompt)
         schema = turn_profile.schema
         output_format = {"type": "json_schema", "schema": schema} if schema is not None else None

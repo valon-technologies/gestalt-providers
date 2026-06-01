@@ -355,15 +355,6 @@ export interface AgentToolRef {
   description?: string;
 }
 
-export interface LegacyAgentToolRef {
-  pluginName: string;
-  operation: string;
-  connection?: string;
-  instance?: string;
-  title?: string;
-  description?: string;
-}
-
 export interface AgentRun {
   id: string;
   sessionId?: string;
@@ -385,7 +376,7 @@ export interface AgentRunCreate {
   provider?: string;
   model?: string;
   messages: AgentMessage[];
-  toolRefs?: Array<AgentToolRef | LegacyAgentToolRef>;
+  toolRefs?: AgentToolRef[];
   toolSource?: "mcp_catalog" | "explicit" | "inherit_invokes";
   output?: AgentOutput;
   sessionRef?: string;
@@ -555,10 +546,10 @@ function idempotencyKeyPart(prefix: string, key?: string): string | undefined {
   return key ? `${prefix}:${key}` : undefined;
 }
 
-function agentToolRefsToRequest(toolRefs?: Array<AgentToolRef | LegacyAgentToolRef>) {
+function agentToolRefsToRequest(toolRefs?: AgentToolRef[]) {
   return toolRefs?.map((tool) => ({
-    system: "system" in tool ? tool.system : undefined,
-    plugin: "pluginName" in tool ? tool.pluginName : tool.plugin,
+    system: tool.system,
+    plugin: tool.plugin,
     operation: tool.operation,
     connection: tool.connection,
     instance: tool.instance,

@@ -24,6 +24,7 @@ properties:
       - plan
   anthropicApiKey:
     type: string
+    description: Optional Anthropic API key passed only to the Claude SDK.
   settingSources:
     type: array
     items:

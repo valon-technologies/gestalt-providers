@@ -49,7 +49,6 @@ _host_socket = ""
 _host_servicer: "_FakeAgentHost | None" = None
 _previous_host_service_socket: str | None = None
 _previous_host_service_token: str | None = None
-_previous_openai_api_key: str | None = None
 
 
 class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
@@ -429,27 +428,6 @@ class CodexProviderTests(unittest.TestCase):
             provider_client.CreateTurn(denied_turn)
         self.assertEqual(cast(Any, denied_create.exception).code(), grpc.StatusCode.PERMISSION_DENIED)
 
-    def test_provider_passes_host_injected_openai_env_to_codex_mcp(self) -> None:
-        previous = os.environ.get("OPENAI_API_KEY")
-        os.environ["OPENAI_API_KEY"] = "env-openai-key"
-        try:
-            _, provider_client = _configure_provider(openai_api_key="")
-            _create_owned_session(provider_client, "session-env-key")
-            provider_client.CreateTurn(
-                _turn_request(
-                    turn_id="turn-env-key",
-                    session_id="session-env-key",
-                    messages=[agent_pb2.AgentMessage(role="user", text="hello")],
-                    execution_ref="exec-env-key",
-                )
-            )
-            _wait_for_turn(provider_client, "turn-env-key", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
-        finally:
-            _restore_env("OPENAI_API_KEY", previous)
-
-        fake_server = _FakeCodexMCPServer.instances[-1]
-        self.assertEqual(fake_server.params["env"]["OPENAI_API_KEY"], "env-openai-key")
-
     def test_provider_launches_codex_from_prepared_workspace(self) -> None:
         if not hasattr(agent_pb2.CreateAgentProviderSessionRequest(), "prepared_workspace"):
             self.skipTest("installed gestalt-sdk does not expose prepared workspaces yet")
@@ -757,16 +735,14 @@ class CodexProviderTests(unittest.TestCase):
 
 def setUpModule() -> None:
     global _runtime_server, _host_server, _runtime_socket, _host_socket, _host_servicer
-    global _previous_host_service_socket, _previous_host_service_token, _previous_openai_api_key
+    global _previous_host_service_socket, _previous_host_service_token
 
     _runtime_socket = _fresh_socket("codex-mcp-agent-runtime")
     _host_socket = _fresh_socket("codex-mcp-agent-host")
     _previous_host_service_socket = os.environ.get(ENV_HOST_SERVICE_SOCKET)
     _previous_host_service_token = os.environ.get(ENV_HOST_SERVICE_TOKEN)
-    _previous_openai_api_key = os.environ.get("OPENAI_API_KEY")
     os.environ[ENV_HOST_SERVICE_SOCKET] = _host_socket
     os.environ[ENV_HOST_SERVICE_TOKEN] = "relay-token"
-    os.environ.pop("OPENAI_API_KEY", None)
 
     _host_servicer = _FakeAgentHost()
     _host_server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
@@ -794,7 +770,6 @@ def tearDownModule() -> None:
             pass
     _restore_env(ENV_HOST_SERVICE_SOCKET, _previous_host_service_socket)
     _restore_env(ENV_HOST_SERVICE_TOKEN, _previous_host_service_token)
-    _restore_env("OPENAI_API_KEY", _previous_openai_api_key)
 
 
 def _configure_provider(

@@ -36,4 +36,4 @@ properties:
       - danger-full-access
   openaiApiKey:
     type: string
-    description: Optional OpenAI API key passed only to the Codex MCP server process. Required unless OPENAI_API_KEY is set.
+    description: Optional OpenAI API key passed only to the Codex MCP server process.

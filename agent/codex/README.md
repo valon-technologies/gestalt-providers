@@ -26,9 +26,9 @@ host-service socket credentials and tool grants are not serialized into Codex
 config, and the generated Codex shell environment policy excludes
 `OPENAI_API_KEY` and `GESTALT_*` from shell commands.
 
-Use `config.openaiApiKey` or `OPENAI_API_KEY` for Codex authentication. The
-provider starts Codex with an isolated per-turn `CODEX_HOME`, so it does not read
-the user's `codex login` state from the default Codex home.
+Use `config.openaiApiKey` for Codex authentication. The provider starts Codex
+with an isolated per-turn `CODEX_HOME`, so it does not read the user's
+`codex login` state from the default Codex home.
 
 ## Local Usage
 
@@ -38,24 +38,20 @@ providers:
     codex:
       source: /absolute/path/to/gestalt-providers/agent/codex/manifest.yaml
       default: true
-      env:
-        OPENAI_API_KEY:
+      config:
+        openaiApiKey:
           secret:
             provider: secrets
             name: openai-api-key
-      config:
         workingDirectory: /path/to/trusted/workspace
         timeoutSeconds: 300
         approvalPolicy: never
         sandbox: read-only
 ```
 
-`env` is the provider-level Gestalt environment block, not a field inside
-`config`. Gestalt resolves structured secret refs there before launching the
-provider process. For backwards compatibility, `env.OPENAI_API_KEY` may also be
-a literal or environment-interpolated string such as `${OPENAI_API_KEY:-}`. When
-`config.openaiApiKey` is omitted, the provider uses the host-injected
-`OPENAI_API_KEY` environment variable for Codex authentication.
+Gestalt resolves the structured secret ref before launching the provider
+process. The provider passes `config.openaiApiKey` only to the Codex MCP server
+process.
 
 Use exact tool refs with the MCP catalog source:
 
