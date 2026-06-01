@@ -80,8 +80,8 @@ func TestProviderSetAndGetActiveModel(t *testing.T) {
 		Id:      "model-1",
 		Version: "v1",
 		ResourceTypes: []*AuthorizationModelResourceType{
-			{Name: "document"},
-			{Name: "folder"},
+			{Name: "document", SourceLayer: SourceLayerStaticConfig},
+			{Name: "folder", SourceLayer: SourceLayerRuntime},
 		},
 	}
 
@@ -121,6 +121,26 @@ func TestProviderSetAndGetActiveModel(t *testing.T) {
 	}
 	if !reflect.DeepEqual(listResp.ResourceTypes, model.ResourceTypes) {
 		t.Fatalf("ListActiveModelResourceTypes(model-1) = %#v, want %#v", listResp.ResourceTypes, model.ResourceTypes)
+	}
+
+	listResp, err = provider.ListActiveModelResourceTypes(ctx, &ListActiveModelResourceTypesRequest{
+		Filter: &AuthorizationModelResourceTypeFilter{SourceLayer: SourceLayerStaticConfig},
+	})
+	if err != nil {
+		t.Fatalf("ListActiveModelResourceTypes(static config) error = %v", err)
+	}
+	if !reflect.DeepEqual(listResp.ResourceTypes, model.ResourceTypes[:1]) {
+		t.Fatalf("ListActiveModelResourceTypes(static config) = %#v, want %#v", listResp.ResourceTypes, model.ResourceTypes[:1])
+	}
+
+	listResp, err = provider.ListActiveModelResourceTypes(ctx, &ListActiveModelResourceTypesRequest{
+		Filter: &AuthorizationModelResourceTypeFilter{Name: "folder", SourceLayer: SourceLayerRuntime},
+	})
+	if err != nil {
+		t.Fatalf("ListActiveModelResourceTypes(runtime folder) error = %v", err)
+	}
+	if !reflect.DeepEqual(listResp.ResourceTypes, model.ResourceTypes[1:]) {
+		t.Fatalf("ListActiveModelResourceTypes(runtime folder) = %#v, want %#v", listResp.ResourceTypes, model.ResourceTypes[1:])
 	}
 }
 

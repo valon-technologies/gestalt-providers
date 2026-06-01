@@ -174,6 +174,7 @@ const (
 //	  "resource_types": [
 //	    {
 //	      "name": "repository",
+//	      "source_layer": "static_config",
 //	      "relations": [
 //	        {"name": "reader"},
 //	        {"name": "maintainer"}
@@ -185,6 +186,7 @@ const (
 //	    },
 //	    {
 //	      "name": "group",
+//	      "source_layer": "runtime",
 //	      "relations": [
 //	        {"name": "member"}
 //	      ]
@@ -204,9 +206,10 @@ type AuthorizationModelRef struct {
 }
 
 type AuthorizationModelResourceType struct {
-	Name      string                        `json:"name"`
-	Relations []*AuthorizationModelRelation `json:"relations,omitempty"`
-	Actions   []*AuthorizationModelAction   `json:"actions,omitempty"`
+	Name        string                        `json:"name"`
+	Relations   []*AuthorizationModelRelation `json:"relations,omitempty"`
+	Actions     []*AuthorizationModelAction   `json:"actions,omitempty"`
+	SourceLayer SourceLayer                   `json:"source_layer"`
 }
 
 type AuthorizationModelRelation struct {
@@ -244,6 +247,12 @@ type SetActiveModelResponse struct {
 
 type ListActiveModelResourceTypesRequest struct {
 	ModelID string
+	Filter  *AuthorizationModelResourceTypeFilter
+}
+
+type AuthorizationModelResourceTypeFilter struct {
+	Name        string
+	SourceLayer SourceLayer
 }
 
 type ListActiveModelResourceTypesResponse struct {

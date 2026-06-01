@@ -328,8 +328,10 @@ func (p *Provider) ListActiveModelResourceTypes(ctx context.Context, req *ListAc
 	keys := getStateKeys()
 
 	modelID := ""
+	var filter *AuthorizationModelResourceTypeFilter
 	if req != nil {
 		modelID = strings.TrimSpace(req.ModelID)
+		filter = req.Filter
 	}
 	if modelID == "" {
 		ref, err := getActiveModelRef(ctx, db.ObjectStore(stores.state), keys.activeModel)
@@ -351,7 +353,7 @@ func (p *Provider) ListActiveModelResourceTypes(ctx context.Context, req *ListAc
 	}
 
 	return &ListActiveModelResourceTypesResponse{
-		ResourceTypes: cloneAuthorizationModelResourceTypes(model.ResourceTypes),
+		ResourceTypes: filterAuthorizationModelResourceTypes(model.ResourceTypes, filter),
 	}, nil
 }
 

@@ -178,14 +178,43 @@ func cloneAuthorizationModelResourceTypes(resourceTypes []*AuthorizationModelRes
 	}
 	out := make([]*AuthorizationModelResourceType, 0, len(resourceTypes))
 	for _, resourceType := range resourceTypes {
+		cloned := cloneAuthorizationModelResourceType(resourceType)
+		if cloned != nil {
+			out = append(out, cloned)
+		}
+	}
+	return out
+}
+
+func cloneAuthorizationModelResourceType(resourceType *AuthorizationModelResourceType) *AuthorizationModelResourceType {
+	if resourceType == nil {
+		return nil
+	}
+	return &AuthorizationModelResourceType{
+		Name:        resourceType.Name,
+		Relations:   cloneAuthorizationModelRelations(resourceType.Relations),
+		Actions:     cloneAuthorizationModelActions(resourceType.Actions),
+		SourceLayer: resourceType.SourceLayer,
+	}
+}
+
+func filterAuthorizationModelResourceTypes(resourceTypes []*AuthorizationModelResourceType, filter *AuthorizationModelResourceTypeFilter) []*AuthorizationModelResourceType {
+	if filter == nil {
+		return cloneAuthorizationModelResourceTypes(resourceTypes)
+	}
+	name := strings.TrimSpace(filter.Name)
+	out := make([]*AuthorizationModelResourceType, 0, len(resourceTypes))
+	for _, resourceType := range resourceTypes {
 		if resourceType == nil {
 			continue
 		}
-		out = append(out, &AuthorizationModelResourceType{
-			Name:      resourceType.Name,
-			Relations: cloneAuthorizationModelRelations(resourceType.Relations),
-			Actions:   cloneAuthorizationModelActions(resourceType.Actions),
-		})
+		if name != "" && resourceType.Name != name {
+			continue
+		}
+		if filter.SourceLayer != SourceLayerUnspecified && resourceType.SourceLayer != filter.SourceLayer {
+			continue
+		}
+		out = append(out, cloneAuthorizationModelResourceType(resourceType))
 	}
 	return out
 }
