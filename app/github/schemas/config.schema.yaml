@@ -1,5 +1,11 @@
 type: object
 properties:
+  clientId:
+    type: string
+    description: GitHub OAuth app client ID used for subject-owned user identity connections.
+  clientSecret:
+    type: string
+    description: GitHub OAuth app client secret used for subject-owned user identity connections.
   appId:
     type: string
     description: GitHub App ID used for webhook and installation-token API calls.
@@ -51,5 +57,7 @@ properties:
       Ignore webhook payloads sent by the derived GitHub App bot login.
       Defaults to true.
 required:
+  - clientId
+  - clientSecret
   - workflow
 additionalProperties: false

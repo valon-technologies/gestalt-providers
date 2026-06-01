@@ -208,9 +208,9 @@ Slack should send Events API requests to `POST /api/v1/slack/event` and Slack
 interactivity requests to `POST /api/v1/slack/interactions`. Both routes are
 declared in `manifest.yaml` under `spec.http`, validate Slack HMAC signatures
 with `SLACK_SIGNING_SECRET`, and by default resolve the Slack team/user through
-the managed `external_identity` authorization relationship. Matching
+the app-scoped `app/slack/user#linked` authorization relationship. Matching
 bot-selected agent routes with `runAs.subject` can instead resolve to the
-configured service account before external identity lookup.
+configured service account before linked-user lookup.
 
 `events.handle`, `events.reply`, `events.setStatus`, `events.deleteStatus`,
 `events.addReaction`, `events.removeReaction`, the native assistant helpers,
@@ -553,11 +553,11 @@ Slack thread workflow key. Supported template fields are `team_id`,
 `route_id`.
 Route `runAs.subject` can name a managed service-account subject, such as
 `service_account:slack-bot`; matching Slack events then resolve to that subject
-instead of requiring the Slack bot user to have a linked external identity. This
-is only allowed for trusted bot-originated routes selected with `botIds`. Signed
-Slack interaction callbacks generated from that route use `runAs.subject` only
-when the signed ref subject ID already equals the configured runAs subject.
-Route `runAs` changes the Slack invocation subject for the workflow signal.
+instead of resolving the Slack bot user back to an end-user subject. This is only
+allowed for trusted bot-originated routes selected with `botIds`. Signed Slack
+interaction callbacks generated from that route use `runAs.subject` only when the
+signed ref subject ID already equals the configured runAs subject. Route `runAs`
+changes the Slack invocation subject for the workflow signal.
 
 When a route uses `match.eventTypes`, include
 `assistant_thread_started` and `assistant_thread_context_changed` on routes that
@@ -625,6 +625,7 @@ Operation surfaces: REST.
 Representative operations include:
 
 - `conversations.getThreadContext`
+- `identity.linkSelf`
 - `events.startStream`
 - `events.handle`
 - `interactions.handle`

@@ -18,8 +18,11 @@ from .client import (
     JsonObject,
     repo_path,
 )
+from .config import get_github_config
 from .constants import (
-    GITHUB_APP_INSTALLATION_EXTERNAL_IDENTITY_TYPE,
+    GITHUB_DEFAULT_WEB_BASE_URL,
+    GITHUB_REPOSITORY_ACTION_BOT,
+    GITHUB_REPOSITORY_RESOURCE_TYPE,
     MAX_GITHUB_PATCH_CHARS,
 )
 from .errors import GitHubAPIError, GitHubAuthorizationError
@@ -162,6 +165,15 @@ class GitHubCreatePullRequestReviewRequest:
     body: str
     comments: tuple[GitHubPullRequestReviewComment, ...]
     commit_id: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubListPullRequestReviewsRequest:
+    owner: str
+    repo: str
+    pull_number: int
+    per_page: int = 0
+    page: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -450,13 +462,6 @@ CHECK_RUN_CONCLUSIONS = frozenset(
 
 
 @dataclass(frozen=True, slots=True)
-class GitHubInstallationResolution:
-    owner: str
-    repo: str
-    installation_id: int
-
-
-@dataclass(frozen=True, slots=True)
 class _ValidatedCommitRequest:
     owner: str
     repo: str
@@ -472,7 +477,7 @@ def commit_files(
     *,
     subject: gestalt.Subject,
     pull_request_permissions: bool,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> CommitResult:
     github = github_client(client)
@@ -485,9 +490,10 @@ def commit_files(
         client=github,
     )
     installation_id = scoped_installation_id(
+        subject,
         owner=validated.owner,
         repo=validated.repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     permissions = {"contents": "write"}
@@ -653,7 +659,7 @@ def open_pull_request(
     request: GitHubOpenPullRequestRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -664,9 +670,10 @@ def open_pull_request(
     base = require_branch_name(request.base, "base")
     head_owner = optional_slug(request.head_owner, "head_owner")
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -693,7 +700,7 @@ def close_pull_request(
     request: GitHubPullRequestRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -701,9 +708,10 @@ def close_pull_request(
     repo = require_slug(request.repo, "repo")
     pull_number = require_positive_int(request.pull_number, "pull_number")
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -723,7 +731,7 @@ def create_pull_request_with_files(
     request: GitHubCreatePullRequestRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> CreatePullRequestResult:
     github = github_client(client)
@@ -747,7 +755,7 @@ def create_pull_request_with_files(
         ),
         subject=subject,
         pull_request_permissions=True,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -804,7 +812,7 @@ def create_issue_comment(
     request: GitHubCreateIssueCommentRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -813,9 +821,10 @@ def create_issue_comment(
     issue_number = require_positive_int(request.issue_number, "issue_number")
     body = require_text(request.body, "body")
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     path = repo_path(owner, repo, "issues", str(issue_number), "comments")
@@ -834,7 +843,7 @@ def add_reaction(
     request: GitHubAddReactionRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -864,9 +873,10 @@ def add_reaction(
         permissions = {"pull_requests": "write"}
 
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -879,7 +889,7 @@ def add_labels(
     request: GitHubAddLabelsRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> list[JsonObject]:
     github = github_client(client)
@@ -892,9 +902,10 @@ def add_labels(
     )
     labels = normalize_unique_strings(request.labels, "labels")
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -913,7 +924,7 @@ def remove_labels(
     request: GitHubRemoveLabelsRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> tuple[tuple[str, ...], list[JsonObject]]:
     github = github_client(client)
@@ -926,9 +937,10 @@ def remove_labels(
     )
     labels = normalize_unique_strings(request.labels, "labels")
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -949,7 +961,7 @@ def request_reviewers(
     request: GitHubRequestReviewersRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -963,9 +975,10 @@ def request_reviewers(
     if not reviewers and not team_reviewers:
         raise ValueError("reviewers or team_reviewers must contain at least one value")
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     payload: JsonObject = {}
@@ -988,7 +1001,7 @@ def create_pull_request_conversation_comment(
     request: GitHubCreatePullRequestConversationCommentRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -997,9 +1010,10 @@ def create_pull_request_conversation_comment(
     pull_number = require_positive_int(request.pull_number, "pull_number")
     body = require_text(request.body, "body")
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     path = repo_path(owner, repo, "issues", str(pull_number), "comments")
@@ -1018,7 +1032,7 @@ def create_pull_request_review(
     request: GitHubCreatePullRequestReviewRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1030,9 +1044,10 @@ def create_pull_request_review(
     if not comments:
         raise ValueError("comments must contain at least one comment")
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     payload: JsonObject = {
@@ -1052,11 +1067,46 @@ def create_pull_request_review(
     return github.github_json("POST", path, token, payload)
 
 
+def list_pull_request_reviews(
+    request: GitHubListPullRequestReviewsRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.AuthorizationProtocol | None = None,
+    client: GitHubAPIClient | None = None,
+) -> list[JsonObject]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    pull_number = require_positive_int(request.pull_number, "pull_number")
+    params = pagination_params(per_page=request.per_page, page=request.page)
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"pull_requests": "read"}
+    )
+    data = github.github_json_value(
+        "GET",
+        path_with_query(
+            repo_path(owner, repo, "pulls", str(pull_number), "reviews"),
+            params,
+        ),
+        token,
+    )
+    if not isinstance(data, list):
+        raise GitHubAPIError(502, "GitHub pull request reviews response was not a list")
+    return [review for review in data if isinstance(review, dict)]
+
+
 def list_pull_request_review_threads(
     request: GitHubListPullRequestReviewThreadsRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1068,9 +1118,10 @@ def list_pull_request_review_threads(
         request.comments_first, "comments_first", 20, 50
     )
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     variables: JsonObject = {
@@ -1122,7 +1173,7 @@ def resolve_pull_request_review_thread(
     request: GitHubResolvePullRequestReviewThreadRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1131,9 +1182,10 @@ def resolve_pull_request_review_thread(
     pull_number = require_positive_int(request.pull_number, "pull_number")
     thread_id = require_text(request.thread_id, "thread_id")
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -1177,7 +1229,7 @@ def get_pull_request(
     request: GitHubPullRequestRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1185,9 +1237,10 @@ def get_pull_request(
     repo = require_slug(request.repo, "repo")
     pull_number = require_positive_int(request.pull_number, "pull_number")
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -1204,7 +1257,7 @@ def list_pull_request_files(
     request: GitHubListPullRequestFilesRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> list[JsonObject]:
     github = github_client(client)
@@ -1213,9 +1266,10 @@ def list_pull_request_files(
     pull_number = require_positive_int(request.pull_number, "pull_number")
     params = pagination_params(per_page=request.per_page, page=request.page)
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -1238,16 +1292,17 @@ def get_repository(
     request: GitHubRepositoryRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
     owner = require_slug(request.owner, "owner")
     repo = require_slug(request.repo, "repo")
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -1260,7 +1315,7 @@ def search_code(
     request: GitHubCodeSearchRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1274,9 +1329,10 @@ def search_code(
         scoped_query = f"{scoped_query} path:{search_path}"
     params["q"] = scoped_query
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -1289,7 +1345,7 @@ def get_file_text_at_ref(
     request: GitHubFileContentRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> str:
     github = github_client(client)
@@ -1298,9 +1354,10 @@ def get_file_text_at_ref(
     path = normalize_file_content_path(request.path)
     max_bytes = max(1, int(request.max_bytes or 1))
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -1357,7 +1414,7 @@ def create_check_run(
     request: GitHubCreateCheckRunRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1375,9 +1432,10 @@ def create_check_run(
         output=request.output,
     )
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -1395,7 +1453,7 @@ def update_check_run(
     request: GitHubUpdateCheckRunRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1412,9 +1470,10 @@ def update_check_run(
         require_any=True,
     )
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -1432,7 +1491,7 @@ def get_check_run(
     request: GitHubCheckRunRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1440,9 +1499,10 @@ def get_check_run(
     repo = require_slug(request.repo, "repo")
     check_run_id = require_positive_int(request.check_run_id, "check_run_id")
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -1459,7 +1519,7 @@ def list_check_suite_check_runs(
     request: GitHubListCheckSuiteCheckRunsRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1491,9 +1551,10 @@ def list_check_suite_check_runs(
         params["filter"] = filter_value
     params.update(pagination_params(per_page=request.per_page, page=request.page))
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -1513,7 +1574,7 @@ def list_check_run_annotations(
     request: GitHubListCheckRunAnnotationsRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> list[JsonObject]:
     github = github_client(client)
@@ -1521,9 +1582,10 @@ def list_check_run_annotations(
     repo = require_slug(request.repo, "repo")
     check_run_id = require_positive_int(request.check_run_id, "check_run_id")
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -1548,7 +1610,7 @@ def get_workflow_run(
     request: GitHubWorkflowRunRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1556,9 +1618,10 @@ def get_workflow_run(
     repo = require_slug(request.repo, "repo")
     run_id = require_positive_int(request.run_id, "run_id")
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -1575,7 +1638,7 @@ def list_workflow_run_jobs(
     request: GitHubListWorkflowRunJobsRequest,
     *,
     subject: gestalt.Subject,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1586,9 +1649,10 @@ def list_workflow_run_jobs(
     if filter_value and filter_value not in {"latest", "all"}:
         raise ValueError("filter must be either 'latest' or 'all'")
     installation_id = scoped_installation_id(
+        subject,
         owner=owner,
         repo=repo,
-        external_identity=external_identity,
+        authorization=authorization,
         client=github,
     )
     token = github.installation_token(
@@ -1834,105 +1898,72 @@ def pull_request_review_comment_payload(
 
 
 def scoped_installation_id(
+    subject: gestalt.Subject,
     *,
     owner: str,
     repo: str,
-    external_identity: gestalt.ExternalIdentity | None = None,
+    authorization: gestalt.AuthorizationProtocol | None = None,
     client: GitHubAPIClient | None = None,
 ) -> int:
-    external_identity = non_empty_external_identity(external_identity)
-    if external_identity is None:
-        raise GitHubAuthorizationError(
-            "GitHub bot operations require external_identity"
-        )
-    return scoped_installation_id_from_external_identity(
-        external_identity,
+    require_repository_authorization(
+        authorization,
+        subject=subject,
         owner=owner,
         repo=repo,
-        client=client,
     )
-
-
-def scoped_installation_id_from_external_identity(
-    external_identity: gestalt.ExternalIdentity,
-    *,
-    owner: str,
-    repo: str,
-    client: GitHubAPIClient | None = None,
-) -> int:
-    identity_type = external_identity.type.strip()
-    if identity_type != GITHUB_APP_INSTALLATION_EXTERNAL_IDENTITY_TYPE:
-        raise GitHubAuthorizationError(
-            "external_identity.type must be github_app_installation"
-        )
-
-    identity_id = external_identity.id.strip()
-    expected_id = github_app_installation_external_identity_id(owner, repo)
-    if identity_id.lower() != expected_id.lower():
-        raise GitHubAuthorizationError(
-            "external_identity.id must match the requested GitHub repository"
-        )
-
     try:
-        installation_id = github_client(client).repository_installation_id(owner, repo)
+        return github_client(client).repository_installation_id(owner, repo)
     except GitHubAPIError as err:
         if err.status == HTTPStatus.NOT_FOUND:
             raise GitHubAuthorizationError(
-                "GitHub App installation could not be resolved for external_identity.id"
+                "GitHub App installation could not be resolved for repository"
             ) from err
         raise
-    return installation_id
 
 
-def non_empty_external_identity(
-    external_identity: gestalt.ExternalIdentity | None,
-) -> gestalt.ExternalIdentity | None:
-    if external_identity is None:
-        return None
-    if not external_identity.type.strip() and not external_identity.id.strip():
-        return None
-    return external_identity
+def require_repository_authorization(
+    authorization: gestalt.AuthorizationProtocol | None,
+    *,
+    subject: gestalt.Subject,
+    owner: str,
+    repo: str,
+) -> None:
+    subject_id = subject.id.strip()
+    if not subject_id:
+        raise GitHubAuthorizationError(
+            "GitHub bot operations require an authenticated subject"
+        )
+    try:
+        decision = (authorization or gestalt.Authorization()).evaluate(
+            gestalt.AccessEvaluationRequest(
+                subject=gestalt.AuthorizationSubject(type="subject", id=subject_id),
+                action=gestalt.AuthorizationAction(name=GITHUB_REPOSITORY_ACTION_BOT),
+                resource=gestalt.AuthorizationResource(
+                    type=GITHUB_REPOSITORY_RESOURCE_TYPE,
+                    id=github_repository_resource_id(owner, repo),
+                ),
+            )
+        )
+    except Exception as err:
+        raise GitHubAuthorizationError(
+            "GitHub bot repository authorization is unavailable"
+        ) from err
+    if not decision.allowed:
+        raise GitHubAuthorizationError(
+            f"{subject_id} is not authorized for {GITHUB_REPOSITORY_ACTION_BOT} on {owner}/{repo}"
+        )
 
 
-def resolve_repository_installation(
-    owner: str, repo: str, *, client: GitHubAPIClient | None = None
-) -> GitHubInstallationResolution:
-    github = github_client(client)
-    normalized_owner = require_slug(owner, "owner")
-    normalized_repo = require_slug(repo, "repo")
-    installation_id = github.repository_installation_id(
-        normalized_owner, normalized_repo
-    )
-    # Mint a repo-restricted token so the resolver proves the app can act on
-    # the repository before returning an install/runAs contract to config.
-    github.installation_token(installation_id, repositories=[normalized_repo])
-    return GitHubInstallationResolution(
-        owner=normalized_owner,
-        repo=normalized_repo,
-        installation_id=installation_id,
-    )
-
-
-def github_app_installation_external_identity_id(owner: str, repo: str) -> str:
-    return f"repo:{owner}/{repo}"
-
-
-def installation_resolution_dict(
-    resolution: GitHubInstallationResolution,
-) -> dict[str, Any]:
-    external_identity = {
-        "type": GITHUB_APP_INSTALLATION_EXTERNAL_IDENTITY_TYPE,
-        "id": github_app_installation_external_identity_id(
-            resolution.owner, resolution.repo
-        ),
-    }
-    return {
-        "owner": resolution.owner,
-        "repo": resolution.repo,
-        "repository": f"{resolution.owner}/{resolution.repo}",
-        "installation_id": resolution.installation_id,
-        "external_identity": external_identity,
-    }
+def github_repository_resource_id(owner: str, repo: str) -> str:
+    base_url = GITHUB_DEFAULT_WEB_BASE_URL
+    try:
+        base_url = get_github_config().web_base_url or base_url
+    except Exception:
+        base_url = GITHUB_DEFAULT_WEB_BASE_URL
+    parsed = urllib.parse.urlparse(base_url)
+    host = parsed.netloc or parsed.path.split("/", 1)[0]
+    host = host.strip().lower() or "github.com"
+    return f"{host}/{owner.strip().lower()}/{repo.strip().lower()}"
 
 
 def commit_message_with_coauthors(
@@ -2030,6 +2061,12 @@ def pull_request_summary(pull: Mapping[str, Any]) -> dict[str, Any]:
     maintainer_can_modify = pull.get("maintainer_can_modify")
     if isinstance(maintainer_can_modify, bool):
         summary["maintainer_can_modify"] = maintainer_can_modify
+    merged = pull.get("merged")
+    if isinstance(merged, bool):
+        summary["merged"] = merged
+    merged_at = str_field(pull, "merged_at")
+    if merged_at:
+        summary["merged_at"] = merged_at
     return summary
 
 

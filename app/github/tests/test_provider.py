@@ -104,6 +104,35 @@ def http_error(
     )
 
 
+class FakeAuthorization:
+    def __init__(
+        self,
+        *,
+        allowed: bool = True,
+        resources: Sequence[gestalt.AuthorizationResource] = (),
+    ) -> None:
+        self.allowed = allowed
+        self.resources = tuple(resources)
+        self.evaluation_requests: list[gestalt.AccessEvaluationRequest] = []
+        self.resource_search_requests: list[gestalt.ResourceSearchRequest] = []
+        self.relationship_writes: list[gestalt.WriteRelationshipsRequest] = []
+
+    def evaluate(
+        self, request: gestalt.AccessEvaluationRequest
+    ) -> gestalt.AccessDecision:
+        self.evaluation_requests.append(request)
+        return gestalt.AccessDecision(allowed=self.allowed)
+
+    def search_resources(
+        self, request: gestalt.ResourceSearchRequest
+    ) -> gestalt.ResourceSearchResponse:
+        self.resource_search_requests.append(request)
+        return gestalt.ResourceSearchResponse(resources=self.resources)
+
+    def write_relationships(self, request: gestalt.WriteRelationshipsRequest) -> None:
+        self.relationship_writes.append(request)
+
+
 def github_request(
     installation_id: int = 99, repo: str = "acme/widgets"
 ) -> gestalt.Request:
@@ -114,58 +143,62 @@ def github_request(
             display_name=f"GitHub App installation {installation_id}",
             auth_source="github_webhook",
         ),
-        external_identity=github_app_external_identity(repo),
     )
-
-
-def github_app_external_identity(
-    repo: str = "acme/widgets",
-) -> gestalt.ExternalIdentity:
-    return gestalt.ExternalIdentity(type="github_app_installation", id=f"repo:{repo}")
 
 
 def github_agent_request(
     installation_id: int = 99,
     repo: str = "acme/widgets",
-    external_identity_type: str = "github_identity",
-    external_identity_id: str = "user:222",
+    agent_subject_id: str = "user:gestalt-123",
 ) -> gestalt.Request:
-    req = github_request(installation_id=installation_id, repo=repo)
-    req.agent_external_identity = gestalt.ExternalIdentity(
-        type=external_identity_type,
-        id=external_identity_id,
+    request = github_request(installation_id=installation_id, repo=repo)
+    request.agent_subject = gestalt.Subject(
+        id=agent_subject_id,
+        kind="user",
+        display_name="Ada Lovelace",
+        auth_source="session",
     )
-    return req
+    return request
 
 
-class GitHubExternalIdentityRequest:
+class GitHubAuthorizedRequest:
     def __init__(
         self,
         *,
-        external_identity: gestalt.ExternalIdentity,
+        authorization: FakeAuthorization | None = None,
         subject_installation_id: int = 123,
         subject_repo: str = "acme/other",
     ) -> None:
-        self.external_identity = external_identity
+        self._authorization = authorization or FakeAuthorization()
         self.subject = github_request(
             installation_id=subject_installation_id, repo=subject_repo
         ).subject
 
+    def authorization(self) -> FakeAuthorization:
+        return self._authorization
 
-def github_external_identity_request(
+
+def github_authorized_request(
     *,
-    identity_type: str = "github_app_installation",
-    identity_id: str = "repo:acme/widgets",
+    authorization: FakeAuthorization | None = None,
     subject_installation_id: int = 123,
     subject_repo: str = "acme/other",
-) -> GitHubExternalIdentityRequest:
-    return GitHubExternalIdentityRequest(
-        external_identity=gestalt.ExternalIdentity(
-            type=identity_type,
-            id=identity_id,
-        ),
+) -> GitHubAuthorizedRequest:
+    return GitHubAuthorizedRequest(
+        authorization=authorization,
         subject_installation_id=subject_installation_id,
         subject_repo=subject_repo,
+    )
+
+
+def github_user_link_authorization(user_id: str = "222") -> FakeAuthorization:
+    return FakeAuthorization(
+        resources=(
+            gestalt.AuthorizationResource(
+                type=provider_module.GITHUB_USER_RESOURCE_TYPE,
+                id=f"github.com/{user_id}",
+            ),
+        )
     )
 
 
@@ -208,6 +241,13 @@ class RecordingGitHubClient(client_module.GitHubAPIClient):
     ) -> dict[str, Any]:
         body = dict(payload or {})
         self.requests.append((method, path, token, body))
+        if path == "/user":
+            return {
+                "id": 222,
+                "login": "ghopper",
+                "name": "Grace Hopper",
+                "email": "grace@example.com",
+            }
         if path == "/repos/acme/widgets/git/commits/base-commit":
             return {"tree": {"sha": "base-tree"}}
         if path == "/repos/acme/widgets/git/trees":
@@ -314,35 +354,12 @@ class GitHubProviderTests(unittest.TestCase):
             },
         )
         self.addCleanup(provider_module.configure, "github", {})
-
-    def test_resolve_repository_installation_discovers_and_validates_repo(self) -> None:
-        client = RecordingGitHubClient()
-
-        resolution = operations_module.resolve_repository_installation(
-            "acme", "widgets", client=client
+        self.authorization = FakeAuthorization()
+        authorization_patch = mock.patch.object(
+            gestalt.Request, "authorization", return_value=self.authorization
         )
-
-        self.assertEqual(resolution.installation_id, 99)
-        self.assertEqual(resolution.owner, "acme")
-        self.assertEqual(resolution.repo, "widgets")
-        self.assertEqual(client.tokens, [(99, ("widgets",), {})])
-
-    def test_bot_resolve_installation_returns_run_as_identity(self) -> None:
-        client = RecordingGitHubClient()
-        with mock.patch.object(operations_module, "DEFAULT_GITHUB_CLIENT", client):
-            result = provider_module.bot_resolve_installation(
-                provider_module.ResolveInstallationInput(owner="acme", repo="widgets"),
-                github_request(),
-            )
-
-        installation = result["data"]
-        self.assertEqual(installation["installation_id"], 99)
-        self.assertEqual(installation["repository"], "acme/widgets")
-        self.assertEqual(
-            installation["external_identity"],
-            {"type": "github_app_installation", "id": "repo:acme/widgets"},
-        )
-        self.assertEqual(client.tokens, [(99, ("widgets",), {})])
+        authorization_patch.start()
+        self.addCleanup(authorization_patch.stop)
 
     def test_manifest_declares_github_app_webhook_contract(self) -> None:
         manifest_path = pathlib.Path(__file__).resolve().parents[1] / "manifest.yaml"
@@ -351,7 +368,20 @@ class GitHubProviderTests(unittest.TestCase):
         spec = manifest["spec"]
         webhook = spec["http"]["event"]
         security = spec["securitySchemes"]["github_app"]
+        default_connection = spec["connections"]["default"]
 
+        self.assertEqual(spec["defaultConnection"], "default")
+        self.assertEqual(default_connection["mode"], "subject")
+        self.assertEqual(default_connection["auth"]["type"], "oauth2")
+        self.assertEqual(
+            default_connection["auth"]["authorizationUrl"],
+            "https://github.com/login/oauth/authorize",
+        )
+        self.assertEqual(
+            default_connection["auth"]["tokenUrl"],
+            "https://github.com/login/oauth/access_token",
+        )
+        self.assertEqual(default_connection["auth"]["scopes"], ["read:user"])
         self.assertEqual(webhook["path"], "/event")
         self.assertEqual(webhook["method"], "POST")
         self.assertEqual(webhook["credentialMode"], "none")
@@ -364,6 +394,51 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(security["signaturePrefix"], "sha256=")
         self.assertEqual(security["payloadTemplate"], "{raw_body}")
 
+    def test_identity_link_self_links_current_subject_to_authenticated_github_user(
+        self,
+    ) -> None:
+        client = RecordingGitHubClient()
+        request = gestalt.Request(
+            token="ghu-user",
+            subject=gestalt.Subject(id="user:gestalt-123", kind="user"),
+        )
+
+        with mock.patch.object(provider_module, "DEFAULT_GITHUB_CLIENT", client):
+            response = provider_module.github_identity_link_self({}, request)
+
+        self.assertEqual(
+            operation_body(response),
+            {
+                "ok": True,
+                "user": {
+                    "id": "222",
+                    "login": "ghopper",
+                    "name": "Grace Hopper",
+                    "email": "grace@example.com",
+                },
+                "resource": {
+                    "type": provider_module.GITHUB_USER_RESOURCE_TYPE,
+                    "id": "222",
+                },
+            },
+        )
+        self.assertEqual(client.requests, [("GET", "/user", "ghu-user", {})])
+        self.assertEqual(len(self.authorization.relationship_writes), 1)
+        write = self.authorization.relationship_writes[0].writes[0]
+        self.assertIsNotNone(write.subject)
+        self.assertIsNotNone(write.resource)
+        subject = cast(gestalt.AuthorizationSubject, write.subject)
+        resource = cast(gestalt.AuthorizationResource, write.resource)
+        self.assertEqual(subject.type, "subject")
+        self.assertEqual(subject.id, "user:gestalt-123")
+        self.assertEqual(write.relation, provider_module.GITHUB_USER_LINKED_ACTION)
+        self.assertEqual(resource.type, provider_module.GITHUB_USER_RESOURCE_TYPE)
+        self.assertEqual(resource.id, "222")
+        self.assertEqual(
+            resource.properties,
+            {"login": "ghopper", "name": "Grace Hopper"},
+        )
+
     def test_catalog_and_schema_expose_events_and_generic_bot_operations(
         self,
     ) -> None:
@@ -373,13 +448,14 @@ class GitHubProviderTests(unittest.TestCase):
         operation_ids = set(operations)
 
         event = operations[provider_module.GITHUB_EVENT_OPERATION]
-        resolve = operations[provider_module.BOT_RESOLVE_INSTALLATION_OPERATION]
+        identity = operations[provider_module.IDENTITY_LINK_SELF_OPERATION]
         repo = operations[provider_module.BOT_GET_REPOSITORY_OPERATION]
         search_code = operations[provider_module.BOT_SEARCH_CODE_OPERATION]
         get_content = operations[provider_module.BOT_GET_CONTENT_OPERATION]
         pr = operations[provider_module.BOT_GET_PULL_REQUEST_OPERATION]
         pr_files = operations[provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION]
         pr_review = operations[provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION]
+        pr_reviews = operations[provider_module.BOT_LIST_PULL_REQUEST_REVIEWS_OPERATION]
         close_pr = operations[provider_module.BOT_CLOSE_PULL_REQUEST_OPERATION]
         pr_threads = operations[
             provider_module.BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION
@@ -399,6 +475,7 @@ class GitHubProviderTests(unittest.TestCase):
             provider_module.BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION
         ]
         self.assertIn("canonical workflow", event["description"])
+        self.assertIn("GitHub user", identity["description"])
         self.assertNotIn("user.createPullRequest", operation_ids)
         self.assertNotIn("reviewPullRequest", operation_ids)
         self.assertFalse(
@@ -407,13 +484,13 @@ class GitHubProviderTests(unittest.TestCase):
                 for operation_id in operation_ids
             )
         )
-        self.assertIn("runAs identities", resolve["description"])
         self.assertIn("repository metadata", repo["description"])
         self.assertIn("Search code", search_code["description"])
         self.assertIn("file content", get_content["description"])
         self.assertIn("pull request metadata", pr["description"])
         self.assertIn("changed files", pr_files["description"])
         self.assertIn("inline comments", pr_review["description"])
+        self.assertIn("pull request reviews", pr_reviews["description"])
         self.assertIn("Close", close_pr["description"])
         self.assertIn("review threads", pr_threads["description"])
         self.assertIn("Resolve", resolve_thread["description"])
@@ -426,10 +503,6 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("check suite", suite_check_runs["description"])
         self.assertIn(
             "pull_number", [parameter["name"] for parameter in pr["parameters"]]
-        )
-        self.assertEqual(
-            ["owner", "repo"],
-            [parameter["name"] for parameter in resolve["parameters"]],
         )
         self.assertIn(
             "owner",
@@ -454,6 +527,10 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn(
             "comments",
             [parameter["name"] for parameter in pr_review["parameters"]],
+        )
+        self.assertIn(
+            "per_page",
+            [parameter["name"] for parameter in pr_reviews["parameters"]],
         )
         self.assertIn(
             "comments_first",
@@ -507,6 +584,12 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn("webhookPolicies", schema_properties)
         self.assertNotIn("actionPreferences", schema_properties)
         self.assertNotIn("agent", schema_properties)
+        self.assertIn("clientId", schema_properties)
+        self.assertIn("clientSecret", schema_properties)
+        self.assertEqual(
+            schema["required"],
+            ["clientId", "clientSecret", "workflow"],
+        )
         self.assertEqual(schema_properties["workflow"]["required"], ["provider"])
         self.assertEqual(
             schema_properties["workflow"]["additionalProperties"],
@@ -537,6 +620,11 @@ class GitHubProviderTests(unittest.TestCase):
             mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
             mock.patch(
                 "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "authorization",
+                return_value=github_user_link_authorization(),
             ),
         ):
             identity = client_module.bot_identity()
@@ -715,8 +803,16 @@ class GitHubProviderTests(unittest.TestCase):
 
     def test_delegated_agent_subject_supplies_commit_author(self) -> None:
         recording_client = RecordingGitHubClient()
-        with mock.patch.object(
-            provider_module, "DEFAULT_GITHUB_CLIENT", recording_client
+        authorization = github_user_link_authorization()
+        with (
+            mock.patch.object(
+                provider_module, "DEFAULT_GITHUB_CLIENT", recording_client
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "authorization",
+                return_value=authorization,
+            ),
         ):
             request = provider_module._commit_request_from_input(
                 provider_module.CommitFilesInput(
@@ -734,6 +830,9 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(request.author_name, "Grace Hopper")
         self.assertEqual(request.author_email, "222+ghopper@users.noreply.github.com")
+        self.assertEqual(
+            authorization.resource_search_requests[0].subject.id, "user:gestalt-123"
+        )
 
     def test_commit_files_uses_typed_github_client_interface(self) -> None:
         recording_client = RecordingGitHubClient()
@@ -759,7 +858,7 @@ class GitHubProviderTests(unittest.TestCase):
             ),
             subject=github_request().subject,
             pull_request_permissions=True,
-            external_identity=github_app_external_identity(),
+            authorization=FakeAuthorization(),
             client=client,
         )
 
@@ -842,6 +941,11 @@ class GitHubProviderTests(unittest.TestCase):
             mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
             mock.patch(
                 "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "authorization",
+                return_value=github_user_link_authorization(),
             ),
         ):
             partial_identity = client_module.bot_identity()
@@ -1111,6 +1215,11 @@ class GitHubProviderTests(unittest.TestCase):
             mock.patch(
                 "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
             ),
+            mock.patch.object(
+                gestalt.Request,
+                "authorization",
+                return_value=github_user_link_authorization(),
+            ),
         ):
             result = provider_module.bot_commit_files(
                 provider_module.CommitFilesInput(
@@ -1260,6 +1369,11 @@ class GitHubProviderTests(unittest.TestCase):
             mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
             mock.patch(
                 "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "authorization",
+                return_value=github_user_link_authorization(),
             ),
         ):
             result = provider_module.bot_create_pull_request(
@@ -2223,7 +2337,7 @@ class GitHubProviderTests(unittest.TestCase):
                 comments_first=100,
             ),
             subject=github_request().subject,
-            external_identity=github_app_external_identity(),
+            authorization=FakeAuthorization(),
             client=client,
         )
 
@@ -2303,7 +2417,7 @@ class GitHubProviderTests(unittest.TestCase):
                 thread_id="thread-1",
             ),
             subject=github_request().subject,
-            external_identity=github_app_external_identity(),
+            authorization=FakeAuthorization(),
             client=client,
         )
 
@@ -2356,7 +2470,7 @@ class GitHubProviderTests(unittest.TestCase):
                     thread_id="thread-1",
                 ),
                 subject=github_request().subject,
-                external_identity=github_app_external_identity(),
+                authorization=FakeAuthorization(),
                 client=client,
             )
 
@@ -2498,6 +2612,7 @@ class GitHubProviderTests(unittest.TestCase):
                         "number": 7,
                         "title": "Fix widgets",
                         "state": "open",
+                        "merged": False,
                         "html_url": "https://github.com/acme/widgets/pull/7",
                         "url": "https://api.github.com/repos/acme/widgets/pulls/7",
                         "head": {
@@ -2554,6 +2669,29 @@ class GitHubProviderTests(unittest.TestCase):
                         "ignored-non-object",
                     ]
                 )
+            if path == "/repos/acme/widgets/pulls/7/reviews":
+                self.assertEqual(method, "GET")
+                self.assertEqual(
+                    urllib.parse.urlparse(request.full_url).query,
+                    "per_page=100&page=1",
+                )
+                self.assertEqual(auth_header(request), "Bearer pr-read-token")
+                return FakeHTTPResponse(
+                    [
+                        {
+                            "id": 42,
+                            "node_id": "PRR_kwDO",
+                            "state": "APPROVED",
+                            "html_url": "https://github.com/acme/widgets/pull/7#pullrequestreview-42",
+                            "pull_request_url": "https://api.github.com/repos/acme/widgets/pulls/7",
+                            "commit_id": "abc123",
+                            "body": "Looks good",
+                            "user": {"login": "octocat"},
+                            "submitted_at": "2026-05-01T12:00:00Z",
+                        },
+                        "ignored-non-object",
+                    ]
+                )
             self.fail(f"unexpected request {method} {path}")
 
         with (
@@ -2578,12 +2716,23 @@ class GitHubProviderTests(unittest.TestCase):
                 ),
                 github_request(),
             )
+            reviews = provider_module.bot_list_pull_request_reviews(
+                provider_module.ListPullRequestReviewsInput(
+                    owner="acme",
+                    repo="widgets",
+                    pull_number=7,
+                    per_page=100,
+                    page=1,
+                ),
+                github_request(),
+            )
 
         pull_data = cast(dict[str, Any], pull_request)["data"]["pull_request"]
         self.assertEqual(pull_data["head_sha"], "abc123")
         self.assertEqual(pull_data["base_sha"], "def456")
         self.assertEqual(pull_data["head_ref"], "feature")
         self.assertEqual(pull_data["base_ref"], "main")
+        self.assertEqual(pull_data["merged"], False)
         self.assertEqual(pull_data["head_repo"]["full_name"], "acme/widgets")
         self.assertEqual(pull_data["base_repo"]["full_name"], "acme/widgets")
         self.assertEqual(pull_data["head_repo_is_base_repo"], True)
@@ -2601,13 +2750,21 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(short_file_data["patch"], "@@ -1 +1 @@\n-value\n+value  ")
         self.assertEqual(short_file_data["patch_truncated"], False)
         self.assertEqual(cast(dict[str, Any], files)["data"]["count"], 2)
+        review_data = cast(dict[str, Any], reviews)["data"]["reviews"][0]
+        self.assertEqual(review_data["state"], "APPROVED")
+        self.assertEqual(review_data["user"]["login"], "octocat")
+        self.assertEqual(cast(dict[str, Any], reviews)["data"]["count"], 1)
         self.assertEqual(
             [
                 call[2].get("permissions")
                 for call in calls
                 if call[1].endswith("access_tokens")
             ],
-            [{"pull_requests": "read"}, {"pull_requests": "read"}],
+            [
+                {"pull_requests": "read"},
+                {"pull_requests": "read"},
+                {"pull_requests": "read"},
+            ],
         )
 
     def test_bot_repository_code_operations_use_installation_token(self) -> None:
@@ -2694,7 +2851,7 @@ class GitHubProviderTests(unittest.TestCase):
         ):
             repo = provider_module.bot_get_repository(
                 provider_module.RepositoryInput(owner="acme", repo="widgets"),
-                github_external_identity_request(),
+                github_authorized_request(),
             )
             search = provider_module.bot_search_code(
                 provider_module.SearchCodeInput(
@@ -2705,7 +2862,7 @@ class GitHubProviderTests(unittest.TestCase):
                     per_page=2,
                     page=3,
                 ),
-                github_external_identity_request(),
+                github_authorized_request(),
             )
             content = provider_module.bot_get_content(
                 provider_module.GetContentInput(
@@ -2713,7 +2870,7 @@ class GitHubProviderTests(unittest.TestCase):
                     repo="widgets",
                     path="src/widget.py",
                 ),
-                github_external_identity_request(),
+                github_authorized_request(),
             )
 
         self.assertEqual(
@@ -3116,317 +3273,6 @@ class GitHubProviderTests(unittest.TestCase):
         response = cast(gestalt.Response[dict[str, str]], result)
         self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
         self.assertIn("force cannot be combined", response.body["error"])
-        urlopen.assert_not_called()
-
-    def test_resolve_installation_returns_external_identity(
-        self,
-    ) -> None:
-        calls: list[tuple[str, str, str]] = []
-
-        def fake_urlopen(
-            request: urllib.request.Request, timeout: float = 30
-        ) -> FakeHTTPResponse:
-            self.assertEqual(timeout, 30)
-            calls.append(
-                (request.get_method(), request_path(request), auth_header(request))
-            )
-            if request_path(request) == "/repos/acme/widgets/installation":
-                self.assertEqual(request.get_method(), "GET")
-                self.assertEqual(auth_header(request), "Bearer app-jwt")
-                return FakeHTTPResponse({"id": 99})
-            if request_path(request) == "/app/installations/99/access_tokens":
-                self.assertEqual(request.get_method(), "POST")
-                self.assertEqual(auth_header(request), "Bearer app-jwt")
-                self.assertEqual(request_json(request)["repositories"], ["widgets"])
-                return FakeHTTPResponse({"token": "install-token"})
-            self.fail(
-                f"unexpected request {request.get_method()} {request_path(request)}"
-            )
-
-        with (
-            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
-            mock.patch(
-                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
-            ),
-        ):
-            result = provider_module.bot_resolve_installation(
-                provider_module.ResolveInstallationInput(owner="acme", repo="widgets"),
-                gestalt.Request(),
-            )
-
-        self.assertIsInstance(result, dict)
-        data = cast(dict[str, Any], result)["data"]
-        self.assertEqual(data["installation_id"], 99)
-        self.assertEqual(
-            data["external_identity"],
-            {"type": "github_app_installation", "id": "repo:acme/widgets"},
-        )
-        self.assertEqual(
-            calls,
-            [
-                ("GET", "/repos/acme/widgets/installation", "Bearer app-jwt"),
-                ("POST", "/app/installations/99/access_tokens", "Bearer app-jwt"),
-            ],
-        )
-
-    def test_bot_operations_use_external_identity(self) -> None:
-        calls: list[tuple[str, str, dict[str, Any], str]] = []
-
-        def fake_urlopen(
-            request: urllib.request.Request, timeout: float = 30
-        ) -> FakeHTTPResponse:
-            self.assertEqual(timeout, 30)
-            method = request.get_method()
-            path = request_path(request)
-            body = request_json(request)
-            calls.append((method, path, body, auth_header(request)))
-
-            if path == "/repos/acme/widgets/installation":
-                self.assertEqual(method, "GET")
-                self.assertEqual(auth_header(request), "Bearer app-jwt")
-                return FakeHTTPResponse({"id": 99})
-            if path == "/repos/acme/widgets/installation":
-                return FakeHTTPResponse({"id": 99})
-            if path == "/app/installations/99/access_tokens":
-                self.assertEqual(method, "POST")
-                self.assertEqual(auth_header(request), "Bearer app-jwt")
-                self.assertEqual(body["repositories"], ["widgets"])
-                self.assertEqual(
-                    body["permissions"],
-                    {"contents": "read", "pull_requests": "write"},
-                )
-                return FakeHTTPResponse({"token": "pr-token"})
-            if path == "/repos/acme/widgets/pulls":
-                self.assertEqual(method, "POST")
-                self.assertEqual(auth_header(request), "Bearer pr-token")
-                self.assertEqual(body["head"], "feature")
-                return FakeHTTPResponse(
-                    {
-                        "number": 7,
-                        "title": "Update README",
-                        "state": "open",
-                        "html_url": "https://github.example/acme/widgets/pull/7",
-                        "url": "https://api.github.example/repos/acme/widgets/pulls/7",
-                        "head": {"ref": "feature", "sha": "head-sha"},
-                        "base": {"ref": "main", "sha": "base-sha"},
-                    }
-                )
-            self.fail(f"unexpected request {method} {path}")
-
-        with (
-            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
-            mock.patch(
-                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
-            ),
-        ):
-            result = provider_module.bot_open_pull_request(
-                provider_module.OpenPullRequestInput(
-                    owner="acme",
-                    repo="widgets",
-                    title="Update README",
-                    head="feature",
-                    base="main",
-                ),
-                github_external_identity_request(
-                    subject_installation_id=123, subject_repo="acme/other"
-                ),
-            )
-
-        self.assertIsInstance(result, dict)
-        data = cast(dict[str, Any], result)["data"]["pull_request"]
-        self.assertEqual(data["number"], 7)
-        self.assertEqual(
-            [call[1] for call in calls],
-            [
-                "/repos/acme/widgets/installation",
-                "/app/installations/99/access_tokens",
-                "/repos/acme/widgets/pulls",
-            ],
-        )
-
-    def test_bot_operations_read_external_identity_from_sdk_request(self) -> None:
-        calls: list[str] = []
-
-        def fake_urlopen(
-            request: urllib.request.Request, timeout: float = 30
-        ) -> FakeHTTPResponse:
-            self.assertEqual(timeout, 30)
-            path = request_path(request)
-            calls.append(path)
-            if path == "/repos/acme/widgets/installation":
-                return FakeHTTPResponse({"id": 99})
-            if path == "/repos/acme/widgets/installation":
-                return FakeHTTPResponse({"id": 99})
-            if path == "/app/installations/99/access_tokens":
-                return FakeHTTPResponse({"token": "pr-token"})
-            if path == "/repos/acme/widgets/pulls":
-                return FakeHTTPResponse(
-                    {
-                        "number": 7,
-                        "title": "Update README",
-                        "state": "open",
-                        "html_url": "https://github.example/acme/widgets/pull/7",
-                        "url": "https://api.github.example/repos/acme/widgets/pulls/7",
-                        "head": {"ref": "feature", "sha": "head-sha"},
-                        "base": {"ref": "main", "sha": "base-sha"},
-                    }
-                )
-            self.fail(f"unexpected request {path}")
-
-        with (
-            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
-            mock.patch(
-                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
-            ),
-        ):
-            result = provider_module.bot_open_pull_request(
-                provider_module.OpenPullRequestInput(
-                    owner="acme",
-                    repo="widgets",
-                    title="Update README",
-                    head="feature",
-                    base="main",
-                ),
-                gestalt.Request(
-                    subject=github_request(
-                        installation_id=123, repo="acme/other"
-                    ).subject,
-                    external_identity=gestalt.ExternalIdentity(
-                        type="github_app_installation",
-                        id="repo:acme/widgets",
-                    ),
-                ),
-            )
-
-        self.assertIsInstance(result, dict)
-        self.assertEqual(calls[0], "/repos/acme/widgets/installation")
-        self.assertIn("/repos/acme/widgets/pulls", calls)
-
-    def test_bot_operations_treat_empty_external_identity_as_absent(self) -> None:
-        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
-            result = provider_module.bot_create_issue_comment(
-                provider_module.CreateIssueCommentInput(
-                    owner="acme",
-                    repo="widgets",
-                    issue_number=7,
-                    body="Looks good.",
-                ),
-                GitHubExternalIdentityRequest(
-                    external_identity=gestalt.ExternalIdentity(type="", id=""),
-                    subject_installation_id=99,
-                    subject_repo="acme/widgets",
-                ),
-            )
-
-        self.assertIsInstance(result, gestalt.Response)
-        response = cast(gestalt.Response[dict[str, str]], result)
-        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
-        self.assertIn("external_identity", response.body["error"])
-        urlopen.assert_not_called()
-
-    def test_external_identity_invalid_mismatch_and_unresolvable_fail_closed(
-        self,
-    ) -> None:
-        valid_request = github_external_identity_request(
-            subject_installation_id=99, subject_repo="acme/widgets"
-        )
-
-        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
-            result = provider_module.bot_create_issue_comment(
-                provider_module.CreateIssueCommentInput(
-                    owner="acme",
-                    repo="widgets",
-                    issue_number=7,
-                    body="Looks broken.",
-                ),
-                github_external_identity_request(
-                    identity_type="github_identity",
-                    identity_id="repo:acme/widgets",
-                    subject_installation_id=99,
-                    subject_repo="acme/widgets",
-                ),
-            )
-
-        self.assertIsInstance(result, gestalt.Response)
-        response = cast(gestalt.Response[dict[str, str]], result)
-        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
-        self.assertIn("external_identity.type", response.body["error"])
-        urlopen.assert_not_called()
-
-        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
-            result = provider_module.bot_create_issue_comment(
-                provider_module.CreateIssueCommentInput(
-                    owner="acme",
-                    repo="widgets",
-                    issue_number=7,
-                    body="Looks broken.",
-                ),
-                github_external_identity_request(
-                    identity_id="repo:acme/other",
-                    subject_installation_id=99,
-                    subject_repo="acme/widgets",
-                ),
-            )
-
-        self.assertIsInstance(result, gestalt.Response)
-        response = cast(gestalt.Response[dict[str, str]], result)
-        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
-        self.assertIn("external_identity.id", response.body["error"])
-        urlopen.assert_not_called()
-
-        calls: list[str] = []
-
-        def unresolved_urlopen(
-            request: urllib.request.Request, timeout: float = 30
-        ) -> FakeHTTPResponse:
-            self.assertEqual(timeout, 30)
-            calls.append(request_path(request))
-            if request_path(request) == "/repos/acme/widgets/installation":
-                raise http_error(request.full_url, HTTPStatus.NOT_FOUND)
-            self.fail(
-                f"unexpected request {request.get_method()} {request_path(request)}"
-            )
-
-        with (
-            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
-            mock.patch(
-                "internals.client.urllib.request.urlopen",
-                side_effect=unresolved_urlopen,
-            ),
-        ):
-            result = provider_module.bot_create_issue_comment(
-                provider_module.CreateIssueCommentInput(
-                    owner="acme",
-                    repo="widgets",
-                    issue_number=7,
-                    body="Looks broken.",
-                ),
-                valid_request,
-            )
-
-        self.assertIsInstance(result, gestalt.Response)
-        response = cast(gestalt.Response[dict[str, str]], result)
-        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
-        self.assertIn("could not be resolved", response.body["error"])
-        self.assertEqual(calls, ["/repos/acme/widgets/installation"])
-
-    def test_bot_operations_require_external_identity(self) -> None:
-        with mock.patch("internals.client.urllib.request.urlopen") as urlopen:
-            result = provider_module.bot_open_pull_request(
-                provider_module.OpenPullRequestInput(
-                    owner="acme",
-                    repo="widgets",
-                    title="Update README",
-                    head="feature",
-                    base="main",
-                ),
-                gestalt.Request(subject=github_request().subject),
-            )
-
-        self.assertIsInstance(result, gestalt.Response)
-        response = cast(gestalt.Response[dict[str, str]], result)
-        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
-        self.assertIn("external_identity", response.body["error"])
         urlopen.assert_not_called()
 
     def test_webhook_handler_filters_unsupported_and_configured_bot_events(

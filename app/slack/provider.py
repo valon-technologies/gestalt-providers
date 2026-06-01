@@ -16,6 +16,7 @@ from internals.agent import (
     SLACK_DELETE_STATUS_OPERATION,
     SLACK_EVENT_OPERATION,
     SLACK_FILE_GET_OPERATION,
+    SLACK_IDENTITY_LINK_SELF_OPERATION,
     SLACK_INTERACTION_HANDLE_OPERATION,
     SLACK_INTERACTION_REQUEST_OPERATION,
     SLACK_REMOVE_REACTION_OPERATION,
@@ -46,7 +47,12 @@ from internals.agent import (
     stop_slack_event_stream,
     upload_slack_event_file,
 )
-from internals.client import SlackAPIError, SlackClientError, is_slack_file_download_url
+from internals.client import (
+    SlackAPIError,
+    SlackClientError,
+    is_slack_file_download_url,
+    slack_post_form,
+)
 from internals.models import (
     SlackAgentEvent as SlackAgentEvent,
     SlackAgentRoute as SlackAgentRoute,
@@ -82,8 +88,7 @@ _select_agent_route = _agent._select_agent_route
 _sign_reply_ref = _agent._sign_reply_ref
 _slack_agent_event_from_payload = _agent._slack_agent_event_from_payload
 _verify_reply_ref = _agent._verify_reply_ref
-external_identity_resource_id = _agent.external_identity_resource_id
-slack_external_identity_id = _agent.slack_external_identity_id
+slack_user_resource_id = _agent.slack_user_resource_id
 
 
 @app.configure
@@ -825,6 +830,63 @@ def slack_events_stop_stream(
 
 
 @gestalt.operation(
+    id=SLACK_IDENTITY_LINK_SELF_OPERATION,
+    method="POST",
+    description="Link the current Gestalt user subject to the Slack user proven by the current Slack credential",
+)
+def slack_identity_link_self(
+    input: dict[str, Any], req: gestalt.Request
+) -> OperationResult:
+    del input
+
+    token_error = _validate_token(req)
+    if token_error is not None:
+        return token_error
+    subject_id = req.subject.id.strip()
+    if not subject_id:
+        return _bad_request("subject id is required")
+
+    try:
+        profile = slack_post_form("auth.test", {}, req.token)
+        team_id = str(profile.get("team_id") or "").strip()
+        user_id = str(profile.get("user_id") or "").strip()
+        if not team_id or not user_id:
+            return _server_error(
+                "Slack auth.test response did not include team_id and user_id"
+            )
+        resource_id = slack_user_resource_id(team_id, user_id)
+        req.authorization().write_relationships(
+            gestalt.WriteRelationshipsRequest(
+                writes=[
+                    gestalt.Relationship(
+                        subject=gestalt.AuthorizationSubject(
+                            type="subject", id=subject_id
+                        ),
+                        relation=_agent.SLACK_USER_LINKED_ACTION,
+                        resource=gestalt.AuthorizationResource(
+                            type=_agent.SLACK_USER_RESOURCE_TYPE,
+                            id=resource_id,
+                        ),
+                    )
+                ]
+            )
+        )
+    except SlackAPIError as err:
+        return gestalt.Response(status=err.status, body=err.body)
+    except SlackClientError as err:
+        return _server_error(str(err))
+    except Exception as err:
+        return _server_error(f"failed to link Slack identity: {err}")
+
+    return {
+        "ok": True,
+        "team_id": team_id,
+        "user_id": user_id,
+        "resource": {"type": _agent.SLACK_USER_RESOURCE_TYPE, "id": resource_id},
+    }
+
+
+@gestalt.operation(
     id="chat.postMessage",
     method="POST",
     description="Send a Slack message with a visible Gestalt attribution footer",
@@ -1081,21 +1143,36 @@ def _chat_post_message_gestalt_label() -> str:
     return SLACK_POST_MESSAGE_FOOTER_APP_NAME
 
 
-def _slack_user_id_from_external_identity(identity: gestalt.ExternalIdentity) -> str:
-    if identity.type.strip() != _agent.SLACK_EXTERNAL_IDENTITY_TYPE:
-        return ""
-    parts = identity.id.strip().split(":")
-    if len(parts) != 4 or parts[0] != "team" or parts[2] != "user":
-        return ""
-    return parts[3].strip()
-
-
 def _chat_post_message_footer_text(req: gestalt.Request) -> str:
     gestalt_label = _chat_post_message_gestalt_label()
-    user_id = _slack_user_id_from_external_identity(req.agent_external_identity)
+    user_id = _linked_slack_user_id_from_request(req)
     if user_id:
         return f"Sent by <@{user_id}> with {gestalt_label}"
     return f"Sent with {gestalt_label}"
+
+
+def _linked_slack_user_id_from_request(req: gestalt.Request) -> str:
+    subject_id = req.agent_subject.id.strip() or req.subject.id.strip()
+    if not subject_id:
+        return ""
+    try:
+        response = req.authorization().search_resources(
+            gestalt.ResourceSearchRequest(
+                subject=gestalt.AuthorizationSubject(type="subject", id=subject_id),
+                action=gestalt.AuthorizationAction(
+                    name=_agent.SLACK_USER_LINKED_ACTION
+                ),
+                resource_type=_agent.SLACK_USER_RESOURCE_TYPE,
+                page_size=2,
+            )
+        )
+    except Exception:
+        return ""
+    resources = [resource for resource in response.resources if resource.id.strip()]
+    if len(resources) != 1:
+        return ""
+    _, _, user_id = resources[0].id.strip().rpartition("/")
+    return user_id
 
 
 def _chat_post_message_footer_block(req: gestalt.Request) -> dict[str, Any]:
