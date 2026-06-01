@@ -57,13 +57,10 @@ func (p *Provider) ValidateCredentialConfig(_ context.Context, req *gestalt.Vali
 	if req == nil {
 		return status.Error(codes.InvalidArgument, "request is required")
 	}
-	return validateCredentialAuthConfig(req.GetMode(), req.GetAuth())
+	return validateTokenExchangeConfig(req.GetAuth())
 }
 
-func validateCredentialAuthConfig(mode string, auth *gestalt.ExternalCredentialAuthConfig) error {
-	if strings.TrimSpace(mode) == "platform" {
-		return status.Error(codes.InvalidArgument, "credential mode platform is not supported")
-	}
+func validateTokenExchangeConfig(auth *gestalt.ExternalCredentialAuthConfig) error {
 	if auth == nil {
 		return nil
 	}
@@ -90,9 +87,6 @@ func validateCredentialAuthConfig(mode string, auth *gestalt.ExternalCredentialA
 	default:
 		return status.Errorf(codes.InvalidArgument, "unknown tokenExchange %q", auth.GetTokenExchange())
 	}
-	if len(auth.GetTokenExchangeDrivers()) > 0 {
-		return nil
-	}
 	return nil
 }
 
@@ -100,14 +94,7 @@ func (p *Provider) ResolveCredential(ctx context.Context, req *gestalt.ResolveEx
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	if err := p.ValidateCredentialConfig(ctx, &gestalt.ValidateExternalCredentialConfigRequest{
-		Provider:         req.GetProvider(),
-		Connection:       req.GetConnection(),
-		ConnectionID:     req.GetConnectionId(),
-		Mode:             req.GetMode(),
-		Auth:             req.GetAuth(),
-		ConnectionParams: req.GetConnectionParams(),
-	}); err != nil {
+	if err := validateTokenExchangeConfig(req.GetAuth()); err != nil {
 		return nil, err
 	}
 	st, err := p.configuredStore()
@@ -143,17 +130,10 @@ func (p *Provider) ExchangeCredential(ctx context.Context, req *gestalt.Exchange
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	if err := p.ValidateCredentialConfig(ctx, &gestalt.ValidateExternalCredentialConfigRequest{
-		Provider:         req.GetProvider(),
-		Connection:       req.GetConnection(),
-		ConnectionID:     req.GetConnectionId(),
-		Mode:             "user",
-		Auth:             req.GetAuth(),
-		ConnectionParams: req.GetConnectionParams(),
-	}); err != nil {
+	auth := req.GetAuth()
+	if err := validateTokenExchangeConfig(auth); err != nil {
 		return nil, err
 	}
-	auth := req.GetAuth()
 	if auth == nil || strings.TrimSpace(auth.GetTokenUrl()) == "" {
 		return &gestalt.ExchangeExternalCredentialResponse{}, nil
 	}

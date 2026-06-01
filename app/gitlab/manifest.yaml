@@ -15,7 +15,7 @@ spec:
       url: https://gitlab.com/api/graphql
   connections:
     default:
-      mode: user
+      mode: subject
       auth:
         type: oauth2
         authorizationUrl: https://gitlab.com/oauth/authorize

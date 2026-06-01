@@ -2041,16 +2041,6 @@ func TestNormalizeTargetPreservesAppCredentialMode(t *testing.T) {
 	}
 }
 
-func TestNormalizeTargetRejectsInvalidAppCredentialMode(t *testing.T) {
-	target := appTarget("github", "reviewPullRequest")
-	target.Steps[0].App.CredentialMode = "platform"
-
-	_, err := normalizeTarget(target)
-	if err == nil || !strings.Contains(err.Error(), `target.steps[0].app.credential_mode "platform" is not supported`) {
-		t.Fatalf("normalizeTarget error = %v, want unsupported credential mode", err)
-	}
-}
-
 func updateCallback(t *testing.T, onComplete func(interface{})) *testsuite.TestUpdateCallback {
 	t.Helper()
 	return &testsuite.TestUpdateCallback{

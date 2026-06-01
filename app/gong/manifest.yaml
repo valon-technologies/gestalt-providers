@@ -87,7 +87,7 @@ spec:
   connections:
     default:
       displayName: API key
-      mode: user
+      mode: subject
       auth:
         type: manual
         credentials:

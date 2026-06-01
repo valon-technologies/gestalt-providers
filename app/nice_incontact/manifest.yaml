@@ -13,7 +13,7 @@ spec:
   connections:
     oauth:
       displayName: NICE CXone OAuth
-      mode: user
+      mode: subject
       auth:
         type: oauth2
         authorizationUrl: https://cxone.niceincontact.com/auth/authorize

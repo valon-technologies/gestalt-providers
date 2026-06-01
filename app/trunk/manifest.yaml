@@ -44,7 +44,7 @@ spec:
       alias: flakyTests.listQuarantinedTests
   connections:
     default:
-      mode: user
+      mode: subject
       auth:
         type: manual
         credentials:

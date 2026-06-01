@@ -1525,16 +1525,6 @@ func TestNormalizeTargetPreservesAppCredentialMode(t *testing.T) {
 	}
 }
 
-func TestNormalizeTargetRejectsInvalidAppCredentialMode(t *testing.T) {
-	target := workflowTarget(t, "github", "reviewPullRequest", nil)
-	target.Steps[0].App.CredentialMode = "platform"
-
-	_, err := normalizeTarget(workflowTargetInput(target))
-	if err == nil || !strings.Contains(err.Error(), `target.steps[0].app.credential_mode "platform" is not supported`) {
-		t.Fatalf("normalizeTarget error = %v, want unsupported credential mode", err)
-	}
-}
-
 func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)

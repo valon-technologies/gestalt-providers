@@ -105,7 +105,7 @@ const ACTIONS: IntegrationAction[] = [
   "admin_configure",
 ];
 
-const MODES: ConnectionMode[] = ["none", "user", "platform"];
+const MODES: ConnectionMode[] = ["none", "subject", "platform"];
 const CREDENTIAL_MODES: CredentialMode[] = ["none", "subject", "platform"];
 const OWNER_KINDS: OwnerKind[] = [
   "none",
@@ -285,7 +285,7 @@ function normalizeConnection(
     !isPlatformManaged &&
     !isNoAuth &&
     (credentialMode === "subject" ||
-      mode === "user" ||
+      mode === "subject" ||
       ownerKind === "current_user" ||
       ownerKind === "service_account" ||
       authTypes.length > 0);
@@ -461,7 +461,7 @@ function resolveMode(raw: RawConnection, authTypes: AuthType[]): ConnectionMode 
   const explicit = validMode(raw.mode);
   if (explicit) return explicit;
   if (authTypes.length === 0) return "none";
-  return "user";
+  return "subject";
 }
 
 function resolveCredentialMode(

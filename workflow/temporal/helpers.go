@@ -196,7 +196,7 @@ func normalizeWorkflowStepApp(app *gestalt.WorkflowStepAppCall, path string) (*g
 	}
 	credentialMode := strings.ToLower(strings.TrimSpace(out.CredentialMode))
 	switch credentialMode {
-	case "", "none", "user":
+	case "", "none", "subject":
 	default:
 		return nil, "", fmt.Errorf("%s.credential_mode %q is not supported", path, out.CredentialMode)
 	}

@@ -11,7 +11,7 @@ spec:
       baseUrl: https://api.vanta.com/v1
   connections:
     default:
-      mode: user
+      mode: subject
       auth:
         type: bearer
         credentials:

@@ -20,7 +20,7 @@ spec:
       alias: getNote
   connections:
     default:
-      mode: user
+      mode: subject
       auth:
         type: bearer
         credentials:
@@ -28,7 +28,7 @@ spec:
           label: Granola API Key
           description: For user-scoped access, personal keys only expose notes the key owner can access. Create a key in the Granola desktop app under Settings > API.
     MCP:
-      mode: user
+      mode: subject
       auth:
         type: mcp_oauth
   pagination:

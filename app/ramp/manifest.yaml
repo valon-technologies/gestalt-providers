@@ -16,7 +16,7 @@ spec:
   connections:
     oauth:
       displayName: OAuth
-      mode: user
+      mode: subject
       auth:
         type: oauth2
         authorizationUrl: https://app.ramp.com/v1/authorize
@@ -36,6 +36,6 @@ spec:
         - spend_programs:write
     mcp:
       displayName: MCP
-      mode: user
+      mode: subject
       auth:
         type: mcp_oauth

@@ -69,7 +69,7 @@ spec:
       alias: validateRoutingNumber
   connections:
     default:
-      mode: user
+      mode: subject
       auth:
         type: manual
         credentials:

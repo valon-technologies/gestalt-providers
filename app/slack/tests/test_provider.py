@@ -400,7 +400,7 @@ class SlackProviderTests(unittest.TestCase):
             )
         return gestalt.Request(
             token=token,
-            credential=gestalt.Credential(mode="user", connection="bot"),
+            credential=gestalt.Credential(mode="subject", connection="bot"),
             subject=gestalt.Subject(
                 id="service_account:slack-bot", kind="service_account"
             ),
@@ -1287,7 +1287,7 @@ class SlackProviderTests(unittest.TestCase):
             provider_module.ChatPostMessageInput(channel="C123", text="hello"),
             gestalt.Request(
                 token="xoxp-service-account",
-                credential=gestalt.Credential(mode="user"),
+                credential=gestalt.Credential(mode="subject"),
                 subject=gestalt.Subject(
                     id="service_account:slack-bot-2", kind="service_account"
                 ),

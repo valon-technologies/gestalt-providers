@@ -13,6 +13,6 @@ spec:
       document: openapi.yaml
   connections:
     default:
-      mode: user
+      mode: subject
       auth:
         type: manual

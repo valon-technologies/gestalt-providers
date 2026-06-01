@@ -103,7 +103,7 @@ class GmailCredentialContractTests(unittest.TestCase):
                 provider_module.MessagesListInput(q="subject:test"),
                 gestalt.Request(
                     token="user-token",
-                    credential=gestalt.Credential(mode="user"),
+                    credential=gestalt.Credential(mode="subject"),
                 ),
             )
 
@@ -118,7 +118,7 @@ class GmailCredentialContractTests(unittest.TestCase):
         ):
             result = provider_module.messages_list(
                 provider_module.MessagesListInput(),
-                gestalt.Request(token="", credential=gestalt.Credential(mode="user")),
+                gestalt.Request(token="", credential=gestalt.Credential(mode="subject")),
             )
 
         self.assertIsInstance(result, gestalt.Response)
@@ -172,7 +172,7 @@ class GmailCredentialContractTests(unittest.TestCase):
                 ),
                 gestalt.Request(
                     token="user-token",
-                    credential=gestalt.Credential(mode="user"),
+                    credential=gestalt.Credential(mode="subject"),
                 ),
             )
 
@@ -193,7 +193,7 @@ class GmailCredentialContractTests(unittest.TestCase):
                 provider_module.MessagesListInput(q="from:alice@example.com"),
                 gestalt.Request(
                     token="user-token",
-                    credential=gestalt.Credential(mode="user"),
+                    credential=gestalt.Credential(mode="subject"),
                 ),
             )
 
@@ -225,7 +225,7 @@ class GmailCredentialContractTests(unittest.TestCase):
                 ),
                 gestalt.Request(
                     token="user-token",
-                    credential=gestalt.Credential(mode="user"),
+                    credential=gestalt.Credential(mode="subject"),
                 ),
             )
 
