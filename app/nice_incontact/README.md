@@ -93,7 +93,7 @@ Provider config fields:
 
 Connections and authentication:
 
-- `oauth` uses OAuth 2.0; mode `user`.
+- `oauth` uses OAuth 2.0; mode `subject`.
   - Requested scopes: `openid`.
   - Connection params:
     - `api_host` (required): Tenant API host from NICE API discovery, for example api-na1.niceincontact.com. Do not include the scheme.

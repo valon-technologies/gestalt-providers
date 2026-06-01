@@ -39,7 +39,7 @@ This provider does not define provider-level config fields in its config schema.
 
 Connections and authentication:
 
-- `default` uses manual credentials; mode `user`.
+- `default` uses manual credentials; mode `subject`.
   - Credential fields: `token`.
   - `token`: Provide an Intercom API access token.
 

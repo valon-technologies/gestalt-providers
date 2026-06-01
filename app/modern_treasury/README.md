@@ -40,7 +40,7 @@ This provider does not define provider-level config fields in its config schema.
 
 Connections and authentication:
 
-- `default` uses manual credentials; mode `user`.
+- `default` uses manual credentials; mode `subject`.
   - Credential fields: `organization_id`, `api_key`.
   - `organization_id`: Find this in Modern Treasury under Developers > API Keys.
   - `api_key`: Create a key in [Settings > API keys](https://app.moderntreasury.com/settings/api_keys).

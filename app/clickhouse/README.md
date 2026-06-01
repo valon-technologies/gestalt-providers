@@ -37,7 +37,7 @@ This provider does not define provider-level config fields in its config schema.
 
 Connections and authentication:
 
-- `MCP` uses MCP OAuth; mode `user`.
+- `MCP` uses MCP OAuth; mode `subject`.
 
 Operation surfaces: MCP.
 

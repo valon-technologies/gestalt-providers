@@ -1961,7 +1961,7 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 		t.Fatalf("schedule target = %#v", schedule.Target)
 	}
 	if testAppStep(schedule.Target) != nil {
-		t.Fatalf("schedule target included legacy scalar app fields: %#v", schedule.Target)
+		t.Fatalf("schedule target included unexpected app step: %#v", schedule.Target)
 	}
 
 	listed, err := provider.ListSchedules(ctx, &gestalt.ListWorkflowProviderSchedulesRequest{})
@@ -1996,7 +1996,7 @@ func TestProviderAgentSchedulePersistsTargetAndInvokesHost(t *testing.T) {
 		t.Fatalf("tool refs = %#v", toolRefs)
 	}
 	if testAppStep(call.Target) != nil {
-		t.Fatalf("call target included legacy scalar app fields: %#v", call.Target)
+		t.Fatalf("call target included unexpected app step: %#v", call.Target)
 	}
 	if call.Trigger.Schedule.ScheduleID != "slack-reminder" {
 		t.Fatalf("schedule trigger = %#v", call.Trigger)

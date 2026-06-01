@@ -70,7 +70,7 @@ This provider does not define provider-level config fields in its config schema.
 
 Connections and authentication:
 
-- `default` uses manual credentials; mode `user`.
+- `default` uses manual credentials; mode `subject`.
   - Credential fields: `access_key_id`, `secret_key`.
   - `access_key_id`: Gong API access key ID. In Gong, this is the Basic auth username.
   - `secret_key`: Gong API access key secret. In Gong, this is the Basic auth password.

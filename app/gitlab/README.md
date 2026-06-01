@@ -38,7 +38,7 @@ This provider does not define provider-level config fields in its config schema.
 
 Connections and authentication:
 
-- `default` uses OAuth 2.0; mode `user`.
+- `default` uses OAuth 2.0; mode `subject`.
 
 Operation surfaces: OpenAPI, GraphQL.
 

@@ -107,7 +107,7 @@ This provider does not define provider-level config fields in its config schema.
 
 Connections and authentication:
 
-- `default` uses manual credentials; mode `user`.
+- `default` uses manual credentials; mode `subject`.
   - Credential fields: `token`.
   - `token`: Create a Trunk API token and use it as the `x-api-token` header. See [Trunk APIs](https://docs.trunk.io/setup-and-administration/apis).
 

@@ -53,7 +53,7 @@ Provider config fields:
 
 Connections and authentication:
 
-- `default` uses OAuth 2.0; mode `user`.
+- `default` uses OAuth 2.0; mode `subject`.
   - Requested scopes: `offline_access`, `Team.ReadBasic.All`, `TeamMember.Read.All`, `Channel.ReadBasic.All`, `ChannelMember.Read.All`, `ChannelMessage.Read.All`, `Chat.Read`.
 
 Operation surfaces: OpenAPI.

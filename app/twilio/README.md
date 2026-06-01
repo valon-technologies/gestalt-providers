@@ -39,7 +39,7 @@ This provider does not define provider-level config fields in its config schema.
 
 Connections and authentication:
 
-- `default` uses manual credentials; mode `user`.
+- `default` uses manual credentials; mode `subject`.
   - Credential fields: `account_sid`, `auth_token`.
   - `account_sid`: Find this on your Twilio Console dashboard.
   - `auth_token`: Find this on your Twilio Console dashboard.
