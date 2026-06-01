@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
@@ -310,7 +311,7 @@ func (p *Provider) SetActiveModel(ctx context.Context, req *SetActiveModelReques
 	if err := putModel(ctx, db.ObjectStore(stores.models), model); err != nil {
 		return nil, status.Errorf(codes.Internal, "set active model: %v", err)
 	}
-	ref := model.toRef()
+	ref := model.toRef(time.Now().UTC())
 	if err := putActiveModelRef(ctx, db.ObjectStore(stores.state), keys.activeModel, ref); err != nil {
 		return nil, status.Errorf(codes.Internal, "set active model state: %v", err)
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
@@ -138,13 +139,14 @@ func stringField(record indexeddb.Record, key string) string {
 	return strings.TrimSpace(value)
 }
 
-func (m *AuthorizationModel) toRef() *AuthorizationModelRef {
+func (m *AuthorizationModel) toRef(createdAt time.Time) *AuthorizationModelRef {
 	if m == nil {
 		return nil
 	}
 	return &AuthorizationModelRef{
-		Id:      m.Id,
-		Version: m.Version,
+		Id:        m.Id,
+		Version:   m.Version,
+		CreatedAt: createdAt,
 	}
 }
 
@@ -164,8 +166,9 @@ func cloneAuthorizationModelRef(ref *AuthorizationModelRef) *AuthorizationModelR
 		return nil
 	}
 	return &AuthorizationModelRef{
-		Id:      ref.Id,
-		Version: ref.Version,
+		Id:        ref.Id,
+		Version:   ref.Version,
+		CreatedAt: ref.CreatedAt,
 	}
 }
 

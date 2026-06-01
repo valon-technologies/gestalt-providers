@@ -95,6 +95,9 @@ func TestProviderSetAndGetActiveModel(t *testing.T) {
 	if setResp.Model.Version != "v1" {
 		t.Fatalf("SetActiveModel().Model.Version = %q, want v1", setResp.Model.Version)
 	}
+	if setResp.Model.CreatedAt.IsZero() {
+		t.Fatalf("SetActiveModel().Model.CreatedAt is zero")
+	}
 
 	refResp, err := provider.GetActiveModelRef(ctx, &emptypb.Empty{})
 	if err != nil {

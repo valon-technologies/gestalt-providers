@@ -2,6 +2,7 @@ package indexeddb
 
 import (
 	"context"
+	"time"
 
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -197,8 +198,9 @@ type AuthorizationModel struct {
 }
 
 type AuthorizationModelRef struct {
-	Id      string `json:"id"`
-	Version string `json:"version"`
+	Id        string    `json:"id"`
+	Version   string    `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type AuthorizationModelResourceType struct {
