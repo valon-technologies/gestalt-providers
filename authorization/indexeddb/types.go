@@ -20,11 +20,24 @@ type AuthorizationProvider interface {
 	CheckAccessMany(context.Context, *CheckAccessManyRequest) (*CheckAccessManyResponse, error)
 }
 
-type CheckAccessRequest struct{}
-type CheckAccessResponse struct{}
+type CheckAccessRequest struct {
+	Subject  *Subject
+	Action   *Action
+	Resource *Resource
+}
 
-type CheckAccessManyRequest struct{}
-type CheckAccessManyResponse struct{}
+type CheckAccessResponse struct {
+	Allowed bool
+	ModelID string
+}
+
+type CheckAccessManyRequest struct {
+	Requests []*CheckAccessRequest
+}
+
+type CheckAccessManyResponse struct {
+	Decisions []*CheckAccessResponse
+}
 
 type ListRelationshipsRequest struct {
 	Filter    *RelationshipFilter
@@ -158,8 +171,23 @@ const (
 //	  "id": "model-1",
 //	  "version": "v1",
 //	  "resource_types": [
-//	    {"name": "document"},
-//	    {"name": "folder"}
+//	    {
+//	      "name": "repository",
+//	      "relations": [
+//	        {"name": "reader"},
+//	        {"name": "maintainer"}
+//	      ],
+//	      "actions": [
+//	        {"name": "read", "relations": ["reader", "maintainer"]},
+//	        {"name": "administer", "relations": ["maintainer"]}
+//	      ]
+//	    },
+//	    {
+//	      "name": "group",
+//	      "relations": [
+//	        {"name": "member"}
+//	      ]
+//	    }
 //	  ]
 //	}
 type AuthorizationModel struct {
@@ -174,7 +202,30 @@ type AuthorizationModelRef struct {
 }
 
 type AuthorizationModelResourceType struct {
-	Name string `json:"name"`
+	Name      string                        `json:"name"`
+	Relations []*AuthorizationModelRelation `json:"relations,omitempty"`
+	Actions   []*AuthorizationModelAction   `json:"actions,omitempty"`
+}
+
+type AuthorizationModelRelation struct {
+	Name           string                             `json:"name"`
+	AllowedTargets []*AuthorizationModelAllowedTarget `json:"allowed_targets,omitempty"`
+}
+
+type AuthorizationModelAction struct {
+	Name      string   `json:"name"`
+	Relations []string `json:"relations,omitempty"`
+}
+
+type AuthorizationModelAllowedTarget struct {
+	SubjectType    string          `json:"subject_type,omitempty"`
+	ResourceType   string          `json:"resource_type,omitempty"`
+	SubjectSetType *SubjectSetType `json:"subject_set_type,omitempty"`
+}
+
+type SubjectSetType struct {
+	ResourceType string `json:"resource_type"`
+	Relation     string `json:"relation"`
 }
 
 type GetActiveModelRefResponse struct {

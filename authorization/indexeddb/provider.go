@@ -79,6 +79,35 @@ func (p *Provider) getDbWithLock() (indexeddb.Database, error) {
 	return p.db, nil
 }
 
+func (p *Provider) CheckAccess(ctx context.Context, req *CheckAccessRequest) (*CheckAccessResponse, error) {
+	snapshot, err := p.loadAuthorizationSnapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return evaluateAccess(snapshot, req)
+}
+
+func (p *Provider) CheckAccessMany(ctx context.Context, req *CheckAccessManyRequest) (*CheckAccessManyResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	snapshot, err := p.loadAuthorizationSnapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	decisions := make([]*CheckAccessResponse, 0, len(req.Requests))
+	for _, check := range req.Requests {
+		decision, err := evaluateAccess(snapshot, check)
+		if err != nil {
+			return nil, err
+		}
+		decisions = append(decisions, decision)
+	}
+
+	return &CheckAccessManyResponse{Decisions: decisions}, nil
+}
+
 func (p *Provider) AddRelationship(ctx context.Context, req *AddRelationshipRequest) (*AddRelationshipResponse, error) {
 	if req == nil || req.Relationship == nil {
 		return nil, status.Error(codes.InvalidArgument, "relationship is required")

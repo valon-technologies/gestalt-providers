@@ -8,14 +8,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func (p *Provider) CheckAccess(context.Context, *CheckAccessRequest) (*CheckAccessResponse, error) {
-	return nil, unimplemented("CheckAccess")
-}
-
-func (p *Provider) CheckAccessMany(context.Context, *CheckAccessManyRequest) (*CheckAccessManyResponse, error) {
-	return nil, unimplemented("CheckAccessMany")
-}
-
 func (p *Provider) Evaluate(context.Context, *gestalt.AccessEvaluationRequest) (*gestalt.AccessDecision, error) {
 	return nil, unimplemented("Evaluate")
 }

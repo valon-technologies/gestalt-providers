@@ -275,7 +275,197 @@ func TestProviderSetAndListRelationships(t *testing.T) {
 	}
 }
 
-func TestProposedAuthorizationProviderStubs(t *testing.T) {
+func TestProviderCheckAccess(t *testing.T) {
+	ctx := context.Background()
+	provider := New()
+	fakeDB := &fakeIndexedDB{}
+	provider.configureDatabase(fakeDB)
+	t.Cleanup(func() {
+		if err := provider.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	})
+
+	model := &AuthorizationModel{
+		Id:      "model-1",
+		Version: "v1",
+		ResourceTypes: []*AuthorizationModelResourceType{
+			{
+				Name: "group",
+				Relations: []*AuthorizationModelRelation{
+					{Name: "member"},
+				},
+			},
+			{
+				Name: "repository",
+				Relations: []*AuthorizationModelRelation{
+					{Name: "reader"},
+					{Name: "maintainer"},
+				},
+				Actions: []*AuthorizationModelAction{
+					{Name: "read", Relations: []string{"reader", "maintainer"}},
+					{Name: "administer", Relations: []string{"maintainer"}},
+				},
+			},
+		},
+	}
+	if _, err := provider.SetActiveModel(ctx, &SetActiveModelRequest{Model: model}); err != nil {
+		t.Fatalf("SetActiveModel() error = %v", err)
+	}
+
+	relationships := []*Relationship{
+		{
+			Tuple: &RelationshipTuple{
+				Target:   &RelationshipTarget{Subject: &Subject{Type: "subject", Id: "user:alice"}},
+				Relation: "member",
+				Resource: &Resource{Type: "group", Id: "engineering"},
+			},
+			SourceLayer: SourceLayerRuntime,
+		},
+		{
+			Tuple: &RelationshipTuple{
+				Target:   &RelationshipTarget{Subject: &Subject{Type: "subject", Id: "user:carol"}},
+				Relation: "member",
+				Resource: &Resource{Type: "group", Id: "platform"},
+			},
+			SourceLayer: SourceLayerRuntime,
+		},
+		{
+			Tuple: &RelationshipTuple{
+				Target: &RelationshipTarget{
+					SubjectSet: &SubjectSet{
+						Resource: &Resource{Type: "group", Id: "platform"},
+						Relation: "member",
+					},
+				},
+				Relation: "member",
+				Resource: &Resource{Type: "group", Id: "engineering"},
+			},
+			SourceLayer: SourceLayerRuntime,
+		},
+		{
+			Tuple: &RelationshipTuple{
+				Target: &RelationshipTarget{
+					SubjectSet: &SubjectSet{
+						Resource: &Resource{Type: "group", Id: "engineering"},
+						Relation: "member",
+					},
+				},
+				Relation: "reader",
+				Resource: &Resource{Type: "repository", Id: "valon-tools"},
+			},
+			SourceLayer: SourceLayerRuntime,
+		},
+		{
+			Tuple: &RelationshipTuple{
+				Target:   &RelationshipTarget{Subject: &Subject{Type: "subject", Id: "user:bob"}},
+				Relation: "maintainer",
+				Resource: &Resource{Type: "repository", Id: "valon-tools"},
+			},
+			SourceLayer: SourceLayerRuntime,
+		},
+	}
+	if _, err := provider.SetRelationships(ctx, &SetRelationshipsRequest{Relationships: relationships}); err != nil {
+		t.Fatalf("SetRelationships() error = %v", err)
+	}
+
+	tests := []struct {
+		name    string
+		request *CheckAccessRequest
+		allowed bool
+	}{
+		{
+			name: "allows subject set reader",
+			request: &CheckAccessRequest{
+				Subject:  &Subject{Type: "subject", Id: "user:alice"},
+				Action:   &Action{Name: "read"},
+				Resource: &Resource{Type: "repository", Id: "valon-tools"},
+			},
+			allowed: true,
+		},
+		{
+			name: "allows direct maintainer",
+			request: &CheckAccessRequest{
+				Subject:  &Subject{Type: "subject", Id: "user:bob"},
+				Action:   &Action{Name: "administer"},
+				Resource: &Resource{Type: "repository", Id: "valon-tools"},
+			},
+			allowed: true,
+		},
+		{
+			name: "allows chained subject set reader",
+			request: &CheckAccessRequest{
+				Subject:  &Subject{Type: "subject", Id: "user:carol"},
+				Action:   &Action{Name: "read"},
+				Resource: &Resource{Type: "repository", Id: "valon-tools"},
+			},
+			allowed: true,
+		},
+		{
+			name: "denies missing relationship",
+			request: &CheckAccessRequest{
+				Subject:  &Subject{Type: "subject", Id: "user:dana"},
+				Action:   &Action{Name: "read"},
+				Resource: &Resource{Type: "repository", Id: "valon-tools"},
+			},
+			allowed: false,
+		},
+		{
+			name: "denies unknown action",
+			request: &CheckAccessRequest{
+				Subject:  &Subject{Type: "subject", Id: "user:alice"},
+				Action:   &Action{Name: "delete"},
+				Resource: &Resource{Type: "repository", Id: "valon-tools"},
+			},
+			allowed: false,
+		},
+		{
+			name: "denies unknown resource type",
+			request: &CheckAccessRequest{
+				Subject:  &Subject{Type: "subject", Id: "user:alice"},
+				Action:   &Action{Name: "read"},
+				Resource: &Resource{Type: "issue", Id: "123"},
+			},
+			allowed: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := provider.CheckAccess(ctx, tt.request)
+			if err != nil {
+				t.Fatalf("CheckAccess() error = %v", err)
+			}
+			if resp.Allowed != tt.allowed {
+				t.Fatalf("CheckAccess().Allowed = %v, want %v", resp.Allowed, tt.allowed)
+			}
+			if resp.ModelID != "model-1" {
+				t.Fatalf("CheckAccess().ModelID = %q, want model-1", resp.ModelID)
+			}
+		})
+	}
+
+	manyResp, err := provider.CheckAccessMany(ctx, &CheckAccessManyRequest{
+		Requests: []*CheckAccessRequest{
+			tests[0].request,
+			tests[3].request,
+			tests[1].request,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CheckAccessMany() error = %v", err)
+	}
+	wantAllowed := []bool{true, false, true}
+	if len(manyResp.Decisions) != len(wantAllowed) {
+		t.Fatalf("CheckAccessMany() decisions = %d, want %d", len(manyResp.Decisions), len(wantAllowed))
+	}
+	for i, decision := range manyResp.Decisions {
+		if decision.Allowed != wantAllowed[i] {
+			t.Fatalf("CheckAccessMany().Decisions[%d].Allowed = %v, want %v", i, decision.Allowed, wantAllowed[i])
+		}
+	}
+}
+
+func TestAuthorizationProviderSDKStubs(t *testing.T) {
 	ctx := context.Background()
 	provider := New()
 
@@ -284,16 +474,16 @@ func TestProposedAuthorizationProviderStubs(t *testing.T) {
 		call func() error
 	}{
 		{
-			name: "CheckAccess",
+			name: "Evaluate",
 			call: func() error {
-				_, err := provider.CheckAccess(ctx, &CheckAccessRequest{})
+				_, err := provider.Evaluate(ctx, nil)
 				return err
 			},
 		},
 		{
-			name: "CheckAccessMany",
+			name: "EvaluateMany",
 			call: func() error {
-				_, err := provider.CheckAccessMany(ctx, &CheckAccessManyRequest{})
+				_, err := provider.EvaluateMany(ctx, nil)
 				return err
 			},
 		},

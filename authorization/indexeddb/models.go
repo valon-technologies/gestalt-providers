@@ -178,7 +178,73 @@ func cloneAuthorizationModelResourceTypes(resourceTypes []*AuthorizationModelRes
 		if resourceType == nil {
 			continue
 		}
-		out = append(out, &AuthorizationModelResourceType{Name: resourceType.Name})
+		out = append(out, &AuthorizationModelResourceType{
+			Name:      resourceType.Name,
+			Relations: cloneAuthorizationModelRelations(resourceType.Relations),
+			Actions:   cloneAuthorizationModelActions(resourceType.Actions),
+		})
 	}
 	return out
+}
+
+func cloneAuthorizationModelRelations(relations []*AuthorizationModelRelation) []*AuthorizationModelRelation {
+	if relations == nil {
+		return nil
+	}
+	out := make([]*AuthorizationModelRelation, 0, len(relations))
+	for _, relation := range relations {
+		if relation == nil {
+			continue
+		}
+		out = append(out, &AuthorizationModelRelation{
+			Name:           relation.Name,
+			AllowedTargets: cloneAuthorizationModelAllowedTargets(relation.AllowedTargets),
+		})
+	}
+	return out
+}
+
+func cloneAuthorizationModelActions(actions []*AuthorizationModelAction) []*AuthorizationModelAction {
+	if actions == nil {
+		return nil
+	}
+	out := make([]*AuthorizationModelAction, 0, len(actions))
+	for _, action := range actions {
+		if action == nil {
+			continue
+		}
+		out = append(out, &AuthorizationModelAction{
+			Name:      action.Name,
+			Relations: append([]string(nil), action.Relations...),
+		})
+	}
+	return out
+}
+
+func cloneAuthorizationModelAllowedTargets(targets []*AuthorizationModelAllowedTarget) []*AuthorizationModelAllowedTarget {
+	if targets == nil {
+		return nil
+	}
+	out := make([]*AuthorizationModelAllowedTarget, 0, len(targets))
+	for _, target := range targets {
+		if target == nil {
+			continue
+		}
+		out = append(out, &AuthorizationModelAllowedTarget{
+			SubjectType:    target.SubjectType,
+			ResourceType:   target.ResourceType,
+			SubjectSetType: cloneSubjectSetType(target.SubjectSetType),
+		})
+	}
+	return out
+}
+
+func cloneSubjectSetType(subjectSetType *SubjectSetType) *SubjectSetType {
+	if subjectSetType == nil {
+		return nil
+	}
+	return &SubjectSetType{
+		ResourceType: subjectSetType.ResourceType,
+		Relation:     subjectSetType.Relation,
+	}
 }
