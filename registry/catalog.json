@@ -523,6 +523,35 @@
         "entryKind": "app",
         "section": "app"
       },
+      "description": "Read, search, and edit Excalidraw+ scenes via the official hosted MCP server.",
+      "displayName": "Excalidraw+",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/excalidraw/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/excalidraw/README.md",
+          "sourcePath": "app/excalidraw/README.md",
+          "title": "Excalidraw+"
+        }
+      ],
+      "iconUrl": null,
+      "kind": "app",
+      "latestInstallableVersion": null,
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/excalidraw/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "excalidraw",
+      "package": "github.com/valon-technologies/gestalt-providers/app/excalidraw",
+      "packagePath": "app/excalidraw",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/excalidraw/README.md",
+      "registryPath": "/providers/app/excalidraw/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/excalidraw",
+      "versions": []
+    },
+    {
+      "configTarget": {
+        "entryKind": "app",
+        "section": "app"
+      },
       "description": "Document processing and extraction with Extend.",
       "displayName": "Extend",
       "docs": [

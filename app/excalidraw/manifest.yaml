@@ -1,0 +1,20 @@
+kind: app
+source: github.com/valon-technologies/gestalt-providers/app/excalidraw
+version: 0.0.1-alpha.1
+displayName: Excalidraw+
+description: Read, search, and edit Excalidraw+ scenes via the official hosted MCP server.
+spec:
+  surfaces:
+    mcp:
+      connection: MCP
+      url: https://api.excalidraw.com/api/v1/mcp
+  connections:
+    MCP:
+      displayName: MCP
+      mode: subject
+      auth:
+        type: bearer
+        credentials:
+        - name: token
+          label: Excalidraw+ API Key
+          description: Create at https://app.excalidraw.com/account/api-keys. Personal keys act as you; workspace keys suit shared integrations.
