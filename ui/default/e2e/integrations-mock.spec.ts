@@ -317,6 +317,18 @@ test.describe("Integrations", () => {
     await expect(page.getByRole("button", { name: "Another Service settings" })).toHaveCount(0);
   });
 
+  test("normalizes the legacy integrations route to apps", async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, sampleIntegrations);
+    await mockTokens(page, []);
+
+    await page.goto("/integrations?connected=oauth-svc");
+
+    await expect(page).toHaveURL(/\/apps$/);
+    await expect(page.getByText("oauth-svc connected successfully.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Apps" })).toBeVisible();
+  });
+
   test("renders svg icons even when the payload omits xmlns", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await mockIntegrations(page, [SVG_WITHOUT_XMLNS_INTEGRATION]);
@@ -733,6 +745,7 @@ test.describe("Integrations", () => {
       integration: string;
       connection?: string;
       instance?: string;
+      returnPath?: string;
     } | undefined;
 
     await mockIntegrations(page, [MULTI_CONNECTION_OAUTH_ONLY_INTEGRATION]);
@@ -741,6 +754,7 @@ test.describe("Integrations", () => {
         integration: string;
         connection?: string;
         instance?: string;
+        returnPath?: string;
       };
       await route.fulfill({
         json: { url: "about:blank", state: "state-123" },
@@ -761,6 +775,7 @@ test.describe("Integrations", () => {
     expect(requestBody).toMatchObject({
       integration: "dual-oauth-svc",
       connection: "mcp",
+      returnPath: "/apps",
     });
   });
 

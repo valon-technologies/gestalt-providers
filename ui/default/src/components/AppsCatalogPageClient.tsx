@@ -9,6 +9,9 @@ import IntegrationCard from "@/components/IntegrationCard";
 import PluginSearchBar from "@/components/PluginSearchBar";
 import AuthGuard from "@/components/AuthGuard";
 
+const APPS_PATH = "/apps";
+const LEGACY_INTEGRATIONS_PATH = "/integrations";
+
 export default function AppsCatalogPageClient() {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,6 +27,17 @@ export default function AppsCatalogPageClient() {
   const deferredQuery = useDeferredValue(query);
   const filteredIntegrations = filterIntegrations(integrations, deferredQuery);
   const hasSearchQuery = query.trim().length > 0;
+
+  useEffect(() => {
+    if (window.location.pathname !== LEGACY_INTEGRATIONS_PATH) {
+      return;
+    }
+    window.history.replaceState(
+      null,
+      "",
+      `${APPS_PATH}${window.location.search}${window.location.hash}`,
+    );
+  }, []);
 
   useEffect(() => {
     if (!toast) {
@@ -43,7 +57,7 @@ export default function AppsCatalogPageClient() {
       }
     }
 
-    window.history.replaceState(null, "", "/apps");
+    window.history.replaceState(null, "", APPS_PATH);
   }, [toast]);
 
   function loadIntegrations() {
@@ -124,6 +138,7 @@ export default function AppsCatalogPageClient() {
                   integration={integration}
                   onConnected={loadIntegrations}
                   onDisconnected={loadIntegrations}
+                  returnPath={APPS_PATH}
                 />
               ))}
             </div>
