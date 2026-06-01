@@ -238,9 +238,16 @@ def _manifest_parameter_types(operation: dict[str, Any], name: str) -> list[str]
 
 
 class FakeAuthorization:
-    def __init__(self, subjects: list[gestalt.AuthorizationSubject]) -> None:
-        self.subjects = subjects
+    def __init__(
+        self,
+        subjects: list[gestalt.AuthorizationSubject] | None = None,
+        resources: list[gestalt.AuthorizationResource] | None = None,
+    ) -> None:
+        self.subjects = subjects or []
+        self.resources = resources or []
         self.requests: list[gestalt.SubjectSearchRequest] = []
+        self.resource_requests: list[gestalt.ResourceSearchRequest] = []
+        self.relationship_writes: list[gestalt.WriteRelationshipsRequest] = []
 
     def search_subjects(
         self, request: gestalt.SubjectSearchRequest
@@ -253,6 +260,15 @@ class FakeAuthorization:
             if not subject_type or subject.type.strip() == subject_type
         ]
         return gestalt.SubjectSearchResponse(subjects=subjects)
+
+    def search_resources(
+        self, request: gestalt.ResourceSearchRequest
+    ) -> gestalt.ResourceSearchResponse:
+        self.resource_requests.append(request)
+        return gestalt.ResourceSearchResponse(resources=self.resources)
+
+    def write_relationships(self, request: gestalt.WriteRelationshipsRequest) -> None:
+        self.relationship_writes.append(request)
 
 
 class FakeWorkflowClient:
@@ -390,21 +406,14 @@ class SlackProviderTests(unittest.TestCase):
         return provider_module._agent._sign_reply_ref(event, subject_id)
 
     def _slack_bot_service_account_request(
-        self, token: str = "xoxb-resolved-bot", agent_slack_user_id: str = ""
+        self, token: str = "xoxb-resolved-bot"
     ) -> gestalt.Request:
-        kwargs: dict[str, Any] = {}
-        if agent_slack_user_id:
-            kwargs["agent_external_identity"] = gestalt.ExternalIdentity(
-                type="slack_identity",
-                id=f"team:T123:user:{agent_slack_user_id}",
-            )
         return gestalt.Request(
             token=token,
             credential=gestalt.Credential(mode="subject", connection="bot"),
             subject=gestalt.Subject(
                 id="service_account:slack-bot", kind="service_account"
             ),
-            **kwargs,
         )
 
     def _handle_event_with_workflow(
@@ -448,6 +457,65 @@ class SlackProviderTests(unittest.TestCase):
             "SlackWorkflowConfig",
         ):
             self.assertIs(getattr(agent_module, name), getattr(models_module, name))
+
+    def test_identity_link_self_links_current_subject_to_authenticated_slack_user(
+        self,
+    ) -> None:
+        authorization = FakeAuthorization()
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(request.full_url, "https://slack.com/api/auth.test")
+            self.assertEqual(authorization_header(request), "Bearer xoxp-user")
+            self.assertEqual(request_form(request), {})
+            return FakeHTTPResponse(
+                '{"ok": true, "team_id": "T123", "user_id": "U456"}'
+            )
+
+        with (
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch.object(
+                gestalt.Request, "authorization", return_value=authorization
+            ),
+        ):
+            response = provider_module.slack_identity_link_self(
+                {},
+                gestalt.Request(
+                    token="xoxp-user",
+                    subject=gestalt.Subject(id="user:gestalt-123", kind="user"),
+                ),
+            )
+
+        self.assertEqual(
+            operation_body(response),
+            {
+                "ok": True,
+                "team_id": "T123",
+                "user_id": "U456",
+                "resource": {
+                    "type": provider_module._agent.SLACK_USER_RESOURCE_TYPE,
+                    "id": "T123/U456",
+                },
+            },
+        )
+        self.assertEqual(len(authorization.relationship_writes), 1)
+        write = authorization.relationship_writes[0].writes[0]
+        self.assertIsNotNone(write.subject)
+        self.assertIsNotNone(write.resource)
+        subject = cast(gestalt.AuthorizationSubject, write.subject)
+        resource = cast(gestalt.AuthorizationResource, write.resource)
+        self.assertEqual(subject.type, "subject")
+        self.assertEqual(subject.id, "user:gestalt-123")
+        self.assertEqual(
+            write.relation, provider_module._agent.SLACK_USER_LINKED_ACTION
+        )
+        self.assertEqual(resource.type, provider_module._agent.SLACK_USER_RESOURCE_TYPE)
+        self.assertEqual(resource.id, "T123/U456")
 
     def test_agent_routes_reject_duplicate_ids(self) -> None:
         with self.assertRaisesRegex(ValueError, "duplicates another agent route"):
@@ -956,6 +1024,13 @@ class SlackProviderTests(unittest.TestCase):
         }
         http_routes = manifest["spec"]["http"]
 
+        self.assertIn(provider_module.SLACK_IDENTITY_LINK_SELF_OPERATION, catalog_ops)
+        self.assertIn(
+            "Slack user",
+            catalog_ops[provider_module.SLACK_IDENTITY_LINK_SELF_OPERATION][
+                "description"
+            ],
+        )
         self.assertEqual(
             _catalog_parameter_names(catalog_ops["events.reply"]),
             ["reply_ref", "text"],
@@ -1115,29 +1190,10 @@ class SlackProviderTests(unittest.TestCase):
             connections["default"]["auth"]["accessTokenPath"],
             "authed_user.access_token",
         )
-        self.assertEqual(
-            connections["default"]["postConnect"],
-            {
-                "request": {
-                    "method": "POST",
-                    "url": "https://slack.com/api/auth.test",
-                },
-                "success": {"path": "ok", "equals": True},
-                "externalIdentity": {
-                    "type": "slack_identity",
-                    "id": "team:{team_id}:user:{user_id}",
-                },
-                "metadata": {
-                    "slack.team_id": "team_id",
-                    "slack.user_id": "user_id",
-                },
-            },
-        )
         bot_connection = connections["bot"]
         self.assertNotIn("mode", bot_connection)
         self.assertNotIn("exposure", bot_connection)
         self.assertEqual(bot_connection["auth"], {"type": "bearer"})
-        self.assertNotIn("postConnect", bot_connection)
         self.assertNotIn("instance" + "Selector", json.dumps(manifest))
 
         user_default_selector_operations = (
@@ -1242,13 +1298,25 @@ class SlackProviderTests(unittest.TestCase):
             {"bot": {"token": "xoxb-configured-bot", "userId": "UBOT"}},
         )
 
-        _, captured = self._capture_chat_post_message(
-            provider_module.ChatPostMessageInput(
-                channel="C123",
-                text="hello from gestalt",
-            ),
-            self._slack_bot_service_account_request(agent_slack_user_id="U456"),
+        authorization = FakeAuthorization(
+            [],
+            resources=[
+                gestalt.AuthorizationResource(
+                    type=provider_module._agent.SLACK_USER_RESOURCE_TYPE,
+                    id="T123/U456",
+                )
+            ],
         )
+        with mock.patch.object(
+            gestalt.Request, "authorization", return_value=authorization
+        ):
+            _, captured = self._capture_chat_post_message(
+                provider_module.ChatPostMessageInput(
+                    channel="C123",
+                    text="hello from gestalt",
+                ),
+                self._slack_bot_service_account_request(),
+            )
 
         self.assertEqual(
             captured["payload"]["blocks"][-1]["elements"][0]["text"],
@@ -1420,7 +1488,7 @@ class SlackProviderTests(unittest.TestCase):
             HTTPStatus.BAD_REQUEST,
         )
 
-    def test_http_subject_resolves_slack_user_through_managed_external_identity(
+    def test_http_subject_resolves_slack_user_through_linked_resource(
         self,
     ) -> None:
         subject = authorization_subject(type="subject", id="user:gestalt-123")
@@ -1459,18 +1527,15 @@ class SlackProviderTests(unittest.TestCase):
         action = request.action
         self.assertIsNotNone(resource)
         self.assertIsNotNone(action)
-        self.assertEqual(resource.type, "external_identity")
+        self.assertEqual(resource.type, provider_module._agent.SLACK_USER_RESOURCE_TYPE)
         self.assertEqual(
             resource.id,
-            provider_module.external_identity_resource_id(
-                "slack_identity",
-                "team:T123:user:U456",
-            ),
+            provider_module.slack_user_resource_id("T123", "U456"),
         )
-        self.assertEqual(action.name, "assume")
+        self.assertEqual(action.name, provider_module._agent.SLACK_USER_LINKED_ACTION)
         self.assertEqual(request.subject_type, "")
 
-    def test_http_subject_dedupes_equivalent_managed_external_identity_subjects(
+    def test_http_subject_dedupes_equivalent_linked_slack_user_subjects(
         self,
     ) -> None:
         canonical = authorization_subject(type="subject", id="user:gestalt-123")
@@ -1581,7 +1646,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(resolved.kind, "user")
         self.assertEqual(len(authorization.requests), 1)
 
-    def test_http_subject_uses_matching_route_run_as_before_slack_identity_lookup(
+    def test_http_subject_uses_matching_route_run_as_before_linked_slack_user_lookup(
         self,
     ) -> None:
         provider_module.configure(
@@ -1896,7 +1961,7 @@ class SlackProviderTests(unittest.TestCase):
                 self.assertIsNone(resolved)
                 self.assertEqual(authorization.requests, [])
 
-    def test_http_subject_uses_signed_interaction_route_run_as_before_slack_identity_lookup(
+    def test_http_subject_uses_signed_interaction_route_run_as_before_linked_slack_user_lookup(
         self,
     ) -> None:
         provider_module.configure(
@@ -1952,7 +2017,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(resolved.auth_source, "slack_agent_route_run_as")
         self.assertEqual(authorization.requests, [])
 
-    def test_http_subject_uses_slack_identity_for_user_signed_interaction_on_run_as_route(
+    def test_http_subject_uses_linked_slack_user_for_user_signed_interaction_on_run_as_route(
         self,
     ) -> None:
         provider_module.configure(
@@ -7781,6 +7846,7 @@ class SlackProviderTests(unittest.TestCase):
 
         for body, error in responses:
             with self.subTest(error=error):
+
                 def fake_urlopen(
                     request: urllib.request.Request, timeout: float = 30
                 ) -> FakeHTTPResponse:
@@ -7796,7 +7862,9 @@ class SlackProviderTests(unittest.TestCase):
                         "internals.client.urllib.request.urlopen",
                         side_effect=fake_urlopen,
                     ),
-                    mock.patch("internals.client.urllib.request.build_opener") as opener,
+                    mock.patch(
+                        "internals.client.urllib.request.build_opener"
+                    ) as opener,
                 ):
                     result = provider_module.files_upload(
                         provider_module.UploadFileInput(
@@ -7936,9 +8004,7 @@ class SlackProviderTests(unittest.TestCase):
                 self.assertEqual(form["channel_id"], ["C789"])
                 self.assertEqual(form["thread_ts"], ["1712161829.000300"])
                 self.assertEqual(form["initial_comment"], ["Attached"])
-                return FakeHTTPResponse(
-                    '{"ok": true, "files": [{"id": "FEVENT"}]}'
-                )
+                return FakeHTTPResponse('{"ok": true, "files": [{"id": "FEVENT"}]}')
             raise AssertionError(f"unexpected request {request.full_url}")
 
         def fake_upload_open(
@@ -8004,9 +8070,7 @@ class SlackProviderTests(unittest.TestCase):
                         {"type": "divider"},
                     ],
                 )
-                return FakeHTTPResponse(
-                    '{"ok": true, "files": [{"id": "FEVENT"}]}'
-                )
+                return FakeHTTPResponse('{"ok": true, "files": [{"id": "FEVENT"}]}')
             raise AssertionError(f"unexpected request {request.full_url}")
 
         def fake_upload_open(

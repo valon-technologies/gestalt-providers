@@ -12,6 +12,8 @@ apps:
   github:
     source: github.com/valon-technologies/gestalt-providers/app/github
     config:
+      clientId: github-oauth-client-id
+      clientSecret: github-oauth-client-secret
       appId: "12345"
       appPrivateKeyEnv: GITHUB_APP_PRIVATE_KEY
       workflow:
@@ -24,6 +26,10 @@ apps:
 
 Supported config fields:
 
+- `clientId`: GitHub OAuth app client ID for subject-owned user identity
+  connections.
+- `clientSecret`: GitHub OAuth app client secret for subject-owned user
+  identity connections.
 - `appId`: GitHub App ID. `GITHUB_APP_ID` is also supported.
 - `appPrivateKey`: PEM-encoded GitHub App private key.
 - `appPrivateKeyEnv`: environment variable containing the PEM private key.
@@ -89,7 +95,7 @@ can retry delivery.
 ## Operations
 
 - `events.handle`
-- `bot.resolveInstallation`
+- `identity.linkSelf`
 - `bot.getRepository`
 - `bot.searchCode`
 - `bot.getContent`
@@ -98,6 +104,7 @@ can retry delivery.
 - `bot.closePullRequest`
 - `bot.createPullRequest`
 - `bot.createPullRequestReview`
+- `bot.listPullRequestReviews`
 - `bot.listPullRequestReviewThreads`
 - `bot.resolvePullRequestReviewThread`
 - `bot.createPullRequestConversationComment`

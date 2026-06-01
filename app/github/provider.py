@@ -29,19 +29,22 @@ from internals.constants import (
     BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
     BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION,
     BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+    BOT_LIST_PULL_REQUEST_REVIEWS_OPERATION,
     BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
     BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
     BOT_OPEN_PULL_REQUEST_OPERATION,
     BOT_REMOVE_LABELS_OPERATION,
     BOT_REQUEST_REVIEWERS_OPERATION,
     BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
-    BOT_RESOLVE_INSTALLATION_OPERATION,
     BOT_SEARCH_CODE_OPERATION,
     BOT_UPDATE_CHECK_RUN_OPERATION,
     GITHUB_EVENT_OPERATION,
-    GITHUB_EXTERNAL_IDENTITY_TYPE,
+    GITHUB_USER_LINKED_ACTION,
+    GITHUB_USER_RESOURCE_TYPE,
+    IDENTITY_LINK_SELF_OPERATION,
 )
 from internals.errors import GitHubAPIError, GitHubAuthorizationError, GitHubConfigError
+from internals.helpers import int_field, str_field
 from internals.operations import (
     GitHubAddLabelsRequest,
     GitHubAddReactionRequest,
@@ -60,6 +63,7 @@ from internals.operations import (
     GitHubListCheckSuiteCheckRunsRequest,
     GitHubListCheckRunAnnotationsRequest,
     GitHubListPullRequestFilesRequest,
+    GitHubListPullRequestReviewsRequest,
     GitHubListPullRequestReviewThreadsRequest,
     GitHubListWorkflowRunJobsRequest,
     GitHubOpenPullRequestRequest,
@@ -90,14 +94,13 @@ from internals.operations import (
     get_repository,
     get_workflow_run,
     issue_comment_summary,
-    installation_resolution_dict,
     label_summary,
     list_check_suite_check_runs,
     list_check_run_annotations,
     list_pull_request_files,
+    list_pull_request_reviews,
     list_pull_request_review_threads,
     list_workflow_run_jobs,
-    non_empty_external_identity,
     open_pull_request,
     pull_request_file_summary,
     pull_request_review_summary,
@@ -109,7 +112,6 @@ from internals.operations import (
     resolve_pull_request_review_thread,
     search_code,
     update_check_run,
-    resolve_repository_installation,
     workflow_run_job_summary,
     workflow_run_summary,
 )
@@ -156,11 +158,6 @@ class FileChangeInput(gestalt.Model):
 class CoAuthorInput(gestalt.Model):
     name: str = gestalt.field(description="Co-author display name")
     email: str = gestalt.field(description="Co-author email address")
-
-
-class ResolveInstallationInput(gestalt.Model):
-    owner: str = gestalt.field(description="Repository owner")
-    repo: str = gestalt.field(description="Repository name")
 
 
 class RepositoryInput(gestalt.Model):
@@ -409,6 +406,20 @@ class CreatePullRequestReviewInput(gestalt.Model):
         description="Optional commit SHA to review. Defaults to GitHub's latest PR commit.",
         default="",
         required=False,
+    )
+
+
+class ListPullRequestReviewsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    pull_number: int = gestalt.field(description="Pull request number")
+    per_page: int = gestalt.field(
+        description="Results per page, from 1 through 100",
+        default=0,
+        required=False,
+    )
+    page: int = gestalt.field(
+        description="Page number, starting at 1", default=0, required=False
     )
 
 
@@ -819,22 +830,66 @@ def _github_workflow_event_data(
 
 
 @app.operation(
-    id=BOT_RESOLVE_INSTALLATION_OPERATION,
-    method="GET",
-    description="Resolve the GitHub App installation and runAs identities for a repository",
+    id=IDENTITY_LINK_SELF_OPERATION,
+    method="POST",
+    description="Link the current Gestalt user subject to the GitHub user proven by the current GitHub credential",
+    tags=["identity"],
 )
-def bot_resolve_installation(
-    input: ResolveInstallationInput, _req: gestalt.Request
+def github_identity_link_self(
+    input: dict[str, Any], req: gestalt.Request
 ) -> OperationResult:
+    del input
+
+    token = req.token.strip()
+    if not token:
+        return _unauthorized("token is required")
+    subject_id = req.subject.id.strip()
+    if not subject_id:
+        return _bad_request("subject id is required")
+
     try:
-        resolution = resolve_repository_installation(input.owner, input.repo)
-    except ValueError as err:
-        return _bad_request(str(err))
-    except GitHubConfigError as err:
-        return _server_error(str(err))
+        profile = DEFAULT_GITHUB_CLIENT.github_json("GET", "/user", token)
+        user_id = str(int_field(profile, "id") or "").strip()
+        login = str_field(profile, "login")
+        if not user_id or not login:
+            return _server_error("GitHub /user response did not include id and login")
+        name = str_field(profile, "name")
+        email = str_field(profile, "email")
+        req.authorization().write_relationships(
+            gestalt.WriteRelationshipsRequest(
+                writes=[
+                    gestalt.Relationship(
+                        subject=gestalt.AuthorizationSubject(
+                            type="subject", id=subject_id
+                        ),
+                        relation=GITHUB_USER_LINKED_ACTION,
+                        resource=gestalt.AuthorizationResource(
+                            type=GITHUB_USER_RESOURCE_TYPE,
+                            id=user_id,
+                            properties={
+                                "login": login,
+                                "name": name,
+                            },
+                        ),
+                    )
+                ]
+            )
+        )
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": installation_resolution_dict(resolution)}
+    except Exception as err:
+        return _server_error(f"failed to link GitHub identity: {err}")
+
+    return {
+        "ok": True,
+        "user": {
+            "id": user_id,
+            "login": login,
+            "name": name,
+            "email": email,
+        },
+        "resource": {"type": GITHUB_USER_RESOURCE_TYPE, "id": user_id},
+    }
 
 
 @app.operation(
@@ -851,7 +906,7 @@ def bot_get_repository(input: RepositoryInput, req: gestalt.Request) -> Operatio
                 repo=input.repo,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -882,7 +937,7 @@ def bot_search_code(input: SearchCodeInput, req: gestalt.Request) -> OperationRe
                 page=input.page,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -912,7 +967,7 @@ def bot_get_content(input: GetContentInput, req: gestalt.Request) -> OperationRe
                 max_bytes=input.max_bytes,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -936,7 +991,7 @@ def bot_commit_files(input: CommitFilesInput, req: gestalt.Request) -> Operation
             _commit_request_from_input(input, req),
             subject=req.subject,
             pull_request_permissions=False,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -972,7 +1027,7 @@ def bot_open_pull_request(
                 maintainer_can_modify=input.maintainer_can_modify,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1002,7 +1057,7 @@ def bot_close_pull_request(
                 pull_number=input.pull_number,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1049,7 +1104,7 @@ def bot_create_pull_request(
                 maintainer_can_modify=input.maintainer_can_modify,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1084,7 +1139,7 @@ def bot_create_issue_comment(
                 body=input.body,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1117,7 +1172,7 @@ def bot_create_pull_request_review(
                 commit_id=input.commit_id,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1128,6 +1183,43 @@ def bot_create_pull_request_review(
     except GitHubAPIError as err:
         return _github_error(err)
     return {"data": {"review": pull_request_review_summary(review)}}
+
+
+@app.operation(
+    id=BOT_LIST_PULL_REQUEST_REVIEWS_OPERATION,
+    method="GET",
+    description="List pull request reviews using a GitHub App installation token",
+    tags=["pr", "prs", "review"],
+)
+def bot_list_pull_request_reviews(
+    input: ListPullRequestReviewsInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        reviews = list_pull_request_reviews(
+            GitHubListPullRequestReviewsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                pull_number=input.pull_number,
+                per_page=input.per_page,
+                page=input.page,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {
+        "data": {
+            "count": len(reviews),
+            "reviews": [pull_request_review_summary(review) for review in reviews],
+        }
+    }
 
 
 @app.operation(
@@ -1150,7 +1242,7 @@ def bot_list_pull_request_review_threads(
                 comments_first=input.comments_first,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1181,7 +1273,7 @@ def bot_resolve_pull_request_review_thread(
                 thread_id=input.thread_id,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1212,7 +1304,7 @@ def bot_add_reaction(input: AddReactionInput, req: gestalt.Request) -> Operation
                 comment_id=input.comment_id,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1242,7 +1334,7 @@ def bot_add_labels(input: AddLabelsInput, req: gestalt.Request) -> OperationResu
                 pull_number=input.pull_number,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1274,7 +1366,7 @@ def bot_remove_labels(
                 pull_number=input.pull_number,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1311,7 +1403,7 @@ def bot_request_reviewers(
                 team_reviewers=tuple(input.team_reviewers),
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1341,7 +1433,7 @@ def bot_create_pull_request_conversation_comment(
                 body=input.body,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1371,7 +1463,7 @@ def bot_get_pull_request(
                 pull_number=input.pull_number,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1403,7 +1495,7 @@ def bot_list_pull_request_files(
                 page=input.page,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1435,7 +1527,7 @@ def bot_get_check_run(input: GetCheckRunInput, req: gestalt.Request) -> Operatio
                 check_run_id=input.check_run_id,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1470,7 +1562,7 @@ def bot_create_check_run(
                 output=_check_run_output_from_input(input.output),
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1505,7 +1597,7 @@ def bot_update_check_run(
                 completed_at=input.completed_at,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1539,7 +1631,7 @@ def bot_list_check_suite_check_runs(
                 page=input.page,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1582,7 +1674,7 @@ def bot_list_check_run_annotations(
                 page=input.page,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1618,7 +1710,7 @@ def bot_get_workflow_run(
                 run_id=input.run_id,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1650,7 +1742,7 @@ def bot_list_workflow_run_jobs(
                 page=input.page,
             ),
             subject=req.subject,
-            external_identity=_request_external_identity(req),
+            authorization=_request_authorization(req),
         )
     except ValueError as err:
         return _bad_request(str(err))
@@ -1703,27 +1795,46 @@ def _commit_request_from_input(
 def _commit_author_from_request(
     input_name: str, input_email: str, req: gestalt.Request
 ) -> tuple[str, str]:
-    external_identity = req.agent_external_identity
-    if external_identity.type.strip() == GITHUB_EXTERNAL_IDENTITY_TYPE:
-        user_id = _github_user_id_from_external_identity(external_identity.id)
+    user_id = _linked_github_user_id(req)
+    if user_id:
         user_identity = DEFAULT_GITHUB_CLIENT.user_identity_by_id(user_id)
         if user_identity is not None and user_identity.email:
             return user_identity.name, user_identity.email
     return input_name, input_email
 
 
-def _github_user_id_from_external_identity(identity_id: str) -> str:
-    prefix, _, user_id = str(identity_id or "").strip().partition(":")
-    if prefix != "user":
+def _linked_github_user_id(req: gestalt.Request) -> str:
+    subject_id = req.agent_subject.id.strip() or req.subject.id.strip()
+    if not subject_id:
         return ""
-    return user_id.strip()
+    try:
+        response = req.authorization().search_resources(
+            gestalt.ResourceSearchRequest(
+                subject=gestalt.AuthorizationSubject(type="subject", id=subject_id),
+                action=gestalt.AuthorizationAction(name=GITHUB_USER_LINKED_ACTION),
+                resource_type=GITHUB_USER_RESOURCE_TYPE,
+                page_size=2,
+            )
+        )
+    except Exception as err:
+        logger.warning("GitHub linked author lookup failed: %s", err)
+        return ""
+    resources = [resource for resource in response.resources if resource.id.strip()]
+    if len(resources) != 1:
+        if len(resources) > 1:
+            logger.warning("GitHub subject resolved multiple linked users")
+        return ""
+    _, _, user_id = resources[0].id.strip().rpartition("/")
+    return user_id
 
 
-def _request_external_identity(req: gestalt.Request) -> gestalt.ExternalIdentity | None:
-    # This is the delegated GitHub App installation identity authorized by the
-    # host. Do not fall back to agent_external_identity; that field identifies
-    # the original agent caller's GitHub user.
-    return non_empty_external_identity(req.external_identity)
+def _request_authorization(req: gestalt.Request) -> gestalt.AuthorizationProtocol:
+    try:
+        return req.authorization()
+    except Exception as err:
+        raise GitHubAuthorizationError(
+            "GitHub bot repository authorization is unavailable"
+        ) from err
 
 
 def _file_changes_from_input(
@@ -1780,6 +1891,10 @@ def _check_run_output_from_input(
 
 def _bad_request(message: str) -> gestalt.Response[dict[str, Any]]:
     return gestalt.Response(status=HTTPStatus.BAD_REQUEST, body={"error": message})
+
+
+def _unauthorized(message: str) -> gestalt.Response[dict[str, Any]]:
+    return gestalt.Response(status=HTTPStatus.UNAUTHORIZED, body={"error": message})
 
 
 def _forbidden(message: str) -> gestalt.Response[dict[str, Any]]:

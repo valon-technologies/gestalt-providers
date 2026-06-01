@@ -86,12 +86,12 @@ SLACK_STREAM_STOP_OPERATION = "events.stopStream"
 SLACK_UPLOAD_FILE_OPERATION = "events.uploadFile"
 SLACK_CONTEXT_OPERATION = "conversations.getThreadContext"
 SLACK_FILE_GET_OPERATION = "files.get"
+SLACK_IDENTITY_LINK_SELF_OPERATION = "identity.linkSelf"
 MAX_PROMPT_MESSAGE_URLS = 5
-SLACK_EXTERNAL_IDENTITY_TYPE = "slack_identity"
 SLACK_REPLY_REF_TTL_SECONDS = 60 * 60
 SLACK_INTERACTION_REF_TTL_SECONDS = 24 * 60 * 60
-EXTERNAL_IDENTITY_RESOURCE_TYPE = "external_identity"
-EXTERNAL_IDENTITY_ASSUME_ACTION = "assume"
+SLACK_USER_RESOURCE_TYPE = "app/slack/user"
+SLACK_USER_LINKED_ACTION = "linked"
 
 
 def _log_context(**fields: Any) -> str:
@@ -1509,21 +1509,12 @@ def _normalized_string_list(values: list[str], *, max_items: int) -> list[str]:
     return normalized
 
 
-def slack_external_identity_id(team_id: str, user_id: str) -> str:
+def slack_user_resource_id(team_id: str, user_id: str) -> str:
     team_id = team_id.strip()
     user_id = user_id.strip()
     if not team_id or not user_id:
-        raise RuntimeError("Slack auth.test did not return team_id and user_id")
-    return f"team:{team_id}:user:{user_id}"
-
-
-def external_identity_resource_id(identity_type: str, identity_id: str) -> str:
-    identity_type = identity_type.strip()
-    identity_id = identity_id.strip()
-    if not identity_type or not identity_id:
         return ""
-    raw = f"{identity_type}\x00{identity_id}".encode("utf-8")
-    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    return f"{team_id}/{user_id}"
 
 
 def _json_payload_from_http_request(
@@ -1543,7 +1534,7 @@ def _json_payload_from_http_request(
         return {"payload": form_payload}
     try:
         payload = json.loads(raw_body)
-    except UnicodeDecodeError, json.JSONDecodeError:
+    except (UnicodeDecodeError, json.JSONDecodeError):
         return {}
     return payload if isinstance(payload, dict) else {}
 
@@ -2293,17 +2284,14 @@ def _resolve_slack_subject(
     team_id: str,
     user_id: str,
 ) -> gestalt.Subject | None:
-    identity_id = slack_external_identity_id(team_id, user_id)
-    resource_id = external_identity_resource_id(
-        SLACK_EXTERNAL_IDENTITY_TYPE, identity_id
-    )
+    resource_id = slack_user_resource_id(team_id, user_id)
     response = authorization.search_subjects(
         gestalt.SubjectSearchRequest(
             resource=gestalt.AuthorizationResource(
-                type=EXTERNAL_IDENTITY_RESOURCE_TYPE,
+                type=SLACK_USER_RESOURCE_TYPE,
                 id=resource_id,
             ),
-            action=gestalt.AuthorizationAction(name=EXTERNAL_IDENTITY_ASSUME_ACTION),
+            action=gestalt.AuthorizationAction(name=SLACK_USER_LINKED_ACTION),
             page_size=10,
         )
     )
@@ -2311,7 +2299,7 @@ def _resolve_slack_subject(
     if len(subjects) > 1:
         raise gestalt.http_subject_error(
             HTTPStatus.INTERNAL_SERVER_ERROR,
-            "Slack external identity resolved to multiple Gestalt subjects",
+            "Slack user link resolved to multiple Gestalt subjects",
         )
     if not subjects:
         return None

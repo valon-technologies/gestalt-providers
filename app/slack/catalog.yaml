@@ -1,5 +1,10 @@
 name: slack
 operations:
+- id: identity.linkSelf
+  method: POST
+  description: Link the current Gestalt user subject to the Slack user proven by the
+    current Slack credential
+  tags: [identity]
 - id: events.handle
   method: POST
   description: Handle Slack Events API callbacks for workflow event publishing and

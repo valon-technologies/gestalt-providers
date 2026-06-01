@@ -3,10 +3,13 @@ GITHUB_DEFAULT_API_BASE_URL = "https://api.github.com"
 GITHUB_DEFAULT_GRAPHQL_BASE_URL = "https://api.github.com/graphql"
 GITHUB_DEFAULT_WEB_BASE_URL = "https://github.com"
 
-GITHUB_EXTERNAL_IDENTITY_TYPE = "github_identity"
+GITHUB_USER_RESOURCE_TYPE = "app/github/user"
+GITHUB_USER_LINKED_ACTION = "linked"
+GITHUB_REPOSITORY_RESOURCE_TYPE = "app/github/repository"
+GITHUB_REPOSITORY_ACTION_BOT = "bot"
 
 GITHUB_EVENT_OPERATION = "events.handle"
-BOT_RESOLVE_INSTALLATION_OPERATION = "bot.resolveInstallation"
+IDENTITY_LINK_SELF_OPERATION = "identity.linkSelf"
 BOT_GET_REPOSITORY_OPERATION = "bot.getRepository"
 BOT_SEARCH_CODE_OPERATION = "bot.searchCode"
 BOT_GET_CONTENT_OPERATION = "bot.getContent"
@@ -15,6 +18,7 @@ BOT_OPEN_PULL_REQUEST_OPERATION = "bot.openPullRequest"
 BOT_CLOSE_PULL_REQUEST_OPERATION = "bot.closePullRequest"
 BOT_CREATE_PULL_REQUEST_OPERATION = "bot.createPullRequest"
 BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION = "bot.createPullRequestReview"
+BOT_LIST_PULL_REQUEST_REVIEWS_OPERATION = "bot.listPullRequestReviews"
 BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION = "bot.listPullRequestReviewThreads"
 BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION = "bot.resolvePullRequestReviewThread"
 BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION = (
@@ -36,8 +40,6 @@ BOT_GET_WORKFLOW_RUN_OPERATION = "bot.getWorkflowRun"
 BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION = "bot.listWorkflowRunJobs"
 
 GITHUB_WEBHOOK_SUBJECT_PREFIX = "service_account:github_webhook:"
-GITHUB_APP_INSTALLATION_EXTERNAL_IDENTITY_TYPE = "github_app_installation"
-
 DEFAULT_WEBHOOK_EVENTS = (
     "check_run",
     "check_suite",

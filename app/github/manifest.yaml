@@ -5,6 +5,7 @@ description: Repository, issue, pull request, workflow, and code search operatio
 iconFile: assets/icon.svg
 kind: app
 spec:
+  defaultConnection: default
   configSchemaPath: schemas/config.schema.yaml
   securitySchemes:
     github_app:
@@ -25,3 +26,13 @@ spec:
         required: true
         content:
           application/json: {}
+  connections:
+    default:
+      mode: subject
+      auth:
+        type: oauth2
+        authorizationUrl: https://github.com/login/oauth/authorize
+        tokenUrl: https://github.com/login/oauth/access_token
+        acceptHeader: application/json
+        scopes:
+          - read:user

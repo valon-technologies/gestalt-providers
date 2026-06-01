@@ -17,16 +17,3 @@ spec:
         authorizationUrl: https://identity.pagerduty.com/oauth/authorize
         tokenUrl: https://identity.pagerduty.com/oauth/token
         pkce: true
-      postConnect:
-        request:
-          method: GET
-          url: https://api.pagerduty.com/users/me
-          headers:
-            Accept: application/vnd.pagerduty+json;version=2
-            Content-Type: application/json
-        sourcePath: user
-        externalIdentity:
-          type: pagerduty_identity
-          id: user:{id}
-        metadata:
-          pagerduty.user_id: id

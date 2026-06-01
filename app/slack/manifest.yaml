@@ -553,19 +553,6 @@ spec:
         - channels:write
         - groups:write
         - canvases:write
-      postConnect:
-        request:
-          method: POST
-          url: https://slack.com/api/auth.test
-        success:
-          path: ok
-          equals: true
-        externalIdentity:
-          type: slack_identity
-          id: team:{team_id}:user:{user_id}
-        metadata:
-          slack.team_id: team_id
-          slack.user_id: user_id
     bot:
       displayName: Bot
       auth:
