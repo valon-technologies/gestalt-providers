@@ -11,6 +11,8 @@ use tokio::time;
 
 use crate::config::HermesConfig;
 
+const ACCESS_TOKEN_ENV_VAR: &str = "OPENAI_API_KEY";
+
 type PendingAcpResponse = Result<JsonValue, String>;
 type PendingAcpSender = oneshot::Sender<PendingAcpResponse>;
 type PendingAcpRequests = Arc<Mutex<HashMap<String, PendingAcpSender>>>;
@@ -40,7 +42,7 @@ struct AcpProcessInner {
 }
 
 impl AcpProcess {
-    pub async fn spawn(config: &HermesConfig, token: Option<&str>) -> Result<Self, String> {
+    pub async fn spawn(config: &HermesConfig, token: &str) -> Result<Self, String> {
         let mut command = Command::new(&config.hermes_command);
         command
             .args(&config.hermes_args)
@@ -48,13 +50,8 @@ impl AcpProcess {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        for (key, value) in &config.extra_env {
-            command.env(key, value);
-        }
         command.env("HERMES_HOME", &config.hermes_home);
-        if let Some(token) = token {
-            command.env(&config.access_token_env_var, token);
-        }
+        command.env(ACCESS_TOKEN_ENV_VAR, token);
 
         let mut child = command.spawn().map_err(|err| {
             format!(

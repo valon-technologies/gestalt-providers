@@ -146,14 +146,7 @@ def load_yaml_text(text: str, source: str) -> Any:
 
 
 def normalize_kind(kind: Any) -> str:
-    value = str(kind or "").strip().lower()
-    aliases = {
-        "auth": "authentication",
-        "external_credentials": "externalcredentials",
-        "externalcredentials": "externalcredentials",
-        "external-credentials": "externalcredentials",
-    }
-    return aliases.get(value, value)
+    return str(kind or "").strip().lower()
 
 
 def scalar(value: Any) -> str:

@@ -1591,27 +1591,9 @@ async fn cancel_before_acp_spawn_prevents_prompt() {
     assert_turn_event(&provider, "turn-early-cancel", "turn.canceled").await;
 }
 
-#[tokio::test]
-async fn required_hermes_home_overrides_extra_env() {
-    let fixture = Fixture::new_with_hermes_home_override("success");
-    let provider = fixture.configure_provider().await;
-    create_session(&provider).await;
-
-    let log = fixture.log_events();
-    let start = log
-        .iter()
-        .find(|event| event["event"] == "start")
-        .expect("start was logged");
-    assert_eq!(
-        start["hermesHome"].as_str(),
-        Some(fixture.hermes_home.path().to_string_lossy().as_ref())
-    );
-}
-
 struct Fixture {
     tmp: TempDir,
     hermes_home: TempDir,
-    env_hermes_home_override: Option<TempDir>,
     log_path: PathBuf,
     token_script: PathBuf,
 }
@@ -1922,22 +1904,16 @@ impl Drop for EnvGuard {
 
 impl Fixture {
     fn new(mode: &str) -> Self {
-        Self::new_internal(mode, false, false)
+        Self::new_internal(mode, false)
     }
 
     fn new_with_delayed_turn_token(mode: &str) -> Self {
-        Self::new_internal(mode, true, false)
+        Self::new_internal(mode, true)
     }
 
-    fn new_with_hermes_home_override(mode: &str) -> Self {
-        Self::new_internal(mode, false, true)
-    }
-
-    fn new_internal(mode: &str, delay_turn_token: bool, override_hermes_home: bool) -> Self {
+    fn new_internal(mode: &str, delay_turn_token: bool) -> Self {
         let tmp = tempfile::tempdir().expect("tmp");
         let hermes_home = tempfile::tempdir().expect("hermes home");
-        let env_hermes_home_override =
-            override_hermes_home.then(|| tempfile::tempdir().expect("override hermes home"));
         let log_path = tmp.path().join("fake-acp.log");
         let token_counter = tmp.path().join("token-counter");
         let token_script = tmp.path().join("token.sh");
@@ -1948,7 +1924,6 @@ impl Fixture {
         Self {
             tmp,
             hermes_home,
-            env_hermes_home_override,
             log_path,
             token_script,
         }
@@ -1963,32 +1938,22 @@ impl Fixture {
         model_switching_enabled: bool,
     ) -> HermesAgentProvider {
         let provider = HermesAgentProvider::default();
-        let mut extra_env = serde_json::Map::new();
-        extra_env.insert(
-            "FAKE_ACP_LOG".to_string(),
-            JsonValue::String(self.log_path.to_string_lossy().to_string()),
-        );
-        extra_env.insert(
-            "FAKE_ACP_MODE".to_string(),
-            JsonValue::String(fs::read_to_string(self.tmp.path().join("mode")).expect("mode")),
-        );
-        if let Some(override_home) = &self.env_hermes_home_override {
-            extra_env.insert(
-                "HERMES_HOME".to_string(),
-                JsonValue::String(override_home.path().to_string_lossy().to_string()),
-            );
-        }
+        let mode = fs::read_to_string(self.tmp.path().join("mode")).expect("mode");
         let config = json_map(json!({
             "hermesHome": self.hermes_home.path().to_string_lossy(),
             "hermesCommand": env!("CARGO_BIN_EXE_fake-acp"),
-            "hermesArgs": [],
+            "hermesArgs": [
+                "--fake-acp-log",
+                self.log_path.to_string_lossy(),
+                "--fake-acp-mode",
+                mode
+            ],
             "workingDirectory": self.tmp.path().to_string_lossy(),
             "defaultModel": "kimi-k2.6",
             "accessTokenCommand": [
                 self.token_script.to_string_lossy()
             ],
             "modelSwitchingEnabled": model_switching_enabled,
-            "extraEnv": JsonValue::Object(extra_env),
             "autoApprovePermissions": true
         }));
         gestalt::AgentProvider::configure(&provider, "hermes", config)

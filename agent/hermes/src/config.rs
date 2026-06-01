@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
@@ -9,7 +8,6 @@ use tokio::time;
 
 const DEFAULT_HERMES_COMMAND: &str = "hermes";
 const DEFAULT_TIMEOUT_SECONDS: f64 = 600.0;
-const DEFAULT_ACCESS_TOKEN_ENV_VAR: &str = "OPENAI_API_KEY";
 const TOKEN_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 const MIN_HERMES_VERSION: (u64, u64, u64) = (0, 12, 0);
 
@@ -23,8 +21,6 @@ pub struct HermesConfig {
     pub model_switching_enabled: bool,
     pub timeout: Duration,
     pub access_token_command: Vec<String>,
-    pub access_token_env_var: String,
-    pub extra_env: BTreeMap<String, String>,
 }
 
 impl HermesConfig {
@@ -71,6 +67,20 @@ impl HermesConfig {
             return Err("timeoutSeconds must be positive".to_string());
         }
 
+        let access_token_command = string_list(
+            raw.get("accessTokenCommand"),
+            &[
+                "gcloud",
+                "auth",
+                "application-default",
+                "print-access-token",
+            ],
+            "accessTokenCommand",
+        )?;
+        if access_token_command.is_empty() || access_token_command[0].trim().is_empty() {
+            return Err("accessTokenCommand must start with a command".to_string());
+        }
+
         Ok(Self {
             hermes_home,
             hermes_command: trimmed_text(raw.get("hermesCommand"))
@@ -85,19 +95,7 @@ impl HermesConfig {
             model_switching_enabled: optional_bool(raw.get("modelSwitchingEnabled"))?
                 .unwrap_or(true),
             timeout: Duration::from_secs_f64(timeout_seconds),
-            access_token_command: string_list(
-                raw.get("accessTokenCommand"),
-                &[
-                    "gcloud",
-                    "auth",
-                    "application-default",
-                    "print-access-token",
-                ],
-                "accessTokenCommand",
-            )?,
-            access_token_env_var: trimmed_text(raw.get("accessTokenEnvVar"))
-                .unwrap_or_else(|| DEFAULT_ACCESS_TOKEN_ENV_VAR.to_string()),
-            extra_env: string_map(raw.get("extraEnv"), "extraEnv")?,
+            access_token_command,
         })
     }
 
@@ -114,10 +112,7 @@ impl HermesConfig {
         self.model_switching_enabled && !model.trim().is_empty()
     }
 
-    pub async fn fresh_access_token(&self) -> Result<Option<String>, String> {
-        if self.access_token_command.is_empty() {
-            return Ok(None);
-        }
+    pub async fn fresh_access_token(&self) -> Result<String, String> {
         let mut command = Command::new(&self.access_token_command[0]);
         command
             .args(&self.access_token_command[1..])
@@ -146,7 +141,7 @@ impl HermesConfig {
         if token.is_empty() {
             return Err("accessTokenCommand produced empty stdout".to_string());
         }
-        Ok(Some(token))
+        Ok(token)
     }
 
     pub async fn hermes_version_warning(&self) -> Option<String> {
@@ -219,23 +214,6 @@ fn string_list(
             })
             .collect(),
         _ => Err(format!("{field} must be a list of strings")),
-    }
-}
-
-fn string_map(raw: Option<&JsonValue>, field: &str) -> Result<BTreeMap<String, String>, String> {
-    match raw {
-        None | Some(JsonValue::Null) => Ok(BTreeMap::new()),
-        Some(JsonValue::Object(values)) => {
-            let mut result = BTreeMap::new();
-            for (key, value) in values {
-                let value = value
-                    .as_str()
-                    .ok_or_else(|| format!("{field} values must be strings"))?;
-                result.insert(key.clone(), value.to_string());
-            }
-            Ok(result)
-        }
-        _ => Err(format!("{field} must be an object")),
     }
 }
 

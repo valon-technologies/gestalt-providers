@@ -2,11 +2,31 @@ use std::env;
 use std::fs::OpenOptions;
 use std::io::{self, BufRead, Read, Write};
 use std::net::TcpStream;
+use std::sync::OnceLock;
 
 use serde_json::{Value, json};
 
+static LOG_PATH: OnceLock<String> = OnceLock::new();
+
 fn main() {
-    let mode = env::var("FAKE_ACP_MODE").unwrap_or_else(|_| "success".to_string());
+    let mut mode = "success".to_string();
+    let mut args = env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--fake-acp-log" => {
+                if let Some(value) = args.next() {
+                    let _ = LOG_PATH.set(value);
+                }
+            }
+            "--fake-acp-mode" => {
+                if let Some(value) = args.next() {
+                    mode = value;
+                }
+            }
+            _ => {}
+        }
+    }
+
     log_event(json!({
         "event": "start",
         "token": env::var("OPENAI_API_KEY").unwrap_or_default(),
@@ -458,7 +478,7 @@ fn emit(value: Value) {
 }
 
 fn log_event(value: Value) {
-    let Ok(path) = env::var("FAKE_ACP_LOG") else {
+    let Some(path) = LOG_PATH.get() else {
         return;
     };
     let mut file = OpenOptions::new()

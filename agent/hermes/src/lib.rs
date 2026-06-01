@@ -133,7 +133,7 @@ impl gestalt::AgentProvider for HermesAgentProvider {
             .await
             .map_err(|err| gestalt::Error::failed_precondition(redacted_token_error(err)))?;
         let acp = Arc::new(
-            AcpProcess::spawn(&config, token.as_deref())
+            AcpProcess::spawn(&config, &token)
                 .await
                 .map_err(gestalt::Error::unavailable)?,
         );
@@ -651,7 +651,7 @@ impl HermesAgentProvider {
         if self.is_turn_canceled(turn_id).await {
             return Err("turn canceled".to_string());
         }
-        let process = Arc::new(AcpProcess::spawn(&config, token.as_deref()).await?);
+        let process = Arc::new(AcpProcess::spawn(&config, &token).await?);
         self.inner
             .processes
             .lock()
