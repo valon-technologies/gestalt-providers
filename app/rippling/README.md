@@ -42,7 +42,7 @@ This provider does not define provider-level config fields in its config schema.
 
 Connections and authentication:
 
-- `default` uses bearer token; mode `user`.
+- `default` uses bearer token; mode `subject`.
   - Credential fields: `token`.
   - `token`: Create one in [Rippling API Tokens](https://app.rippling.com/developer/api-tokens)
 

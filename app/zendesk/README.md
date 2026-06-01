@@ -88,7 +88,7 @@ This provider does not define provider-level config fields in its config schema.
 
 Connections and authentication:
 
-- `default` uses manual credentials; mode `user`.
+- `default` uses manual credentials; mode `subject`.
   - Credential fields: `email`, `api_token`.
   - `email`: The email address of a Zendesk agent or admin account.
   - `api_token`: Zendesk API token with read and write access. Create one in Admin Center > Apps and integrations > APIs > Zendesk API.

@@ -54,10 +54,10 @@ This provider does not define provider-level config fields in its config schema.
 
 Connections and authentication:
 
-- `default` uses bearer token; mode `user`.
+- `default` uses bearer token; mode `subject`.
   - Credential fields: `token`.
   - `token`: For user-scoped access, personal keys only expose notes the key owner can access. Create a key in the Granola desktop app under Settings > API.
-- `MCP` uses MCP OAuth; mode `user`.
+- `MCP` uses MCP OAuth; mode `subject`.
 
 Operation surfaces: OpenAPI, MCP.
 

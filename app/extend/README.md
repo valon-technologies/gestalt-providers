@@ -37,7 +37,7 @@ This provider does not define provider-level config fields in its config schema.
 
 Connections and authentication:
 
-- `default` uses manual credentials; mode `user`.
+- `default` uses manual credentials; mode `subject`.
   - Provide an Extend API key as a bearer token when creating the connection.
     Create one in Extend Developer Settings.
 

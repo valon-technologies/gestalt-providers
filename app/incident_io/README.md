@@ -46,10 +46,10 @@ This provider does not define provider-level config fields in its config schema.
 
 Connections and authentication:
 
-- `default` uses manual credentials; mode `user`.
+- `default` uses manual credentials; mode `subject`.
   - Credential fields: `token`.
   - `token`: Create one in [Settings → API Keys](https://app.incident.io/settings/api-keys)
-- `MCP` uses MCP OAuth; mode `user`.
+- `MCP` uses MCP OAuth; mode `subject`.
 
 Operation surfaces: OpenAPI, MCP.
 

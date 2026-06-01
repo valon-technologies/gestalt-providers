@@ -83,7 +83,7 @@ This provider does not define provider-level config fields in its config schema.
 
 Connections and authentication:
 
-- `default` uses manual credentials; mode `user`.
+- `default` uses manual credentials; mode `subject`.
   - Credential fields: `client_id`, `client_secret`.
   - `client_id`: Looker API client ID for a user with API access enabled.
   - `client_secret`: Looker API client secret for the same user.

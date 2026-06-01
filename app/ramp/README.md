@@ -49,9 +49,9 @@ Provider config fields:
 
 Connections and authentication:
 
-- `oauth` uses OAuth 2.0; mode `user`.
+- `oauth` uses OAuth 2.0; mode `subject`.
   - Requested scopes: `transactions:read`, `cards:read`, `cards:write`, `users:read`, `users:write`, `departments:read`, `reimbursements:read`, `receipts:read`, `limits:read`, `spend_programs:read`, `spend_programs:write`.
-- `mcp` uses MCP OAuth; mode `user`.
+- `mcp` uses MCP OAuth; mode `subject`.
 
 Operation surfaces: OpenAPI, MCP.
 

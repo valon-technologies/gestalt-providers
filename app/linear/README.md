@@ -41,7 +41,7 @@ This provider does not define provider-level config fields in its config schema.
 
 Connections and authentication:
 
-- `OAuth` uses OAuth 2.0; mode `user`.
+- `OAuth` uses OAuth 2.0; mode `subject`.
   - Requested scopes: `read`, `write`.
 
 Operation surfaces: GraphQL, MCP.

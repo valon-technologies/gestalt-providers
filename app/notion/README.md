@@ -41,8 +41,8 @@ This provider does not define provider-level config fields in its config schema.
 
 Connections and authentication:
 
-- `OAuth` uses OAuth 2.0; mode `user`.
-- `MCP` uses MCP OAuth; mode `user`.
+- `OAuth` uses OAuth 2.0; mode `subject`.
+- `MCP` uses MCP OAuth; mode `subject`.
 
 Managed request headers:
 
