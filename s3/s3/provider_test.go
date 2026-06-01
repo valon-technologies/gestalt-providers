@@ -23,7 +23,7 @@ func TestS3Provider_WriteReadAndStat(t *testing.T) {
 	wrote, err := writeJSON(ctx, provider, ref, map[string]any{
 		"ok":   true,
 		"name": t.Name(),
-	}, &gestalt.WriteOptions{
+	}, &gestalt.WriteRequest{
 		ContentType: "application/json",
 		Metadata:    map[string]string{"env": "test"},
 	})
@@ -65,16 +65,17 @@ func TestS3Provider_StreamedReadAndEmptyObject(t *testing.T) {
 	blobKey := "chunks/" + t.Name() + ".bin"
 	blob := strings.Repeat("abcdef0123456789", 8192)
 	blobRef := gestalt.ObjectRef{Key: blobKey}
-	if _, err := writeString(ctx, provider, blobRef, blob, &gestalt.WriteOptions{
+	if _, err := writeString(ctx, provider, blobRef, blob, &gestalt.WriteRequest{
 		ContentType: "application/octet-stream",
 	}); err != nil {
 		t.Fatalf("WriteObject(blob): %v", err)
 	}
 
-	meta, body, err := provider.ReadObject(ctx, blobRef, nil)
+	readResult, err := provider.ReadObject(ctx, gestalt.ReadRequest{Ref: blobRef})
 	if err != nil {
 		t.Fatalf("ReadObject: %v", err)
 	}
+	meta, body := readResult.Meta, readResult.Body
 	defer func() { _ = body.Close() }()
 	if meta.Size != int64(len(blob)) {
 		t.Fatalf("ReadObject size = %d, want %d", meta.Size, len(blob))
@@ -88,7 +89,7 @@ func TestS3Provider_StreamedReadAndEmptyObject(t *testing.T) {
 	}
 
 	emptyRef := gestalt.ObjectRef{Key: "empty/" + t.Name()}
-	meta, err = writeBytes(ctx, provider, emptyRef, nil, &gestalt.WriteOptions{
+	meta, err = writeBytes(ctx, provider, emptyRef, nil, &gestalt.WriteRequest{
 		ContentType: "text/plain",
 	})
 	if err != nil {
@@ -117,7 +118,7 @@ func TestS3Provider_RangeRead(t *testing.T) {
 	}
 
 	start, end := int64(2), int64(5)
-	got, err := readText(ctx, provider, ref, &gestalt.ReadOptions{
+	got, err := readText(ctx, provider, ref, &gestalt.ReadRequest{
 		Range: &gestalt.ByteRange{Start: &start, End: &end},
 	})
 	if err != nil {
@@ -128,7 +129,7 @@ func TestS3Provider_RangeRead(t *testing.T) {
 	}
 
 	endOnly := int64(3)
-	got, err = readText(ctx, provider, ref, &gestalt.ReadOptions{
+	got, err = readText(ctx, provider, ref, &gestalt.ReadRequest{
 		Range: &gestalt.ByteRange{End: &endOnly},
 	})
 	if err != nil {
@@ -138,7 +139,7 @@ func TestS3Provider_RangeRead(t *testing.T) {
 		t.Fatalf("ReadObject(end-only range) = %q, want 0123", got)
 	}
 
-	got, err = readText(ctx, provider, ref, &gestalt.ReadOptions{
+	got, err = readText(ctx, provider, ref, &gestalt.ReadRequest{
 		Range: &gestalt.ByteRange{},
 	})
 	if err != nil {
@@ -165,7 +166,7 @@ func TestS3Provider_ListCopyDeletePresignAndExists(t *testing.T) {
 	}
 
 	basePrefix := "list/" + t.Name() + "/"
-	page, err := provider.ListObjects(ctx, gestalt.ListOptions{
+	page, err := provider.ListObjects(ctx, gestalt.ListRequest{
 		Prefix:    basePrefix,
 		Delimiter: "/",
 	})
@@ -179,7 +180,7 @@ func TestS3Provider_ListCopyDeletePresignAndExists(t *testing.T) {
 		t.Fatalf("Objects(delimiter) len = %d, want 2", len(page.Objects))
 	}
 
-	first, err := provider.ListObjects(ctx, gestalt.ListOptions{
+	first, err := provider.ListObjects(ctx, gestalt.ListRequest{
 		Prefix:  basePrefix,
 		MaxKeys: 2,
 	})
@@ -189,7 +190,7 @@ func TestS3Provider_ListCopyDeletePresignAndExists(t *testing.T) {
 	if !first.HasMore {
 		t.Fatal("first page HasMore = false, want true")
 	}
-	second, err := provider.ListObjects(ctx, gestalt.ListOptions{
+	second, err := provider.ListObjects(ctx, gestalt.ListRequest{
 		Prefix:            basePrefix,
 		MaxKeys:           2,
 		ContinuationToken: first.NextContinuationToken,
@@ -206,7 +207,7 @@ func TestS3Provider_ListCopyDeletePresignAndExists(t *testing.T) {
 
 	sourceKey := "copy/" + t.Name() + "/source ?#+.txt"
 	sourceRef := gestalt.ObjectRef{Key: sourceKey}
-	sourceMeta, err := writeString(ctx, provider, sourceRef, "copied", &gestalt.WriteOptions{
+	sourceMeta, err := writeString(ctx, provider, sourceRef, "copied", &gestalt.WriteRequest{
 		ContentType: "text/plain",
 		Metadata:    map[string]string{"copied": "true"},
 	})
@@ -219,8 +220,10 @@ func TestS3Provider_ListCopyDeletePresignAndExists(t *testing.T) {
 		t.Fatalf("WriteObject(dest seed): %v", err)
 	}
 
-	meta, err := provider.CopyObject(ctx, sourceRef, destRef, &gestalt.CopyOptions{
-		IfMatch: sourceMeta.ETag,
+	meta, err := provider.CopyObject(ctx, gestalt.CopyRequest{
+		Source:      sourceRef,
+		Destination: destRef,
+		IfMatch:     sourceMeta.ETag,
 	})
 	if err != nil {
 		t.Fatalf("CopyObject: %v", err)
@@ -245,7 +248,8 @@ func TestS3Provider_ListCopyDeletePresignAndExists(t *testing.T) {
 		t.Fatalf("ReadObject(dest) = %q, want copied", text)
 	}
 
-	presigned, err := provider.PresignObject(ctx, destRef, &gestalt.PresignOptions{
+	presigned, err := provider.PresignObject(ctx, gestalt.PresignRequest{
+		Ref:                destRef,
 		Method:             gestalt.PresignMethodPut,
 		Expires:            15 * time.Minute,
 		ContentType:        "text/plain",
@@ -273,13 +277,15 @@ func TestS3Provider_ListCopyDeletePresignAndExists(t *testing.T) {
 	if got := headerValue(presigned.Headers, "host"); got != "" {
 		t.Fatalf("Presign host header = %q, want omitted", got)
 	}
-	if _, err := provider.PresignObject(ctx, destRef, &gestalt.PresignOptions{
+	if _, err := provider.PresignObject(ctx, gestalt.PresignRequest{
+		Ref:     destRef,
 		Method:  gestalt.PresignMethodPut,
 		Expires: -time.Second,
 	}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
 		t.Fatalf("PresignObject(negative expiry) error = %v, want invalid_argument", err)
 	}
-	getPresigned, err := provider.PresignObject(ctx, destRef, &gestalt.PresignOptions{
+	getPresigned, err := provider.PresignObject(ctx, gestalt.PresignRequest{
+		Ref:                destRef,
 		Method:             gestalt.PresignMethodGet,
 		ContentType:        "application/octet-stream",
 		ContentDisposition: `attachment; filename="download.txt"`,
@@ -301,7 +307,8 @@ func TestS3Provider_ListCopyDeletePresignAndExists(t *testing.T) {
 		t.Fatalf("GET presign host header = %q, want omitted", got)
 	}
 
-	versioned, err := provider.PresignObject(ctx, gestalt.ObjectRef{Key: destRef.Key, VersionID: "version id/1"}, &gestalt.PresignOptions{
+	versioned, err := provider.PresignObject(ctx, gestalt.PresignRequest{
+		Ref:    gestalt.ObjectRef{Key: destRef.Key, VersionID: "version id/1"},
 		Method: gestalt.PresignMethodHead,
 	})
 	if err != nil {
@@ -333,7 +340,7 @@ func TestS3Provider_KeyPrefixIsTransparent(t *testing.T) {
 	ctx := context.Background()
 
 	sourceRef := gestalt.ObjectRef{Key: "objects/" + t.Name() + "/source ?#+.txt"}
-	if _, err := writeString(ctx, provider, sourceRef, "prefixed", &gestalt.WriteOptions{
+	if _, err := writeString(ctx, provider, sourceRef, "prefixed", &gestalt.WriteRequest{
 		ContentType: "text/plain",
 		Metadata:    map[string]string{"prefix": "true"},
 	}); err != nil {
@@ -341,7 +348,7 @@ func TestS3Provider_KeyPrefixIsTransparent(t *testing.T) {
 	}
 
 	destRef := gestalt.ObjectRef{Key: "objects/" + t.Name() + "/dest ?#+.txt"}
-	if _, err := provider.CopyObject(ctx, sourceRef, destRef, nil); err != nil {
+	if _, err := provider.CopyObject(ctx, gestalt.CopyRequest{Source: sourceRef, Destination: destRef}); err != nil {
 		t.Fatalf("CopyObject: %v", err)
 	}
 	destText, err := readText(ctx, provider, destRef, nil)
@@ -352,7 +359,7 @@ func TestS3Provider_KeyPrefixIsTransparent(t *testing.T) {
 		t.Fatalf("ReadObject(dest) = %q, want prefixed", destText)
 	}
 
-	presigned, err := provider.PresignObject(ctx, destRef, &gestalt.PresignOptions{Method: gestalt.PresignMethodGet})
+	presigned, err := provider.PresignObject(ctx, gestalt.PresignRequest{Ref: destRef, Method: gestalt.PresignMethodGet})
 	if err != nil {
 		t.Fatalf("PresignObject(GET): %v", err)
 	}
@@ -379,7 +386,7 @@ func TestS3Provider_KeyPrefixIsTransparent(t *testing.T) {
 		}
 	}
 
-	page, err := provider.ListObjects(ctx, gestalt.ListOptions{
+	page, err := provider.ListObjects(ctx, gestalt.ListRequest{
 		Prefix:     basePrefix,
 		Delimiter:  "/",
 		StartAfter: basePrefix + "a.txt",
@@ -409,51 +416,58 @@ func TestS3Provider_StatusMapping(t *testing.T) {
 		t.Fatalf("WriteObject(existing): %v", err)
 	}
 
-	_, err = writeString(ctx, provider, existingRef, "overwrite", &gestalt.WriteOptions{
+	_, err = writeString(ctx, provider, existingRef, "overwrite", &gestalt.WriteRequest{
 		IfNoneMatch: "*",
 	})
 	requireStatusCode(t, err, gestalt.CodeFailedPrecondition)
 
 	start, end := int64(9), int64(1)
-	_, err = readText(ctx, provider, existingRef, &gestalt.ReadOptions{
+	_, err = readText(ctx, provider, existingRef, &gestalt.ReadRequest{
 		Range: &gestalt.ByteRange{Start: &start, End: &end},
 	})
 	requireStatusCode(t, err, gestalt.CodeOutOfRange)
 
 	negativeStart := int64(-1)
-	_, err = readText(ctx, provider, existingRef, &gestalt.ReadOptions{
+	_, err = readText(ctx, provider, existingRef, &gestalt.ReadRequest{
 		Range: &gestalt.ByteRange{Start: &negativeStart},
 	})
 	requireStatusCode(t, err, gestalt.CodeOutOfRange)
 
 	negativeEnd := int64(-1)
-	_, err = readText(ctx, provider, existingRef, &gestalt.ReadOptions{
+	_, err = readText(ctx, provider, existingRef, &gestalt.ReadRequest{
 		Range: &gestalt.ByteRange{End: &negativeEnd},
 	})
 	requireStatusCode(t, err, gestalt.CodeOutOfRange)
 
 	tooFarStart := int64(1 << 20)
-	_, err = readText(ctx, provider, existingRef, &gestalt.ReadOptions{
+	_, err = readText(ctx, provider, existingRef, &gestalt.ReadRequest{
 		Range: &gestalt.ByteRange{Start: &tooFarStart},
 	})
 	requireStatusCode(t, err, gestalt.CodeOutOfRange)
 
-	_, err = readText(ctx, provider, existingRef, &gestalt.ReadOptions{
+	_, err = readText(ctx, provider, existingRef, &gestalt.ReadRequest{
 		IfNoneMatch: meta.ETag,
 	})
 	requireStatusCode(t, err, gestalt.CodeFailedPrecondition)
 
-	_, err = provider.CopyObject(ctx, existingRef, gestalt.ObjectRef{Key: "errors/" + t.Name() + "-copy.txt"}, &gestalt.CopyOptions{
-		IfMatch: "wrong-etag",
+	_, err = provider.CopyObject(ctx, gestalt.CopyRequest{
+		Source:      existingRef,
+		Destination: gestalt.ObjectRef{Key: "errors/" + t.Name() + "-copy.txt"},
+		IfMatch:     "wrong-etag",
 	})
 	requireStatusCode(t, err, gestalt.CodeFailedPrecondition)
 
-	_, err = provider.CopyObject(ctx, existingRef, gestalt.ObjectRef{Key: "errors/" + t.Name() + "-copy-if-none-match.txt"}, &gestalt.CopyOptions{
+	_, err = provider.CopyObject(ctx, gestalt.CopyRequest{
+		Source:      existingRef,
+		Destination: gestalt.ObjectRef{Key: "errors/" + t.Name() + "-copy-if-none-match.txt"},
 		IfNoneMatch: meta.ETag,
 	})
 	requireStatusCode(t, err, gestalt.CodeFailedPrecondition)
 
-	_, err = provider.CopyObject(ctx, gestalt.ObjectRef{Key: "errors/absent-" + t.Name()}, gestalt.ObjectRef{Key: "errors/" + t.Name() + "-copy-2.txt"}, nil)
+	_, err = provider.CopyObject(ctx, gestalt.CopyRequest{
+		Source:      gestalt.ObjectRef{Key: "errors/absent-" + t.Name()},
+		Destination: gestalt.ObjectRef{Key: "errors/" + t.Name() + "-copy-2.txt"},
+	})
 	requireStatusCode(t, err, gestalt.CodeNotFound)
 
 	if meta.ETag == "" {
@@ -461,21 +475,27 @@ func TestS3Provider_StatusMapping(t *testing.T) {
 	}
 }
 
-func writeString(ctx context.Context, provider *s3provider.Provider, ref gestalt.ObjectRef, body string, opts *gestalt.WriteOptions) (gestalt.ObjectMeta, error) {
+func writeString(ctx context.Context, provider *s3provider.Provider, ref gestalt.ObjectRef, body string, opts *gestalt.WriteRequest) (gestalt.ObjectMeta, error) {
 	return writeBytes(ctx, provider, ref, []byte(body), opts)
 }
 
-func writeBytes(ctx context.Context, provider *s3provider.Provider, ref gestalt.ObjectRef, body []byte, opts *gestalt.WriteOptions) (gestalt.ObjectMeta, error) {
-	return provider.WriteObject(ctx, ref, bytes.NewReader(body), opts)
+func writeBytes(ctx context.Context, provider *s3provider.Provider, ref gestalt.ObjectRef, body []byte, opts *gestalt.WriteRequest) (gestalt.ObjectMeta, error) {
+	req := gestalt.WriteRequest{Ref: ref, Body: bytes.NewReader(body)}
+	if opts != nil {
+		req = *opts
+		req.Ref = ref
+		req.Body = bytes.NewReader(body)
+	}
+	return provider.WriteObject(ctx, req)
 }
 
-func writeJSON(ctx context.Context, provider *s3provider.Provider, ref gestalt.ObjectRef, value any, opts *gestalt.WriteOptions) (gestalt.ObjectMeta, error) {
+func writeJSON(ctx context.Context, provider *s3provider.Provider, ref gestalt.ObjectRef, value any, opts *gestalt.WriteRequest) (gestalt.ObjectMeta, error) {
 	body, err := json.Marshal(value)
 	if err != nil {
 		return gestalt.ObjectMeta{}, err
 	}
 	if opts == nil {
-		opts = &gestalt.WriteOptions{ContentType: "application/json"}
+		opts = &gestalt.WriteRequest{ContentType: "application/json"}
 	} else if opts.ContentType == "" {
 		copied := *opts
 		copied.ContentType = "application/json"
@@ -484,7 +504,7 @@ func writeJSON(ctx context.Context, provider *s3provider.Provider, ref gestalt.O
 	return writeBytes(ctx, provider, ref, body, opts)
 }
 
-func readText(ctx context.Context, provider *s3provider.Provider, ref gestalt.ObjectRef, opts *gestalt.ReadOptions) (string, error) {
+func readText(ctx context.Context, provider *s3provider.Provider, ref gestalt.ObjectRef, opts *gestalt.ReadRequest) (string, error) {
 	data, err := readBytes(ctx, provider, ref, opts)
 	if err != nil {
 		return "", err
@@ -492,16 +512,22 @@ func readText(ctx context.Context, provider *s3provider.Provider, ref gestalt.Ob
 	return string(data), nil
 }
 
-func readBytes(ctx context.Context, provider *s3provider.Provider, ref gestalt.ObjectRef, opts *gestalt.ReadOptions) ([]byte, error) {
-	_, body, err := provider.ReadObject(ctx, ref, opts)
+func readBytes(ctx context.Context, provider *s3provider.Provider, ref gestalt.ObjectRef, opts *gestalt.ReadRequest) ([]byte, error) {
+	req := gestalt.ReadRequest{Ref: ref}
+	if opts != nil {
+		req = *opts
+		req.Ref = ref
+	}
+	result, err := provider.ReadObject(ctx, req)
 	if err != nil {
 		return nil, err
 	}
+	body := result.Body
 	defer func() { _ = body.Close() }()
 	return io.ReadAll(body)
 }
 
-func readJSON(ctx context.Context, provider *s3provider.Provider, ref gestalt.ObjectRef, opts *gestalt.ReadOptions) (any, error) {
+func readJSON(ctx context.Context, provider *s3provider.Provider, ref gestalt.ObjectRef, opts *gestalt.ReadRequest) (any, error) {
 	data, err := readBytes(ctx, provider, ref, opts)
 	if err != nil {
 		return nil, err

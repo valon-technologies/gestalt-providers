@@ -443,7 +443,7 @@ func (s *Store) tableColumns(ctx context.Context, table string) (map[string]stru
 	return cols, nil
 }
 
-func (s *Store) persistStoreMetadata(ctx context.Context, storeName string, schema gestalt.ObjectStoreSchema) error {
+func (s *Store) persistStoreMetadata(ctx context.Context, storeName string, schema gestalt.ObjectStoreOptions) error {
 	schemaJSON, err := json.Marshal(newStoredSchema(schema))
 	if err != nil {
 		return status.Errorf(codes.Internal, "marshal schema: %v", err)
@@ -472,7 +472,7 @@ func (s *Store) persistStoreMetadata(ctx context.Context, storeName string, sche
 
 // ---- Lifecycle ----
 
-func (s *Store) CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreSchema) error {
+func (s *Store) CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreOptions) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -496,7 +496,7 @@ func (s *Store) CreateObjectStore(ctx context.Context, name string, schema gesta
 	return nil
 }
 
-func genericStoreSchemaMatches(existing *storeMeta, schema gestalt.ObjectStoreSchema) bool {
+func genericStoreSchemaMatches(existing *storeMeta, schema gestalt.ObjectStoreOptions) bool {
 	if existing == nil {
 		return false
 	}
@@ -1021,7 +1021,7 @@ type storedIndex struct {
 	Unique  bool     `json:"unique"`
 }
 
-func newStoredSchema(schema gestalt.ObjectStoreSchema) storedSchema {
+func newStoredSchema(schema gestalt.ObjectStoreOptions) storedSchema {
 	s := storedSchema{}
 	for _, c := range schema.Columns {
 		s.Columns = append(s.Columns, storedColumn{

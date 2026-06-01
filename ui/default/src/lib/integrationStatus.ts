@@ -42,7 +42,6 @@ export type NormalizedConnection = {
   canReconnect: boolean;
   canSelectInstance: boolean;
   canAdminConfigure: boolean;
-  isPlatformManaged: boolean;
   isNoAuth: boolean;
   isSubjectOwned: boolean;
   isManagedSubjectOwned: boolean;
@@ -105,13 +104,12 @@ const ACTIONS: IntegrationAction[] = [
   "admin_configure",
 ];
 
-const MODES: ConnectionMode[] = ["none", "subject", "platform"];
-const CREDENTIAL_MODES: CredentialMode[] = ["none", "subject", "platform"];
+const MODES: ConnectionMode[] = ["none", "subject"];
+const CREDENTIAL_MODES: CredentialMode[] = ["none", "subject"];
 const OWNER_KINDS: OwnerKind[] = [
   "none",
   "current_user",
   "service_account",
-  "platform",
   "unknown",
 ];
 
@@ -265,24 +263,18 @@ function normalizeConnection(
   const mode = resolveMode(raw, authTypes);
   const credentialMode = resolveCredentialMode(raw, mode, authTypes);
   const ownerKind = resolveOwnerKind(raw, credentialMode, context);
-  const isPlatformManaged =
-    credentialMode === "platform" ||
-    mode === "platform" ||
-    ownerKind === "platform";
   const hasExplicitOwnerMode =
     !!validCredentialMode(raw.credentialMode) ||
     !!validMode(raw.mode) ||
     !!validOwnerKind(raw.ownerKind);
   const isNoAuth =
-    !isPlatformManaged &&
-    (validCredentialMode(raw.credentialMode) === "none" ||
+    validCredentialMode(raw.credentialMode) === "none" ||
       validMode(raw.mode) === "none" ||
       validCredentialState(raw.credentialState) === "not_required" ||
-      (authTypes.length === 0 && !hasExplicitOwnerMode));
+      (authTypes.length === 0 && !hasExplicitOwnerMode);
   const isManagedSubjectOwned =
     ownerKind === "service_account" || context === "managed_subject";
   const isSubjectOwned =
-    !isPlatformManaged &&
     !isNoAuth &&
     (credentialMode === "subject" ||
       mode === "subject" ||
@@ -291,22 +283,20 @@ function normalizeConnection(
       authTypes.length > 0);
   const credentialState =
     validCredentialState(raw.credentialState) ??
-    inferConnectionCredentialState(raw, authTypes, isPlatformManaged, isNoAuth);
+    inferConnectionCredentialState(authTypes, isNoAuth);
   const healthState = validHealthState(raw.healthState) ?? "unknown";
   const status =
     validStatus(raw.status) ??
     inferConnectionStatus(
-      raw,
       authTypes,
       credentialState,
       healthState,
-      isPlatformManaged,
       isNoAuth,
     );
   const actions = validActions(raw.actions);
   const inferredActions = actions.length
     ? actions
-    : inferConnectionActions(raw, authTypes, status, isPlatformManaged, isNoAuth);
+    : inferConnectionActions(raw, authTypes, status, isNoAuth);
   const disconnectable =
     inferredActions.includes("disconnect");
   const connected =
@@ -326,20 +316,17 @@ function normalizeConnection(
   const summaryLabel = connectionSummaryLabel(
     status,
     credentialState,
-    isPlatformManaged,
     isNoAuth,
     context,
   );
   const statusLabel = statusDisplayLabel(status, context);
   const credentialLabel = credentialDisplayLabel(
     credentialState,
-    isPlatformManaged,
     isNoAuth,
     isManagedSubjectOwned,
   );
   const healthLabel = healthDisplayLabel(healthState);
   const ownerLabel = ownerDisplayLabel(
-    isPlatformManaged,
     isNoAuth,
     isManagedSubjectOwned,
   );
@@ -392,7 +379,6 @@ function normalizeConnection(
     canReconnect: inferredActions.includes("reconnect") && connectable,
     canSelectInstance: inferredActions.includes("select_instance") && connectable,
     canAdminConfigure: inferredActions.includes("admin_configure"),
-    isPlatformManaged,
     isNoAuth,
     isSubjectOwned,
     isManagedSubjectOwned,
@@ -471,7 +457,6 @@ function resolveCredentialMode(
 ): CredentialMode {
   const explicit = validCredentialMode(raw.credentialMode);
   if (explicit) return explicit;
-  if (mode === "platform") return "platform";
   if (mode === "none" || authTypes.length === 0) return "none";
   return "subject";
 }
@@ -483,37 +468,31 @@ function resolveOwnerKind(
 ): OwnerKind {
   const explicit = validOwnerKind(raw.ownerKind);
   if (explicit) return explicit;
-  if (credentialMode === "platform") return "platform";
   if (credentialMode === "none") return "none";
   return context === "managed_subject" ? "service_account" : "current_user";
 }
 
 function inferConnectionCredentialState(
-  raw: RawConnection,
   authTypes: AuthType[],
-  isPlatformManaged: boolean,
   isNoAuth: boolean,
 ): CredentialState {
   if (isNoAuth) return "not_required";
-  if (isPlatformManaged) return "unknown";
   if (authTypes.length > 0) return "missing";
   return "unknown";
 }
 
 function inferConnectionStatus(
-  raw: RawConnection,
   authTypes: AuthType[],
   credentialState: CredentialState,
   healthState: HealthState,
-  isPlatformManaged: boolean,
   isNoAuth: boolean,
 ): IntegrationStatus {
   if (healthState === "unhealthy") return "degraded";
   if (credentialState === "invalid") {
-    return isPlatformManaged ? "needs_admin_configuration" : "needs_user_connection";
+    return "needs_user_connection";
   }
   if (credentialState === "missing") {
-    return isPlatformManaged ? "needs_admin_configuration" : "needs_user_connection";
+    return "needs_user_connection";
   }
   if (credentialState === "connected") return "ready";
   if (credentialState === "configured" || credentialState === "not_required") {
@@ -528,10 +507,9 @@ function inferConnectionActions(
   raw: RawConnection,
   authTypes: AuthType[],
   status: IntegrationStatus,
-  isPlatformManaged: boolean,
   isNoAuth: boolean,
 ): IntegrationAction[] {
-  if (isPlatformManaged || isNoAuth) return [];
+  if (isNoAuth) return [];
   const actions: IntegrationAction[] = [];
   const hasAuth = authTypes.length > 0;
 
@@ -626,15 +604,11 @@ function integrationSummaryLabel(
 function connectionSummaryLabel(
   status: IntegrationStatus,
   credentialState: CredentialState,
-  isPlatformManaged: boolean,
   isNoAuth: boolean,
   context: ConnectionContext,
 ): string {
   if (isNoAuth && credentialState === "not_required") {
     return "No credentials required";
-  }
-  if (isPlatformManaged && credentialState === "configured") {
-    return "Deployment configured";
   }
   if (credentialState === "connected" && status === "ready") {
     return context === "managed_subject" ? "Identity connected" : "Connected";
@@ -668,25 +642,10 @@ function statusDisplayLabel(
 
 function credentialDisplayLabel(
   state: CredentialState,
-  isPlatformManaged: boolean,
   isNoAuth: boolean,
   isManagedSubjectOwned: boolean,
 ): string {
   if (isNoAuth) return "No credentials required";
-  if (isPlatformManaged) {
-    switch (state) {
-      case "configured":
-      case "connected":
-        return "Deployment-managed credentials configured";
-      case "missing":
-      case "invalid":
-        return "Deployment-managed credentials unconfigured";
-      case "not_required":
-        return "No credentials required";
-      case "unknown":
-        return "Deployment-managed credential status unknown";
-    }
-  }
   switch (state) {
     case "connected":
       return isManagedSubjectOwned
@@ -729,11 +688,9 @@ function healthDisplayLabel(state: HealthState): string | undefined {
 }
 
 function ownerDisplayLabel(
-  isPlatformManaged: boolean,
   isNoAuth: boolean,
   isManagedSubjectOwned: boolean,
 ): string {
-  if (isPlatformManaged) return "Deployment managed";
   if (isNoAuth) return "No credential owner";
   return isManagedSubjectOwned ? "Managed identity owned" : "User owned";
 }

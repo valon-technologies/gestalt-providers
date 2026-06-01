@@ -693,6 +693,7 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 	if err != nil {
 		return nil, err
 	}
+	publishedBy := cloneActorInput(req.PublishedBy)
 	matchedTriggers := make([]*gestalt.BoundWorkflowEventTrigger, 0, len(triggers))
 	matchedTriggerCounts := map[string]int64{}
 	for _, trigger := range triggers {
@@ -711,6 +712,9 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 	}
 	for _, trigger := range matchedTriggers {
 		createdBy := trigger.CreatedBy
+		if actorHasSubject(publishedBy) {
+			createdBy = cloneActorInput(publishedBy)
+		}
 		temporalWorkflowID := eventRunWorkflowID(b.cfg.ScopeID, trigger.ID, eventInput)
 		eventTriggerInput := &gestalt.WorkflowRunTrigger{Event: &gestalt.WorkflowEventTriggerInvocation{
 			TriggerID: trigger.ID,

@@ -32,8 +32,8 @@ func databaseStore(t *testing.T, db Database) *Store {
 	return rel.store
 }
 
-func usersSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func usersSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true, NotNull: true},
 			{Name: "email", Type: gestalt.TypeString},

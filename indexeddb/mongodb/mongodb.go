@@ -88,7 +88,7 @@ func (s *Store) Close() error {
 // IndexedDBServer implementation
 // ---------------------------------------------------------------------------
 
-func (p *providerCore) CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreSchema) error {
+func (p *providerCore) CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreOptions) error {
 	s, err := p.configured()
 	if err != nil {
 		return status.Error(codes.FailedPrecondition, err.Error())

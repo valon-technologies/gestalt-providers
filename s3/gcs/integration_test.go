@@ -50,7 +50,7 @@ func TestGCSProvider_IntegrationGenerationPreconditions(t *testing.T) {
 	})
 
 	sourceRef := gestalt.ObjectRef{Key: "source.txt"}
-	first, err := writeString(ctx, provider, sourceRef, "first", &gestalt.WriteOptions{ContentType: "text/plain"})
+	first, err := writeString(ctx, provider, sourceRef, "first", &gestalt.WriteRequest{ContentType: "text/plain"})
 	if err != nil {
 		t.Fatalf("WriteObject(first): %v", err)
 	}
@@ -67,12 +67,12 @@ func TestGCSProvider_IntegrationGenerationPreconditions(t *testing.T) {
 		t.Fatalf("ReadObject(first generation) = %q, want first", text)
 	}
 
-	_, err = writeString(ctx, provider, sourceRef, "create-only", &gestalt.WriteOptions{IfNoneMatch: "*"})
+	_, err = writeString(ctx, provider, sourceRef, "create-only", &gestalt.WriteRequest{IfNoneMatch: "*"})
 	if !hasStatusCode(err, gestalt.CodeFailedPrecondition) {
 		t.Fatalf("WriteObject(create-only existing) error = %v, want failed_precondition", err)
 	}
 
-	second, err := writeString(ctx, provider, first.Ref, "second", &gestalt.WriteOptions{ContentType: "text/plain"})
+	second, err := writeString(ctx, provider, first.Ref, "second", &gestalt.WriteRequest{ContentType: "text/plain"})
 	if err != nil {
 		t.Fatalf("WriteObject(generation match): %v", err)
 	}
@@ -87,13 +87,13 @@ func TestGCSProvider_IntegrationGenerationPreconditions(t *testing.T) {
 	}
 
 	destRef := gestalt.ObjectRef{Key: "dest.txt"}
-	destSeed, err := writeString(ctx, provider, destRef, "old", &gestalt.WriteOptions{ContentType: "text/plain"})
+	destSeed, err := writeString(ctx, provider, destRef, "old", &gestalt.WriteRequest{ContentType: "text/plain"})
 	if err != nil {
 		t.Fatalf("WriteObject(dest seed): %v", err)
 	}
 	remember(destSeed)
 
-	copied, err := provider.CopyObject(ctx, second.Ref, destSeed.Ref, nil)
+	copied, err := provider.CopyObject(ctx, gestalt.CopyRequest{Source: second.Ref, Destination: destSeed.Ref})
 	if err != nil {
 		t.Fatalf("CopyObject(source generation + destination generation match): %v", err)
 	}
@@ -109,7 +109,7 @@ func TestGCSProvider_IntegrationGenerationPreconditions(t *testing.T) {
 		t.Fatalf("ReadObject(copied generation) = %q, want second", text)
 	}
 
-	_, err = provider.CopyObject(ctx, second.Ref, destSeed.Ref, nil)
+	_, err = provider.CopyObject(ctx, gestalt.CopyRequest{Source: second.Ref, Destination: destSeed.Ref})
 	if !hasStatusCode(err, gestalt.CodeFailedPrecondition) {
 		t.Fatalf("CopyObject(stale destination generation) error = %v, want failed_precondition", err)
 	}
@@ -140,7 +140,7 @@ func testIntegrationListPaging(t *testing.T, ctx context.Context, provider *Prov
 		remember(meta)
 	}
 
-	page, err := provider.ListObjects(ctx, gestalt.ListOptions{
+	page, err := provider.ListObjects(ctx, gestalt.ListRequest{
 		Prefix:     basePrefix,
 		Delimiter:  "/",
 		StartAfter: basePrefix + "a.txt",
@@ -155,7 +155,7 @@ func testIntegrationListPaging(t *testing.T, ctx context.Context, provider *Prov
 		t.Fatalf("Objects = %#v, want [%s]", page.Objects, basePrefix+"z.txt")
 	}
 
-	first, err := provider.ListObjects(ctx, gestalt.ListOptions{
+	first, err := provider.ListObjects(ctx, gestalt.ListRequest{
 		Prefix:  basePrefix,
 		MaxKeys: 2,
 	})
@@ -168,7 +168,7 @@ func testIntegrationListPaging(t *testing.T, ctx context.Context, provider *Prov
 	if len(first.Objects) != 2 {
 		t.Fatalf("first page len = %d, want 2", len(first.Objects))
 	}
-	second, err := provider.ListObjects(ctx, gestalt.ListOptions{
+	second, err := provider.ListObjects(ctx, gestalt.ListRequest{
 		Prefix:            basePrefix,
 		MaxKeys:           2,
 		ContinuationToken: first.NextContinuationToken,
@@ -198,7 +198,9 @@ func testIntegrationGzipRangeRead(t *testing.T, ctx context.Context, provider *P
 	}
 
 	ref := gestalt.ObjectRef{Key: "gzip.txt"}
-	meta, err := provider.WriteObject(ctx, ref, bytes.NewReader(compressed.Bytes()), &gestalt.WriteOptions{
+	meta, err := provider.WriteObject(ctx, gestalt.WriteRequest{
+		Ref:             ref,
+		Body:            bytes.NewReader(compressed.Bytes()),
 		ContentType:     "application/octet-stream",
 		ContentEncoding: "gzip",
 	})
@@ -208,7 +210,7 @@ func testIntegrationGzipRangeRead(t *testing.T, ctx context.Context, provider *P
 	remember(meta)
 
 	start, end := int64(2), int64(9)
-	got, err := readBytes(ctx, provider, meta.Ref, &gestalt.ReadOptions{
+	got, err := readBytes(ctx, provider, meta.Ref, &gestalt.ReadRequest{
 		Range: &gestalt.ByteRange{Start: &start, End: &end},
 	})
 	if err != nil {

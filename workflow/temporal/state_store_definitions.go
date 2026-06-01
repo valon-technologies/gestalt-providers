@@ -9,8 +9,8 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
-func temporalDefinitionSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func temporalDefinitionSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
 			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},

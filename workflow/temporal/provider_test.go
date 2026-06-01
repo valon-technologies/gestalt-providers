@@ -1823,7 +1823,6 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 			Match:        &gestalt.WorkflowEventMatch{Type: "message.created"},
 			Target:       nativeAppTargetInput("slack", "postMessage"),
 			DefinitionID: "definition-app-1",
-			CreatedBy:    actor("owner-app-1"),
 			CreatedAt:    time.Now().UTC(),
 			UpdatedAt:    time.Now().UTC(),
 		},
@@ -1832,7 +1831,6 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 			Match:        &gestalt.WorkflowEventMatch{Type: "message.created"},
 			Target:       nativeAppTargetInput("slack", "sendMessage"),
 			DefinitionID: "definition-app-2",
-			CreatedBy:    actor("owner-app-2"),
 			CreatedAt:    time.Now().UTC(),
 			UpdatedAt:    time.Now().UTC(),
 		},
@@ -1874,10 +1872,6 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 	if len(tc.executions) != 2 {
 		t.Fatalf("executions = %d, want 2", len(tc.executions))
 	}
-	wantCreatorsByDefinition := map[string]string{
-		"definition-app-1": "owner-app-1",
-		"definition-app-2": "owner-app-2",
-	}
 	gotDefinitions := map[string]bool{}
 	for _, execution := range tc.executions {
 		input, ok := execution.Args[0].(runWorkflowV4Input)
@@ -1885,9 +1879,8 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 			t.Fatalf("execution input = %T, want runWorkflowV4Input", execution.Args[0])
 		}
 		gotDefinitions[input.DefinitionID] = true
-		wantCreator := wantCreatorsByDefinition[input.DefinitionID]
-		if input.CreatedBy == nil || input.CreatedBy.SubjectID != wantCreator {
-			t.Fatalf("execution created_by = %#v, want trigger owner %q", input.CreatedBy, wantCreator)
+		if input.CreatedBy == nil || input.CreatedBy.SubjectID != "publisher-1" {
+			t.Fatalf("execution created_by = %#v, want publisher-1", input.CreatedBy)
 		}
 	}
 	if !gotDefinitions["definition-app-1"] || !gotDefinitions["definition-app-2"] {
@@ -2038,6 +2031,18 @@ func TestNormalizeTargetPreservesAppCredentialMode(t *testing.T) {
 	}
 	if got := app.CredentialMode; got != "none" {
 		t.Fatalf("credential mode = %q, want none", got)
+	}
+}
+
+func TestNormalizeTargetRejectsInvalidAppCredentialMode(t *testing.T) {
+	const mode = "unsupported-mode"
+	target := appTarget("github", "reviewPullRequest")
+	target.Steps[0].App.CredentialMode = mode
+
+	_, err := normalizeTarget(target)
+	want := fmt.Sprintf(`target.steps[0].app.credential_mode %q is not supported`, mode)
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("normalizeTarget error = %v, want unsupported credential mode %q", err, mode)
 	}
 }
 

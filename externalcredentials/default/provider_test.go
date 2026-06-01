@@ -633,7 +633,6 @@ func TestExternalCredentialProviderCredentialMaintenanceRejectsUnsupportedAuthCo
 	target := connections[0].(map[string]any)
 	auth := target["auth"].(map[string]any)
 	auth["tokenExchange"] = "xml"
-
 	err := provider.Configure(context.Background(), "default", cfg)
 	if err == nil {
 		t.Fatal("ConfigureProvider error = nil, want unsupported auth rejection")

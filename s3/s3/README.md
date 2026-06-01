@@ -111,7 +111,7 @@ if err != nil {
 defer store.Close()
 
 obj := store.Object("avatars/user-123.png")
-_, err = obj.WriteBytes(ctx, pngBytes, &gestalt.WriteOptions{
+_, err = obj.WriteBytes(ctx, pngBytes, &gestalt.WriteRequest{
 	ContentType: "image/png",
 })
 if err != nil {

@@ -37,7 +37,7 @@ func TestCursorContract(t *testing.T) {
 	contracttest.Run(t, harness)
 }
 
-func TestLegacyUniqueIndexCompatibility(t *testing.T) {
+func TestUniqueIndexCompatibility(t *testing.T) {
 	endpoint := os.Getenv("GESTALT_TEST_DYNAMODB_ENDPOINT")
 	if endpoint == "" {
 		t.Skip("GESTALT_TEST_DYNAMODB_ENDPOINT is not set")
@@ -245,8 +245,8 @@ func (h *dynamoContractHarness) InsertUnreadablePayloadRow(t *testing.T, storeNa
 	}
 }
 
-func uniqueEmailSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func uniqueEmailSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Indexes: []gestalt.IndexSchema{
 			{Name: "by_email", KeyPath: []string{"email"}, Unique: true},
 		},

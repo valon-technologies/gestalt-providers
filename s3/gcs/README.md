@@ -33,7 +33,7 @@ The provider keeps the public Gestalt S3 contract unchanged:
 
 - `ObjectRef.versionId` / Go `ObjectRef.VersionID` maps to the GCS object generation.
 - Returned object metadata sets `Ref.VersionID` to the decimal GCS generation.
-- `WriteOptions.IfNoneMatch == "*"` maps to GCS `DoesNotExist`, which is the native create-if-absent precondition.
+- `WriteRequest.IfNoneMatch == "*"` maps to GCS `DoesNotExist`, which is the native create-if-absent precondition.
 - Writing or copying to a destination `ObjectRef` with `VersionID` set uses GCS `GenerationMatch`.
 
 GCS metageneration preconditions are not exposed by the current Gestalt S3

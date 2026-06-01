@@ -160,7 +160,7 @@ func credentialRefreshTargetFromResolvedConnection(index int, conn resolvedConne
 		return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].credentialRefresh.refreshBeforeExpiry: %w", index, err)
 	}
 	auth := conn.Auth.authConfig()
-	if err := validateTokenExchangeConfig(auth); err != nil {
+	if err := validateAuthConfig(auth); err != nil {
 		return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].auth: %w", index, err)
 	}
 	switch auth.GetType() {

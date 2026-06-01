@@ -48,13 +48,12 @@ export type IntegrationAction =
   | "select_instance"
   | "reconnect"
   | "admin_configure";
-export type ConnectionMode = "none" | "subject" | "platform";
-export type CredentialMode = "none" | "subject" | "platform";
+export type ConnectionMode = "none" | "subject";
+export type CredentialMode = "none" | "subject";
 export type OwnerKind =
   | "none"
   | "current_user"
   | "service_account"
-  | "platform"
   | "unknown";
 
 export interface ConnectionDefInfo {

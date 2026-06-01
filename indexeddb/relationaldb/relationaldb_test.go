@@ -285,8 +285,8 @@ func TestEnsureRelationalNamespaceMySQLFailsClearlyForVitessUnsupportedCreateDat
 	}
 }
 
-func widgetsSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func widgetsSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Indexes: []gestalt.IndexSchema{
 			{Name: "by_code", KeyPath: []string{"code"}, Unique: true},
 		},
@@ -300,8 +300,8 @@ func widgetsSchema() gestalt.ObjectStoreSchema {
 	}
 }
 
-func sampleRecordsSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func sampleRecordsSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Indexes: []gestalt.IndexSchema{
 			{Name: "by_owner", KeyPath: []string{"owner_id"}},
 			{Name: "by_lookup", KeyPath: []string{"owner_id", "category", "region", "variant"}},
@@ -321,8 +321,8 @@ func sampleRecordsSchema() gestalt.ObjectStoreSchema {
 	}
 }
 
-func intPrimaryKeySchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func intPrimaryKeySchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: 1, PrimaryKey: true, NotNull: true},
 			{Name: "title", Type: 0},

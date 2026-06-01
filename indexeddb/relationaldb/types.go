@@ -41,13 +41,13 @@ type UpgradeContext interface {
 	Database() Database
 	ObjectStoreNames(ctx context.Context) ([]string, error)
 	ObjectStore(name string) (UpgradeObjectStore, error)
-	CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreSchema) (UpgradeObjectStore, error)
+	CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreOptions) (UpgradeObjectStore, error)
 	DeleteObjectStore(ctx context.Context, name string) error
 }
 
 type UpgradeObjectStore interface {
 	Name() string
-	Schema() gestalt.ObjectStoreSchema
+	Schema() gestalt.ObjectStoreOptions
 	CreateIndex(ctx context.Context, name string, keyPath []string, params IndexParameters) error
 	DeleteIndex(ctx context.Context, name string) error
 }

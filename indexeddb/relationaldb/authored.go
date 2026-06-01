@@ -6,7 +6,7 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 )
 
-func (p *Provider) CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreSchema) error {
+func (p *Provider) CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreOptions) error {
 	return p.Store.CreateObjectStore(ctx, name, schema)
 }
 

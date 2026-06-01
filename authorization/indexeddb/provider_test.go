@@ -692,10 +692,10 @@ func newProviderSessionWithSeed(t *testing.T, seedStores bool) *providerSession 
 func seedAuthorizationStoresOnClient(ctx context.Context, client indexeddb.Database) error {
 	for _, def := range []struct {
 		name   string
-		schema gestalt.ObjectStoreSchema
+		schema gestalt.ObjectStoreOptions
 	}{
-		{name: stateStoreName, schema: gestalt.ObjectStoreSchema{}},
-		{name: modelsStoreName, schema: gestalt.ObjectStoreSchema{}},
+		{name: stateStoreName, schema: gestalt.ObjectStoreOptions{}},
+		{name: modelsStoreName, schema: gestalt.ObjectStoreOptions{}},
 		{name: relationsStoreName, schema: authorizationRelationshipsSchema()},
 	} {
 		if _, err := client.CreateObjectStore(ctx, def.name, def.schema); err != nil {

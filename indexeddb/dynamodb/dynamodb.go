@@ -178,7 +178,7 @@ func (s *store) getIndexDef(storeName, indexName string) (*indexDef, error) {
 	return nil, status.Errorf(codes.NotFound, "index %q not found on store %q", indexName, storeName)
 }
 
-func (p *providerCore) CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreSchema) error {
+func (p *providerCore) CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreOptions) error {
 	st := p.store
 	st.mu.Lock()
 	defer st.mu.Unlock()

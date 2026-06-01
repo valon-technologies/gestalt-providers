@@ -20,8 +20,8 @@ func newCursorHarness(t *testing.T) *cursorHarness {
 	return &cursorHarness{store: testStore(t)}
 }
 
-func cursorItemsSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func cursorItemsSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Indexes: []gestalt.IndexSchema{
 			{Name: "by_status", KeyPath: []string{"status"}},
 			{Name: "by_email", KeyPath: []string{"email"}, Unique: true},
@@ -44,8 +44,8 @@ func makeCursorItem(id, name, status, email string) gestalt.Record {
 	}
 }
 
-func cursorNumberSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func cursorNumberSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: gestalt.TypeInt, PrimaryKey: true, NotNull: true},
 			{Name: "name", Type: gestalt.TypeString},
@@ -57,8 +57,8 @@ func makeCursorNumberItem(id int64, name string) gestalt.Record {
 	return gestalt.Record{"id": id, "name": name}
 }
 
-func cursorBytesSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func cursorBytesSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: gestalt.TypeBytes, PrimaryKey: true, NotNull: true},
 			{Name: "name", Type: gestalt.TypeString},
