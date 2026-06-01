@@ -10,27 +10,21 @@ import (
 )
 
 type storeNames struct {
-	runtimeResourceTypes string
-	runtimeRelationships string
-	state                string
-	models               string
-	relationships        string
+	state         string
+	models        string
+	relationships string
 }
 
 func getStoreNames() storeNames {
 	return storeNames{
-		runtimeResourceTypes: "authz_runtime_resource_types",
-		runtimeRelationships: "authz_runtime_relationships",
-		state:                "authz_state",
-		models:               "authz_models",
-		relationships:        "authz_relationships",
+		state:         "authz_state",
+		models:        "authz_models",
+		relationships: "authz_relationships",
 	}
 }
 
 func (stores storeNames) all() []string {
 	return []string{
-		stores.runtimeResourceTypes,
-		stores.runtimeRelationships,
 		stores.state,
 		stores.models,
 		stores.relationships,
