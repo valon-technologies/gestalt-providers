@@ -297,9 +297,8 @@ func (p *Provider) SetActiveModel(ctx context.Context, req *SetActiveModelReques
 		return nil, status.Error(codes.InvalidArgument, "model is required")
 	}
 	model := cloneAuthorizationModel(req.Model)
-	model.Id = strings.TrimSpace(model.Id)
-	if model.Id == "" {
-		return nil, status.Error(codes.InvalidArgument, "model id is required")
+	if err := normalizeAuthorizationModel(model); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "model is invalid: %v", err)
 	}
 
 	db, err := p.getDbWithLock()

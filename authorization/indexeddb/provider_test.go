@@ -80,8 +80,36 @@ func TestProviderSetAndGetActiveModel(t *testing.T) {
 		Id:      "model-1",
 		Version: "v1",
 		ResourceTypes: []*AuthorizationModelResourceType{
-			{Name: "document", SourceLayer: SourceLayerStaticConfig},
-			{Name: "folder", SourceLayer: SourceLayerRuntime},
+			{
+				Name:        "document",
+				SourceLayer: SourceLayerStaticConfig,
+				Relations: []*AuthorizationModelRelation{
+					{
+						Name: "reader",
+						AllowedTargets: []*AuthorizationModelAllowedTarget{
+							{SubjectType: "subject"},
+						},
+					},
+				},
+			},
+			{
+				Name:        "folder",
+				SourceLayer: SourceLayerRuntime,
+				Relations: []*AuthorizationModelRelation{
+					{
+						Name: "parent",
+						AllowedTargets: []*AuthorizationModelAllowedTarget{
+							{ResourceType: "folder"},
+						},
+					},
+					{
+						Name: "member",
+						AllowedTargets: []*AuthorizationModelAllowedTarget{
+							{SubjectSetType: &SubjectSetType{ResourceType: "group", Relation: "member"}},
+						},
+					},
+				},
+			},
 		},
 	}
 
@@ -141,6 +169,66 @@ func TestProviderSetAndGetActiveModel(t *testing.T) {
 	}
 	if !reflect.DeepEqual(listResp.ResourceTypes, model.ResourceTypes[1:]) {
 		t.Fatalf("ListActiveModelResourceTypes(runtime folder) = %#v, want %#v", listResp.ResourceTypes, model.ResourceTypes[1:])
+	}
+}
+
+func TestProviderSetActiveModelRejectsInvalidAllowedTargets(t *testing.T) {
+	ctx := context.Background()
+	provider := New()
+	fakeDB := &fakeIndexedDB{}
+	provider.configureDatabase(fakeDB)
+	t.Cleanup(func() {
+		if err := provider.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	})
+
+	tests := []struct {
+		name          string
+		allowedTarget *AuthorizationModelAllowedTarget
+	}{
+		{
+			name:          "missing kind",
+			allowedTarget: &AuthorizationModelAllowedTarget{},
+		},
+		{
+			name: "multiple kinds",
+			allowedTarget: &AuthorizationModelAllowedTarget{
+				SubjectType:    "subject",
+				SubjectSetType: &SubjectSetType{ResourceType: "group", Relation: "member"},
+			},
+		},
+		{
+			name: "invalid subject set type",
+			allowedTarget: &AuthorizationModelAllowedTarget{
+				SubjectSetType: &SubjectSetType{ResourceType: "group"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := provider.SetActiveModel(ctx, &SetActiveModelRequest{
+				Model: &AuthorizationModel{
+					Id:      "model-1",
+					Version: "v1",
+					ResourceTypes: []*AuthorizationModelResourceType{
+						{
+							Name: "group",
+							Relations: []*AuthorizationModelRelation{
+								{
+									Name:           "member",
+									AllowedTargets: []*AuthorizationModelAllowedTarget{tt.allowedTarget},
+								},
+							},
+						},
+					},
+				},
+			})
+			if status.Code(err) != codes.InvalidArgument {
+				t.Fatalf("SetActiveModel() error = %v, want InvalidArgument", err)
+			}
+		})
 	}
 }
 

@@ -139,6 +139,118 @@ func stringField(record indexeddb.Record, key string) string {
 	return strings.TrimSpace(value)
 }
 
+func normalizeAuthorizationModel(model *AuthorizationModel) error {
+	if model == nil {
+		return fmt.Errorf("model is required")
+	}
+	model.Id = strings.TrimSpace(model.Id)
+	if model.Id == "" {
+		return fmt.Errorf("model id is required")
+	}
+	model.Version = strings.TrimSpace(model.Version)
+	for i, resourceType := range model.ResourceTypes {
+		if err := normalizeAuthorizationModelResourceType(resourceType); err != nil {
+			return fmt.Errorf("resource_types[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func normalizeAuthorizationModelResourceType(resourceType *AuthorizationModelResourceType) error {
+	if resourceType == nil {
+		return fmt.Errorf("resource type is required")
+	}
+	resourceType.Name = strings.TrimSpace(resourceType.Name)
+	if resourceType.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	for i, relation := range resourceType.Relations {
+		if err := normalizeAuthorizationModelRelation(relation); err != nil {
+			return fmt.Errorf("relations[%d]: %w", i, err)
+		}
+	}
+	for i, action := range resourceType.Actions {
+		if err := normalizeAuthorizationModelAction(action); err != nil {
+			return fmt.Errorf("actions[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func normalizeAuthorizationModelRelation(relation *AuthorizationModelRelation) error {
+	if relation == nil {
+		return fmt.Errorf("relation is required")
+	}
+	relation.Name = strings.TrimSpace(relation.Name)
+	if relation.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	for i, target := range relation.AllowedTargets {
+		if err := normalizeAuthorizationModelAllowedTarget(target); err != nil {
+			return fmt.Errorf("allowed_targets[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func normalizeAuthorizationModelAction(action *AuthorizationModelAction) error {
+	if action == nil {
+		return fmt.Errorf("action is required")
+	}
+	action.Name = strings.TrimSpace(action.Name)
+	if action.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	for i, relation := range action.Relations {
+		action.Relations[i] = strings.TrimSpace(relation)
+		if action.Relations[i] == "" {
+			return fmt.Errorf("relations[%d]: relation is required", i)
+		}
+	}
+	return nil
+}
+
+func normalizeAuthorizationModelAllowedTarget(target *AuthorizationModelAllowedTarget) error {
+	if target == nil {
+		return fmt.Errorf("allowed target is required")
+	}
+	target.SubjectType = strings.TrimSpace(target.SubjectType)
+	target.ResourceType = strings.TrimSpace(target.ResourceType)
+
+	kinds := 0
+	if target.SubjectType != "" {
+		kinds++
+	}
+	if target.ResourceType != "" {
+		kinds++
+	}
+	if target.SubjectSetType != nil {
+		kinds++
+		if err := normalizeSubjectSetType(target.SubjectSetType); err != nil {
+			return err
+		}
+	}
+	if kinds != 1 {
+		return fmt.Errorf("allowed target must contain exactly one kind")
+	}
+	return nil
+}
+
+func normalizeSubjectSetType(subjectSetType *SubjectSetType) error {
+	if subjectSetType == nil {
+		return fmt.Errorf("subject set type is required")
+	}
+	subjectSetType.ResourceType = strings.TrimSpace(subjectSetType.ResourceType)
+	subjectSetType.Relation = strings.TrimSpace(subjectSetType.Relation)
+	if subjectSetType.ResourceType == "" {
+		return fmt.Errorf("subject set resource type is required")
+	}
+	if subjectSetType.Relation == "" {
+		return fmt.Errorf("subject set relation is required")
+	}
+	return nil
+}
+
 func (m *AuthorizationModel) toRef(createdAt time.Time) *AuthorizationModelRef {
 	if m == nil {
 		return nil
