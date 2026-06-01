@@ -1,4 +1,4 @@
-# Excalidraw
+# Excalidraw+
 
 Gestalt app for [Excalidraw+](https://plus.excalidraw.com) hosted MCP. Agents can read, search, and edit workspace scenes using Excalidraw-aware tools.
 
@@ -10,7 +10,7 @@ https://api.excalidraw.com/api/v1/mcp
 
 ## Authentication
 
-MCP uses the same API keys as the [Excalidraw public API](https://plus.excalidraw.com/docs/api/authentication). Create a key in [Excalidraw Plus](https://app.excalidraw.com/) workspace settings and connect it as a bearer token.
+MCP uses the same API keys as the [Excalidraw public API](https://plus.excalidraw.com/docs/api/authentication). Create a key in [Excalidraw Plus](https://app.excalidraw.com/account/api-keys) and connect it as a bearer token.
 
 - **Personal keys** — best when an agent should act with your own access.
 - **Workspace keys** — better for shared team integrations.

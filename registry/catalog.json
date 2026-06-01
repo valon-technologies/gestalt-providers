@@ -524,14 +524,14 @@
         "section": "app"
       },
       "description": "Read, search, and edit Excalidraw+ scenes via the official hosted MCP server.",
-      "displayName": "Excalidraw",
+      "displayName": "Excalidraw+",
       "docs": [
         {
           "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/excalidraw/README.md",
           "path": "/",
           "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/excalidraw/README.md",
           "sourcePath": "app/excalidraw/README.md",
-          "title": "Excalidraw"
+          "title": "Excalidraw+"
         }
       ],
       "iconUrl": null,
