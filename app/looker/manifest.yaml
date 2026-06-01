@@ -480,7 +480,7 @@ spec:
     workspace: {}
   connections:
     default:
-      mode: user
+      mode: subject
       auth:
         type: manual
         tokenUrl: https://{host}/api/4.0/login

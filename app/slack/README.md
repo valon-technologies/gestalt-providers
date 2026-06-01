@@ -25,7 +25,7 @@ calls when agent replies or bot REST operations are enabled:
 ```yaml
 connections:
   slack-bot:
-    mode: user
+    mode: subject
     auth:
       type: bearer
 

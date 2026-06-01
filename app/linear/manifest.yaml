@@ -15,7 +15,7 @@ spec:
       url: https://mcp.linear.app/mcp
   connections:
     OAuth:
-      mode: user
+      mode: subject
       auth:
         type: oauth2
         authorizationUrl: https://linear.app/oauth/authorize

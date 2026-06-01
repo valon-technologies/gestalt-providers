@@ -48,7 +48,7 @@ export type IntegrationAction =
   | "select_instance"
   | "reconnect"
   | "admin_configure";
-export type ConnectionMode = "none" | "user" | "platform";
+export type ConnectionMode = "none" | "subject" | "platform";
 export type CredentialMode = "none" | "subject" | "platform";
 export type OwnerKind =
   | "none"

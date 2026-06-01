@@ -11,7 +11,7 @@ spec:
       document: https://api.apis.guru/v2/specs/twilio.com/api/1.42.0/openapi.yaml
   connections:
     default:
-      mode: user
+      mode: subject
       auth:
         type: manual
         credentials:

@@ -12,7 +12,7 @@ spec:
       document: openapi.yaml
   connections:
     default:
-      mode: user
+      mode: subject
       auth:
         type: oauth2
         authorizationUrl: https://login.microsoftonline.com/common/oauth2/v2.0/authorize

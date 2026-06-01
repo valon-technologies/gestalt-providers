@@ -35,7 +35,7 @@ spec:
       alias: Incidents.Edit
   connections:
     default:
-      mode: user
+      mode: subject
       auth:
         type: manual
         credentials:
@@ -43,6 +43,6 @@ spec:
           label: API Key
           description: "Create one in [Settings \u2192 API Keys](https://app.incident.io/settings/api-keys)"
     MCP:
-      mode: user
+      mode: subject
       auth:
         type: mcp_oauth

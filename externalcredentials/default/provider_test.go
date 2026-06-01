@@ -241,53 +241,6 @@ func TestExternalCredentialProviderManualTokenExchange(t *testing.T) {
 	}
 }
 
-func TestExternalCredentialProviderRejectsPlatformCredentialMode(t *testing.T) {
-	provider := New()
-	dbs := startTestIndexedDBs(t, testIndexedDBOptions{seedStore: true})
-	configureProvider(t, provider, dbs, map[string]any{
-		"encryptionKey": "provider-platform-mode-unsupported-key",
-	})
-
-	client := provider
-
-	auth := &gestalt.ExternalCredentialAuthConfig{
-		Type:         "oauth2",
-		GrantType:    "refresh_token",
-		TokenURL:     "https://oauth2.googleapis.com/token",
-		ClientID:     "client-id",
-		ClientSecret: "client-secret",
-		RefreshToken: "platform-refresh-token",
-	}
-
-	err := client.ValidateCredentialConfig(context.Background(), &gestalt.ValidateExternalCredentialConfigRequest{
-		Provider:     "gmail",
-		Connection:   "platform",
-		ConnectionID: "gmail:platform",
-		Mode:         "platform",
-		Auth:         auth,
-	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("ValidateCredentialConfig code = %v, want %v (err=%v)", status.Code(err), codes.InvalidArgument, err)
-	}
-	if !strings.Contains(status.Convert(err).Message(), "credential mode platform is not supported") {
-		t.Fatalf("ValidateCredentialConfig error = %v, want platform unsupported", err)
-	}
-
-	_, err = client.ResolveCredential(context.Background(), &gestalt.ResolveExternalCredentialRequest{
-		Provider:     "gmail",
-		Connection:   "platform",
-		ConnectionID: "gmail:platform",
-		Mode:         "platform",
-		Auth:         auth,
-	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("ResolveCredential code = %v, want %v (err=%v)", status.Code(err), codes.InvalidArgument, err)
-	}
-	if !strings.Contains(status.Convert(err).Message(), "credential mode platform is not supported") {
-		t.Fatalf("ResolveCredential error = %v, want platform unsupported", err)
-	}
-}
-
 func TestExternalCredentialProviderResolveRefreshesStoredManualCredential(t *testing.T) {
 	provider := New()
 	dbs := startTestIndexedDBs(t, testIndexedDBOptions{seedStore: true})
@@ -333,7 +286,7 @@ func TestExternalCredentialProviderResolveRefreshesStoredManualCredential(t *tes
 		Provider:            "kimi",
 		Connection:          "default",
 		ConnectionID:        "kimi:default",
-		Mode:                "user",
+		Mode:                "subject",
 		CredentialSubjectID: "user:user-refresh",
 		Instance:            "default",
 		Auth: &gestalt.ExternalCredentialAuthConfig{
@@ -431,7 +384,7 @@ func TestExternalCredentialProviderResolveInvalidGrantDeletesStoredCredential(t 
 				Provider:            "gmail",
 				Connection:          "default",
 				ConnectionID:        lookup.GetConnectionId(),
-				Mode:                "user",
+				Mode:                "subject",
 				CredentialSubjectID: lookup.GetSubjectId(),
 				Instance:            lookup.GetInstance(),
 				Auth: &gestalt.ExternalCredentialAuthConfig{
@@ -506,7 +459,7 @@ func TestExternalCredentialProviderResolveTransientRefreshFailureRetainsStoredCr
 				Provider:            "gmail",
 				Connection:          "default",
 				ConnectionID:        lookup.GetConnectionId(),
-				Mode:                "user",
+				Mode:                "subject",
 				CredentialSubjectID: lookup.GetSubjectId(),
 				Instance:            lookup.GetInstance(),
 				Auth: &gestalt.ExternalCredentialAuthConfig{
@@ -638,7 +591,7 @@ func TestExternalCredentialProviderCredentialMaintenanceRejectsConflictingResolv
 		"provider":     "google_calendar",
 		"connection":   "default",
 		"connectionId": "gmail:default",
-		"mode":         "user",
+		"mode":         "subject",
 		"auth": map[string]any{
 			"type":         "oauth2",
 			"tokenUrl":     "https://token-b.example.test",
@@ -680,6 +633,7 @@ func TestExternalCredentialProviderCredentialMaintenanceRejectsUnsupportedAuthCo
 	target := connections[0].(map[string]any)
 	auth := target["auth"].(map[string]any)
 	auth["tokenExchange"] = "xml"
+
 	err := provider.Configure(context.Background(), "default", cfg)
 	if err == nil {
 		t.Fatal("ConfigureProvider error = nil, want unsupported auth rejection")
@@ -809,7 +763,7 @@ func TestExternalCredentialProviderCredentialMaintenanceSharesResolveSinglefligh
 			Provider:            "gmail",
 			Connection:          "default",
 			ConnectionID:        "gmail:default",
-			Mode:                "user",
+			Mode:                "subject",
 			CredentialSubjectID: "user:singleflight",
 			Instance:            "default",
 			Auth:                auth,
@@ -1199,7 +1153,7 @@ func credentialRefreshProviderConfig(encryptionKey, tokenURL string) map[string]
 				"provider":     "gmail",
 				"connection":   "default",
 				"connectionId": "gmail:default",
-				"mode":         "user",
+				"mode":         "subject",
 				"auth": map[string]any{
 					"type":         "oauth2",
 					"tokenUrl":     tokenURL,

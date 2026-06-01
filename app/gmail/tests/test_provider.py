@@ -124,7 +124,7 @@ class GmailProviderTests(unittest.TestCase):
                 ),
                 gestalt.Request(
                     token="user-token",
-                    credential=gestalt.Credential(mode="user"),
+                    credential=gestalt.Credential(mode="subject"),
                 ),
             )
 
@@ -158,7 +158,7 @@ class GmailProviderTests(unittest.TestCase):
                 ),
                 gestalt.Request(
                     token="user-token",
-                    credential=gestalt.Credential(mode="user"),
+                    credential=gestalt.Credential(mode="subject"),
                 ),
             )
 
@@ -193,7 +193,7 @@ class GmailProviderTests(unittest.TestCase):
                 provider_module.ThreadGetInput(id="thread-1", format="full"),
                 gestalt.Request(
                     token="user-token",
-                    credential=gestalt.Credential(mode="user"),
+                    credential=gestalt.Credential(mode="subject"),
                 ),
             )
 

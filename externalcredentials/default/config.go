@@ -146,9 +146,9 @@ func credentialRefreshTargetFromResolvedConnection(index int, conn resolvedConne
 		return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].connectionId is required", index)
 	}
 	switch conn.Mode {
-	case "subject", "user":
+	case "subject":
 	default:
-		return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].credentialRefresh requires mode subject or user", index)
+		return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].credentialRefresh requires mode subject", index)
 	}
 	refresh := conn.CredentialRefresh
 	interval, err := parsePositiveDuration(refresh.RefreshInterval)
@@ -160,7 +160,7 @@ func credentialRefreshTargetFromResolvedConnection(index int, conn resolvedConne
 		return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].credentialRefresh.refreshBeforeExpiry: %w", index, err)
 	}
 	auth := conn.Auth.authConfig()
-	if err := validateCredentialAuthConfig(conn.Mode, auth); err != nil {
+	if err := validateTokenExchangeConfig(auth); err != nil {
 		return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].auth: %w", index, err)
 	}
 	switch auth.GetType() {

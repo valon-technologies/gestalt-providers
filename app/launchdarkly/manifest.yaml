@@ -11,7 +11,7 @@ spec:
       document: https://github.com/launchdarkly/ld-openapi/releases/download/16.1.1/openapi.json
   connections:
     default:
-      mode: user
+      mode: subject
       auth:
         type: manual
         credentials:
