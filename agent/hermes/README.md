@@ -23,7 +23,6 @@ providers:
           - auth
           - application-default
           - print-access-token
-        accessTokenEnvVar: OPENAI_API_KEY
         autoApprovePermissions: true
 ```
 
@@ -32,13 +31,11 @@ every Hermes ACP subprocess, and stores the ACP session id in its in-memory
 Gestalt session record. Hermes uses `HERMES_HOME/state.db` when the provider
 reloads that ACP session after a token refresh.
 
-Before every turn, the provider runs `accessTokenCommand`, trims stdout, sets the
-configured `accessTokenEnvVar`, starts a fresh `hermes acp` subprocess, calls
-`session/load`, and then sends the prompt. This avoids the one-hour lifetime of
-Google ADC access tokens while keeping Hermes conversation state in ACP.
-
-Set `accessTokenCommand: []` to skip refresh and rely on inherited environment
-or `extraEnv`.
+Before every session and turn, the provider runs `accessTokenCommand`, trims
+stdout, sets `OPENAI_API_KEY` for the Hermes subprocess, and starts a fresh
+`hermes acp` subprocess. For turns, it calls `session/load` before sending the
+prompt. This avoids the one-hour lifetime of Google ADC access tokens while
+keeping Hermes conversation state in ACP.
 
 Set `modelSwitchingEnabled: false` for fixed Hermes profiles, such as a custom
 Vertex endpoint configured in `HERMES_HOME/config.yaml`. In that mode Gestalt

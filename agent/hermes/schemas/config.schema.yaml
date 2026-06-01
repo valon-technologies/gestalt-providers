@@ -35,7 +35,8 @@ properties:
     description: Timeout for Hermes ACP startup and prompt calls.
   accessTokenCommand:
     type: array
-    description: Command run before every turn to produce a fresh bearer token. Set to [] to skip token refresh and inherit environment.
+    minItems: 1
+    description: Command run before every session and turn to produce a fresh bearer token for Hermes.
     items:
       type: string
     default:
@@ -43,15 +44,6 @@ properties:
       - auth
       - application-default
       - print-access-token
-  accessTokenEnvVar:
-    type: string
-    default: OPENAI_API_KEY
-    description: Environment variable that receives accessTokenCommand stdout for Hermes.
-  extraEnv:
-    type: object
-    description: Additional environment variables passed to Hermes subprocesses.
-    additionalProperties:
-      type: string
   autoApprovePermissions:
     type: boolean
     default: true
