@@ -102,8 +102,8 @@ func ensureWorkflowStateStores(ctx context.Context, db indexeddb.Database) error
 	return nil
 }
 
-func temporalScheduleSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func temporalScheduleSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
 			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
@@ -115,8 +115,8 @@ func temporalScheduleSchema() gestalt.ObjectStoreSchema {
 	}
 }
 
-func temporalEventTriggerSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func temporalEventTriggerSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
 			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
@@ -129,8 +129,8 @@ func temporalEventTriggerSchema() gestalt.ObjectStoreSchema {
 	}
 }
 
-func temporalEventTriggerKeySchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func temporalEventTriggerKeySchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Indexes: []gestalt.IndexSchema{
 			{Name: indexByMatchKey, KeyPath: []string{"match_key"}},
 			{Name: indexByTriggerID, KeyPath: []string{"trigger_id"}},
@@ -153,8 +153,8 @@ func unsupportedTemporalRunID(id string) bool {
 	return err != nil
 }
 
-func temporalRunProjectionSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func temporalRunProjectionSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
 			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
@@ -169,8 +169,8 @@ func temporalRunProjectionSchema() gestalt.ObjectStoreSchema {
 	}
 }
 
-func temporalRunIdempotencySchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func temporalRunIdempotencySchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
 			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
@@ -187,8 +187,8 @@ func temporalRunIdempotencySchema() gestalt.ObjectStoreSchema {
 	}
 }
 
-func temporalSignalIdempotencySchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func temporalSignalIdempotencySchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
 			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
@@ -209,8 +209,8 @@ func temporalSignalIdempotencySchema() gestalt.ObjectStoreSchema {
 	}
 }
 
-func temporalWorkflowKeySchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func temporalWorkflowKeySchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
 			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},

@@ -159,26 +159,27 @@ func (p *Provider) HeadObject(ctx context.Context, ref gestalt.ObjectRef) (gesta
 	return objectMetaFromAttrs(cfg.keyPrefix, attrs), nil
 }
 
-func (p *Provider) ReadObject(ctx context.Context, ref gestalt.ObjectRef, opts *gestalt.ReadOptions) (gestalt.ObjectMeta, io.ReadCloser, error) {
+func (p *Provider) ReadObject(ctx context.Context, req gestalt.ReadRequest) (gestalt.ReadResult, error) {
+	ref := req.Ref
 	ref, err := validateObjectRef(ref, "ref")
 	if err != nil {
-		return gestalt.ObjectMeta{}, nil, err
+		return gestalt.ReadResult{}, err
 	}
-	if err := validateReadOptions(opts); err != nil {
-		return gestalt.ObjectMeta{}, nil, err
+	if err := validateReadRequest(req); err != nil {
+		return gestalt.ReadResult{}, err
 	}
 	cfg, err := p.configured()
 	if err != nil {
-		return gestalt.ObjectMeta{}, nil, toStatusError(err)
+		return gestalt.ReadResult{}, toStatusError(err)
 	}
 	obj, err := objectHandle(cfg, ref)
 	if err != nil {
-		return gestalt.ObjectMeta{}, nil, err
+		return gestalt.ReadResult{}, err
 	}
 	obj = obj.ReadCompressed(true)
-	offset, length, ranged, err := rangeParams(optsRange(opts))
+	offset, length, ranged, err := rangeParams(req.Range)
 	if err != nil {
-		return gestalt.ObjectMeta{}, nil, err
+		return gestalt.ReadResult{}, err
 	}
 	var reader *storage.Reader
 	if ranged {
@@ -187,7 +188,7 @@ func (p *Provider) ReadObject(ctx context.Context, ref gestalt.ObjectRef, opts *
 		reader, err = obj.NewReader(ctx)
 	}
 	if err != nil {
-		return gestalt.ObjectMeta{}, nil, toStatusError(fmt.Errorf("gcs: read object %s/%s: %w", cfg.bucketName, backendKey(cfg.keyPrefix, ref.Key), err))
+		return gestalt.ReadResult{}, toStatusError(fmt.Errorf("gcs: read object %s/%s: %w", cfg.bucketName, backendKey(cfg.keyPrefix, ref.Key), err))
 	}
 	metaRef := ref
 	if reader.Attrs.Generation > 0 {
@@ -197,15 +198,15 @@ func (p *Provider) ReadObject(ctx context.Context, ref gestalt.ObjectRef, opts *
 	if err != nil {
 		if !statusCodeIs(err, gestalt.CodeNotFound) {
 			_ = reader.Close()
-			return gestalt.ObjectMeta{}, nil, err
+			return gestalt.ReadResult{}, err
 		}
 		meta = objectMetaFromReaderAttrs(ref.Key, reader.Attrs)
 	}
-	return meta, reader, nil
+	return gestalt.ReadResult{Meta: meta, Body: reader}, nil
 }
 
-func (p *Provider) WriteObject(ctx context.Context, ref gestalt.ObjectRef, body io.Reader, opts *gestalt.WriteOptions) (gestalt.ObjectMeta, error) {
-	ref, err := validateObjectRef(ref, "ref")
+func (p *Provider) WriteObject(ctx context.Context, req gestalt.WriteRequest) (gestalt.ObjectMeta, error) {
+	ref, err := validateObjectRef(req.Ref, "ref")
 	if err != nil {
 		return gestalt.ObjectMeta{}, err
 	}
@@ -213,22 +214,21 @@ func (p *Provider) WriteObject(ctx context.Context, ref gestalt.ObjectRef, body 
 	if err != nil {
 		return gestalt.ObjectMeta{}, toStatusError(err)
 	}
-	obj, err := writeObjectHandle(cfg, ref, opts)
+	obj, err := writeObjectHandle(cfg, ref, &req)
 	if err != nil {
 		return gestalt.ObjectMeta{}, err
 	}
+	body := req.Body
 	if body == nil {
 		body = strings.NewReader("")
 	}
 	writer := obj.NewWriter(ctx)
-	if opts != nil {
-		writer.ContentType = opts.ContentType
-		writer.CacheControl = opts.CacheControl
-		writer.ContentDisposition = opts.ContentDisposition
-		writer.ContentEncoding = opts.ContentEncoding
-		writer.ContentLanguage = opts.ContentLanguage
-		writer.Metadata = cloneStringMap(opts.Metadata)
-	}
+	writer.ContentType = req.ContentType
+	writer.CacheControl = req.CacheControl
+	writer.ContentDisposition = req.ContentDisposition
+	writer.ContentEncoding = req.ContentEncoding
+	writer.ContentLanguage = req.ContentLanguage
+	writer.Metadata = cloneStringMap(req.Metadata)
 	if _, err := io.Copy(writer, body); err != nil {
 		_ = writer.CloseWithError(err)
 		return gestalt.ObjectMeta{}, toStatusError(fmt.Errorf("gcs: write object %s/%s: %w", cfg.bucketName, backendKey(cfg.keyPrefix, ref.Key), err))
@@ -261,7 +261,7 @@ func (p *Provider) DeleteObject(ctx context.Context, ref gestalt.ObjectRef) erro
 	return nil
 }
 
-func (p *Provider) ListObjects(ctx context.Context, opts gestalt.ListOptions) (gestalt.ListPage, error) {
+func (p *Provider) ListObjects(ctx context.Context, opts gestalt.ListRequest) (gestalt.ListPage, error) {
 	cfg, err := p.configured()
 	if err != nil {
 		return gestalt.ListPage{}, toStatusError(err)
@@ -291,16 +291,18 @@ func (p *Provider) ListObjects(ctx context.Context, opts gestalt.ListOptions) (g
 	return page, nil
 }
 
-func (p *Provider) CopyObject(ctx context.Context, source, destination gestalt.ObjectRef, opts *gestalt.CopyOptions) (gestalt.ObjectMeta, error) {
+func (p *Provider) CopyObject(ctx context.Context, req gestalt.CopyRequest) (gestalt.ObjectMeta, error) {
+	source := req.Source
 	source, err := validateObjectRef(source, "source")
 	if err != nil {
 		return gestalt.ObjectMeta{}, err
 	}
+	destination := req.Destination
 	destination, err = validateObjectRef(destination, "destination")
 	if err != nil {
 		return gestalt.ObjectMeta{}, err
 	}
-	if err := validateCopyOptions(opts); err != nil {
+	if err := validateCopyRequest(req); err != nil {
 		return gestalt.ObjectMeta{}, err
 	}
 	cfg, err := p.configured()
@@ -322,8 +324,9 @@ func (p *Provider) CopyObject(ctx context.Context, source, destination gestalt.O
 	return objectMetaFromAttrs(cfg.keyPrefix, attrs), nil
 }
 
-func (p *Provider) PresignObject(ctx context.Context, ref gestalt.ObjectRef, opts *gestalt.PresignOptions) (gestalt.PresignResult, error) {
+func (p *Provider) PresignObject(ctx context.Context, req gestalt.PresignRequest) (gestalt.PresignResult, error) {
 	_ = ctx
+	ref := req.Ref
 	ref, err := validateObjectRef(ref, "ref")
 	if err != nil {
 		return gestalt.PresignResult{}, err
@@ -337,20 +340,18 @@ func (p *Provider) PresignObject(ctx context.Context, ref gestalt.ObjectRef, opt
 	contentType := ""
 	contentDisposition := ""
 	headers := map[string]string{}
-	if opts != nil {
-		if opts.Method != "" {
-			method = opts.Method
-		}
-		if opts.Expires < 0 {
-			return gestalt.PresignResult{}, gestalt.InvalidArgument("gcs: expires must be >= 0")
-		}
-		if opts.Expires > 0 {
-			expires = opts.Expires
-		}
-		contentType = opts.ContentType
-		contentDisposition = opts.ContentDisposition
-		headers = clonePresignHeaders(opts.Headers)
+	if req.Method != "" {
+		method = req.Method
 	}
+	if req.Expires < 0 {
+		return gestalt.PresignResult{}, gestalt.InvalidArgument("gcs: expires must be >= 0")
+	}
+	if req.Expires > 0 {
+		expires = req.Expires
+	}
+	contentType = req.ContentType
+	contentDisposition = req.ContentDisposition
+	headers = clonePresignHeaders(req.Headers)
 	signedOpts := &storage.SignedURLOptions{
 		Method:          string(method),
 		Expires:         p.now().Add(expires),
@@ -445,7 +446,7 @@ func objectHandle(cfg configuredProvider, ref gestalt.ObjectRef) (*storage.Objec
 	return obj.Generation(generation), nil
 }
 
-func writeObjectHandle(cfg configuredProvider, ref gestalt.ObjectRef, opts *gestalt.WriteOptions) (*storage.ObjectHandle, error) {
+func writeObjectHandle(cfg configuredProvider, ref gestalt.ObjectRef, opts *gestalt.WriteRequest) (*storage.ObjectHandle, error) {
 	obj := cfg.bucket.Object(backendKey(cfg.keyPrefix, ref.Key))
 	if opts != nil {
 		if opts.IfMatch != "" {
@@ -486,33 +487,27 @@ func destinationCopyHandle(cfg configuredProvider, ref gestalt.ObjectRef) (*stor
 	return obj.If(storage.Conditions{GenerationMatch: generation}), nil
 }
 
-func validateReadOptions(opts *gestalt.ReadOptions) error {
-	if opts == nil {
-		return nil
-	}
-	if opts.IfMatch != "" {
+func validateReadRequest(req gestalt.ReadRequest) error {
+	if req.IfMatch != "" {
 		return unsupportedCondition("read", "ifMatch")
 	}
-	if opts.IfNoneMatch != "" {
+	if req.IfNoneMatch != "" {
 		return unsupportedCondition("read", "ifNoneMatch")
 	}
-	if opts.IfModifiedSince != nil {
+	if req.IfModifiedSince != nil {
 		return unsupportedCondition("read", "ifModifiedSince")
 	}
-	if opts.IfUnmodifiedSince != nil {
+	if req.IfUnmodifiedSince != nil {
 		return unsupportedCondition("read", "ifUnmodifiedSince")
 	}
 	return nil
 }
 
-func validateCopyOptions(opts *gestalt.CopyOptions) error {
-	if opts == nil {
-		return nil
-	}
-	if opts.IfMatch != "" {
+func validateCopyRequest(req gestalt.CopyRequest) error {
+	if req.IfMatch != "" {
 		return unsupportedCondition("copy", "ifMatch")
 	}
-	if opts.IfNoneMatch != "" {
+	if req.IfNoneMatch != "" {
 		return unsupportedCondition("copy", "ifNoneMatch")
 	}
 	return nil
@@ -520,13 +515,6 @@ func validateCopyOptions(opts *gestalt.CopyOptions) error {
 
 func unsupportedCondition(operation, field string) error {
 	return gestalt.InvalidArgument(fmt.Sprintf("gcs: %s %s is not supported by the generation-only S3 surface", operation, field))
-}
-
-func optsRange(opts *gestalt.ReadOptions) *gestalt.ByteRange {
-	if opts == nil {
-		return nil
-	}
-	return opts.Range
 }
 
 func rangeParams(r *gestalt.ByteRange) (offset, length int64, ranged bool, err error) {

@@ -446,6 +446,10 @@ func eventMatchKey(ownerKey, typ, source, subject string) string {
 	return strings.TrimSpace(ownerKey) + "\x00" + strings.TrimSpace(typ) + "\x00" + strings.TrimSpace(source) + "\x00" + strings.TrimSpace(subject)
 }
 
+func actorHasSubject(actor *gestalt.WorkflowActor) bool {
+	return actor != nil && strings.TrimSpace(actor.SubjectID) != ""
+}
+
 func createdByForUpsertInput(existing, requested *gestalt.WorkflowActor) *gestalt.WorkflowActor {
 	if existing == nil || isConfigManagedActorInput(requested) {
 		return cloneActorInput(requested)

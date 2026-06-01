@@ -119,37 +119,37 @@ func TestProvider_RangeParams(t *testing.T) {
 }
 
 func TestProvider_RejectsUnsupportedConditions(t *testing.T) {
-	if err := validateReadOptions(&gestalt.ReadOptions{IfMatch: "etag"}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
-		t.Fatalf("validateReadOptions(ifMatch) = %v, want invalid_argument", err)
+	if err := validateReadRequest(gestalt.ReadRequest{IfMatch: "etag"}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
+		t.Fatalf("validateReadRequest(ifMatch) = %v, want invalid_argument", err)
 	}
-	if err := validateReadOptions(&gestalt.ReadOptions{IfNoneMatch: "etag"}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
-		t.Fatalf("validateReadOptions(ifNoneMatch) = %v, want invalid_argument", err)
+	if err := validateReadRequest(gestalt.ReadRequest{IfNoneMatch: "etag"}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
+		t.Fatalf("validateReadRequest(ifNoneMatch) = %v, want invalid_argument", err)
 	}
 	now := time.Now()
-	if err := validateReadOptions(&gestalt.ReadOptions{IfModifiedSince: &now}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
-		t.Fatalf("validateReadOptions(ifModifiedSince) = %v, want invalid_argument", err)
+	if err := validateReadRequest(gestalt.ReadRequest{IfModifiedSince: &now}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
+		t.Fatalf("validateReadRequest(ifModifiedSince) = %v, want invalid_argument", err)
 	}
-	if err := validateReadOptions(&gestalt.ReadOptions{IfUnmodifiedSince: &now}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
-		t.Fatalf("validateReadOptions(ifUnmodifiedSince) = %v, want invalid_argument", err)
+	if err := validateReadRequest(gestalt.ReadRequest{IfUnmodifiedSince: &now}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
+		t.Fatalf("validateReadRequest(ifUnmodifiedSince) = %v, want invalid_argument", err)
 	}
-	if err := validateCopyOptions(&gestalt.CopyOptions{IfMatch: "etag"}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
-		t.Fatalf("validateCopyOptions(ifMatch) = %v, want invalid_argument", err)
+	if err := validateCopyRequest(gestalt.CopyRequest{IfMatch: "etag"}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
+		t.Fatalf("validateCopyRequest(ifMatch) = %v, want invalid_argument", err)
 	}
-	if err := validateCopyOptions(&gestalt.CopyOptions{IfNoneMatch: "*"}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
-		t.Fatalf("validateCopyOptions(ifNoneMatch) = %v, want invalid_argument", err)
+	if err := validateCopyRequest(gestalt.CopyRequest{IfNoneMatch: "*"}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
+		t.Fatalf("validateCopyRequest(ifNoneMatch) = %v, want invalid_argument", err)
 	}
 
 	cfg := testConfiguredProvider(t)
-	if _, err := writeObjectHandle(cfg, gestalt.ObjectRef{Key: "docs/file.txt"}, &gestalt.WriteOptions{IfMatch: "etag"}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
+	if _, err := writeObjectHandle(cfg, gestalt.ObjectRef{Key: "docs/file.txt"}, &gestalt.WriteRequest{IfMatch: "etag"}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
 		t.Fatalf("writeObjectHandle(ifMatch) = %v, want invalid_argument", err)
 	}
-	if _, err := writeObjectHandle(cfg, gestalt.ObjectRef{Key: "docs/file.txt"}, &gestalt.WriteOptions{IfNoneMatch: "etag"}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
+	if _, err := writeObjectHandle(cfg, gestalt.ObjectRef{Key: "docs/file.txt"}, &gestalt.WriteRequest{IfNoneMatch: "etag"}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
 		t.Fatalf("writeObjectHandle(ifNoneMatch etag) = %v, want invalid_argument", err)
 	}
-	if _, err := writeObjectHandle(cfg, gestalt.ObjectRef{Key: "docs/file.txt", VersionID: "7"}, &gestalt.WriteOptions{IfNoneMatch: "*"}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
+	if _, err := writeObjectHandle(cfg, gestalt.ObjectRef{Key: "docs/file.txt", VersionID: "7"}, &gestalt.WriteRequest{IfNoneMatch: "*"}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
 		t.Fatalf("writeObjectHandle(version + create-only) = %v, want invalid_argument", err)
 	}
-	if _, err := writeObjectHandle(cfg, gestalt.ObjectRef{Key: "docs/file.txt"}, &gestalt.WriteOptions{IfNoneMatch: "*"}); err != nil {
+	if _, err := writeObjectHandle(cfg, gestalt.ObjectRef{Key: "docs/file.txt"}, &gestalt.WriteRequest{IfNoneMatch: "*"}); err != nil {
 		t.Fatalf("writeObjectHandle(create-only): %v", err)
 	}
 	if _, err := writeObjectHandle(cfg, gestalt.ObjectRef{Key: "docs/file.txt", VersionID: "7"}, nil); err != nil {
@@ -187,14 +187,16 @@ func TestProvider_PresignObjectUsesGCSV4GenerationControls(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = provider.Close() })
 
-	if _, err := provider.PresignObject(ctx, gestalt.ObjectRef{Key: "docs/file.txt"}, &gestalt.PresignOptions{
+	if _, err := provider.PresignObject(ctx, gestalt.PresignRequest{
+		Ref:     gestalt.ObjectRef{Key: "docs/file.txt"},
 		Method:  gestalt.PresignMethodGet,
 		Expires: maxPresignTTL + time.Second,
 	}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
 		t.Fatalf("PresignObject(long expiry) error = %v, want invalid_argument", err)
 	}
 
-	getResult, err := provider.PresignObject(ctx, gestalt.ObjectRef{Key: "docs/file.txt", VersionID: "123"}, &gestalt.PresignOptions{
+	getResult, err := provider.PresignObject(ctx, gestalt.PresignRequest{
+		Ref:                gestalt.ObjectRef{Key: "docs/file.txt", VersionID: "123"},
 		Method:             gestalt.PresignMethodGet,
 		ContentType:        "application/pdf",
 		ContentDisposition: `attachment; filename="file.pdf"`,
@@ -223,7 +225,8 @@ func TestProvider_PresignObjectUsesGCSV4GenerationControls(t *testing.T) {
 		t.Fatalf("GET headers include host = %q, want omitted", got)
 	}
 
-	putResult, err := provider.PresignObject(ctx, gestalt.ObjectRef{Key: "docs/file.txt", VersionID: "456"}, &gestalt.PresignOptions{
+	putResult, err := provider.PresignObject(ctx, gestalt.PresignRequest{
+		Ref:                gestalt.ObjectRef{Key: "docs/file.txt", VersionID: "456"},
 		Method:             gestalt.PresignMethodPut,
 		ContentType:        "text/plain",
 		ContentDisposition: "inline",
@@ -308,11 +311,17 @@ func int64Ptr(value int64) *int64 {
 	return &value
 }
 
-func writeString(ctx context.Context, provider *Provider, ref gestalt.ObjectRef, body string, opts *gestalt.WriteOptions) (gestalt.ObjectMeta, error) {
-	return provider.WriteObject(ctx, ref, strings.NewReader(body), opts)
+func writeString(ctx context.Context, provider *Provider, ref gestalt.ObjectRef, body string, opts *gestalt.WriteRequest) (gestalt.ObjectMeta, error) {
+	req := gestalt.WriteRequest{Ref: ref, Body: strings.NewReader(body)}
+	if opts != nil {
+		req = *opts
+		req.Ref = ref
+		req.Body = strings.NewReader(body)
+	}
+	return provider.WriteObject(ctx, req)
 }
 
-func readText(ctx context.Context, provider *Provider, ref gestalt.ObjectRef, opts *gestalt.ReadOptions) (string, error) {
+func readText(ctx context.Context, provider *Provider, ref gestalt.ObjectRef, opts *gestalt.ReadRequest) (string, error) {
 	data, err := readBytes(ctx, provider, ref, opts)
 	if err != nil {
 		return "", err
@@ -320,11 +329,17 @@ func readText(ctx context.Context, provider *Provider, ref gestalt.ObjectRef, op
 	return string(data), nil
 }
 
-func readBytes(ctx context.Context, provider *Provider, ref gestalt.ObjectRef, opts *gestalt.ReadOptions) ([]byte, error) {
-	_, body, err := provider.ReadObject(ctx, ref, opts)
+func readBytes(ctx context.Context, provider *Provider, ref gestalt.ObjectRef, opts *gestalt.ReadRequest) ([]byte, error) {
+	req := gestalt.ReadRequest{Ref: ref}
+	if opts != nil {
+		req = *opts
+		req.Ref = ref
+	}
+	result, err := provider.ReadObject(ctx, req)
 	if err != nil {
 		return nil, err
 	}
+	body := result.Body
 	defer func() { _ = body.Close() }()
 	data, err := io.ReadAll(body)
 	if err != nil {

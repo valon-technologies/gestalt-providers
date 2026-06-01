@@ -1525,6 +1525,18 @@ func TestNormalizeTargetPreservesAppCredentialMode(t *testing.T) {
 	}
 }
 
+func TestNormalizeTargetRejectsInvalidAppCredentialMode(t *testing.T) {
+	const mode = "unsupported-mode"
+	target := workflowTarget(t, "github", "reviewPullRequest", nil)
+	target.Steps[0].App.CredentialMode = mode
+
+	_, err := normalizeTarget(workflowTargetInput(target))
+	want := fmt.Sprintf(`target.steps[0].app.credential_mode %q is not supported`, mode)
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("normalizeTarget error = %v, want unsupported credential mode %q", err, mode)
+	}
+}
+
 func TestProviderStoresNestedTargetJSONWithoutScalarCopies(t *testing.T) {
 	ctx := context.Background()
 	db := startTestIndexedDBBackend(t)
@@ -1816,7 +1828,7 @@ func TestProviderPublishEventDoesNotWaitForConcurrentScheduleList(t *testing.T) 
 	}
 }
 
-func TestProviderPublishEventUsesTriggerOwnerAsCreator(t *testing.T) {
+func TestProviderPublishEventUsesPublishedByAsCreator(t *testing.T) {
 	ctx := context.Background()
 	host := newStepExecutorStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
@@ -1833,18 +1845,17 @@ func TestProviderPublishEventUsesTriggerOwnerAsCreator(t *testing.T) {
 	t.Cleanup(func() { _ = provider.Close() })
 
 	target := workflowTarget(t, "github", "events.runAgentFromWorkflowEvent", map[string]any{"repository": "gestalt"})
-	triggerOwner := &gestalt.WorkflowActor{
-		SubjectID:   "service_account:github-review",
-		SubjectKind: "service_account",
-		DisplayName: "GitHub review workflow",
-		AuthSource:  "api_token",
-	}
 	if _, err := provider.UpsertEventTrigger(ctx, &gestalt.UpsertWorkflowProviderEventTriggerRequest{
 		TriggerID:    "github-webhook",
 		Match:        &gestalt.WorkflowEventMatch{Type: "github.app.webhook", Source: "github"},
 		Target:       target,
 		DefinitionID: "github-webhook-definition",
-		RequestedBy:  triggerOwner,
+		RequestedBy: &gestalt.WorkflowActor{
+			SubjectID:   "system:config",
+			SubjectKind: "system",
+			DisplayName: "Gestalt config",
+			AuthSource:  "config",
+		},
 	}); err != nil {
 		t.Fatalf("UpsertEventTrigger: %v", err)
 	}
@@ -1870,8 +1881,8 @@ func TestProviderPublishEventUsesTriggerOwnerAsCreator(t *testing.T) {
 	if got := anyMap(call.Metadata)[workflowInvokeMetadataDefinitionID]; got != "github-webhook-definition" {
 		t.Fatalf("definition_id = %v, want github-webhook-definition", got)
 	}
-	if call.CreatedBy == nil || call.CreatedBy.SubjectID != triggerOwner.SubjectID {
-		t.Fatalf("created_by = %#v, want trigger owner %q", call.CreatedBy, triggerOwner.SubjectID)
+	if call.CreatedBy.SubjectID != publishedBy.SubjectID {
+		t.Fatalf("created_by.subject_id = %q, want %q", call.CreatedBy.SubjectID, publishedBy.SubjectID)
 	}
 	run, err := provider.GetRun(ctx, &gestalt.GetWorkflowProviderRunRequest{RunID: call.RunID})
 	if err != nil {
@@ -1880,8 +1891,8 @@ func TestProviderPublishEventUsesTriggerOwnerAsCreator(t *testing.T) {
 	if run.DefinitionID != "github-webhook-definition" {
 		t.Fatalf("run definition_id = %q, want github-webhook-definition", run.DefinitionID)
 	}
-	if run.CreatedBy == nil || run.CreatedBy.SubjectID != triggerOwner.SubjectID {
-		t.Fatalf("run created_by = %#v, want trigger owner %q", run.CreatedBy, triggerOwner.SubjectID)
+	if run.CreatedBy.SubjectID != publishedBy.SubjectID {
+		t.Fatalf("run created_by.subject_id = %q, want %q", run.CreatedBy.SubjectID, publishedBy.SubjectID)
 	}
 
 	duplicatePublisher := &gestalt.WorkflowActor{
@@ -1904,8 +1915,8 @@ func TestProviderPublishEventUsesTriggerOwnerAsCreator(t *testing.T) {
 	if len(runs.Runs) != 1 {
 		t.Fatalf("runs len = %d, want duplicate event to keep one run", len(runs.Runs))
 	}
-	if runs.Runs[0].CreatedBy == nil || runs.Runs[0].CreatedBy.SubjectID != triggerOwner.SubjectID {
-		t.Fatalf("duplicate publish changed created_by = %#v, want trigger owner %q", runs.Runs[0].CreatedBy, triggerOwner.SubjectID)
+	if runs.Runs[0].CreatedBy.SubjectID != publishedBy.SubjectID {
+		t.Fatalf("duplicate publish changed created_by.subject_id = %q, want %q", runs.Runs[0].CreatedBy.SubjectID, publishedBy.SubjectID)
 	}
 }
 
@@ -3529,14 +3540,14 @@ func seedWorkflowObjectStores(t *testing.T, store *relationaldb.Provider) {
 	t.Helper()
 	for _, def := range []struct {
 		name   string
-		schema gestalt.ObjectStoreSchema
+		schema gestalt.ObjectStoreOptions
 	}{
-		{name: storeSchedules, schema: gestalt.ObjectStoreSchema{}},
-		{name: storeEventTriggers, schema: gestalt.ObjectStoreSchema{}},
-		{name: storeDefinitions, schema: gestalt.ObjectStoreSchema{}},
-		{name: storeIdempotency, schema: gestalt.ObjectStoreSchema{}},
-		{name: storeWorkflowKeys, schema: gestalt.ObjectStoreSchema{}},
-		{name: storeRuns, schema: gestalt.ObjectStoreSchema{}},
+		{name: storeSchedules, schema: gestalt.ObjectStoreOptions{}},
+		{name: storeEventTriggers, schema: gestalt.ObjectStoreOptions{}},
+		{name: storeDefinitions, schema: gestalt.ObjectStoreOptions{}},
+		{name: storeIdempotency, schema: gestalt.ObjectStoreOptions{}},
+		{name: storeWorkflowKeys, schema: gestalt.ObjectStoreOptions{}},
+		{name: storeRuns, schema: gestalt.ObjectStoreOptions{}},
 		{name: storeRunClaims, schema: workflowRunClaimSchema()},
 		{name: storeSignals, schema: workflowSignalSchema()},
 	} {
@@ -3546,8 +3557,8 @@ func seedWorkflowObjectStores(t *testing.T, store *relationaldb.Provider) {
 	}
 }
 
-func workflowRunClaimSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func workflowRunClaimSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
 			{Name: "run_id", Type: gestalt.TypeString, NotNull: true},
@@ -3558,8 +3569,8 @@ func workflowRunClaimSchema() gestalt.ObjectStoreSchema {
 	}
 }
 
-func workflowSignalSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func workflowSignalSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Indexes: []gestalt.IndexSchema{
 			{Name: "by_run", KeyPath: []string{"run_id"}},
 			{Name: "by_run_state", KeyPath: []string{"run_id", "state"}},

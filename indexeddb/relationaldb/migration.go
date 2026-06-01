@@ -59,7 +59,7 @@ func (s *Store) metadataKeysWithPrefix(ctx context.Context, prefix string) ([]st
 	return keys, nil
 }
 
-func (s *Store) createObjectStoreStrict(ctx context.Context, name string, schema gestalt.ObjectStoreSchema) error {
+func (s *Store) createObjectStoreStrict(ctx context.Context, name string, schema gestalt.ObjectStoreOptions) error {
 	if _, ok, err := s.loadStoreMetadata(ctx, name); err != nil {
 		return preserveStatusOrInternal("load metadata: %v", err)
 	} else if ok {
@@ -193,11 +193,11 @@ func (s *Store) deleteIndexStrict(ctx context.Context, storeName, indexName stri
 	})
 }
 
-func schemaFromMeta(meta *storeMeta) gestalt.ObjectStoreSchema {
+func schemaFromMeta(meta *storeMeta) gestalt.ObjectStoreOptions {
 	if meta == nil {
-		return gestalt.ObjectStoreSchema{}
+		return gestalt.ObjectStoreOptions{}
 	}
-	return gestalt.ObjectStoreSchema{
+	return gestalt.ObjectStoreOptions{
 		Columns: append([]gestalt.ColumnDef(nil), meta.columns...),
 		Indexes: append([]gestalt.IndexSchema(nil), meta.indexes...),
 	}
@@ -226,7 +226,7 @@ func (u *relationalUpgradeContext) ObjectStore(name string) (UpgradeObjectStore,
 	return &relationalUpgradeObjectStore{store: u.store, ctx: u.ctx, name: name}, nil
 }
 
-func (u *relationalUpgradeContext) CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreSchema) (UpgradeObjectStore, error) {
+func (u *relationalUpgradeContext) CreateObjectStore(ctx context.Context, name string, schema gestalt.ObjectStoreOptions) (UpgradeObjectStore, error) {
 	if err := u.store.createObjectStoreStrict(relationalOperationContext(ctx, u.ctx), name, schema); err != nil {
 		return nil, err
 	}
@@ -262,10 +262,10 @@ type relationalUpgradeObjectStore struct {
 
 func (s *relationalUpgradeObjectStore) Name() string { return s.name }
 
-func (s *relationalUpgradeObjectStore) Schema() gestalt.ObjectStoreSchema {
+func (s *relationalUpgradeObjectStore) Schema() gestalt.ObjectStoreOptions {
 	meta, err := s.store.getMeta(s.ctx, s.name)
 	if err != nil {
-		return gestalt.ObjectStoreSchema{}
+		return gestalt.ObjectStoreOptions{}
 	}
 	return schemaFromMeta(meta)
 }

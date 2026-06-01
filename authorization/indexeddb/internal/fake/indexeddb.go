@@ -19,14 +19,14 @@ type IndexedDB struct {
 // ObjectStore holds in-memory records for one object store.
 type ObjectStore struct {
 	records map[string]gestalt.Record
-	schema  gestalt.ObjectStoreSchema
+	schema  gestalt.ObjectStoreOptions
 }
 
 func NewIndexedDB() *IndexedDB {
 	return &IndexedDB{stores: make(map[string]*ObjectStore)}
 }
 
-func (db *IndexedDB) CreateObjectStore(_ context.Context, name string, schema gestalt.ObjectStoreSchema) (indexeddb.ObjectStore, error) {
+func (db *IndexedDB) CreateObjectStore(_ context.Context, name string, schema gestalt.ObjectStoreOptions) (indexeddb.ObjectStore, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	if _, ok := db.stores[name]; ok {
@@ -63,12 +63,12 @@ func (db *IndexedDB) CreatedStoreNames() []string {
 	return append([]string(nil), db.createdStores...)
 }
 
-func (db *IndexedDB) StoreSchema(name string) (gestalt.ObjectStoreSchema, bool) {
+func (db *IndexedDB) StoreSchema(name string) (gestalt.ObjectStoreOptions, bool) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	store, ok := db.stores[name]
 	if !ok {
-		return gestalt.ObjectStoreSchema{}, false
+		return gestalt.ObjectStoreOptions{}, false
 	}
 	return store.schema, true
 }
@@ -203,7 +203,7 @@ func (idx Index) OpenKeyCursor(_ context.Context, _ *gestalt.KeyRange, _ gestalt
 	return nil, indexeddb.ErrUnsupported
 }
 
-func matchesIndex(record gestalt.Record, schema gestalt.ObjectStoreSchema, indexName string, values []any) bool {
+func matchesIndex(record gestalt.Record, schema gestalt.ObjectStoreOptions, indexName string, values []any) bool {
 	for _, index := range schema.Indexes {
 		if index.Name != indexName {
 			continue

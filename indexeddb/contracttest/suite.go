@@ -512,7 +512,7 @@ func runExplicitTransactionSDKContract(t *testing.T, harness Harness) {
 	t.Cleanup(sess.Close)
 
 	store := "explicit_transaction_sdk_contract"
-	mustCreateObjectStore(t, sess.client, store, gestalt.ObjectStoreSchema{
+	mustCreateObjectStore(t, sess.client, store, gestalt.ObjectStoreOptions{
 		Indexes: []gestalt.IndexSchema{
 			{Name: "by_status", KeyPath: []string{"status"}},
 		},
@@ -770,7 +770,7 @@ func runNestedIndexPaths(t *testing.T, harness Harness) {
 	t.Cleanup(sess.Close)
 
 	store := "nested_index_paths"
-	mustCreateObjectStore(t, sess.client, store, gestalt.ObjectStoreSchema{
+	mustCreateObjectStore(t, sess.client, store, gestalt.ObjectStoreOptions{
 		Indexes: []gestalt.IndexSchema{
 			{Name: "by_profile_name", KeyPath: []string{"profile.name"}},
 		},
@@ -847,16 +847,16 @@ type cursorRequest struct {
 	Values    []any
 }
 
-func bulkItemsSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func bulkItemsSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Indexes: []gestalt.IndexSchema{
 			{Name: "by_status", KeyPath: []string{"status"}},
 		},
 	}
 }
 
-func unreadablePayloadSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func unreadablePayloadSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Indexes: []gestalt.IndexSchema{
 			{Name: "by_status", KeyPath: []string{"status"}},
 		},
@@ -868,24 +868,24 @@ func unreadablePayloadSchema() gestalt.ObjectStoreSchema {
 	}
 }
 
-func uniqueEmailSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func uniqueEmailSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Indexes: []gestalt.IndexSchema{
 			{Name: "by_email", KeyPath: []string{"email"}, Unique: true},
 		},
 	}
 }
 
-func numericIndexSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func numericIndexSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Indexes: []gestalt.IndexSchema{
 			{Name: "by_rank", KeyPath: []string{"rank"}},
 		},
 	}
 }
 
-func typedPrimaryKeySchema(columnType gestalt.ColumnType) gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func typedPrimaryKeySchema(columnType gestalt.ColumnType) gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: columnType, PrimaryKey: true, NotNull: true},
 			{Name: "name", Type: typeString},
@@ -921,7 +921,7 @@ func mustSeedNumericIndexItems(t *testing.T, client indexeddb.Database, store st
 	}
 }
 
-func mustCreateObjectStore(t *testing.T, client indexeddb.Database, store string, schema gestalt.ObjectStoreSchema) {
+func mustCreateObjectStore(t *testing.T, client indexeddb.Database, store string, schema gestalt.ObjectStoreOptions) {
 	t.Helper()
 	if _, err := client.CreateObjectStore(context.Background(), store, schema); err != nil {
 		t.Fatalf("CreateObjectStore(%s): %v", store, err)

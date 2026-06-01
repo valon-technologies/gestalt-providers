@@ -57,8 +57,8 @@ func ensureExternalCredentialStore(ctx context.Context, client indexeddb.Databas
 	return nil
 }
 
-func externalCredentialSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func externalCredentialSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Indexes: []gestalt.IndexSchema{
 			{Name: indexBySubject, KeyPath: []string{"subject_id"}},
 			{Name: indexBySubjectConnection, KeyPath: []string{"subject_id", "connection_id"}},

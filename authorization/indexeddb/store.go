@@ -68,10 +68,10 @@ func ensureAuthorizationStores(ctx context.Context, client indexeddb.Database) e
 	if client == nil {
 		return nil
 	}
-	if _, err := client.CreateObjectStore(ctx, stateStoreName, gestalt.ObjectStoreSchema{}); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := client.CreateObjectStore(ctx, stateStoreName, gestalt.ObjectStoreOptions{}); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create authorization state store: %w", err)
 	}
-	if _, err := client.CreateObjectStore(ctx, modelsStoreName, gestalt.ObjectStoreSchema{}); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+	if _, err := client.CreateObjectStore(ctx, modelsStoreName, gestalt.ObjectStoreOptions{}); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create authorization models store: %w", err)
 	}
 	if _, err := client.CreateObjectStore(ctx, relationsStoreName, authorizationRelationshipsSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
@@ -80,8 +80,8 @@ func ensureAuthorizationStores(ctx context.Context, client indexeddb.Database) e
 	return nil
 }
 
-func authorizationRelationshipsSchema() gestalt.ObjectStoreSchema {
-	return gestalt.ObjectStoreSchema{
+func authorizationRelationshipsSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
 		Indexes: []gestalt.IndexSchema{
 			{Name: relationshipsBySubj, KeyPath: []string{"subject_type", "subject_id"}},
 			{Name: relationshipsByRes, KeyPath: []string{"resource_type", "resource_id"}},

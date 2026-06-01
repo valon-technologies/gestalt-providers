@@ -97,47 +97,6 @@ const MCP_PASSTHROUGH_INTEGRATION: Integration = {
   ],
 };
 
-const PLATFORM_CONFIGURED_INTEGRATION: Integration = {
-  name: "platform-configured-svc",
-  displayName: "Platform Configured Service",
-  status: "ready",
-  credentialState: "configured",
-  healthState: "not_checked",
-  connections: [
-    {
-      name: "deployment",
-      displayName: "Deployment",
-      credentialMode: "platform",
-      ownerKind: "platform",
-      credentialState: "configured",
-      healthState: "not_checked",
-      status: "ready",
-      actions: [],
-    },
-  ],
-};
-
-const PLATFORM_MISSING_INTEGRATION: Integration = {
-  name: "platform-missing-svc",
-  displayName: "Platform Missing Service",
-  status: "needs_admin_configuration",
-  credentialState: "missing",
-  healthState: "not_checked",
-  actions: ["admin_configure"],
-  connections: [
-    {
-      name: "deployment",
-      displayName: "Deployment",
-      credentialMode: "platform",
-      ownerKind: "platform",
-      credentialState: "missing",
-      healthState: "not_checked",
-      status: "needs_admin_configuration",
-      actions: ["admin_configure"],
-    },
-  ],
-};
-
 const NO_AUTH_WITH_USER_INTEGRATION: Integration = {
   name: "no-auth-svc",
   displayName: "No Auth Service",
@@ -315,18 +274,6 @@ test.describe("Integrations", () => {
     await expect(page.getByRole("button", { name: "OAuth Service settings" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Manual Service settings" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Another Service settings" })).toHaveCount(0);
-  });
-
-  test("normalizes the legacy integrations route to apps", async ({ authenticatedPage }) => {
-    const page = authenticatedPage;
-    await mockIntegrations(page, sampleIntegrations);
-    await mockTokens(page, []);
-
-    await page.goto("/integrations?connected=oauth-svc");
-
-    await expect(page).toHaveURL(/\/apps$/);
-    await expect(page.getByText("oauth-svc connected successfully.")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Apps" })).toBeVisible();
   });
 
   test("renders svg icons even when the payload omits xmlns", async ({ authenticatedPage }) => {
@@ -563,36 +510,6 @@ test.describe("Integrations", () => {
     await expect(page.getByRole("dialog").getByRole("button", { name: "Connect" })).toBeVisible();
   });
 
-  test("renders platform configured status without user actions", async ({
-    authenticatedPage,
-  }) => {
-    const page = authenticatedPage;
-    await mockIntegrations(page, [PLATFORM_CONFIGURED_INTEGRATION]);
-
-    await page.goto("/apps");
-    await expect(page.getByTestId("integration-card-platform-configured-svc").getByLabel("Connected")).toBeVisible();
-    await expect(page.getByText("Deployment configured")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Platform Configured Service settings" })).toHaveCount(0);
-  });
-
-  test("renders platform missing status as admin configuration", async ({
-    authenticatedPage,
-  }) => {
-    const page = authenticatedPage;
-    await mockIntegrations(page, [PLATFORM_MISSING_INTEGRATION]);
-
-    await page.goto("/apps");
-    const card = page.getByTestId("integration-card-platform-missing-svc");
-    await expect(card.getByText("Admin configuration required")).toHaveCount(0);
-    await page.getByRole("button", { name: "Platform Missing Service settings" }).click();
-
-    const dialog = page.getByRole("dialog");
-    await expect(dialog.getByText("Admin configuration required").first()).toBeVisible();
-    await expect(dialog.getByText("Deployment-managed credentials unconfigured")).toBeVisible();
-    await expect(dialog.getByText("Ask an admin to configure deployment-managed credentials.")).toBeVisible();
-    await expect(dialog.getByRole("button", { name: /connect|reconnect|disconnect|add/i })).toHaveCount(0);
-  });
-
   test("disconnect confirmation shows warning and allows cancel", async ({
     authenticatedPage,
   }) => {
@@ -745,7 +662,6 @@ test.describe("Integrations", () => {
       integration: string;
       connection?: string;
       instance?: string;
-      returnPath?: string;
     } | undefined;
 
     await mockIntegrations(page, [MULTI_CONNECTION_OAUTH_ONLY_INTEGRATION]);
@@ -754,7 +670,6 @@ test.describe("Integrations", () => {
         integration: string;
         connection?: string;
         instance?: string;
-        returnPath?: string;
       };
       await route.fulfill({
         json: { url: "about:blank", state: "state-123" },
@@ -775,7 +690,6 @@ test.describe("Integrations", () => {
     expect(requestBody).toMatchObject({
       integration: "dual-oauth-svc",
       connection: "mcp",
-      returnPath: "/apps",
     });
   });
 

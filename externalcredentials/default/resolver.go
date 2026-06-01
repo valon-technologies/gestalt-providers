@@ -57,10 +57,10 @@ func (p *Provider) ValidateCredentialConfig(_ context.Context, req *gestalt.Vali
 	if req == nil {
 		return status.Error(codes.InvalidArgument, "request is required")
 	}
-	return validateTokenExchangeConfig(req.GetAuth())
+	return validateAuthConfig(req.GetAuth())
 }
 
-func validateTokenExchangeConfig(auth *gestalt.ExternalCredentialAuthConfig) error {
+func validateAuthConfig(auth *gestalt.ExternalCredentialAuthConfig) error {
 	if auth == nil {
 		return nil
 	}
@@ -94,7 +94,7 @@ func (p *Provider) ResolveCredential(ctx context.Context, req *gestalt.ResolveEx
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	if err := validateTokenExchangeConfig(req.GetAuth()); err != nil {
+	if err := validateAuthConfig(req.GetAuth()); err != nil {
 		return nil, err
 	}
 	st, err := p.configuredStore()
@@ -130,10 +130,10 @@ func (p *Provider) ExchangeCredential(ctx context.Context, req *gestalt.Exchange
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	auth := req.GetAuth()
-	if err := validateTokenExchangeConfig(auth); err != nil {
+	if err := validateAuthConfig(req.GetAuth()); err != nil {
 		return nil, err
 	}
+	auth := req.GetAuth()
 	if auth == nil || strings.TrimSpace(auth.GetTokenUrl()) == "" {
 		return &gestalt.ExchangeExternalCredentialResponse{}, nil
 	}

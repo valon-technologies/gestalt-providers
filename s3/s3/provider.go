@@ -183,15 +183,16 @@ func (p *Provider) HeadObject(ctx context.Context, ref gestalt.ObjectRef) (gesta
 	return meta, nil
 }
 
-func (p *Provider) ReadObject(ctx context.Context, ref gestalt.ObjectRef, opts *gestalt.ReadOptions) (gestalt.ObjectMeta, io.ReadCloser, error) {
+func (p *Provider) ReadObject(ctx context.Context, req gestalt.ReadRequest) (gestalt.ReadResult, error) {
+	ref := req.Ref
 	ref, err := validateObjectRef(ref, "ref")
 	if err != nil {
-		return gestalt.ObjectMeta{}, nil, err
+		return gestalt.ReadResult{}, err
 	}
 
 	cfg, err := p.configured()
 	if err != nil {
-		return gestalt.ObjectMeta{}, nil, toStatusError(err)
+		return gestalt.ReadResult{}, toStatusError(err)
 	}
 
 	key := backendKey(cfg.keyPrefix, ref.Key)
@@ -202,37 +203,35 @@ func (p *Provider) ReadObject(ctx context.Context, ref gestalt.ObjectRef, opts *
 	if ref.VersionID != "" {
 		input.VersionId = aws.String(ref.VersionID)
 	}
-	if opts != nil {
-		if opts.IfMatch != "" {
-			input.IfMatch = aws.String(opts.IfMatch)
-		}
-		if opts.IfNoneMatch != "" {
-			input.IfNoneMatch = aws.String(opts.IfNoneMatch)
-		}
-		if opts.IfModifiedSince != nil {
-			input.IfModifiedSince = opts.IfModifiedSince
-		}
-		if opts.IfUnmodifiedSince != nil {
-			input.IfUnmodifiedSince = opts.IfUnmodifiedSince
-		}
-		rangeHeader, err := byteRangeHeader(opts.Range)
-		if err != nil {
-			return gestalt.ObjectMeta{}, nil, err
-		}
-		if rangeHeader != "" {
-			input.Range = aws.String(rangeHeader)
-		}
+	if req.IfMatch != "" {
+		input.IfMatch = aws.String(req.IfMatch)
+	}
+	if req.IfNoneMatch != "" {
+		input.IfNoneMatch = aws.String(req.IfNoneMatch)
+	}
+	if req.IfModifiedSince != nil {
+		input.IfModifiedSince = req.IfModifiedSince
+	}
+	if req.IfUnmodifiedSince != nil {
+		input.IfUnmodifiedSince = req.IfUnmodifiedSince
+	}
+	rangeHeader, err := byteRangeHeader(req.Range)
+	if err != nil {
+		return gestalt.ReadResult{}, err
+	}
+	if rangeHeader != "" {
+		input.Range = aws.String(rangeHeader)
 	}
 
 	out, err := cfg.client.GetObject(ctx, input)
 	if err != nil {
-		return gestalt.ObjectMeta{}, nil, toStatusError(fmt.Errorf("s3: get object %s/%s: %w", cfg.bucket, key, err))
+		return gestalt.ReadResult{}, toStatusError(fmt.Errorf("s3: get object %s/%s: %w", cfg.bucket, key, err))
 	}
-	return objectMetaFromGet(ref, out), out.Body, nil
+	return gestalt.ReadResult{Meta: objectMetaFromGet(ref, out), Body: out.Body}, nil
 }
 
-func (p *Provider) WriteObject(ctx context.Context, ref gestalt.ObjectRef, body io.Reader, opts *gestalt.WriteOptions) (gestalt.ObjectMeta, error) {
-	ref, err := validateObjectRef(ref, "ref")
+func (p *Provider) WriteObject(ctx context.Context, req gestalt.WriteRequest) (gestalt.ObjectMeta, error) {
+	ref, err := validateObjectRef(req.Ref, "ref")
 	if err != nil {
 		return gestalt.ObjectMeta{}, err
 	}
@@ -240,7 +239,7 @@ func (p *Provider) WriteObject(ctx context.Context, ref gestalt.ObjectRef, body 
 	if err != nil {
 		return gestalt.ObjectMeta{}, toStatusError(err)
 	}
-	meta, err := p.writeObject(ctx, cfg, ref, opts, body)
+	meta, err := p.writeObject(ctx, cfg, ref, &req, req.Body)
 	return meta, toStatusError(err)
 }
 
@@ -267,7 +266,7 @@ func (p *Provider) DeleteObject(ctx context.Context, ref gestalt.ObjectRef) erro
 	return nil
 }
 
-func (p *Provider) ListObjects(ctx context.Context, opts gestalt.ListOptions) (gestalt.ListPage, error) {
+func (p *Provider) ListObjects(ctx context.Context, opts gestalt.ListRequest) (gestalt.ListPage, error) {
 	cfg, err := p.configured()
 	if err != nil {
 		return gestalt.ListPage{}, toStatusError(err)
@@ -315,11 +314,13 @@ func (p *Provider) ListObjects(ctx context.Context, opts gestalt.ListOptions) (g
 	return page, nil
 }
 
-func (p *Provider) CopyObject(ctx context.Context, source, destination gestalt.ObjectRef, opts *gestalt.CopyOptions) (gestalt.ObjectMeta, error) {
+func (p *Provider) CopyObject(ctx context.Context, req gestalt.CopyRequest) (gestalt.ObjectMeta, error) {
+	source := req.Source
 	source, err := validateObjectRef(source, "source")
 	if err != nil {
 		return gestalt.ObjectMeta{}, err
 	}
+	destination := req.Destination
 	destination, err = validateObjectRef(destination, "destination")
 	if err != nil {
 		return gestalt.ObjectMeta{}, err
@@ -336,12 +337,6 @@ func (p *Provider) CopyObject(ctx context.Context, source, destination gestalt.O
 	if sourceHead.Size > maxSingleRequestObjectSize {
 		return gestalt.ObjectMeta{}, toStatusError(fmt.Errorf("%w: object size %d exceeds single-request copy limit %d", errMultipartCopyRequired, sourceHead.Size, maxSingleRequestObjectSize))
 	}
-	var ifMatch, ifNoneMatch string
-	if opts != nil {
-		ifMatch = opts.IfMatch
-		ifNoneMatch = opts.IfNoneMatch
-	}
-
 	sourceBackendRef := gestalt.ObjectRef{
 		Key:       backendKey(cfg.keyPrefix, source.Key),
 		VersionID: source.VersionID,
@@ -351,8 +346,8 @@ func (p *Provider) CopyObject(ctx context.Context, source, destination gestalt.O
 		Bucket:                aws.String(cfg.bucket),
 		Key:                   aws.String(destinationKey),
 		CopySource:            aws.String(copySourceHeader(cfg.bucket, sourceBackendRef)),
-		CopySourceIfMatch:     awsStringIfSet(ifMatch),
-		CopySourceIfNoneMatch: awsStringIfSet(ifNoneMatch),
+		CopySourceIfMatch:     awsStringIfSet(req.IfMatch),
+		CopySourceIfNoneMatch: awsStringIfSet(req.IfNoneMatch),
 	})
 	if err != nil {
 		return gestalt.ObjectMeta{}, toStatusError(fmt.Errorf("s3: copy object %s/%s to %s/%s: %w", cfg.bucket, sourceBackendRef.Key, cfg.bucket, destinationKey, err))
@@ -376,7 +371,8 @@ func (p *Provider) CopyObject(ctx context.Context, source, destination gestalt.O
 	return meta, nil
 }
 
-func (p *Provider) PresignObject(ctx context.Context, ref gestalt.ObjectRef, opts *gestalt.PresignOptions) (gestalt.PresignResult, error) {
+func (p *Provider) PresignObject(ctx context.Context, req gestalt.PresignRequest) (gestalt.PresignResult, error) {
+	ref := req.Ref
 	ref, err := validateObjectRef(ref, "ref")
 	if err != nil {
 		return gestalt.PresignResult{}, err
@@ -390,13 +386,11 @@ func (p *Provider) PresignObject(ctx context.Context, ref gestalt.ObjectRef, opt
 	var expires time.Duration
 	var contentType, contentDisposition string
 	var headers map[string]string
-	if opts != nil {
-		method = opts.Method
-		expires = opts.Expires
-		contentType = opts.ContentType
-		contentDisposition = opts.ContentDisposition
-		headers = clonePresignHeaders(opts.Headers)
-	}
+	method = req.Method
+	expires = req.Expires
+	contentType = req.ContentType
+	contentDisposition = req.ContentDisposition
+	headers = clonePresignHeaders(req.Headers)
 	if method == "" {
 		method = gestalt.PresignMethodGet
 	}
@@ -494,7 +488,7 @@ func (p *Provider) headObject(ctx context.Context, cfg configuredProvider, ref g
 	return objectMetaFromHead(ref, out), nil
 }
 
-func (p *Provider) writeObject(ctx context.Context, cfg configuredProvider, ref gestalt.ObjectRef, opts *gestalt.WriteOptions, body io.Reader) (gestalt.ObjectMeta, error) {
+func (p *Provider) writeObject(ctx context.Context, cfg configuredProvider, ref gestalt.ObjectRef, opts *gestalt.WriteRequest, body io.Reader) (gestalt.ObjectMeta, error) {
 	key := backendKey(cfg.keyPrefix, ref.Key)
 	staged, size, err := stageBody(body)
 	if err != nil {
