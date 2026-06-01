@@ -30,7 +30,7 @@ This targets Excalidraw+ (`api.excalidraw.com`). The separate open-source server
 ## Configuration
 
 ```yaml
-app:
+apps:
   excalidraw:
     source: github.com/valon-technologies/gestalt-providers/app/excalidraw
     version: 0.0.1-alpha.1

@@ -6,10 +6,10 @@ description: Read, search, and edit Excalidraw+ scenes via the official hosted M
 spec:
   surfaces:
     mcp:
-      connection: default
+      connection: MCP
       url: https://api.excalidraw.com/api/v1/mcp
   connections:
-    default:
+    MCP:
       displayName: MCP
       mode: subject
       auth:
