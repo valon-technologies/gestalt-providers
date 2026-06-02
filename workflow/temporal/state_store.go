@@ -45,6 +45,10 @@ type workflowStateStore struct {
 	workflowKeys      indexeddb.ObjectStore
 }
 
+type matchedEventTrigger struct {
+	Trigger *gestalt.BoundWorkflowEventTrigger
+}
+
 func openWorkflowStateStore(ctx context.Context, scopeID string, db indexeddb.Database) (*workflowStateStore, error) {
 	scopeID = strings.TrimSpace(scopeID)
 	if scopeID == "" {
@@ -1223,7 +1227,7 @@ func (s *workflowStateStore) putTrigger(ctx context.Context, trigger *gestalt.Bo
 	if err := triggerStore.Put(ctx, s.triggerRecord(trigger)); err != nil {
 		return err
 	}
-	for _, key := range matchKeysInput(targetOwnerKeyInput(trigger.Target), trigger.Match) {
+	for _, key := range matchKeysInput(trigger.Match) {
 		if err := keyStore.Put(ctx, gestalt.Record{
 			"id":         s.scopedID(key, trigger.ID),
 			"scope_id":   s.scopeID,
@@ -1274,10 +1278,10 @@ func (s *workflowStateStore) listTriggers(ctx context.Context) ([]*gestalt.Bound
 	return triggers, nil
 }
 
-func (s *workflowStateStore) matchTriggers(ctx context.Context, ownerKey string, event *gestalt.WorkflowEvent) ([]*gestalt.BoundWorkflowEventTrigger, error) {
+func (s *workflowStateStore) matchTriggers(ctx context.Context, event *gestalt.WorkflowEvent) ([]matchedEventTrigger, error) {
 	seen := map[string]struct{}{}
-	triggers := make([]*gestalt.BoundWorkflowEventTrigger, 0)
-	for _, key := range eventLookupKeysInput(ownerKey, event) {
+	triggers := make([]matchedEventTrigger, 0)
+	for _, key := range eventLookupKeysInput(event) {
 		keyRecords, err := s.eventTriggerKeys.Index(indexByMatchKey).GetAll(ctx, nil, s.scopedID(key))
 		if errors.Is(err, gestalt.ErrNotFound) {
 			continue
@@ -1293,15 +1297,22 @@ func (s *workflowStateStore) matchTriggers(ctx context.Context, ownerKey string,
 			if _, ok := seen[triggerID]; ok {
 				continue
 			}
-			trigger, found, err := s.getTrigger(ctx, triggerID)
+			record, err := s.eventTriggers.Get(ctx, s.scopedID(triggerID))
+			if errors.Is(err, gestalt.ErrNotFound) {
+				continue
+			}
 			if err != nil {
 				return nil, err
 			}
-			if !found || !eventMatchesTriggerInput(event, trigger) {
+			trigger, err := triggerFromRecord(record)
+			if err != nil {
+				return nil, err
+			}
+			if strings.TrimSpace(trigger.ID) == "" || !eventMatchesTriggerInput(event, trigger) {
 				continue
 			}
 			seen[triggerID] = struct{}{}
-			triggers = append(triggers, trigger)
+			triggers = append(triggers, matchedEventTrigger{Trigger: trigger})
 		}
 	}
 	return triggers, nil
