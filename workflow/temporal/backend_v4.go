@@ -61,7 +61,7 @@ func (b *temporalBackend) startKeyedRunV4(ctx context.Context, target scopedTarg
 	}
 
 	input := b.runV4Input(target.OwnerKey, req.DefinitionID, workflowKey, target.Target, manualTriggerInput(), req.CreatedBy, false)
-	input.InvocationToken = strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx))
+	input.RunAs = cloneSubjectInput(req.RunAs)
 	input.RequireClaim = true
 	run, err := b.executeRunV4(ctx, temporalWorkflowID, input, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
@@ -110,7 +110,7 @@ func (b *temporalBackend) startUnkeyedRunV4(ctx context.Context, target scopedTa
 	}
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "manual-v4", target.OwnerKey, key)
 	input := b.runV4Input(target.OwnerKey, req.DefinitionID, "", target.Target, manualTriggerInput(), req.CreatedBy, false)
-	input.InvocationToken = strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx))
+	input.RunAs = cloneSubjectInput(req.RunAs)
 	run, err := b.executeRunV4(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
@@ -235,7 +235,7 @@ func (b *temporalBackend) startSignalWorkflowRunV4(ctx context.Context, target s
 		conflictPolicy = enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
 	}
 	input := b.runV4Input(target.OwnerKey, req.DefinitionID, workflowKey, target.Target, manualTriggerInput(), req.CreatedBy, true)
-	input.InvocationToken = strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx))
+	input.RunAs = cloneSubjectInput(req.RunAs)
 	input.RequireClaim = true
 	startOperation := b.client.NewWithStartWorkflowOperation(
 		b.startWorkflowOptions(temporalWorkflowID, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE),

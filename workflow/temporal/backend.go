@@ -147,7 +147,7 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkfl
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "run-v4", uuid.NewString())
 	conflictPolicy := enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL
 	input := b.runV4Input(target.OwnerKey, req.DefinitionID, "", target.Target, manualTriggerInput(), req.CreatedBy, false)
-	input.InvocationToken = strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx))
+	input.RunAs = cloneSubjectInput(req.RunAs)
 	run, err := b.executeRunV4(ctx, temporalWorkflowID, input, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
@@ -450,8 +450,9 @@ func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *gestalt.Upser
 		UpdatedAt:    now,
 		CreatedBy:    createdBy,
 		DefinitionID: strings.TrimSpace(req.DefinitionID),
+		RunAs:        cloneSubjectInput(req.RunAs),
 	}
-	if err := b.upsertTemporalSchedule(ctx, schedule, gestalt.InvocationTokenFromContext(ctx)); err != nil {
+	if err := b.upsertTemporalSchedule(ctx, schedule); err != nil {
 		return nil, err
 	}
 	if err := b.state.putSchedule(ctx, schedule); err != nil {
@@ -614,6 +615,7 @@ func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *gestalt.U
 		UpdatedAt:    now,
 		CreatedBy:    createdBy,
 		DefinitionID: strings.TrimSpace(req.DefinitionID),
+		RunAs:        cloneSubjectInput(req.RunAs),
 	}
 	if err := b.state.putTrigger(ctx, trigger); err != nil {
 		return nil, err
@@ -685,22 +687,25 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
 	appName := strings.TrimSpace(req.AppName)
-	eventInput, err := normalizeWorkflowEvent(req.Event, time.Now)
+	if appName == "" {
+		return nil, status.Error(codes.InvalidArgument, "app_name is required")
+	}
+	eventRequest := cloneWorkflowEventInput(req.Event)
+	if eventRequest != nil {
+		eventRequest.Source = appName
+	}
+	eventInput, err := normalizeWorkflowEvent(eventRequest, time.Now)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	triggers, err := b.state.matchTriggers(ctx, appName, eventInput)
+	matches, err := b.state.matchTriggers(ctx, eventInput)
 	if err != nil {
 		return nil, err
 	}
 	publishedBy := cloneActorInput(req.PublishedBy)
-	matchedTriggers := make([]*gestalt.BoundWorkflowEventTrigger, 0, len(triggers))
 	matchedTriggerCounts := map[string]int64{}
-	for _, trigger := range triggers {
-		if eventMatchesTriggerInput(eventInput, trigger) {
-			matchedTriggers = append(matchedTriggers, trigger)
-			matchedTriggerCounts[workflowTelemetryTargetKindInput(trigger.Target)]++
-		}
+	for _, match := range matches {
+		matchedTriggerCounts[workflowTelemetryTargetKindInput(match.Trigger.Target)]++
 	}
 	for targetKind, count := range matchedTriggerCounts {
 		gestalt.RecordWorkflowEventMatchedTriggers(ctx, count, b.workflowTelemetryOptions(
@@ -710,7 +715,8 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 			gestalt.WorkflowRunStatusUnknown,
 		))
 	}
-	for _, trigger := range matchedTriggers {
+	for _, match := range matches {
+		trigger := match.Trigger
 		createdBy := trigger.CreatedBy
 		if actorHasSubject(publishedBy) {
 			createdBy = cloneActorInput(publishedBy)
@@ -721,7 +727,7 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 			Event:     eventInput,
 		}}
 		input := b.runV4Input(targetOwnerKeyInput(trigger.Target), trigger.DefinitionID, "", trigger.Target, eventTriggerInput, createdBy, false)
-		input.InvocationToken = strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx))
+		input.RunAs = cloneSubjectInput(trigger.RunAs)
 		run, err := b.executeRunV4(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 		if err != nil {
 			if strings.TrimSpace(eventInput.ID) != "" && isAlreadyStarted(err) {
@@ -799,10 +805,10 @@ func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, pause
 	return trigger, nil
 }
 
-func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *gestalt.BoundWorkflowSchedule, invocationToken string) error {
+func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *gestalt.BoundWorkflowSchedule) error {
 	actionInput := b.runV4Input(targetOwnerKeyInput(schedule.Target), schedule.DefinitionID, "", schedule.Target, scheduleTriggerInput(schedule.ID, time.Now().UTC()), schedule.CreatedBy, false)
 	actionInput.ScheduleID = schedule.ID
-	actionInput.InvocationToken = strings.TrimSpace(invocationToken)
+	actionInput.RunAs = cloneSubjectInput(schedule.RunAs)
 	action := &client.ScheduleWorkflowAction{
 		Workflow:            gestaltRunWorkflowV4,
 		Args:                []any{actionInput},

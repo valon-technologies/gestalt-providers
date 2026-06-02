@@ -410,11 +410,10 @@ func eventMatchesTriggerInput(event *gestalt.WorkflowEvent, trigger *gestalt.Bou
 	return true
 }
 
-func matchKeysInput(ownerKey string, match *gestalt.WorkflowEventMatch) []string {
+func matchKeysInput(match *gestalt.WorkflowEventMatch) []string {
 	if match == nil {
 		return nil
 	}
-	ownerKey = strings.TrimSpace(ownerKey)
 	typ := strings.TrimSpace(match.Type)
 	source := strings.TrimSpace(match.Source)
 	subject := strings.TrimSpace(match.Subject)
@@ -422,28 +421,37 @@ func matchKeysInput(ownerKey string, match *gestalt.WorkflowEventMatch) []string
 		return nil
 	}
 	return []string{
-		eventMatchKey(ownerKey, typ, source, subject),
+		eventMatchKey(typ, source, subject),
 	}
 }
 
-func eventLookupKeysInput(ownerKey string, event *gestalt.WorkflowEvent) []string {
+func eventLookupKeysInput(event *gestalt.WorkflowEvent) []string {
 	if event == nil {
 		return nil
 	}
-	ownerKey = strings.TrimSpace(ownerKey)
 	typ := strings.TrimSpace(event.Type)
 	source := strings.TrimSpace(event.Source)
 	subject := strings.TrimSpace(event.Subject)
-	return []string{
-		eventMatchKey(ownerKey, typ, "", ""),
-		eventMatchKey(ownerKey, typ, source, ""),
-		eventMatchKey(ownerKey, typ, "", subject),
-		eventMatchKey(ownerKey, typ, source, subject),
+	if typ == "" {
+		return nil
 	}
+	keys := []string{
+		eventMatchKey(typ, "", ""),
+	}
+	if source != "" {
+		keys = append(keys, eventMatchKey(typ, source, ""))
+	}
+	if subject != "" {
+		keys = append(keys, eventMatchKey(typ, "", subject))
+		if source != "" {
+			keys = append(keys, eventMatchKey(typ, source, subject))
+		}
+	}
+	return keys
 }
 
-func eventMatchKey(ownerKey, typ, source, subject string) string {
-	return strings.TrimSpace(ownerKey) + "\x00" + strings.TrimSpace(typ) + "\x00" + strings.TrimSpace(source) + "\x00" + strings.TrimSpace(subject)
+func eventMatchKey(typ, source, subject string) string {
+	return strings.TrimSpace(typ) + "\x00" + strings.TrimSpace(source) + "\x00" + strings.TrimSpace(subject)
 }
 
 func actorHasSubject(actor *gestalt.WorkflowActor) bool {
@@ -466,6 +474,20 @@ func cloneActorInput(actor *gestalt.WorkflowActor) *gestalt.WorkflowActor {
 	out.SubjectKind = strings.TrimSpace(out.SubjectKind)
 	out.DisplayName = strings.TrimSpace(out.DisplayName)
 	out.AuthSource = strings.TrimSpace(out.AuthSource)
+	return &out
+}
+
+func cloneSubjectInput(subject *gestalt.Subject) *gestalt.Subject {
+	if subject == nil {
+		return nil
+	}
+	out := *subject
+	out.ID = strings.TrimSpace(out.ID)
+	out.Kind = strings.TrimSpace(out.Kind)
+	out.CredentialSubjectID = strings.TrimSpace(out.CredentialSubjectID)
+	out.DisplayName = strings.TrimSpace(out.DisplayName)
+	out.AuthSource = strings.TrimSpace(out.AuthSource)
+	out.Email = strings.TrimSpace(out.Email)
 	return &out
 }
 
