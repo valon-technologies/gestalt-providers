@@ -202,6 +202,44 @@ func parseSourceLayer(value string) SourceLayer {
 	}
 }
 
+func (p DefaultAccessPolicy) MarshalJSON() ([]byte, error) {
+	return json.Marshal(p.String())
+}
+
+func (p *DefaultAccessPolicy) UnmarshalJSON(data []byte) error {
+	var text string
+	if err := json.Unmarshal(data, &text); err == nil {
+		*p = parseDefaultAccessPolicy(text)
+		return nil
+	}
+	var value int32
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	*p = DefaultAccessPolicy(value)
+	return nil
+}
+
+func (p DefaultAccessPolicy) String() string {
+	switch p {
+	case DefaultAccessPolicyAllow:
+		return "allow"
+	default:
+		return "deny"
+	}
+}
+
+func parseDefaultAccessPolicy(value string) DefaultAccessPolicy {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "deny":
+		return DefaultAccessPolicyDeny
+	case "allow":
+		return DefaultAccessPolicyAllow
+	default:
+		return DefaultAccessPolicyInvalid
+	}
+}
+
 func relationshipID(tuple *RelationshipTuple) string {
 	data, err := json.Marshal(tuple)
 	if err != nil {

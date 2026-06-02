@@ -93,8 +93,9 @@ func TestProviderSetAndGetActiveModel(t *testing.T) {
 				},
 			},
 			{
-				Name:        "folder",
-				SourceLayer: SourceLayerRuntime,
+				Name:                "folder",
+				DefaultAccessPolicy: DefaultAccessPolicyAllow,
+				SourceLayer:         SourceLayerRuntime,
 				Relations: []*AuthorizationModelRelation{
 					{
 						Name: "parent",
@@ -229,6 +230,34 @@ func TestProviderSetActiveModelRejectsInvalidAllowedTargets(t *testing.T) {
 				t.Fatalf("SetActiveModel() error = %v, want InvalidArgument", err)
 			}
 		})
+	}
+}
+
+func TestProviderSetActiveModelRejectsInvalidDefaultAccessPolicy(t *testing.T) {
+	ctx := context.Background()
+	provider := New()
+	fakeDB := &fakeIndexedDB{}
+	provider.configureDatabase(fakeDB)
+	t.Cleanup(func() {
+		if err := provider.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	})
+
+	_, err := provider.SetActiveModel(ctx, &SetActiveModelRequest{
+		Model: &AuthorizationModel{
+			Id:      "model-1",
+			Version: "v1",
+			ResourceTypes: []*AuthorizationModelResourceType{
+				{
+					Name:                "telemetry",
+					DefaultAccessPolicy: DefaultAccessPolicy(2),
+				},
+			},
+		},
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("SetActiveModel() error = %v, want InvalidArgument", err)
 	}
 }
 
@@ -418,6 +447,13 @@ func TestProviderCheckAccess(t *testing.T) {
 					{Name: "administer", Relations: []string{"maintainer"}},
 				},
 			},
+			{
+				Name:                "telemetry",
+				DefaultAccessPolicy: DefaultAccessPolicyAllow,
+				Actions: []*AuthorizationModelAction{
+					{Name: "readMetrics", Relations: []string{"reader"}},
+				},
+			},
 		},
 	}
 	if _, err := provider.SetActiveModel(ctx, &SetActiveModelRequest{Model: model}); err != nil {
@@ -522,6 +558,15 @@ func TestProviderCheckAccess(t *testing.T) {
 			allowed: false,
 		},
 		{
+			name: "allows default allow resource type without relationship",
+			request: &CheckAccessRequest{
+				Subject:  &Subject{Type: "subject", Id: "user:dana"},
+				Action:   &Action{Name: "readMetrics"},
+				Resource: &Resource{Type: "telemetry", Id: "metrics"},
+			},
+			allowed: true,
+		},
+		{
 			name: "denies unknown action",
 			request: &CheckAccessRequest{
 				Subject:  &Subject{Type: "subject", Id: "user:alice"},
@@ -559,13 +604,14 @@ func TestProviderCheckAccess(t *testing.T) {
 		Requests: []*CheckAccessRequest{
 			tests[0].request,
 			tests[3].request,
+			tests[4].request,
 			tests[1].request,
 		},
 	})
 	if err != nil {
 		t.Fatalf("CheckAccessMany() error = %v", err)
 	}
-	wantAllowed := []bool{true, false, true}
+	wantAllowed := []bool{true, false, true, true}
 	if len(manyResp.Decisions) != len(wantAllowed) {
 		t.Fatalf("CheckAccessMany() decisions = %d, want %d", len(manyResp.Decisions), len(wantAllowed))
 	}

@@ -80,6 +80,9 @@ func evaluateAccess(snapshot *authorizationSnapshot, req *CheckAccessRequest) (*
 	if resourceType == nil {
 		return &CheckAccessResponse{Allowed: false, ModelID: modelID}, nil
 	}
+	if resourceType.DefaultAccessPolicy == DefaultAccessPolicyAllow {
+		return &CheckAccessResponse{Allowed: true, ModelID: modelID}, nil
+	}
 	modelAction := findModelAction(resourceType, action.Name)
 	if modelAction == nil {
 		return &CheckAccessResponse{Allowed: false, ModelID: modelID}, nil

@@ -164,6 +164,9 @@ func normalizeAuthorizationModelResourceType(resourceType *AuthorizationModelRes
 	if resourceType.Name == "" {
 		return fmt.Errorf("name is required")
 	}
+	if err := normalizeDefaultAccessPolicy(resourceType.DefaultAccessPolicy); err != nil {
+		return err
+	}
 	for i, relation := range resourceType.Relations {
 		if err := normalizeAuthorizationModelRelation(relation); err != nil {
 			return fmt.Errorf("relations[%d]: %w", i, err)
@@ -175,6 +178,15 @@ func normalizeAuthorizationModelResourceType(resourceType *AuthorizationModelRes
 		}
 	}
 	return nil
+}
+
+func normalizeDefaultAccessPolicy(policy DefaultAccessPolicy) error {
+	switch policy {
+	case DefaultAccessPolicyDeny, DefaultAccessPolicyAllow:
+		return nil
+	default:
+		return fmt.Errorf("default access policy is invalid")
+	}
 }
 
 func normalizeAuthorizationModelRelation(relation *AuthorizationModelRelation) error {
@@ -303,10 +315,11 @@ func cloneAuthorizationModelResourceType(resourceType *AuthorizationModelResourc
 		return nil
 	}
 	return &AuthorizationModelResourceType{
-		Name:        resourceType.Name,
-		Relations:   cloneAuthorizationModelRelations(resourceType.Relations),
-		Actions:     cloneAuthorizationModelActions(resourceType.Actions),
-		SourceLayer: resourceType.SourceLayer,
+		Name:                resourceType.Name,
+		DefaultAccessPolicy: resourceType.DefaultAccessPolicy,
+		Relations:           cloneAuthorizationModelRelations(resourceType.Relations),
+		Actions:             cloneAuthorizationModelActions(resourceType.Actions),
+		SourceLayer:         resourceType.SourceLayer,
 	}
 }
 

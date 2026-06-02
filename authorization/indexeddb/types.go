@@ -166,6 +166,14 @@ const (
 	SourceLayerRuntime      SourceLayer = 2
 )
 
+type DefaultAccessPolicy int32
+
+const (
+	DefaultAccessPolicyInvalid DefaultAccessPolicy = -1
+	DefaultAccessPolicyDeny    DefaultAccessPolicy = 0
+	DefaultAccessPolicyAllow   DefaultAccessPolicy = 1
+)
+
 // AuthorizationModel is currently stored with a shape like:
 //
 //	{
@@ -206,10 +214,11 @@ type AuthorizationModelRef struct {
 }
 
 type AuthorizationModelResourceType struct {
-	Name        string                        `json:"name"`
-	Relations   []*AuthorizationModelRelation `json:"relations,omitempty"`
-	Actions     []*AuthorizationModelAction   `json:"actions,omitempty"`
-	SourceLayer SourceLayer                   `json:"source_layer"`
+	Name                string                        `json:"name"`
+	DefaultAccessPolicy DefaultAccessPolicy           `json:"default_access_policy"`
+	Relations           []*AuthorizationModelRelation `json:"relations,omitempty"`
+	Actions             []*AuthorizationModelAction   `json:"actions,omitempty"`
+	SourceLayer         SourceLayer                   `json:"source_layer"`
 }
 
 type AuthorizationModelRelation struct {
