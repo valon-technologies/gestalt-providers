@@ -15,10 +15,11 @@ updates:
           - "*"
         group-by: "dependency-name"
     schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
+      interval: "cron"
+      cronjob: "0 9 1,15 * *"
       timezone: "America/New_York"
+    cooldown:
+      default-days: 14
 
   - package-ecosystem: "cargo"
     directories:
@@ -32,10 +33,11 @@ updates:
           - "*"
         group-by: "dependency-name"
     schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
+      interval: "cron"
+      cronjob: "0 9 1,15 * *"
       timezone: "America/New_York"
+    cooldown:
+      default-days: 14
 
   - package-ecosystem: "uv"
     directories:
@@ -48,7 +50,8 @@ updates:
           - "*"
         group-by: "dependency-name"
     schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
+      interval: "cron"
+      cronjob: "0 9 1,15 * *"
       timezone: "America/New_York"
+    cooldown:
+      default-days: 14
