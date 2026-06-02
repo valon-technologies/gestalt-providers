@@ -615,7 +615,7 @@ func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *gestalt.U
 		CreatedBy:    createdBy,
 		DefinitionID: strings.TrimSpace(req.DefinitionID),
 	}
-	if err := b.state.putTrigger(ctx, trigger); err != nil {
+	if err := b.state.putTriggerWithInvocationToken(ctx, trigger, gestalt.InvocationTokenFromContext(ctx)); err != nil {
 		return nil, err
 	}
 	return trigger, nil
@@ -685,11 +685,18 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
 	appName := strings.TrimSpace(req.AppName)
-	eventInput, err := normalizeWorkflowEvent(req.Event, time.Now)
+	if appName == "" {
+		return nil, status.Error(codes.InvalidArgument, "app_name is required")
+	}
+	eventRequest := cloneWorkflowEventInput(req.Event)
+	if eventRequest != nil {
+		eventRequest.Source = appName
+	}
+	eventInput, err := normalizeWorkflowEvent(eventRequest, time.Now)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	triggers, err := b.state.matchTriggers(ctx, appName, eventInput)
+	triggers, err := b.state.matchTriggers(ctx, eventInput)
 	if err != nil {
 		return nil, err
 	}
@@ -721,7 +728,11 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 			Event:     eventInput,
 		}}
 		input := b.runV4Input(targetOwnerKeyInput(trigger.Target), trigger.DefinitionID, "", trigger.Target, eventTriggerInput, createdBy, false)
-		input.InvocationToken = strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx))
+		invocationToken, err := b.state.getTriggerInvocationToken(ctx, trigger.ID)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "load event trigger invocation token: %v", err)
+		}
+		input.InvocationToken = strings.TrimSpace(invocationToken)
 		run, err := b.executeRunV4(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 		if err != nil {
 			if strings.TrimSpace(eventInput.ID) != "" && isAlreadyStarted(err) {
@@ -793,7 +804,11 @@ func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, pause
 	}
 	trigger.Paused = paused
 	trigger.UpdatedAt = time.Now().UTC()
-	if err := b.state.putTrigger(ctx, trigger); err != nil {
+	invocationToken, err := b.state.getTriggerInvocationToken(ctx, trigger.ID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "load event trigger invocation token: %v", err)
+	}
+	if err := b.state.putTriggerWithInvocationToken(ctx, trigger, invocationToken); err != nil {
 		return nil, err
 	}
 	return trigger, nil

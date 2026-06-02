@@ -1202,6 +1202,10 @@ func yieldRunIdempotencyRetry(ctx context.Context) error {
 }
 
 func (s *workflowStateStore) putTrigger(ctx context.Context, trigger *gestalt.BoundWorkflowEventTrigger) error {
+	return s.putTriggerWithInvocationToken(ctx, trigger, "")
+}
+
+func (s *workflowStateStore) putTriggerWithInvocationToken(ctx context.Context, trigger *gestalt.BoundWorkflowEventTrigger, invocationToken string) error {
 	if trigger == nil || strings.TrimSpace(trigger.ID) == "" {
 		return nil
 	}
@@ -1220,10 +1224,10 @@ func (s *workflowStateStore) putTrigger(ctx context.Context, trigger *gestalt.Bo
 	if _, err := keyStore.Index(indexByTriggerID).Delete(ctx, s.scopedID(trigger.ID)); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
 		return err
 	}
-	if err := triggerStore.Put(ctx, s.triggerRecord(trigger)); err != nil {
+	if err := triggerStore.Put(ctx, s.triggerRecord(trigger, invocationToken)); err != nil {
 		return err
 	}
-	for _, key := range matchKeysInput(targetOwnerKeyInput(trigger.Target), trigger.Match) {
+	for _, key := range matchKeysInput(trigger.Match) {
 		if err := keyStore.Put(ctx, gestalt.Record{
 			"id":         s.scopedID(key, trigger.ID),
 			"scope_id":   s.scopeID,
@@ -1252,6 +1256,17 @@ func (s *workflowStateStore) getTrigger(ctx context.Context, id string) (*gestal
 	return trigger, err == nil && strings.TrimSpace(trigger.ID) != "", err
 }
 
+func (s *workflowStateStore) getTriggerInvocationToken(ctx context.Context, id string) (string, error) {
+	record, err := s.eventTriggers.Get(ctx, s.scopedID(strings.TrimSpace(id)))
+	if errors.Is(err, gestalt.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return triggerInvocationTokenFromRecord(record), nil
+}
+
 func (s *workflowStateStore) listTriggers(ctx context.Context) ([]*gestalt.BoundWorkflowEventTrigger, error) {
 	records, err := s.eventTriggers.GetAll(ctx, nil)
 	if errors.Is(err, gestalt.ErrNotFound) {
@@ -1274,10 +1289,10 @@ func (s *workflowStateStore) listTriggers(ctx context.Context) ([]*gestalt.Bound
 	return triggers, nil
 }
 
-func (s *workflowStateStore) matchTriggers(ctx context.Context, ownerKey string, event *gestalt.WorkflowEvent) ([]*gestalt.BoundWorkflowEventTrigger, error) {
+func (s *workflowStateStore) matchTriggers(ctx context.Context, event *gestalt.WorkflowEvent) ([]*gestalt.BoundWorkflowEventTrigger, error) {
 	seen := map[string]struct{}{}
 	triggers := make([]*gestalt.BoundWorkflowEventTrigger, 0)
-	for _, key := range eventLookupKeysInput(ownerKey, event) {
+	for _, key := range eventLookupKeysInput(event) {
 		keyRecords, err := s.eventTriggerKeys.Index(indexByMatchKey).GetAll(ctx, nil, s.scopedID(key))
 		if errors.Is(err, gestalt.ErrNotFound) {
 			continue
@@ -1521,7 +1536,7 @@ func signalIdempotencyFromRecord(record gestalt.Record) signalIdempotencyRecord 
 	return out
 }
 
-func (s *workflowStateStore) triggerRecord(trigger *gestalt.BoundWorkflowEventTrigger) gestalt.Record {
+func (s *workflowStateStore) triggerRecord(trigger *gestalt.BoundWorkflowEventTrigger, invocationToken string) gestalt.Record {
 	payload := nativePayload(trigger)
 	now := time.Now().UTC()
 	createdAt := trigger.CreatedAt
@@ -1533,18 +1548,23 @@ func (s *workflowStateStore) triggerRecord(trigger *gestalt.BoundWorkflowEventTr
 		updatedAt = now
 	}
 	return gestalt.Record{
-		"id":         s.scopedID(trigger.ID),
-		"scope_id":   s.scopeID,
-		"owner_key":  targetOwnerKeyInput(trigger.Target),
-		"paused":     trigger.Paused,
-		"created_at": createdAt.UTC(),
-		"updated_at": updatedAt.UTC(),
-		"payload":    payload,
+		"id":               s.scopedID(trigger.ID),
+		"scope_id":         s.scopeID,
+		"owner_key":        targetOwnerKeyInput(trigger.Target),
+		"paused":           trigger.Paused,
+		"created_at":       createdAt.UTC(),
+		"updated_at":       updatedAt.UTC(),
+		"invocation_token": strings.TrimSpace(invocationToken),
+		"payload":          payload,
 	}
 }
 
 func triggerFromRecord(record gestalt.Record) (*gestalt.BoundWorkflowEventTrigger, error) {
 	return decodeNativePayload[gestalt.BoundWorkflowEventTrigger](recordBytes(record, "payload"), "workflow event trigger")
+}
+
+func triggerInvocationTokenFromRecord(record gestalt.Record) string {
+	return recordString(record, "invocation_token")
 }
 
 func scheduleInputFromRecord(record gestalt.Record) (*gestalt.BoundWorkflowSchedule, error) {

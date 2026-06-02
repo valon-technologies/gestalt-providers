@@ -448,7 +448,7 @@ func TestSecondaryIndexWritesUseLookupShards(t *testing.T) {
 	if len(tc.updates) != 0 {
 		t.Fatalf("state.putTrigger touched workflow updates=%#v", tc.updates)
 	}
-	matched, err := backend.state.matchTriggers(context.Background(), "slack", &gestalt.WorkflowEvent{Type: "message.created"})
+	matched, err := backend.state.matchTriggers(context.Background(), &gestalt.WorkflowEvent{Type: "message.created", Source: "slack"})
 	if err != nil {
 		t.Fatalf("state.matchTriggers: %v", err)
 	}
@@ -1787,14 +1787,14 @@ func TestTriggerMatchKeysAreReplacedAtomically(t *testing.T) {
 	if err := backend.state.putTrigger(context.Background(), trigger); err != nil {
 		t.Fatalf("state.putTrigger(second): %v", err)
 	}
-	oldMatches, err := backend.state.matchTriggers(context.Background(), "slack", &gestalt.WorkflowEvent{Type: "message.created"})
+	oldMatches, err := backend.state.matchTriggers(context.Background(), &gestalt.WorkflowEvent{Type: "message.created", Source: "slack"})
 	if err != nil {
 		t.Fatalf("match old: %v", err)
 	}
 	if len(oldMatches) != 0 {
 		t.Fatalf("old match returned %#v, want none", oldMatches)
 	}
-	newMatches, err := backend.state.matchTriggers(context.Background(), "slack", &gestalt.WorkflowEvent{Type: "reaction.added"})
+	newMatches, err := backend.state.matchTriggers(context.Background(), &gestalt.WorkflowEvent{Type: "reaction.added", Source: "slack"})
 	if err != nil {
 		t.Fatalf("match new: %v", err)
 	}
@@ -1828,8 +1828,8 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 		},
 		{
 			ID:           "trigger-app-2",
-			Match:        &gestalt.WorkflowEventMatch{Type: "message.created"},
-			Target:       nativeAppTargetInput("slack", "sendMessage"),
+			Match:        &gestalt.WorkflowEventMatch{Type: "message.created", Source: "github"},
+			Target:       nativeAppTargetInput("codeReview", "pullRequests.reviewWorkflow"),
 			DefinitionID: "definition-app-2",
 			CreatedAt:    time.Now().UTC(),
 			UpdatedAt:    time.Now().UTC(),
@@ -1843,9 +1843,15 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 			UpdatedAt: time.Now().UTC(),
 		},
 	} {
-		if err := backend.state.putTrigger(context.Background(), trigger); err != nil {
+		if err := backend.state.putTriggerWithInvocationToken(context.Background(), trigger, "stored-token-"+trigger.ID); err != nil {
 			t.Fatalf("state.putTrigger(%s): %v", trigger.ID, err)
 		}
+	}
+	if _, err := backend.setTriggerPaused(context.Background(), "trigger-app-1", true); err != nil {
+		t.Fatalf("setTriggerPaused(true): %v", err)
+	}
+	if _, err := backend.setTriggerPaused(context.Background(), "trigger-app-1", false); err != nil {
+		t.Fatalf("setTriggerPaused(false): %v", err)
 	}
 
 	requestEvent := &gestalt.WorkflowEvent{
@@ -1855,7 +1861,7 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 		Data:   map[string]any{"channel": "C123"},
 	}
 	published, err := backend.PublishEvent(context.Background(), &gestalt.PublishWorkflowProviderEventRequest{
-		AppName:     "slack",
+		AppName:     "github",
 		Event:       requestEvent,
 		PublishedBy: actor("publisher-1"),
 	})
@@ -1863,7 +1869,7 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 		t.Fatalf("PublishEvent: %v", err)
 	}
 	requestEvent.Data.(map[string]any)["channel"] = "mutated"
-	if published.ID != "event-1" || published.Source != "slack" || published.Type != "message.created" || published.SpecVersion != defaultSpecVersion {
+	if published.ID != "event-1" || published.Source != "github" || published.Type != "message.created" || published.SpecVersion != defaultSpecVersion {
 		t.Fatalf("published event = %#v, want normalized input event", published)
 	}
 	if got := published.Data.(map[string]any)["channel"]; got != "C123" {
@@ -1879,6 +1885,12 @@ func TestPublishEventRecordsMatchedTriggersAndStartedRuns(t *testing.T) {
 			t.Fatalf("execution input = %T, want runWorkflowV4Input", execution.Args[0])
 		}
 		gotDefinitions[input.DefinitionID] = true
+		if input.InvocationToken != "stored-token-trigger-app-1" && input.InvocationToken != "stored-token-trigger-app-2" {
+			t.Fatalf("execution invocation token = %q, want stored trigger token", input.InvocationToken)
+		}
+		if input.DefinitionID == "definition-app-2" && input.OwnerKey != "codeReview" {
+			t.Fatalf("code review owner key = %q, want codeReview", input.OwnerKey)
+		}
 		if input.CreatedBy == nil || input.CreatedBy.SubjectID != "publisher-1" {
 			t.Fatalf("execution created_by = %#v, want publisher-1", input.CreatedBy)
 		}
@@ -1921,7 +1933,7 @@ func TestWorkflowStateStoreScopesMetadataByScopeID(t *testing.T) {
 	if err := scopeA.putTrigger(ctx, trigger); err != nil {
 		t.Fatalf("scopeA put trigger: %v", err)
 	}
-	matchesB, err := scopeB.matchTriggers(ctx, "slack", &gestalt.WorkflowEvent{Type: "message.created"})
+	matchesB, err := scopeB.matchTriggers(ctx, &gestalt.WorkflowEvent{Type: "message.created", Source: "slack"})
 	if err != nil {
 		t.Fatalf("scopeB match: %v", err)
 	}

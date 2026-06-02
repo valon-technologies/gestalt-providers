@@ -1626,12 +1626,12 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	}
 	requestEvent := &gestalt.WorkflowEvent{
 		ID:          "evt-1",
-		Source:      "roadmap",
+		Source:      "spoofed",
 		Type:        "task.updated",
 		SpecVersion: "1.0",
 		Data:        mustStruct(t, map[string]any{"taskId": "task-1"}),
 	}
-	published, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{Event: requestEvent})
+	published, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{AppName: "roadmap", Event: requestEvent})
 	if err != nil {
 		t.Fatalf("PublishEvent: %v", err)
 	}
@@ -1844,7 +1844,7 @@ func TestProviderPublishEventUsesPublishedByAsCreator(t *testing.T) {
 	startProviderWorker(t, provider)
 	t.Cleanup(func() { _ = provider.Close() })
 
-	target := workflowTarget(t, "github", "events.runAgentFromWorkflowEvent", map[string]any{"repository": "gestalt"})
+	target := workflowTarget(t, "codeReview", "pullRequests.reviewWorkflow", map[string]any{"repository": "gestalt"})
 	if _, err := provider.UpsertEventTrigger(ctx, &gestalt.UpsertWorkflowProviderEventTriggerRequest{
 		TriggerID:    "github-webhook",
 		Match:        &gestalt.WorkflowEventMatch{Type: "github.app.webhook", Source: "github"},
@@ -1861,10 +1861,10 @@ func TestProviderPublishEventUsesPublishedByAsCreator(t *testing.T) {
 	}
 
 	publishedBy := &gestalt.WorkflowActor{
-		SubjectID:   "service_account:github_app_installation:127579767:repo:valon-technologies/gestalt",
+		SubjectID:   "service_account:github_webhook:127579767",
 		SubjectKind: "service_account",
 		DisplayName: "GitHub App installation 127579767 (valon-technologies/gestalt)",
-		AuthSource:  "github_app_webhook",
+		AuthSource:  "github_webhook",
 	}
 	if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
 		AppName:     "github",
@@ -1894,12 +1894,15 @@ func TestProviderPublishEventUsesPublishedByAsCreator(t *testing.T) {
 	if run.CreatedBy.SubjectID != publishedBy.SubjectID {
 		t.Fatalf("run created_by.subject_id = %q, want %q", run.CreatedBy.SubjectID, publishedBy.SubjectID)
 	}
+	if run.Trigger == nil || run.Trigger.Event == nil || run.Trigger.Event.Event == nil || run.Trigger.Event.Event.Source != "github" {
+		t.Fatalf("run trigger = %#v, want github event source", run.Trigger)
+	}
 
 	duplicatePublisher := &gestalt.WorkflowActor{
-		SubjectID:   "service_account:github_app_installation:127579767:repo:valon-technologies/other",
+		SubjectID:   "service_account:github_webhook:127579767",
 		SubjectKind: "service_account",
 		DisplayName: "GitHub App installation 127579767 (valon-technologies/other)",
-		AuthSource:  "github_app_webhook",
+		AuthSource:  "github_webhook",
 	}
 	if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
 		AppName:     "github",
@@ -2185,7 +2188,7 @@ func TestProviderRequiresStoredTargetJSON(t *testing.T) {
 	}
 }
 
-func TestProviderPublishEventDoesNotCoalesceDifferentSources(t *testing.T) {
+func TestProviderPublishEventInjectsSourceAndMatchesWildcardSources(t *testing.T) {
 	ctx := context.Background()
 	host := newStepExecutorStub(202, `{"ok":true}`)
 	db := startTestIndexedDBBackend(t)
@@ -2199,45 +2202,44 @@ func TestProviderPublishEventDoesNotCoalesceDifferentSources(t *testing.T) {
 	t.Cleanup(func() { _ = provider.Close() })
 
 	if _, err := provider.UpsertEventTrigger(ctx, &gestalt.UpsertWorkflowProviderEventTriggerRequest{
-		TriggerID: "refresh-trigger",
+		TriggerID: "any-source-trigger",
 		Match:     &gestalt.WorkflowEventMatch{Type: "task.updated"},
 		Target:    workflowTarget(t, "roadmap", "sync", map[string]any{"kind": "event"}),
 	}); err != nil {
-		t.Fatalf("UpsertEventTrigger: %v", err)
+		t.Fatalf("UpsertEventTrigger(any): %v", err)
+	}
+	if _, err := provider.UpsertEventTrigger(ctx, &gestalt.UpsertWorkflowProviderEventTriggerRequest{
+		TriggerID: "github-source-trigger",
+		Match:     &gestalt.WorkflowEventMatch{Type: "task.updated", Source: "github"},
+		Target:    workflowTarget(t, "codeReview", "pullRequests.reviewWorkflow", map[string]any{"kind": "event"}),
+	}); err != nil {
+		t.Fatalf("UpsertEventTrigger(github): %v", err)
 	}
 
-	events := []struct {
-		source string
-		id     string
+	for _, event := range []struct {
+		appName    string
+		bodySource string
+		id         string
 	}{
-		{source: "a:b", id: "c"},
-		{source: "a", id: "b:c"},
-	}
-	for _, event := range events {
-		if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
-			AppName: "roadmap",
+		{appName: "github", bodySource: "slack", id: "github-event"},
+		{appName: "slack", bodySource: "github", id: "slack-event"},
+	} {
+		published, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
+			AppName: event.appName,
 			Event: &gestalt.WorkflowEvent{
 				ID:          event.id,
-				Source:      event.source,
+				Source:      event.bodySource,
 				Type:        "task.updated",
 				SpecVersion: "1.0",
-				Data:        mustStruct(t, map[string]any{"taskId": event.source + "|" + event.id}),
+				Data:        mustStruct(t, map[string]any{"taskId": event.id}),
 			},
-		}); err != nil {
-			t.Fatalf("PublishEvent(%s,%s): %v", event.source, event.id, err)
+		})
+		if err != nil {
+			t.Fatalf("PublishEvent(%s): %v", event.appName, err)
 		}
-	}
-
-	first, err := host.waitForCall(time.Second)
-	if err != nil {
-		t.Fatalf("waitForCall(first): %v", err)
-	}
-	second, err := host.waitForCall(time.Second)
-	if err != nil {
-		t.Fatalf("waitForCall(second): %v", err)
-	}
-	if first.RunID == second.RunID {
-		t.Fatalf("run ids = %q and %q, want distinct per source", first.RunID, second.RunID)
+		if published.Source != event.appName {
+			t.Fatalf("published source = %q, want %q", published.Source, event.appName)
+		}
 	}
 
 	waitForCondition(t, time.Second, func() bool {
@@ -2245,8 +2247,24 @@ func TestProviderPublishEventDoesNotCoalesceDifferentSources(t *testing.T) {
 		if err != nil {
 			return false
 		}
-		return len(runs.Runs) == 2
+		return len(runs.Runs) == 3
 	})
+	calls := make([]*gestaltworkflow.Request, 0, 3)
+	for i := 0; i < 3; i++ {
+		call, err := host.waitForCall(time.Second)
+		if err != nil {
+			t.Fatalf("waitForCall(%d): %v", i, err)
+		}
+		calls = append(calls, call)
+	}
+	counts := map[string]int{}
+	for _, call := range calls {
+		step := testAppStep(call.Target)
+		counts[step.Name+"."+step.Operation]++
+	}
+	if counts["roadmap.sync"] != 2 || counts["codeReview.pullRequests.reviewWorkflow"] != 1 {
+		t.Fatalf("call target counts = %#v, want wildcard twice and github source once", counts)
+	}
 }
 
 func TestProviderEnqueueDueSchedulesReusesDeterministicRunID(t *testing.T) {
@@ -2840,9 +2858,10 @@ func TestProviderTickPrioritizesAppEventWhenPreferredWakeLost(t *testing.T) {
 	}
 	clock.Set(start.Add(time.Minute))
 	if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
+		AppName: "slack",
 		Event: &gestalt.WorkflowEvent{
 			ID:          "evt-lost-wake",
-			Source:      "slack",
+			Source:      "ignored",
 			Type:        "message",
 			SpecVersion: "1.0",
 			Data:        mustStruct(t, map[string]any{"channel": "C123"}),

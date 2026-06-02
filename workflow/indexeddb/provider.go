@@ -1241,7 +1241,14 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
 	appName := strings.TrimSpace(req.AppName)
-	event, err := normalizeWorkflowEvent(req.Event, p.clock())
+	if appName == "" {
+		return nil, status.Error(codes.InvalidArgument, "app_name is required")
+	}
+	eventRequest := cloneWorkflowEvent(req.Event)
+	if eventRequest != nil {
+		eventRequest.Source = appName
+	}
+	event, err := normalizeWorkflowEvent(eventRequest, p.clock())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
@@ -1255,7 +1262,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 		p.mu.RUnlock()
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	triggers, err := listEventTriggerRecords(ctx, state.eventTriggerStore, appName)
+	triggers, err := listEventTriggerRecords(ctx, state.eventTriggerStore, "")
 	if err != nil {
 		p.mu.RUnlock()
 		return nil, status.Errorf(codes.Internal, "list event triggers: %v", err)
@@ -1282,10 +1289,6 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 		if actorHasSubject(publishedBy) {
 			createdBy = cloneActor(publishedBy)
 		}
-		invocationToken := strings.TrimSpace(trigger.InvocationToken)
-		if invocationToken == "" {
-			invocationToken = strings.TrimSpace(gestalt.InvocationTokenFromContext(ctx))
-		}
 		run := workflowRunRecord{
 			ID:                    runID,
 			Status:                gestalt.WorkflowRunStatusValuePending,
@@ -1296,7 +1299,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 			CreatedAt:             now,
 			CreatedBy:             createdBy,
 			DefinitionID:          trigger.DefinitionID,
-			InvocationToken:       invocationToken,
+			InvocationToken:       strings.TrimSpace(trigger.InvocationToken),
 			NextSignalSequence:    1,
 		}
 		if err := state.runStore.Add(ctx, run.toRecord()); err != nil {
