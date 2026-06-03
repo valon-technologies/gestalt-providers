@@ -2365,16 +2365,6 @@ def _subject_kind_from_id(subject_id: str) -> str:
     return kind
 
 
-def _subject_display_name(subject: gestalt.AuthorizationSubject) -> str:
-    properties = subject.properties or {}
-    if properties:
-        for key in ("displayName", "display_name", "email", "name"):
-            value = properties.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-    return subject.id.strip()
-
-
 def _sign_reply_ref(
     event: SlackAgentEvent, subject_id: str, route: SlackAgentRoute | None = None
 ) -> str:

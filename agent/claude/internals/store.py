@@ -27,7 +27,6 @@ from .store_records import (
     StoredSession,
     StoredTurn,
     StoredTurnEvent,
-    _coerce_string_dict,
     _record_to_session,
     _record_to_turn,
     _record_to_turn_event,
