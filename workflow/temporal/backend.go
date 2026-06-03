@@ -137,7 +137,7 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkfl
 	}
 	key := strings.TrimSpace(req.IdempotencyKey)
 	workflowKey := strings.TrimSpace(req.WorkflowKey)
-	fingerprint := startFingerprint(target.OwnerKey, key, workflowKey, req.DefinitionID, target.Target, req.CreatedBy)
+	fingerprint := startFingerprint(target.OwnerKey, key, workflowKey, req.DefinitionID, target.Target, req.CreatedBySubjectID)
 	if key != "" && workflowKey == "" {
 		return b.startUnkeyedRunV4(ctx, target, req, key, fingerprint)
 	}
@@ -146,7 +146,7 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkfl
 	}
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "run-v4", uuid.NewString())
 	conflictPolicy := enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL
-	input := b.runV4Input(target.OwnerKey, req.DefinitionID, "", target.Target, manualTriggerInput(), req.CreatedBy, false)
+	input := b.runV4Input(target.OwnerKey, req.DefinitionID, "", target.Target, manualTriggerInput(), req.CreatedBySubjectID, false)
 	input.RunAs = cloneSubjectInput(req.RunAs)
 	run, err := b.executeRunV4(ctx, temporalWorkflowID, input, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
@@ -435,10 +435,10 @@ func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *gestalt.Upser
 		return nil, err
 	}
 	createdAt := now
-	createdBy := cloneActorInput(req.RequestedBy)
+	createdBy := cloneCreatedBySubjectID(req.RequestedBySubjectID)
 	if found {
 		createdAt = existing.CreatedAt
-		createdBy = createdByForUpsertInput(existing.CreatedBy, req.RequestedBy)
+		createdBy = createdByForUpsert(existing.CreatedBySubjectID, req.RequestedBySubjectID)
 	}
 	schedule := &gestalt.BoundWorkflowSchedule{
 		ID:           scheduleID,
@@ -448,7 +448,7 @@ func (b *temporalBackend) UpsertSchedule(ctx context.Context, req *gestalt.Upser
 		Paused:       req.Paused,
 		CreatedAt:    createdAt,
 		UpdatedAt:    now,
-		CreatedBy:    createdBy,
+		CreatedBySubjectID: createdBy,
 		DefinitionID: strings.TrimSpace(req.DefinitionID),
 		RunAs:        cloneSubjectInput(req.RunAs),
 	}
@@ -597,10 +597,10 @@ func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *gestalt.U
 		return nil, err
 	}
 	createdAt := now
-	createdBy := cloneActorInput(req.RequestedBy)
+	createdBy := cloneCreatedBySubjectID(req.RequestedBySubjectID)
 	if found {
 		createdAt = existing.CreatedAt
-		createdBy = createdByForUpsertInput(existing.CreatedBy, req.RequestedBy)
+		createdBy = createdByForUpsert(existing.CreatedBySubjectID, req.RequestedBySubjectID)
 	}
 	trigger := &gestalt.BoundWorkflowEventTrigger{
 		ID: triggerID,
@@ -613,7 +613,7 @@ func (b *temporalBackend) UpsertEventTrigger(ctx context.Context, req *gestalt.U
 		Paused:       req.Paused,
 		CreatedAt:    createdAt,
 		UpdatedAt:    now,
-		CreatedBy:    createdBy,
+		CreatedBySubjectID: createdBy,
 		DefinitionID: strings.TrimSpace(req.DefinitionID),
 		RunAs:        cloneSubjectInput(req.RunAs),
 	}
@@ -702,7 +702,7 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 	if err != nil {
 		return nil, err
 	}
-	publishedBy := cloneActorInput(req.PublishedBy)
+	publishedBy := cloneCreatedBySubjectID(req.PublishedBySubjectID)
 	matchedTriggerCounts := map[string]int64{}
 	for _, match := range matches {
 		matchedTriggerCounts[workflowTelemetryTargetKindInput(match.Trigger.Target)]++
@@ -717,9 +717,9 @@ func (b *temporalBackend) PublishEvent(ctx context.Context, req *gestalt.Publish
 	}
 	for _, match := range matches {
 		trigger := match.Trigger
-		createdBy := trigger.CreatedBy
-		if actorHasSubject(publishedBy) {
-			createdBy = cloneActorInput(publishedBy)
+		createdBy := trigger.CreatedBySubjectID
+		if createdBySubjectIDSet(publishedBy) {
+			createdBy = cloneCreatedBySubjectID(publishedBy)
 		}
 		temporalWorkflowID := eventRunWorkflowID(b.cfg.ScopeID, trigger.ID, eventInput)
 		eventTriggerInput := &gestalt.WorkflowRunTrigger{Event: &gestalt.WorkflowEventTriggerInvocation{
@@ -806,7 +806,7 @@ func (b *temporalBackend) setTriggerPaused(ctx context.Context, id string, pause
 }
 
 func (b *temporalBackend) upsertTemporalSchedule(ctx context.Context, schedule *gestalt.BoundWorkflowSchedule) error {
-	actionInput := b.runV4Input(targetOwnerKeyInput(schedule.Target), schedule.DefinitionID, "", schedule.Target, scheduleTriggerInput(schedule.ID, time.Now().UTC()), schedule.CreatedBy, false)
+	actionInput := b.runV4Input(targetOwnerKeyInput(schedule.Target), schedule.DefinitionID, "", schedule.Target, scheduleTriggerInput(schedule.ID, time.Now().UTC()), schedule.CreatedBySubjectID, false)
 	actionInput.ScheduleID = schedule.ID
 	actionInput.RunAs = cloneSubjectInput(schedule.RunAs)
 	action := &client.ScheduleWorkflowAction{

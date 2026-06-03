@@ -123,7 +123,7 @@ type workflowScheduleRecord struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	NextRunAt    *time.Time
-	CreatedBy    *gestalt.WorkflowActor
+	CreatedBySubjectID string
 	DefinitionID string
 	RunAs        *gestalt.Subject
 }
@@ -137,7 +137,7 @@ type workflowEventTriggerRecord struct {
 	Paused       bool
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
-	CreatedBy    *gestalt.WorkflowActor
+	CreatedBySubjectID string
 	DefinitionID string
 	RunAs        *gestalt.Subject
 }
@@ -156,7 +156,7 @@ type workflowRunRecord struct {
 	CompletedAt           *time.Time
 	StatusMessage         string
 	ResultBody            string
-	CreatedBy             *gestalt.WorkflowActor
+	CreatedBySubjectID string
 	DefinitionID          string
 	RunAs                 *gestalt.Subject
 	WorkflowKey           string
@@ -438,7 +438,7 @@ func (p *Provider) StartRun(ctx context.Context, req *gestalt.StartWorkflowProvi
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	actor := cloneActor(req.CreatedBy)
+	actor := cloneCreatedBySubjectID(req.CreatedBySubjectID)
 	key := strings.TrimSpace(req.IdempotencyKey)
 	workflowKey := strings.TrimSpace(req.WorkflowKey)
 
@@ -530,7 +530,7 @@ func (p *Provider) StartRun(ctx context.Context, req *gestalt.StartWorkflowProvi
 		Target:             cloneTarget(target.Target),
 		TriggerKind:        triggerKindManual,
 		CreatedAt:          now,
-		CreatedBy:          actor,
+		CreatedBySubjectID: actor,
 		DefinitionID:       strings.TrimSpace(req.DefinitionID),
 		RunAs:              cloneSubject(req.RunAs),
 		WorkflowKey:        workflowKey,
@@ -897,7 +897,7 @@ func (p *Provider) UpsertSchedule(ctx context.Context, req *gestalt.UpsertWorkfl
 	if _, err := parser.Parse(cronSpec); err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid cron: %v", err)
 	}
-	requestedBy := cloneActor(req.RequestedBy)
+	requestedBy := cloneCreatedBySubjectID(req.RequestedBySubjectID)
 
 	p.mu.Lock()
 	state, err := p.requireConfiguredLocked()
@@ -931,13 +931,13 @@ func (p *Provider) UpsertSchedule(ctx context.Context, req *gestalt.UpsertWorkfl
 		Paused:       req.Paused,
 		CreatedAt:    now,
 		UpdatedAt:    now,
-		CreatedBy:    requestedBy,
+		CreatedBySubjectID: requestedBy,
 		DefinitionID: strings.TrimSpace(req.DefinitionID),
 		RunAs:        cloneSubject(req.RunAs),
 	}
 	if found {
 		record.CreatedAt = existing.CreatedAt
-		record.CreatedBy = createdByForUpsert(existing.CreatedBy, requestedBy)
+		record.CreatedBySubjectID = createdByForUpsert(existing.CreatedBySubjectID, requestedBy)
 	}
 	next, err := nextCronTime(parser, cronSpec, location, now)
 	if err != nil {
@@ -1082,7 +1082,7 @@ func (p *Provider) UpsertEventTrigger(ctx context.Context, req *gestalt.UpsertWo
 	}
 	matchSource := strings.TrimSpace(req.Match.Source)
 	matchSubject := strings.TrimSpace(req.Match.Subject)
-	requestedBy := cloneActor(req.RequestedBy)
+	requestedBy := cloneCreatedBySubjectID(req.RequestedBySubjectID)
 
 	p.mu.Lock()
 	state, err := p.requireConfiguredLocked()
@@ -1116,13 +1116,13 @@ func (p *Provider) UpsertEventTrigger(ctx context.Context, req *gestalt.UpsertWo
 		Paused:       req.Paused,
 		CreatedAt:    now,
 		UpdatedAt:    now,
-		CreatedBy:    requestedBy,
+		CreatedBySubjectID: requestedBy,
 		DefinitionID: strings.TrimSpace(req.DefinitionID),
 		RunAs:        cloneSubject(req.RunAs),
 	}
 	if found {
 		record.CreatedAt = existing.CreatedAt
-		record.CreatedBy = createdByForUpsert(existing.CreatedBy, requestedBy)
+		record.CreatedBySubjectID = createdByForUpsert(existing.CreatedBySubjectID, requestedBy)
 	}
 	if err := state.eventTriggerStore.Put(ctx, record.toRecord()); err != nil {
 		p.mu.Unlock()
@@ -1271,7 +1271,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 		return nil, status.Errorf(codes.Internal, "list matching event triggers: %v", err)
 	}
 	now := p.clock().UTC()
-	publishedBy := cloneActor(req.PublishedBy)
+	publishedBy := cloneCreatedBySubjectID(req.PublishedBySubjectID)
 	enqueued := false
 	preferredRunID := ""
 	for _, trigger := range triggers {
@@ -1285,9 +1285,9 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 		} else if found {
 			continue
 		}
-		createdBy := cloneActor(trigger.CreatedBy)
-		if actorHasSubject(publishedBy) {
-			createdBy = cloneActor(publishedBy)
+		createdBy := cloneCreatedBySubjectID(trigger.CreatedBySubjectID)
+		if createdBySubjectIDSet(publishedBy) {
+			createdBy = cloneCreatedBySubjectID(publishedBy)
 		}
 		run := workflowRunRecord{
 			ID:                    runID,
@@ -1297,7 +1297,7 @@ func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflo
 			TriggerEventTriggerID: trigger.ID,
 			TriggerEvent:          cloneEvent(event),
 			CreatedAt:             now,
-			CreatedBy:             createdBy,
+			CreatedBySubjectID: createdBy,
 			DefinitionID:          trigger.DefinitionID,
 			RunAs:                 cloneSubject(trigger.RunAs),
 			NextSignalSequence:    1,
@@ -1417,7 +1417,7 @@ func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrS
 			Target:             cloneTarget(target.Target),
 			TriggerKind:        triggerKindManual,
 			CreatedAt:          now,
-			CreatedBy:          cloneActor(req.CreatedBy),
+			CreatedBySubjectID: cloneCreatedBySubjectID(req.CreatedBySubjectID),
 			DefinitionID:       strings.TrimSpace(req.DefinitionID),
 			RunAs:              cloneSubject(req.RunAs),
 			WorkflowKey:        workflowKey,
@@ -1843,7 +1843,7 @@ func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
 			TriggerScheduleID:   schedule.ID,
 			TriggerScheduledFor: timePtr(latestDue),
 			CreatedAt:           now,
-			CreatedBy:           cloneActor(schedule.CreatedBy),
+			CreatedBySubjectID: cloneCreatedBySubjectID(schedule.CreatedBySubjectID),
 			DefinitionID:        schedule.DefinitionID,
 			RunAs:               cloneSubject(schedule.RunAs),
 			NextSignalSequence:  1,
@@ -1960,7 +1960,7 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 		Target:       targetInput,
 		Trigger:      pending.triggerInput(),
 		Metadata:     workflowInvokeMetadataInput(pending.WorkflowKey, pending.DefinitionID),
-		CreatedBy:    workflowActorInput(pending.CreatedBy),
+		CreatedBySubjectID: cloneCreatedBySubjectID(pending.CreatedBySubjectID),
 		RunAs:        cloneSubject(pending.RunAs),
 		Signals:      signals,
 	})
@@ -3050,7 +3050,7 @@ func normalizeWorkflowSignal(signal *gestalt.WorkflowSignal, now time.Time) (*ge
 		Name:           name,
 		Payload:        cloneAny(signal.Payload),
 		Metadata:       cloneAny(signal.Metadata),
-		CreatedBy:      workflowActorInput(signal.CreatedBy),
+		CreatedBySubjectID: cloneCreatedBySubjectID(signal.CreatedBySubjectID),
 		CreatedAt:      createdAt,
 		IdempotencyKey: strings.TrimSpace(signal.IdempotencyKey),
 		Sequence:       signal.Sequence,
@@ -4085,40 +4085,27 @@ func eventRunID(triggerID, eventSource, eventID string) string {
 	return hashScopedID("event", triggerID, eventSource, eventID)
 }
 
-func actorHasSubject(actor *gestalt.WorkflowActor) bool {
-	if actor == nil {
-		return false
-	}
-	return strings.TrimSpace(actor.SubjectID) != ""
+func createdBySubjectIDSet(subjectID string) bool {
+	return strings.TrimSpace(subjectID) != ""
 }
 
-func createdByForUpsert(existing, requested *gestalt.WorkflowActor) *gestalt.WorkflowActor {
-	if isConfigManagedActor(requested) {
-		return cloneActor(requested)
+func createdByForUpsert(existing, requested string) string {
+	if isConfigManagedSubjectID(requested) {
+		return cloneCreatedBySubjectID(requested)
 	}
-	return cloneActor(existing)
+	return cloneCreatedBySubjectID(existing)
 }
 
-func isConfigManagedActor(actor *gestalt.WorkflowActor) bool {
-	if actor == nil {
-		return false
-	}
-	return strings.TrimSpace(actor.SubjectID) == configManagedWorkflowSubject
+func isConfigManagedSubjectID(subjectID string) bool {
+	return strings.TrimSpace(subjectID) == configManagedWorkflowSubject
 }
 
 func scheduleRunID(scheduleID string, scheduledFor time.Time) string {
 	return "schedule:" + scheduleID + ":" + scheduledFor.UTC().Format(time.RFC3339Nano)
 }
 
-func cloneActor(actor *gestalt.WorkflowActor) *gestalt.WorkflowActor {
-	if actor == nil {
-		return nil
-	}
-	subjectID := strings.TrimSpace(actor.SubjectID)
-	if subjectID == "" {
-		return nil
-	}
-	return &gestalt.WorkflowActor{SubjectID: subjectID}
+func cloneCreatedBySubjectID(subjectID string) string {
+	return strings.TrimSpace(subjectID)
 }
 
 func cloneSubject(subject *gestalt.Subject) *gestalt.Subject {
@@ -4130,10 +4117,6 @@ func cloneSubject(subject *gestalt.Subject) *gestalt.Subject {
 		CredentialSubjectID: strings.TrimSpace(subject.CredentialSubjectID),
 		Email:               strings.TrimSpace(subject.Email),
 	}
-}
-
-func workflowActorInput(actor *gestalt.WorkflowActor) *gestalt.WorkflowActor {
-	return cloneActor(actor)
 }
 
 func workflowTargetInput(target *gestalt.BoundWorkflowTarget) *gestalt.BoundWorkflowTarget {
@@ -4225,7 +4208,7 @@ func signalFromRecordValue(raw any) *gestalt.WorkflowSignal {
 			if data := jsonObject(value); data != nil {
 				signal.ID = stringField(data, "id")
 				signal.IdempotencyKey = stringField(data, "idempotency_key")
-				signal.CreatedBy = actorFromAny(data["created_by"])
+				signal.CreatedBySubjectID = createdByFromAny(data["created_by"])
 			}
 		}
 		return cloneSignal(signal)
@@ -4261,33 +4244,22 @@ func targetFromRecordValue(recordKind, id string, raw any) (*gestalt.BoundWorkfl
 	return target, nil
 }
 
-func actorToMap(actor *gestalt.WorkflowActor) map[string]any {
-	subjectID := ""
-	if actor != nil {
-		subjectID = strings.TrimSpace(actor.SubjectID)
-	}
+func createdByToMap(subjectID string) map[string]any {
+	subjectID = strings.TrimSpace(subjectID)
 	if subjectID == "" {
 		return nil
 	}
 	return map[string]any{"subject_id": subjectID}
 }
 
-func actorFromAny(value any) *gestalt.WorkflowActor {
+func createdByFromAny(value any) string {
 	switch typed := value.(type) {
 	case string:
-		subjectID := strings.TrimSpace(typed)
-		if subjectID == "" {
-			return nil
-		}
-		return &gestalt.WorkflowActor{SubjectID: subjectID}
+		return strings.TrimSpace(typed)
 	case map[string]any:
-		subjectID := strings.TrimSpace(stringField(typed, "subject_id"))
-		if subjectID == "" {
-			return nil
-		}
-		return &gestalt.WorkflowActor{SubjectID: subjectID}
+		return strings.TrimSpace(stringField(typed, "subject_id"))
 	default:
-		return nil
+		return ""
 	}
 }
 
@@ -4494,7 +4466,7 @@ func (r workflowScheduleRecord) toRecord() gestalt.Record {
 		"paused":        r.Paused,
 		"created_at":    r.CreatedAt.UTC(),
 		"updated_at":    r.UpdatedAt.UTC(),
-		"created_by":    actorToMap(r.CreatedBy),
+		"created_by":    createdByToMap(r.CreatedBySubjectID),
 		"definition_id": r.DefinitionID,
 		"run_as":        subjectToMap(r.RunAs),
 	}
@@ -4519,7 +4491,7 @@ func scheduleRecordFromRecord(record gestalt.Record) (workflowScheduleRecord, er
 		Timezone:     stringField(value, "timezone"),
 		Target:       target,
 		Paused:       boolField(value, "paused"),
-		CreatedBy:    actorFromAny(value["created_by"]),
+		CreatedBySubjectID: createdByFromAny(value["created_by"]),
 		DefinitionID: stringField(value, "definition_id"),
 		RunAs:        subjectFromAny(value["run_as"]),
 	}
@@ -4543,7 +4515,7 @@ func (r workflowScheduleRecord) toInput() (*gestalt.BoundWorkflowSchedule, error
 		CreatedAt:    r.CreatedAt,
 		UpdatedAt:    r.UpdatedAt,
 		NextRunAt:    r.NextRunAt,
-		CreatedBy:    workflowActorInput(r.CreatedBy),
+		CreatedBySubjectID: cloneCreatedBySubjectID(r.CreatedBySubjectID),
 		RunAs:        cloneSubject(r.RunAs),
 		DefinitionID: r.DefinitionID,
 	}), nil
@@ -4559,7 +4531,7 @@ func (r workflowEventTriggerRecord) toRecord() gestalt.Record {
 		"paused":        r.Paused,
 		"created_at":    r.CreatedAt.UTC(),
 		"updated_at":    r.UpdatedAt.UTC(),
-		"created_by":    actorToMap(r.CreatedBy),
+		"created_by":    createdByToMap(r.CreatedBySubjectID),
 		"definition_id": r.DefinitionID,
 		"run_as":        subjectToMap(r.RunAs),
 	}
@@ -4579,7 +4551,7 @@ func eventTriggerRecordFromRecord(record gestalt.Record) (workflowEventTriggerRe
 		MatchSubject: stringField(value, "match_subject"),
 		Target:       target,
 		Paused:       boolField(value, "paused"),
-		CreatedBy:    actorFromAny(value["created_by"]),
+		CreatedBySubjectID: createdByFromAny(value["created_by"]),
 		DefinitionID: stringField(value, "definition_id"),
 		RunAs:        subjectFromAny(value["run_as"]),
 	}
@@ -4604,7 +4576,7 @@ func (r workflowEventTriggerRecord) toInput() (*gestalt.BoundWorkflowEventTrigge
 		Paused:       r.Paused,
 		CreatedAt:    r.CreatedAt,
 		UpdatedAt:    r.UpdatedAt,
-		CreatedBy:    workflowActorInput(r.CreatedBy),
+		CreatedBySubjectID: cloneCreatedBySubjectID(r.CreatedBySubjectID),
 		RunAs:        cloneSubject(r.RunAs),
 		DefinitionID: r.DefinitionID,
 	}), nil
@@ -4622,7 +4594,7 @@ func (r workflowRunRecord) toRecord() gestalt.Record {
 		"created_at":               r.CreatedAt.UTC(),
 		"status_message":           r.StatusMessage,
 		"result_body":              r.ResultBody,
-		"created_by":               actorToMap(r.CreatedBy),
+		"created_by":               createdByToMap(r.CreatedBySubjectID),
 		"definition_id":            r.DefinitionID,
 		"run_as":                   subjectToMap(r.RunAs),
 		"workflow_key":             r.WorkflowKey,
@@ -4663,7 +4635,7 @@ func runRecordFromRecord(record gestalt.Record) (workflowRunRecord, error) {
 		TriggerEvent:          eventFromAny(value["trigger_event"]),
 		StatusMessage:         stringField(value, "status_message"),
 		ResultBody:            stringField(value, "result_body"),
-		CreatedBy:             actorFromAny(value["created_by"]),
+		CreatedBySubjectID: createdByFromAny(value["created_by"]),
 		DefinitionID:          stringField(value, "definition_id"),
 		RunAs:                 subjectFromAny(value["run_as"]),
 		WorkflowKey:           stringField(value, "workflow_key"),
@@ -4689,7 +4661,7 @@ func (r workflowRunRecord) toInput() (*gestalt.BoundWorkflowRun, error) {
 		CompletedAt:   r.CompletedAt,
 		StatusMessage: r.StatusMessage,
 		ResultBody:    r.ResultBody,
-		CreatedBy:     workflowActorInput(r.CreatedBy),
+		CreatedBySubjectID: cloneCreatedBySubjectID(r.CreatedBySubjectID),
 		RunAs:         cloneSubject(r.RunAs),
 		WorkflowKey:   r.WorkflowKey,
 		DefinitionID:  r.DefinitionID,
