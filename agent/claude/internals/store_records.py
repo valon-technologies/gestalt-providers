@@ -217,12 +217,6 @@ def _coerce_messages(raw_value: Any) -> list[dict[str, Any]]:
     return messages
 
 
-def _coerce_string_dict(raw_value: Any) -> dict[str, str]:
-    if not isinstance(raw_value, dict):
-        return {}
-    return {str(key): str(value or "") for key, value in raw_value.items()}
-
-
 def _coerce_optional_string_dict(raw_value: Any) -> dict[str, str] | None:
     if raw_value is None:
         return None
