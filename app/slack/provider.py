@@ -57,9 +57,9 @@ from internals.models import (
     SlackAgentEvent as SlackAgentEvent,
     SlackAgentRoute as SlackAgentRoute,
     SlackAgentRouteMatch as SlackAgentRouteMatch,
-    SlackEventPublishConfig as SlackEventPublishConfig,
-    SlackEventPublishRoute as SlackEventPublishRoute,
-    SlackEventPublishRouteMatch as SlackEventPublishRouteMatch,
+    SlackEventDeliveryConfig as SlackEventDeliveryConfig,
+    SlackEventDeliveryRoute as SlackEventDeliveryRoute,
+    SlackEventDeliveryRouteMatch as SlackEventDeliveryRouteMatch,
     SlackEventsConfig as SlackEventsConfig,
     SlackReplyRef as SlackReplyRef,
 )
@@ -559,7 +559,7 @@ def resolve_http_subject(
 @gestalt.operation(
     id=SLACK_EVENT_OPERATION,
     method="POST",
-    description="Handle Slack Events API callbacks for workflow event publishing and supported agent events",
+    description="Handle Slack Events API callbacks for workflow event delivery and supported agent events",
     visible=False,
 )
 def slack_events_handle(input: dict[str, Any], req: gestalt.Request) -> OperationResult:

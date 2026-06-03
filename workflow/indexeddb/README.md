@@ -27,7 +27,7 @@ providers:
         runClaimRenewEvery: 3m20s
 ```
 
-`pollInterval` controls how often workers scan for due cron schedules
+`pollInterval` controls how often workers scan for due schedule activations
 and pending runs. `workerCount` controls how many local poll workers this
 provider starts after lifecycle start. `runClaimTTL` controls how long another
 provider instance must wait before recovering a run claim that stopped
@@ -50,12 +50,15 @@ and workflow host services are ready.
 - single-process worker execution
 - pending-only cancellation
 - startup recovers stale `running` runs without blocking provider readiness
-- missed cron ticks collapse to one run
-- `PublishEvent` enqueues runs for matching event triggers; the local
-  preferred wake is an optimization, and fallback dispatch durably prioritizes
-  app event ingress ahead of generic agent backlog when the wake is lost
+- `ApplyDefinition` stores durable workflow definitions, compiled activations,
+  and definition generations atomically
+- missed schedule activation ticks collapse to one run
+- `DeliverEvent` enqueues runs for matching event activations after applying
+  the activation input mapping
 - `SignalOrStartRun` keeps one active run per workflow key and appends durable
   signal records for same-run re-invocation; keyed continuations are also
   prioritized ahead of generic agent backlog
+- `GetRun`, `GetRunEvents`, and `GetRunOutput` read persisted run projections,
+  including per-step status and output
 - agent tool reference validation happens in the workflow host; this provider
   only validates the runnable agent fields needed for storage and dispatch

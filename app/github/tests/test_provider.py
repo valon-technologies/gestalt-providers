@@ -59,7 +59,7 @@ class FakeHTTPResponse:
 class FakeWorkflowClient:
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
-        self.publish_event_requests: list[gestalt.WorkflowPublishEvent] = []
+        self.deliver_event_requests: list[gestalt.WorkflowDeliverEvent] = []
 
     def __enter__(self) -> FakeWorkflowClient:
         return self
@@ -67,8 +67,8 @@ class FakeWorkflowClient:
     def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
         return None
 
-    def publish_event(self, request: gestalt.WorkflowPublishEvent) -> object:
-        self.publish_event_requests.append(request)
+    def deliver_event(self, request: gestalt.WorkflowDeliverEvent) -> object:
+        self.deliver_event_requests.append(request)
         if self.fail:
             raise RuntimeError("workflow client unavailable")
         return object()
@@ -139,9 +139,6 @@ def github_request(
     return gestalt.Request(
         subject=gestalt.Subject(
             id=f"service_account:github_webhook:{installation_id}",
-            kind="service_account",
-            display_name=f"GitHub App installation {installation_id}",
-            auth_source="github_webhook",
         ),
     )
 
@@ -154,9 +151,6 @@ def github_agent_request(
     request = github_request(installation_id=installation_id, repo=repo)
     request.agent_subject = gestalt.Subject(
         id=agent_subject_id,
-        kind="user",
-        display_name="Ada Lovelace",
-        auth_source="session",
     )
     return request
 
@@ -400,7 +394,7 @@ class GitHubProviderTests(unittest.TestCase):
         client = RecordingGitHubClient()
         request = gestalt.Request(
             token="ghu-user",
-            subject=gestalt.Subject(id="user:gestalt-123", kind="user"),
+            subject=gestalt.Subject(id="user:gestalt-123"),
         )
 
         with mock.patch.object(provider_module, "DEFAULT_GITHUB_CLIENT", client):
@@ -981,7 +975,7 @@ class GitHubProviderTests(unittest.TestCase):
         assert subject is not None
         self.assertEqual(subject.id, "service_account:github_webhook:99")
 
-    def test_webhook_handler_publishes_canonical_workflow_event(self) -> None:
+    def test_webhook_handler_delivers_canonical_workflow_event(self) -> None:
         workflow_client = FakeWorkflowClient()
         payload = {
             "headers": {
@@ -1018,13 +1012,13 @@ class GitHubProviderTests(unittest.TestCase):
             operation_body(result),
             {
                 "ok": True,
-                "published": True,
+                "delivered": True,
                 "workflow_event_id": "github:delivery-123",
                 "workflow_provider": "local",
             },
         )
-        self.assertEqual(len(workflow_client.publish_event_requests), 1)
-        request = workflow_client.publish_event_requests[0]
+        self.assertEqual(len(workflow_client.deliver_event_requests), 1)
+        request = workflow_client.deliver_event_requests[0]
         self.assertEqual(request.provider_name, "local")
         event = request.event
         self.assertIsNotNone(event)
@@ -1087,8 +1081,8 @@ class GitHubProviderTests(unittest.TestCase):
             result = provider_module.github_events_handle(payload, gestalt.Request())
 
         self.assertEqual(operation_body(result)["ok"], True)
-        self.assertEqual(len(workflow_client.publish_event_requests), 1)
-        event = workflow_client.publish_event_requests[0].event
+        self.assertEqual(len(workflow_client.deliver_event_requests), 1)
+        event = workflow_client.deliver_event_requests[0].event
         self.assertIsNotNone(event)
         assert event is not None
         self.assertEqual(event.id, f"github:{provider_module.payload_digest(payload)}")
@@ -1100,7 +1094,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn("event_header", data["github"])
         self.assertEqual(data["raw"], payload)
 
-    def test_webhook_handler_publish_failure_is_retryable_server_error(self) -> None:
+    def test_webhook_handler_delivery_failure_is_retryable_server_error(self) -> None:
         workflow_client = FakeWorkflowClient(fail=True)
         payload = {
             "headers": {
@@ -1127,9 +1121,9 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(response.status, HTTPStatus.INTERNAL_SERVER_ERROR)
         self.assertEqual(
             response.body,
-            {"error": "failed to publish workflow event: workflow client unavailable"},
+            {"error": "failed to deliver workflow event: workflow client unavailable"},
         )
-        self.assertEqual(len(workflow_client.publish_event_requests), 1)
+        self.assertEqual(len(workflow_client.deliver_event_requests), 1)
 
     def test_commit_files_creates_branch_commit_and_bot_coauthor(self) -> None:
         calls: list[tuple[str, str, dict[str, Any], str]] = []

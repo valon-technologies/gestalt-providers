@@ -28,26 +28,27 @@ from .models import (
     SlackAgentRoute,
     SlackCallbackType,
     SlackChannelType,
-    SlackEventPublishCallback,
-    SlackEventPublishRoute,
+    SlackEventDeliveryCallback,
+    SlackEventDeliveryRoute,
     SlackEventType,
     SlackInteractionAction,
     SlackInteractionActionStyle,
     SlackInteractionRef,
     SlackReplyRef,
 )
-from .models import SlackAcknowledgementConfig as SlackAcknowledgementConfig  # noqa: F401
 from .models import SlackAgentRouteMatch as SlackAgentRouteMatch  # noqa: F401
 from .models import SlackAssistantConfig as SlackAssistantConfig  # noqa: F401
 from .models import SlackBotConfig as SlackBotConfig  # noqa: F401
-from .models import SlackThreadContextConfig as SlackThreadContextConfig  # noqa: F401
+from .models import SlackEventDeliveryConfig as SlackEventDeliveryConfig  # noqa: F401
+from .models import (  # noqa: F401
+    SlackEventDeliveryRouteMatch as SlackEventDeliveryRouteMatch,
+)
 from .models import SlackWorkflowConfig as SlackWorkflowConfig  # noqa: F401
 from .operations import (
     add_reaction,
     append_stream,
     delete_message,
     find_message_urls,
-    get_thread_context,
     post_message,
     remove_reaction,
     set_assistant_thread_status,
@@ -187,8 +188,8 @@ def _workflow_log_context(req: gestalt.Request) -> str:
         workflow_run_id=workflow.run_id,
         workflow_definition_id=workflow.metadata.get("definition_id"),
         workflow_trigger_kind=workflow.trigger.kind,
-        workflow_schedule_id=workflow.trigger.schedule_id,
-        workflow_event_trigger_id=workflow.trigger.trigger_id,
+        workflow_activation_id=workflow.trigger.activation_id,
+        workflow_scheduled_for=workflow.trigger.scheduled_for,
         workflow_signal_id=signal.id if signal is not None else "",
         workflow_signal_name=signal.name if signal is not None else "",
         idempotency_key=req.idempotency_key,
@@ -269,7 +270,7 @@ def _workflow_dispatched_ack_fallback() -> dict[str, Any]:
     return {
         "ok": True,
         "workflow_dispatched": True,
-        "workflow_acknowledgement_failed": True,
+        "workflow_response_projection_failed": True,
     }
 
 
@@ -313,11 +314,11 @@ def resolve_slack_http_subject(
     request: gestalt.HTTPSubjectRequest, context: gestalt.Request
 ) -> gestalt.Subject | None:
     payload = _json_payload_from_http_request(request)
-    publish_event, _publish_ignored_reason = _slack_publish_callback_from_payload(
+    deliver_event, _deliver_ignored_reason = _slack_deliver_callback_from_payload(
         payload
     )
-    has_publish_route = bool(
-        publish_event is not None and _matching_publish_routes(publish_event)
+    has_deliver_route = bool(
+        deliver_event is not None and _matching_deliver_routes(deliver_event)
     )
     event, _ignored_reason = _slack_agent_event_from_payload(payload)
     if event is not None:
@@ -340,7 +341,7 @@ def resolve_slack_http_subject(
         user_id = _interaction_user_id(interaction)
 
     if not team_id or not user_id:
-        if has_publish_route:
+        if has_deliver_route:
             return None
         raise gestalt.http_subject_error(
             HTTPStatus.BAD_REQUEST, "Slack request is missing team_id or user"
@@ -362,20 +363,20 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
 
     event, ignored_reason = _slack_agent_event_from_payload(input)
     if event is None:
-        publish_response = _publish_matching_workflow_events(input, req)
-        if isinstance(publish_response, gestalt.Response):
-            return publish_response
-        if publish_response is not None:
-            return publish_response
+        deliver_response = _deliver_matching_workflow_events(input, req)
+        if isinstance(deliver_response, gestalt.Response):
+            return deliver_response
+        if deliver_response is not None:
+            return deliver_response
         return {"ok": True, "ignored": ignored_reason}
 
     route, ignored_reason = _select_agent_route(event)
     if ignored_reason:
-        publish_response = _publish_matching_workflow_events(input, req)
-        if isinstance(publish_response, gestalt.Response):
-            return publish_response
-        if publish_response is not None:
-            return publish_response
+        deliver_response = _deliver_matching_workflow_events(input, req)
+        if isinstance(deliver_response, gestalt.Response):
+            return deliver_response
+        if deliver_response is not None:
+            return deliver_response
         _log_ignored_slack_event(event, req, ignored_reason)
         return {"ok": True, "ignored": ignored_reason}
     log_context = _slack_event_log_context(event, req, route)
@@ -396,11 +397,11 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
     if dispatch_requested and not _slack_event_subject_allowed(
         event, route, subject_id
     ):
-        publish_response = _publish_matching_workflow_events(input, req)
-        if isinstance(publish_response, gestalt.Response):
-            return publish_response
-        if publish_response is not None:
-            return publish_response
+        deliver_response = _deliver_matching_workflow_events(input, req)
+        if isinstance(deliver_response, gestalt.Response):
+            return deliver_response
+        if deliver_response is not None:
+            return deliver_response
         logger.warning("rejected Slack event without linked subject %s", log_context)
         if _should_notify_unlinked_slack_user_for_event(event):
             _notify_unlinked_slack_user_for_event(event, req)
@@ -412,11 +413,11 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
             body={"error": "Slack bot token is not configured"},
         )
     if not _agent_dispatch_configured(route):
-        publish_response = _publish_matching_workflow_events(input, req)
-        if isinstance(publish_response, gestalt.Response):
-            return publish_response
-        if publish_response is not None:
-            return publish_response
+        deliver_response = _deliver_matching_workflow_events(input, req)
+        if isinstance(deliver_response, gestalt.Response):
+            return deliver_response
+        if deliver_response is not None:
+            return deliver_response
         if dispatch_requested:
             logger.error(
                 "Slack workflow definition ID is not configured %s",
@@ -429,8 +430,6 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
         _log_ignored_slack_event(event, req, "workflow_definition_not_configured")
         return {"ok": True, "ignored": "workflow_definition_not_configured"}
 
-    acknowledgement_reaction_error = ""
-    assistant_status_error = ""
     workflow_provider = _workflow_provider_name(route)
     workflow_request: gestalt.WorkflowSignalOrStartRun | None = None
     try:
@@ -472,47 +471,7 @@ def handle_slack_event(input: dict[str, Any], req: gestalt.Request) -> Operation
     except Exception:
         logger.exception("failed to ack Slack event workflow %s", log_context)
         response = _workflow_dispatched_ack_fallback()
-    _publish_matching_workflow_events_after_agent_handoff(input, req, log_context)
-    try:
-        _add_acknowledgement_reaction(event, route)
-    except SlackAPIError as err:
-        error = str(err.body.get("error") or err.body)
-        if error != "already_reacted":
-            acknowledgement_reaction_error = error
-            logger.warning(
-                "failed to add Slack event acknowledgement reaction %s error=%s",
-                log_context,
-                error,
-            )
-    except SlackClientError as err:
-        acknowledgement_reaction_error = str(err)
-        logger.warning(
-            "failed to add Slack event acknowledgement reaction %s error=%s",
-            log_context,
-            acknowledgement_reaction_error,
-        )
-    assistant = _assistant_config(route)
-    if assistant.enabled:
-        try:
-            _set_initial_assistant_status(event, route)
-        except SlackAPIError as err:
-            assistant_status_error = str(err.body.get("error") or err.body)
-            logger.warning(
-                "failed to set initial Slack assistant status %s error=%s",
-                log_context,
-                assistant_status_error,
-            )
-        except SlackClientError as err:
-            assistant_status_error = str(err)
-            logger.warning(
-                "failed to set initial Slack assistant status %s error=%s",
-                log_context,
-                assistant_status_error,
-            )
-    if acknowledgement_reaction_error:
-        response["acknowledgement_reaction_error"] = acknowledgement_reaction_error
-    if assistant_status_error:
-        response["assistant_status_error"] = assistant_status_error
+    _deliver_matching_workflow_events_after_agent_handoff(input, req, log_context)
     return response
 
 
@@ -523,22 +482,22 @@ def _agent_dispatch_configured(route: SlackAgentRoute | None) -> bool:
 def _log_ignored_slack_event(
     event: SlackAgentEvent, req: gestalt.Request, ignored_reason: str
 ) -> None:
-    if not (_agent_config.routes or _agent_config.events.publish.routes):
+    if not (_agent_config.routes or _agent_config.events.deliver.routes):
         return
     log_context = _slack_event_log_context(event, req, None)
     logger.info(f"ignored Slack event {log_context} ignored_reason={ignored_reason}")
 
 
-def _publish_matching_workflow_events_after_agent_handoff(
+def _deliver_matching_workflow_events_after_agent_handoff(
     payload: dict[str, Any], req: gestalt.Request, log_context: str
 ) -> None:
-    publish_response = _publish_matching_workflow_events(payload, req)
-    if isinstance(publish_response, gestalt.Response):
+    deliver_response = _deliver_matching_workflow_events(payload, req)
+    if isinstance(deliver_response, gestalt.Response):
         logger.warning(
-            "ignored Slack workflow event publish failure after agent handoff %s status=%s body=%r",
+            "ignored Slack workflow event delivery failure after agent handoff %s status=%s body=%r",
             log_context,
-            publish_response.status,
-            publish_response.body,
+            deliver_response.status,
+            deliver_response.body,
         )
 
 
@@ -1334,43 +1293,6 @@ def _assistant_thread_ts(ref: SlackReplyRef) -> str:
     return ref.reply_thread_ts or ref.message_ts
 
 
-def _set_initial_assistant_status(
-    event: SlackAgentEvent, route: SlackAgentRoute | None
-) -> None:
-    assistant = _assistant_config(route)
-    status = assistant.status.strip()
-    thread_ts = event.reply_thread_ts or event.message_ts
-    if not status or not thread_ts:
-        return
-    set_assistant_thread_status(
-        _agent_config.bot.token,
-        channel_id=event.channel_id,
-        thread_ts=thread_ts,
-        status=status,
-        loading_messages=list(assistant.loading_messages),
-        icon_emoji=assistant.icon_emoji,
-        icon_url=assistant.icon_url,
-        username=assistant.username,
-    )
-
-
-def _add_acknowledgement_reaction(
-    event: SlackAgentEvent, route: SlackAgentRoute | None
-) -> None:
-    acknowledgement = _acknowledgement_config(route)
-    if not acknowledgement.enabled:
-        return
-    reaction = acknowledgement.reaction.strip().strip(":")
-    if not reaction or not event.message_ts:
-        return
-    add_reaction(
-        _agent_config.bot.token,
-        channel=event.channel_id,
-        timestamp=event.message_ts,
-        name=reaction,
-    )
-
-
 def _handle_assistant_thread_event(
     event: SlackAgentEvent, route: SlackAgentRoute | None
 ) -> OperationResult:
@@ -1825,47 +1747,47 @@ def _slack_agent_event_from_payload(
     )
 
 
-def _publish_matching_workflow_events(
+def _deliver_matching_workflow_events(
     payload: dict[str, Any], req: gestalt.Request
 ) -> dict[str, Any] | ErrorResponse | None:
-    event, ignored_reason = _slack_publish_callback_from_payload(payload)
+    event, ignored_reason = _slack_deliver_callback_from_payload(payload)
     if event is None:
         _ = ignored_reason
         return None
 
-    routes = _matching_publish_routes(event)
+    routes = _matching_deliver_routes(event)
     if not routes:
         return None
 
-    log_context = _slack_publish_log_context(event, routes)
+    log_context = _slack_deliver_log_context(event, routes)
     try:
         workflow_event_ids: list[str] = []
         route_ids: list[str] = []
         with req.workflows() as workflows:
             for route in routes:
-                workflow_request = _build_workflow_publish_event_request(
+                workflow_request = _build_workflow_deliver_event_request(
                     event, route, payload
                 )
-                workflows.publish_event(workflow_request)
+                workflows.deliver_event(workflow_request)
                 workflow_event_ids.append(str(workflow_request.event.id))
                 route_ids.append(route.id)
     except Exception as err:
-        logger.exception(f"failed to publish Slack workflow event {log_context}")
-        return _server_error(f"failed to publish workflow event: {err}")
+        logger.exception(f"failed to deliver Slack workflow event {log_context}")
+        return _server_error(f"failed to deliver workflow event: {err}")
 
-    logger.info(f"published Slack workflow event {log_context}")
+    logger.info(f"delivered Slack workflow event {log_context}")
     return {
         "ok": True,
-        "published": True,
-        "published_event_count": len(workflow_event_ids),
+        "delivered": True,
+        "delivered_event_count": len(workflow_event_ids),
         "workflow_event_ids": workflow_event_ids,
         "route_ids": route_ids,
     }
 
 
-def _slack_publish_callback_from_payload(
+def _slack_deliver_callback_from_payload(
     payload: dict[str, Any],
-) -> tuple[SlackEventPublishCallback | None, str]:
+) -> tuple[SlackEventDeliveryCallback | None, str]:
     callback_type = str(payload.get("type") or "").strip()
     if callback_type == SlackCallbackType.URL_VERIFICATION:
         return None, "url_verification"
@@ -1913,7 +1835,7 @@ def _slack_publish_callback_from_payload(
         map_slice(event.get("files")) or map_slice(nested_message.get("files"))
     )
     return (
-        SlackEventPublishCallback(
+        SlackEventDeliveryCallback(
             callback_type=callback_type,
             event_type=event_type,
             event_id=string_field(payload, "event_id"),
@@ -1944,30 +1866,30 @@ def _slack_publish_callback_from_payload(
     )
 
 
-def _matching_publish_routes(
-    event: SlackEventPublishCallback,
-) -> tuple[SlackEventPublishRoute, ...]:
+def _matching_deliver_routes(
+    event: SlackEventDeliveryCallback,
+) -> tuple[SlackEventDeliveryRoute, ...]:
     return tuple(
         route
-        for route in _agent_config.events.publish.routes
+        for route in _agent_config.events.deliver.routes
         if route.match.matches(event)
     )
 
 
-def _build_workflow_publish_event_request(
-    event: SlackEventPublishCallback,
-    route: SlackEventPublishRoute,
+def _build_workflow_deliver_event_request(
+    event: SlackEventDeliveryCallback,
+    route: SlackEventDeliveryRoute,
     raw_payload: dict[str, Any],
-) -> gestalt.WorkflowPublishEvent:
-    workflow_request = gestalt.WorkflowPublishEvent(
+) -> gestalt.WorkflowDeliverEvent:
+    workflow_request = gestalt.WorkflowDeliverEvent(
         event=gestalt.WorkflowEvent(
             id=_workflow_event_id(event, route),
-            source=route.source or "slack",
+            source="slack",
             spec_version="1.0",
             type=route.workflow_event_type or "slack.event.received",
             subject=route.subject or f"route:{route.id}",
             datacontenttype="application/json",
-            data=_slack_publish_event_data(event, route, raw_payload),
+            data=_slack_deliver_event_data(event, route, raw_payload),
         )
     )
     if route.workflow_provider:
@@ -1975,9 +1897,9 @@ def _build_workflow_publish_event_request(
     return workflow_request
 
 
-def _slack_publish_event_data(
-    event: SlackEventPublishCallback,
-    route: SlackEventPublishRoute,
+def _slack_deliver_event_data(
+    event: SlackEventDeliveryCallback,
+    route: SlackEventDeliveryRoute,
     raw_payload: dict[str, Any],
 ) -> dict[str, Any]:
     return {
@@ -2000,7 +1922,7 @@ def _slack_publish_event_data(
             "event_ts": event.event_ts,
             "thread_ts": event.thread_ts,
             "is_bot_event": event.is_bot_event,
-            "file_ids": _publish_event_file_ids(event),
+            "file_ids": _deliver_event_file_ids(event),
             "files": [dict(file_data) for file_data in event.files],
         },
         "raw": raw_payload,
@@ -2008,7 +1930,7 @@ def _slack_publish_event_data(
 
 
 def _workflow_event_id(
-    event: SlackEventPublishCallback, route: SlackEventPublishRoute
+    event: SlackEventDeliveryCallback, route: SlackEventDeliveryRoute
 ) -> str:
     if event.event_id:
         return f"slack:{event.event_id}"
@@ -2040,7 +1962,7 @@ def _workflow_event_id_part(value: str) -> str:
     return normalized or "-"
 
 
-def _publish_event_file_ids(event: SlackEventPublishCallback) -> list[str]:
+def _deliver_event_file_ids(event: SlackEventDeliveryCallback) -> list[str]:
     return [
         file_id
         for file_id in (
@@ -2050,9 +1972,9 @@ def _publish_event_file_ids(event: SlackEventPublishCallback) -> list[str]:
     ]
 
 
-def _slack_publish_log_context(
-    event: SlackEventPublishCallback,
-    routes: tuple[SlackEventPublishRoute, ...],
+def _slack_deliver_log_context(
+    event: SlackEventDeliveryCallback,
+    routes: tuple[SlackEventDeliveryRoute, ...],
 ) -> str:
     return _log_context(
         slack_event_type=event.event_type,
@@ -2065,7 +1987,7 @@ def _slack_publish_log_context(
         slack_bot_id=event.bot_id,
         slack_message_ts=event.message_ts,
         slack_thread_ts=event.thread_ts,
-        slack_publish_route_ids=",".join(route.id for route in routes),
+        slack_deliver_route_ids=",".join(route.id for route in routes),
     )
 
 
@@ -2676,7 +2598,6 @@ def _build_workflow_signal_or_start_request(
     reply_ref: str,
 ) -> gestalt.WorkflowSignalOrStartRun:
     workflow_key = _workflow_key(event, route)
-    thread_context = _prefetch_thread_context(event, route)
     definition_id = _workflow_definition_id(route)
     if not definition_id:
         raise RuntimeError("Slack workflow definition ID is not configured")
@@ -2688,85 +2609,17 @@ def _build_workflow_signal_or_start_request(
         signal=gestalt.WorkflowSignal(
             name=SLACK_EVENT_WORKFLOW_SIGNAL,
             idempotency_key=_agent_turn_idempotency_key(event),
-            payload=_slack_workflow_signal_payload(event, reply_ref, thread_context),
+            payload=_slack_workflow_signal_payload(event, reply_ref),
             metadata=_agent_metadata(event, route),
         ),
     )
 
 
-def _prefetch_thread_context(
-    event: SlackAgentEvent, route: SlackAgentRoute | None
-) -> dict[str, Any] | None:
-    thread_context_config = _thread_context_config(route)
-    if not thread_context_config.enabled:
-        return None
-    if event.event_type not in {SlackEventType.APP_MENTION, SlackEventType.MESSAGE}:
-        return None
-    root_ts = event.thread_ts
-    if not root_ts:
-        return None
-
-    try:
-        result = get_thread_context(
-            _agent_config.bot.token,
-            channel=event.channel_id,
-            ts=root_ts,
-            cursor="",
-            limit=thread_context_config.max_messages,
-            include_user_info=thread_context_config.include_user_info,
-            include_bots=thread_context_config.include_bots,
-            include_files=thread_context_config.include_files,
-            include_file_content=thread_context_config.include_file_content,
-            include_image_data=thread_context_config.include_image_data,
-            max_file_bytes=thread_context_config.max_file_bytes,
-        )
-    except SlackAPIError as err:
-        return {
-            "thread_context_error": {
-                "source": "bot",
-                "channel": event.channel_id,
-                "thread_ts": root_ts,
-                "type": "slack_api",
-                "status": int(err.status),
-                "error": str(err.body.get("error") or "slack API error"),
-            }
-        }
-    except SlackClientError as err:
-        return {
-            "thread_context_error": {
-                "source": "bot",
-                "channel": event.channel_id,
-                "thread_ts": root_ts,
-                "type": "slack_client",
-                "status": 0,
-                "error": str(err),
-            }
-        }
-
-    data = result.get("data") if isinstance(result, dict) else None
-    if not isinstance(data, dict):
-        return {
-            "thread_context_error": {
-                "source": "bot",
-                "channel": event.channel_id,
-                "thread_ts": root_ts,
-                "type": "slack_client",
-                "status": 0,
-                "error": "Slack thread context response was missing data",
-            }
-        }
-    context = dict(data)
-    context["source"] = "bot"
-    context["truncated"] = bool(context.get("has_more") or context.get("next_cursor"))
-    return {"thread_context": context}
-
-
 def _slack_workflow_signal_payload(
     event: SlackAgentEvent,
     reply_ref: str,
-    thread_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    user_prompt = _agent_user_prompt(event, reply_ref, thread_context)
+    user_prompt = _agent_user_prompt(event, reply_ref)
     slack_payload: dict[str, Any] = {
         "callback_type": event.callback_type,
         "event_type": event.event_type,
@@ -2789,13 +2642,6 @@ def _slack_workflow_signal_payload(
         "file_ids": _event_file_ids(event),
         "files": [dict(file_data) for file_data in event.files],
     }
-    if thread_context is not None:
-        prefetched = thread_context.get("thread_context")
-        if isinstance(prefetched, dict):
-            slack_payload["thread_context"] = prefetched
-        error = thread_context.get("thread_context_error")
-        if isinstance(error, dict):
-            slack_payload["thread_context_error"] = error
     return {
         "agent_request": _slack_agent_request(event, user_prompt),
         "user_prompt": user_prompt,
@@ -3000,24 +2846,9 @@ def _assistant_thread_prompts_disabled(route: SlackAgentRoute | None) -> bool:
     return route.assistant.enabled_configured and not route.assistant.enabled
 
 
-def _acknowledgement_config(
-    route: SlackAgentRoute | None,
-) -> SlackAcknowledgementConfig:
-    if route is not None and route.acknowledgement is not None:
-        return route.acknowledgement
-    return _agent_config.acknowledgement
-
-
-def _thread_context_config(route: SlackAgentRoute | None) -> SlackThreadContextConfig:
-    if route is not None and route.thread_context is not None:
-        return route.thread_context
-    return _agent_config.thread_context
-
-
 def _agent_user_prompt(
     event: SlackAgentEvent,
     reply_ref: str,
-    thread_context: dict[str, Any] | None = None,
 ) -> str:
     root_ts = event.thread_ts or event.message_ts
     lines = [
@@ -3057,28 +2888,7 @@ def _agent_user_prompt(
             f"ts: {root_ts}",
         ]
     )
-    thread_context_lines = _thread_context_prompt_lines(thread_context)
-    if thread_context_lines:
-        lines.extend(["", *thread_context_lines])
     return "\n".join(lines)
-
-
-def _thread_context_prompt_lines(thread_context: dict[str, Any] | None) -> list[str]:
-    if thread_context is None:
-        return []
-    prefetched = thread_context.get("thread_context")
-    if isinstance(prefetched, dict):
-        return [
-            "Background thread context:",
-            json.dumps(prefetched, ensure_ascii=False, indent=2, sort_keys=True),
-        ]
-    error = thread_context.get("thread_context_error")
-    if isinstance(error, dict):
-        return [
-            "Background thread context error:",
-            json.dumps(error, ensure_ascii=False, indent=2, sort_keys=True),
-        ]
-    return []
 
 
 def _event_permalink_summaries(event: SlackAgentEvent) -> list[str]:

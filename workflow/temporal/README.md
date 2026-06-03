@@ -49,7 +49,8 @@ versions after the new worker version is deployed and polling.
   `x-gestalt-host-binding` metadata
 - A Temporal Cloud namespace reachable at `hostPort`
 - A Temporal Cloud API key with permission to start workflows, update
-  workflows, manage schedules, and run workers on `taskQueue`
+  workflows, manage Temporal schedules for schedule activations, and run
+  workers on `taskQueue`
 
 Workers are registered when the host calls `ProviderLifecycle.StartProvider` or
 when an execution RPC reaches the provider during startup reconciliation.
@@ -61,8 +62,11 @@ Metadata-only reads do not start the Temporal worker.
 - Temporal V4 run workflows invoke the Gestalt workflow host through activities
   and project run state into IndexedDB for unkeyed, keyed, scheduled, and event
   runs
+- `ApplyDefinition` stores durable workflow definitions, compiled activations,
+  and definition generations atomically
 - native Temporal schedules for cron dispatch with skip overlap policy;
-  IndexedDB schedule records are the metadata source for schedule listing
+  activation metadata is stored on the workflow definition while Temporal
+  schedule records are internal dispatch cursors
 - keyed `StartRun` and `SignalOrStartRun` route directly to claim-gated V4 run
   workflows and store workflow-key ownership in IndexedDB
 - the first `SignalOrStartRun` signal is delivered with Temporal
@@ -73,9 +77,10 @@ Metadata-only reads do not start the Temporal worker.
   payloads while explicit signal IDs remain strict
 - public run IDs are opaque V4 handles that identify the run workflow and
   Temporal run ID
-- `GetRun` and `ListRuns` read IndexedDB run projections only
-- IndexedDB stores schedule, event-trigger, workflow definition, V4 run
-  projection, V4 start idempotency, V4 signal idempotency, and workflow-key
-  ownership metadata
-- event-trigger runs use the publishing subject as `created_by` when it is
+- `GetRun`, `ListRuns`, `GetRunEvents`, and `GetRunOutput` read IndexedDB run
+  projections only
+- IndexedDB stores workflow definitions, V4 run projections, V4 start
+  idempotency, V4 signal idempotency, workflow-key ownership metadata, and
+  internal Temporal schedule cursors
+- event activation runs use the delivering subject as `created_by` when it is
   provided

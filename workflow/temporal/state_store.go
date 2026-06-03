@@ -18,26 +18,17 @@ import (
 )
 
 const (
-	storeTemporalSchedules         = "workflow_temporal_schedules"
-	storeTemporalEventTriggers     = "workflow_temporal_event_triggers"
-	storeTemporalEventTriggerKeys  = "workflow_temporal_event_trigger_keys"
 	storeTemporalDefinitions       = "workflow_temporal_definitions"
 	storeTemporalRunProjections    = "workflow_temporal_v4_run_projections"
 	storeTemporalRunIdempotency    = "workflow_temporal_v4_run_idempotency"
 	storeTemporalSignalIdempotency = "workflow_temporal_v4_signal_idempotency"
 	storeTemporalWorkflowKeys      = "workflow_temporal_v4_workflow_keys"
-
-	indexByMatchKey  = "by_match_key"
-	indexByTriggerID = "by_trigger_id"
 )
 
 type workflowStateStore struct {
 	db      indexeddb.Database
 	scopeID string
 
-	schedules         indexeddb.ObjectStore
-	eventTriggers     indexeddb.ObjectStore
-	eventTriggerKeys  indexeddb.ObjectStore
 	definitions       indexeddb.ObjectStore
 	runProjections    indexeddb.ObjectStore
 	runIdempotency    indexeddb.ObjectStore
@@ -45,8 +36,9 @@ type workflowStateStore struct {
 	workflowKeys      indexeddb.ObjectStore
 }
 
-type matchedEventTrigger struct {
-	Trigger *gestalt.BoundWorkflowEventTrigger
+type matchedWorkflowActivation struct {
+	Definition *gestalt.WorkflowDefinition
+	Activation gestalt.WorkflowActivation
 }
 
 func openWorkflowStateStore(ctx context.Context, scopeID string, db indexeddb.Database) (*workflowStateStore, error) {
@@ -63,9 +55,6 @@ func openWorkflowStateStore(ctx context.Context, scopeID string, db indexeddb.Da
 	store := &workflowStateStore{
 		scopeID:           scopeID,
 		db:                db,
-		schedules:         db.ObjectStore(storeTemporalSchedules),
-		eventTriggers:     db.ObjectStore(storeTemporalEventTriggers),
-		eventTriggerKeys:  db.ObjectStore(storeTemporalEventTriggerKeys),
 		definitions:       db.ObjectStore(storeTemporalDefinitions),
 		runProjections:    db.ObjectStore(storeTemporalRunProjections),
 		runIdempotency:    db.ObjectStore(storeTemporalRunIdempotency),
@@ -78,15 +67,6 @@ func openWorkflowStateStore(ctx context.Context, scopeID string, db indexeddb.Da
 func ensureWorkflowStateStores(ctx context.Context, db indexeddb.Database) error {
 	if db == nil {
 		return nil
-	}
-	if _, err := db.CreateObjectStore(ctx, storeTemporalSchedules, temporalScheduleSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-		return fmt.Errorf("create workflow schedule store: %w", err)
-	}
-	if _, err := db.CreateObjectStore(ctx, storeTemporalEventTriggers, temporalEventTriggerSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-		return fmt.Errorf("create workflow event trigger store: %w", err)
-	}
-	if _, err := db.CreateObjectStore(ctx, storeTemporalEventTriggerKeys, temporalEventTriggerKeySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-		return fmt.Errorf("create workflow event trigger key store: %w", err)
 	}
 	if _, err := db.CreateObjectStore(ctx, storeTemporalDefinitions, temporalDefinitionSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow definition store: %w", err)
@@ -104,48 +84,6 @@ func ensureWorkflowStateStores(ctx context.Context, db indexeddb.Database) error
 		return fmt.Errorf("create workflow key store: %w", err)
 	}
 	return nil
-}
-
-func temporalScheduleSchema() gestalt.ObjectStoreOptions {
-	return gestalt.ObjectStoreOptions{
-		Columns: []gestalt.ColumnDef{
-			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
-			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
-			{Name: "owner_key", Type: gestalt.TypeString},
-			{Name: "created_at", Type: gestalt.TypeTime},
-			{Name: "updated_at", Type: gestalt.TypeTime},
-			{Name: "payload", Type: gestalt.TypeBytes, NotNull: true},
-		},
-	}
-}
-
-func temporalEventTriggerSchema() gestalt.ObjectStoreOptions {
-	return gestalt.ObjectStoreOptions{
-		Columns: []gestalt.ColumnDef{
-			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
-			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
-			{Name: "owner_key", Type: gestalt.TypeString},
-			{Name: "paused", Type: gestalt.TypeBool},
-			{Name: "created_at", Type: gestalt.TypeTime},
-			{Name: "updated_at", Type: gestalt.TypeTime},
-			{Name: "payload", Type: gestalt.TypeBytes, NotNull: true},
-		},
-	}
-}
-
-func temporalEventTriggerKeySchema() gestalt.ObjectStoreOptions {
-	return gestalt.ObjectStoreOptions{
-		Indexes: []gestalt.IndexSchema{
-			{Name: indexByMatchKey, KeyPath: []string{"match_key"}},
-			{Name: indexByTriggerID, KeyPath: []string{"trigger_id"}},
-		},
-		Columns: []gestalt.ColumnDef{
-			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
-			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
-			{Name: "match_key", Type: gestalt.TypeString, NotNull: true},
-			{Name: "trigger_id", Type: gestalt.TypeString, NotNull: true},
-		},
-	}
 }
 
 func unsupportedTemporalRunID(id string) bool {
@@ -237,61 +175,7 @@ func (s *workflowStateStore) Close() error {
 	return s.db.Close()
 }
 
-func (s *workflowStateStore) putSchedule(ctx context.Context, schedule *gestalt.BoundWorkflowSchedule) error {
-	if schedule == nil || strings.TrimSpace(schedule.ID) == "" {
-		return nil
-	}
-	return s.schedules.Put(ctx, s.scheduleRecord(schedule))
-}
-
-func (s *workflowStateStore) getSchedule(ctx context.Context, id string) (*gestalt.BoundWorkflowSchedule, bool, error) {
-	record, err := s.schedules.Get(ctx, s.scopedID(strings.TrimSpace(id)))
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, err
-	}
-	schedule, err := scheduleInputFromRecord(record)
-	if err != nil {
-		return nil, false, err
-	}
-	return schedule, strings.TrimSpace(schedule.ID) != "", nil
-}
-
-func (s *workflowStateStore) listSchedules(ctx context.Context) ([]*gestalt.BoundWorkflowSchedule, error) {
-	records, err := s.schedules.GetAll(ctx, nil)
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	schedules := make([]*gestalt.BoundWorkflowSchedule, 0, len(records))
-	for _, record := range records {
-		if recordString(record, "scope_id") != s.scopeID {
-			continue
-		}
-		schedule, err := scheduleInputFromRecord(record)
-		if err != nil {
-			return nil, err
-		}
-		if strings.TrimSpace(schedule.ID) != "" {
-			schedules = append(schedules, schedule)
-		}
-	}
-	return schedules, nil
-}
-
-func (s *workflowStateStore) deleteSchedule(ctx context.Context, id string) error {
-	err := s.schedules.Delete(ctx, s.scopedID(strings.TrimSpace(id)))
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil
-	}
-	return err
-}
-
-func (s *workflowStateStore) putRun(ctx context.Context, run *gestalt.BoundWorkflowRun) error {
+func (s *workflowStateStore) putRun(ctx context.Context, run *gestalt.WorkflowRun) error {
 	if run == nil || strings.TrimSpace(run.ID) == "" {
 		return nil
 	}
@@ -315,7 +199,7 @@ func (s *workflowStateStore) putRun(ctx context.Context, run *gestalt.BoundWorkf
 	return nil
 }
 
-func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store indexeddb.TransactionObjectStore, run *gestalt.BoundWorkflowRun) (*gestalt.BoundWorkflowRun, error) {
+func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store indexeddb.TransactionObjectStore, run *gestalt.WorkflowRun) (*gestalt.WorkflowRun, error) {
 	if run == nil || strings.TrimSpace(run.ID) == "" {
 		return nil, nil
 	}
@@ -336,7 +220,7 @@ func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store inde
 	return run, nil
 }
 
-func (s *workflowStateStore) getRun(ctx context.Context, id string) (*gestalt.BoundWorkflowRun, bool, error) {
+func (s *workflowStateStore) getRun(ctx context.Context, id string) (*gestalt.WorkflowRun, bool, error) {
 	record, err := s.runProjections.Get(ctx, s.scopedID(strings.TrimSpace(id)))
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, false, nil
@@ -351,7 +235,7 @@ func (s *workflowStateStore) getRun(ctx context.Context, id string) (*gestalt.Bo
 	return run, err == nil && strings.TrimSpace(run.ID) != "", err
 }
 
-func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store indexeddb.TransactionObjectStore, id string) (*gestalt.BoundWorkflowRun, bool, error) {
+func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store indexeddb.TransactionObjectStore, id string) (*gestalt.WorkflowRun, bool, error) {
 	record, found, err := transactionGetRecord(ctx, store, s.scopedID(strings.TrimSpace(id)))
 	if err != nil || !found {
 		return nil, false, err
@@ -363,7 +247,7 @@ func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store inde
 	return run, err == nil && strings.TrimSpace(run.ID) != "", err
 }
 
-func (s *workflowStateStore) listRuns(ctx context.Context, req *gestalt.ListWorkflowProviderRunsRequest) ([]*gestalt.BoundWorkflowRun, string, error) {
+func (s *workflowStateStore) listRuns(ctx context.Context, req *gestalt.ListWorkflowProviderRunsRequest) ([]*gestalt.WorkflowRun, string, error) {
 	pageSize := effectiveRunListPageSize(req)
 	pageToken := ""
 	if req != nil {
@@ -382,7 +266,7 @@ func (s *workflowStateStore) listRuns(ctx context.Context, req *gestalt.ListWork
 	}
 	defer func() { _ = cursor.Close() }()
 
-	runs := make([]*gestalt.BoundWorkflowRun, 0, pageSize+1)
+	runs := make([]*gestalt.WorkflowRun, 0, pageSize+1)
 	for cursor.Continue() {
 		record, err := cursor.Value()
 		if err != nil {
@@ -446,7 +330,7 @@ type runListCursor struct {
 	RunID     string
 }
 
-func encodeRunListPageToken(lastRun *gestalt.BoundWorkflowRun, scopeID string, req *gestalt.ListWorkflowProviderRunsRequest) string {
+func encodeRunListPageToken(lastRun *gestalt.WorkflowRun, scopeID string, req *gestalt.ListWorkflowProviderRunsRequest) string {
 	if lastRun == nil || strings.TrimSpace(lastRun.ID) == "" {
 		return ""
 	}
@@ -500,7 +384,7 @@ func effectiveRunListPageSize(req *gestalt.ListWorkflowProviderRunsRequest) int 
 	return int(req.PageSize)
 }
 
-func runMatchesListRequest(run *gestalt.BoundWorkflowRun, req *gestalt.ListWorkflowProviderRunsRequest) bool {
+func runMatchesListRequest(run *gestalt.WorkflowRun, req *gestalt.ListWorkflowProviderRunsRequest) bool {
 	if run == nil || req == nil {
 		return run != nil
 	}
@@ -517,7 +401,7 @@ func runListRequestStatus(req *gestalt.ListWorkflowProviderRunsRequest) gestalt.
 	return req.Status
 }
 
-func sortWorkflowRunsNewestFirst(runs []*gestalt.BoundWorkflowRun) {
+func sortWorkflowRunsNewestFirst(runs []*gestalt.WorkflowRun) {
 	sort.SliceStable(runs, func(i, j int) bool {
 		left := runs[i]
 		right := runs[j]
@@ -534,7 +418,7 @@ func sortWorkflowRunsNewestFirst(runs []*gestalt.BoundWorkflowRun) {
 	})
 }
 
-func runSortsAfterRunListCursor(run *gestalt.BoundWorkflowRun, cursor *runListCursor) bool {
+func runSortsAfterRunListCursor(run *gestalt.WorkflowRun, cursor *runListCursor) bool {
 	if run == nil || cursor == nil {
 		return false
 	}
@@ -557,7 +441,7 @@ type workflowKeyRecord struct {
 	UpdatedAt          time.Time
 }
 
-func (s *workflowStateStore) claimWorkflowKeyRun(ctx context.Context, workflowKey string, run *gestalt.BoundWorkflowRun, now time.Time) (*gestalt.BoundWorkflowRun, bool, error) {
+func (s *workflowStateStore) claimWorkflowKeyRun(ctx context.Context, workflowKey string, run *gestalt.WorkflowRun, now time.Time) (*gestalt.WorkflowRun, bool, error) {
 	for attempt := 0; attempt < runIdempotencyMaxAttempts; attempt++ {
 		owner, claimed, err := s.claimWorkflowKeyRunOnce(ctx, workflowKey, run, now)
 		if err == nil || !isRunIdempotencyRetryableConflict(err) {
@@ -570,7 +454,7 @@ func (s *workflowStateStore) claimWorkflowKeyRun(ctx context.Context, workflowKe
 	return nil, false, status.Error(codes.Aborted, "workflow key claim raced too many times")
 }
 
-func (s *workflowStateStore) claimWorkflowKeyRunOnce(ctx context.Context, workflowKey string, run *gestalt.BoundWorkflowRun, now time.Time) (*gestalt.BoundWorkflowRun, bool, error) {
+func (s *workflowStateStore) claimWorkflowKeyRunOnce(ctx context.Context, workflowKey string, run *gestalt.WorkflowRun, now time.Time) (*gestalt.WorkflowRun, bool, error) {
 	record, run, err := s.workflowKeyRecordForRun(workflowKey, run, now)
 	if err != nil {
 		return nil, false, err
@@ -631,7 +515,7 @@ func (s *workflowStateStore) claimWorkflowKeyRunOnce(ctx context.Context, workfl
 	return storedRun, true, nil
 }
 
-func (s *workflowStateStore) getWorkflowKeyRun(ctx context.Context, workflowKey string) (*gestalt.BoundWorkflowRun, bool, error) {
+func (s *workflowStateStore) getWorkflowKeyRun(ctx context.Context, workflowKey string) (*gestalt.WorkflowRun, bool, error) {
 	workflowKey = strings.TrimSpace(workflowKey)
 	if workflowKey == "" {
 		return nil, false, nil
@@ -696,7 +580,7 @@ func (s *workflowStateStore) clearWorkflowKeyRun(ctx context.Context, workflowKe
 	return true, nil
 }
 
-func (s *workflowStateStore) workflowKeyRecordForRun(workflowKey string, run *gestalt.BoundWorkflowRun, now time.Time) (workflowKeyRecord, *gestalt.BoundWorkflowRun, error) {
+func (s *workflowStateStore) workflowKeyRecordForRun(workflowKey string, run *gestalt.WorkflowRun, now time.Time) (workflowKeyRecord, *gestalt.WorkflowRun, error) {
 	workflowKey = strings.TrimSpace(workflowKey)
 	if workflowKey == "" {
 		return workflowKeyRecord{}, nil, status.Error(codes.InvalidArgument, "workflow_key is required")
@@ -859,7 +743,7 @@ func (s *workflowStateStore) reserveRunIdempotencyOnce(ctx context.Context, owne
 	return &reserved, false, nil
 }
 
-func (s *workflowStateStore) completeRunIdempotency(ctx context.Context, ownerKey, key, fingerprint string, run *gestalt.BoundWorkflowRun, retention time.Duration, now time.Time) error {
+func (s *workflowStateStore) completeRunIdempotency(ctx context.Context, ownerKey, key, fingerprint string, run *gestalt.WorkflowRun, retention time.Duration, now time.Time) error {
 	for attempt := 0; attempt < runIdempotencyMaxAttempts; attempt++ {
 		err := s.completeRunIdempotencyOnce(ctx, ownerKey, key, fingerprint, run, retention, now)
 		if err == nil || !isRunIdempotencyRetryableConflict(err) {
@@ -872,7 +756,7 @@ func (s *workflowStateStore) completeRunIdempotency(ctx context.Context, ownerKe
 	return status.Error(codes.Aborted, "workflow run idempotency completion raced too many times")
 }
 
-func (s *workflowStateStore) completeRunIdempotencyOnce(ctx context.Context, ownerKey, key, fingerprint string, run *gestalt.BoundWorkflowRun, retention time.Duration, now time.Time) error {
+func (s *workflowStateStore) completeRunIdempotencyOnce(ctx context.Context, ownerKey, key, fingerprint string, run *gestalt.WorkflowRun, retention time.Duration, now time.Time) error {
 	ownerKey = strings.TrimSpace(ownerKey)
 	key = strings.TrimSpace(key)
 	fingerprint = strings.TrimSpace(fingerprint)
@@ -911,7 +795,7 @@ func (s *workflowStateStore) completeRunIdempotencyOnce(ctx context.Context, own
 			}
 			return nil
 		}
-		if existing.Status == "completed" && runInputFromPayload(existing.RunPayload) != nil {
+		if existing.Status == "completed" && runProjectionFromPayload(existing.RunPayload) != nil {
 			if err := tx.Commit(ctx); err != nil {
 				return err
 			}
@@ -1205,180 +1089,7 @@ func yieldRunIdempotencyRetry(ctx context.Context) error {
 	}
 }
 
-func (s *workflowStateStore) putTrigger(ctx context.Context, trigger *gestalt.BoundWorkflowEventTrigger) error {
-	if trigger == nil || strings.TrimSpace(trigger.ID) == "" {
-		return nil
-	}
-	tx, err := s.db.Transaction(ctx, []string{storeTemporalEventTriggers, storeTemporalEventTriggerKeys}, gestalt.TransactionReadwrite, gestalt.TransactionOptions{DurabilityHint: gestalt.TransactionDurabilityStrict})
-	if err != nil {
-		return err
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Abort(ctx)
-		}
-	}()
-	triggerStore := tx.ObjectStore(storeTemporalEventTriggers)
-	keyStore := tx.ObjectStore(storeTemporalEventTriggerKeys)
-	if _, err := keyStore.Index(indexByTriggerID).Delete(ctx, s.scopedID(trigger.ID)); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-		return err
-	}
-	if err := triggerStore.Put(ctx, s.triggerRecord(trigger)); err != nil {
-		return err
-	}
-	for _, key := range matchKeysInput(trigger.Match) {
-		if err := keyStore.Put(ctx, gestalt.Record{
-			"id":         s.scopedID(key, trigger.ID),
-			"scope_id":   s.scopeID,
-			"match_key":  s.scopedID(key),
-			"trigger_id": s.scopedID(trigger.ID),
-		}); err != nil {
-			return err
-		}
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return err
-	}
-	committed = true
-	return nil
-}
-
-func (s *workflowStateStore) getTrigger(ctx context.Context, id string) (*gestalt.BoundWorkflowEventTrigger, bool, error) {
-	record, err := s.eventTriggers.Get(ctx, s.scopedID(strings.TrimSpace(id)))
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, err
-	}
-	trigger, err := triggerFromRecord(record)
-	return trigger, err == nil && strings.TrimSpace(trigger.ID) != "", err
-}
-
-func (s *workflowStateStore) listTriggers(ctx context.Context) ([]*gestalt.BoundWorkflowEventTrigger, error) {
-	records, err := s.eventTriggers.GetAll(ctx, nil)
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	triggers := make([]*gestalt.BoundWorkflowEventTrigger, 0, len(records))
-	for _, record := range records {
-		if recordString(record, "scope_id") != s.scopeID {
-			continue
-		}
-		trigger, err := triggerFromRecord(record)
-		if err != nil {
-			return nil, err
-		}
-		triggers = append(triggers, trigger)
-	}
-	return triggers, nil
-}
-
-func (s *workflowStateStore) matchTriggers(ctx context.Context, event *gestalt.WorkflowEvent) ([]matchedEventTrigger, error) {
-	seen := map[string]struct{}{}
-	triggers := make([]matchedEventTrigger, 0)
-	for _, key := range eventLookupKeysInput(event) {
-		keyRecords, err := s.eventTriggerKeys.Index(indexByMatchKey).GetAll(ctx, nil, s.scopedID(key))
-		if errors.Is(err, gestalt.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		for _, keyRecord := range keyRecords {
-			triggerID := s.unscopedID(recordString(keyRecord, "trigger_id"))
-			if triggerID == "" {
-				continue
-			}
-			if _, ok := seen[triggerID]; ok {
-				continue
-			}
-			record, err := s.eventTriggers.Get(ctx, s.scopedID(triggerID))
-			if errors.Is(err, gestalt.ErrNotFound) {
-				continue
-			}
-			if err != nil {
-				return nil, err
-			}
-			trigger, err := triggerFromRecord(record)
-			if err != nil {
-				return nil, err
-			}
-			if strings.TrimSpace(trigger.ID) == "" || !eventMatchesTriggerInput(event, trigger) {
-				continue
-			}
-			seen[triggerID] = struct{}{}
-			triggers = append(triggers, matchedEventTrigger{Trigger: trigger})
-		}
-	}
-	return triggers, nil
-}
-
-func (s *workflowStateStore) deleteTrigger(ctx context.Context, id string) (bool, error) {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return false, nil
-	}
-	tx, err := s.db.Transaction(ctx, []string{storeTemporalEventTriggers, storeTemporalEventTriggerKeys}, gestalt.TransactionReadwrite, gestalt.TransactionOptions{DurabilityHint: gestalt.TransactionDurabilityStrict})
-	if err != nil {
-		return false, err
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Abort(ctx)
-		}
-	}()
-	triggerStore := tx.ObjectStore(storeTemporalEventTriggers)
-	keyStore := tx.ObjectStore(storeTemporalEventTriggerKeys)
-	if _, err := triggerStore.Get(ctx, s.scopedID(id)); errors.Is(err, gestalt.ErrNotFound) {
-		if err := tx.Commit(ctx); err != nil {
-			return false, err
-		}
-		committed = true
-		return false, nil
-	} else if err != nil {
-		return false, err
-	}
-	if _, err := keyStore.Index(indexByTriggerID).Delete(ctx, s.scopedID(id)); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-		return false, err
-	}
-	if err := triggerStore.Delete(ctx, s.scopedID(id)); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-		return false, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return false, err
-	}
-	committed = true
-	return true, nil
-}
-
-func (s *workflowStateStore) scheduleRecord(schedule *gestalt.BoundWorkflowSchedule) gestalt.Record {
-	payload := nativePayload(schedule)
-	now := time.Now().UTC()
-	createdAt := schedule.CreatedAt
-	if createdAt.IsZero() {
-		createdAt = now
-	}
-	updatedAt := schedule.UpdatedAt
-	if updatedAt.IsZero() {
-		updatedAt = now
-	}
-	return gestalt.Record{
-		"id":         s.scopedID(schedule.ID),
-		"scope_id":   s.scopeID,
-		"owner_key":  targetOwnerKeyInput(schedule.Target),
-		"created_at": createdAt.UTC(),
-		"updated_at": updatedAt.UTC(),
-		"payload":    payload,
-	}
-}
-
-func (s *workflowStateStore) runRecord(run *gestalt.BoundWorkflowRun) gestalt.Record {
+func (s *workflowStateStore) runRecord(run *gestalt.WorkflowRun) gestalt.Record {
 	payload := nativePayload(run)
 	now := time.Now().UTC()
 	createdAt := run.CreatedAt
@@ -1398,8 +1109,8 @@ func (s *workflowStateStore) runRecord(run *gestalt.BoundWorkflowRun) gestalt.Re
 	}
 }
 
-func runFromRecord(record gestalt.Record) (*gestalt.BoundWorkflowRun, error) {
-	return decodeNativePayload[gestalt.BoundWorkflowRun](recordBytes(record, "payload"), "workflow run")
+func runFromRecord(record gestalt.Record) (*gestalt.WorkflowRun, error) {
+	return decodeNativePayload[gestalt.WorkflowRun](recordBytes(record, "payload"), "workflow run")
 }
 
 func (s *workflowStateStore) runIdempotencyID(ownerKey, key string) string {
@@ -1532,36 +1243,6 @@ func signalIdempotencyFromRecord(record gestalt.Record) signalIdempotencyRecord 
 	return out
 }
 
-func (s *workflowStateStore) triggerRecord(trigger *gestalt.BoundWorkflowEventTrigger) gestalt.Record {
-	payload := nativePayload(trigger)
-	now := time.Now().UTC()
-	createdAt := trigger.CreatedAt
-	if createdAt.IsZero() {
-		createdAt = now
-	}
-	updatedAt := trigger.UpdatedAt
-	if updatedAt.IsZero() {
-		updatedAt = now
-	}
-	return gestalt.Record{
-		"id":         s.scopedID(trigger.ID),
-		"scope_id":   s.scopeID,
-		"owner_key":  targetOwnerKeyInput(trigger.Target),
-		"paused":     trigger.Paused,
-		"created_at": createdAt.UTC(),
-		"updated_at": updatedAt.UTC(),
-		"payload":    payload,
-	}
-}
-
-func triggerFromRecord(record gestalt.Record) (*gestalt.BoundWorkflowEventTrigger, error) {
-	return decodeNativePayload[gestalt.BoundWorkflowEventTrigger](recordBytes(record, "payload"), "workflow event trigger")
-}
-
-func scheduleInputFromRecord(record gestalt.Record) (*gestalt.BoundWorkflowSchedule, error) {
-	return decodeNativePayload[gestalt.BoundWorkflowSchedule](recordBytes(record, "payload"), "workflow schedule")
-}
-
 func nativePayload(value any) []byte {
 	if value == nil {
 		return nil
@@ -1581,8 +1262,8 @@ func decodeNativePayload[T any](payload []byte, kind string) (*T, error) {
 	return &input, nil
 }
 
-func runInputFromPayload(payload []byte) *gestalt.BoundWorkflowRun {
-	run, err := decodeNativePayload[gestalt.BoundWorkflowRun](payload, "workflow run")
+func runProjectionFromPayload(payload []byte) *gestalt.WorkflowRun {
+	run, err := decodeNativePayload[gestalt.WorkflowRun](payload, "workflow run")
 	if err != nil {
 		return nil
 	}

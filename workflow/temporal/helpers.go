@@ -12,6 +12,7 @@ import (
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	gestaltworkflow "github.com/valon-technologies/gestalt/sdk/go/workflow"
 )
 
 const (
@@ -329,7 +330,7 @@ func cloneWorkflowEventInput(event *gestalt.WorkflowEvent) *gestalt.WorkflowEven
 	return &out
 }
 
-func cloneWorkflowDefinitionInput(definition *gestalt.BoundWorkflowDefinition) *gestalt.BoundWorkflowDefinition {
+func cloneWorkflowDefinitionInput(definition *gestalt.WorkflowDefinition) *gestalt.WorkflowDefinition {
 	if definition == nil {
 		return nil
 	}
@@ -338,9 +339,26 @@ func cloneWorkflowDefinitionInput(definition *gestalt.BoundWorkflowDefinition) *
 		out := *definition
 		return &out
 	}
-	var out gestalt.BoundWorkflowDefinition
+	var out gestalt.WorkflowDefinition
 	if err := json.Unmarshal(data, &out); err != nil {
 		out := *definition
+		return &out
+	}
+	return &out
+}
+
+func cloneBoundWorkflowTargetInput(target *gestalt.BoundWorkflowTarget) *gestalt.BoundWorkflowTarget {
+	if target == nil {
+		return nil
+	}
+	data, err := json.Marshal(target)
+	if err != nil {
+		out := *target
+		return &out
+	}
+	var out gestalt.BoundWorkflowTarget
+	if err := json.Unmarshal(data, &out); err != nil {
+		out := *target
 		return &out
 	}
 	return &out
@@ -367,7 +385,7 @@ func normalizeWorkflowSignalInput(signal *gestalt.WorkflowSignal, now time.Time)
 	return &out, nil
 }
 
-func cloneRunInput(run *gestalt.BoundWorkflowRun) *gestalt.BoundWorkflowRun {
+func cloneRunInput(run *gestalt.WorkflowRun) *gestalt.WorkflowRun {
 	if run == nil {
 		return nil
 	}
@@ -392,17 +410,18 @@ func cloneSignalInput(signal *gestalt.WorkflowSignal) *gestalt.WorkflowSignal {
 	return &out
 }
 
-func eventMatchesTriggerInput(event *gestalt.WorkflowEvent, trigger *gestalt.BoundWorkflowEventTrigger) bool {
-	if event == nil || trigger == nil || trigger.Paused || trigger.Match == nil {
+func eventMatchesActivationInput(event *gestalt.WorkflowEvent, activation gestalt.WorkflowActivation) bool {
+	if event == nil || activation.Paused || activation.Event == nil || activation.Event.Match == nil {
 		return false
 	}
-	if strings.TrimSpace(event.Type) != strings.TrimSpace(trigger.Match.Type) {
+	match := activation.Event.Match
+	if strings.TrimSpace(event.Type) != strings.TrimSpace(match.Type) {
 		return false
 	}
-	if source := strings.TrimSpace(trigger.Match.Source); source != "" && strings.TrimSpace(event.Source) != source {
+	if source := strings.TrimSpace(match.Source); source != "" && strings.TrimSpace(event.Source) != source {
 		return false
 	}
-	if subject := strings.TrimSpace(trigger.Match.Subject); subject != "" && strings.TrimSpace(event.Subject) != subject {
+	if subject := strings.TrimSpace(match.Subject); subject != "" && strings.TrimSpace(event.Subject) != subject {
 		return false
 	}
 	return true
@@ -489,12 +508,12 @@ func manualTriggerInput() *gestalt.WorkflowRunTrigger {
 func scheduleTriggerInput(scheduleID string, scheduledFor time.Time) *gestalt.WorkflowRunTrigger {
 	scheduledFor = scheduledFor.UTC()
 	return &gestalt.WorkflowRunTrigger{Schedule: &gestalt.WorkflowScheduleTrigger{
-		ScheduleID:   strings.TrimSpace(scheduleID),
+		ActivationID: strings.TrimSpace(scheduleID),
 		ScheduledFor: &scheduledFor,
 	}}
 }
 
-func sortRunInputs(runs []*gestalt.BoundWorkflowRun) {
+func sortRunInputs(runs []*gestalt.WorkflowRun) {
 	sort.SliceStable(runs, func(i, j int) bool {
 		a := runs[i].CreatedAt
 		b := runs[j].CreatedAt
@@ -505,24 +524,337 @@ func sortRunInputs(runs []*gestalt.BoundWorkflowRun) {
 	})
 }
 
-func sortScheduleInputs(schedules []*gestalt.BoundWorkflowSchedule) {
-	sort.SliceStable(schedules, func(i, j int) bool {
-		a := schedules[i].CreatedAt
-		b := schedules[j].CreatedAt
-		if !a.Equal(b) {
-			return a.Before(b)
-		}
-		return schedules[i].ID < schedules[j].ID
-	})
+func workflowActivationInputMap(value gestalt.WorkflowValue) (map[string]any, error) {
+	return workflowActivationInputMapWithSignals(value, nil)
 }
 
-func sortTriggerInputs(triggers []*gestalt.BoundWorkflowEventTrigger) {
-	sort.SliceStable(triggers, func(i, j int) bool {
-		a := triggers[i].CreatedAt
-		b := triggers[j].CreatedAt
-		if !a.Equal(b) {
-			return a.Before(b)
+func workflowEventActivationInputMap(value gestalt.WorkflowValue, event *gestalt.WorkflowEvent) (map[string]any, error) {
+	if event == nil {
+		return workflowActivationInputMapWithSignals(value, nil)
+	}
+	signal := gestalt.WorkflowSignal{Name: strings.TrimSpace(event.Type), Payload: workflowEventMapInput(event)}
+	return workflowActivationInputMapWithSignals(value, []gestalt.WorkflowSignal{signal})
+}
+
+func workflowActivationInputMapWithSignals(value gestalt.WorkflowValue, signals []gestalt.WorkflowSignal) (map[string]any, error) {
+	if workflowValueIsZero(value) {
+		return nil, nil
+	}
+	resolved, ok, err := (gestaltworkflow.EvalContext{Request: gestaltworkflow.Request{Signals: signals}}).EvaluateValue(value)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("input did not resolve")
+	}
+	if resolved == nil {
+		return nil, nil
+	}
+	input, ok := resolved.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("input must resolve to an object")
+	}
+	return cloneMapInput(input), nil
+}
+
+func workflowEventMapInput(event *gestalt.WorkflowEvent) map[string]any {
+	if event == nil {
+		return nil
+	}
+	value := map[string]any{
+		"id":              event.ID,
+		"source":          event.Source,
+		"spec_version":    event.SpecVersion,
+		"type":            event.Type,
+		"subject":         event.Subject,
+		"datacontenttype": event.DataContentType,
+		"data":            cloneAnyInput(event.Data),
+		"extensions":      cloneMapInput(event.Extensions),
+	}
+	if !event.Time.IsZero() {
+		value["time"] = event.Time.UTC().Format(time.RFC3339Nano)
+	}
+	return value
+}
+
+func workflowValueIsZero(value gestalt.WorkflowValue) bool {
+	return !value.LiteralSet &&
+		value.Object == nil &&
+		value.Array == nil &&
+		value.Template == nil &&
+		strings.TrimSpace(value.Input) == "" &&
+		strings.TrimSpace(value.Signal) == "" &&
+		value.StepOutput == nil &&
+		value.StepInput == nil
+}
+
+func cloneMapInput(input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	payload, err := json.Marshal(input)
+	if err != nil {
+		return map[string]any{}
+	}
+	var out map[string]any
+	if err := json.Unmarshal(payload, &out); err != nil {
+		return map[string]any{}
+	}
+	return out
+}
+
+func cloneAnyInput(input any) any {
+	if input == nil {
+		return nil
+	}
+	payload, err := json.Marshal(input)
+	if err != nil {
+		return nil
+	}
+	var out any
+	if err := json.Unmarshal(payload, &out); err != nil {
+		return nil
+	}
+	return out
+}
+
+func applyWorkflowExecutionProjectionInput(run *gestalt.WorkflowRun, body string, completedAt time.Time) {
+	if run == nil {
+		return
+	}
+	result := workflowExecutionResultFromBodyInput(body)
+	run.Output = result.FinalOutput
+	run.CurrentStepID = result.FinalStepID
+	run.Steps = workflowStepExecutionsFromResultInput(result, completedAt)
+}
+
+func workflowExecutionResultFromBodyInput(body string) gestaltworkflow.StepsResult {
+	var result gestaltworkflow.StepsResult
+	if strings.TrimSpace(body) == "" {
+		return result
+	}
+	_ = json.Unmarshal([]byte(body), &result)
+	return result
+}
+
+func workflowStepExecutionsFromResultInput(result gestaltworkflow.StepsResult, completedAt time.Time) []gestalt.WorkflowStepExecution {
+	if len(result.Steps) == 0 {
+		return nil
+	}
+	out := make([]gestalt.WorkflowStepExecution, 0, len(result.Steps))
+	for _, step := range result.Steps {
+		statusValue := workflowStepStatusFromStringInput(step.Status)
+		output := cloneAnyInput(result.Outputs[strings.TrimSpace(step.ID)])
+		message := ""
+		if step.Error != nil {
+			message = strings.TrimSpace(step.Error.Message)
 		}
-		return triggers[i].ID < triggers[j].ID
-	})
+		execution := gestalt.WorkflowStepExecution{
+			StepID:        strings.TrimSpace(step.ID),
+			Status:        statusValue,
+			Output:        output,
+			StatusMessage: message,
+			SkipReason:    strings.TrimSpace(step.SkippedReason),
+			CompletedAt:   timePtrInput(completedAt),
+		}
+		if statusValue == gestalt.WorkflowStepStatusValueSucceeded ||
+			statusValue == gestalt.WorkflowStepStatusValueFailed ||
+			statusValue == gestalt.WorkflowStepStatusValueSkipped {
+			execution.Attempts = []gestalt.WorkflowStepAttempt{{
+				ID:            execution.StepID + ":1",
+				Status:        statusValue,
+				Output:        output,
+				StatusMessage: message,
+				CompletedAt:   timePtrInput(completedAt),
+			}}
+		}
+		out = append(out, execution)
+	}
+	return out
+}
+
+func workflowTargetStepCountInput(target *gestalt.BoundWorkflowTarget) int {
+	if target == nil {
+		return 0
+	}
+	return len(target.Steps)
+}
+
+func workflowStepOutputsFromExecutionsInput(steps []gestalt.WorkflowStepExecution) map[string]any {
+	if len(steps) == 0 {
+		return nil
+	}
+	out := map[string]any{}
+	for _, step := range steps {
+		if step.Status != gestalt.WorkflowStepStatusValueSucceeded {
+			continue
+		}
+		stepID := strings.TrimSpace(step.StepID)
+		if stepID == "" {
+			continue
+		}
+		out[stepID] = cloneAnyInput(step.Output)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func workflowStepInputsFromExecutionsInput(steps []gestalt.WorkflowStepExecution) map[string]any {
+	if len(steps) == 0 {
+		return nil
+	}
+	out := map[string]any{}
+	for _, step := range steps {
+		stepID := strings.TrimSpace(step.StepID)
+		if stepID == "" {
+			continue
+		}
+		out[stepID] = cloneAnyInput(step.Input)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func workflowSkippedStepIDsFromExecutionsInput(steps []gestalt.WorkflowStepExecution) []string {
+	if len(steps) == 0 {
+		return nil
+	}
+	out := make([]string, 0)
+	for _, step := range steps {
+		if step.Status != gestalt.WorkflowStepStatusValueSkipped {
+			continue
+		}
+		if stepID := strings.TrimSpace(step.StepID); stepID != "" {
+			out = append(out, stepID)
+		}
+	}
+	return out
+}
+
+func workflowStepExecutionFromStepResponseInput(resp gestaltworkflow.StepResponse, startedAt, completedAt time.Time) gestalt.WorkflowStepExecution {
+	statusValue := workflowStepStatusFromStringInput(resp.Step.Status)
+	stepID := strings.TrimSpace(resp.Step.ID)
+	input := cloneAnyInput(resp.Input)
+	output := cloneAnyInput(resp.Output)
+	message := ""
+	if resp.Step.Error != nil {
+		message = strings.TrimSpace(resp.Step.Error.Message)
+	}
+	execution := gestalt.WorkflowStepExecution{
+		StepID:        stepID,
+		Status:        statusValue,
+		Input:         input,
+		Output:        output,
+		StatusMessage: message,
+		SkipReason:    strings.TrimSpace(resp.Step.SkippedReason),
+		StartedAt:     timePtrInput(startedAt),
+		CompletedAt:   timePtrInput(completedAt),
+	}
+	if workflowStepStatusTerminalInput(statusValue) {
+		execution.Attempts = []gestalt.WorkflowStepAttempt{{
+			ID:            execution.StepID + ":1",
+			Status:        statusValue,
+			Input:         input,
+			Output:        output,
+			StatusMessage: message,
+			StartedAt:     timePtrInput(startedAt),
+			CompletedAt:   timePtrInput(completedAt),
+		}}
+	}
+	return execution
+}
+
+func workflowStepStatusTerminalInput(status gestalt.WorkflowStepStatus) bool {
+	switch status {
+	case gestalt.WorkflowStepStatusValueSkipped,
+		gestalt.WorkflowStepStatusValueSucceeded,
+		gestalt.WorkflowStepStatusValueFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func workflowStepFailureMessageInput(resp *gestaltworkflow.StepResponse, fallback string) string {
+	if resp == nil {
+		return strings.TrimSpace(fallback)
+	}
+	if resp.Step.Error != nil && strings.TrimSpace(resp.Step.Error.Message) != "" {
+		return strings.TrimSpace(resp.Step.Error.Message)
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func workflowStepStatusFromStringInput(status string) gestalt.WorkflowStepStatus {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "pending":
+		return gestalt.WorkflowStepStatusValuePending
+	case "running":
+		return gestalt.WorkflowStepStatusValueRunning
+	case "skipped":
+		return gestalt.WorkflowStepStatusValueSkipped
+	case "succeeded", "success":
+		return gestalt.WorkflowStepStatusValueSucceeded
+	case "failed", "failure":
+		return gestalt.WorkflowStepStatusValueFailed
+	case "unknown":
+		return gestalt.WorkflowStepStatusValueUnknown
+	default:
+		return gestalt.WorkflowStepStatusValueUnspecified
+	}
+}
+
+func workflowRunEventsFromRun(run *gestalt.WorkflowRun) []gestalt.WorkflowRunEvent {
+	if run == nil {
+		return nil
+	}
+	events := []gestalt.WorkflowRunEvent{{
+		ID:        run.ID + ":run",
+		RunID:     run.ID,
+		Type:      "run." + workflowRunStatusName(run.Status),
+		Data:      map[string]any{"status": workflowRunStatusName(run.Status)},
+		CreatedAt: run.CreatedAt,
+	}}
+	for _, step := range run.Steps {
+		createdAt := run.CreatedAt
+		if step.CompletedAt != nil {
+			createdAt = *step.CompletedAt
+		}
+		events = append(events, gestalt.WorkflowRunEvent{
+			ID:        run.ID + ":step:" + strings.TrimSpace(step.StepID),
+			RunID:     run.ID,
+			StepID:    step.StepID,
+			Type:      "step." + workflowStepStatusEventNameInput(step.Status),
+			Data:      map[string]any{"status": workflowStepStatusEventNameInput(step.Status), "message": step.StatusMessage},
+			CreatedAt: createdAt,
+		})
+	}
+	return events
+}
+
+func workflowStepStatusEventNameInput(status gestalt.WorkflowStepStatus) string {
+	switch status {
+	case gestalt.WorkflowStepStatusValuePending:
+		return "pending"
+	case gestalt.WorkflowStepStatusValueRunning:
+		return "running"
+	case gestalt.WorkflowStepStatusValueSkipped:
+		return "skipped"
+	case gestalt.WorkflowStepStatusValueSucceeded:
+		return "succeeded"
+	case gestalt.WorkflowStepStatusValueFailed:
+		return "failed"
+	case gestalt.WorkflowStepStatusValueUnknown:
+		return "unknown"
+	default:
+		return "unspecified"
+	}
+}
+
+func timePtrInput(value time.Time) *time.Time {
+	return &value
 }

@@ -38,8 +38,8 @@ func signalFingerprint(ownerKey, workflowKey string, signal *gestalt.WorkflowSig
 	return hashID("signal", ownerKey, workflowKey, valueHashID(stableSignal))
 }
 
-func startFingerprint(ownerKey, key, workflowKey, definitionID string, target *gestalt.BoundWorkflowTarget, createdBySubjectID string) string {
-	return hashID("start", ownerKey, key, workflowKey, definitionID, valueHashID(target), valueHashID(createdBySubjectID))
+func startFingerprint(ownerKey, key, workflowKey, definitionID string, definitionGeneration int64, input map[string]any, createdBySubjectID string) string {
+	return hashID("start", ownerKey, key, workflowKey, definitionID, fmt.Sprintf("%d", definitionGeneration), valueHashID(input), valueHashID(createdBySubjectID))
 }
 
 func idempotentDefinitionID(ownerKey, key string) string {
@@ -47,7 +47,7 @@ func idempotentDefinitionID(ownerKey, key string) string {
 }
 
 func eventRunWorkflowID(scopeID, triggerID string, event *gestalt.WorkflowEvent) string {
-	// The event-v3 family is a persisted idempotency namespace for published event
+	// The event-v3 family is a persisted idempotency namespace for delivered event
 	// IDs. Keep it stable even though the provider runtime is now V4-only.
 	if event != nil && strings.TrimSpace(event.ID) != "" {
 		return workflowID(scopeID, "event-v3", triggerID, event.Source, event.ID)
@@ -59,7 +59,7 @@ func eventRunWorkflowID(scopeID, triggerID string, event *gestalt.WorkflowEvent)
 	return workflowID(scopeID, "event-v3", triggerID, source, uuid.NewString())
 }
 
-func signalInputForStartedRun(run *gestalt.BoundWorkflowRun, signal *gestalt.WorkflowSignal) *gestalt.WorkflowSignal {
+func signalInputForStartedRun(run *gestalt.WorkflowRun, signal *gestalt.WorkflowSignal) *gestalt.WorkflowSignal {
 	if signal == nil {
 		return nil
 	}

@@ -7,7 +7,7 @@ operations:
   tags: [identity]
 - id: events.handle
   method: POST
-  description: Handle Slack Events API callbacks for workflow event publishing and
+  description: Handle Slack Events API callbacks for workflow event delivery and
     supported agent events
   visible: false
 - id: interactions.handle

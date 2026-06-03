@@ -711,7 +711,7 @@ def resolve_http_subject(request: gestalt.HTTPSubjectRequest) -> gestalt.Subject
 @app.operation(
     id=GITHUB_EVENT_OPERATION,
     method="POST",
-    description="Handle GitHub App webhook callbacks by publishing canonical workflow events",
+    description="Handle GitHub App webhook callbacks by delivering canonical workflow events",
     visible=False,
 )
 def github_events_handle(
@@ -728,10 +728,10 @@ def github_events_handle(
 
     installation_id = installation_id_from_payload(input)
     summary = event_summary(input, installation_id, event_type=event_type)
-    workflow_request = _build_workflow_publish_event_request(input, summary)
+    workflow_request = _build_workflow_deliver_event_request(input, summary)
     try:
         logger.info(
-            "publishing GitHub workflow event",
+            "delivering GitHub workflow event",
             extra={
                 "github_event": summary.get("event_type", ""),
                 "github_action": summary.get("action", ""),
@@ -741,10 +741,10 @@ def github_events_handle(
             },
         )
         with req.workflows() as workflows:
-            workflows.publish_event(workflow_request)
+            workflows.deliver_event(workflow_request)
     except Exception as err:
         logger.exception(
-            "failed to publish GitHub workflow event",
+            "failed to deliver GitHub workflow event",
             extra={
                 "github_event": summary.get("event_type", ""),
                 "github_action": summary.get("action", ""),
@@ -752,10 +752,10 @@ def github_events_handle(
                 "github_repository": summary.get("repository", ""),
             },
         )
-        return _server_error(f"failed to publish workflow event: {err}")
+        return _server_error(f"failed to deliver workflow event: {err}")
 
     logger.info(
-        "published GitHub workflow event",
+        "delivered GitHub workflow event",
         extra={
             "github_event": summary.get("event_type", ""),
             "github_action": summary.get("action", ""),
@@ -770,7 +770,7 @@ def github_events_handle(
 
     return {
         "ok": True,
-        "published": True,
+        "delivered": True,
         "workflow_event_id": workflow_request.event.id
         if workflow_request.event is not None
         else "",
@@ -778,15 +778,15 @@ def github_events_handle(
     }
 
 
-def _build_workflow_publish_event_request(
+def _build_workflow_deliver_event_request(
     payload: dict[str, Any], summary: dict[str, Any]
-) -> gestalt.WorkflowPublishEvent:
+) -> gestalt.WorkflowDeliverEvent:
     event_type = str(summary.get("event_type", "")).strip()
     delivery_id = github_delivery_id(payload)
     event_id = (
         f"github:{delivery_id}" if delivery_id else f"github:{payload_digest(payload)}"
     )
-    return gestalt.WorkflowPublishEvent(
+    return gestalt.WorkflowDeliverEvent(
         provider_name=get_github_config().workflow_provider,
         event=gestalt.WorkflowEvent(
             id=event_id,
