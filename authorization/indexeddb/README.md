@@ -13,7 +13,8 @@ service AuthorizationProvider {
   rpc ListRelationships(ListRelationshipsRequest) returns (ListRelationshipsResponse);
   rpc AddRelationship(AddRelationshipRequest) returns (AddRelationshipResponse);
   rpc DeleteRelationship(DeleteRelationshipRequest) returns (DeleteRelationshipResponse);
-  rpc SetRelationships(SetRelationshipsRequest) returns (SetRelationshipsResponse);
+
+  rpc SetAuthorizationState(SetAuthorizationStateRequest) returns (SetAuthorizationStateResponse);
 
   rpc GetActiveModelRef(google.protobuf.Empty) returns (GetActiveModelRefResponse);
   rpc SetActiveModel(SetActiveModelRequest) returns (SetActiveModelResponse);

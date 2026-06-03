@@ -12,7 +12,7 @@ type AuthorizationProvider interface {
 	ListRelationships(context.Context, *ListRelationshipsRequest) (*ListRelationshipsResponse, error)
 	AddRelationship(context.Context, *AddRelationshipRequest) (*AddRelationshipResponse, error)
 	DeleteRelationship(context.Context, *DeleteRelationshipRequest) (*DeleteRelationshipResponse, error)
-	SetRelationships(context.Context, *SetRelationshipsRequest) (*SetRelationshipsResponse, error)
+	SetAuthorizationState(context.Context, *SetAuthorizationStateRequest) (*SetAuthorizationStateResponse, error)
 	GetActiveModelRef(context.Context, *emptypb.Empty) (*GetActiveModelRefResponse, error)
 	SetActiveModel(context.Context, *SetActiveModelRequest) (*SetActiveModelResponse, error)
 	ListActiveModelResourceTypes(context.Context, *ListActiveModelResourceTypesRequest) (*ListActiveModelResourceTypesResponse, error)
@@ -75,12 +75,13 @@ type DeleteRelationshipRequest struct {
 
 type DeleteRelationshipResponse struct{}
 
-type SetRelationshipsRequest struct {
+type SetAuthorizationStateRequest struct {
+	Model         *AuthorizationModel
 	Relationships []*Relationship
 }
 
-type SetRelationshipsResponse struct {
-	Relationships []*Relationship
+type SetAuthorizationStateResponse struct {
+	ActiveModel *AuthorizationModelRef
 }
 
 type Subject struct {

@@ -153,30 +153,26 @@ func (p *Provider) DeleteRelationship(ctx context.Context, req *DeleteRelationsh
 	return &DeleteRelationshipResponse{}, nil
 }
 
-func (p *Provider) SetRelationships(ctx context.Context, req *SetRelationshipsRequest) (*SetRelationshipsResponse, error) {
-	if req == nil {
-		return nil, status.Error(codes.InvalidArgument, "request is required")
+func (p *Provider) SetAuthorizationState(ctx context.Context, req *SetAuthorizationStateRequest) (*SetAuthorizationStateResponse, error) {
+	if req == nil || req.Model == nil {
+		return nil, status.Error(codes.InvalidArgument, "model is required")
 	}
-
-	relationships := make([]*Relationship, 0, len(req.Relationships))
-	records := make([]indexeddb.Record, 0, len(req.Relationships))
-	seenIDs := make(map[string]struct{}, len(req.Relationships))
-	for _, relationship := range req.Relationships {
-		cloned := cloneRelationship(relationship)
-		if err := normalizeRelationship(cloned); err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "relationship is invalid: %v", err)
-		}
-		record, err := relationshipToRecord(cloned)
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "relationship is invalid: %v", err)
-		}
-		id := stringField(record, "id")
-		if _, ok := seenIDs[id]; ok {
-			continue
-		}
-		seenIDs[id] = struct{}{}
-		relationships = append(relationships, cloned)
-		records = append(records, record)
+	model := cloneAuthorizationModel(req.Model)
+	if err := normalizeAuthorizationModel(model); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "model is invalid: %v", err)
+	}
+	modelRecord, err := modelToRecord(model)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "model is invalid: %v", err)
+	}
+	_, relationshipRecords, err := normalizeRelationshipRecords(req.Relationships)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	ref := model.toRef(time.Now().UTC())
+	refRecord, err := modelRefToRecord(getStateKeys().activeModel, ref)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "active model ref is invalid: %v", err)
 	}
 
 	db, err := p.getDbWithLock()
@@ -184,28 +180,37 @@ func (p *Provider) SetRelationships(ctx context.Context, req *SetRelationshipsRe
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	stores := getStoreNames()
-	tx, err := db.Transaction(ctx, []string{stores.relationships}, indexeddb.TransactionReadwrite, indexeddb.TransactionOptions{})
+	tx, err := db.Transaction(ctx, stores.all(), indexeddb.TransactionReadwrite, indexeddb.TransactionOptions{})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "start relationships transaction: %v", err)
+		return nil, status.Errorf(codes.Internal, "start authorization state transaction: %v", err)
 	}
 	defer func() {
 		_ = tx.Abort(ctx)
 	}()
 
-	store := tx.ObjectStore(stores.relationships)
-	if err := store.Clear(ctx); err != nil {
+	modelStore := tx.ObjectStore(stores.models)
+	stateStore := tx.ObjectStore(stores.state)
+	relationshipStore := tx.ObjectStore(stores.relationships)
+
+	if err := modelStore.Put(ctx, modelRecord); err != nil {
+		return nil, status.Errorf(codes.Internal, "set authorization model: %v", err)
+	}
+	if err := stateStore.Put(ctx, refRecord); err != nil {
+		return nil, status.Errorf(codes.Internal, "set active model state: %v", err)
+	}
+	if err := relationshipStore.Clear(ctx); err != nil {
 		return nil, status.Errorf(codes.Internal, "clear relationships: %v", err)
 	}
-	for _, record := range records {
-		if err := store.Put(ctx, record); err != nil {
+	for _, record := range relationshipRecords {
+		if err := relationshipStore.Put(ctx, record); err != nil {
 			return nil, status.Errorf(codes.Internal, "set relationship: %v", err)
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return nil, status.Errorf(codes.Internal, "commit relationships: %v", err)
+		return nil, status.Errorf(codes.Internal, "commit authorization state: %v", err)
 	}
 
-	return &SetRelationshipsResponse{Relationships: cloneRelationships(relationships)}, nil
+	return &SetAuthorizationStateResponse{ActiveModel: cloneAuthorizationModelRef(ref)}, nil
 }
 
 func (p *Provider) ListRelationships(ctx context.Context, req *ListRelationshipsRequest) (*ListRelationshipsResponse, error) {
@@ -382,7 +387,6 @@ func (p *Provider) Close() error {
 }
 
 var _ AuthorizationProvider = (*Provider)(nil)
-var _ gestalt.AuthorizationProvider = (*Provider)(nil)
 var _ gestalt.MetadataProvider = (*Provider)(nil)
 var _ gestalt.HealthChecker = (*Provider)(nil)
 var _ gestalt.Closer = (*Provider)(nil)

@@ -36,6 +36,30 @@ func relationshipFromRecord(record indexeddb.Record) (*Relationship, error) {
 	return &relationship, nil
 }
 
+func normalizeRelationshipRecords(input []*Relationship) ([]*Relationship, []indexeddb.Record, error) {
+	relationships := make([]*Relationship, 0, len(input))
+	records := make([]indexeddb.Record, 0, len(input))
+	seenIDs := make(map[string]struct{}, len(input))
+	for _, relationship := range input {
+		cloned := cloneRelationship(relationship)
+		if err := normalizeRelationship(cloned); err != nil {
+			return nil, nil, fmt.Errorf("relationship is invalid: %w", err)
+		}
+		record, err := relationshipToRecord(cloned)
+		if err != nil {
+			return nil, nil, fmt.Errorf("relationship is invalid: %w", err)
+		}
+		id := stringField(record, "id")
+		if _, ok := seenIDs[id]; ok {
+			continue
+		}
+		seenIDs[id] = struct{}{}
+		relationships = append(relationships, cloned)
+		records = append(records, record)
+	}
+	return relationships, records, nil
+}
+
 func normalizeRelationship(relationship *Relationship) error {
 	if relationship == nil {
 		return fmt.Errorf("relationship is required")

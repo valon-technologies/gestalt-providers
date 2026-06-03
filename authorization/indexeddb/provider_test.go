@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
@@ -261,7 +260,7 @@ func TestProviderSetActiveModelRejectsInvalidDefaultAccessPolicy(t *testing.T) {
 	}
 }
 
-func TestProviderSetAndListRelationships(t *testing.T) {
+func TestProviderSetAuthorizationStateAndListRelationships(t *testing.T) {
 	ctx := context.Background()
 	provider := New()
 	fakeDB := &fakeIndexedDB{}
@@ -272,6 +271,14 @@ func TestProviderSetAndListRelationships(t *testing.T) {
 		}
 	})
 
+	model := &AuthorizationModel{
+		Id:      "model-1",
+		Version: "v1",
+		ResourceTypes: []*AuthorizationModelResourceType{
+			{Name: "group"},
+			{Name: "repository"},
+		},
+	}
 	relationships := []*Relationship{
 		{
 			Tuple: &RelationshipTuple{
@@ -305,12 +312,21 @@ func TestProviderSetAndListRelationships(t *testing.T) {
 		},
 	}
 
-	setResp, err := provider.SetRelationships(ctx, &SetRelationshipsRequest{Relationships: relationships})
+	setResp, err := provider.SetAuthorizationState(ctx, &SetAuthorizationStateRequest{
+		Model:         model,
+		Relationships: relationships,
+	})
 	if err != nil {
-		t.Fatalf("SetRelationships() error = %v", err)
+		t.Fatalf("SetAuthorizationState() error = %v", err)
 	}
-	if !sameRelationshipSet(setResp.Relationships, relationships) {
-		t.Fatalf("SetRelationships().Relationships = %#v, want %#v", setResp.Relationships, relationships)
+	if setResp.ActiveModel.Id != "model-1" {
+		t.Fatalf("SetAuthorizationState().ActiveModel.Id = %q, want model-1", setResp.ActiveModel.Id)
+	}
+	if setResp.ActiveModel.Version != "v1" {
+		t.Fatalf("SetAuthorizationState().ActiveModel.Version = %q, want v1", setResp.ActiveModel.Version)
+	}
+	if setResp.ActiveModel.CreatedAt.IsZero() {
+		t.Fatalf("SetAuthorizationState().ActiveModel.CreatedAt is zero")
 	}
 
 	listResp, err := provider.ListRelationships(ctx, &ListRelationshipsRequest{})
@@ -456,9 +472,6 @@ func TestProviderCheckAccess(t *testing.T) {
 			},
 		},
 	}
-	if _, err := provider.SetActiveModel(ctx, &SetActiveModelRequest{Model: model}); err != nil {
-		t.Fatalf("SetActiveModel() error = %v", err)
-	}
 
 	relationships := []*Relationship{
 		{
@@ -512,8 +525,11 @@ func TestProviderCheckAccess(t *testing.T) {
 			SourceLayer: SourceLayerRuntime,
 		},
 	}
-	if _, err := provider.SetRelationships(ctx, &SetRelationshipsRequest{Relationships: relationships}); err != nil {
-		t.Fatalf("SetRelationships() error = %v", err)
+	if _, err := provider.SetAuthorizationState(ctx, &SetAuthorizationStateRequest{
+		Model:         model,
+		Relationships: relationships,
+	}); err != nil {
+		t.Fatalf("SetAuthorizationState() error = %v", err)
 	}
 
 	tests := []struct {
@@ -619,43 +635,6 @@ func TestProviderCheckAccess(t *testing.T) {
 		if decision.Allowed != wantAllowed[i] {
 			t.Fatalf("CheckAccessMany().Decisions[%d].Allowed = %v, want %v", i, decision.Allowed, wantAllowed[i])
 		}
-	}
-}
-
-func TestAuthorizationProviderSDKStubs(t *testing.T) {
-	ctx := context.Background()
-	provider := New()
-
-	tests := []struct {
-		name string
-		call func() error
-	}{
-		{
-			name: "Evaluate",
-			call: func() error {
-				_, err := provider.Evaluate(ctx, nil)
-				return err
-			},
-		},
-		{
-			name: "EvaluateMany",
-			call: func() error {
-				_, err := provider.EvaluateMany(ctx, nil)
-				return err
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.call()
-			if status.Code(err) != codes.Unimplemented {
-				t.Fatalf("%s() code = %v, want %v", tt.name, status.Code(err), codes.Unimplemented)
-			}
-			if !strings.Contains(err.Error(), tt.name) {
-				t.Fatalf("%s() error = %q, want method name", tt.name, err.Error())
-			}
-		})
 	}
 }
 
