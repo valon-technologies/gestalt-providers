@@ -14,8 +14,8 @@ from .store_records import (
     StoredTurn,
     _coerce_datetime,
     _coerce_required_datetime,
-    _coerce_string_dict,
 )
+from .subject_id import created_by_subject_id_from_record
 
 PROJECTION_SCHEMA_VERSION = 1
 PROJECTION_SEP = "\x1f"
@@ -53,7 +53,7 @@ def _session_projection_to_record(record_id: str, session: StoredSession) -> dic
         "model": session.model,
         "client_ref": session.client_ref,
         "state": session.state,
-        "created_by": copy.deepcopy(session.created_by),
+        "created_by_subject_id": session.created_by_subject_id,
         "visibility": session.visibility,
         "created_at": session.created_at,
         "updated_at": session.updated_at,
@@ -76,7 +76,7 @@ def _record_to_session_projection(record: dict[str, Any] | None) -> StoredSessio
         state=int(record.get("state") or gestalt.AGENT_SESSION_STATE_UNSPECIFIED),
         metadata={},
         prepared_workspace=None,
-        created_by=_coerce_string_dict(record.get("created_by")),
+        created_by_subject_id=created_by_subject_id_from_record(record),
         visibility=_projection_visibility(record.get("visibility")),
         created_at=_coerce_required_datetime(record.get("created_at")),
         updated_at=_coerce_required_datetime(record.get("updated_at")),
@@ -95,7 +95,7 @@ def _turn_projection_to_record(record_id: str, turn: StoredTurn) -> dict[str, An
         "model": turn.model,
         "status": turn.status,
         "status_message": turn.status_message,
-        "created_by": copy.deepcopy(turn.created_by),
+        "created_by_subject_id": turn.created_by_subject_id,
         "created_at": turn.created_at,
         "started_at": turn.started_at,
         "completed_at": turn.completed_at,
@@ -119,7 +119,7 @@ def _record_to_turn_projection(record: dict[str, Any] | None) -> StoredTurn | No
         messages=[],
         output=None,
         status_message=str(record.get("status_message") or ""),
-        created_by=_coerce_string_dict(record.get("created_by")),
+        created_by_subject_id=created_by_subject_id_from_record(record),
         created_at=_coerce_required_datetime(record.get("created_at")),
         started_at=_coerce_datetime(record.get("started_at")),
         completed_at=_coerce_datetime(record.get("completed_at")),
@@ -135,7 +135,7 @@ def _session_projection_keys(session: StoredSession) -> list[str]:
         _projection_key("session", "all", sort_key, session_id),
         _projection_key("session", "state", state, sort_key, session_id),
     ]
-    subject_id = _subject_id_from_actor(session.created_by)
+    subject_id = session.created_by_subject_id.strip()
     if subject_id:
         subject = _projection_value(subject_id)
         keys.append(_projection_key("session", "subject", subject, "all", sort_key, session_id))
@@ -157,7 +157,7 @@ def _turn_projection_keys(turn: StoredTurn) -> list[str]:
         _projection_key("turn", "session", session, "all", sort_key, turn_id),
         _projection_key("turn", "session", session, "status", status, sort_key, turn_id),
     ]
-    subject_id = _subject_id_from_actor(turn.created_by)
+    subject_id = turn.created_by_subject_id.strip()
     if subject_id:
         subject = _projection_value(subject_id)
         keys.append(_projection_key("turn", "session", session, "subject", subject, "all", sort_key, turn_id))
@@ -236,10 +236,6 @@ def _projection_prefix(*parts: str) -> str:
 
 def _prefix_key_range(prefix: str) -> Any:
     return gestalt.KeyRange(lower=prefix, upper=f"{prefix}{PROJECTION_RANGE_SUFFIX}")
-
-
-def _subject_id_from_actor(actor: dict[str, str]) -> str:
-    return str(actor.get("subject_id", "") or "").strip()
 
 
 def _projection_visibility(value: Any) -> str:

@@ -110,7 +110,7 @@ class IndexedDBRunStore:
         client_ref: str,
         metadata: dict[str, Any],
         prepared_workspace: dict[str, str] | None,
-        created_by: dict[str, str],
+        created_by_subject_id: str,
     ) -> tuple[StoredSession, bool]:
         session_id = session_id.strip()
         if not session_id:
@@ -142,8 +142,8 @@ class IndexedDBRunStore:
                 state=gestalt.AGENT_SESSION_STATE_ACTIVE,
                 metadata=copy.deepcopy(metadata),
                 prepared_workspace=copy.deepcopy(prepared_workspace) if prepared_workspace is not None else None,
-                created_by=_coerce_string_dict(created_by),
-                visibility=session_visibility_for_create(metadata, created_by),
+                created_by_subject_id=created_by_subject_id.strip(),
+                visibility=session_visibility_for_create(metadata, created_by_subject_id),
                 created_at=now,
                 updated_at=now,
             )
@@ -250,7 +250,7 @@ class IndexedDBRunStore:
         provider_name: str,
         model: str,
         messages: list[dict[str, Any]],
-        created_by: dict[str, str],
+        created_by_subject_id: str,
         execution_ref: str,
     ) -> tuple[StoredTurn, bool]:
         turn_id, session_id = _validated_turn_scope(turn_id=turn_id, session_id=session_id)
@@ -274,7 +274,7 @@ class IndexedDBRunStore:
                         provider_name=provider_name,
                         model=model,
                         messages=messages,
-                        created_by=created_by,
+                        created_by_subject_id=created_by_subject_id.strip(),
                         execution_ref=execution_ref,
                     ),
                 )
@@ -298,7 +298,7 @@ class IndexedDBRunStore:
         provider_name: str,
         model: str,
         messages: list[dict[str, Any]],
-        created_by: dict[str, str],
+        created_by_subject_id: str,
         execution_ref: str,
     ) -> tuple[StoredTurn, bool]:
         turns = stores[self._run_store_name]
@@ -325,7 +325,7 @@ class IndexedDBRunStore:
             provider_name=provider_name,
             model=model,
             messages=messages,
-            created_by=created_by,
+            created_by_subject_id=created_by_subject_id.strip(),
             execution_ref=execution_ref,
             now=now,
         )
@@ -376,7 +376,11 @@ class IndexedDBRunStore:
 
         subject_id = subject_id.strip()
         if subject_id:
-            filtered = [turn for turn in filtered if str(turn.created_by.get("subject_id", "") or "") == subject_id]
+            filtered = [
+                turn
+                for turn in filtered
+                if turn.created_by_subject_id.strip() == subject_id.strip()
+            ]
         if status:
             filtered = [turn for turn in filtered if turn.status == status]
         filtered = sorted(filtered, key=_turn_projection_order_key)
@@ -790,7 +794,7 @@ def _new_running_turn(
     provider_name: str,
     model: str,
     messages: list[dict[str, Any]],
-    created_by: dict[str, str],
+    created_by_subject_id: str,
     execution_ref: str,
     now: datetime,
 ) -> StoredTurn:
@@ -804,7 +808,7 @@ def _new_running_turn(
         messages=copy.deepcopy(messages),
         output=None,
         status_message="",
-        created_by=_coerce_string_dict(created_by),
+        created_by_subject_id=created_by_subject_id.strip(),
         created_at=now,
         started_at=now,
         completed_at=None,

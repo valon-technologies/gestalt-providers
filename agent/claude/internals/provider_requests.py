@@ -12,6 +12,7 @@ from .config import ClaudeAgentConfig
 from .session_start import validate_session_start_user_metadata
 from .store import IndexedDBRunStore
 from .store_records import StoredSession
+from .subject_id import created_by_subject_id_from_actor
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,7 +29,7 @@ class SessionCreateRequest:
     client_ref: str
     metadata: dict[str, Any]
     prepared_workspace: dict[str, str] | None
-    created_by: dict[str, str]
+    created_by_subject_id: str
     session_start: gestalt.AgentSessionStartConfig | None
 
     @property
@@ -46,7 +47,7 @@ class TurnCreateRequest:
     idempotency_key: str
     model: str
     messages: list[dict[str, Any]]
-    created_by: dict[str, str]
+    created_by_subject_id: str
     execution_ref: str
     turn_profile: ClaudeTurnProfile
     timeout_seconds: float = 0.0
@@ -81,7 +82,7 @@ def session_create_request_from_provider_request(
         client_ref=request.client_ref.strip(),
         metadata=metadata,
         prepared_workspace=prepared_workspace,
-        created_by=gestalt.agent_actor_to_dict(request.created_by),
+        created_by_subject_id=created_by_subject_id_from_actor(request.created_by),
         session_start=request.session_start,
     )
 
@@ -117,7 +118,7 @@ def turn_create_request_from_provider_request(
         idempotency_key=request.idempotency_key.strip(),
         model=model,
         messages=messages,
-        created_by=gestalt.agent_actor_to_dict(request.created_by),
+        created_by_subject_id=created_by_subject_id_from_actor(request.created_by),
         execution_ref=request.execution_ref.strip(),
         turn_profile=turn_profile,
         timeout_seconds=_timeout_seconds_from_request(request),

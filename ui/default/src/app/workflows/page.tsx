@@ -690,9 +690,7 @@ function RunsPanel({
               <DetailItem label="Completed" value={formatDate(selectedRun.completedAt)} />
               <DetailItem
                 label="Actor"
-                value={
-                  selectedRun.createdBy?.displayName || selectedRun.createdBy?.subjectId || "-"
-                }
+                value={selectedRun.createdBySubjectId || "-"}
               />
             </div>
 

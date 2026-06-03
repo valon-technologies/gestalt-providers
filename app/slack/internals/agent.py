@@ -2308,12 +2308,7 @@ def _resolve_slack_subject(
     subject_id = str(subject.id or "").strip()
     if not subject_id:
         return None
-    return gestalt.Subject(
-        id=subject_id,
-        kind=_resolved_subject_kind(subject),
-        display_name=_subject_display_name(subject),
-        auth_source="authorization",
-    )
+    return gestalt.Subject(id=subject_id)
 
 
 def _agent_route_run_as_subject(
@@ -2321,13 +2316,7 @@ def _agent_route_run_as_subject(
 ) -> gestalt.Subject | None:
     if route is None or not route.run_as_subject_id:
         return None
-    return gestalt.Subject(
-        id=route.run_as_subject_id,
-        kind=route.run_as_subject_kind
-        or _subject_kind_from_id(route.run_as_subject_id),
-        display_name=route.run_as_display_name or route.run_as_subject_id,
-        auth_source="slack_agent_route_run_as",
-    )
+    return gestalt.Subject(id=route.run_as_subject_id)
 
 
 def _interaction_route_run_as_subject(

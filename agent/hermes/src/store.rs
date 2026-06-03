@@ -17,7 +17,7 @@ pub struct StoredSession {
     pub state: AgentSessionState,
     pub visibility: SessionVisibility,
     pub metadata: Option<serde_json::Value>,
-    pub created_by: Option<AgentActor>,
+    pub created_by_subject_id: String,
     pub created_at: Option<SystemTime>,
     pub updated_at: Option<SystemTime>,
     pub last_turn_at: Option<SystemTime>,
@@ -42,7 +42,7 @@ pub struct StoredTurn {
     pub output_buffer: String,
     pub output: Option<AgentTurnOutput>,
     pub status_message: String,
-    pub created_by: Option<AgentActor>,
+    pub created_by_subject_id: String,
     pub created_at: Option<SystemTime>,
     pub started_at: Option<SystemTime>,
     pub completed_at: Option<SystemTime>,
@@ -124,9 +124,12 @@ impl Store {
             model,
             client_ref: req.client_ref.trim().to_string(),
             state: AgentSessionState::Active,
-            visibility: session_visibility(req.metadata.as_ref(), req.created_by.as_ref()),
+            visibility: session_visibility(
+                req.metadata.as_ref(),
+                &subject_id_from_actor(req.created_by.as_ref()),
+            ),
             metadata: req.metadata.clone(),
-            created_by: req.created_by.clone(),
+            created_by_subject_id: subject_id_from_actor(req.created_by.as_ref()),
             created_at: Some(now),
             updated_at: Some(now),
             last_turn_at: None,
@@ -293,7 +296,7 @@ impl Store {
             output_buffer: String::new(),
             output: None,
             status_message: String::new(),
-            created_by: req.created_by.clone(),
+            created_by_subject_id: subject_id_from_actor(req.created_by.as_ref()),
             created_at: Some(now),
             started_at: Some(now),
             completed_at: None,
@@ -508,7 +511,7 @@ pub fn agent_session(session: StoredSession, summary_only: bool) -> AgentSession
         client_ref: session.client_ref,
         state: session.state,
         metadata: if summary_only { None } else { session.metadata },
-        created_by: session.created_by,
+        created_by: agent_actor_from_subject_id(&session.created_by_subject_id),
         created_at: session.created_at,
         updated_at: session.updated_at,
         last_turn_at: session.last_turn_at,
@@ -529,7 +532,7 @@ pub fn agent_turn(turn: StoredTurn, summary_only: bool) -> AgentTurn {
         },
         output: if summary_only { None } else { turn.output },
         status_message: turn.status_message,
-        created_by: turn.created_by,
+        created_by: agent_actor_from_subject_id(&turn.created_by_subject_id),
         created_at: turn.created_at,
         started_at: turn.started_at,
         completed_at: turn.completed_at,
@@ -557,11 +560,8 @@ fn is_terminal(status: AgentExecutionStatus) -> bool {
         || status == AgentExecutionStatus::Canceled
 }
 
-fn session_visibility(
-    metadata: Option<&serde_json::Value>,
-    created_by: Option<&AgentActor>,
-) -> SessionVisibility {
-    if is_slack_agent_session_metadata(metadata) && is_managed_actor(created_by) {
+fn session_visibility(metadata: Option<&serde_json::Value>, created_by_subject_id: &str) -> SessionVisibility {
+    if is_slack_agent_session_metadata(metadata) && is_managed_subject_id(created_by_subject_id) {
         SessionVisibility::Company
     } else {
         SessionVisibility::Private
@@ -584,10 +584,24 @@ fn non_empty_json_string(value: Option<&serde_json::Value>) -> bool {
         .is_some_and(|value| !value.trim().is_empty())
 }
 
-fn is_managed_actor(actor: Option<&AgentActor>) -> bool {
-    actor.is_some_and(|actor| {
-        actor.subject_kind.trim() == "service_account"
-            || actor.subject_id.trim().starts_with("service_account:")
+fn is_managed_subject_id(subject_id: &str) -> bool {
+    subject_id.trim().starts_with("service_account:")
+}
+
+fn subject_id_from_actor(actor: Option<&AgentActor>) -> String {
+    actor
+        .map(|actor| actor.subject_id.trim().to_string())
+        .unwrap_or_default()
+}
+
+fn agent_actor_from_subject_id(subject_id: &str) -> Option<AgentActor> {
+    let subject_id = subject_id.trim();
+    if subject_id.is_empty() {
+        return None;
+    }
+    Some(AgentActor {
+        subject_id: subject_id.to_string(),
+        ..AgentActor::default()
     })
 }
 
@@ -601,11 +615,7 @@ pub(crate) fn session_readable_by(session: &StoredSession, subject_id: &str) -> 
 
 fn session_owned_by(session: &StoredSession, subject_id: &str) -> bool {
     let subject_id = subject_id.trim();
-    !subject_id.is_empty()
-        && session
-            .created_by
-            .as_ref()
-            .is_some_and(|actor| actor.subject_id.trim() == subject_id)
+    !subject_id.is_empty() && session.created_by_subject_id.trim() == subject_id
 }
 
 fn timestamp_key(ts: Option<&SystemTime>) -> SystemTime {

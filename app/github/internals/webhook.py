@@ -18,9 +18,6 @@ from .helpers import int_field, map_field, nested_str, str_field
 @dataclass(frozen=True, slots=True)
 class GitHubWebhookSubject:
     id: str
-    kind: str
-    display_name: str
-    auth_source: str
 
 
 def webhook_subject_from_payload(
@@ -30,17 +27,8 @@ def webhook_subject_from_payload(
     if installation_id <= 0:
         return None
 
-    repo = repository_full_name(payload)
     subject_id = f"{GITHUB_WEBHOOK_SUBJECT_PREFIX}{installation_id}"
-    display_name = f"GitHub App installation {installation_id}"
-    if repo:
-        display_name = f"{display_name} ({repo})"
-    return GitHubWebhookSubject(
-        id=subject_id,
-        kind="service_account",
-        display_name=display_name,
-        auth_source="github_webhook",
-    )
+    return GitHubWebhookSubject(id=subject_id)
 
 
 def event_summary(
