@@ -362,7 +362,7 @@ func normalizeWorkflowSignalInput(signal *gestalt.WorkflowSignal, now time.Time)
 	}
 	out.ID = strings.TrimSpace(out.ID)
 	out.Name = name
-	out.CreatedBy = cloneActorInput(out.CreatedBy)
+	out.CreatedBySubjectID = cloneCreatedBySubjectID(out.CreatedBySubjectID)
 	out.IdempotencyKey = strings.TrimSpace(out.IdempotencyKey)
 	return &out, nil
 }
@@ -376,7 +376,7 @@ func cloneRunInput(run *gestalt.BoundWorkflowRun) *gestalt.BoundWorkflowRun {
 	out.StatusMessage = strings.TrimSpace(out.StatusMessage)
 	out.WorkflowKey = strings.TrimSpace(out.WorkflowKey)
 	out.DefinitionID = strings.TrimSpace(out.DefinitionID)
-	out.CreatedBy = cloneActorInput(out.CreatedBy)
+	out.CreatedBySubjectID = cloneCreatedBySubjectID(out.CreatedBySubjectID)
 	return &out
 }
 
@@ -388,7 +388,7 @@ func cloneSignalInput(signal *gestalt.WorkflowSignal) *gestalt.WorkflowSignal {
 	out.ID = strings.TrimSpace(out.ID)
 	out.Name = strings.TrimSpace(out.Name)
 	out.IdempotencyKey = strings.TrimSpace(out.IdempotencyKey)
-	out.CreatedBy = cloneActorInput(out.CreatedBy)
+	out.CreatedBySubjectID = cloneCreatedBySubjectID(out.CreatedBySubjectID)
 	return &out
 }
 
@@ -452,26 +452,19 @@ func eventMatchKey(typ, source, subject string) string {
 	return strings.TrimSpace(typ) + "\x00" + strings.TrimSpace(source) + "\x00" + strings.TrimSpace(subject)
 }
 
-func actorHasSubject(actor *gestalt.WorkflowActor) bool {
-	return actor != nil && strings.TrimSpace(actor.SubjectID) != ""
+func createdBySubjectIDSet(subjectID string) bool {
+	return strings.TrimSpace(subjectID) != ""
 }
 
-func createdByForUpsertInput(existing, requested *gestalt.WorkflowActor) *gestalt.WorkflowActor {
-	if existing == nil || isConfigManagedActorInput(requested) {
-		return cloneActorInput(requested)
+func createdByForUpsert(existing, requested string) string {
+	if strings.TrimSpace(existing) == "" || isConfigManagedSubjectID(requested) {
+		return cloneCreatedBySubjectID(requested)
 	}
-	return cloneActorInput(existing)
+	return cloneCreatedBySubjectID(existing)
 }
 
-func cloneActorInput(actor *gestalt.WorkflowActor) *gestalt.WorkflowActor {
-	if actor == nil {
-		return nil
-	}
-	subjectID := strings.TrimSpace(actor.SubjectID)
-	if subjectID == "" {
-		return nil
-	}
-	return &gestalt.WorkflowActor{SubjectID: subjectID}
+func cloneCreatedBySubjectID(subjectID string) string {
+	return strings.TrimSpace(subjectID)
 }
 
 func cloneSubjectInput(subject *gestalt.Subject) *gestalt.Subject {
@@ -485,11 +478,8 @@ func cloneSubjectInput(subject *gestalt.Subject) *gestalt.Subject {
 	}
 }
 
-func isConfigManagedActorInput(actor *gestalt.WorkflowActor) bool {
-	if actor == nil {
-		return false
-	}
-	return strings.TrimSpace(actor.SubjectID) == configManagedWorkflowSubject
+func isConfigManagedSubjectID(subjectID string) bool {
+	return strings.TrimSpace(subjectID) == configManagedWorkflowSubject
 }
 
 func manualTriggerInput() *gestalt.WorkflowRunTrigger {

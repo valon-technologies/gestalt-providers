@@ -16,7 +16,7 @@ import (
 type workflowDefinitionRecord struct {
 	ID        string
 	Target    *gestalt.BoundWorkflowTarget
-	CreatedBy *gestalt.WorkflowActor
+	CreatedBySubjectID string
 	CreatedAt time.Time
 }
 
@@ -136,7 +136,7 @@ func (p *Provider) UpdateDefinition(ctx context.Context, req *gestalt.UpdateWork
 	record := workflowDefinitionRecord{
 		ID:        definitionID,
 		Target:    cloneTarget(target.Target),
-		CreatedBy: cloneActor(existing.CreatedBy),
+		CreatedBySubjectID: cloneCreatedBySubjectID(existing.CreatedBySubjectID),
 		CreatedAt: existing.CreatedAt,
 	}
 	if record.CreatedAt.IsZero() {
@@ -205,7 +205,7 @@ func (r workflowDefinitionRecord) toRecord() gestalt.Record {
 	return gestalt.Record{
 		"id":          r.ID,
 		"target_json": targetJSON(r.Target),
-		"created_by":  actorToMap(r.CreatedBy),
+		"created_by":  createdByToMap(r.CreatedBySubjectID),
 		"created_at":  r.CreatedAt.UTC(),
 	}
 }
@@ -220,7 +220,7 @@ func definitionRecordFromRecord(record gestalt.Record) (workflowDefinitionRecord
 	out := workflowDefinitionRecord{
 		ID:        id,
 		Target:    target,
-		CreatedBy: actorFromAny(value["created_by"]),
+		CreatedBySubjectID: createdByFromAny(value["created_by"]),
 	}
 	if createdAt := timeField(value, "created_at"); createdAt != nil {
 		out.CreatedAt = createdAt.UTC()
@@ -232,7 +232,7 @@ func (r workflowDefinitionRecord) toInput(providerName string) *gestalt.BoundWor
 	return cloneWorkflowDefinition(&gestalt.BoundWorkflowDefinition{
 		ID:           r.ID,
 		Target:       workflowTargetInput(r.Target),
-		CreatedBy:    workflowActorInput(r.CreatedBy),
+		CreatedBySubjectID: cloneCreatedBySubjectID(r.CreatedBySubjectID),
 		CreatedAt:    r.CreatedAt,
 		ProviderName: strings.TrimSpace(providerName),
 	})

@@ -37,7 +37,7 @@ func TestProviderStartRunUsesIdempotencyAndExecutesSteps(t *testing.T) {
 	first, err := provider.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
 		IdempotencyKey: "manual-sync",
 		Target:         workflowTarget(t, "roadmap", "sync", map[string]any{"mode": "full"}),
-		CreatedBy:      &gestalt.WorkflowActor{SubjectID: "user:123", SubjectKind: "user", DisplayName: "Ada"},
+		CreatedBySubjectID: "user:123",
 	})
 	if err != nil {
 		t.Fatalf("StartRun(first): %v", err)
@@ -64,8 +64,8 @@ func TestProviderStartRunUsesIdempotencyAndExecutesSteps(t *testing.T) {
 	if got := workflowValueObjectField(call.Target, "mode"); got != "full" {
 		t.Fatalf("target.input.mode = %v, want full", got)
 	}
-	if call.CreatedBy.SubjectID != "user:123" {
-		t.Fatalf("created_by.subject_id = %q, want user:123", call.CreatedBy.SubjectID)
+	if call.CreatedBySubjectID != "user:123" {
+		t.Fatalf("created_by_subject_id = %q, want user:123", call.CreatedBySubjectID)
 	}
 
 	waitForCondition(t, time.Second, func() bool {
@@ -133,7 +133,7 @@ func TestProviderDefinitionCRUD(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("loadDefinitionRecord found=%v err=%v", found, err)
 	}
-	record.CreatedBy = &gestalt.WorkflowActor{SubjectID: "creator-1", SubjectKind: "user"}
+	record.CreatedBySubjectID = "creator-1"
 	if err := provider.definitionStore.Put(ctx, record.toRecord()); err != nil {
 		t.Fatalf("store definition creator: %v", err)
 	}
@@ -151,8 +151,8 @@ func TestProviderDefinitionCRUD(t *testing.T) {
 	if testAppStep(updated.Target).Operation != "refresh" {
 		t.Fatalf("updated operation = %q, want refresh", testAppStep(updated.Target).Operation)
 	}
-	if updated.CreatedBy == nil || updated.CreatedBy.SubjectID != "creator-1" {
-		t.Fatalf("updated created_by = %#v, want creator-1", updated.CreatedBy)
+	if updated.CreatedBySubjectID == "" || updated.CreatedBySubjectID != "creator-1" {
+		t.Fatalf("updated created_by = %#v, want creator-1", updated.CreatedBySubjectID)
 	}
 
 	got, err := provider.GetDefinition(ctx, &gestalt.GetWorkflowProviderDefinitionRequest{DefinitionID: created.ID})
@@ -162,8 +162,8 @@ func TestProviderDefinitionCRUD(t *testing.T) {
 	if testAppStep(got.Target).Operation != "refresh" {
 		t.Fatalf("stored operation = %q, want refresh", testAppStep(got.Target).Operation)
 	}
-	if got.CreatedBy == nil || got.CreatedBy.SubjectID != "creator-1" {
-		t.Fatalf("stored created_by = %#v, want creator-1", got.CreatedBy)
+	if got.CreatedBySubjectID == "" || got.CreatedBySubjectID != "creator-1" {
+		t.Fatalf("stored created_by = %#v, want creator-1", got.CreatedBySubjectID)
 	}
 
 	if err := provider.DeleteDefinition(ctx, &gestalt.DeleteWorkflowProviderDefinitionRequest{DefinitionID: created.ID}); err != nil {
@@ -663,7 +663,7 @@ func TestProviderListRunsDoesNotLoadEachRunByKey(t *testing.T) {
 		_, err := provider.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
 			IdempotencyKey: fmt.Sprintf("list-runs-%d", i),
 			Target:         workflowTarget(t, "roadmap", "sync", map[string]any{"index": i}),
-			CreatedBy:      &gestalt.WorkflowActor{SubjectID: "user:123", SubjectKind: "user"},
+			CreatedBySubjectID: "user:123",
 		})
 		if err != nil {
 			t.Fatalf("StartRun(%d): %v", i, err)
@@ -1850,25 +1850,15 @@ func TestProviderPublishEventUsesPublishedByAsCreator(t *testing.T) {
 		Match:        &gestalt.WorkflowEventMatch{Type: "record.changed", Source: "eventPublisher"},
 		Target:       target,
 		DefinitionID: "publisher-event-definition",
-		RequestedBy: &gestalt.WorkflowActor{
-			SubjectID:   "system:config",
-			SubjectKind: "system",
-			DisplayName: "Gestalt config",
-			AuthSource:  "config",
-		},
+		RequestedBySubjectID: "system:config",
 	}); err != nil {
 		t.Fatalf("UpsertEventTrigger: %v", err)
 	}
 
-	publishedBy := &gestalt.WorkflowActor{
-		SubjectID:   "service_account:event_publisher:primary",
-		SubjectKind: "service_account",
-		DisplayName: "Event publisher primary",
-		AuthSource:  "event_publisher",
-	}
+	publishedBy := "service_account:event_publisher:primary"
 	if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
 		AppName:     "eventPublisher",
-		PublishedBy: publishedBy,
+		PublishedBySubjectID: publishedBy,
 		Event:       publisherWorkflowEvent(t),
 	}); err != nil {
 		t.Fatalf("PublishEvent: %v", err)
@@ -1881,8 +1871,8 @@ func TestProviderPublishEventUsesPublishedByAsCreator(t *testing.T) {
 	if got := anyMap(call.Metadata)[workflowInvokeMetadataDefinitionID]; got != "publisher-event-definition" {
 		t.Fatalf("definition_id = %v, want publisher-event-definition", got)
 	}
-	if call.CreatedBy.SubjectID != publishedBy.SubjectID {
-		t.Fatalf("created_by.subject_id = %q, want %q", call.CreatedBy.SubjectID, publishedBy.SubjectID)
+	if call.CreatedBySubjectID != publishedBy {
+		t.Fatalf("created_by_subject_id = %q, want %q", call.CreatedBySubjectID, publishedBy)
 	}
 	run, err := provider.GetRun(ctx, &gestalt.GetWorkflowProviderRunRequest{RunID: call.RunID})
 	if err != nil {
@@ -1891,22 +1881,17 @@ func TestProviderPublishEventUsesPublishedByAsCreator(t *testing.T) {
 	if run.DefinitionID != "publisher-event-definition" {
 		t.Fatalf("run definition_id = %q, want publisher-event-definition", run.DefinitionID)
 	}
-	if run.CreatedBy.SubjectID != publishedBy.SubjectID {
-		t.Fatalf("run created_by.subject_id = %q, want %q", run.CreatedBy.SubjectID, publishedBy.SubjectID)
+	if run.CreatedBySubjectID != publishedBy {
+		t.Fatalf("run created_by_subject_id = %q, want %q", run.CreatedBySubjectID, publishedBy)
 	}
 	if run.Trigger == nil || run.Trigger.Event == nil || run.Trigger.Event.Event == nil || run.Trigger.Event.Event.Source != "eventPublisher" {
 		t.Fatalf("run trigger = %#v, want publisher event source", run.Trigger)
 	}
 
-	duplicatePublisher := &gestalt.WorkflowActor{
-		SubjectID:   "service_account:event_publisher:duplicate",
-		SubjectKind: "service_account",
-		DisplayName: "Event publisher duplicate",
-		AuthSource:  "event_publisher",
-	}
+	duplicatePublisher := "service_account:event_publisher:duplicate"
 	if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
 		AppName:     "eventPublisher",
-		PublishedBy: duplicatePublisher,
+		PublishedBySubjectID: duplicatePublisher,
 		Event:       publisherWorkflowEvent(t),
 	}); err != nil {
 		t.Fatalf("PublishEvent(duplicate): %v", err)
@@ -1918,8 +1903,8 @@ func TestProviderPublishEventUsesPublishedByAsCreator(t *testing.T) {
 	if len(runs.Runs) != 1 {
 		t.Fatalf("runs len = %d, want duplicate event to keep one run", len(runs.Runs))
 	}
-	if runs.Runs[0].CreatedBy.SubjectID != publishedBy.SubjectID {
-		t.Fatalf("duplicate publish changed created_by.subject_id = %q, want %q", runs.Runs[0].CreatedBy.SubjectID, publishedBy.SubjectID)
+	if runs.Runs[0].CreatedBySubjectID != publishedBy {
+		t.Fatalf("duplicate publish changed created_by_subject_id = %q, want %q", runs.Runs[0].CreatedBySubjectID, publishedBy)
 	}
 }
 
@@ -2216,7 +2201,7 @@ func TestProviderPublishEventInjectsSourceAndMatchesWildcardSources(t *testing.T
 		TriggerID: "publisher-a-trigger",
 		Match:     &gestalt.WorkflowEventMatch{Type: "record.changed", Source: "publisherA"},
 		Target:    workflowTarget(t, "sourceConsumer", "processRecord", map[string]any{"kind": "event"}),
-		RunAs:     &gestalt.Subject{ID: "service_account:publisher-a-workflow", Kind: "service_account"},
+		RunAs:     &gestalt.Subject{ID: "service_account:publisher-a-workflow"},
 	}); err != nil {
 		t.Fatalf("UpsertEventTrigger(publisherA): %v", err)
 	}
@@ -2225,7 +2210,7 @@ func TestProviderPublishEventInjectsSourceAndMatchesWildcardSources(t *testing.T
 		Match:        &gestalt.WorkflowEventMatch{Type: "record.changed", Source: "publisherA"},
 		Target:       workflowTarget(t, "sourceConsumer", "processRecord", map[string]any{"kind": "event"}),
 		DefinitionID: "updated-definition",
-		RunAs:        &gestalt.Subject{ID: "service_account:publisher-a-workflow", Kind: "service_account"},
+		RunAs:        &gestalt.Subject{ID: "service_account:publisher-a-workflow"},
 	}); err != nil {
 		t.Fatalf("UpsertEventTrigger(publisherA update): %v", err)
 	}

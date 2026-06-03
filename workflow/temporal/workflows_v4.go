@@ -22,7 +22,7 @@ type runWorkflowV4Input struct {
 	OwnerKey                      string                       `json:"owner_key,omitempty"`
 	Target                        *gestalt.BoundWorkflowTarget `json:"target,omitempty"`
 	Trigger                       *gestalt.WorkflowRunTrigger  `json:"trigger,omitempty"`
-	CreatedBy                     *gestalt.WorkflowActor       `json:"created_by,omitempty"`
+	CreatedBySubjectID string       `json:"created_by,omitempty"`
 	InitialSignal                 *gestalt.WorkflowSignal      `json:"initial_signal,omitempty"`
 	RequireSignal                 bool                         `json:"require_signal,omitempty"`
 	RequireClaim                  bool                         `json:"require_claim,omitempty"`
@@ -55,7 +55,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		Target:       input.targetInput(),
 		Trigger:      input.triggerInput(now),
 		CreatedAt:    now,
-		CreatedBy:    input.createdByInput(),
+		CreatedBySubjectID: input.createdByInput(),
 		RunAs:        cloneSubjectInput(input.RunAs),
 		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
 		DefinitionID: strings.TrimSpace(input.DefinitionID),
@@ -212,7 +212,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 			Target:       state.Target,
 			Trigger:      state.Trigger,
 			Metadata:     workflowInvokeMetadataInput(state.WorkflowKey, state.DefinitionID),
-			CreatedBy:    state.CreatedBy,
+			CreatedBySubjectID: state.CreatedBySubjectID,
 			RunAs:        cloneSubjectInput(state.RunAs),
 			Signals:      batch,
 		}
@@ -268,8 +268,8 @@ func (input runWorkflowV4Input) triggerInput(now time.Time) *gestalt.WorkflowRun
 	return nil
 }
 
-func (input runWorkflowV4Input) createdByInput() *gestalt.WorkflowActor {
-	return input.CreatedBy
+func (input runWorkflowV4Input) createdByInput() string {
+	return input.CreatedBySubjectID
 }
 
 func (input runWorkflowV4Input) initialSignalInput() *gestalt.WorkflowSignal {
