@@ -398,7 +398,6 @@ class CodexProviderTests(unittest.TestCase):
         turn_request.subject.id = "service_account:slack-bot"
         turn_request.subject.kind = "service_account"
         turn_request.created_by.subject_id = "service_account:slack-bot"
-        turn_request.created_by.subject_kind = "service_account"
         provider_client.CreateTurn(turn_request)
         _wait_for_turn(provider_client, "turn-slack", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 

@@ -117,7 +117,7 @@ class ClaudeCodeAgentProvider(
                 client_ref=request.client_ref,
                 metadata=request.metadata,
                 prepared_workspace=request.prepared_workspace,
-                created_by=request.created_by,
+                created_by_subject_id=request.created_by_subject_id,
             )
         )
         if not created:
@@ -214,7 +214,7 @@ class ClaudeCodeAgentProvider(
                     provider_name=self._name,
                     model=create_request.model,
                     messages=messages,
-                    created_by=create_request.created_by,
+                    created_by_subject_id=create_request.created_by_subject_id,
                     execution_ref=create_request.execution_ref,
                 )
             )

@@ -705,12 +705,7 @@ def resolve_http_subject(request: gestalt.HTTPSubjectRequest) -> gestalt.Subject
     subject = webhook_subject_from_payload(request.params)
     if subject is None:
         return None
-    return gestalt.Subject(
-        id=subject.id,
-        kind=subject.kind,
-        display_name=subject.display_name,
-        auth_source=subject.auth_source,
-    )
+    return gestalt.Subject(id=subject.id)
 
 
 @app.operation(

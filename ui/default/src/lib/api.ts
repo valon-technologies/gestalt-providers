@@ -155,20 +155,13 @@ export interface WorkflowRunTrigger {
   event?: WorkflowEvent;
 }
 
-export interface WorkflowActor {
-  subjectId?: string;
-  subjectKind?: string;
-  displayName?: string;
-  authSource?: string;
-}
-
 export interface WorkflowRun {
   id: string;
   provider: string;
   status?: string;
   target: WorkflowTarget;
   trigger?: WorkflowRunTrigger;
-  createdBy?: WorkflowActor;
+  createdBySubjectId?: string;
   createdAt?: string;
   startedAt?: string;
   completedAt?: string;

@@ -8,6 +8,8 @@ from typing import Any
 
 import gestalt
 
+from .subject_id import is_managed_subject_id
+
 TERMINAL_STATUSES = {
     gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED,
     gestalt.AGENT_EXECUTION_STATUS_FAILED,
@@ -32,7 +34,7 @@ class StoredSession:
     state: int
     metadata: dict[str, Any]
     prepared_workspace: dict[str, str] | None
-    created_by: dict[str, str]
+    created_by_subject_id: str
     visibility: str
     created_at: datetime
     updated_at: datetime
@@ -50,7 +52,7 @@ class StoredTurn:
     messages: list[dict[str, Any]]
     output: gestalt.AgentTurnOutput | None
     status_message: str
-    created_by: dict[str, str]
+    created_by_subject_id: str
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
@@ -96,7 +98,7 @@ class InMemoryRunStore:
         client_ref: str,
         metadata: dict[str, Any],
         prepared_workspace: dict[str, str] | None,
-        created_by: dict[str, str],
+        created_by_subject_id: str,
     ) -> tuple[StoredSession, bool]:
         session_id = session_id.strip()
         if not session_id:
@@ -116,8 +118,8 @@ class InMemoryRunStore:
                 state=gestalt.AGENT_SESSION_STATE_ACTIVE,
                 metadata=copy.deepcopy(metadata),
                 prepared_workspace=copy.deepcopy(prepared_workspace) if prepared_workspace is not None else None,
-                created_by=dict(created_by),
-                visibility=session_visibility_for_create(metadata, created_by),
+                created_by_subject_id=created_by_subject_id.strip(),
+                visibility=session_visibility_for_create(metadata, created_by_subject_id),
                 created_at=now,
                 updated_at=now,
             )
@@ -187,7 +189,7 @@ class InMemoryRunStore:
         provider_name: str,
         model: str,
         messages: list[dict[str, Any]],
-        created_by: dict[str, str],
+        created_by_subject_id: str,
         execution_ref: str,
     ) -> tuple[StoredTurn, bool]:
         turn_id = turn_id.strip()
@@ -219,7 +221,7 @@ class InMemoryRunStore:
                 messages=copy.deepcopy(messages),
                 output=None,
                 status_message="",
-                created_by=dict(created_by),
+                created_by_subject_id=created_by_subject_id.strip(),
                 created_at=now,
                 started_at=now,
                 completed_at=None,
@@ -255,7 +257,11 @@ class InMemoryRunStore:
             else:
                 turns = [turn for turn in self._turns.values() if turn.session_id == session_id.strip()]
             if subject_id:
-                turns = [turn for turn in turns if str(turn.created_by.get("subject_id", "")).strip() == subject_id]
+                turns = [
+                    turn
+                    for turn in turns
+                    if turn.created_by_subject_id.strip() == subject_id.strip()
+                ]
             if status:
                 turns = [turn for turn in turns if turn.status == status]
             turns = sorted(turns, key=lambda turn: turn.created_at, reverse=True)
@@ -352,8 +358,10 @@ def _assistant_message_event_data(output: gestalt.AgentTurnOutput) -> dict[str, 
     return data
 
 
-def session_visibility_for_create(metadata: dict[str, Any], created_by: dict[str, str]) -> str:
-    if _is_slack_agent_session_metadata(metadata) and _is_managed_actor(created_by):
+def session_visibility_for_create(metadata: dict[str, Any], created_by_subject_id: str) -> str:
+    if _is_slack_agent_session_metadata(metadata) and is_managed_subject_id(
+        created_by_subject_id
+    ):
         return SESSION_VISIBILITY_COMPANY
     return SESSION_VISIBILITY_PRIVATE
 
@@ -362,7 +370,7 @@ def session_readable_by(session: StoredSession, subject_id: str) -> bool:
     subject_id = subject_id.strip()
     if not subject_id:
         return False
-    if str(session.created_by.get("subject_id", "") or "").strip() == subject_id:
+    if session.created_by_subject_id.strip() == subject_id:
         return True
     return session.visibility == SESSION_VISIBILITY_COMPANY
 
@@ -371,7 +379,7 @@ def session_writable_by(session: StoredSession, subject_id: str) -> bool:
     subject_id = subject_id.strip()
     if not subject_id:
         return False
-    return str(session.created_by.get("subject_id", "") or "").strip() == subject_id
+    return session.created_by_subject_id.strip() == subject_id
 
 
 def _is_slack_agent_session_metadata(metadata: dict[str, Any]) -> bool:
@@ -386,7 +394,3 @@ def _is_slack_agent_session_metadata(metadata: dict[str, Any]) -> bool:
     )
 
 
-def _is_managed_actor(actor: dict[str, str]) -> bool:
-    subject_id = str(actor.get("subject_id", "") or "").strip()
-    subject_kind = str(actor.get("subject_kind", "") or "").strip()
-    return subject_kind == "service_account" or subject_id.startswith("service_account:")

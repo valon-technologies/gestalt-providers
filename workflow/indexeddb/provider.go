@@ -58,9 +58,7 @@ const (
 	triggerKindEvent    = "event"
 
 	gestaltInputKey                    = "_gestalt"
-	configManagedWorkflowSubject       = "system:config"
-	configManagedWorkflowAuth          = "config"
-	configManagedWorkflowKind          = "system"
+	configManagedWorkflowSubject = "system:config"
 	workflowMetadataKey                = "workflow"
 	workflowInvokeMetadataWorkflowKey  = "workflow_key"
 	workflowInvokeMetadataDefinitionID = "definition_id"
@@ -4105,9 +4103,7 @@ func isConfigManagedActor(actor *gestalt.WorkflowActor) bool {
 	if actor == nil {
 		return false
 	}
-	return strings.TrimSpace(actor.SubjectID) == configManagedWorkflowSubject &&
-		strings.TrimSpace(actor.SubjectKind) == configManagedWorkflowKind &&
-		strings.TrimSpace(actor.AuthSource) == configManagedWorkflowAuth
+	return strings.TrimSpace(actor.SubjectID) == configManagedWorkflowSubject
 }
 
 func scheduleRunID(scheduleID string, scheduledFor time.Time) string {
@@ -4118,12 +4114,11 @@ func cloneActor(actor *gestalt.WorkflowActor) *gestalt.WorkflowActor {
 	if actor == nil {
 		return nil
 	}
-	return &gestalt.WorkflowActor{
-		SubjectID:   actor.SubjectID,
-		SubjectKind: actor.SubjectKind,
-		DisplayName: actor.DisplayName,
-		AuthSource:  actor.AuthSource,
+	subjectID := strings.TrimSpace(actor.SubjectID)
+	if subjectID == "" {
+		return nil
 	}
+	return &gestalt.WorkflowActor{SubjectID: subjectID}
 }
 
 func cloneSubject(subject *gestalt.Subject) *gestalt.Subject {
@@ -4131,12 +4126,9 @@ func cloneSubject(subject *gestalt.Subject) *gestalt.Subject {
 		return nil
 	}
 	return &gestalt.Subject{
-		ID:                  subject.ID,
-		Kind:                subject.Kind,
-		CredentialSubjectID: subject.CredentialSubjectID,
-		DisplayName:         subject.DisplayName,
-		AuthSource:          subject.AuthSource,
-		Email:               subject.Email,
+		ID:                  strings.TrimSpace(subject.ID),
+		CredentialSubjectID: strings.TrimSpace(subject.CredentialSubjectID),
+		Email:               strings.TrimSpace(subject.Email),
 	}
 }
 
@@ -4270,27 +4262,32 @@ func targetFromRecordValue(recordKind, id string, raw any) (*gestalt.BoundWorkfl
 }
 
 func actorToMap(actor *gestalt.WorkflowActor) map[string]any {
-	if actor == nil {
+	subjectID := ""
+	if actor != nil {
+		subjectID = strings.TrimSpace(actor.SubjectID)
+	}
+	if subjectID == "" {
 		return nil
 	}
-	return map[string]any{
-		"subject_id":   actor.SubjectID,
-		"subject_kind": actor.SubjectKind,
-		"display_name": actor.DisplayName,
-		"auth_source":  actor.AuthSource,
-	}
+	return map[string]any{"subject_id": subjectID}
 }
 
 func actorFromAny(value any) *gestalt.WorkflowActor {
-	data, ok := value.(map[string]any)
-	if !ok || len(data) == 0 {
+	switch typed := value.(type) {
+	case string:
+		subjectID := strings.TrimSpace(typed)
+		if subjectID == "" {
+			return nil
+		}
+		return &gestalt.WorkflowActor{SubjectID: subjectID}
+	case map[string]any:
+		subjectID := strings.TrimSpace(stringField(typed, "subject_id"))
+		if subjectID == "" {
+			return nil
+		}
+		return &gestalt.WorkflowActor{SubjectID: subjectID}
+	default:
 		return nil
-	}
-	return &gestalt.WorkflowActor{
-		SubjectID:   stringField(data, "subject_id"),
-		SubjectKind: stringField(data, "subject_kind"),
-		DisplayName: stringField(data, "display_name"),
-		AuthSource:  stringField(data, "auth_source"),
 	}
 }
 
@@ -4298,14 +4295,19 @@ func subjectToMap(subject *gestalt.Subject) map[string]any {
 	if subject == nil {
 		return nil
 	}
-	return map[string]any{
-		"id":                    subject.ID,
-		"kind":                  subject.Kind,
-		"credential_subject_id": subject.CredentialSubjectID,
-		"display_name":          subject.DisplayName,
-		"auth_source":           subject.AuthSource,
-		"email":                 subject.Email,
+	out := map[string]any{
+		"id": strings.TrimSpace(subject.ID),
 	}
+	if credentialSubjectID := strings.TrimSpace(subject.CredentialSubjectID); credentialSubjectID != "" {
+		out["credential_subject_id"] = credentialSubjectID
+	}
+	if email := strings.TrimSpace(subject.Email); email != "" {
+		out["email"] = email
+	}
+	if len(out) == 1 && out["id"] == "" {
+		return nil
+	}
+	return out
 }
 
 func subjectFromAny(value any) *gestalt.Subject {
@@ -4313,12 +4315,13 @@ func subjectFromAny(value any) *gestalt.Subject {
 	if !ok || len(data) == 0 {
 		return nil
 	}
+	subjectID := stringField(data, "id")
+	if subjectID == "" {
+		return nil
+	}
 	return &gestalt.Subject{
-		ID:                  stringField(data, "id"),
-		Kind:                stringField(data, "kind"),
+		ID:                  subjectID,
 		CredentialSubjectID: stringField(data, "credential_subject_id"),
-		DisplayName:         stringField(data, "display_name"),
-		AuthSource:          stringField(data, "auth_source"),
 		Email:               stringField(data, "email"),
 	}
 }

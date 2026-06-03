@@ -44,7 +44,7 @@ export type StoredSession = {
   metadata: Record<string, unknown>;
   visibility: StoredSessionVisibility;
   preparedWorkspace: PreparedWorkspace | undefined;
-  createdBy: AgentActor | undefined;
+  createdBySubjectId: string;
   createdAt: Date;
   updatedAt: Date;
   lastTurnAt: Date | undefined;
@@ -60,7 +60,7 @@ export type StoredTurn = {
   messages: AgentMessage[];
   output: AgentTurnOutput | undefined;
   statusMessage: string;
-  createdBy: AgentActor | undefined;
+  createdBySubjectId: string;
   createdAt: Date;
   startedAt: Date | undefined;
   completedAt: Date | undefined;
@@ -102,7 +102,7 @@ export class InMemoryRunStore {
     metadata: Record<string, unknown>;
     visibility: StoredSessionVisibility;
     preparedWorkspace: PreparedWorkspace | undefined;
-    createdBy: AgentActor | undefined;
+    createdBySubjectId: string;
   }): { session: StoredSession; created: boolean } {
     const sessionId = input.sessionId.trim();
     if (!sessionId) {
@@ -132,7 +132,7 @@ export class InMemoryRunStore {
       metadata: cloneRecord(input.metadata),
       visibility: input.visibility,
       preparedWorkspace: cloneMaybe(input.preparedWorkspace),
-      createdBy: cloneMaybe(input.createdBy),
+      createdBySubjectId: input.createdBySubjectId.trim(),
       createdAt: now,
       updatedAt: now,
       lastTurnAt: undefined,
@@ -174,7 +174,7 @@ export class InMemoryRunStore {
     if (input.subjectId) {
       sessions = sessions.filter(
         (session) =>
-          session.createdBy?.subjectId === input.subjectId ||
+          session.createdBySubjectId === input.subjectId ||
           session.visibility === SESSION_VISIBILITY_COMPANY,
       );
     } else {
@@ -224,7 +224,7 @@ export class InMemoryRunStore {
     providerName: string;
     model: string;
     messages: readonly AgentMessage[];
-    createdBy: AgentActor | undefined;
+    createdBySubjectId: string;
     executionRef: string;
   }): { turn: StoredTurn; created: boolean } {
     const turnId = input.turnId.trim();
@@ -261,7 +261,7 @@ export class InMemoryRunStore {
       messages: cloneMessages(input.messages),
       output: undefined,
       statusMessage: "",
-      createdBy: cloneMaybe(input.createdBy),
+      createdBySubjectId: input.createdBySubjectId.trim(),
       createdAt: now,
       startedAt: now,
       completedAt: undefined,
@@ -311,7 +311,7 @@ export class InMemoryRunStore {
       turns = [];
     }
     if (input.subjectId) {
-      turns = turns.filter((turn) => turn.createdBy?.subjectId === input.subjectId);
+      turns = turns.filter((turn) => turn.createdBySubjectId === input.subjectId);
     }
     if (input.status) {
       turns = turns.filter((turn) => turn.status === input.status);
@@ -429,8 +429,9 @@ export function sessionToAgentSession(session: StoredSession, summaryOnly = fals
   if (!summaryOnly && Object.keys(session.metadata).length > 0) {
     out.metadata = session.metadata;
   }
-  if (session.createdBy) {
-    out.createdBy = session.createdBy;
+  const createdBy = agentActorFromSubjectId(session.createdBySubjectId);
+  if (createdBy) {
+    out.createdBy = createdBy;
   }
   if (session.lastTurnAt) {
     out.lastTurnAt = new Date(session.lastTurnAt);
@@ -453,8 +454,9 @@ export function turnToAgentTurn(turn: StoredTurn, summaryOnly = false): AgentTur
   if (!summaryOnly) {
     out.messages = cloneMessages(turn.messages);
   }
-  if (turn.createdBy) {
-    out.createdBy = turn.createdBy;
+  const createdBy = agentActorFromSubjectId(turn.createdBySubjectId);
+  if (createdBy) {
+    out.createdBy = createdBy;
   }
   if (turn.startedAt) {
     out.startedAt = new Date(turn.startedAt);
@@ -482,12 +484,26 @@ export function cloneRecord(value: Record<string, unknown>): Record<string, unkn
   return structuredClone(value);
 }
 
+export function subjectIdFromActor(actor: AgentActor | undefined): string {
+  return actor?.subjectId?.trim() ?? "";
+}
+
+export function agentActorFromSubjectId(
+  subjectId: string | undefined,
+): AgentActor | undefined {
+  const id = subjectId?.trim();
+  if (!id) {
+    return undefined;
+  }
+  return { subjectId: id };
+}
+
 function cloneSession(session: StoredSession): StoredSession {
   const copy: StoredSession = {
     ...session,
     metadata: cloneRecord(session.metadata),
     preparedWorkspace: cloneMaybe(session.preparedWorkspace),
-    createdBy: cloneMaybe(session.createdBy),
+    createdBySubjectId: session.createdBySubjectId,
     createdAt: new Date(session.createdAt),
     updatedAt: new Date(session.updatedAt),
   };
@@ -502,7 +518,7 @@ function cloneTurn(turn: StoredTurn): StoredTurn {
     ...turn,
     messages: cloneMessages(turn.messages),
     output: cloneMaybe(turn.output),
-    createdBy: cloneMaybe(turn.createdBy),
+    createdBySubjectId: turn.createdBySubjectId,
     createdAt: new Date(turn.createdAt),
   };
   if (turn.startedAt) {

@@ -7,6 +7,8 @@ from typing import Any
 
 import gestalt
 
+from .subject_id import created_by_subject_id_from_record, is_managed_subject_id
+
 TERMINAL_STATUSES = {
     gestalt.AGENT_EXECUTION_STATUS_SUCCEEDED,
     gestalt.AGENT_EXECUTION_STATUS_FAILED,
@@ -27,7 +29,7 @@ class StoredSession:
     state: int
     metadata: dict[str, Any]
     prepared_workspace: dict[str, str] | None
-    created_by: dict[str, str]
+    created_by_subject_id: str
     visibility: str
     created_at: datetime
     updated_at: datetime
@@ -45,7 +47,7 @@ class StoredTurn:
     messages: list[dict[str, Any]]
     output: gestalt.AgentTurnOutput | None
     status_message: str
-    created_by: dict[str, str]
+    created_by_subject_id: str
     created_at: datetime
     started_at: datetime | None
     completed_at: datetime | None
@@ -74,7 +76,7 @@ def _session_to_record(session: StoredSession) -> dict[str, Any]:
         "state": session.state,
         "metadata": copy.deepcopy(session.metadata),
         "prepared_workspace": copy.deepcopy(session.prepared_workspace),
-        "created_by": dict(session.created_by),
+        "created_by_subject_id": session.created_by_subject_id,
         "visibility": session.visibility,
         "created_at": session.created_at,
         "updated_at": session.updated_at,
@@ -94,7 +96,7 @@ def _record_to_session(record: dict[str, Any] | None) -> StoredSession | None:
         state=int(record.get("state") or gestalt.AGENT_SESSION_STATE_UNSPECIFIED),
         metadata=_coerce_optional_dict(record.get("metadata")) or {},
         prepared_workspace=_coerce_optional_string_dict(record.get("prepared_workspace")),
-        created_by=_coerce_string_dict(record.get("created_by")),
+        created_by_subject_id=created_by_subject_id_from_record(record),
         visibility=_session_visibility_from_record(record),
         created_at=_coerce_required_datetime(record.get("created_at")),
         updated_at=_coerce_required_datetime(record.get("updated_at")),
@@ -113,7 +115,7 @@ def _turn_to_record(turn: StoredTurn) -> dict[str, Any]:
         "messages": copy.deepcopy(turn.messages),
         "output": _turn_output_to_record(turn.output) if turn.output is not None else None,
         "status_message": turn.status_message,
-        "created_by": dict(turn.created_by),
+        "created_by_subject_id": turn.created_by_subject_id,
         "created_at": turn.created_at,
         "started_at": turn.started_at,
         "completed_at": turn.completed_at,
@@ -134,7 +136,7 @@ def _record_to_turn(record: dict[str, Any] | None) -> StoredTurn | None:
         messages=_coerce_messages(record.get("messages")),
         output=_turn_output_from_record(record.get("output")),
         status_message=str(record.get("status_message") or ""),
-        created_by=_coerce_string_dict(record.get("created_by")),
+        created_by_subject_id=created_by_subject_id_from_record(record),
         created_at=_coerce_required_datetime(record.get("created_at")),
         started_at=_coerce_datetime(record.get("started_at")),
         completed_at=_coerce_datetime(record.get("completed_at")),
@@ -215,12 +217,6 @@ def _coerce_messages(raw_value: Any) -> list[dict[str, Any]]:
     return messages
 
 
-def _coerce_string_dict(raw_value: Any) -> dict[str, str]:
-    if not isinstance(raw_value, dict):
-        return {}
-    return {str(key): str(value or "") for key, value in raw_value.items()}
-
-
 def _coerce_optional_string_dict(raw_value: Any) -> dict[str, str] | None:
     if raw_value is None:
         return None
@@ -252,8 +248,10 @@ def _coerce_required_datetime(raw_value: Any) -> datetime:
     return parsed
 
 
-def session_visibility_for_create(metadata: dict[str, Any], created_by: dict[str, str]) -> str:
-    if _is_slack_agent_session_metadata(metadata) and _is_managed_actor(created_by):
+def session_visibility_for_create(metadata: dict[str, Any], created_by_subject_id: str) -> str:
+    if _is_slack_agent_session_metadata(metadata) and is_managed_subject_id(
+        created_by_subject_id
+    ):
         return SESSION_VISIBILITY_COMPANY
     return SESSION_VISIBILITY_PRIVATE
 
@@ -262,7 +260,7 @@ def session_readable_by(session: StoredSession, subject_id: str) -> bool:
     subject_id = subject_id.strip()
     if not subject_id:
         return False
-    if str(session.created_by.get("subject_id", "") or "").strip() == subject_id:
+    if session.created_by_subject_id.strip() == subject_id:
         return True
     return session.visibility == SESSION_VISIBILITY_COMPANY
 
@@ -271,7 +269,7 @@ def session_writable_by(session: StoredSession, subject_id: str) -> bool:
     subject_id = subject_id.strip()
     if not subject_id:
         return False
-    return str(session.created_by.get("subject_id", "") or "").strip() == subject_id
+    return session.created_by_subject_id.strip() == subject_id
 
 
 def _session_visibility_from_record(record: dict[str, Any]) -> str:
@@ -279,8 +277,7 @@ def _session_visibility_from_record(record: dict[str, Any]) -> str:
     if visibility in {SESSION_VISIBILITY_PRIVATE, SESSION_VISIBILITY_COMPANY}:
         return visibility
     metadata = _coerce_optional_dict(record.get("metadata")) or {}
-    created_by = _coerce_string_dict(record.get("created_by"))
-    return session_visibility_for_create(metadata, created_by)
+    return session_visibility_for_create(metadata, created_by_subject_id_from_record(record))
 
 
 def _is_slack_agent_session_metadata(metadata: dict[str, Any]) -> bool:
@@ -295,7 +292,3 @@ def _is_slack_agent_session_metadata(metadata: dict[str, Any]) -> bool:
     )
 
 
-def _is_managed_actor(actor: dict[str, str]) -> bool:
-    subject_id = str(actor.get("subject_id", "") or "").strip()
-    subject_kind = str(actor.get("subject_kind", "") or "").strip()
-    return subject_kind == "service_account" or subject_id.startswith("service_account:")

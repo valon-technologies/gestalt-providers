@@ -19,8 +19,6 @@ const (
 	defaultTimezone    = "UTC"
 
 	configManagedWorkflowSubject = "system:config"
-	configManagedWorkflowKind    = "system"
-	configManagedWorkflowAuth    = "config"
 )
 
 type scopedTarget struct {
@@ -469,35 +467,29 @@ func cloneActorInput(actor *gestalt.WorkflowActor) *gestalt.WorkflowActor {
 	if actor == nil {
 		return nil
 	}
-	out := *actor
-	out.SubjectID = strings.TrimSpace(out.SubjectID)
-	out.SubjectKind = strings.TrimSpace(out.SubjectKind)
-	out.DisplayName = strings.TrimSpace(out.DisplayName)
-	out.AuthSource = strings.TrimSpace(out.AuthSource)
-	return &out
+	subjectID := strings.TrimSpace(actor.SubjectID)
+	if subjectID == "" {
+		return nil
+	}
+	return &gestalt.WorkflowActor{SubjectID: subjectID}
 }
 
 func cloneSubjectInput(subject *gestalt.Subject) *gestalt.Subject {
 	if subject == nil {
 		return nil
 	}
-	out := *subject
-	out.ID = strings.TrimSpace(out.ID)
-	out.Kind = strings.TrimSpace(out.Kind)
-	out.CredentialSubjectID = strings.TrimSpace(out.CredentialSubjectID)
-	out.DisplayName = strings.TrimSpace(out.DisplayName)
-	out.AuthSource = strings.TrimSpace(out.AuthSource)
-	out.Email = strings.TrimSpace(out.Email)
-	return &out
+	return &gestalt.Subject{
+		ID:                  strings.TrimSpace(subject.ID),
+		CredentialSubjectID: strings.TrimSpace(subject.CredentialSubjectID),
+		Email:               strings.TrimSpace(subject.Email),
+	}
 }
 
 func isConfigManagedActorInput(actor *gestalt.WorkflowActor) bool {
 	if actor == nil {
 		return false
 	}
-	return strings.TrimSpace(actor.SubjectID) == configManagedWorkflowSubject &&
-		strings.TrimSpace(actor.SubjectKind) == configManagedWorkflowKind &&
-		strings.TrimSpace(actor.AuthSource) == configManagedWorkflowAuth
+	return strings.TrimSpace(actor.SubjectID) == configManagedWorkflowSubject
 }
 
 func manualTriggerInput() *gestalt.WorkflowRunTrigger {

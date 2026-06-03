@@ -980,9 +980,6 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIsNotNone(subject)
         assert subject is not None
         self.assertEqual(subject.id, "service_account:github_webhook:99")
-        self.assertEqual(subject.kind, "service_account")
-        self.assertEqual(subject.auth_source, "github_webhook")
-        self.assertIn("acme/widgets", subject.display_name)
 
     def test_webhook_handler_publishes_canonical_workflow_event(self) -> None:
         workflow_client = FakeWorkflowClient()
