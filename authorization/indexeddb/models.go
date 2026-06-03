@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 )
+
+const defaultModelResourceTypePageSize = 100
 
 type stateKeys struct {
 	activeModel string
@@ -112,6 +115,20 @@ func resourceTypesFromAny(value any) ([]*AuthorizationModelResourceType, error) 
 		return nil, fmt.Errorf("decode resource types: %w", err)
 	}
 	return resourceTypes, nil
+}
+
+func parseModelResourceTypePageToken(token string) (int, error) {
+	if token == "" {
+		return 0, nil
+	}
+	offset, err := strconv.Atoi(token)
+	if err != nil {
+		return 0, err
+	}
+	if offset < 0 {
+		return 0, errors.New("offset must be non-negative")
+	}
+	return offset, nil
 }
 
 func jsonValue(value any) (any, error) {

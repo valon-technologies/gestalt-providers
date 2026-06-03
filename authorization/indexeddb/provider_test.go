@@ -142,6 +142,12 @@ func TestProviderSetAndGetActiveModel(t *testing.T) {
 	if !reflect.DeepEqual(listResp.ResourceTypes, model.ResourceTypes) {
 		t.Fatalf("ListActiveModelResourceTypes(active) = %#v, want %#v", listResp.ResourceTypes, model.ResourceTypes)
 	}
+	if listResp.ModelID != "model-1" {
+		t.Fatalf("ListActiveModelResourceTypes(active).ModelID = %q, want model-1", listResp.ModelID)
+	}
+	if listResp.NextPageToken != "" {
+		t.Fatalf("ListActiveModelResourceTypes(active).NextPageToken = %q, want empty", listResp.NextPageToken)
+	}
 
 	listResp, err = provider.ListActiveModelResourceTypes(ctx, &ListActiveModelResourceTypesRequest{ModelID: "model-1"})
 	if err != nil {
@@ -149,6 +155,40 @@ func TestProviderSetAndGetActiveModel(t *testing.T) {
 	}
 	if !reflect.DeepEqual(listResp.ResourceTypes, model.ResourceTypes) {
 		t.Fatalf("ListActiveModelResourceTypes(model-1) = %#v, want %#v", listResp.ResourceTypes, model.ResourceTypes)
+	}
+	if listResp.ModelID != "model-1" {
+		t.Fatalf("ListActiveModelResourceTypes(model-1).ModelID = %q, want model-1", listResp.ModelID)
+	}
+
+	firstPage, err := provider.ListActiveModelResourceTypes(ctx, &ListActiveModelResourceTypesRequest{PageSize: 1})
+	if err != nil {
+		t.Fatalf("ListActiveModelResourceTypes(first page) error = %v", err)
+	}
+	if !reflect.DeepEqual(firstPage.ResourceTypes, model.ResourceTypes[:1]) {
+		t.Fatalf("ListActiveModelResourceTypes(first page) = %#v, want %#v", firstPage.ResourceTypes, model.ResourceTypes[:1])
+	}
+	if firstPage.NextPageToken == "" {
+		t.Fatalf("ListActiveModelResourceTypes(first page).NextPageToken is empty")
+	}
+	if firstPage.ModelID != "model-1" {
+		t.Fatalf("ListActiveModelResourceTypes(first page).ModelID = %q, want model-1", firstPage.ModelID)
+	}
+
+	secondPage, err := provider.ListActiveModelResourceTypes(ctx, &ListActiveModelResourceTypesRequest{
+		PageSize:  1,
+		PageToken: firstPage.NextPageToken,
+	})
+	if err != nil {
+		t.Fatalf("ListActiveModelResourceTypes(second page) error = %v", err)
+	}
+	if !reflect.DeepEqual(secondPage.ResourceTypes, model.ResourceTypes[1:]) {
+		t.Fatalf("ListActiveModelResourceTypes(second page) = %#v, want %#v", secondPage.ResourceTypes, model.ResourceTypes[1:])
+	}
+	if secondPage.NextPageToken != "" {
+		t.Fatalf("ListActiveModelResourceTypes(second page).NextPageToken = %q, want empty", secondPage.NextPageToken)
+	}
+	if secondPage.ModelID != "model-1" {
+		t.Fatalf("ListActiveModelResourceTypes(second page).ModelID = %q, want model-1", secondPage.ModelID)
 	}
 
 	listResp, err = provider.ListActiveModelResourceTypes(ctx, &ListActiveModelResourceTypesRequest{
@@ -169,6 +209,21 @@ func TestProviderSetAndGetActiveModel(t *testing.T) {
 	}
 	if !reflect.DeepEqual(listResp.ResourceTypes, model.ResourceTypes[1:]) {
 		t.Fatalf("ListActiveModelResourceTypes(runtime folder) = %#v, want %#v", listResp.ResourceTypes, model.ResourceTypes[1:])
+	}
+
+	_, err = provider.ListActiveModelResourceTypes(ctx, &ListActiveModelResourceTypesRequest{PageSize: -1})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("ListActiveModelResourceTypes(negative page size) error = %v, want InvalidArgument", err)
+	}
+
+	_, err = provider.ListActiveModelResourceTypes(ctx, &ListActiveModelResourceTypesRequest{PageToken: "bogus"})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("ListActiveModelResourceTypes(invalid page token) error = %v, want InvalidArgument", err)
+	}
+
+	_, err = provider.ListActiveModelResourceTypes(ctx, &ListActiveModelResourceTypesRequest{PageToken: "10"})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("ListActiveModelResourceTypes(out-of-range page token) error = %v, want InvalidArgument", err)
 	}
 }
 

@@ -333,9 +333,18 @@ func (p *Provider) ListActiveModelResourceTypes(ctx context.Context, req *ListAc
 
 	modelID := ""
 	var filter *AuthorizationModelResourceTypeFilter
+	pageSize := int32(defaultModelResourceTypePageSize)
+	pageToken := ""
 	if req != nil {
 		modelID = strings.TrimSpace(req.ModelID)
 		filter = req.Filter
+		if req.PageSize < 0 {
+			return nil, status.Error(codes.InvalidArgument, "page size must be non-negative")
+		}
+		if req.PageSize > 0 {
+			pageSize = req.PageSize
+		}
+		pageToken = strings.TrimSpace(req.PageToken)
 	}
 	if modelID == "" {
 		ref, err := getActiveModelRef(ctx, db.ObjectStore(stores.state), keys.activeModel)
@@ -356,8 +365,32 @@ func (p *Provider) ListActiveModelResourceTypes(ctx context.Context, req *ListAc
 		return nil, status.Errorf(codes.NotFound, "model %q not found", modelID)
 	}
 
+	offset, err := parseModelResourceTypePageToken(pageToken)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "page token is invalid: %v", err)
+	}
+	resourceTypes := filterAuthorizationModelResourceTypes(model.ResourceTypes, filter)
+	if offset > len(resourceTypes) {
+		return nil, status.Error(codes.InvalidArgument, "page token is out of range")
+	}
+
+	limit := int(pageSize)
+	if limit == 0 {
+		limit = len(resourceTypes)
+	}
+	end := offset + limit
+	if end > len(resourceTypes) {
+		end = len(resourceTypes)
+	}
+	nextPageToken := ""
+	if end < len(resourceTypes) {
+		nextPageToken = strconv.Itoa(end)
+	}
+
 	return &ListActiveModelResourceTypesResponse{
-		ResourceTypes: filterAuthorizationModelResourceTypes(model.ResourceTypes, filter),
+		ResourceTypes: resourceTypes[offset:end],
+		NextPageToken: nextPageToken,
+		ModelID:       modelID,
 	}, nil
 }
 

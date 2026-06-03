@@ -256,8 +256,10 @@ type SetActiveModelResponse struct {
 }
 
 type ListActiveModelResourceTypesRequest struct {
-	ModelID string
-	Filter  *AuthorizationModelResourceTypeFilter
+	ModelID   string
+	Filter    *AuthorizationModelResourceTypeFilter
+	PageSize  int32
+	PageToken string
 }
 
 type AuthorizationModelResourceTypeFilter struct {
@@ -267,4 +269,6 @@ type AuthorizationModelResourceTypeFilter struct {
 
 type ListActiveModelResourceTypesResponse struct {
 	ResourceTypes []*AuthorizationModelResourceType
+	NextPageToken string
+	ModelID       string
 }
