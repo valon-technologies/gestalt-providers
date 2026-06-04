@@ -1,7 +1,7 @@
 openapi: "3.2.0"
 info:
   title: Datadog
-  description: Dashboards, monitors, metrics, logs, incidents, downtimes, RUM, users, roles, and invitations
+  description: Dashboards, notebooks, monitors, metrics, logs, incidents, downtimes, RUM, users, roles, and invitations
 servers:
   - url: https://api.datadoghq.com
 security:
@@ -75,6 +75,114 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/Dashboard"
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/notebooks:
+    get:
+      operationId: list_notebooks
+      summary: List notebooks
+      parameters:
+        - name: author_handle
+          in: query
+          schema:
+            type: string
+          description: Return notebooks created by the given author handle
+        - name: exclude_author_handle
+          in: query
+          schema:
+            type: string
+          description: Exclude notebooks created by the given author handle
+        - name: start
+          in: query
+          schema:
+            type: integer
+            default: 0
+          description: Pagination offset
+        - name: count
+          in: query
+          schema:
+            type: integer
+            default: 100
+          description: Max notebooks to return
+        - name: sort_field
+          in: query
+          schema:
+            type: string
+            enum: [modified, name, created]
+          description: Field to sort notebooks by
+        - name: sort_dir
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+          description: Sort direction
+        - name: query
+          in: query
+          schema:
+            type: string
+          description: Search query
+        - name: include_cells
+          in: query
+          schema:
+            type: boolean
+          description: Set to false to exclude cells and global time from each notebook
+        - name: is_template
+          in: query
+          schema:
+            type: boolean
+          description: Set to true to return only template notebooks
+        - name: type
+          in: query
+          schema:
+            type: string
+          description: Filter by notebook type
+      responses:
+        "200":
+          description: OK
+    post:
+      operationId: create_notebook
+      summary: Create a notebook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotebookCreateRequest"
+      responses:
+        "200":
+          description: OK
+
+  /api/v1/notebooks/{notebook_id}:
+    parameters:
+      - name: notebook_id
+        in: path
+        required: true
+        schema:
+          type: integer
+        description: Notebook ID
+    get:
+      operationId: get_notebook
+      summary: Get a notebook
+      responses:
+        "200":
+          description: OK
+    put:
+      operationId: update_notebook
+      summary: Update a notebook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotebookUpdateRequest"
+      responses:
+        "200":
+          description: OK
+    delete:
+      operationId: delete_notebook
+      summary: Delete a notebook
       responses:
         "200":
           description: OK
@@ -813,6 +921,168 @@ components:
           type: array
           items:
             type: object
+
+    NotebookCreateRequest:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [type, attributes]
+          properties:
+            type:
+              type: string
+              enum: [notebooks]
+            attributes:
+              $ref: "#/components/schemas/NotebookCreateDataAttributes"
+          additionalProperties: true
+      additionalProperties: true
+
+    NotebookUpdateRequest:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [type, attributes]
+          properties:
+            type:
+              type: string
+              enum: [notebooks]
+            attributes:
+              $ref: "#/components/schemas/NotebookUpdateDataAttributes"
+          additionalProperties: true
+      additionalProperties: true
+
+    NotebookCreateDataAttributes:
+      type: object
+      required: [name, cells, time]
+      properties:
+        name:
+          type: string
+        cells:
+          type: array
+          items:
+            $ref: "#/components/schemas/NotebookCellCreateRequest"
+        time:
+          $ref: "#/components/schemas/NotebookTime"
+        metadata:
+          $ref: "#/components/schemas/NotebookMetadata"
+        status:
+          type: string
+          enum: [published]
+      additionalProperties: true
+
+    NotebookUpdateDataAttributes:
+      type: object
+      required: [name, cells, time]
+      properties:
+        name:
+          type: string
+        cells:
+          type: array
+          items:
+            anyOf:
+              - $ref: "#/components/schemas/NotebookCellCreateRequest"
+              - $ref: "#/components/schemas/NotebookCellUpdateRequest"
+        time:
+          $ref: "#/components/schemas/NotebookTime"
+        metadata:
+          $ref: "#/components/schemas/NotebookMetadata"
+        status:
+          type: string
+          enum: [published]
+      additionalProperties: true
+
+    NotebookCellCreateRequest:
+      type: object
+      required: [type, attributes]
+      properties:
+        type:
+          type: string
+          enum: [notebook_cells]
+        attributes:
+          $ref: "#/components/schemas/NotebookCellAttributes"
+
+    NotebookCellUpdateRequest:
+      type: object
+      required: [id, type, attributes]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [notebook_cells]
+        attributes:
+          $ref: "#/components/schemas/NotebookCellAttributes"
+      additionalProperties: true
+
+    NotebookCellAttributes:
+      type: object
+      required: [definition]
+      properties:
+        definition:
+          type: object
+          description: Markdown, timeseries, toplist, heatmap, distribution, or log stream cell definition
+          properties:
+            type:
+              type: string
+              enum: [markdown, timeseries, toplist, heatmap, distribution, log_stream]
+          additionalProperties: true
+        graph_size:
+          type: string
+          enum: [xs, s, m, l, xl]
+        split_by:
+          $ref: "#/components/schemas/NotebookSplitBy"
+        time:
+          $ref: "#/components/schemas/NotebookTime"
+          nullable: true
+      additionalProperties: true
+
+    NotebookTime:
+      type: object
+      properties:
+        live_span:
+          type: string
+          description: Relative time span such as 1h or 1d
+        start:
+          type: string
+          description: Absolute start time
+        end:
+          type: string
+          description: Absolute end time
+        live:
+          type: boolean
+          description: Indicates whether the timeframe should be shifted to end at the current time
+      additionalProperties: true
+
+    NotebookMetadata:
+      type: object
+      properties:
+        is_template:
+          type: boolean
+          description: Whether or not the notebook is a template
+        take_snapshots:
+          type: boolean
+          description: Whether or not the notebook takes snapshot image backups of fixed-time graphs
+        type:
+          type: string
+          enum: [postmortem, runbook, investigation, documentation, report]
+      additionalProperties: true
+
+    NotebookSplitBy:
+      type: object
+      required: [keys, tags]
+      properties:
+        keys:
+          type: array
+          items:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+      additionalProperties: true
 
     Monitor:
       type: object
