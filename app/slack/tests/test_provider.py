@@ -396,6 +396,43 @@ class SlackProviderTests(unittest.TestCase):
         )
         return provider_module._agent._sign_reply_ref(event, subject_id)
 
+    def _slack_agent_workflow_context(
+        self,
+        reply_ref: str,
+        *,
+        channel_id: str = "C789",
+        event_type: str | None = None,
+        slack_fields: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        slack = {
+            "team_id": "T123",
+            "channel_id": channel_id,
+            "message_ts": "1712161829.000300",
+            "reply_thread_ts": "1712161829.000300",
+        }
+        if slack_fields:
+            slack.update(slack_fields)
+        return {
+            "runId": "run-slack-1",
+            "provider": "local",
+            "trigger": {
+                "kind": "event",
+                "activationId": "slack-event",
+                "event": {
+                    "id": "slack:event:T123:C789:1712161829.000300:U456",
+                    "source": "slack",
+                    "type": event_type
+                    or provider_module._agent.SLACK_AGENT_WORKFLOW_EVENT_TYPE,
+                    "subject": "route:gestalt-support",
+                    "data": {
+                        "routeId": "",
+                        "reply_ref": reply_ref,
+                        "slack": slack,
+                    },
+                },
+            },
+        }
+
     def _slack_bot_service_account_request(
         self, token: str = "xoxb-resolved-bot"
     ) -> gestalt.Request:
@@ -3003,6 +3040,152 @@ class SlackProviderTests(unittest.TestCase):
             {"error": "reply_ref does not belong to this subject"},
         )
 
+    def test_slack_events_reply_allows_matching_workflow_event_context_for_invocation_subject(
+        self,
+    ) -> None:
+        provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
+        self.addCleanup(provider_module.configure, "slack", {})
+        reply_ref = self._signed_reply_ref(subject_id="user:gestalt-123")
+        captured: dict[str, Any] = {}
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.full_url, "https://slack.com/api/chat.postMessage")
+            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
+            captured["payload"] = json.loads(cast(bytes, request.data).decode("utf-8"))
+            return FakeHTTPResponse(
+                '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            result = provider_module.slack_events_reply(
+                provider_module.SlackEventReplyInput(
+                    reply_ref=reply_ref, text="workflow answer"
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:workflow-invoker"),
+                    workflow=self._slack_agent_workflow_context(reply_ref),
+                ),
+            )
+
+        self.assertEqual(captured["payload"]["channel"], "C789")
+        self.assertEqual(captured["payload"]["thread_ts"], "1712161829.000300")
+        self.assertEqual(operation_body(result)["ok"], True)
+
+    def test_slack_events_reply_allows_custom_workflow_event_type_context(
+        self,
+    ) -> None:
+        provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
+        self.addCleanup(provider_module.configure, "slack", {})
+        reply_ref = self._signed_reply_ref(subject_id="user:gestalt-123")
+        captured: dict[str, Any] = {}
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.full_url, "https://slack.com/api/chat.postMessage")
+            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
+            captured["payload"] = json.loads(cast(bytes, request.data).decode("utf-8"))
+            return FakeHTTPResponse(
+                '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            result = provider_module.slack_events_reply(
+                provider_module.SlackEventReplyInput(
+                    reply_ref=reply_ref, text="custom workflow answer"
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:workflow-invoker"),
+                    workflow=self._slack_agent_workflow_context(
+                        reply_ref,
+                        event_type="slack.route.agent.received",
+                    ),
+                ),
+            )
+
+        self.assertEqual(captured["payload"]["channel"], "C789")
+        self.assertEqual(captured["payload"]["thread_ts"], "1712161829.000300")
+        self.assertEqual(operation_body(result)["ok"], True)
+
+    def test_slack_events_reply_allows_matching_interaction_workflow_event_context(
+        self,
+    ) -> None:
+        provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
+        self.addCleanup(provider_module.configure, "slack", {})
+        reply_ref = self._signed_reply_ref(subject_id="user:gestalt-123")
+        captured: dict[str, Any] = {}
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.full_url, "https://slack.com/api/chat.postMessage")
+            self.assertEqual(authorization_header(request), "Bearer xoxb-test-bot")
+            captured["payload"] = json.loads(cast(bytes, request.data).decode("utf-8"))
+            return FakeHTTPResponse(
+                '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            result = provider_module.slack_events_reply(
+                provider_module.SlackEventReplyInput(
+                    reply_ref=reply_ref, text="interaction workflow answer"
+                ),
+                gestalt.Request(
+                    subject=gestalt.Subject(id="user:workflow-invoker"),
+                    workflow=self._slack_agent_workflow_context(
+                        reply_ref,
+                        event_type=(
+                            provider_module._agent.SLACK_INTERACTION_WORKFLOW_EVENT_TYPE
+                        ),
+                        slack_fields={
+                            "container_message_ts": "1712161831.000500",
+                        },
+                    ),
+                ),
+            )
+
+        self.assertEqual(captured["payload"]["channel"], "C789")
+        self.assertEqual(captured["payload"]["thread_ts"], "1712161829.000300")
+        self.assertEqual(operation_body(result)["ok"], True)
+
+    def test_slack_events_reply_rejects_mismatched_workflow_event_context(
+        self,
+    ) -> None:
+        provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
+        self.addCleanup(provider_module.configure, "slack", {})
+        reply_ref = self._signed_reply_ref(subject_id="user:gestalt-123")
+
+        result = provider_module.slack_events_reply(
+            provider_module.SlackEventReplyInput(
+                reply_ref=reply_ref, text="wrong workflow"
+            ),
+            gestalt.Request(
+                subject=gestalt.Subject(id="user:workflow-invoker"),
+                workflow=self._slack_agent_workflow_context(
+                    reply_ref, channel_id="C_OTHER"
+                ),
+            ),
+        )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(
+            response.body,
+            {"error": "reply_ref does not belong to this subject"},
+        )
+
     def test_slack_events_reply_session_started_posts_session_link(self) -> None:
         provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
         self.addCleanup(provider_module.configure, "slack", {})
@@ -3265,6 +3448,10 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(event_data["slack"]["action_id"], "approve")
         self.assertEqual(event_data["slack"]["action_value"], "approved")
+        self.assertEqual(event_data["slack"]["message_ts"], "1712161829.000300")
+        self.assertEqual(
+            event_data["slack"]["container_message_ts"], "1712161831.000500"
+        )
         self.assertEqual(event_data["slack"]["trigger_id"], "1337.abcdef")
         self.assertIn("reply_ref: ", event_data["user_prompt"])
         self.assertNotIn("Final reply tool:", event_data["user_prompt"])

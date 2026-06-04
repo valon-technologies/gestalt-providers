@@ -91,6 +91,13 @@ provider-side triggers can dedupe retries. Triggered workflows should call Slack
 helper operations such as `events.reply`, `events.replySessionStarted`, status,
 reactions, and interactions explicitly.
 
+For interaction-triggered workflow events, `data.slack.message_ts` is the
+original message timestamp that the signed `reply_ref` authorizes replies to.
+When Slack reports the interactive component's container message separately, it
+is exposed as `data.slack.container_message_ts`. Workflow definitions should use
+`reply_ref` for helper operations and treat `container_message_ts` as context
+about the clicked message, not as the reply target.
+
 `events.handle` does not fetch thread context, add reactions, set native
 assistant loading status, or set native assistant suggested prompts. Declare
 those as workflow steps that call `conversations.getThreadContext`,
