@@ -4146,45 +4146,6 @@ func timePtr(value time.Time) *time.Time {
 	return &ts
 }
 
-func appTargetInput(target *gestalt.BoundWorkflowTarget) map[string]any {
-	app := firstWorkflowAppStep(target)
-	if app == nil {
-		return nil
-	}
-	if app.Input.Object != nil {
-		out := make(map[string]any, len(app.Input.Object))
-		for key, value := range app.Input.Object {
-			out[key] = workflowValueToAny(value)
-		}
-		return out
-	}
-	if app.Input.LiteralSet {
-		return anyMap(app.Input.Literal)
-	}
-	return nil
-}
-
-func workflowValueToAny(value gestalt.WorkflowValue) any {
-	switch {
-	case value.LiteralSet:
-		return value.Literal
-	case value.Object != nil:
-		out := make(map[string]any, len(value.Object))
-		for key, nested := range value.Object {
-			out[key] = workflowValueToAny(nested)
-		}
-		return out
-	case value.Array != nil:
-		out := make([]any, 0, len(value.Array))
-		for _, nested := range value.Array {
-			out = append(out, workflowValueToAny(nested))
-		}
-		return out
-	default:
-		return nil
-	}
-}
-
 func workflowActivationsFromAny(value any) []gestalt.WorkflowActivation {
 	if value == nil {
 		return nil
