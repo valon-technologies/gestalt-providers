@@ -7,9 +7,7 @@ import {
   getAgentSessions,
   getIntegrations,
   getTokens,
-  getWorkflowEventTriggers,
   getWorkflowRuns,
-  getWorkflowSchedules,
   isAPIErrorStatus,
 } from "@/lib/api";
 import Nav from "@/components/Nav";
@@ -48,8 +46,6 @@ export default function DashboardPage() {
         return Promise.allSettled([
           getIntegrations(),
           getTokens(),
-          getWorkflowSchedules(),
-          getWorkflowEventTriggers(),
           getWorkflowRuns(),
           agentFeature === false
             ? Promise.resolve(null)
@@ -57,8 +53,6 @@ export default function DashboardPage() {
         ]).then(([
           integrationsResult,
           tokensResult,
-          workflowSchedulesResult,
-          workflowTriggersResult,
           workflowRunsResult,
           agentSessionsResult,
         ]) => {
@@ -72,12 +66,8 @@ export default function DashboardPage() {
                 : null;
 
           const workflowResources =
-            workflowSchedulesResult.status === "fulfilled" &&
-            workflowTriggersResult.status === "fulfilled" &&
             workflowRunsResult.status === "fulfilled"
-              ? workflowSchedulesResult.value.length +
-                workflowTriggersResult.value.length +
-                workflowRunsResult.value.length
+              ? workflowRunsResult.value.length
               : null;
           const agentAvailable =
             typeof agentFeature === "boolean"
@@ -173,7 +163,7 @@ export default function DashboardPage() {
                 {data.workflowResources ?? "--"}
               </p>
               <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
-                Manage schedules, triggers, and runs
+                Inspect workflow runs
                 <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
                   &rarr;
                 </span>

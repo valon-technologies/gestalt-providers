@@ -4,10 +4,8 @@ import {
   mockAgentNotConfigured,
   mockAgentRuns,
   mockAuthInfo,
-  mockWorkflowEventTriggers,
   mockIntegrations,
   mockManagedIdentities,
-  mockWorkflowSchedules,
   mockTokens,
   mockWorkflowRuns,
 } from "./fixtures";
@@ -35,15 +33,20 @@ test.describe("Navigation", () => {
         createdAt: "2026-04-13T00:00:00Z",
       },
     ]);
-    await mockWorkflowSchedules(authenticatedPage, []);
-    await mockWorkflowEventTriggers(authenticatedPage, []);
     await mockWorkflowRuns(authenticatedPage, [
       {
         id: "run_123",
         provider: "basic",
         status: "succeeded",
-        target: { plugin: { name: "httpbin", operation: "get" } },
-        trigger: { kind: "schedule", scheduleId: "sched_123" },
+        target: {
+          steps: [
+            {
+              id: "run",
+              app: { name: "httpbin", operation: "get" },
+            },
+          ],
+        },
+        trigger: { kind: "schedule", activationId: "sched_123" },
         createdAt: "2026-04-13T00:00:00Z",
       },
     ]);
@@ -161,8 +164,6 @@ test.describe("Agent availability", () => {
     await mockManagedIdentities(page, []);
     await mockIntegrations(page, []);
     await mockTokens(page, []);
-    await mockWorkflowSchedules(page, []);
-    await mockWorkflowEventTriggers(page, []);
     await mockWorkflowRuns(page, []);
     await mockAgentNotConfigured(page);
 

@@ -123,12 +123,39 @@ export interface WorkflowAppTarget {
   operation: string;
   connection?: string;
   instance?: string;
-  input?: Record<string, unknown>;
+  credentialMode?: string;
+  input?: unknown;
+}
+
+export interface WorkflowTextTarget {
+  template?: string;
+}
+
+export interface WorkflowMessageTarget {
+  role?: string;
+  text?: WorkflowTextTarget;
+  metadata?: Record<string, unknown>;
+}
+
+export interface WorkflowAgentTarget {
+  provider?: string;
+  model?: string;
+  sessionKey?: string;
+  prompt?: WorkflowTextTarget;
+  messages?: WorkflowMessageTarget[];
+  tools?: AgentToolRef[];
+  output?: AgentOutput;
+  modelOptions?: Record<string, unknown>;
 }
 
 export interface WorkflowStepTarget {
   id?: string;
+  inputs?: Record<string, unknown>;
   app?: WorkflowAppTarget;
+  agent?: WorkflowAgentTarget;
+  metadata?: Record<string, unknown>;
+  timeoutSeconds?: number;
+  when?: Record<string, unknown>;
 }
 
 export interface WorkflowTarget {
@@ -149,10 +176,36 @@ export interface WorkflowEvent {
 
 export interface WorkflowRunTrigger {
   kind?: string;
-  scheduleId?: string;
+  activationId?: string;
   scheduledFor?: string;
-  triggerId?: string;
   event?: WorkflowEvent;
+}
+
+export interface WorkflowActor {
+  subjectId?: string;
+}
+
+export interface WorkflowStepAttempt {
+  id?: string;
+  status?: string;
+  idempotencyKey?: string;
+  input?: unknown;
+  output?: unknown;
+  statusMessage?: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export interface WorkflowStepExecution {
+  stepId?: string;
+  status?: string;
+  attempts?: WorkflowStepAttempt[];
+  input?: unknown;
+  output?: unknown;
+  statusMessage?: string;
+  skipReason?: string;
+  startedAt?: string;
+  completedAt?: string;
 }
 
 export interface WorkflowRun {
@@ -161,87 +214,34 @@ export interface WorkflowRun {
   status?: string;
   target: WorkflowTarget;
   trigger?: WorkflowRunTrigger;
-  createdBySubjectId?: string;
+  createdBy?: WorkflowActor;
   createdAt?: string;
   startedAt?: string;
   completedAt?: string;
   statusMessage?: string;
-  resultBody?: string;
+  output?: unknown;
+  definitionId?: string;
+  definitionGeneration?: number;
+  input?: Record<string, unknown>;
+  currentStepId?: string;
+  steps?: WorkflowStepExecution[];
 }
 
-export interface WorkflowSchedule {
-  id: string;
-  provider: string;
-  cron: string;
-  timezone?: string;
-  target: WorkflowTarget;
-  paused: boolean;
-  createdAt?: string;
-  updatedAt?: string;
-  nextRunAt?: string;
+interface WorkflowRunListResponse {
+  runs: WorkflowRunWire[];
+  nextPageToken?: string;
 }
 
-export interface WorkflowEventTriggerMatch {
-  type: string;
-  source?: string;
-  subject?: string;
-}
-
-export interface WorkflowEventTrigger {
-  id: string;
-  provider: string;
-  match: WorkflowEventTriggerMatch;
-  target: WorkflowTarget;
-  paused: boolean;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-export interface WorkflowScheduleUpsert {
-  provider?: string;
-  cron: string;
-  timezone?: string;
-  target: WorkflowTarget;
-  paused?: boolean;
-}
-
-export interface WorkflowEventTriggerUpsert {
-  provider?: string;
-  match: WorkflowEventTriggerMatch;
-  target: WorkflowTarget;
-  paused?: boolean;
-}
-
-type WorkflowRunWire = Omit<WorkflowRun, "target"> & { target?: unknown };
-type WorkflowScheduleWire = Omit<WorkflowSchedule, "target"> & {
+type WorkflowRunWire = Omit<WorkflowRun, "target" | "steps"> & {
   target?: unknown;
-};
-type WorkflowEventTriggerWire = Omit<WorkflowEventTrigger, "target"> & {
-  target?: unknown;
+  steps?: unknown;
 };
 
 function normalizeWorkflowRun(run: WorkflowRunWire): WorkflowRun {
   return {
     ...run,
     target: normalizeWorkflowTarget(run.target),
-  };
-}
-
-function normalizeWorkflowSchedule(
-  schedule: WorkflowScheduleWire,
-): WorkflowSchedule {
-  return {
-    ...schedule,
-    target: normalizeWorkflowTarget(schedule.target),
-  };
-}
-
-function normalizeWorkflowEventTrigger(
-  trigger: WorkflowEventTriggerWire,
-): WorkflowEventTrigger {
-  return {
-    ...trigger,
-    target: normalizeWorkflowTarget(trigger.target),
+    steps: normalizeWorkflowStepExecutions(run.steps),
   };
 }
 
@@ -261,22 +261,111 @@ function normalizeWorkflowTarget(target: unknown): WorkflowTarget {
         return [];
       }
       const rawApp = rawStep.app;
+      const rawAgent = rawStep.agent;
       return [
         {
           id: optionalString(rawStep.id),
+          inputs: optionalRecord(rawStep.inputs),
           app: isRecord(rawApp)
             ? {
                 name: stringValue(rawApp.name),
                 operation: stringValue(rawApp.operation),
                 connection: optionalString(rawApp.connection),
                 instance: optionalString(rawApp.instance),
-                input: optionalRecord(rawApp.input),
+                credentialMode: optionalString(rawApp.credentialMode),
+                input: rawApp.input,
               }
             : undefined,
+          agent: normalizeWorkflowAgentTarget(rawAgent),
+          metadata: optionalRecord(rawStep.metadata),
+          timeoutSeconds:
+            typeof rawStep.timeoutSeconds === "number"
+              ? rawStep.timeoutSeconds
+              : undefined,
+          when: optionalRecord(rawStep.when),
         },
       ];
     }),
   };
+}
+
+function normalizeWorkflowAgentTarget(
+  value: unknown,
+): WorkflowAgentTarget | undefined {
+  if (!isRecord(value)) return undefined;
+  return {
+    provider: optionalString(value.provider),
+    model: optionalString(value.model),
+    sessionKey: optionalString(value.sessionKey),
+    prompt: normalizeWorkflowTextTarget(value.prompt),
+    messages: Array.isArray(value.messages)
+      ? value.messages.flatMap((message) => {
+          if (!isRecord(message)) return [];
+          return [
+            {
+              role: optionalString(message.role),
+              text: normalizeWorkflowTextTarget(message.text),
+              metadata: optionalRecord(message.metadata),
+            },
+          ];
+        })
+      : undefined,
+    tools: Array.isArray(value.tools)
+      ? value.tools.flatMap((tool) => (isRecord(tool) ? [tool as AgentToolRef] : []))
+      : undefined,
+    output: isRecord(value.output) ? (value.output as AgentOutput) : undefined,
+    modelOptions: optionalRecord(value.modelOptions),
+  };
+}
+
+function normalizeWorkflowTextTarget(
+  value: unknown,
+): WorkflowTextTarget | undefined {
+  if (!isRecord(value)) return undefined;
+  return {
+    template: optionalString(value.template),
+  };
+}
+
+function normalizeWorkflowStepExecutions(
+  value: unknown,
+): WorkflowStepExecution[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((rawStep) => {
+    if (!isRecord(rawStep)) return [];
+    return [
+      {
+        stepId: optionalString(rawStep.stepId),
+        status: optionalString(rawStep.status),
+        attempts: normalizeWorkflowStepAttempts(rawStep.attempts),
+        input: rawStep.input,
+        output: rawStep.output,
+        statusMessage: optionalString(rawStep.statusMessage),
+        skipReason: optionalString(rawStep.skipReason),
+        startedAt: optionalString(rawStep.startedAt),
+        completedAt: optionalString(rawStep.completedAt),
+      },
+    ];
+  });
+}
+
+function normalizeWorkflowStepAttempts(value: unknown): WorkflowStepAttempt[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((rawAttempt) => {
+    if (!isRecord(rawAttempt)) return [];
+    return [
+      {
+        id: optionalString(rawAttempt.id),
+        status: optionalString(rawAttempt.status),
+        idempotencyKey: optionalString(rawAttempt.idempotencyKey),
+        input: rawAttempt.input,
+        output: rawAttempt.output,
+        statusMessage: optionalString(rawAttempt.statusMessage),
+        startedAt: optionalString(rawAttempt.startedAt),
+        completedAt: optionalString(rawAttempt.completedAt),
+      },
+    ];
+  });
 }
 
 export function workflowTargetApp(target: WorkflowTarget): WorkflowAppTarget {
@@ -783,8 +872,10 @@ export async function getTokens(): Promise<APIToken[]> {
 }
 
 export async function getWorkflowRuns(): Promise<WorkflowRun[]> {
-  const runs = await fetchAPI<WorkflowRunWire[]>("/api/v1/workflow/runs");
-  return runs.map(normalizeWorkflowRun);
+  const response = await fetchAPI<WorkflowRunListResponse>(
+    "/api/v1/workflow/runs",
+  );
+  return response.runs.map(normalizeWorkflowRun);
 }
 
 export async function getWorkflowRun(id: string): Promise<WorkflowRun> {
@@ -792,154 +883,6 @@ export async function getWorkflowRun(id: string): Promise<WorkflowRun> {
     `/api/v1/workflow/runs/${encodeURIComponent(id)}`,
   );
   return normalizeWorkflowRun(run);
-}
-
-export async function getWorkflowSchedules(): Promise<WorkflowSchedule[]> {
-  const schedules = await fetchAPI<WorkflowScheduleWire[]>(
-    "/api/v1/workflow/schedules",
-  );
-  return schedules.map(normalizeWorkflowSchedule);
-}
-
-export async function getWorkflowSchedule(
-  id: string,
-): Promise<WorkflowSchedule> {
-  const schedule = await fetchAPI<WorkflowScheduleWire>(
-    `/api/v1/workflow/schedules/${encodeURIComponent(id)}`,
-  );
-  return normalizeWorkflowSchedule(schedule);
-}
-
-export async function createWorkflowSchedule(
-  body: WorkflowScheduleUpsert,
-): Promise<WorkflowSchedule> {
-  const schedule = await fetchAPI<WorkflowScheduleWire>(
-    "/api/v1/workflow/schedules",
-    {
-      method: "POST",
-      body: JSON.stringify(body),
-    },
-  );
-  return normalizeWorkflowSchedule(schedule);
-}
-
-export async function updateWorkflowSchedule(
-  id: string,
-  body: WorkflowScheduleUpsert,
-): Promise<WorkflowSchedule> {
-  const schedule = await fetchAPI<WorkflowScheduleWire>(
-    `/api/v1/workflow/schedules/${encodeURIComponent(id)}`,
-    {
-      method: "PUT",
-      body: JSON.stringify(body),
-    },
-  );
-  return normalizeWorkflowSchedule(schedule);
-}
-
-export async function deleteWorkflowSchedule(id: string): Promise<void> {
-  await fetchAPI(`/api/v1/workflow/schedules/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
-}
-
-export async function pauseWorkflowSchedule(
-  id: string,
-): Promise<WorkflowSchedule> {
-  const schedule = await fetchAPI<WorkflowScheduleWire>(
-    `/api/v1/workflow/schedules/${encodeURIComponent(id)}/pause`,
-    {
-      method: "POST",
-    },
-  );
-  return normalizeWorkflowSchedule(schedule);
-}
-
-export async function resumeWorkflowSchedule(
-  id: string,
-): Promise<WorkflowSchedule> {
-  const schedule = await fetchAPI<WorkflowScheduleWire>(
-    `/api/v1/workflow/schedules/${encodeURIComponent(id)}/resume`,
-    {
-      method: "POST",
-    },
-  );
-  return normalizeWorkflowSchedule(schedule);
-}
-
-export async function getWorkflowEventTriggers(): Promise<
-  WorkflowEventTrigger[]
-> {
-  const triggers = await fetchAPI<WorkflowEventTriggerWire[]>(
-    "/api/v1/workflow/event-triggers",
-  );
-  return triggers.map(normalizeWorkflowEventTrigger);
-}
-
-export async function getWorkflowEventTrigger(
-  id: string,
-): Promise<WorkflowEventTrigger> {
-  const trigger = await fetchAPI<WorkflowEventTriggerWire>(
-    `/api/v1/workflow/event-triggers/${encodeURIComponent(id)}`,
-  );
-  return normalizeWorkflowEventTrigger(trigger);
-}
-
-export async function createWorkflowEventTrigger(
-  body: WorkflowEventTriggerUpsert,
-): Promise<WorkflowEventTrigger> {
-  const trigger = await fetchAPI<WorkflowEventTriggerWire>(
-    "/api/v1/workflow/event-triggers",
-    {
-      method: "POST",
-      body: JSON.stringify(body),
-    },
-  );
-  return normalizeWorkflowEventTrigger(trigger);
-}
-
-export async function updateWorkflowEventTrigger(
-  id: string,
-  body: WorkflowEventTriggerUpsert,
-): Promise<WorkflowEventTrigger> {
-  const trigger = await fetchAPI<WorkflowEventTriggerWire>(
-    `/api/v1/workflow/event-triggers/${encodeURIComponent(id)}`,
-    {
-      method: "PUT",
-      body: JSON.stringify(body),
-    },
-  );
-  return normalizeWorkflowEventTrigger(trigger);
-}
-
-export async function deleteWorkflowEventTrigger(id: string): Promise<void> {
-  await fetchAPI(`/api/v1/workflow/event-triggers/${encodeURIComponent(id)}`, {
-    method: "DELETE",
-  });
-}
-
-export async function pauseWorkflowEventTrigger(
-  id: string,
-): Promise<WorkflowEventTrigger> {
-  const trigger = await fetchAPI<WorkflowEventTriggerWire>(
-    `/api/v1/workflow/event-triggers/${encodeURIComponent(id)}/pause`,
-    {
-      method: "POST",
-    },
-  );
-  return normalizeWorkflowEventTrigger(trigger);
-}
-
-export async function resumeWorkflowEventTrigger(
-  id: string,
-): Promise<WorkflowEventTrigger> {
-  const trigger = await fetchAPI<WorkflowEventTriggerWire>(
-    `/api/v1/workflow/event-triggers/${encodeURIComponent(id)}/resume`,
-    {
-      method: "POST",
-    },
-  );
-  return normalizeWorkflowEventTrigger(trigger);
 }
 
 export async function cancelWorkflowRun(

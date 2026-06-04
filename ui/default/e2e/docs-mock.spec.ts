@@ -194,7 +194,7 @@ test.describe("Docs page", () => {
     await expect(
       page.getByRole("heading", { name: "Manage Workflows" }),
     ).toBeVisible();
-    await expect(page.locator("article")).toContainText("gestalt workflows triggers list");
+    await expect(page.locator("article")).toContainText("gestalt workflows --help");
     await expect(page.locator("article")).toContainText("gestalt workflows runs list");
 
     await leftNav.getByRole("link", { name: "Use With MCP" }).click();
