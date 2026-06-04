@@ -711,7 +711,7 @@ def resolve_http_subject(request: gestalt.HTTPSubjectRequest) -> gestalt.Subject
 @app.operation(
     id=GITHUB_EVENT_OPERATION,
     method="POST",
-    description="Handle GitHub App webhook callbacks by publishing canonical workflow events",
+    description="Handle GitHub App webhook callbacks by delivering canonical workflow events",
     visible=False,
 )
 def github_events_handle(
@@ -728,10 +728,10 @@ def github_events_handle(
 
     installation_id = installation_id_from_payload(input)
     summary = event_summary(input, installation_id, event_type=event_type)
-    workflow_request = _build_workflow_publish_event_request(input, summary)
+    workflow_request = _build_workflow_deliver_event_request(input, summary)
     try:
         logger.info(
-            "publishing GitHub workflow event",
+            "delivering GitHub workflow event",
             extra={
                 "github_event": summary.get("event_type", ""),
                 "github_action": summary.get("action", ""),
@@ -741,10 +741,10 @@ def github_events_handle(
             },
         )
         with req.workflows() as workflows:
-            workflows.publish_event(workflow_request)
+            workflows.deliver_event(workflow_request)
     except Exception as err:
         logger.exception(
-            "failed to publish GitHub workflow event",
+            "failed to deliver GitHub workflow event",
             extra={
                 "github_event": summary.get("event_type", ""),
                 "github_action": summary.get("action", ""),
@@ -752,10 +752,10 @@ def github_events_handle(
                 "github_repository": summary.get("repository", ""),
             },
         )
-        return _server_error(f"failed to publish workflow event: {err}")
+        return _server_error(f"failed to deliver workflow event: {err}")
 
     logger.info(
-        "published GitHub workflow event",
+        "delivered GitHub workflow event",
         extra={
             "github_event": summary.get("event_type", ""),
             "github_action": summary.get("action", ""),
@@ -770,7 +770,7 @@ def github_events_handle(
 
     return {
         "ok": True,
-        "published": True,
+        "delivered": True,
         "workflow_event_id": workflow_request.event.id
         if workflow_request.event is not None
         else "",
@@ -778,15 +778,15 @@ def github_events_handle(
     }
 
 
-def _build_workflow_publish_event_request(
+def _build_workflow_deliver_event_request(
     payload: dict[str, Any], summary: dict[str, Any]
-) -> gestalt.WorkflowPublishEvent:
+) -> gestalt.WorkflowDeliverEvent:
     event_type = str(summary.get("event_type", "")).strip()
     delivery_id = github_delivery_id(payload)
     event_id = (
         f"github:{delivery_id}" if delivery_id else f"github:{payload_digest(payload)}"
     )
-    return gestalt.WorkflowPublishEvent(
+    return gestalt.WorkflowDeliverEvent(
         provider_name=get_github_config().workflow_provider,
         event=gestalt.WorkflowEvent(
             id=event_id,
@@ -850,12 +850,14 @@ def github_identity_link_self(
             return _server_error("GitHub /user response did not include id and login")
         name = str_field(profile, "name")
         email = str_field(profile, "email")
-        req.authorization().write_relationships(
-            gestalt.WriteRelationshipsRequest(
-                writes=[
-                    gestalt.Relationship(
-                        subject=gestalt.AuthorizationSubject(
-                            type="subject", id=subject_id
+        req.authorization().add_relationship(
+            gestalt.AddRelationshipRequest(
+                relationship=gestalt.Relationship(
+                    tuple=gestalt.RelationshipTuple(
+                        target=gestalt.RelationshipTarget(
+                            subject=gestalt.AuthorizationSubject(
+                                type="subject", id=subject_id
+                            )
                         ),
                         relation=GITHUB_USER_LINKED_ACTION,
                         resource=gestalt.AuthorizationResource(
@@ -866,8 +868,9 @@ def github_identity_link_self(
                                 "name": name,
                             },
                         ),
-                    )
-                ]
+                    ),
+                    source_layer=gestalt.SOURCE_LAYER_RUNTIME,
+                )
             )
         )
     except GitHubAPIError as err:
@@ -1803,18 +1806,30 @@ def _linked_github_user_id(req: gestalt.Request) -> str:
     if not subject_id:
         return ""
     try:
-        response = req.authorization().search_resources(
-            gestalt.ResourceSearchRequest(
-                subject=gestalt.AuthorizationSubject(type="subject", id=subject_id),
-                action=gestalt.AuthorizationAction(name=GITHUB_USER_LINKED_ACTION),
-                resource_type=GITHUB_USER_RESOURCE_TYPE,
+        response = req.authorization().list_relationships(
+            gestalt.ListRelationshipsRequest(
+                filter=gestalt.RelationshipFilter(
+                    target=gestalt.RelationshipTarget(
+                        subject=gestalt.AuthorizationSubject(
+                            type="subject", id=subject_id
+                        )
+                    ),
+                    relation=GITHUB_USER_LINKED_ACTION,
+                    resource_type=GITHUB_USER_RESOURCE_TYPE,
+                ),
                 page_size=2,
             )
         )
     except Exception as err:
         logger.warning("GitHub linked author lookup failed: %s", err)
         return ""
-    resources = [resource for resource in response.resources if resource.id.strip()]
+    resources = [
+        relationship.tuple.resource
+        for relationship in response.relationships
+        if relationship.tuple is not None
+        and relationship.tuple.resource is not None
+        and relationship.tuple.resource.id.strip()
+    ]
     if len(resources) != 1:
         if len(resources) > 1:
             logger.warning("GitHub subject resolved multiple linked users")

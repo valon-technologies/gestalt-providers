@@ -2,7 +2,6 @@ package temporal
 
 import (
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -15,14 +14,16 @@ import (
 type runWorkflowV4Input struct {
 	ActivityStartToCloseTimeoutNS time.Duration                `json:"activity_start_to_close_timeout_ns"`
 	ProviderName                  string                       `json:"provider_name,omitempty"`
-	ScheduleID                    string                       `json:"schedule_id,omitempty"`
+	ActivationID                  string                       `json:"activation_id,omitempty"`
 	DefinitionID                  string                       `json:"definition_id,omitempty"`
+	DefinitionGeneration          int64                        `json:"definition_generation,omitempty"`
+	Input                         map[string]any               `json:"input,omitempty"`
 	RunAs                         *gestalt.Subject             `json:"run_as,omitempty"`
 	WorkflowKey                   string                       `json:"workflow_key,omitempty"`
 	OwnerKey                      string                       `json:"owner_key,omitempty"`
 	Target                        *gestalt.BoundWorkflowTarget `json:"target,omitempty"`
 	Trigger                       *gestalt.WorkflowRunTrigger  `json:"trigger,omitempty"`
-	CreatedBySubjectID string       `json:"created_by,omitempty"`
+	CreatedBySubjectID            string                       `json:"created_by,omitempty"`
 	InitialSignal                 *gestalt.WorkflowSignal      `json:"initial_signal,omitempty"`
 	RequireSignal                 bool                         `json:"require_signal,omitempty"`
 	RequireClaim                  bool                         `json:"require_claim,omitempty"`
@@ -33,7 +34,7 @@ const (
 	changeV4ClaimProjectionAfterUpdate     = "v4-claim-projection-after-update"
 )
 
-func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gestalt.BoundWorkflowRun, error) {
+func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gestalt.WorkflowRun, error) {
 	info := workflow.GetInfo(ctx)
 	now := workflow.Now(ctx).UTC()
 	handleKind := runHandleKindV4
@@ -49,16 +50,19 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		WorkflowKey:      input.WorkflowKey,
 		OwnerKey:         input.OwnerKey,
 	})
-	state := &gestalt.BoundWorkflowRun{
-		ID:           publicID,
-		Status:       gestalt.WorkflowRunStatusValuePending,
-		Target:       input.targetInput(),
-		Trigger:      input.triggerInput(now),
-		CreatedAt:    now,
-		CreatedBySubjectID: input.createdByInput(),
-		RunAs:        cloneSubjectInput(input.RunAs),
-		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
-		DefinitionID: strings.TrimSpace(input.DefinitionID),
+	state := &gestalt.WorkflowRun{
+		ID:                   publicID,
+		Status:               gestalt.WorkflowRunStatusValuePending,
+		Target:               input.targetInput(),
+		Trigger:              input.triggerInput(now),
+		CreatedAt:            now,
+		CreatedBySubjectID:   input.createdByInput(),
+		RunAs:                cloneSubjectInput(input.RunAs),
+		WorkflowKey:          strings.TrimSpace(input.WorkflowKey),
+		DefinitionID:         strings.TrimSpace(input.DefinitionID),
+		DefinitionGeneration: input.DefinitionGeneration,
+		ProviderName:         strings.TrimSpace(input.ProviderName),
+		Input:                cloneMapInput(input.Input),
 	}
 	pendingSignals := make([]gestalt.WorkflowSignal, 0)
 	nextSignalSequence := int64(1)
@@ -73,7 +77,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		})
 		_ = workflow.ExecuteActivity(activityCtx, (*workflowActivities).ProjectRun, *state).Get(activityCtx, nil)
 	}
-	rebuildRun := func(mutate func(*gestalt.BoundWorkflowRun)) error {
+	rebuildRun := func(mutate func(*gestalt.WorkflowRun)) error {
 		next := *state
 		mutate(&next)
 		state = &next
@@ -125,7 +129,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 	}); err != nil {
 		return nil, err
 	}
-	if err := workflow.SetUpdateHandler(ctx, updateClaimRun, func(ctx workflow.Context) (*gestalt.BoundWorkflowRun, error) {
+	if err := workflow.SetUpdateHandler(ctx, updateClaimRun, func(ctx workflow.Context) (*gestalt.WorkflowRun, error) {
 		if err := runMutex.Lock(ctx); err != nil {
 			return nil, err
 		}
@@ -138,7 +142,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 	}); err != nil {
 		return nil, err
 	}
-	if err := workflow.SetUpdateHandler(ctx, updateCancelRun, func(ctx workflow.Context, reason string) (*gestalt.BoundWorkflowRun, error) {
+	if err := workflow.SetUpdateHandler(ctx, updateCancelRun, func(ctx workflow.Context, reason string) (*gestalt.WorkflowRun, error) {
 		if err := runMutex.Lock(ctx); err != nil {
 			return nil, err
 		}
@@ -151,7 +155,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		if statusMessage == "" {
 			statusMessage = "canceled"
 		}
-		if err := rebuildRun(func(input *gestalt.BoundWorkflowRun) {
+		if err := rebuildRun(func(input *gestalt.WorkflowRun) {
 			input.Status = gestalt.WorkflowRunStatusValueCanceled
 			input.CompletedAt = &completedAt
 			input.StatusMessage = statusMessage
@@ -188,7 +192,7 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 			return nil, err
 		}
 		startedAt := workflow.Now(ctx).UTC()
-		if err := rebuildRun(func(input *gestalt.BoundWorkflowRun) {
+		if err := rebuildRun(func(input *gestalt.WorkflowRun) {
 			input.Status = gestalt.WorkflowRunStatusValueRunning
 			input.StartedAt = &startedAt
 			input.CompletedAt = nil
@@ -206,46 +210,96 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 			StartToCloseTimeout: input.ActivityStartToCloseTimeoutNS,
 			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 		})
-		invokeReq := gestaltworkflow.Request{
-			ProviderName: strings.TrimSpace(input.ProviderName),
-			RunID:        state.ID,
-			Target:       state.Target,
-			Trigger:      state.Trigger,
-			Metadata:     workflowInvokeMetadataInput(state.WorkflowKey, state.DefinitionID),
-			CreatedBySubjectID: state.CreatedBySubjectID,
-			RunAs:        cloneSubjectInput(state.RunAs),
-			Signals:      batch,
-		}
-		var resp gestaltworkflow.Response
-		invokeErr := workflow.ExecuteActivity(activityCtx, (*workflowActivities).ExecuteSteps, invokeReq).Get(activityCtx, &resp)
+		failed := false
+		for stepIndex := 0; stepIndex < workflowTargetStepCountInput(state.Target); stepIndex++ {
+			stepStartedAt := workflow.Now(ctx).UTC()
+			invokeReq := gestaltworkflow.Request{
+				ProviderName:       strings.TrimSpace(input.ProviderName),
+				RunID:              state.ID,
+				Target:             state.Target,
+				Trigger:            state.Trigger,
+				Input:              cloneMapInput(state.Input),
+				Metadata:           workflowInvokeMetadataInput(state.WorkflowKey, state.DefinitionID),
+				CreatedBySubjectID: state.CreatedBySubjectID,
+				RunAs:              cloneSubjectInput(state.RunAs),
+				Signals:            batch,
+			}
+			stepReq := gestaltworkflow.StepRequest{
+				Request:        invokeReq,
+				StepIndex:      stepIndex,
+				Outputs:        workflowStepOutputsFromExecutionsInput(state.Steps),
+				StepInputs:     workflowStepInputsFromExecutionsInput(state.Steps),
+				SkippedStepIDs: workflowSkippedStepIDsFromExecutionsInput(state.Steps),
+			}
+			var stepResp gestaltworkflow.StepResponse
+			invokeErr := workflow.ExecuteActivity(activityCtx, (*workflowActivities).ExecuteStep, stepReq).Get(activityCtx, &stepResp)
 
+			if err := runMutex.Lock(ctx); err != nil {
+				return nil, err
+			}
+			completedAt := workflow.Now(ctx).UTC()
+			nextRun := *state
+			if invokeErr != nil {
+				nextRun.Status = gestalt.WorkflowRunStatusValueFailed
+				nextRun.CompletedAt = &completedAt
+				nextRun.StatusMessage = invokeErr.Error()
+				state = &nextRun
+				failed = true
+				project(ctx)
+				runMutex.Unlock()
+				break
+			}
+			execution := workflowStepExecutionFromStepResponseInput(stepResp, stepStartedAt, completedAt)
+			nextRun.Steps = append(append([]gestalt.WorkflowStepExecution(nil), nextRun.Steps...), execution)
+			nextRun.CurrentStepID = execution.StepID
+			if stepResp.Output != nil || execution.Status == gestalt.WorkflowStepStatusValueSucceeded {
+				nextRun.Output = cloneAnyInput(stepResp.Output)
+			}
+			if stepResp.Status >= 400 || execution.Status == gestalt.WorkflowStepStatusValueFailed {
+				nextRun.Status = gestalt.WorkflowRunStatusValueFailed
+				nextRun.CompletedAt = &completedAt
+				nextRun.StatusMessage = workflowStepFailureMessageInput(&stepResp, execution.StatusMessage)
+				if nextRun.StatusMessage == "" {
+					nextRun.StatusMessage = fmt.Sprintf("workflow operation returned status %d", stepResp.Status)
+				}
+				state = &nextRun
+				failed = true
+				project(ctx)
+				runMutex.Unlock()
+				break
+			}
+			nextRun.Status = gestalt.WorkflowRunStatusValueRunning
+			nextRun.CompletedAt = nil
+			nextRun.StatusMessage = ""
+			state = &nextRun
+			project(ctx)
+			runMutex.Unlock()
+		}
+		if failed {
+			break
+		}
 		if err := runMutex.Lock(ctx); err != nil {
 			return nil, err
 		}
 		completedAt := workflow.Now(ctx).UTC()
-		runInput := *state
-		runInput.CompletedAt = &completedAt
-		if invokeErr != nil {
-			runInput.Status = gestalt.WorkflowRunStatusValueFailed
-			runInput.StatusMessage = invokeErr.Error()
-		} else if resp.Status >= http.StatusBadRequest {
-			runInput.Status = gestalt.WorkflowRunStatusValueFailed
-			runInput.StatusMessage = fmt.Sprintf("workflow operation returned status %d", resp.Status)
-			runInput.ResultBody = resp.Body
-		} else {
-			runInput.ResultBody = resp.Body
-			if len(pendingSignals) > 0 {
-				runInput.Status = gestalt.WorkflowRunStatusValuePending
-				runInput.CompletedAt = nil
-				state = &runInput
-				project(ctx)
-				runMutex.Unlock()
-				continue
-			}
-			runInput.Status = gestalt.WorkflowRunStatusValueSucceeded
-			runInput.StatusMessage = ""
+		nextRun := *state
+		if len(pendingSignals) > 0 {
+			nextRun.Status = gestalt.WorkflowRunStatusValuePending
+			nextRun.CompletedAt = nil
+			nextRun.StatusMessage = ""
+			nextRun.CurrentStepID = ""
+			nextRun.Steps = nil
+			nextRun.Output = nil
+			state = &nextRun
+			project(ctx)
+			runMutex.Unlock()
+			continue
 		}
-		state = &runInput
+		nextRun.Status = gestalt.WorkflowRunStatusValueSucceeded
+		nextRun.CompletedAt = &completedAt
+		nextRun.StatusMessage = ""
+		state = &nextRun
+		project(ctx)
 		runMutex.Unlock()
 		break
 	}
@@ -259,8 +313,8 @@ func (input runWorkflowV4Input) targetInput() *gestalt.BoundWorkflowTarget {
 }
 
 func (input runWorkflowV4Input) triggerInput(now time.Time) *gestalt.WorkflowRunTrigger {
-	if input.ScheduleID != "" {
-		return scheduleTriggerInput(input.ScheduleID, now)
+	if input.ActivationID != "" {
+		return scheduleTriggerInput(input.ActivationID, now)
 	}
 	if input.Trigger != nil {
 		return input.Trigger

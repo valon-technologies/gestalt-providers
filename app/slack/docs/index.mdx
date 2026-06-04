@@ -24,7 +24,7 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 ## Bot Configuration
 
 Slack Events API agent replies and declarative REST operations that run as the
-bot use the app's bot token. Generic workflow event publishing does not require
+bot use the app's bot token. Generic workflow event delivery does not require
 a bot token. Configure the token as both a provider secret-backed value for event
 helper code and a subject-owned `bot` connection for runtime-only REST calls
 when agent replies or bot REST operations are enabled:
@@ -240,5 +240,5 @@ await app.invoke("slack", "events.uploadFile", {
 ## Events
 
 The provider also exposes a Slack Events API ingress for agent replies,
-assistant status updates, and workflow event publishing. See [Events](events.mdx)
+assistant status updates, and workflow event delivery. See [Events](events.mdx)
 for setup details.

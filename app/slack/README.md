@@ -17,7 +17,7 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 [Configuration](https://gestaltd.ai/configuration).
 
 Slack Events API agent replies and declarative REST operations that run as the
-bot use the app's bot token. Generic workflow event publishing does not require
+bot use the app's bot token. Generic workflow event delivery does not require
 a bot token. Configure the token as both a provider secret-backed value for
 event helper code and a subject-owned `bot` connection for runtime-only REST
 calls when agent replies or bot REST operations are enabled:
@@ -125,22 +125,11 @@ apps:
           secret:
             provider: secrets
             name: slack-bot-token
-      acknowledgement:
-        reaction: eyes
       workflow:
         provider: local
         definitionId: slack-default-agent
-      agent:
-        threadContext:
-          enabled: true
-          maxMessages: 200
       assistant:
         enabled: true
-        status: is checking that...
-        loadingMessages:
-          - Reading the Slack thread
-          - Calling available tools
-        iconEmoji: ":hourglass_flowing_sand:"
         suggestedPrompts:
           title: Try next
           prompts:
@@ -158,16 +147,7 @@ apps:
       workflow:
         provider: local
         definitionId: slack-default-agent
-      agent:
-        threadContext:
-          enabled: true
-          maxMessages: 200
 ```
-
-When `acknowledgement.reaction` is configured, `events.handle` adds that
-reaction to the source Slack message after the workflow provider accepts the
-event. Emoji names may be written with or without colons, and Slack's
-`already_reacted` response is treated as idempotent success.
 
 `events.handle` calls `req.workflows().signal_or_start_run(WorkflowSignalOrStartRun(...))`
 with `provider_name=workflow.provider`,
@@ -184,25 +164,11 @@ retry the callback. Once the workflow provider accepts the event, workflow state
 signal idempotency, retries, and reply delivery are owned by the workflow
 provider.
 
-For workflow-dispatched `message` and `app_mention` events that include
-`thread_ts`, `events.handle` fetches one bounded page of thread replies with the
-configured bot token before signaling the workflow. On success, the signal
-payload includes `slack.thread_context` and the generated `user_prompt` includes
-a prefetched thread context section. If Slack returns an API/client error, the
-workflow still receives the event with `slack.thread_context_error` and the
-thread-context helper remains available as a fallback tool.
-
-The default prefetch limit is 200 messages and `agent.threadContext.maxMessages`
-is clamped to Slack's 1-1000 page-size range. Some Slack apps have lower
-`conversations.replies` limits; set a lower `maxMessages` or disable prefetch
-with `agent.threadContext.enabled: false` for those deployments. Prefetch can
-also be tuned with `includeUserInfo`, `includeBots`, `includeFiles`,
-`includeFileContent`, `includeImageData`, and `maxFileBytes`.
-
-Route-level `agent.routes[].agent.threadContext` overrides the global thread
-context settings for matching events. If omitted, the route inherits the global
-settings. If `enabled: false` is set on the route, prefetch is disabled for that
-route even when it is enabled globally.
+`events.handle` does not fetch thread context, add reactions, or set native
+assistant loading status. Declare those as workflow steps that call
+`conversations.getThreadContext`, `events.addReaction`,
+`events.setAssistantStatus`, or other Slack operations when the workflow needs
+that Slack-visible work.
 
 Slack should send Events API requests to `POST /api/v1/slack/event` and Slack
 interactivity requests to `POST /api/v1/slack/interactions`. Both routes are
@@ -231,8 +197,8 @@ Runtime reply app input:
 {"reply_ref":"...","text":"I'll check that now."}
 ```
 
-To publish Slack Events API callbacks directly into Gestalt workflow events,
-configure `events.publish.routes`. Publish routes are independent from
+To deliver Slack Events API callbacks directly into Gestalt workflow events,
+configure `events.deliver.routes`. Delivery routes are independent from
 `agent.routes`; they do not require a linked Slack user or the Slack bot token:
 
 ```yaml
@@ -242,13 +208,12 @@ apps:
     authorizationPolicy: platform
     config:
       events:
-        publish:
+        deliver:
           routes:
             - id: message-events
               workflow:
                 provider: local
               workflowEventType: slack.event.received
-              source: slack
               subject: route:message-events
               match:
                 eventTypes:
@@ -259,18 +224,19 @@ apps:
 ```
 
 `workflow.provider` selects the Gestalt workflow provider that should receive
-the published event; if omitted, Gestalt publishes through the workflow
+the delivered event; if omitted, Gestalt delivers through the workflow
 manager's default behavior. `workflowEventType` defaults to `slack.event.received`,
-`source` defaults to `slack`, and `subject` defaults to `route:<routeId>`.
-Workflow triggers can match that subject exactly with
-`workflows.eventTriggers.match.subject`. Match rules support `eventTypes`,
+the emitted event source is always `slack`, and `subject` defaults to
+`route:<routeId>`.
+Workflow definition event activations can match that subject with
+`workflows.definitions.<id>.on.<activation>.event.subject`. Match rules support `eventTypes`,
 `subtypes`, `teamIds`, `channelIds`, `channelTypes`, `userIds`, `botIds`, and
 `includeBotEvents`. If `subtypes` is omitted, no subtype filter is applied. If
 `subtypes: []` is configured, only Slack events without a subtype match. Bot
 events are excluded unless `includeBotEvents: true` is set or `botIds` narrows
 the route to specific bots.
 
-Published workflow event data includes `routeId`, normalized Slack callback
+Delivered workflow event data includes `routeId`, normalized Slack callback
 fields, and the raw Slack payload. Event IDs prefer Slack's `event_id` as
 `slack:<event_id>`; when Slack omits it, the provider uses a deterministic ID
 from the route, team, event type, subtype, channel, timestamps, and user or bot.
@@ -403,9 +369,8 @@ features in Slack, add the bot `assistant:write` scope, and subscribe the bot to
 `assistant_thread_started`, `assistant_thread_context_changed`, and `message.im`
 events in addition to `app_mention`.
 
-To use different workflows, assistants, acknowledgement reactions, or thread
-context behavior for different Slack channels or event types, add
-`agent.routes`:
+To use different workflows, assistants, or native assistant suggested prompts
+for different Slack channels or event types, add `agent.routes`:
 
 ```yaml
 apps:
@@ -466,8 +431,6 @@ apps:
         provider: local
         definitionId: slack-default-agent
       agent:
-        threadContext:
-          maxMessages: 200
         routes:
           - id: team-help-new-messages
             match:
@@ -478,9 +441,6 @@ apps:
               thread: root
             workflow:
               definitionId: slack-team-help-new-message
-            agent:
-              acknowledgement:
-                reaction: eyes
           - id: team-help-mentions
             match:
               channels:
@@ -504,28 +464,20 @@ apps:
             agent:
               assistant:
                 enabled: true
-                status: is checking status...
                 suggestedPrompts:
                   title: Try next
                   prompts:
                     - title: Summarize status
                       message: Summarize the latest service status.
-              acknowledgement:
-                enabled: false
-              threadContext:
-                maxMessages: 50
-                includeFiles: false
 ```
 
 Route settings inherit from the top-level provider configuration when omitted.
-Set `enabled: false` on route `agent.assistant`, `agent.acknowledgement`, or
-`agent.threadContext` to explicitly disable an inherited global setting. Route
-`workflow.provider` overrides the global `workflow.provider`, and
+Set `enabled: false` on route `agent.assistant` to explicitly disable inherited
+assistant suggested prompts. Route `workflow.provider` overrides the global `workflow.provider`, and
 `workflow.definitionId` overrides the global `workflow.definitionId`, for both
 Slack events and Slack interaction button callbacks generated from that route.
-The Slack provider selects the route, signs `reply_ref`, prefetches configured
-thread context, and signals the workflow; workflow behavior and Slack replies
-live in the global workflow definition. Signed
+The Slack provider selects the route, signs `reply_ref`, and signals the
+workflow; workflow behavior and Slack replies live in the global workflow definition. Signed
 interaction callbacks include the route ID; if a non-empty signed route ID no
 longer exists in the provider configuration, the provider rejects the callback
 instead of silently falling back to global behavior. The global workflow should
@@ -597,8 +549,8 @@ the route sets `botIds` to the allowed Slack bot IDs, or sets
 trigger the agent. Edit, delete, and `message_replied` message events remain
 ignored before route matching.
 
-Route-level `agent` fields only control Slack-facing behavior: native assistant
-settings, acknowledgements, and thread-context prefetch.
+Route-level `agent` fields only control route matching, workflow selection,
+run-as subjects, and native assistant suggested prompts.
 
 ## Configuration Reference
 

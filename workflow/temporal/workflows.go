@@ -21,11 +21,11 @@ type workflowActivities struct {
 	state    *workflowStateStore
 }
 
-func (a *workflowActivities) ExecuteSteps(ctx context.Context, req gestaltworkflow.Request) (*gestaltworkflow.Response, error) {
-	return a.executor.Execute(ctx, req)
+func (a *workflowActivities) ExecuteStep(ctx context.Context, req gestaltworkflow.StepRequest) (*gestaltworkflow.StepResponse, error) {
+	return a.executor.ExecuteStep(ctx, req)
 }
 
-func (a *workflowActivities) ProjectRun(ctx context.Context, run gestalt.BoundWorkflowRun) error {
+func (a *workflowActivities) ProjectRun(ctx context.Context, run gestalt.WorkflowRun) error {
 	if a.state == nil {
 		return nil
 	}

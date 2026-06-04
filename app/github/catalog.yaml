@@ -2,7 +2,7 @@ name: github
 operations:
 - id: events.handle
   method: POST
-  description: Handle GitHub App webhook callbacks by publishing canonical workflow
+  description: Handle GitHub App webhook callbacks by delivering canonical workflow
     events
   visible: false
 - id: identity.linkSelf

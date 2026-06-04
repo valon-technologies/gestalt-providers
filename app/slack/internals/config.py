@@ -5,18 +5,16 @@ import re
 from typing import Any, cast
 
 from .models import (
-    SlackAcknowledgementConfig,
     SlackAgentConfig,
     SlackAgentRoute,
     SlackAgentRouteMatch,
     SlackAssistantConfig,
     SlackBotConfig,
-    SlackEventPublishConfig,
-    SlackEventPublishRoute,
-    SlackEventPublishRouteMatch,
+    SlackEventDeliveryConfig,
+    SlackEventDeliveryRoute,
+    SlackEventDeliveryRouteMatch,
     SlackEventsConfig,
     SlackSuggestedPrompt,
-    SlackThreadContextConfig,
     SlackWorkflowConfig,
     SUPPORTED_AGENT_ROUTE_EVENT_TYPES,
     SUPPORTED_AGENT_ROUTE_THREAD_MATCHES,
@@ -43,15 +41,11 @@ def agent_config_from_provider_config(
     events = _events_config_from_provider_config(config)
     bot = _config_dict(config, "bot")
     assistant = _assistant_config_from_provider_config(config, agent)
-    acknowledgement = _acknowledgement_config_from_provider_config(config, agent)
     workflow = _workflow_config_from_provider_config(config)
-    thread_context = _thread_context_config_from_provider_config(config, agent)
     routes = _agent_routes_from_provider_config(
         config,
         agent,
         assistant=assistant,
-        acknowledgement=acknowledgement,
-        thread_context=thread_context,
     )
     _validate_agent_route_ids(routes)
 
@@ -73,9 +67,7 @@ def agent_config_from_provider_config(
         ),
         events=events,
         assistant=assistant,
-        acknowledgement=acknowledgement,
         workflow=workflow,
-        thread_context=thread_context,
         routes=routes,
     )
 
@@ -112,48 +104,12 @@ def _assistant_config_from_provider_config(
 
 def _assistant_config_from_config(assistant: dict[str, Any]) -> SlackAssistantConfig:
     title, prompts = _assistant_suggested_prompts_from_config(assistant)
-    status = _config_string(
-        assistant, "status", "initialStatus", "initial_status", "loadingStatus"
-    )
 
     return SlackAssistantConfig(
         enabled=_config_bool(assistant, "enabled", default=False),
         enabled_configured=_config_has_bool(assistant, "enabled"),
-        status=status or "thinking...",
-        loading_messages=_config_string_tuple(
-            assistant, "loadingMessages", "loading_messages"
-        ),
-        icon_emoji=_config_string(assistant, "iconEmoji", "icon_emoji"),
-        icon_url=_config_string(assistant, "iconUrl", "icon_url"),
-        username=_config_string(assistant, "username"),
         suggested_prompts_title=title,
         suggested_prompts=tuple(prompts),
-    )
-
-
-def _acknowledgement_config_from_provider_config(
-    config: dict[str, Any], agent: dict[str, Any]
-) -> SlackAcknowledgementConfig:
-    acknowledgement = _config_dict(agent, "acknowledgement", "acknowledgment", "ack")
-    if not acknowledgement:
-        acknowledgement = _config_dict(
-            config, "acknowledgement", "acknowledgment", "ack"
-        )
-    if not acknowledgement:
-        return SlackAcknowledgementConfig(enabled=False)
-    if not _config_bool(acknowledgement, "enabled", default=True):
-        return SlackAcknowledgementConfig(enabled=False)
-    reaction = _config_string(
-        acknowledgement,
-        "reaction",
-        "reactionName",
-        "reaction_name",
-        "emoji",
-        "emojiName",
-        "emoji_name",
-    )
-    return SlackAcknowledgementConfig(
-        enabled=True, reaction=reaction.strip().strip(":")
     )
 
 
@@ -189,82 +145,11 @@ def _workflow_config_from_provider_config(
     )
 
 
-def _thread_context_config_from_provider_config(
-    config: dict[str, Any], agent: dict[str, Any]
-) -> SlackThreadContextConfig:
-    thread_context = _config_dict(agent, "threadContext", "thread_context")
-    if not thread_context:
-        thread_context = _config_dict(config, "threadContext", "thread_context")
-    return _thread_context_config_from_config(thread_context)
-
-
-def _thread_context_config_from_config(
-    thread_context: dict[str, Any],
-) -> SlackThreadContextConfig:
-    return SlackThreadContextConfig(
-        enabled=_config_bool(thread_context, "enabled", default=True),
-        max_messages=_clamp_int(
-            _config_int(
-                thread_context,
-                "maxMessages",
-                "max_messages",
-                "messageLimit",
-                "message_limit",
-                default=200,
-            ),
-            minimum=1,
-            maximum=1000,
-        ),
-        include_user_info=_config_bool(
-            thread_context,
-            "includeUserInfo",
-            "include_user_info",
-            default=False,
-        ),
-        include_bots=_config_bool(
-            thread_context,
-            "includeBots",
-            "include_bots",
-            default=True,
-        ),
-        include_files=_config_bool(
-            thread_context,
-            "includeFiles",
-            "include_files",
-            default=True,
-        ),
-        include_file_content=_config_bool(
-            thread_context,
-            "includeFileContent",
-            "include_file_content",
-            default=False,
-        ),
-        include_image_data=_config_bool(
-            thread_context,
-            "includeImageData",
-            "include_image_data",
-            default=False,
-        ),
-        max_file_bytes=_clamp_int(
-            _config_int(
-                thread_context,
-                "maxFileBytes",
-                "max_file_bytes",
-                default=200_000,
-            ),
-            minimum=0,
-            maximum=25_000_000,
-        ),
-    )
-
-
 def _agent_routes_from_provider_config(
     config: dict[str, Any],
     agent: dict[str, Any],
     *,
     assistant: SlackAssistantConfig,
-    acknowledgement: SlackAcknowledgementConfig,
-    thread_context: SlackThreadContextConfig,
 ) -> tuple[SlackAgentRoute, ...]:
     raw_routes = _config_list(agent, "routes")
     if not raw_routes:
@@ -277,8 +162,6 @@ def _agent_routes_from_provider_config(
                     raw_route,
                     index,
                     assistant=assistant,
-                    acknowledgement=acknowledgement,
-                    thread_context=thread_context,
                 )
             )
     return tuple(routes)
@@ -289,8 +172,6 @@ def _agent_route_from_config(
     index: int,
     *,
     assistant: SlackAssistantConfig,
-    acknowledgement: SlackAcknowledgementConfig,
-    thread_context: SlackThreadContextConfig,
 ) -> SlackAgentRoute:
     agent = _config_dict(config, "agent")
     match = _agent_route_match_from_config(_config_dict(config, "match"))
@@ -308,12 +189,6 @@ def _agent_route_from_config(
         run_as_subject_id=run_as_subject_id,
         workflow=workflow,
         assistant=_route_assistant_config_from_config(config, agent, assistant),
-        acknowledgement=_route_acknowledgement_config_from_config(
-            config, agent, acknowledgement
-        ),
-        thread_context=_route_thread_context_config_from_config(
-            config, agent, thread_context
-        ),
     )
 
 
@@ -431,17 +306,6 @@ def _route_assistant_config_from_config(
     return SlackAssistantConfig(
         enabled=parsed.enabled if parsed.enabled_configured else inherited.enabled,
         enabled_configured=parsed.enabled_configured,
-        status=parsed.status
-        if _config_has_any(
-            assistant, "status", "initialStatus", "initial_status", "loadingStatus"
-        )
-        else inherited.status,
-        loading_messages=parsed.loading_messages
-        if _config_has_any(assistant, "loadingMessages", "loading_messages")
-        else inherited.loading_messages,
-        icon_emoji=parsed.icon_emoji or inherited.icon_emoji,
-        icon_url=parsed.icon_url or inherited.icon_url,
-        username=parsed.username or inherited.username,
         suggested_prompts_title=parsed.suggested_prompts_title
         or inherited.suggested_prompts_title,
         suggested_prompts=parsed.suggested_prompts
@@ -449,79 +313,6 @@ def _route_assistant_config_from_config(
             assistant, "suggestedPrompts", "suggested_prompts", "prompts"
         )
         else inherited.suggested_prompts,
-    )
-
-
-def _route_acknowledgement_config_from_config(
-    config: dict[str, Any],
-    agent: dict[str, Any],
-    inherited: SlackAcknowledgementConfig,
-) -> SlackAcknowledgementConfig | None:
-    acknowledgement = _config_dict_or_none(
-        agent, "acknowledgement", "acknowledgment", "ack"
-    )
-    if acknowledgement is None:
-        acknowledgement = _config_dict_or_none(
-            config, "acknowledgement", "acknowledgment", "ack"
-        )
-    if acknowledgement is None:
-        return None
-    if not _config_bool(acknowledgement, "enabled", default=True):
-        return SlackAcknowledgementConfig(enabled=False)
-    reaction = _config_string(
-        acknowledgement,
-        "reaction",
-        "reactionName",
-        "reaction_name",
-        "emoji",
-        "emojiName",
-        "emoji_name",
-    )
-    return SlackAcknowledgementConfig(
-        enabled=True, reaction=reaction.strip().strip(":") or inherited.reaction
-    )
-
-
-def _route_thread_context_config_from_config(
-    config: dict[str, Any],
-    agent: dict[str, Any],
-    inherited: SlackThreadContextConfig,
-) -> SlackThreadContextConfig | None:
-    thread_context = _config_dict_or_none(agent, "threadContext", "thread_context")
-    if thread_context is None:
-        thread_context = _config_dict_or_none(config, "threadContext", "thread_context")
-    if thread_context is None:
-        return None
-    parsed = _thread_context_config_from_config(thread_context)
-    return SlackThreadContextConfig(
-        enabled=_config_bool(thread_context, "enabled", default=inherited.enabled),
-        max_messages=parsed.max_messages
-        if _config_has_any(
-            thread_context,
-            "maxMessages",
-            "max_messages",
-            "messageLimit",
-            "message_limit",
-        )
-        else inherited.max_messages,
-        include_user_info=parsed.include_user_info
-        if _config_has_any(thread_context, "includeUserInfo", "include_user_info")
-        else inherited.include_user_info,
-        include_bots=parsed.include_bots
-        if _config_has_any(thread_context, "includeBots", "include_bots")
-        else inherited.include_bots,
-        include_files=parsed.include_files
-        if _config_has_any(thread_context, "includeFiles", "include_files")
-        else inherited.include_files,
-        include_file_content=parsed.include_file_content
-        if _config_has_any(thread_context, "includeFileContent", "include_file_content")
-        else inherited.include_file_content,
-        include_image_data=parsed.include_image_data
-        if _config_has_any(thread_context, "includeImageData", "include_image_data")
-        else inherited.include_image_data,
-        max_file_bytes=parsed.max_file_bytes
-        if _config_has_any(thread_context, "maxFileBytes", "max_file_bytes")
-        else inherited.max_file_bytes,
     )
 
 
@@ -597,21 +388,21 @@ def _agent_route_match_from_config(config: dict[str, Any]) -> SlackAgentRouteMat
 
 def _events_config_from_provider_config(config: dict[str, Any]) -> SlackEventsConfig:
     events = _config_dict(config, "events")
-    publish = _config_dict(events, "publish")
-    raw_routes = _config_list(publish, "routes")
-    routes: list[SlackEventPublishRoute] = []
+    deliver = _config_dict(events, "deliver")
+    raw_routes = _config_list(deliver, "routes")
+    routes: list[SlackEventDeliveryRoute] = []
     for index, raw_route in enumerate(raw_routes, start=1):
         if isinstance(raw_route, dict):
-            routes.append(_event_publish_route_from_config(raw_route, index))
-    return SlackEventsConfig(publish=SlackEventPublishConfig(routes=tuple(routes)))
+            routes.append(_event_deliver_route_from_config(raw_route, index))
+    return SlackEventsConfig(deliver=SlackEventDeliveryConfig(routes=tuple(routes)))
 
 
-def _event_publish_route_from_config(
+def _event_deliver_route_from_config(
     config: dict[str, Any], index: int
-) -> SlackEventPublishRoute:
+) -> SlackEventDeliveryRoute:
     _validate_workflow_config_keys(
         config,
-        f"events.publish.routes[{index}]",
+        f"events.deliver.routes[{index}]",
         allowed_keys={
             "id",
             "name",
@@ -621,8 +412,6 @@ def _event_publish_route_from_config(
             "eventType",
             "event_type",
             "type",
-            "source",
-            "workflowEventSource",
             "subject",
             "workflowEventSubject",
             "match",
@@ -632,7 +421,7 @@ def _event_publish_route_from_config(
     workflow = _config_dict(config, "workflow")
     _validate_workflow_config_keys(
         workflow,
-        f"events.publish.routes[{index}].workflow",
+        f"events.deliver.routes[{index}].workflow",
         allowed_keys={"provider"},
     )
     workflow_provider = _config_string(workflow, "provider")
@@ -644,22 +433,20 @@ def _event_publish_route_from_config(
         "event_type",
         "type",
     )
-    source = _config_string(config, "source", "workflowEventSource")
     subject = _config_string(config, "subject", "workflowEventSubject")
-    return SlackEventPublishRoute(
+    return SlackEventDeliveryRoute(
         id=route_id,
-        match=_event_publish_route_match_from_config(_config_dict(config, "match")),
+        match=_event_deliver_route_match_from_config(_config_dict(config, "match")),
         workflow_provider=workflow_provider,
         workflow_event_type=workflow_event_type or "slack.event.received",
-        source=source or "slack",
         subject=subject or f"route:{route_id}",
     )
 
 
-def _event_publish_route_match_from_config(
+def _event_deliver_route_match_from_config(
     config: dict[str, Any],
-) -> SlackEventPublishRouteMatch:
-    return SlackEventPublishRouteMatch(
+) -> SlackEventDeliveryRouteMatch:
+    return SlackEventDeliveryRouteMatch(
         team_ids=_config_string_tuple(
             config, "team", "teams", "teamId", "teamIds", "team_id", "team_ids"
         ),
@@ -776,25 +563,6 @@ def _config_has_bool(config: dict[str, Any], *keys: str) -> bool:
 
 def _config_has_any(config: dict[str, Any], *keys: str) -> bool:
     return any(key in config for key in keys)
-
-
-def _config_int(config: dict[str, Any], *keys: str, default: int) -> int:
-    for key in keys:
-        value = config.get(key)
-        if isinstance(value, bool):
-            continue
-        if isinstance(value, int):
-            return value
-        if isinstance(value, str):
-            try:
-                return int(value.strip())
-            except ValueError:
-                continue
-    return default
-
-
-def _clamp_int(value: int, *, minimum: int, maximum: int) -> int:
-    return max(minimum, min(value, maximum))
 
 
 def _config_string_tuple(config: dict[str, Any], *keys: str) -> tuple[str, ...]:

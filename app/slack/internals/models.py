@@ -205,12 +205,10 @@ class SlackAgentRoute:
     run_as_subject_id: str = ""
     workflow: SlackWorkflowConfig | None = None
     assistant: SlackAssistantConfig | None = None
-    acknowledgement: SlackAcknowledgementConfig | None = None
-    thread_context: SlackThreadContextConfig | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class SlackEventPublishCallback:
+class SlackEventDeliveryCallback:
     callback_type: str
     event_type: str
     event_id: str
@@ -232,7 +230,7 @@ class SlackEventPublishCallback:
 
 
 @dataclass(frozen=True, slots=True)
-class SlackEventPublishRouteMatch:
+class SlackEventDeliveryRouteMatch:
     team_ids: tuple[str, ...] = ()
     channel_ids: tuple[str, ...] = ()
     channel_types: tuple[str, ...] = ()
@@ -242,7 +240,7 @@ class SlackEventPublishRouteMatch:
     bot_ids: tuple[str, ...] = ()
     include_bot_events: bool = False
 
-    def matches(self, event: SlackEventPublishCallback) -> bool:
+    def matches(self, event: SlackEventDeliveryCallback) -> bool:
         if self.team_ids and event.team_id not in self.team_ids:
             return False
         if self.channel_ids and event.channel_id not in self.channel_ids:
@@ -267,25 +265,24 @@ class SlackEventPublishRouteMatch:
 
 
 @dataclass(frozen=True, slots=True)
-class SlackEventPublishRoute:
+class SlackEventDeliveryRoute:
     id: str = ""
-    match: SlackEventPublishRouteMatch = field(
-        default_factory=SlackEventPublishRouteMatch
+    match: SlackEventDeliveryRouteMatch = field(
+        default_factory=SlackEventDeliveryRouteMatch
     )
     workflow_provider: str = ""
     workflow_event_type: str = "slack.event.received"
-    source: str = "slack"
     subject: str = ""
 
 
 @dataclass(frozen=True, slots=True)
-class SlackEventPublishConfig:
-    routes: tuple[SlackEventPublishRoute, ...] = ()
+class SlackEventDeliveryConfig:
+    routes: tuple[SlackEventDeliveryRoute, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class SlackEventsConfig:
-    publish: SlackEventPublishConfig = field(default_factory=SlackEventPublishConfig)
+    deliver: SlackEventDeliveryConfig = field(default_factory=SlackEventDeliveryConfig)
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,19 +295,8 @@ class SlackBotConfig:
 class SlackAssistantConfig:
     enabled: bool = False
     enabled_configured: bool = False
-    status: str = "thinking..."
-    loading_messages: tuple[str, ...] = ()
-    icon_emoji: str = ""
-    icon_url: str = ""
-    username: str = ""
     suggested_prompts_title: str = ""
     suggested_prompts: tuple[SlackSuggestedPrompt, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class SlackAcknowledgementConfig:
-    enabled: bool = True
-    reaction: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,30 +307,12 @@ class SlackWorkflowConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class SlackThreadContextConfig:
-    enabled: bool = True
-    max_messages: int = 200
-    include_user_info: bool = False
-    include_bots: bool = True
-    include_files: bool = True
-    include_file_content: bool = False
-    include_image_data: bool = False
-    max_file_bytes: int = 200_000
-
-
-@dataclass(frozen=True, slots=True)
 class SlackAgentConfig:
     app_name: str = "slack"
     bot: SlackBotConfig = field(default_factory=SlackBotConfig)
     events: SlackEventsConfig = field(default_factory=SlackEventsConfig)
     assistant: SlackAssistantConfig = field(default_factory=SlackAssistantConfig)
-    acknowledgement: SlackAcknowledgementConfig = field(
-        default_factory=SlackAcknowledgementConfig
-    )
     workflow: SlackWorkflowConfig = field(default_factory=SlackWorkflowConfig)
-    thread_context: SlackThreadContextConfig = field(
-        default_factory=SlackThreadContextConfig
-    )
     routes: tuple[SlackAgentRoute, ...] = ()
 
 

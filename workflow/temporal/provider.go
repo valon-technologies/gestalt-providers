@@ -104,15 +104,15 @@ func (p *Provider) Close() error {
 	return backend.Close()
 }
 
-func (p *Provider) CreateDefinition(ctx context.Context, req *gestalt.CreateWorkflowProviderDefinitionRequest) (*gestalt.BoundWorkflowDefinition, error) {
+func (p *Provider) ApplyDefinition(ctx context.Context, req *gestalt.ApplyWorkflowProviderDefinitionRequest) (*gestalt.WorkflowDefinition, error) {
 	backend, err := p.requireBackend()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	return backend.CreateDefinition(ctx, req)
+	return backend.ApplyDefinition(ctx, req)
 }
 
-func (p *Provider) GetDefinition(ctx context.Context, req *gestalt.GetWorkflowProviderDefinitionRequest) (*gestalt.BoundWorkflowDefinition, error) {
+func (p *Provider) GetDefinition(ctx context.Context, req *gestalt.GetWorkflowProviderDefinitionRequest) (*gestalt.WorkflowDefinition, error) {
 	backend, err := p.requireBackend()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -120,12 +120,28 @@ func (p *Provider) GetDefinition(ctx context.Context, req *gestalt.GetWorkflowPr
 	return backend.GetDefinition(ctx, req)
 }
 
-func (p *Provider) UpdateDefinition(ctx context.Context, req *gestalt.UpdateWorkflowProviderDefinitionRequest) (*gestalt.BoundWorkflowDefinition, error) {
+func (p *Provider) ListDefinitions(ctx context.Context, req *gestalt.ListWorkflowProviderDefinitionsRequest) (*gestalt.ListWorkflowProviderDefinitionsResponse, error) {
 	backend, err := p.requireBackend()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	return backend.UpdateDefinition(ctx, req)
+	return backend.ListDefinitions(ctx, req)
+}
+
+func (p *Provider) SetDefinitionPaused(ctx context.Context, req *gestalt.SetWorkflowProviderDefinitionPausedRequest) (*gestalt.WorkflowDefinition, error) {
+	backend, err := p.requireBackend()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	return backend.SetDefinitionPaused(ctx, req)
+}
+
+func (p *Provider) SetActivationPaused(ctx context.Context, req *gestalt.SetWorkflowProviderActivationPausedRequest) (*gestalt.WorkflowDefinition, error) {
+	backend, err := p.requireBackend()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	return backend.SetActivationPaused(ctx, req)
 }
 
 func (p *Provider) DeleteDefinition(ctx context.Context, req *gestalt.DeleteWorkflowProviderDefinitionRequest) error {
@@ -136,7 +152,7 @@ func (p *Provider) DeleteDefinition(ctx context.Context, req *gestalt.DeleteWork
 	return backend.DeleteDefinition(ctx, req)
 }
 
-func (p *Provider) StartRun(ctx context.Context, req *gestalt.StartWorkflowProviderRunRequest) (*gestalt.BoundWorkflowRun, error) {
+func (p *Provider) StartRun(ctx context.Context, req *gestalt.StartWorkflowProviderRunRequest) (*gestalt.WorkflowRun, error) {
 	backend, err := p.requireStartedBackend(ctx)
 	if err != nil {
 		return nil, err
@@ -144,7 +160,7 @@ func (p *Provider) StartRun(ctx context.Context, req *gestalt.StartWorkflowProvi
 	return backend.StartRun(ctx, req)
 }
 
-func (p *Provider) GetRun(ctx context.Context, req *gestalt.GetWorkflowProviderRunRequest) (*gestalt.BoundWorkflowRun, error) {
+func (p *Provider) GetRun(ctx context.Context, req *gestalt.GetWorkflowProviderRunRequest) (*gestalt.WorkflowRun, error) {
 	backend, err := p.requireBackend()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -160,7 +176,23 @@ func (p *Provider) ListRuns(ctx context.Context, req *gestalt.ListWorkflowProvid
 	return backend.ListRuns(ctx, req)
 }
 
-func (p *Provider) CancelRun(ctx context.Context, req *gestalt.CancelWorkflowProviderRunRequest) (*gestalt.BoundWorkflowRun, error) {
+func (p *Provider) GetRunEvents(ctx context.Context, req *gestalt.GetWorkflowProviderRunEventsRequest) (*gestalt.GetWorkflowProviderRunEventsResponse, error) {
+	backend, err := p.requireBackend()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	return backend.GetRunEvents(ctx, req)
+}
+
+func (p *Provider) GetRunOutput(ctx context.Context, req *gestalt.GetWorkflowProviderRunOutputRequest) (*gestalt.GetWorkflowProviderRunOutputResponse, error) {
+	backend, err := p.requireBackend()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	return backend.GetRunOutput(ctx, req)
+}
+
+func (p *Provider) CancelRun(ctx context.Context, req *gestalt.CancelWorkflowProviderRunRequest) (*gestalt.WorkflowRun, error) {
 	backend, err := p.requireStartedBackend(ctx)
 	if err != nil {
 		return nil, err
@@ -184,108 +216,12 @@ func (p *Provider) SignalOrStartRun(ctx context.Context, req *gestalt.SignalOrSt
 	return backend.SignalOrStartRun(ctx, req)
 }
 
-func (p *Provider) UpsertSchedule(ctx context.Context, req *gestalt.UpsertWorkflowProviderScheduleRequest) (*gestalt.BoundWorkflowSchedule, error) {
-	backend, err := p.requireBackend()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	return backend.UpsertSchedule(ctx, req)
-}
-
-func (p *Provider) GetSchedule(ctx context.Context, req *gestalt.GetWorkflowProviderScheduleRequest) (*gestalt.BoundWorkflowSchedule, error) {
-	backend, err := p.requireBackend()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	return backend.GetSchedule(ctx, req)
-}
-
-func (p *Provider) ListSchedules(ctx context.Context, req *gestalt.ListWorkflowProviderSchedulesRequest) (*gestalt.ListWorkflowProviderSchedulesResponse, error) {
-	backend, err := p.requireBackend()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	return backend.ListSchedules(ctx, req)
-}
-
-func (p *Provider) DeleteSchedule(ctx context.Context, req *gestalt.DeleteWorkflowProviderScheduleRequest) error {
-	backend, err := p.requireBackend()
-	if err != nil {
-		return status.Error(codes.FailedPrecondition, err.Error())
-	}
-	return backend.DeleteSchedule(ctx, req)
-}
-
-func (p *Provider) PauseSchedule(ctx context.Context, req *gestalt.PauseWorkflowProviderScheduleRequest) (*gestalt.BoundWorkflowSchedule, error) {
-	backend, err := p.requireBackend()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	return backend.PauseSchedule(ctx, req)
-}
-
-func (p *Provider) ResumeSchedule(ctx context.Context, req *gestalt.ResumeWorkflowProviderScheduleRequest) (*gestalt.BoundWorkflowSchedule, error) {
-	backend, err := p.requireBackend()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	return backend.ResumeSchedule(ctx, req)
-}
-
-func (p *Provider) UpsertEventTrigger(ctx context.Context, req *gestalt.UpsertWorkflowProviderEventTriggerRequest) (*gestalt.BoundWorkflowEventTrigger, error) {
-	backend, err := p.requireBackend()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	return backend.UpsertEventTrigger(ctx, req)
-}
-
-func (p *Provider) GetEventTrigger(ctx context.Context, req *gestalt.GetWorkflowProviderEventTriggerRequest) (*gestalt.BoundWorkflowEventTrigger, error) {
-	backend, err := p.requireBackend()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	return backend.GetEventTrigger(ctx, req)
-}
-
-func (p *Provider) ListEventTriggers(ctx context.Context, req *gestalt.ListWorkflowProviderEventTriggersRequest) (*gestalt.ListWorkflowProviderEventTriggersResponse, error) {
-	backend, err := p.requireBackend()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	return backend.ListEventTriggers(ctx, req)
-}
-
-func (p *Provider) DeleteEventTrigger(ctx context.Context, req *gestalt.DeleteWorkflowProviderEventTriggerRequest) error {
-	backend, err := p.requireBackend()
-	if err != nil {
-		return status.Error(codes.FailedPrecondition, err.Error())
-	}
-	return backend.DeleteEventTrigger(ctx, req)
-}
-
-func (p *Provider) PauseEventTrigger(ctx context.Context, req *gestalt.PauseWorkflowProviderEventTriggerRequest) (*gestalt.BoundWorkflowEventTrigger, error) {
-	backend, err := p.requireBackend()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	return backend.PauseEventTrigger(ctx, req)
-}
-
-func (p *Provider) ResumeEventTrigger(ctx context.Context, req *gestalt.ResumeWorkflowProviderEventTriggerRequest) (*gestalt.BoundWorkflowEventTrigger, error) {
-	backend, err := p.requireBackend()
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
-	}
-	return backend.ResumeEventTrigger(ctx, req)
-}
-
-func (p *Provider) PublishEvent(ctx context.Context, req *gestalt.PublishWorkflowProviderEventRequest) (*gestalt.WorkflowEvent, error) {
+func (p *Provider) DeliverEvent(ctx context.Context, req *gestalt.DeliverWorkflowProviderEventRequest) (*gestalt.WorkflowEvent, error) {
 	backend, err := p.requireStartedBackend(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return backend.PublishEvent(ctx, req)
+	return backend.DeliverEvent(ctx, req)
 }
 
 func (p *Provider) requireBackend() (*temporalBackend, error) {

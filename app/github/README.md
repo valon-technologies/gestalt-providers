@@ -2,7 +2,7 @@
 
 The GitHub app provider connects GitHub App webhooks and generic GitHub bot
 operations to Gestalt. Webhooks are accepted at `/github/event`, filtered, and
-published as canonical workflow events. The provider does not run built-in
+delivered as canonical workflow events. The provider does not run built-in
 agent behavior from webhook delivery.
 
 ## Configuration
@@ -40,17 +40,17 @@ Supported config fields:
   omitted.
 - `webBaseUrl`: GitHub web URL used for generated links. Defaults to
   `https://github.com`.
-- `webhookEvents`: allowlist of GitHub event names to publish. Defaults to
+- `webhookEvents`: allowlist of GitHub event names to deliver. Defaults to
   `check_run`, `check_suite`, `issue_comment`, `issues`, `pull_request`,
   `pull_request_review`, `pull_request_review_comment`, and `workflow_run`.
-- `workflow.provider`: workflow provider that receives published events.
+- `workflow.provider`: workflow provider that receives delivered events.
 - `ignoreBotSender`: ignore events sent by the configured GitHub App bot login.
   Defaults to `true`.
 
 ## Webhook Events
 
 `events.handle` validates generic webhook conditions and then calls
-`req.workflows().publish_event(...)` once per accepted delivery.
+`req.workflows().deliver_event(...)` once per accepted delivery.
 
 Ignored deliveries return `{"ok": true, "ignored": "<reason>"}` for:
 
@@ -59,7 +59,7 @@ Ignored deliveries return `{"ok": true, "ignored": "<reason>"}` for:
 - Missing or unsupported event types.
 - Configured bot senders when `ignoreBotSender` is enabled.
 
-Published workflow events use this shape:
+Delivered workflow events use this shape:
 
 ```json
 {
@@ -89,7 +89,7 @@ When `X-GitHub-Delivery` is missing, the event ID is `github:<sha256 digest>`.
 When `X-GitHub-Event` is missing, the event type is inferred from the payload.
 When a repository is absent, the subject is `installation:<id>`.
 
-If publishing fails, `events.handle` returns an internal server error so GitHub
+If delivery fails, `events.handle` returns an internal server error so GitHub
 can retry delivery.
 
 ## Operations

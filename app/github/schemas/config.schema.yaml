@@ -35,14 +35,14 @@ properties:
   webhookEvents:
     type: array
     description: >-
-      GitHub webhook event types that should publish workflow events. Defaults
+      GitHub webhook event types that should deliver workflow events. Defaults
       to check_run, check_suite, issue_comment, issues, pull_request,
       pull_request_review, pull_request_review_comment, and workflow_run.
     items:
       type: string
   workflow:
     type: object
-    description: Workflow provider used for GitHub App webhook event publishing.
+    description: Workflow provider used for GitHub App webhook event delivery.
     additionalProperties: false
     properties:
       provider:
