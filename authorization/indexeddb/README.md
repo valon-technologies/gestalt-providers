@@ -1,75 +1,23 @@
 # IndexedDB Authorization
 
-Authorization provider backed by the host IndexedDB service exposed through
-`gestalt.IndexedDB(...)`.
+IndexedDB authorization provider for the Gestalt authorization provider
+interface.
 
-## Configuration
+The proposed provider shape is:
 
-Reference this provider in your Gestalt configuration:
+```proto
+service AuthorizationProvider {
+  rpc CheckAccess(CheckAccessRequest) returns (CheckAccessResponse);
+  rpc CheckAccessMany(CheckAccessManyRequest) returns (CheckAccessManyResponse);
 
-```yaml
-providers:
-  indexeddb:
-    default:
-      source:
-        ref: github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb
-        version: 0.0.1-alpha.2
+  rpc ListRelationships(ListRelationshipsRequest) returns (ListRelationshipsResponse);
+  rpc AddRelationship(AddRelationshipRequest) returns (AddRelationshipResponse);
+  rpc DeleteRelationship(DeleteRelationshipRequest) returns (DeleteRelationshipResponse);
 
-  authorization:
-    indexeddb:
-      source:
-        ref: github.com/valon-technologies/gestalt-providers/authorization/indexeddb
-        version: 0.0.1-alpha.2
-      config:
-        indexeddb: default
+  rpc SetAuthorizationState(SetAuthorizationStateRequest) returns (SetAuthorizationStateResponse);
 
-server:
-  providers:
-    indexeddb: default
-    authorization: indexeddb
-```
-
-Configuration fields:
-
-- `indexeddb`: Optional named host IndexedDB provider binding. Omit it to use
-  the default IndexedDB binding on the unified host-service socket.
-
-## Authorization Model
-
-`WriteModel` accepts a typed `AuthorizationModel`. The provider supports direct
-relationships, generalized relationship targets, action-to-relation mapping, and
-Zanzibar-style rewrites for `this`, `computed_userset`, `tuple_to_userset`, and
-`union`. The logical model shape is:
-
-```yaml
-version: 1
-resource_types:
-  document:
-    relations:
-      viewer:
-        subject_types: [user]
-      editor:
-        subject_types: [user]
-    actions:
-      read: [viewer, editor]
-      write: [editor]
-```
-
-The typed equivalent is:
-
-```go
-&proto.AuthorizationModel{
-  Version: 1,
-  ResourceTypes: []*proto.AuthorizationModelResourceType{{
-    Name: "document",
-    Relations: []*proto.AuthorizationModelRelation{
-      {Name: "viewer", SubjectTypes: []string{"user"}},
-      {Name: "editor", SubjectTypes: []string{"user"}},
-    },
-    Actions: []*proto.AuthorizationModelAction{
-      {Name: "read", Relations: []string{"viewer", "editor"}},
-      {Name: "write", Relations: []string{"editor"}},
-    },
-  }},
+  rpc GetActiveModelRef() returns (GetActiveModelRefResponse);
+  rpc SetActiveModel(SetActiveModelRequest) returns (SetActiveModelResponse);
+  rpc ListActiveModelResourceTypes(ListActiveModelResourceTypesRequest) returns (ListActiveModelResourceTypesResponse);
 }
 ```

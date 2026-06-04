@@ -2,64 +2,392 @@ package indexeddb
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-const providerVersion = "0.0.1-alpha.1"
-
 type Provider struct {
-	mu    sync.RWMutex
-	cfg   config
-	store *store
-	now   func() time.Time
+	mu sync.Mutex
+	db indexeddb.Database
 }
 
+type openIndexedDBFunc func(context.Context, ...string) (indexeddb.Database, error)
+
 func New() *Provider {
-	return &Provider{now: time.Now}
+	return &Provider{}
 }
 
 func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) error {
+	return configure(ctx, raw, gestalt.IndexedDB, p)
+}
+
+func configure(ctx context.Context, raw map[string]any, openIndexedDB openIndexedDBFunc, provider *Provider) error {
 	cfg, err := decodeConfig(raw)
 	if err != nil {
-		return fmt.Errorf("indexeddb authorization: %w", err)
+		return newAuthorizationProviderError(err)
 	}
+	if provider == nil {
+		return newAuthorizationProviderError(fmt.Errorf("provider is required"))
+	}
+	stores := getStoreNames()
 
-	db, err := gestalt.IndexedDB(ctx)
+	var db indexeddb.Database
 	if cfg.IndexedDB != "" {
-		db, err = gestalt.IndexedDB(ctx, cfg.IndexedDB)
+		db, err = openIndexedDB(ctx, cfg.IndexedDB)
+	} else {
+		db, err = openIndexedDB(ctx)
 	}
 	if err != nil {
-		return fmt.Errorf("indexeddb authorization: connect indexeddb: %w", err)
+		return newAuthorizationProviderError(fmt.Errorf("connect indexeddb: %w", err))
 	}
 
-	st, err := openStore(ctx, db)
-	if err != nil {
+	if err := ensureAuthorizationStores(ctx, db, stores); err != nil {
 		_ = db.Close()
-		return fmt.Errorf("indexeddb authorization: %w", err)
+		return newAuthorizationProviderError(err)
 	}
 
-	p.configureStore(cfg, st)
+	provider.configureDatabase(db)
 	return nil
 }
 
-func (p *Provider) configureStore(cfg config, st *store) {
+func (p *Provider) configureDatabase(db indexeddb.Database) {
 	p.mu.Lock()
-	oldStore := p.store
-	p.cfg = cfg
-	p.store = st
+	oldDB := p.db
+	p.db = db
 	p.mu.Unlock()
 
-	if oldStore != nil {
-		_ = oldStore.Close()
+	if oldDB != nil {
+		_ = oldDB.Close()
 	}
+}
+
+func (p *Provider) getDbWithLock() (indexeddb.Database, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.db == nil {
+		return nil, fmt.Errorf("provider is not configured")
+	}
+	return p.db, nil
+}
+
+func (p *Provider) CheckAccess(ctx context.Context, req *CheckAccessRequest) (*CheckAccessResponse, error) {
+	snapshot, err := p.loadAuthorizationSnapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return evaluateAccess(snapshot, req)
+}
+
+func (p *Provider) CheckAccessMany(ctx context.Context, req *CheckAccessManyRequest) (*CheckAccessManyResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	snapshot, err := p.loadAuthorizationSnapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	decisions := make([]*CheckAccessResponse, 0, len(req.Requests))
+	for _, check := range req.Requests {
+		decision, err := evaluateAccess(snapshot, check)
+		if err != nil {
+			return nil, err
+		}
+		decisions = append(decisions, decision)
+	}
+
+	return &CheckAccessManyResponse{Decisions: decisions}, nil
+}
+
+func (p *Provider) AddRelationship(ctx context.Context, req *AddRelationshipRequest) (*AddRelationshipResponse, error) {
+	if req == nil || req.Relationship == nil {
+		return nil, status.Error(codes.InvalidArgument, "relationship is required")
+	}
+	relationship := cloneRelationship(req.Relationship)
+	if err := normalizeRelationship(relationship); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "relationship is invalid: %v", err)
+	}
+	record, err := relationshipToRecord(relationship)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "relationship is invalid: %v", err)
+	}
+
+	db, err := p.getDbWithLock()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	if err := db.ObjectStore(getStoreNames().relationships).Put(ctx, record); err != nil {
+		return nil, status.Errorf(codes.Internal, "add relationship: %v", err)
+	}
+
+	return &AddRelationshipResponse{Relationship: cloneRelationship(relationship)}, nil
+}
+
+func (p *Provider) DeleteRelationship(ctx context.Context, req *DeleteRelationshipRequest) (*DeleteRelationshipResponse, error) {
+	if req == nil || req.RelationshipTuple == nil {
+		return nil, status.Error(codes.InvalidArgument, "relationship tuple is required")
+	}
+	relationship := &Relationship{Tuple: cloneRelationshipTuple(req.RelationshipTuple)}
+	if err := normalizeRelationship(relationship); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "relationship tuple is invalid: %v", err)
+	}
+
+	db, err := p.getDbWithLock()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	if err := db.ObjectStore(getStoreNames().relationships).Delete(ctx, relationshipID(relationship.Tuple)); err != nil {
+		return nil, status.Errorf(codes.Internal, "delete relationship: %v", err)
+	}
+
+	return &DeleteRelationshipResponse{}, nil
+}
+
+func (p *Provider) SetAuthorizationState(ctx context.Context, req *SetAuthorizationStateRequest) (*SetAuthorizationStateResponse, error) {
+	if req == nil || req.Model == nil {
+		return nil, status.Error(codes.InvalidArgument, "model is required")
+	}
+	model := cloneAuthorizationModel(req.Model)
+	if err := normalizeAuthorizationModel(model); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "model is invalid: %v", err)
+	}
+	modelRecord, err := modelToRecord(model)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "model is invalid: %v", err)
+	}
+	_, relationshipRecords, err := normalizeRelationshipRecords(req.Relationships)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	ref := authorizationModelToRef(model, time.Now().UTC())
+	refRecord, err := modelRefToRecord(getStateKeys().activeModel, ref)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "active model ref is invalid: %v", err)
+	}
+
+	db, err := p.getDbWithLock()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	stores := getStoreNames()
+	tx, err := db.Transaction(ctx, stores.all(), indexeddb.TransactionReadwrite, indexeddb.TransactionOptions{})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "start authorization state transaction: %v", err)
+	}
+	defer func() {
+		_ = tx.Abort(ctx)
+	}()
+
+	modelStore := tx.ObjectStore(stores.models)
+	stateStore := tx.ObjectStore(stores.state)
+	relationshipStore := tx.ObjectStore(stores.relationships)
+
+	if err := modelStore.Put(ctx, modelRecord); err != nil {
+		return nil, status.Errorf(codes.Internal, "set authorization model: %v", err)
+	}
+	if err := stateStore.Put(ctx, refRecord); err != nil {
+		return nil, status.Errorf(codes.Internal, "set active model state: %v", err)
+	}
+	if err := relationshipStore.Clear(ctx); err != nil {
+		return nil, status.Errorf(codes.Internal, "clear relationships: %v", err)
+	}
+	for _, record := range relationshipRecords {
+		if err := relationshipStore.Put(ctx, record); err != nil {
+			return nil, status.Errorf(codes.Internal, "set relationship: %v", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, status.Errorf(codes.Internal, "commit authorization state: %v", err)
+	}
+
+	return &SetAuthorizationStateResponse{ActiveModel: cloneAuthorizationModelRef(ref)}, nil
+}
+
+func (p *Provider) ListRelationships(ctx context.Context, req *ListRelationshipsRequest) (*ListRelationshipsResponse, error) {
+	db, err := p.getDbWithLock()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	records, err := db.ObjectStore(getStoreNames().relationships).GetAll(ctx, nil)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "list relationships: %v", err)
+	}
+	sort.Slice(records, func(i, j int) bool {
+		return stringField(records[i], "id") < stringField(records[j], "id")
+	})
+
+	filter := (*RelationshipFilter)(nil)
+	pageSize := int32(defaultRelationshipPageSize)
+	pageToken := ""
+	if req != nil {
+		filter = req.Filter
+		if req.PageSize < 0 {
+			return nil, status.Error(codes.InvalidArgument, "page size must be non-negative")
+		}
+		if req.PageSize > 0 {
+			pageSize = req.PageSize
+		}
+		pageToken = strings.TrimSpace(req.PageToken)
+	}
+
+	offset, err := parseRelationshipPageToken(pageToken)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "page token is invalid: %v", err)
+	}
+
+	matches := make([]*Relationship, 0, len(records))
+	for _, record := range records {
+		relationship, err := relationshipFromRecord(record)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "decode relationship: %v", err)
+		}
+		if relationshipMatchesFilter(relationship, filter) {
+			matches = append(matches, relationship)
+		}
+	}
+	if offset > len(matches) {
+		return nil, status.Error(codes.InvalidArgument, "page token is out of range")
+	}
+
+	limit := int(pageSize)
+	if limit == 0 {
+		limit = len(matches)
+	}
+	end := offset + limit
+	if end > len(matches) {
+		end = len(matches)
+	}
+	nextPageToken := ""
+	if end < len(matches) {
+		nextPageToken = strconv.Itoa(end)
+	}
+
+	return &ListRelationshipsResponse{
+		Relationships: cloneRelationships(matches[offset:end]),
+		NextPageToken: nextPageToken,
+	}, nil
+}
+
+func (p *Provider) GetActiveModelRef(ctx context.Context) (*GetActiveModelRefResponse, error) {
+	db, err := p.getDbWithLock()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	stores := getStoreNames()
+	keys := getStateKeys()
+
+	ref, err := getActiveModelRef(ctx, db.ObjectStore(stores.state), keys.activeModel)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "get active model ref: %v", err)
+	}
+	if ref == nil {
+		return nil, status.Error(codes.NotFound, "active model is not set")
+	}
+
+	return &GetActiveModelRefResponse{Model: cloneAuthorizationModelRef(ref)}, nil
+}
+
+func (p *Provider) SetActiveModel(ctx context.Context, req *SetActiveModelRequest) (*SetActiveModelResponse, error) {
+	if req == nil || req.Model == nil {
+		return nil, status.Error(codes.InvalidArgument, "model is required")
+	}
+	model := cloneAuthorizationModel(req.Model)
+	if err := normalizeAuthorizationModel(model); err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "model is invalid: %v", err)
+	}
+
+	db, err := p.getDbWithLock()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	stores := getStoreNames()
+	keys := getStateKeys()
+	if err := putModel(ctx, db.ObjectStore(stores.models), model); err != nil {
+		return nil, status.Errorf(codes.Internal, "set active model: %v", err)
+	}
+	ref := authorizationModelToRef(model, time.Now().UTC())
+	if err := putActiveModelRef(ctx, db.ObjectStore(stores.state), keys.activeModel, ref); err != nil {
+		return nil, status.Errorf(codes.Internal, "set active model state: %v", err)
+	}
+
+	return &SetActiveModelResponse{Model: cloneAuthorizationModelRef(ref)}, nil
+}
+
+func (p *Provider) ListActiveModelResourceTypes(ctx context.Context, req *ListActiveModelResourceTypesRequest) (*ListActiveModelResourceTypesResponse, error) {
+	db, err := p.getDbWithLock()
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	stores := getStoreNames()
+	keys := getStateKeys()
+
+	var filter *AuthorizationModelResourceTypeFilter
+	pageSize := int32(defaultModelResourceTypePageSize)
+	pageToken := ""
+	if req != nil {
+		filter = req.Filter
+		if req.PageSize < 0 {
+			return nil, status.Error(codes.InvalidArgument, "page size must be non-negative")
+		}
+		if req.PageSize > 0 {
+			pageSize = req.PageSize
+		}
+		pageToken = strings.TrimSpace(req.PageToken)
+	}
+
+	ref, err := getActiveModelRef(ctx, db.ObjectStore(stores.state), keys.activeModel)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "get active model: %v", err)
+	}
+	if ref == nil {
+		return nil, status.Error(codes.NotFound, "active model is not set")
+	}
+	modelID := ref.Id
+
+	model, err := getModel(ctx, db.ObjectStore(stores.models), modelID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "get model %q: %v", modelID, err)
+	}
+	if model == nil {
+		return nil, status.Errorf(codes.NotFound, "model %q not found", modelID)
+	}
+
+	offset, err := parseModelResourceTypePageToken(pageToken)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "page token is invalid: %v", err)
+	}
+	resourceTypes := filterAuthorizationModelResourceTypes(model.ResourceTypes, filter)
+	if offset > len(resourceTypes) {
+		return nil, status.Error(codes.InvalidArgument, "page token is out of range")
+	}
+
+	limit := int(pageSize)
+	if limit == 0 {
+		limit = len(resourceTypes)
+	}
+	end := offset + limit
+	if end > len(resourceTypes) {
+		end = len(resourceTypes)
+	}
+	nextPageToken := ""
+	if end < len(resourceTypes) {
+		nextPageToken = strconv.Itoa(end)
+	}
+
+	return &ListActiveModelResourceTypesResponse{
+		ResourceTypes: resourceTypes[offset:end],
+		NextPageToken: nextPageToken,
+		ModelId:       modelID,
+	}, nil
 }
 
 func (p *Provider) Metadata() gestalt.ProviderMetadata {
@@ -67,352 +395,27 @@ func (p *Provider) Metadata() gestalt.ProviderMetadata {
 		Kind:        gestalt.ProviderKindAuthorization,
 		Name:        "indexeddb",
 		DisplayName: "IndexedDB Authorization",
-		Description: "Authorization provider backed by the host IndexedDB service.",
-		Version:     providerVersion,
+		Description: "Stub authorization provider.",
+		Version:     "0.0.1-alpha.2",
 	}
 }
 
-func (p *Provider) HealthCheck(ctx context.Context) error {
-	st, err := p.configuredStore()
-	if err != nil {
-		return err
-	}
-	_, err = st.state.Count(ctx, nil)
-	return err
+func (p *Provider) HealthCheck(context.Context) error {
+	return nil
 }
 
 func (p *Provider) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.store == nil {
+	if p.db == nil {
 		return nil
 	}
-	err := p.store.Close()
-	p.store = nil
+	err := p.db.Close()
+	p.db = nil
 	return err
 }
 
-func (p *Provider) configuredStore() (*store, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	if p.store == nil {
-		return nil, status.Error(codes.FailedPrecondition, "indexeddb authorization: provider is not configured")
-	}
-	return p.store, nil
-}
-
-func (p *Provider) GetMetadata(ctx context.Context) (*gestalt.AuthorizationMetadata, error) {
-	st, err := p.configuredStore()
-	if err != nil {
-		return nil, err
-	}
-	activeModelID, err := st.activeModelID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &gestalt.AuthorizationMetadata{
-		Capabilities: []string{
-			"decision_plane",
-			"relationship_control_plane",
-			"model_control_plane",
-			"effective_search_resources",
-			"effective_search_subjects",
-			"expand",
-		},
-		ActiveModelId: activeModelID,
-	}, nil
-}
-
-func (p *Provider) GetActiveModel(ctx context.Context) (*gestalt.GetActiveModelResponse, error) {
-	model, err := p.resolveModel(ctx, "", false)
-	if err != nil {
-		return nil, err
-	}
-	if model == nil {
-		return &gestalt.GetActiveModelResponse{}, nil
-	}
-	return &gestalt.GetActiveModelResponse{Model: model.ref}, nil
-}
-
-func (p *Provider) ListModels(ctx context.Context, req *gestalt.ListModelsRequest) (*gestalt.ListModelsResponse, error) {
-	st, err := p.configuredStore()
-	if err != nil {
-		return nil, err
-	}
-	models, err := st.listModels(ctx)
-	if err != nil {
-		return nil, err
-	}
-	start, end, nextToken, err := paginate(len(models), req.GetPageSize(), req.GetPageToken())
-	if err != nil {
-		return nil, err
-	}
-	return &gestalt.ListModelsResponse{
-		Models:        append([]*gestalt.AuthorizationModelRef(nil), models[start:end]...),
-		NextPageToken: nextToken,
-	}, nil
-}
-
-func (p *Provider) WriteModel(ctx context.Context, req *gestalt.WriteModelRequest) (*gestalt.AuthorizationModelRef, error) {
-	st, err := p.configuredStore()
-	if err != nil {
-		return nil, err
-	}
-	model, normalized, err := compileAuthorizationModel(req.GetModel())
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid authorization model: %v", err)
-	}
-	modelID, err := modelIDForDefinition(normalized)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "build model id: %v", err)
-	}
-	if existing, err := st.loadModel(ctx, modelID); err == nil {
-		if err := st.setActiveModelID(ctx, existing.ref.GetId()); err != nil {
-			return nil, err
-		}
-		return existing.ref, nil
-	} else if status.Code(err) != codes.NotFound {
-		return nil, err
-	}
-	modelJSON, err := marshalStoredModel(normalized)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "marshal authorization model: %v", err)
-	}
-	ref := gestalt.NewAuthorizationModelRef(modelID, model.Version, p.now().UTC())
-	if err := st.writeModel(ctx, ref, modelJSON); err != nil {
-		return nil, err
-	}
-	return ref, nil
-}
-
-func (p *Provider) ReadRelationships(ctx context.Context, req *gestalt.ReadRelationshipsRequest) (*gestalt.ReadRelationshipsResponse, error) {
-	st, err := p.configuredStore()
-	if err != nil {
-		return nil, err
-	}
-	if req.GetSubject() != nil {
-		if err := validateSubject(req.GetSubject()); err != nil {
-			return nil, err
-		}
-	}
-	if req.GetResource() != nil {
-		if err := validateResource(req.GetResource()); err != nil {
-			return nil, err
-		}
-	}
-	var targetFilter compiledRelationshipTarget
-	targetFilterSet := false
-	if req.GetTarget() != nil {
-		target, _, err := normalizedRelationshipTarget(req.GetTarget(), req.GetSubject())
-		if err != nil {
-			return nil, err
-		}
-		targetFilter = target
-		targetFilterSet = true
-	}
-
-	model, err := p.resolveModel(ctx, req.GetModelId(), false)
-	if err != nil {
-		return nil, err
-	}
-	relationships, err := st.candidateRelationships(ctx, req.GetSubject(), req.GetResource())
-	if err != nil {
-		return nil, err
-	}
-	filtered := make([]*gestalt.Relationship, 0, len(relationships))
-	for _, relationship := range relationships {
-		if req.GetRelation() != "" && relationship.GetRelation() != req.GetRelation() {
-			continue
-		}
-		if targetFilterSet {
-			target, _, err := normalizedRelationshipTarget(relationship.GetTarget(), relationship.GetSubject())
-			if err != nil {
-				return nil, err
-			}
-			if !sameRelationshipTarget(target, targetFilter) {
-				continue
-			}
-		}
-		filtered = append(filtered, relationship)
-	}
-	sortRelationships(filtered)
-
-	start, end, nextToken, err := paginate(len(filtered), req.GetPageSize(), req.GetPageToken())
-	if err != nil {
-		return nil, err
-	}
-	modelID := ""
-	if model != nil {
-		modelID = model.ref.GetId()
-	}
-	return &gestalt.ReadRelationshipsResponse{
-		Relationships: append([]*gestalt.Relationship(nil), filtered[start:end]...),
-		NextPageToken: nextToken,
-		ModelId:       modelID,
-	}, nil
-}
-
-func (p *Provider) WriteRelationships(ctx context.Context, req *gestalt.WriteRelationshipsRequest) error {
-	st, err := p.configuredStore()
-	if err != nil {
-		return err
-	}
-	model, err := p.resolveModel(ctx, req.GetModelId(), false)
-	if err != nil {
-		return err
-	}
-
-	deleteIDs := make([]string, 0, len(req.GetDeletes()))
-	for _, key := range req.GetDeletes() {
-		id, err := relationshipKeyID(key)
-		if err != nil {
-			return err
-		}
-		deleteIDs = append(deleteIDs, id)
-	}
-
-	writeRecords := make([]gestalt.Record, 0, len(req.GetWrites()))
-	for _, relationship := range req.GetWrites() {
-		record, err := relationshipRecord(relationship)
-		if err != nil {
-			return err
-		}
-		if model != nil {
-			target, _, err := normalizedRelationshipTarget(relationship.GetTarget(), relationship.GetSubject())
-			if err != nil {
-				return err
-			}
-			if err := model.compiled.validateRelationshipTarget(target, relationship.GetRelation(), relationship.GetResource().GetType()); err != nil {
-				return status.Errorf(codes.InvalidArgument, "relationship rejected by model %q: %v", model.ref.GetId(), err)
-			}
-		}
-		writeRecords = append(writeRecords, record)
-	}
-
-	snapshots := make(map[string]relationshipSnapshot, len(deleteIDs)+len(writeRecords))
-	for _, id := range deleteIDs {
-		if err := snapshotRelationshipRecord(ctx, st, snapshots, id); err != nil {
-			return err
-		}
-	}
-	for _, record := range writeRecords {
-		id, _ := record["id"].(string)
-		if err := snapshotRelationshipRecord(ctx, st, snapshots, id); err != nil {
-			return err
-		}
-	}
-
-	for _, id := range deleteIDs {
-		if err := st.relationships.Delete(ctx, id); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-			if rollbackErr := restoreRelationshipSnapshots(ctx, st, snapshots); rollbackErr != nil {
-				return errors.Join(err, fmt.Errorf("rollback relationship batch: %w", rollbackErr))
-			}
-			return err
-		}
-	}
-	for _, record := range writeRecords {
-		if err := st.relationships.Put(ctx, record); err != nil {
-			if rollbackErr := restoreRelationshipSnapshots(ctx, st, snapshots); rollbackErr != nil {
-				return errors.Join(err, fmt.Errorf("rollback relationship batch: %w", rollbackErr))
-			}
-			return err
-		}
-	}
-	return nil
-}
-
-type relationshipSnapshot struct {
-	present bool
-	record  gestalt.Record
-}
-
-func snapshotRelationshipRecord(ctx context.Context, st *store, snapshots map[string]relationshipSnapshot, id string) error {
-	if _, ok := snapshots[id]; ok {
-		return nil
-	}
-	record, err := st.relationships.Get(ctx, id)
-	switch {
-	case err == nil:
-		snapshots[id] = relationshipSnapshot{present: true, record: cloneRecord(record)}
-		return nil
-	case errors.Is(err, gestalt.ErrNotFound):
-		snapshots[id] = relationshipSnapshot{}
-		return nil
-	default:
-		return err
-	}
-}
-
-func restoreRelationshipSnapshots(ctx context.Context, st *store, snapshots map[string]relationshipSnapshot) error {
-	var restoreErr error
-	for id, snapshot := range snapshots {
-		if snapshot.present {
-			if err := st.relationships.Put(ctx, cloneRecord(snapshot.record)); err != nil {
-				restoreErr = errors.Join(restoreErr, err)
-			}
-			continue
-		}
-		if err := st.relationships.Delete(ctx, id); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-			restoreErr = errors.Join(restoreErr, err)
-		}
-	}
-	return restoreErr
-}
-
-func cloneRecord(record gestalt.Record) gestalt.Record {
-	if record == nil {
-		return nil
-	}
-	cloned := make(gestalt.Record, len(record))
-	for key, value := range record {
-		cloned[key] = cloneRecordValue(value)
-	}
-	return cloned
-}
-
-func cloneRecordValue(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		cloned := make(map[string]any, len(typed))
-		for key, nested := range typed {
-			cloned[key] = cloneRecordValue(nested)
-		}
-		return cloned
-	case []any:
-		cloned := make([]any, len(typed))
-		for i, nested := range typed {
-			cloned[i] = cloneRecordValue(nested)
-		}
-		return cloned
-	default:
-		return typed
-	}
-}
-
-func (p *Provider) resolveModel(ctx context.Context, requestedModelID string, requireActive bool) (*storedModel, error) {
-	st, err := p.configuredStore()
-	if err != nil {
-		return nil, err
-	}
-	modelID := strings.TrimSpace(requestedModelID)
-	if modelID == "" {
-		modelID, err = st.activeModelID(ctx)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if modelID == "" {
-		if requireActive {
-			return nil, status.Error(codes.FailedPrecondition, "indexeddb authorization: no active model is configured")
-		}
-		return nil, nil
-	}
-	return st.loadModel(ctx, modelID)
-}
-
 var _ gestalt.AuthorizationProvider = (*Provider)(nil)
-var _ gestalt.AuthorizationProviderEffectiveSearch = (*Provider)(nil)
-var _ gestalt.AuthorizationProviderExpansion = (*Provider)(nil)
 var _ gestalt.MetadataProvider = (*Provider)(nil)
 var _ gestalt.HealthChecker = (*Provider)(nil)
 var _ gestalt.Closer = (*Provider)(nil)
