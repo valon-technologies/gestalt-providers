@@ -238,7 +238,7 @@ def github_event_type(payload: dict[str, Any]) -> str:
     if "ref" in payload and ("commits" in payload or "head_commit" in payload):
         return "push"
     if "repository" in payload and str_field(payload, "action"):
-        return str_field(payload, "action")
+        return "repository"
     return ""
 
 

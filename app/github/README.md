@@ -43,6 +43,8 @@ Supported config fields:
 - `webhookEvents`: allowlist of GitHub event names to deliver. Defaults to
   `check_run`, `check_suite`, `issue_comment`, `issues`, `pull_request`,
   `pull_request_review`, `pull_request_review_comment`, and `workflow_run`.
+  These are GitHub webhook event names, not action-qualified workflow event
+  trigger types.
 - `workflow.provider`: workflow provider that receives delivered events.
 - `ignoreBotSender`: ignore events sent by the configured GitHub App bot login.
   Defaults to `true`.
@@ -66,7 +68,7 @@ Delivered workflow events use this shape:
   "id": "github:<X-GitHub-Delivery>",
   "source": "github",
   "spec_version": "1.0",
-  "type": "github.<X-GitHub-Event>",
+  "type": "github.<X-GitHub-Event>.<action>",
   "subject": "repo:owner/repo",
   "datacontenttype": "application/json",
   "data": {
@@ -87,6 +89,8 @@ Delivered workflow events use this shape:
 
 When `X-GitHub-Delivery` is missing, the event ID is `github:<sha256 digest>`.
 When `X-GitHub-Event` is missing, the event type is inferred from the payload.
+When the payload does not include `action`, the event type falls back to
+`github.<event>`.
 When a repository is absent, the subject is `installation:<id>`.
 
 If delivery fails, `events.handle` returns an internal server error so GitHub
