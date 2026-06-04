@@ -1,6 +1,6 @@
 # IndexedDB Authorization
 
-Stub authorization provider for iterating on a revised authorization provider
+IndexedDB authorization provider for the Gestalt authorization provider
 interface.
 
 The proposed provider shape is:
@@ -16,10 +16,8 @@ service AuthorizationProvider {
 
   rpc SetAuthorizationState(SetAuthorizationStateRequest) returns (SetAuthorizationStateResponse);
 
-  rpc GetActiveModelRef(google.protobuf.Empty) returns (GetActiveModelRefResponse);
+  rpc GetActiveModelRef() returns (GetActiveModelRefResponse);
   rpc SetActiveModel(SetActiveModelRequest) returns (SetActiveModelResponse);
   rpc ListActiveModelResourceTypes(ListActiveModelResourceTypesRequest) returns (ListActiveModelResourceTypesResponse);
 }
 ```
-
-All provider methods currently return `UNIMPLEMENTED`.

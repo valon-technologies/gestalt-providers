@@ -64,7 +64,7 @@ func getActiveModelRef(ctx context.Context, store indexeddb.ObjectStore, key str
 }
 
 func modelToRecord(model *AuthorizationModel) (indexeddb.Record, error) {
-	resourceTypes, err := jsonValue(model.ResourceTypes)
+	resourceTypes, err := authorizationModelResourceTypesToJSONValue(model.ResourceTypes)
 	if err != nil {
 		return nil, fmt.Errorf("encode resource types: %w", err)
 	}
@@ -88,7 +88,7 @@ func modelFromRecord(record indexeddb.Record) (*AuthorizationModel, error) {
 }
 
 func modelRefToRecord(id string, ref *AuthorizationModelRef) (indexeddb.Record, error) {
-	value, err := jsonValue(ref)
+	value, err := authorizationModelRefToJSONValue(ref)
 	if err != nil {
 		return nil, fmt.Errorf("encode model ref: %w", err)
 	}
@@ -99,19 +99,19 @@ func modelRefToRecord(id string, ref *AuthorizationModelRef) (indexeddb.Record, 
 }
 
 func modelRefFromRecord(record indexeddb.Record) (*AuthorizationModelRef, error) {
-	var ref AuthorizationModelRef
-	if err := decodeJSONValue(record["value"], &ref); err != nil {
+	ref, err := authorizationModelRefFromJSONValue(record["value"])
+	if err != nil {
 		return nil, fmt.Errorf("decode model ref: %w", err)
 	}
 	if strings.TrimSpace(ref.Id) == "" {
 		return nil, nil
 	}
-	return &ref, nil
+	return ref, nil
 }
 
 func resourceTypesFromAny(value any) ([]*AuthorizationModelResourceType, error) {
-	var resourceTypes []*AuthorizationModelResourceType
-	if err := decodeJSONValue(value, &resourceTypes); err != nil {
+	resourceTypes, err := authorizationModelResourceTypesFromJSONValue(value)
+	if err != nil {
 		return nil, fmt.Errorf("decode resource types: %w", err)
 	}
 	return resourceTypes, nil
@@ -280,13 +280,13 @@ func normalizeSubjectSetType(subjectSetType *SubjectSetType) error {
 	return nil
 }
 
-func (m *AuthorizationModel) toRef(createdAt time.Time) *AuthorizationModelRef {
-	if m == nil {
+func authorizationModelToRef(model *AuthorizationModel, createdAt time.Time) *AuthorizationModelRef {
+	if model == nil {
 		return nil
 	}
 	return &AuthorizationModelRef{
-		Id:        m.Id,
-		Version:   m.Version,
+		Id:        model.Id,
+		Version:   model.Version,
 		CreatedAt: createdAt,
 	}
 }

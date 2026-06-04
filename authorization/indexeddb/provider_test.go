@@ -9,7 +9,6 @@ import (
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestProviderConfigureAndClose(t *testing.T) {
@@ -127,7 +126,7 @@ func TestProviderSetAndGetActiveModel(t *testing.T) {
 		t.Fatalf("SetActiveModel().Model.CreatedAt is zero")
 	}
 
-	refResp, err := provider.GetActiveModelRef(ctx, &emptypb.Empty{})
+	refResp, err := provider.GetActiveModelRef(ctx)
 	if err != nil {
 		t.Fatalf("GetActiveModelRef() error = %v", err)
 	}
@@ -142,22 +141,11 @@ func TestProviderSetAndGetActiveModel(t *testing.T) {
 	if !reflect.DeepEqual(listResp.ResourceTypes, model.ResourceTypes) {
 		t.Fatalf("ListActiveModelResourceTypes(active) = %#v, want %#v", listResp.ResourceTypes, model.ResourceTypes)
 	}
-	if listResp.ModelID != "model-1" {
-		t.Fatalf("ListActiveModelResourceTypes(active).ModelID = %q, want model-1", listResp.ModelID)
+	if listResp.ModelId != "model-1" {
+		t.Fatalf("ListActiveModelResourceTypes(active).ModelId = %q, want model-1", listResp.ModelId)
 	}
 	if listResp.NextPageToken != "" {
 		t.Fatalf("ListActiveModelResourceTypes(active).NextPageToken = %q, want empty", listResp.NextPageToken)
-	}
-
-	listResp, err = provider.ListActiveModelResourceTypes(ctx, &ListActiveModelResourceTypesRequest{ModelID: "model-1"})
-	if err != nil {
-		t.Fatalf("ListActiveModelResourceTypes(model-1) error = %v", err)
-	}
-	if !reflect.DeepEqual(listResp.ResourceTypes, model.ResourceTypes) {
-		t.Fatalf("ListActiveModelResourceTypes(model-1) = %#v, want %#v", listResp.ResourceTypes, model.ResourceTypes)
-	}
-	if listResp.ModelID != "model-1" {
-		t.Fatalf("ListActiveModelResourceTypes(model-1).ModelID = %q, want model-1", listResp.ModelID)
 	}
 
 	firstPage, err := provider.ListActiveModelResourceTypes(ctx, &ListActiveModelResourceTypesRequest{PageSize: 1})
@@ -170,8 +158,8 @@ func TestProviderSetAndGetActiveModel(t *testing.T) {
 	if firstPage.NextPageToken == "" {
 		t.Fatalf("ListActiveModelResourceTypes(first page).NextPageToken is empty")
 	}
-	if firstPage.ModelID != "model-1" {
-		t.Fatalf("ListActiveModelResourceTypes(first page).ModelID = %q, want model-1", firstPage.ModelID)
+	if firstPage.ModelId != "model-1" {
+		t.Fatalf("ListActiveModelResourceTypes(first page).ModelId = %q, want model-1", firstPage.ModelId)
 	}
 
 	secondPage, err := provider.ListActiveModelResourceTypes(ctx, &ListActiveModelResourceTypesRequest{
@@ -187,8 +175,8 @@ func TestProviderSetAndGetActiveModel(t *testing.T) {
 	if secondPage.NextPageToken != "" {
 		t.Fatalf("ListActiveModelResourceTypes(second page).NextPageToken = %q, want empty", secondPage.NextPageToken)
 	}
-	if secondPage.ModelID != "model-1" {
-		t.Fatalf("ListActiveModelResourceTypes(second page).ModelID = %q, want model-1", secondPage.ModelID)
+	if secondPage.ModelId != "model-1" {
+		t.Fatalf("ListActiveModelResourceTypes(second page).ModelId = %q, want model-1", secondPage.ModelId)
 	}
 
 	listResp, err = provider.ListActiveModelResourceTypes(ctx, &ListActiveModelResourceTypesRequest{
@@ -665,8 +653,8 @@ func TestProviderCheckAccess(t *testing.T) {
 			if resp.Allowed != tt.allowed {
 				t.Fatalf("CheckAccess().Allowed = %v, want %v", resp.Allowed, tt.allowed)
 			}
-			if resp.ModelID != "model-1" {
-				t.Fatalf("CheckAccess().ModelID = %q, want model-1", resp.ModelID)
+			if resp.ModelId != "model-1" {
+				t.Fatalf("CheckAccess().ModelId = %q, want model-1", resp.ModelId)
 			}
 		})
 	}

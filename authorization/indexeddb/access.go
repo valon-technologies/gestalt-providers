@@ -78,19 +78,19 @@ func evaluateAccess(snapshot *authorizationSnapshot, req *CheckAccessRequest) (*
 	modelID := snapshot.model.Id
 	resourceType := findModelResourceType(snapshot.model, resource.Type)
 	if resourceType == nil {
-		return &CheckAccessResponse{Allowed: false, ModelID: modelID}, nil
+		return &CheckAccessResponse{Allowed: false, ModelId: modelID}, nil
 	}
 	if resourceType.DefaultAccessPolicy == DefaultAccessPolicyAllow {
-		return &CheckAccessResponse{Allowed: true, ModelID: modelID}, nil
+		return &CheckAccessResponse{Allowed: true, ModelId: modelID}, nil
 	}
 	modelAction := findModelAction(resourceType, action.Name)
 	if modelAction == nil {
-		return &CheckAccessResponse{Allowed: false, ModelID: modelID}, nil
+		return &CheckAccessResponse{Allowed: false, ModelId: modelID}, nil
 	}
 
 	allowedRelations := modelActionAllowedRelations(modelAction)
 	if len(allowedRelations) == 0 {
-		return &CheckAccessResponse{Allowed: false, ModelID: modelID}, nil
+		return &CheckAccessResponse{Allowed: false, ModelId: modelID}, nil
 	}
 
 	for _, relationship := range snapshot.relationships {
@@ -104,11 +104,11 @@ func evaluateAccess(snapshot *authorizationSnapshot, req *CheckAccessRequest) (*
 			continue
 		}
 		if relationshipTargetMatchesSubject(subject, relationship.Tuple.Target, snapshot.relationships, make(map[string]struct{})) {
-			return &CheckAccessResponse{Allowed: true, ModelID: modelID}, nil
+			return &CheckAccessResponse{Allowed: true, ModelId: modelID}, nil
 		}
 	}
 
-	return &CheckAccessResponse{Allowed: false, ModelID: modelID}, nil
+	return &CheckAccessResponse{Allowed: false, ModelId: modelID}, nil
 }
 
 func normalizeCheckAccessRequest(req *CheckAccessRequest) (*Subject, *Action, *Resource, error) {

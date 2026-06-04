@@ -15,7 +15,7 @@ import (
 const defaultRelationshipPageSize = 100
 
 func relationshipToRecord(relationship *Relationship) (indexeddb.Record, error) {
-	value, err := jsonValue(relationship)
+	value, err := relationshipToJSONValue(relationship)
 	if err != nil {
 		return nil, fmt.Errorf("encode relationship: %w", err)
 	}
@@ -26,14 +26,14 @@ func relationshipToRecord(relationship *Relationship) (indexeddb.Record, error) 
 }
 
 func relationshipFromRecord(record indexeddb.Record) (*Relationship, error) {
-	var relationship Relationship
-	if err := decodeJSONValue(record["value"], &relationship); err != nil {
+	relationship, err := relationshipFromJSONValue(record["value"])
+	if err != nil {
 		return nil, fmt.Errorf("decode relationship: %w", err)
 	}
-	if err := normalizeRelationship(&relationship); err != nil {
+	if err := normalizeRelationship(relationship); err != nil {
 		return nil, err
 	}
-	return &relationship, nil
+	return relationship, nil
 }
 
 func normalizeRelationshipRecords(input []*Relationship) ([]*Relationship, []indexeddb.Record, error) {
@@ -186,26 +186,8 @@ func parseRelationshipPageToken(token string) (int, error) {
 	return offset, nil
 }
 
-func (l SourceLayer) MarshalJSON() ([]byte, error) {
-	return json.Marshal(l.String())
-}
-
-func (l *SourceLayer) UnmarshalJSON(data []byte) error {
-	var text string
-	if err := json.Unmarshal(data, &text); err == nil {
-		*l = parseSourceLayer(text)
-		return nil
-	}
-	var value int32
-	if err := json.Unmarshal(data, &value); err != nil {
-		return err
-	}
-	*l = SourceLayer(value)
-	return nil
-}
-
-func (l SourceLayer) String() string {
-	switch l {
+func sourceLayerString(layer SourceLayer) string {
+	switch layer {
 	case SourceLayerStaticConfig:
 		return "static_config"
 	case SourceLayerRuntime:
@@ -226,26 +208,8 @@ func parseSourceLayer(value string) SourceLayer {
 	}
 }
 
-func (p DefaultAccessPolicy) MarshalJSON() ([]byte, error) {
-	return json.Marshal(p.String())
-}
-
-func (p *DefaultAccessPolicy) UnmarshalJSON(data []byte) error {
-	var text string
-	if err := json.Unmarshal(data, &text); err == nil {
-		*p = parseDefaultAccessPolicy(text)
-		return nil
-	}
-	var value int32
-	if err := json.Unmarshal(data, &value); err != nil {
-		return err
-	}
-	*p = DefaultAccessPolicy(value)
-	return nil
-}
-
-func (p DefaultAccessPolicy) String() string {
-	switch p {
+func defaultAccessPolicyString(policy DefaultAccessPolicy) string {
+	switch policy {
 	case DefaultAccessPolicyAllow:
 		return "allow"
 	default:
@@ -265,7 +229,11 @@ func parseDefaultAccessPolicy(value string) DefaultAccessPolicy {
 }
 
 func relationshipID(tuple *RelationshipTuple) string {
-	data, err := json.Marshal(tuple)
+	value, err := relationshipTupleToJSONValue(tuple)
+	if err != nil {
+		panic(err)
+	}
+	data, err := json.Marshal(value)
 	if err != nil {
 		panic(err)
 	}

@@ -13,7 +13,6 @@ import (
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type Provider struct {
@@ -169,7 +168,7 @@ func (p *Provider) SetAuthorizationState(ctx context.Context, req *SetAuthorizat
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	ref := model.toRef(time.Now().UTC())
+	ref := authorizationModelToRef(model, time.Now().UTC())
 	refRecord, err := modelRefToRecord(getStateKeys().activeModel, ref)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "active model ref is invalid: %v", err)
@@ -278,7 +277,7 @@ func (p *Provider) ListRelationships(ctx context.Context, req *ListRelationships
 	}, nil
 }
 
-func (p *Provider) GetActiveModelRef(ctx context.Context, _ *emptypb.Empty) (*GetActiveModelRefResponse, error) {
+func (p *Provider) GetActiveModelRef(ctx context.Context) (*GetActiveModelRefResponse, error) {
 	db, err := p.getDbWithLock()
 	if err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -315,7 +314,7 @@ func (p *Provider) SetActiveModel(ctx context.Context, req *SetActiveModelReques
 	if err := putModel(ctx, db.ObjectStore(stores.models), model); err != nil {
 		return nil, status.Errorf(codes.Internal, "set active model: %v", err)
 	}
-	ref := model.toRef(time.Now().UTC())
+	ref := authorizationModelToRef(model, time.Now().UTC())
 	if err := putActiveModelRef(ctx, db.ObjectStore(stores.state), keys.activeModel, ref); err != nil {
 		return nil, status.Errorf(codes.Internal, "set active model state: %v", err)
 	}
@@ -331,12 +330,10 @@ func (p *Provider) ListActiveModelResourceTypes(ctx context.Context, req *ListAc
 	stores := getStoreNames()
 	keys := getStateKeys()
 
-	modelID := ""
 	var filter *AuthorizationModelResourceTypeFilter
 	pageSize := int32(defaultModelResourceTypePageSize)
 	pageToken := ""
 	if req != nil {
-		modelID = strings.TrimSpace(req.ModelID)
 		filter = req.Filter
 		if req.PageSize < 0 {
 			return nil, status.Error(codes.InvalidArgument, "page size must be non-negative")
@@ -346,16 +343,15 @@ func (p *Provider) ListActiveModelResourceTypes(ctx context.Context, req *ListAc
 		}
 		pageToken = strings.TrimSpace(req.PageToken)
 	}
-	if modelID == "" {
-		ref, err := getActiveModelRef(ctx, db.ObjectStore(stores.state), keys.activeModel)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "get active model: %v", err)
-		}
-		if ref == nil {
-			return nil, status.Error(codes.NotFound, "active model is not set")
-		}
-		modelID = ref.Id
+
+	ref, err := getActiveModelRef(ctx, db.ObjectStore(stores.state), keys.activeModel)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "get active model: %v", err)
 	}
+	if ref == nil {
+		return nil, status.Error(codes.NotFound, "active model is not set")
+	}
+	modelID := ref.Id
 
 	model, err := getModel(ctx, db.ObjectStore(stores.models), modelID)
 	if err != nil {
@@ -390,7 +386,7 @@ func (p *Provider) ListActiveModelResourceTypes(ctx context.Context, req *ListAc
 	return &ListActiveModelResourceTypesResponse{
 		ResourceTypes: resourceTypes[offset:end],
 		NextPageToken: nextPageToken,
-		ModelID:       modelID,
+		ModelId:       modelID,
 	}, nil
 }
 
@@ -419,7 +415,7 @@ func (p *Provider) Close() error {
 	return err
 }
 
-var _ AuthorizationProvider = (*Provider)(nil)
+var _ gestalt.AuthorizationProvider = (*Provider)(nil)
 var _ gestalt.MetadataProvider = (*Provider)(nil)
 var _ gestalt.HealthChecker = (*Provider)(nil)
 var _ gestalt.Closer = (*Provider)(nil)
