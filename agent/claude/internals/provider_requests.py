@@ -12,7 +12,6 @@ from .config import ClaudeAgentConfig
 from .session_start import validate_session_start_user_metadata
 from .store import IndexedDBRunStore
 from .store_records import StoredSession
-from .subject_id import created_by_subject_id_from_actor
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +81,7 @@ def session_create_request_from_provider_request(
         client_ref=request.client_ref.strip(),
         metadata=metadata,
         prepared_workspace=prepared_workspace,
-        created_by_subject_id=created_by_subject_id_from_actor(request.created_by),
+        created_by_subject_id=request.created_by_subject_id.strip(),
         session_start=request.session_start,
     )
 
@@ -118,7 +117,7 @@ def turn_create_request_from_provider_request(
         idempotency_key=request.idempotency_key.strip(),
         model=model,
         messages=messages,
-        created_by_subject_id=created_by_subject_id_from_actor(request.created_by),
+        created_by_subject_id=request.created_by_subject_id.strip(),
         execution_ref=request.execution_ref.strip(),
         turn_profile=turn_profile,
         timeout_seconds=_timeout_seconds_from_request(request),
