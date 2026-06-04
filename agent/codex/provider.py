@@ -25,11 +25,6 @@ from internals.store import (
     session_writable_by,
 )
 from internals.store import InMemoryRunStore
-from internals.subject_id import (
-    agent_actor_from_created_by_subject_id,
-    created_by_subject_id_from_actor,
-)
-
 logger = logging.getLogger(__name__)
 
 
@@ -110,9 +105,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                     client_ref=request.client_ref.strip(),
                     metadata=metadata,
                     prepared_workspace=prepared_workspace,
-                    created_by_subject_id=created_by_subject_id_from_actor(
-                        request.created_by
-                    ),
+                    created_by_subject_id=request.created_by_subject_id.strip(),
                 )
                 return _agent_session(session)
         session, created = store.create_session(
@@ -123,7 +116,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             client_ref=request.client_ref.strip(),
             metadata=metadata,
             prepared_workspace=prepared_workspace,
-            created_by_subject_id=created_by_subject_id_from_actor(request.created_by),
+            created_by_subject_id=request.created_by_subject_id.strip(),
         )
         if not created:
             _require_session_readable(session, request_subject_id)
@@ -204,9 +197,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                 provider_name=self._name,
                 model=model,
                 messages=messages,
-                created_by_subject_id=created_by_subject_id_from_actor(
-                    request.created_by
-                ),
+                created_by_subject_id=request.created_by_subject_id.strip(),
                 execution_ref=request.execution_ref.strip(),
             )
         except StoreConflictError as exc:
@@ -406,7 +397,7 @@ def _agent_session(session: StoredSession, *, summary_only: bool = False) -> ges
         client_ref=session.client_ref,
         state=session.state,
         metadata=None if summary_only else session.metadata,
-        created_by=agent_actor_from_created_by_subject_id(session.created_by_subject_id),
+        created_by_subject_id=session.created_by_subject_id,
         created_at=session.created_at,
         updated_at=session.updated_at,
         last_turn_at=session.last_turn_at,
@@ -456,7 +447,7 @@ def _agent_turn(turn: StoredTurn, *, summary_only: bool = False) -> gestalt.Agen
         output=None if summary_only else turn.output,
         status_message=turn.status_message,
         execution_ref=turn.execution_ref,
-        created_by=agent_actor_from_created_by_subject_id(turn.created_by_subject_id),
+        created_by_subject_id=turn.created_by_subject_id,
         created_at=turn.created_at,
         started_at=turn.started_at,
         completed_at=turn.completed_at,

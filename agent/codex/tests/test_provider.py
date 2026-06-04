@@ -256,7 +256,7 @@ class CodexProviderTests(unittest.TestCase):
 
         created = provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-codex", created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human")
+                session_id="session-codex", created_by_subject_id="user-123"
             )
         )
         self.assertEqual(created.model, "")
@@ -327,7 +327,7 @@ class CodexProviderTests(unittest.TestCase):
         provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
                 session_id="session-private",
-                created_by=agent_pb2.AgentActor(subject_id="user-owner", subject_kind="human"),
+                created_by_subject_id="user-owner",
             )
         )
         slack_metadata = struct_pb2.Struct()
@@ -336,10 +336,7 @@ class CodexProviderTests(unittest.TestCase):
             agent_pb2.CreateAgentProviderSessionRequest(
                 session_id="session-slack",
                 metadata=slack_metadata,
-                created_by=agent_pb2.AgentActor(
-                    subject_id="service_account:slack-bot",
-                    subject_kind="service_account",
-                ),
+                created_by_subject_id="service_account:slack-bot",
             )
         )
 
@@ -384,10 +381,7 @@ class CodexProviderTests(unittest.TestCase):
             agent_pb2.CreateAgentProviderSessionRequest(
                 session_id="session-slack-turn",
                 metadata=slack_metadata,
-                created_by=agent_pb2.AgentActor(
-                    subject_id="service_account:slack-bot",
-                    subject_kind="service_account",
-                ),
+                created_by_subject_id="service_account:slack-bot",
             )
         )
         turn_request = _turn_request(
@@ -396,8 +390,7 @@ class CodexProviderTests(unittest.TestCase):
             messages=[agent_pb2.AgentMessage(role="user", text="Company-visible turn")],
         )
         turn_request.subject.id = "service_account:slack-bot"
-        turn_request.subject.kind = "service_account"
-        turn_request.created_by.subject_id = "service_account:slack-bot"
+        turn_request.created_by_subject_id = "service_account:slack-bot"
         provider_client.CreateTurn(turn_request)
         _wait_for_turn(provider_client, "turn-slack", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
@@ -421,8 +414,7 @@ class CodexProviderTests(unittest.TestCase):
         self.assertGreaterEqual(len(events.events), 1)
         denied_turn = _turn_request(turn_id="turn-denied", session_id="session-slack-turn")
         denied_turn.subject.id = "user-reader"
-        denied_turn.subject.kind = "user"
-        denied_turn.created_by.subject_id = "user-reader"
+        denied_turn.created_by_subject_id = "user-reader"
         with self.assertRaises(grpc.RpcError) as denied_create:
             provider_client.CreateTurn(denied_turn)
         self.assertEqual(cast(Any, denied_create.exception).code(), grpc.StatusCode.PERMISSION_DENIED)
@@ -813,7 +805,7 @@ def _turn_request(
         tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
         run_grant=run_grant,
         execution_ref=execution_ref,
-        created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
+        created_by_subject_id="user-123",
         subject=_subject_context("user-123"),
     )
     if output_schema is None:
@@ -834,7 +826,7 @@ def _turn_request(
 def _owned_session_request(session_id: str, **kwargs: Any) -> Any:
     return agent_pb2.CreateAgentProviderSessionRequest(
         session_id=session_id,
-        created_by=agent_pb2.AgentActor(subject_id="user-123", subject_kind="human"),
+        created_by_subject_id="user-123",
         subject=_subject_context("user-123"),
         **kwargs,
     )
@@ -844,10 +836,8 @@ def _create_owned_session(provider_client: Any, session_id: str, **kwargs: Any) 
     return provider_client.CreateSession(_owned_session_request(session_id, **kwargs))
 
 
-def _subject_context(subject_id: str, kind: str = "user") -> Any:
-    if kind == "user" and subject_id.startswith("service_account:"):
-        kind = "service_account"
-    return app_pb2.SubjectContext(id=subject_id, kind=kind)
+def _subject_context(subject_id: str) -> Any:
+    return app_pb2.SubjectContext(id=subject_id)
 
 
 def _slack_session_metadata() -> dict[str, Any]:
