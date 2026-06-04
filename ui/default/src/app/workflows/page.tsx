@@ -1,138 +1,38 @@
 "use client";
 
-import { useDeferredValue, useEffect, useEffectEvent, useState } from "react";
+import {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import type {
-  Integration,
-  IntegrationOperation,
-  WorkflowEventTrigger,
-  WorkflowEventTriggerUpsert,
   WorkflowRun,
-  WorkflowSchedule,
-  WorkflowScheduleUpsert,
+  WorkflowStepExecution,
+  WorkflowStepTarget,
   WorkflowTarget,
 } from "@/lib/api";
 import {
   cancelWorkflowRun,
-  createWorkflowEventTrigger,
-  createWorkflowSchedule,
-  deleteWorkflowEventTrigger,
-  deleteWorkflowSchedule,
-  getIntegrationOperations,
-  getIntegrations,
-  getWorkflowEventTriggers,
   getWorkflowRun,
   getWorkflowRuns,
-  getWorkflowSchedules,
-  pauseWorkflowEventTrigger,
-  pauseWorkflowSchedule,
-  resumeWorkflowEventTrigger,
-  resumeWorkflowSchedule,
-  updateWorkflowEventTrigger,
-  updateWorkflowSchedule,
   workflowTargetApp,
 } from "@/lib/api";
 import AuthGuard from "@/components/AuthGuard";
 import Nav from "@/components/Nav";
 
-type WorkflowTab = "runs" | "schedules" | "triggers";
-type ScheduleCadence = "hourly" | "daily" | "weekly" | "monthly";
-type WorkflowFormMode = "create" | "edit" | null;
-type TimezoneMode = "local" | "utc";
-
-interface ScheduleFormState {
-  app: string;
-  operation: string;
-  connection: string;
-  instance: string;
-  inputJSON: string;
-  cadence: ScheduleCadence;
-  hour: string;
-  weekday: string;
-  monthDay: string;
-  cronDefinition: string;
-  timezoneMode: TimezoneMode;
-  paused: boolean;
-}
-
-interface TriggerFormState {
-  app: string;
-  operation: string;
-  connection: string;
-  instance: string;
-  inputJSON: string;
-  type: string;
-  source: string;
-  subject: string;
-  paused: boolean;
-}
-
-interface TargetEditorProps {
-  integrations: Integration[];
-  integrationsError: string | null;
-  operations: IntegrationOperation[];
-  operationsLoading: boolean;
-  operationsError: string | null;
-  app: string;
-  operation: string;
-  connection: string;
-  instance: string;
-  inputJSON: string;
-  onAppChange: (value: string) => void;
-  onOperationChange: (value: string) => void;
-  onConnectionChange: (value: string) => void;
-  onInstanceChange: (value: string) => void;
-  onInputJSONChange: (value: string) => void;
-}
-
-const SCHEDULE_CADENCE_OPTIONS: Array<{ value: ScheduleCadence; label: string }> = [
-  { value: "hourly", label: "Hourly" },
-  { value: "daily", label: "Daily" },
-  { value: "weekly", label: "Weekly" },
-  { value: "monthly", label: "Monthly" },
-];
-
-const WEEKDAY_OPTIONS = [
-  { value: "0", label: "Sunday" },
-  { value: "1", label: "Monday" },
-  { value: "2", label: "Tuesday" },
-  { value: "3", label: "Wednesday" },
-  { value: "4", label: "Thursday" },
-  { value: "5", label: "Friday" },
-  { value: "6", label: "Saturday" },
-];
-
-const HOUR_OPTIONS = Array.from({ length: 24 }, (_, hour) => ({
-  value: String(hour),
-  label: formatHourLabel(hour),
-}));
-
-const MONTH_DAY_OPTIONS = Array.from({ length: 28 }, (_, index) => ({
-  value: String(index + 1),
-  label: ordinal(index + 1),
-}));
-const EMPTY_OPERATIONS: IntegrationOperation[] = [];
+const RUN_STATUSES = ["all", "pending", "running", "succeeded", "failed", "canceled"];
 
 export default function WorkflowsPage() {
-  const [activeTab, setActiveTab] = useState<WorkflowTab>("runs");
-
   const [runs, setRuns] = useState<WorkflowRun[]>([]);
-  const [schedules, setSchedules] = useState<WorkflowSchedule[]>([]);
-  const [triggers, setTriggers] = useState<WorkflowEventTrigger[]>([]);
-  const [integrations, setIntegrations] = useState<Integration[]>([]);
-
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
-
   const [runsError, setRunsError] = useState<string | null>(null);
-  const [schedulesError, setSchedulesError] = useState<string | null>(null);
-  const [triggersError, setTriggersError] = useState<string | null>(null);
-  const [integrationsError, setIntegrationsError] = useState<string | null>(null);
 
   const [selectedRunID, setSelectedRunID] = useState<string | null>(null);
-  const [selectedScheduleID, setSelectedScheduleID] = useState<string | null>(null);
-  const [selectedTriggerID, setSelectedTriggerID] = useState<string | null>(null);
-
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -140,99 +40,34 @@ export default function WorkflowsPage() {
   const [canceling, setCanceling] = useState(false);
 
   const [runsQuery, setRunsQuery] = useState("");
-  const [schedulesQuery, setSchedulesQuery] = useState("");
-  const [triggersQuery, setTriggersQuery] = useState("");
-
   const [runStatus, setRunStatus] = useState("all");
-  const [scheduleStatus, setScheduleStatus] = useState("all");
-  const [triggerStatus, setTriggerStatus] = useState("all");
-
-  const [browserTimezone, setBrowserTimezone] = useState("UTC");
-  const [operationsByApp, setOperationsByApp] = useState<
-    Record<string, IntegrationOperation[]>
-  >({});
-  const [operationsLoadingByApp, setOperationsLoadingByApp] = useState<
-    Record<string, boolean>
-  >({});
-  const [operationErrorsByApp, setOperationErrorsByApp] = useState<
-    Record<string, string | undefined>
-  >({});
-
   const deferredRunsQuery = useDeferredValue(runsQuery);
-  const deferredSchedulesQuery = useDeferredValue(schedulesQuery);
-  const deferredTriggersQuery = useDeferredValue(triggersQuery);
+  const runsRef = useRef<WorkflowRun[]>([]);
 
   useEffect(() => {
-    setBrowserTimezone(detectBrowserTimezone());
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-
-    getIntegrations()
-      .then((value) => {
-        if (!active) return;
-        setIntegrations(value);
-        setIntegrationsError(null);
-      })
-      .catch((err) => {
-        if (!active) return;
-        setIntegrationsError(errorMessage(err, "Failed to load apps"));
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
+    runsRef.current = runs;
+  }, [runs]);
 
   useEffect(() => {
     let active = true;
-    const initialLoad = refreshNonce === 0;
-
-    if (initialLoad) {
-      setLoading(true);
-    } else {
+    if (refreshNonce > 0) {
       setRefreshing(true);
     }
 
-    Promise.allSettled([
-      getWorkflowRuns(),
-      getWorkflowSchedules(),
-      getWorkflowEventTriggers(),
-    ])
-      .then(([runsResult, schedulesResult, triggersResult]) => {
+    getWorkflowRuns()
+      .then((value) => {
         if (!active) return;
-
-        if (runsResult.status === "fulfilled") {
-          setRuns(runsResult.value);
-          setRunsError(null);
-        } else {
-          setRunsError(errorMessage(runsResult.reason, "Failed to load workflow runs"));
-        }
-
-        if (schedulesResult.status === "fulfilled") {
-          setSchedules(schedulesResult.value);
-          setSchedulesError(null);
-        } else {
-          setSchedulesError(
-            errorMessage(schedulesResult.reason, "Failed to load workflow schedules"),
-          );
-        }
-
-        if (triggersResult.status === "fulfilled") {
-          setTriggers(triggersResult.value);
-          setTriggersError(null);
-        } else {
-          setTriggersError(errorMessage(triggersResult.reason, "Failed to load workflow triggers"));
-        }
+        setRuns(value);
+        setRunsError(null);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setRunsError(errorMessage(err, "Failed to load workflow runs"));
       })
       .finally(() => {
         if (!active) return;
-        if (initialLoad) {
-          setLoading(false);
-        } else {
-          setRefreshing(false);
-        }
+        setLoading(false);
+        setRefreshing(false);
       });
 
     return () => {
@@ -240,153 +75,67 @@ export default function WorkflowsPage() {
     };
   }, [refreshNonce]);
 
-  useEffect(() => {
-    setSelectedRunID((current) =>
-      current && runs.some((run) => run.id === current) ? current : runs[0]?.id ?? null,
-    );
-  }, [runs]);
+  const filteredRuns = useMemo(
+    () => filterRuns(runs, deferredRunsQuery, runStatus),
+    [runs, deferredRunsQuery, runStatus],
+  );
 
   useEffect(() => {
-    setSelectedScheduleID((current) =>
-      current && schedules.some((schedule) => schedule.id === current)
-        ? current
-        : schedules[0]?.id ?? null,
-    );
-  }, [schedules]);
-
-  useEffect(() => {
-    setSelectedTriggerID((current) =>
-      current && triggers.some((trigger) => trigger.id === current)
-        ? current
-        : triggers[0]?.id ?? null,
-    );
-  }, [triggers]);
+    if (filteredRuns.length === 0) {
+      setSelectedRunID(null);
+      return;
+    }
+    if (!selectedRunID || !filteredRuns.some((run) => run.id === selectedRunID)) {
+      setSelectedRunID(filteredRuns[0].id);
+    }
+  }, [filteredRuns, selectedRunID]);
 
   useEffect(() => {
     if (!selectedRunID) {
       setSelectedRun(null);
       setDetailError(null);
-      setActionError(null);
       return;
     }
 
-    const cached = runs.find((run) => run.id === selectedRunID) ?? null;
-    if (cached) {
-      setSelectedRun(cached);
-    }
+    const existing = runsRef.current.find((run) => run.id === selectedRunID) ?? null;
+    setSelectedRun(existing);
+    setDetailLoading(true);
+    setDetailError(null);
     setActionError(null);
 
     let active = true;
-    setDetailLoading(true);
-    setDetailError(null);
-
     getWorkflowRun(selectedRunID)
       .then((run) => {
         if (!active) return;
         setSelectedRun(run);
+        setRuns((current) => upsertRun(current, run));
       })
       .catch((err) => {
         if (!active) return;
         setDetailError(errorMessage(err, "Failed to load workflow run"));
       })
       .finally(() => {
-        if (active) {
-          setDetailLoading(false);
-        }
+        if (!active) return;
+        setDetailLoading(false);
       });
 
     return () => {
       active = false;
     };
-  }, [runs, selectedRunID]);
-
-  async function ensureOperationsLoaded(appName: string): Promise<void> {
-    const normalized = appName.trim();
-    if (!normalized) return;
-    if (operationsByApp[normalized] || operationsLoadingByApp[normalized]) {
-      return;
-    }
-
-    setOperationsLoadingByApp((current) => ({ ...current, [normalized]: true }));
-    setOperationErrorsByApp((current) => ({ ...current, [normalized]: undefined }));
-
-    try {
-      const operations = await getIntegrationOperations(normalized);
-      setOperationsByApp((current) => ({
-        ...current,
-        [normalized]: sortOperations(operations),
-      }));
-    } catch (err) {
-      setOperationErrorsByApp((current) => ({
-        ...current,
-        [normalized]: errorMessage(err, "Failed to load app operations"),
-      }));
-    } finally {
-      setOperationsLoadingByApp((current) => ({ ...current, [normalized]: false }));
-    }
-  }
-
-  const workflowIntegrations = integrations
-    .filter((integration) => !integration.mountedPath)
-    .slice()
-    .sort((left, right) =>
-      integrationLabel(left).localeCompare(integrationLabel(right), undefined, {
-        sensitivity: "base",
-      }),
-    );
-
-  const filteredRuns = filterRuns(runs, deferredRunsQuery, runStatus);
-  const filteredSchedules = filterSchedules(schedules, deferredSchedulesQuery, scheduleStatus);
-  const filteredTriggers = filterTriggers(triggers, deferredTriggersQuery, triggerStatus);
-
-  const selectedSchedule = schedules.find((schedule) => schedule.id === selectedScheduleID) ?? null;
-  const selectedTrigger = triggers.find((trigger) => trigger.id === selectedTriggerID) ?? null;
-  const selectedRunCancelable = selectedRun?.status === "pending";
-
-  const failedRuns = runs.filter((run) => run.status === "failed").length;
-
-  function upsertSchedule(schedule: WorkflowSchedule) {
-    setSchedules((current) => {
-      const index = current.findIndex((item) => item.id === schedule.id);
-      if (index === -1) {
-        return [schedule, ...current];
-      }
-      return current.map((item) => (item.id === schedule.id ? schedule : item));
-    });
-    setSelectedScheduleID(schedule.id);
-  }
-
-  function removeSchedule(scheduleID: string) {
-    setSchedules((current) => current.filter((item) => item.id !== scheduleID));
-    setSelectedScheduleID((current) => (current === scheduleID ? null : current));
-  }
-
-  function upsertTrigger(trigger: WorkflowEventTrigger) {
-    setTriggers((current) => {
-      const index = current.findIndex((item) => item.id === trigger.id);
-      if (index === -1) {
-        return [trigger, ...current];
-      }
-      return current.map((item) => (item.id === trigger.id ? trigger : item));
-    });
-    setSelectedTriggerID(trigger.id);
-  }
-
-  function removeTrigger(triggerID: string) {
-    setTriggers((current) => current.filter((item) => item.id !== triggerID));
-    setSelectedTriggerID((current) => (current === triggerID ? null : current));
-  }
+  }, [selectedRunID]);
 
   async function handleCancelSelectedRun() {
-    if (!selectedRunID || !selectedRunCancelable) return;
-
+    if (!selectedRun || canceling) return;
     setCanceling(true);
     setActionError(null);
+
     try {
-      const updated = await cancelWorkflowRun(selectedRunID, "Run canceled.");
-      setSelectedRun(updated);
-      setRuns((current) => current.map((run) => (run.id === updated.id ? updated : run)));
-      setRefreshNonce((value) => value + 1);
+      const canceled = await cancelWorkflowRun(
+        selectedRun.id,
+        "Canceled from Gestalt UI",
+      );
+      setSelectedRun(canceled);
+      setRuns((current) => upsertRun(current, canceled));
     } catch (err) {
       setActionError(errorMessage(err, "Failed to cancel workflow run"));
     } finally {
@@ -394,177 +143,92 @@ export default function WorkflowsPage() {
     }
   }
 
+  const counts = workflowRunCounts(runs);
+
   return (
     <AuthGuard>
       <div className="min-h-screen">
         <Nav />
-        <main className="mx-auto max-w-5xl px-6 py-12">
-          <div className="animate-fade-in-up flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+        <main className="mx-auto max-w-7xl px-6 py-10">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <span className="label-text">Automation</span>
-              <h1 className="mt-2 text-2xl font-heading font-bold text-primary">Workflows</h1>
-              <p className="mt-2 max-w-3xl text-sm text-muted">
-                Inspect workflow schedules, triggers, and recent run activity across
-                apps and providers.
+              <span className="label-text">Workflows</span>
+              <h1 className="mt-2 text-2xl font-heading font-bold text-primary">
+                Workflows
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm text-muted">
+                Inspect durable workflow run history, step state, and captured
+                inputs and outputs.
               </p>
             </div>
             <button
               type="button"
               onClick={() => setRefreshNonce((value) => value + 1)}
-              className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
+              disabled={refreshing}
+              className="inline-flex items-center justify-center rounded-md border border-alpha px-4 py-2 text-sm font-medium text-primary transition-colors duration-150 hover:border-alpha-strong hover:bg-alpha-5 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {refreshing ? "Refreshing..." : "Refresh"}
             </button>
           </div>
 
-          {loading ? (
-            <p className="mt-10 text-sm text-faint">Loading...</p>
-          ) : (
-            <div className="mt-10 space-y-6 animate-fade-in-up [animation-delay:60ms]">
-              <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <SummaryCard label="Schedules" value={String(schedules.length)} tone="default" />
-                <SummaryCard label="Triggers" value={String(triggers.length)} tone="sky" />
-                <SummaryCard label="Runs" value={String(runs.length)} tone="grove" />
-                <SummaryCard label="Failed runs" value={String(failedRuns)} tone="ember" />
-              </section>
+          <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <SummaryCard label="Runs" value={String(runs.length)} tone="default" />
+            <SummaryCard
+              label="Running"
+              value={String(counts.running)}
+              tone="sky"
+            />
+            <SummaryCard
+              label="Succeeded"
+              value={String(counts.succeeded)}
+              tone="grove"
+            />
+            <SummaryCard label="Failed" value={String(counts.failed)} tone="ember" />
+          </div>
 
-              <section className="rounded-lg border border-alpha bg-base-100 p-4 dark:bg-surface">
-                <div
-                  role="tablist"
-                  aria-label="Workflow surfaces"
-                  className="flex flex-wrap gap-2 border-b border-alpha pb-4"
+          <section className="mt-8 rounded-lg border border-alpha bg-base-100 p-4 dark:bg-surface">
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem]">
+              <label className="block">
+                <span className="text-xs font-medium text-muted">Search runs</span>
+                <input
+                  value={runsQuery}
+                  onChange={(event) => setRunsQuery(event.target.value)}
+                  placeholder="Run ID, provider, app, step, definition, event"
+                  className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-sky-500"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium text-muted">Status</span>
+                <select
+                  value={runStatus}
+                  onChange={(event) => setRunStatus(event.target.value)}
+                  className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-sky-500"
                 >
-                  <WorkflowTabButton
-                    active={activeTab === "runs"}
-                    label="Runs"
-                    count={runs.length}
-                    onClick={() => setActiveTab("runs")}
-                  />
-                  <WorkflowTabButton
-                    active={activeTab === "schedules"}
-                    label="Schedules"
-                    count={schedules.length}
-                    onClick={() => setActiveTab("schedules")}
-                  />
-                  <WorkflowTabButton
-                    active={activeTab === "triggers"}
-                    label="Triggers"
-                    count={triggers.length}
-                    onClick={() => setActiveTab("triggers")}
-                  />
-                </div>
-
-                <div className="mt-4 flex flex-col gap-3 lg:flex-row">
-                  {activeTab === "runs" ? (
-                    <>
-                      <input
-                        value={runsQuery}
-                        onChange={(event) => setRunsQuery(event.target.value)}
-                        placeholder="Search by run, app, provider, or trigger"
-                        className="min-w-0 flex-1 rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
-                      />
-                      <select
-                        value={runStatus}
-                        onChange={(event) => setRunStatus(event.target.value)}
-                        className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-                      >
-                        <option value="all">All statuses</option>
-                        <option value="pending">Pending</option>
-                        <option value="running">Running</option>
-                        <option value="succeeded">Succeeded</option>
-                        <option value="failed">Failed</option>
-                        <option value="canceled">Canceled</option>
-                      </select>
-                    </>
-                  ) : activeTab === "schedules" ? (
-                    <>
-                      <input
-                        value={schedulesQuery}
-                        onChange={(event) => setSchedulesQuery(event.target.value)}
-                        placeholder="Search by schedule, app, operation, or cadence"
-                        className="min-w-0 flex-1 rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
-                      />
-                      <select
-                        value={scheduleStatus}
-                        onChange={(event) => setScheduleStatus(event.target.value)}
-                        className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-                      >
-                        <option value="all">All schedules</option>
-                        <option value="active">Active</option>
-                        <option value="paused">Paused</option>
-                      </select>
-                    </>
-                  ) : (
-                    <>
-                      <input
-                        value={triggersQuery}
-                        onChange={(event) => setTriggersQuery(event.target.value)}
-                        placeholder="Search by trigger, event type, app, or provider"
-                        className="min-w-0 flex-1 rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
-                      />
-                      <select
-                        value={triggerStatus}
-                        onChange={(event) => setTriggerStatus(event.target.value)}
-                        className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-                      >
-                        <option value="all">All triggers</option>
-                        <option value="active">Active</option>
-                        <option value="paused">Paused</option>
-                      </select>
-                    </>
-                  )}
-                </div>
-              </section>
-
-              {activeTab === "runs" ? (
-                <RunsPanel
-                  runs={filteredRuns}
-                  runsError={runsError}
-                  selectedRunID={selectedRunID}
-                  selectedRun={selectedRun}
-                  detailLoading={detailLoading}
-                  detailError={detailError}
-                  actionError={actionError}
-                  canceling={canceling}
-                  selectedRunCancelable={selectedRunCancelable}
-                  onSelectRun={setSelectedRunID}
-                  onCancelSelectedRun={handleCancelSelectedRun}
-                />
-              ) : activeTab === "schedules" ? (
-                <SchedulesPanel
-                  schedules={filteredSchedules}
-                  schedulesError={schedulesError}
-                  selectedScheduleID={selectedScheduleID}
-                  selectedSchedule={selectedSchedule}
-                  integrations={workflowIntegrations}
-                  integrationsError={integrationsError}
-                  browserTimezone={browserTimezone}
-                  operationsByApp={operationsByApp}
-                  operationsLoadingByApp={operationsLoadingByApp}
-                  operationErrorsByApp={operationErrorsByApp}
-                  ensureOperationsLoaded={ensureOperationsLoaded}
-                  onSelectSchedule={setSelectedScheduleID}
-                  onScheduleUpsert={upsertSchedule}
-                  onScheduleDeleted={removeSchedule}
-                />
-              ) : (
-                <TriggersPanel
-                  triggers={filteredTriggers}
-                  triggersError={triggersError}
-                  selectedTriggerID={selectedTriggerID}
-                  selectedTrigger={selectedTrigger}
-                  integrations={workflowIntegrations}
-                  integrationsError={integrationsError}
-                  operationsByApp={operationsByApp}
-                  operationsLoadingByApp={operationsLoadingByApp}
-                  operationErrorsByApp={operationErrorsByApp}
-                  ensureOperationsLoaded={ensureOperationsLoaded}
-                  onSelectTrigger={setSelectedTriggerID}
-                  onTriggerUpsert={upsertTrigger}
-                  onTriggerDeleted={removeTrigger}
-                />
-              )}
+                  {RUN_STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {capitalize(status)}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
+          </section>
+
+          {loading ? (
+            <p className="mt-8 text-sm text-faint">Loading workflow runs...</p>
+          ) : (
+            <RunsPanel
+              runs={filteredRuns}
+              runsError={runsError}
+              selectedRunID={selectedRunID}
+              selectedRun={selectedRun}
+              detailLoading={detailLoading}
+              detailError={detailError}
+              actionError={actionError}
+              canceling={canceling}
+              onSelectRun={setSelectedRunID}
+              onCancelSelectedRun={handleCancelSelectedRun}
+            />
           )}
         </main>
       </div>
@@ -581,7 +245,6 @@ function RunsPanel({
   detailError,
   actionError,
   canceling,
-  selectedRunCancelable,
   onSelectRun,
   onCancelSelectedRun,
 }: {
@@ -593,12 +256,13 @@ function RunsPanel({
   detailError: string | null;
   actionError: string | null;
   canceling: boolean;
-  selectedRunCancelable: boolean;
   onSelectRun: (id: string) => void;
-  onCancelSelectedRun: () => void | Promise<void>;
+  onCancelSelectedRun: () => Promise<void>;
 }) {
+  const selectedRunCancelable = selectedRun?.status === "pending";
+
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)]">
+    <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(24rem,0.95fr)]">
       <section className="rounded-lg border border-alpha bg-base-100 dark:bg-surface">
         <div className="border-b border-alpha px-5 py-4">
           <h2 className="text-sm font-medium text-primary">Workflow Runs</h2>
@@ -610,7 +274,9 @@ function RunsPanel({
         ) : (
           <div className="divide-y divide-alpha">
             {runs.length === 0 ? (
-              <div className="px-5 py-8 text-sm text-faint">No workflow runs yet.</div>
+              <div className="px-5 py-8 text-sm text-faint">
+                No workflow runs yet.
+              </div>
             ) : (
               runs.map((run) => {
                 const isActive = run.id === selectedRunID;
@@ -624,7 +290,7 @@ function RunsPanel({
                     }`}
                   >
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <span className="truncate text-sm font-medium text-primary">
                           {targetLabel(run.target)}
                         </span>
@@ -650,19 +316,23 @@ function RunsPanel({
 
       <section className="rounded-lg border border-alpha bg-base-100 p-5 dark:bg-surface">
         <div className="flex items-start justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <h2 className="text-sm font-medium text-primary">Run Details</h2>
-            <p className="mt-1 text-xs text-faint">{selectedRun?.id || "Select a run"}</p>
+            <p className="mt-1 truncate text-xs text-faint">
+              {selectedRun?.id || "Select a run"}
+            </p>
           </div>
           {selectedRun?.status ? (
-            <span className={runStatusClassName(selectedRun.status)}>{selectedRun.status}</span>
+            <span className={runStatusClassName(selectedRun.status)}>
+              {selectedRun.status}
+            </span>
           ) : null}
         </div>
 
         {selectedRunCancelable ? (
-          <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-alpha bg-background/65 px-4 py-3 dark:bg-background/20">
+          <div className="mt-4 flex items-center justify-between gap-3 border-y border-alpha py-3">
             <p className="text-sm text-muted">
-              Canceling a run asks the workflow provider to stop it as soon as possible.
+              Canceling asks the workflow provider to stop this pending run.
             </p>
             <button
               type="button"
@@ -681,1211 +351,292 @@ function RunsPanel({
         {detailLoading && !selectedRun ? (
           <p className="mt-6 text-sm text-faint">Loading details...</p>
         ) : selectedRun ? (
-          <div className="mt-6 space-y-6">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <DetailItem label="Provider" value={selectedRun.provider} />
-              <DetailItem label="Trigger" value={runTriggerLabel(selectedRun)} />
-              <DetailItem label="Created" value={formatDate(selectedRun.createdAt)} />
-              <DetailItem label="Started" value={formatDate(selectedRun.startedAt)} />
-              <DetailItem label="Completed" value={formatDate(selectedRun.completedAt)} />
-              <DetailItem
-                label="Actor"
-                value={selectedRun.createdBySubjectId || "-"}
-              />
-            </div>
-
-            <TargetDetails target={selectedRun.target} />
-
-            <section>
-              <h3 className="text-xs font-medium uppercase tracking-[0.18em] text-faint">
-                Result
-              </h3>
-              <div className="mt-3 rounded-md border border-alpha bg-background/65 p-4 text-sm dark:bg-background/20">
-                <p className="text-sm text-primary">
-                  {selectedRun.statusMessage || "No status message"}
-                </p>
-                {selectedRun.resultBody ? (
-                  <pre className="mt-3 overflow-x-auto text-xs text-primary">
-                    {prettyResultBody(selectedRun.resultBody)}
-                  </pre>
-                ) : (
-                  <p className="mt-3 text-xs text-faint">No result body captured.</p>
-                )}
-              </div>
-            </section>
-          </div>
+          <RunDetails run={selectedRun} />
         ) : (
-          <p className="mt-6 text-sm text-faint">Select a workflow run to inspect it.</p>
+          <p className="mt-6 text-sm text-faint">
+            Select a workflow run to inspect it.
+          </p>
         )}
       </section>
     </div>
   );
 }
 
-function SchedulesPanel({
-  schedules,
-  schedulesError,
-  selectedScheduleID,
-  selectedSchedule,
-  integrations,
-  integrationsError,
-  browserTimezone,
-  operationsByApp,
-  operationsLoadingByApp,
-  operationErrorsByApp,
-  ensureOperationsLoaded,
-  onSelectSchedule,
-  onScheduleUpsert,
-  onScheduleDeleted,
-}: {
-  schedules: WorkflowSchedule[];
-  schedulesError: string | null;
-  selectedScheduleID: string | null;
-  selectedSchedule: WorkflowSchedule | null;
-  integrations: Integration[];
-  integrationsError: string | null;
-  browserTimezone: string;
-  operationsByApp: Record<string, IntegrationOperation[]>;
-  operationsLoadingByApp: Record<string, boolean>;
-  operationErrorsByApp: Record<string, string | undefined>;
-  ensureOperationsLoaded: (appName: string) => Promise<void>;
-  onSelectSchedule: (id: string | null) => void;
-  onScheduleUpsert: (schedule: WorkflowSchedule) => void;
-  onScheduleDeleted: (scheduleID: string) => void;
-}) {
-  const [formMode, setFormMode] = useState<WorkflowFormMode>(null);
-  const [form, setForm] = useState<ScheduleFormState>(() =>
-    defaultScheduleForm(browserTimezone),
-  );
-  const [formError, setFormError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [presetWarning, setPresetWarning] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [togglingPause, setTogglingPause] = useState(false);
-
-  const ensureOperationsLoadedEvent = useEffectEvent((appName: string) => {
-    void ensureOperationsLoaded(appName);
-  });
-
-  const operationOptions = form.app
-    ? operationsByApp[form.app] ?? EMPTY_OPERATIONS
-    : EMPTY_OPERATIONS;
-  const operationsLoading = form.app ? Boolean(operationsLoadingByApp[form.app]) : false;
-  const operationsError = form.app ? operationErrorsByApp[form.app] ?? null : null;
-
-  function updatePresetControls(
-    recipe: (current: ScheduleFormState) => Omit<ScheduleFormState, "cronDefinition">,
-  ) {
-    setForm((current) => {
-      const next = recipe(current);
-      return {
-        ...next,
-        cronDefinition: cronFromSchedulePreset(next),
-      };
-    });
-    setPresetWarning(null);
-  }
-
-  function handleCronDefinitionChange(value: string) {
-    const preset = presetFromCron(value);
-    setForm((current) => ({
-      ...current,
-      cadence: preset.supported ? preset.cadence : current.cadence,
-      hour: preset.supported ? preset.hour : current.hour,
-      weekday: preset.supported ? preset.weekday : current.weekday,
-      monthDay: preset.supported ? preset.monthDay : current.monthDay,
-      cronDefinition: value,
-    }));
-    setPresetWarning(
-      preset.supported
-        ? null
-        : "This is a custom cron expression. The cadence controls are optional helpers, and changing them will replace the cron definition.",
-    );
-  }
-
-  useEffect(() => {
-    if (!formMode) return;
-    if (!form.app && integrations[0]) {
-      setForm((current) => ({ ...current, app: integrations[0].name }));
-    }
-  }, [formMode, form.app, integrations]);
-
-  useEffect(() => {
-    if (!formMode || !form.app) return;
-    ensureOperationsLoadedEvent(form.app);
-  }, [formMode, form.app]);
-
-  useEffect(() => {
-    if (!formMode || !form.app || operationsLoading) return;
-    if (operationOptions.length === 0) {
-      if (form.operation) {
-        setForm((current) => ({ ...current, operation: "" }));
-      }
-      return;
-    }
-    if (!operationOptions.some((operation) => operation.id === form.operation)) {
-      setForm((current) => ({ ...current, operation: operationOptions[0].id }));
-    }
-  }, [formMode, form.app, form.operation, operationOptions, operationsLoading]);
-
-  function beginCreate() {
-    setForm(defaultScheduleForm(browserTimezone, integrations[0]?.name ?? ""));
-    setPresetWarning(null);
-    setFormError(null);
-    setNotice(null);
-    setFormMode("create");
-  }
-
-  function beginEdit() {
-    if (!selectedSchedule) return;
-    const next = scheduleFormFromSchedule(selectedSchedule, browserTimezone);
-    setForm(next.form);
-    setPresetWarning(next.warning);
-    setFormError(null);
-    setNotice(null);
-    setFormMode("edit");
-  }
-
-  function cancelForm() {
-    setFormMode(null);
-    setFormError(null);
-    setPresetWarning(null);
-  }
-
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setFormError(null);
-    setNotice(null);
-
-    try {
-      const body = scheduleFormToUpsert(
-        form,
-        browserTimezone,
-        formMode === "edit" ? selectedSchedule?.provider : undefined,
-      );
-
-      setSubmitting(true);
-      const saved =
-        formMode === "edit" && selectedSchedule
-          ? await updateWorkflowSchedule(selectedSchedule.id, body)
-          : await createWorkflowSchedule(body);
-
-      onScheduleUpsert(saved);
-      setFormMode(null);
-      setPresetWarning(null);
-      setNotice(formMode === "edit" ? "Schedule updated." : "Schedule created.");
-    } catch (err) {
-      setFormError(errorMessage(err, "Failed to save workflow schedule"));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function handleDelete() {
-    if (!selectedSchedule) return;
-    if (!window.confirm(`Delete schedule ${selectedSchedule.id}?`)) return;
-
-    setDeleting(true);
-    setFormError(null);
-    setNotice(null);
-
-    try {
-      await deleteWorkflowSchedule(selectedSchedule.id);
-      onScheduleDeleted(selectedSchedule.id);
-      setFormMode(null);
-      setPresetWarning(null);
-      setNotice("Schedule deleted.");
-    } catch (err) {
-      setFormError(errorMessage(err, "Failed to delete workflow schedule"));
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  async function handleTogglePause() {
-    if (!selectedSchedule) return;
-
-    setTogglingPause(true);
-    setFormError(null);
-    setNotice(null);
-
-    try {
-      const updated = selectedSchedule.paused
-        ? await resumeWorkflowSchedule(selectedSchedule.id)
-        : await pauseWorkflowSchedule(selectedSchedule.id);
-      onScheduleUpsert(updated);
-      setNotice(updated.paused ? "Schedule paused." : "Schedule resumed.");
-    } catch (err) {
-      setFormError(errorMessage(err, "Failed to update workflow schedule"));
-    } finally {
-      setTogglingPause(false);
-    }
-  }
-
+function RunDetails({ run }: { run: WorkflowRun }) {
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(22rem,0.9fr)]">
-      <section className="rounded-lg border border-alpha bg-base-100 dark:bg-surface">
-        <div className="flex items-center justify-between gap-4 border-b border-alpha px-5 py-4">
-          <div>
-            <h2 className="text-sm font-medium text-primary">Workflow Schedules</h2>
-            <p className="mt-1 text-xs text-faint">{schedules.length} shown</p>
-          </div>
-          <button
-            type="button"
-            onClick={beginCreate}
-            className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
-          >
-            New schedule
-          </button>
-        </div>
+    <div className="mt-6 space-y-7">
+      <DetailGrid
+        items={[
+          ["Provider", run.provider],
+          ["Trigger", runTriggerLabel(run)],
+          ["Definition", run.definitionId || "-"],
+          ["Generation", run.definitionGeneration ? String(run.definitionGeneration) : "-"],
+          ["Current step", run.currentStepId || "-"],
+          ["Actor", run.createdBy?.subjectId || "-"],
+          ["Created", formatDate(run.createdAt)],
+          ["Started", formatDate(run.startedAt)],
+          ["Completed", formatDate(run.completedAt)],
+        ]}
+      />
 
-        {schedulesError ? (
-          <p className="px-5 py-8 text-sm text-ember-500">{schedulesError}</p>
-        ) : (
-          <div className="divide-y divide-alpha">
-            {schedules.length === 0 ? (
-              <div className="px-5 py-8 text-sm text-faint">No workflow schedules yet.</div>
-            ) : (
-              schedules.map((schedule) => {
-                const isActive = schedule.id === selectedScheduleID;
-                return (
-                  <button
-                    key={schedule.id}
-                    type="button"
-                    onClick={() => onSelectSchedule(schedule.id)}
-                    className={`flex w-full items-start justify-between gap-4 px-5 py-4 text-left transition-colors duration-150 ${
-                      isActive ? "bg-alpha-5" : "hover:bg-alpha-5"
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-medium text-primary">
-                          {targetLabel(schedule.target)}
-                        </span>
-                        <span className={pausedStateClassName(schedule.paused)}>
-                          {schedule.paused ? "paused" : "active"}
-                        </span>
-                      </div>
-                      <p className="mt-1 truncate text-xs text-faint">{schedule.id}</p>
-                      <p className="mt-2 text-xs text-muted">
-                        {scheduleCadenceLabel(schedule.cron)} · {schedule.provider}
-                      </p>
-                    </div>
-                    <div className="shrink-0 text-right text-xs text-faint">
-                      {formatDate(schedule.nextRunAt)}
-                    </div>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        )}
-      </section>
+      <TargetDetails target={run.target} />
 
-      <section className="rounded-lg border border-alpha bg-base-100 p-5 dark:bg-surface">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="text-sm font-medium text-primary">
-              {formMode === "create"
-                ? "Create Schedule"
-                : formMode === "edit"
-                  ? "Edit Schedule"
-                  : "Schedule Details"}
-            </h2>
-            <p className="mt-1 text-xs text-faint">
-              {formMode
-                ? formMode === "edit"
-                  ? selectedSchedule?.id || "Selected schedule"
-                  : "Use the existing schedule API"
-                : selectedSchedule?.id || "Select a schedule"}
-            </p>
-          </div>
+      <StepExecutions steps={run.steps ?? []} />
 
-          {formMode ? (
-            <button
-              type="button"
-              onClick={cancelForm}
-              className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
-            >
-              Cancel
-            </button>
-          ) : selectedSchedule ? (
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={beginEdit}
-                className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleTogglePause()}
-                disabled={togglingPause}
-                className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-surface"
-              >
-                {togglingPause
-                  ? selectedSchedule.paused
-                    ? "Resuming..."
-                    : "Pausing..."
-                  : selectedSchedule.paused
-                    ? "Resume"
-                    : "Pause"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleDelete()}
-                disabled={deleting}
-                className="rounded-md bg-ember-500 px-3 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {deleting ? "Deleting..." : "Delete"}
-              </button>
-            </div>
-          ) : null}
-        </div>
+      <JSONSection title="Run Input" value={run.input} emptyText="No input captured." />
+      <JSONSection
+        title="Run Output"
+        value={run.output}
+        emptyText="No output captured."
+      />
 
-        {notice ? <p className="mt-4 text-sm text-grove-700 dark:text-grove-200">{notice}</p> : null}
-        {formError ? <p className="mt-4 text-sm text-ember-500">{formError}</p> : null}
-
-        {formMode ? (
-          <form className="mt-6 space-y-6" onSubmit={handleSubmit}>
-            {presetWarning ? (
-              <div className="rounded-md border border-alpha bg-background/65 px-4 py-3 text-sm text-muted dark:bg-background/20">
-                {presetWarning}
-              </div>
-            ) : null}
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="space-y-2 text-sm">
-                <span className="text-muted">Cadence</span>
-                <select
-                  value={form.cadence}
-                  onChange={(event) =>
-                    updatePresetControls((current) => ({
-                      ...current,
-                      cadence: event.target.value as ScheduleCadence,
-                    }))
-                  }
-                  className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-                >
-                  {SCHEDULE_CADENCE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="space-y-2 text-sm">
-                <span className="text-muted">Timezone</span>
-                <select
-                  value={form.timezoneMode}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      timezoneMode: event.target.value as TimezoneMode,
-                    }))
-                  }
-                  className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-                >
-                  <option value="local">Current timezone ({browserTimezone})</option>
-                  <option value="utc">UTC</option>
-                </select>
-              </label>
-
-              {form.cadence !== "hourly" ? (
-                <label className="space-y-2 text-sm">
-                  <span className="text-muted">Time</span>
-                  <select
-                    value={form.hour}
-                    onChange={(event) =>
-                      updatePresetControls((current) => ({
-                        ...current,
-                        hour: event.target.value,
-                      }))
-                    }
-                    className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-                  >
-                    {HOUR_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-
-              {form.cadence === "weekly" ? (
-                <label className="space-y-2 text-sm">
-                  <span className="text-muted">Day</span>
-                  <select
-                    value={form.weekday}
-                    onChange={(event) =>
-                      updatePresetControls((current) => ({
-                        ...current,
-                        weekday: event.target.value,
-                      }))
-                    }
-                    className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-                  >
-                    {WEEKDAY_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-
-              {form.cadence === "monthly" ? (
-                <label className="space-y-2 text-sm">
-                  <span className="text-muted">Day of month</span>
-                  <select
-                    value={form.monthDay}
-                    onChange={(event) =>
-                      updatePresetControls((current) => ({
-                        ...current,
-                        monthDay: event.target.value,
-                      }))
-                    }
-                    className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-                  >
-                    {MONTH_DAY_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-            </div>
-
-            <label className="block rounded-md border border-alpha bg-background/65 px-4 py-3 text-sm dark:bg-background/20">
-              <span className="text-[11px] uppercase tracking-[0.18em] text-faint">
-                Cron Definition
-              </span>
-              <textarea
-                value={form.cronDefinition}
-                onChange={(event) => handleCronDefinitionChange(event.target.value)}
-                rows={2}
-                spellCheck={false}
-                className="mt-2 w-full resize-y rounded-md border border-alpha bg-base-100 px-3 py-2 font-mono text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-              />
-              <p className="mt-2 text-xs text-muted">
-                The cadence controls above can generate a cron expression for you, but you can override it here if needed.
-              </p>
-            </label>
-
-            <WorkflowTargetEditor
-              integrations={integrations}
-              integrationsError={integrationsError}
-              operations={operationOptions}
-              operationsLoading={operationsLoading}
-              operationsError={operationsError}
-              app={form.app}
-              operation={form.operation}
-              connection={form.connection}
-              instance={form.instance}
-              inputJSON={form.inputJSON}
-              onAppChange={(value) =>
-                setForm((current) => ({
-                  ...current,
-                  app: value,
-                  operation: "",
-                }))
-              }
-              onOperationChange={(value) =>
-                setForm((current) => ({ ...current, operation: value }))
-              }
-              onConnectionChange={(value) =>
-                setForm((current) => ({ ...current, connection: value }))
-              }
-              onInstanceChange={(value) =>
-                setForm((current) => ({ ...current, instance: value }))
-              }
-              onInputJSONChange={(value) =>
-                setForm((current) => ({ ...current, inputJSON: value }))
-              }
-            />
-
-            <label className="flex items-center gap-3 text-sm text-muted">
-              <input
-                type="checkbox"
-                checked={form.paused}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, paused: event.target.checked }))
-                }
-                className="h-4 w-4 rounded border-alpha"
-              />
-              Create or save this schedule as paused
-            </label>
-
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="submit"
-                disabled={submitting}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-background transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {submitting
-                  ? formMode === "edit"
-                    ? "Saving..."
-                    : "Creating..."
-                  : formMode === "edit"
-                    ? "Save schedule"
-                    : "Create schedule"}
-              </button>
-              <button
-                type="button"
-                onClick={cancelForm}
-                className="rounded-md border border-alpha bg-base-100 px-4 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        ) : selectedSchedule ? (
-          <div className="mt-6 space-y-6">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <DetailItem label="Provider" value={selectedSchedule.provider} />
-              <DetailItem label="Cadence" value={scheduleCadenceLabel(selectedSchedule.cron)} />
-              <DetailItem
-                label="Timezone"
-                value={selectedSchedule.timezone || "Default timezone"}
-              />
-              <DetailItem label="Next run" value={formatDate(selectedSchedule.nextRunAt)} />
-              <DetailItem label="Created" value={formatDate(selectedSchedule.createdAt)} />
-              <DetailItem label="Updated" value={formatDate(selectedSchedule.updatedAt)} />
-            </div>
-
-            <div className="rounded-md border border-alpha bg-background/65 px-4 py-3 text-sm dark:bg-background/20">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-faint">Cron</p>
-              <p className="mt-2 font-mono text-primary">{selectedSchedule.cron}</p>
-            </div>
-
-            <TargetDetails target={selectedSchedule.target} />
-          </div>
-        ) : (
-          <div className="mt-6 space-y-4">
-            <p className="text-sm text-faint">Select a workflow schedule to inspect it.</p>
-            <button
-              type="button"
-              onClick={beginCreate}
-              className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
-            >
-              Create schedule
-            </button>
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function TriggersPanel({
-  triggers,
-  triggersError,
-  selectedTriggerID,
-  selectedTrigger,
-  integrations,
-  integrationsError,
-  operationsByApp,
-  operationsLoadingByApp,
-  operationErrorsByApp,
-  ensureOperationsLoaded,
-  onSelectTrigger,
-  onTriggerUpsert,
-  onTriggerDeleted,
-}: {
-  triggers: WorkflowEventTrigger[];
-  triggersError: string | null;
-  selectedTriggerID: string | null;
-  selectedTrigger: WorkflowEventTrigger | null;
-  integrations: Integration[];
-  integrationsError: string | null;
-  operationsByApp: Record<string, IntegrationOperation[]>;
-  operationsLoadingByApp: Record<string, boolean>;
-  operationErrorsByApp: Record<string, string | undefined>;
-  ensureOperationsLoaded: (appName: string) => Promise<void>;
-  onSelectTrigger: (id: string | null) => void;
-  onTriggerUpsert: (trigger: WorkflowEventTrigger) => void;
-  onTriggerDeleted: (triggerID: string) => void;
-}) {
-  const [formMode, setFormMode] = useState<WorkflowFormMode>(null);
-  const [form, setForm] = useState<TriggerFormState>(() => defaultTriggerForm());
-  const [formError, setFormError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [togglingPause, setTogglingPause] = useState(false);
-
-  const ensureOperationsLoadedEvent = useEffectEvent((appName: string) => {
-    void ensureOperationsLoaded(appName);
-  });
-
-  const operationOptions = form.app
-    ? operationsByApp[form.app] ?? EMPTY_OPERATIONS
-    : EMPTY_OPERATIONS;
-  const operationsLoading = form.app ? Boolean(operationsLoadingByApp[form.app]) : false;
-  const operationsError = form.app ? operationErrorsByApp[form.app] ?? null : null;
-
-  useEffect(() => {
-    if (!formMode) return;
-    if (!form.app && integrations[0]) {
-      setForm((current) => ({ ...current, app: integrations[0].name }));
-    }
-  }, [formMode, form.app, integrations]);
-
-  useEffect(() => {
-    if (!formMode || !form.app) return;
-    ensureOperationsLoadedEvent(form.app);
-  }, [formMode, form.app]);
-
-  useEffect(() => {
-    if (!formMode || !form.app || operationsLoading) return;
-    if (operationOptions.length === 0) {
-      if (form.operation) {
-        setForm((current) => ({ ...current, operation: "" }));
-      }
-      return;
-    }
-    if (!operationOptions.some((operation) => operation.id === form.operation)) {
-      setForm((current) => ({ ...current, operation: operationOptions[0].id }));
-    }
-  }, [formMode, form.app, form.operation, operationOptions, operationsLoading]);
-
-  function beginCreate() {
-    setForm(defaultTriggerForm(integrations[0]?.name ?? ""));
-    setFormError(null);
-    setNotice(null);
-    setFormMode("create");
-  }
-
-  function beginEdit() {
-    if (!selectedTrigger) return;
-    setForm(triggerFormFromTrigger(selectedTrigger));
-    setFormError(null);
-    setNotice(null);
-    setFormMode("edit");
-  }
-
-  function cancelForm() {
-    setFormMode(null);
-    setFormError(null);
-  }
-
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setFormError(null);
-    setNotice(null);
-
-    try {
-      const body = triggerFormToUpsert(
-        form,
-        formMode === "edit" ? selectedTrigger?.provider : undefined,
-      );
-
-      setSubmitting(true);
-      const saved =
-        formMode === "edit" && selectedTrigger
-          ? await updateWorkflowEventTrigger(selectedTrigger.id, body)
-          : await createWorkflowEventTrigger(body);
-
-      onTriggerUpsert(saved);
-      setFormMode(null);
-      setNotice(formMode === "edit" ? "Trigger updated." : "Trigger created.");
-    } catch (err) {
-      setFormError(errorMessage(err, "Failed to save workflow trigger"));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function handleDelete() {
-    if (!selectedTrigger) return;
-    if (!window.confirm(`Delete trigger ${selectedTrigger.id}?`)) return;
-
-    setDeleting(true);
-    setFormError(null);
-    setNotice(null);
-
-    try {
-      await deleteWorkflowEventTrigger(selectedTrigger.id);
-      onTriggerDeleted(selectedTrigger.id);
-      setFormMode(null);
-      setNotice("Trigger deleted.");
-    } catch (err) {
-      setFormError(errorMessage(err, "Failed to delete workflow trigger"));
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  async function handleTogglePause() {
-    if (!selectedTrigger) return;
-
-    setTogglingPause(true);
-    setFormError(null);
-    setNotice(null);
-
-    try {
-      const updated = selectedTrigger.paused
-        ? await resumeWorkflowEventTrigger(selectedTrigger.id)
-        : await pauseWorkflowEventTrigger(selectedTrigger.id);
-      onTriggerUpsert(updated);
-      setNotice(updated.paused ? "Trigger paused." : "Trigger resumed.");
-    } catch (err) {
-      setFormError(errorMessage(err, "Failed to update workflow trigger"));
-    } finally {
-      setTogglingPause(false);
-    }
-  }
-
-  return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(22rem,0.9fr)]">
-      <section className="rounded-lg border border-alpha bg-base-100 dark:bg-surface">
-        <div className="flex items-center justify-between gap-4 border-b border-alpha px-5 py-4">
-          <div>
-            <h2 className="text-sm font-medium text-primary">Workflow Triggers</h2>
-            <p className="mt-1 text-xs text-faint">{triggers.length} shown</p>
-          </div>
-          <button
-            type="button"
-            onClick={beginCreate}
-            className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
-          >
-            New trigger
-          </button>
-        </div>
-
-        {triggersError ? (
-          <p className="px-5 py-8 text-sm text-ember-500">{triggersError}</p>
-        ) : (
-          <div className="divide-y divide-alpha">
-            {triggers.length === 0 ? (
-              <div className="px-5 py-8 text-sm text-faint">No workflow triggers yet.</div>
-            ) : (
-              triggers.map((trigger) => {
-                const isActive = trigger.id === selectedTriggerID;
-                return (
-                  <button
-                    key={trigger.id}
-                    type="button"
-                    onClick={() => onSelectTrigger(trigger.id)}
-                    className={`flex w-full items-start justify-between gap-4 px-5 py-4 text-left transition-colors duration-150 ${
-                      isActive ? "bg-alpha-5" : "hover:bg-alpha-5"
-                    }`}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-sm font-medium text-primary">
-                          {targetLabel(trigger.target)}
-                        </span>
-                        <span className={pausedStateClassName(trigger.paused)}>
-                          {trigger.paused ? "paused" : "active"}
-                        </span>
-                      </div>
-                      <p className="mt-1 truncate text-xs text-faint">{trigger.id}</p>
-                      <p className="mt-2 text-xs text-muted">
-                        {trigger.match.type} · {trigger.provider}
-                      </p>
-                    </div>
-                    <div className="shrink-0 text-right text-xs text-faint">
-                      {formatDate(trigger.updatedAt || trigger.createdAt)}
-                    </div>
-                  </button>
-                );
-              })
-            )}
-          </div>
-        )}
-      </section>
-
-      <section className="rounded-lg border border-alpha bg-base-100 p-5 dark:bg-surface">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="text-sm font-medium text-primary">
-              {formMode === "create"
-                ? "Create Trigger"
-                : formMode === "edit"
-                  ? "Edit Trigger"
-                  : "Trigger Details"}
-            </h2>
-            <p className="mt-1 text-xs text-faint">
-              {formMode
-                ? formMode === "edit"
-                  ? selectedTrigger?.id || "Selected trigger"
-                  : "Use the existing trigger API"
-                : selectedTrigger?.id || "Select a trigger"}
-            </p>
-          </div>
-
-          {formMode ? (
-            <button
-              type="button"
-              onClick={cancelForm}
-              className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
-            >
-              Cancel
-            </button>
-          ) : selectedTrigger ? (
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={beginEdit}
-                className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleTogglePause()}
-                disabled={togglingPause}
-                className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-surface"
-              >
-                {togglingPause
-                  ? selectedTrigger.paused
-                    ? "Resuming..."
-                    : "Pausing..."
-                  : selectedTrigger.paused
-                    ? "Resume"
-                    : "Pause"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleDelete()}
-                disabled={deleting}
-                className="rounded-md bg-ember-500 px-3 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {deleting ? "Deleting..." : "Delete"}
-              </button>
-            </div>
-          ) : null}
-        </div>
-
-        {notice ? <p className="mt-4 text-sm text-grove-700 dark:text-grove-200">{notice}</p> : null}
-        {formError ? <p className="mt-4 text-sm text-ember-500">{formError}</p> : null}
-
-        {formMode ? (
-          <form className="mt-6 space-y-6" onSubmit={handleSubmit}>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="space-y-2 text-sm sm:col-span-2">
-                <span className="text-muted">Event type</span>
-                <input
-                  value={form.type}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, type: event.target.value }))
-                  }
-                  placeholder="repo.push"
-                  className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
-                />
-              </label>
-
-              <label className="space-y-2 text-sm">
-                <span className="text-muted">Source</span>
-                <input
-                  value={form.source}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, source: event.target.value }))
-                  }
-                  placeholder="github"
-                  className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
-                />
-              </label>
-
-              <label className="space-y-2 text-sm">
-                <span className="text-muted">Subject</span>
-                <input
-                  value={form.subject}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, subject: event.target.value }))
-                  }
-                  placeholder="valon-technologies/gestalt"
-                  className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
-                />
-              </label>
-            </div>
-
-            <WorkflowTargetEditor
-              integrations={integrations}
-              integrationsError={integrationsError}
-              operations={operationOptions}
-              operationsLoading={operationsLoading}
-              operationsError={operationsError}
-              app={form.app}
-              operation={form.operation}
-              connection={form.connection}
-              instance={form.instance}
-              inputJSON={form.inputJSON}
-              onAppChange={(value) =>
-                setForm((current) => ({
-                  ...current,
-                  app: value,
-                  operation: "",
-                }))
-              }
-              onOperationChange={(value) =>
-                setForm((current) => ({ ...current, operation: value }))
-              }
-              onConnectionChange={(value) =>
-                setForm((current) => ({ ...current, connection: value }))
-              }
-              onInstanceChange={(value) =>
-                setForm((current) => ({ ...current, instance: value }))
-              }
-              onInputJSONChange={(value) =>
-                setForm((current) => ({ ...current, inputJSON: value }))
-              }
-            />
-
-            <label className="flex items-center gap-3 text-sm text-muted">
-              <input
-                type="checkbox"
-                checked={form.paused}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, paused: event.target.checked }))
-                }
-                className="h-4 w-4 rounded border-alpha"
-              />
-              Create or save this trigger as paused
-            </label>
-
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="submit"
-                disabled={submitting}
-                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-background transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {submitting
-                  ? formMode === "edit"
-                    ? "Saving..."
-                    : "Creating..."
-                  : formMode === "edit"
-                    ? "Save trigger"
-                    : "Create trigger"}
-              </button>
-              <button
-                type="button"
-                onClick={cancelForm}
-                className="rounded-md border border-alpha bg-base-100 px-4 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        ) : selectedTrigger ? (
-          <div className="mt-6 space-y-6">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <DetailItem label="Provider" value={selectedTrigger.provider} />
-              <DetailItem label="Event type" value={selectedTrigger.match.type} />
-              <DetailItem label="Source" value={selectedTrigger.match.source || "-"} />
-              <DetailItem label="Subject" value={selectedTrigger.match.subject || "-"} />
-              <DetailItem label="Created" value={formatDate(selectedTrigger.createdAt)} />
-              <DetailItem label="Updated" value={formatDate(selectedTrigger.updatedAt)} />
-            </div>
-
-            <section>
-              <h3 className="text-xs font-medium uppercase tracking-[0.18em] text-faint">
-                Match
-              </h3>
-              <div className="mt-3 rounded-md border border-alpha bg-background/65 p-4 text-sm dark:bg-background/20">
-                <p className="font-medium text-primary">{selectedTrigger.match.type}</p>
-                <p className="mt-2 text-xs text-muted">
-                  Source: {selectedTrigger.match.source || "-"} · Subject:{" "}
-                  {selectedTrigger.match.subject || "-"}
-                </p>
-              </div>
-            </section>
-
-            <TargetDetails target={selectedTrigger.target} />
-          </div>
-        ) : (
-          <div className="mt-6 space-y-4">
-            <p className="text-sm text-faint">Select a workflow trigger to inspect it.</p>
-            <button
-              type="button"
-              onClick={beginCreate}
-              className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 dark:bg-surface"
-            >
-              Create trigger
-            </button>
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function WorkflowTargetEditor({
-  integrations,
-  integrationsError,
-  operations,
-  operationsLoading,
-  operationsError,
-  app,
-  operation,
-  connection,
-  instance,
-  inputJSON,
-  onAppChange,
-  onOperationChange,
-  onConnectionChange,
-  onInstanceChange,
-  onInputJSONChange,
-}: TargetEditorProps) {
-  return (
-    <section className="space-y-4 rounded-md border border-alpha bg-background/65 p-4 dark:bg-background/20">
-      <div>
-        <h3 className="text-xs font-medium uppercase tracking-[0.18em] text-faint">Target</h3>
-        <p className="mt-2 text-sm text-muted">
-          Choose the app operation this workflow should invoke.
+      <section>
+        <SectionHeading>Status Message</SectionHeading>
+        <p className="mt-3 text-sm text-primary">
+          {run.statusMessage || "No status message"}
         </p>
-      </div>
-
-      {integrationsError ? (
-        <p className="text-sm text-ember-500">{integrationsError}</p>
-      ) : null}
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <label className="space-y-2 text-sm">
-          <span className="text-muted">App</span>
-          <select
-            value={app}
-            onChange={(event) => onAppChange(event.target.value)}
-            className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
-          >
-            <option value="">Select an app</option>
-            {integrations.map((integration) => (
-              <option key={integration.name} value={integration.name}>
-                {integrationLabel(integration)}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="space-y-2 text-sm">
-          <span className="text-muted">Operation</span>
-          <select
-            value={operation}
-            onChange={(event) => onOperationChange(event.target.value)}
-            disabled={!app || operationsLoading}
-            className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60 dark:bg-surface"
-          >
-            <option value="">
-              {!app
-                ? "Select an app first"
-                : operationsLoading
-                  ? "Loading operations..."
-                  : operations.length === 0
-                    ? "No operations available"
-                    : "Select an operation"}
-            </option>
-            {operations.map((item) => (
-              <option key={item.id} value={item.id}>
-                {operationLabel(item)}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      {operationsError ? <p className="text-sm text-ember-500">{operationsError}</p> : null}
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        <label className="space-y-2 text-sm">
-          <span className="text-muted">Connection</span>
-          <input
-            value={connection}
-            onChange={(event) => onConnectionChange(event.target.value)}
-            placeholder="default"
-            className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
-          />
-        </label>
-
-        <label className="space-y-2 text-sm">
-          <span className="text-muted">Instance</span>
-          <input
-            value={instance}
-            onChange={(event) => onInstanceChange(event.target.value)}
-            placeholder="Optional"
-            className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
-          />
-        </label>
-      </div>
-
-      <label className="block space-y-2 text-sm">
-        <span className="text-muted">Input JSON</span>
-        <textarea
-          value={inputJSON}
-          onChange={(event) => onInputJSONChange(event.target.value)}
-          rows={8}
-          placeholder='{"channel":"C123","text":"Hello"}'
-          className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 font-mono text-xs text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-alpha-strong dark:bg-surface"
-        />
-      </label>
-    </section>
+      </section>
+    </div>
   );
 }
 
-function WorkflowTabButton({
-  active,
-  label,
-  count,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  count: number;
-  onClick: () => void;
-}) {
+function DetailGrid({ items }: { items: Array<[string, string]> }) {
   return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      aria-label={label}
-      onClick={onClick}
-      className={`rounded-md border px-3 py-2 text-sm transition-colors duration-150 ${
-        active
-          ? "border-alpha-strong bg-alpha-5 text-primary"
-          : "border-alpha text-muted hover:bg-alpha-5 hover:text-primary"
-      }`}
-    >
-      {label}
-      <span className="ml-2 text-xs text-faint">{count}</span>
-    </button>
+    <dl className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
+      {items.map(([label, value]) => (
+        <div key={label} className="border-b border-alpha pb-3">
+          <dt className="text-[11px] uppercase tracking-[0.18em] text-faint">
+            {label}
+          </dt>
+          <dd className="mt-2 break-words text-sm text-primary">{value || "-"}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
 function TargetDetails({ target }: { target: WorkflowTarget }) {
-  const app = workflowTargetApp(target);
+  if (target.steps.length === 0) {
+    return (
+      <section>
+        <SectionHeading>Target</SectionHeading>
+        <p className="mt-3 text-sm text-faint">No workflow target captured.</p>
+      </section>
+    );
+  }
+
   return (
     <section>
-      <h3 className="text-xs font-medium uppercase tracking-[0.18em] text-faint">Target</h3>
-      <div className="mt-3 rounded-md border border-alpha bg-background/65 p-4 text-sm dark:bg-background/20">
-        <p className="font-medium text-primary">
-          {targetLabel(target)}
-        </p>
-        <p className="mt-2 text-xs text-muted">
-          Connection: {app.connection || "-"} · Instance: {app.instance || "-"}
-        </p>
-        {app.input && Object.keys(app.input).length > 0 ? (
-          <pre className="mt-3 overflow-x-auto text-xs text-primary">
-            {prettyJSON(app.input)}
-          </pre>
-        ) : (
-          <p className="mt-3 text-xs text-faint">No target input configured.</p>
-        )}
+      <SectionHeading>Target Steps</SectionHeading>
+      <div className="mt-3 divide-y divide-alpha border-y border-alpha">
+        {target.steps.map((step, index) => (
+          <TargetStepDetails key={`${step.id || "step"}-${index}`} step={step} />
+        ))}
       </div>
     </section>
   );
 }
 
-function DetailItem({ label, value }: { label: string; value: string }) {
+function TargetStepDetails({ step }: { step: WorkflowStepTarget }) {
   return (
-    <div className="rounded-md border border-alpha bg-background/65 px-4 py-3 dark:bg-background/20">
+    <div className="py-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium text-primary">{stepLabel(step)}</p>
+          <p className="mt-1 text-xs text-faint">{step.id || "unnamed step"}</p>
+        </div>
+        <span className="rounded-full bg-alpha-5 px-2 py-1 text-[11px] font-medium text-muted">
+          {stepKind(step)}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-x-5 gap-y-3 sm:grid-cols-2">
+        {step.app ? (
+          <>
+            <DetailLine label="App" value={step.app.name} />
+            <DetailLine label="Operation" value={step.app.operation} />
+            <DetailLine label="Connection" value={step.app.connection || "-"} />
+            <DetailLine label="Instance" value={step.app.instance || "-"} />
+            <DetailLine
+              label="Credential mode"
+              value={step.app.credentialMode || "-"}
+            />
+          </>
+        ) : null}
+        {step.agent ? (
+          <>
+            <DetailLine label="Agent provider" value={step.agent.provider || "-"} />
+            <DetailLine label="Model" value={step.agent.model || "-"} />
+            <DetailLine label="Session key" value={step.agent.sessionKey || "-"} />
+          </>
+        ) : null}
+        <DetailLine
+          label="Timeout"
+          value={step.timeoutSeconds ? `${step.timeoutSeconds}s` : "-"}
+        />
+      </div>
+
+      <div className="mt-4 grid gap-4">
+        <JSONSection title="Step Inputs" value={step.inputs} emptyText="No inputs." />
+        <JSONSection title="App Input" value={step.app?.input} emptyText="No app input." />
+        <JSONSection
+          title="Agent Prompt"
+          value={step.agent?.prompt}
+          emptyText="No agent prompt."
+        />
+        <JSONSection
+          title="Agent Messages"
+          value={step.agent?.messages}
+          emptyText="No agent messages."
+        />
+        <JSONSection title="When" value={step.when} emptyText="No guard." />
+        <JSONSection
+          title="Metadata"
+          value={step.metadata}
+          emptyText="No metadata."
+        />
+      </div>
+    </div>
+  );
+}
+
+function StepExecutions({ steps }: { steps: WorkflowStepExecution[] }) {
+  return (
+    <section>
+      <SectionHeading>Step Executions</SectionHeading>
+      {steps.length === 0 ? (
+        <p className="mt-3 text-sm text-faint">No step state captured.</p>
+      ) : (
+        <div className="mt-3 divide-y divide-alpha border-y border-alpha">
+          {steps.map((step, index) => (
+            <div key={`${step.stepId || "step"}-${index}`} className="py-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium text-primary">
+                    {step.stepId || `Step ${index + 1}`}
+                  </p>
+                  <p className="mt-1 text-xs text-faint">
+                    {step.startedAt ? formatDate(step.startedAt) : "Not started"}
+                    {step.completedAt ? ` - ${formatDate(step.completedAt)}` : ""}
+                  </p>
+                </div>
+                <span className={stepStatusClassName(step.status)}>
+                  {step.status || "unknown"}
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-x-5 gap-y-3 sm:grid-cols-2">
+                <DetailLine
+                  label="Skip reason"
+                  value={step.skipReason || "-"}
+                />
+                <DetailLine
+                  label="Status message"
+                  value={step.statusMessage || "-"}
+                />
+                <DetailLine
+                  label="Attempts"
+                  value={String(step.attempts?.length ?? 0)}
+                />
+              </div>
+
+              <div className="mt-4 grid gap-4">
+                <JSONSection
+                  title="Step Input"
+                  value={step.input}
+                  emptyText="No input."
+                />
+                <JSONSection
+                  title="Step Output"
+                  value={step.output}
+                  emptyText="No output."
+                />
+              </div>
+
+              {step.attempts && step.attempts.length > 0 ? (
+                <div className="mt-4 space-y-3">
+                  <p className="text-xs font-medium text-muted">Attempts</p>
+                  {step.attempts.map((attempt, attemptIndex) => (
+                    <div
+                      key={`${attempt.id || "attempt"}-${attemptIndex}`}
+                      className="border-l border-alpha pl-4"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-medium text-primary">
+                          {attempt.id || `Attempt ${attemptIndex + 1}`}
+                        </p>
+                        <span className={stepStatusClassName(attempt.status)}>
+                          {attempt.status || "unknown"}
+                        </span>
+                      </div>
+                      <DetailGrid
+                        items={[
+                          ["Idempotency key", attempt.idempotencyKey || "-"],
+                          ["Started", formatDate(attempt.startedAt)],
+                          ["Completed", formatDate(attempt.completedAt)],
+                          ["Status message", attempt.statusMessage || "-"],
+                        ]}
+                      />
+                      <div className="mt-4 grid gap-4">
+                        <JSONSection
+                          title="Attempt Input"
+                          value={attempt.input}
+                          emptyText="No input."
+                        />
+                        <JSONSection
+                          title="Attempt Output"
+                          value={attempt.output}
+                          emptyText="No output."
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function JSONSection({
+  title,
+  value,
+  emptyText,
+}: {
+  title: string;
+  value: unknown;
+  emptyText: string;
+}) {
+  return (
+    <section>
+      <p className="text-xs font-medium text-muted">{title}</p>
+      {hasJSONValue(value) ? (
+        <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-alpha bg-background/70 p-3 text-xs text-primary dark:bg-background/20">
+          {prettyJSON(value)}
+        </pre>
+      ) : (
+        <p className="mt-2 text-xs text-faint">{emptyText}</p>
+      )}
+    </section>
+  );
+}
+
+function SectionHeading({ children }: { children: ReactNode }) {
+  return (
+    <h3 className="text-xs font-medium uppercase tracking-[0.18em] text-faint">
+      {children}
+    </h3>
+  );
+}
+
+function DetailLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
       <p className="text-[11px] uppercase tracking-[0.18em] text-faint">{label}</p>
-      <p className="mt-2 text-sm text-primary">{value || "-"}</p>
+      <p className="mt-1 break-words text-sm text-primary">{value || "-"}</p>
     </div>
   );
 }
@@ -1909,7 +660,9 @@ function SummaryCard({
   return (
     <div className="rounded-lg border border-alpha bg-base-100 px-5 py-4 dark:bg-surface">
       <p className="text-[11px] uppercase tracking-[0.18em] text-faint">{label}</p>
-      <p className={`mt-3 text-2xl font-heading font-bold ${toneClassName}`}>{value}</p>
+      <p className={`mt-3 text-2xl font-heading font-bold ${toneClassName}`}>
+        {value}
+      </p>
     </div>
   );
 }
@@ -1921,90 +674,66 @@ function filterRuns(runs: WorkflowRun[], query: string, status: string): Workflo
     if (!matchesStatus) return false;
     if (!trimmedQuery) return true;
 
-    return [
-      run.id,
-      run.provider,
-      workflowTargetApp(run.target).name,
-      workflowTargetApp(run.target).operation,
-      run.trigger?.scheduleId,
-      run.trigger?.triggerId,
-    ]
-      .filter(Boolean)
-      .some((value) => value!.toLowerCase().includes(trimmedQuery));
+    return runSearchTerms(run).some((value) =>
+      value.toLowerCase().includes(trimmedQuery),
+    );
   });
 }
 
-function filterSchedules(
-  schedules: WorkflowSchedule[],
-  query: string,
-  status: string,
-): WorkflowSchedule[] {
-  const trimmedQuery = query.trim().toLowerCase();
-  return schedules.filter((schedule) => {
-    const matchesStatus =
-      status === "all" ||
-      (status === "paused" && schedule.paused) ||
-      (status === "active" && !schedule.paused);
-    if (!matchesStatus) return false;
-    if (!trimmedQuery) return true;
+function runSearchTerms(run: WorkflowRun): string[] {
+  const terms = [
+    run.id,
+    run.provider,
+    run.status,
+    run.definitionId,
+    run.currentStepId,
+    run.trigger?.kind,
+    run.trigger?.activationId,
+    run.trigger?.event?.type,
+    run.trigger?.event?.source,
+    run.trigger?.event?.subject,
+  ];
 
-    return [
-      schedule.id,
-      schedule.provider,
-      schedule.cron,
-      schedule.timezone,
-      workflowTargetApp(schedule.target).name,
-      workflowTargetApp(schedule.target).operation,
-      workflowTargetApp(schedule.target).connection,
-      workflowTargetApp(schedule.target).instance,
-      scheduleCadenceLabel(schedule.cron),
-    ]
-      .filter(Boolean)
-      .some((value) => value!.toLowerCase().includes(trimmedQuery));
-  });
-}
+  for (const step of run.target.steps) {
+    terms.push(step.id, step.app?.name, step.app?.operation, step.agent?.provider, step.agent?.model);
+  }
 
-function filterTriggers(
-  triggers: WorkflowEventTrigger[],
-  query: string,
-  status: string,
-): WorkflowEventTrigger[] {
-  const trimmedQuery = query.trim().toLowerCase();
-  return triggers.filter((trigger) => {
-    const matchesStatus =
-      status === "all" ||
-      (status === "paused" && trigger.paused) ||
-      (status === "active" && !trigger.paused);
-    if (!matchesStatus) return false;
-    if (!trimmedQuery) return true;
+  for (const step of run.steps ?? []) {
+    terms.push(step.stepId, step.status, step.skipReason, step.statusMessage);
+  }
 
-    return [
-      trigger.id,
-      trigger.provider,
-      trigger.match.type,
-      trigger.match.source,
-      trigger.match.subject,
-      workflowTargetApp(trigger.target).name,
-      workflowTargetApp(trigger.target).operation,
-      workflowTargetApp(trigger.target).connection,
-      workflowTargetApp(trigger.target).instance,
-    ]
-      .filter(Boolean)
-      .some((value) => value!.toLowerCase().includes(trimmedQuery));
-  });
+  return terms.filter((value): value is string => Boolean(value));
 }
 
 function runTriggerLabel(run: WorkflowRun): string {
-  if (run.trigger?.kind === "schedule") {
-    return run.trigger.scheduleId ? `schedule:${run.trigger.scheduleId}` : "schedule";
+  const trigger = run.trigger;
+  if (!trigger?.kind) return "unknown";
+  if (trigger.kind === "schedule") {
+    return trigger.activationId ? `schedule:${trigger.activationId}` : "schedule";
   }
-  if (run.trigger?.kind === "event") {
-    return run.trigger.triggerId ? `trigger:${run.trigger.triggerId}` : "trigger";
+  if (trigger.kind === "event") {
+    if (trigger.activationId) return `event:${trigger.activationId}`;
+    return trigger.event?.type ? `event:${trigger.event.type}` : "event";
   }
-  if (run.trigger?.kind === "manual") {
-    return "manual";
-  }
-  return "unknown";
+  return trigger.kind;
+}
+
+function workflowRunCounts(runs: WorkflowRun[]) {
+  return runs.reduce(
+    (counts, run) => {
+      if (run.status === "running") counts.running += 1;
+      if (run.status === "succeeded") counts.succeeded += 1;
+      if (run.status === "failed") counts.failed += 1;
+      return counts;
+    },
+    { running: 0, succeeded: 0, failed: 0 },
+  );
+}
+
+function upsertRun(runs: WorkflowRun[], run: WorkflowRun): WorkflowRun[] {
+  const index = runs.findIndex((item) => item.id === run.id);
+  if (index < 0) return [run, ...runs];
+  return runs.map((item) => (item.id === run.id ? run : item));
 }
 
 function formatDate(value?: string): string {
@@ -2014,345 +743,93 @@ function formatDate(value?: string): string {
   return date.toLocaleString();
 }
 
-function prettyJSON(value: Record<string, unknown>): string {
-  return JSON.stringify(value, null, 2);
-}
-
 function targetLabel(target: WorkflowTarget): string {
   const app = workflowTargetApp(target);
   if (app.name && app.operation) {
     return `${app.name}.${app.operation}`;
   }
+  const agentStep = target.steps.find((step) => step.agent);
+  if (agentStep?.agent?.model) {
+    return `agent.${agentStep.agent.model}`;
+  }
+  if (target.steps.length > 1) {
+    return `${target.steps.length} steps`;
+  }
   return app.name || app.operation || "unknown";
 }
 
-function prettyResultBody(value: string): string {
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2);
-  } catch {
-    return value;
+function stepLabel(step: WorkflowStepTarget): string {
+  if (step.app?.name && step.app.operation) {
+    return `${step.app.name}.${step.app.operation}`;
   }
+  if (step.agent?.model) {
+    return `agent.${step.agent.model}`;
+  }
+  if (step.agent?.provider) {
+    return `agent.${step.agent.provider}`;
+  }
+  return step.id || "Workflow step";
+}
+
+function stepKind(step: WorkflowStepTarget): string {
+  if (step.app) return "app";
+  if (step.agent) return "agent";
+  return "unknown";
+}
+
+function hasJSONValue(value: unknown): boolean {
+  if (value === undefined) return false;
+  if (value === null) return true;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  return true;
+}
+
+function prettyJSON(value: unknown): string {
+  const rendered = JSON.stringify(value, null, 2);
+  return rendered === undefined ? String(value) : rendered;
 }
 
 function runStatusClassName(status?: string): string {
   switch (status) {
     case "succeeded":
       return "rounded-full bg-grove-100 px-2 py-1 text-[11px] font-medium text-grove-700 dark:bg-grove-700/20 dark:text-grove-200";
-    case "running":
-      return "rounded-full bg-sky-100 px-2 py-1 text-[11px] font-medium text-sky-700 dark:bg-sky-700/20 dark:text-sky-200";
     case "failed":
       return "rounded-full bg-ember-100 px-2 py-1 text-[11px] font-medium text-ember-700 dark:bg-ember-700/20 dark:text-ember-200";
-    case "canceled":
-      return "rounded-full bg-slate-200 px-2 py-1 text-[11px] font-medium text-slate-700 dark:bg-slate-700/20 dark:text-slate-200";
+    case "running":
+      return "rounded-full bg-sky-100 px-2 py-1 text-[11px] font-medium text-sky-700 dark:bg-sky-700/20 dark:text-sky-200";
     case "pending":
       return "rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-700 dark:bg-amber-700/20 dark:text-amber-200";
+    case "canceled":
+      return "rounded-full bg-alpha-10 px-2 py-1 text-[11px] font-medium text-muted";
     default:
-      return "rounded-full bg-alpha-5 px-2 py-1 text-[11px] font-medium text-faint";
+      return "rounded-full bg-alpha-5 px-2 py-1 text-[11px] font-medium text-muted";
   }
 }
 
-function pausedStateClassName(paused?: boolean): string {
-  if (paused) {
-    return "rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-700 dark:bg-amber-700/20 dark:text-amber-200";
-  }
-  return "rounded-full bg-grove-100 px-2 py-1 text-[11px] font-medium text-grove-700 dark:bg-grove-700/20 dark:text-grove-200";
-}
-
-function defaultScheduleForm(browserTimezone: string, app = ""): ScheduleFormState {
-  const timezoneMode: TimezoneMode = browserTimezone === "UTC" ? "utc" : "local";
-  const form: ScheduleFormState = {
-    app,
-    operation: "",
-    connection: "",
-    instance: "",
-    inputJSON: "",
-    cadence: "hourly",
-    hour: "9",
-    weekday: "1",
-    monthDay: "1",
-    cronDefinition: "",
-    timezoneMode,
-    paused: false,
-  };
-  return {
-    ...form,
-    cronDefinition: cronFromSchedulePreset(form),
-  };
-}
-
-function defaultTriggerForm(app = ""): TriggerFormState {
-  return {
-    app,
-    operation: "",
-    connection: "",
-    instance: "",
-    inputJSON: "",
-    type: "",
-    source: "",
-    subject: "",
-    paused: false,
-  };
-}
-
-function scheduleFormFromSchedule(
-  schedule: WorkflowSchedule,
-  browserTimezone: string,
-): { form: ScheduleFormState; warning: string | null } {
-  const preset = presetFromCron(schedule.cron);
-  const target = workflowTargetApp(schedule.target);
-  return {
-    form: {
-      app: target.name,
-      operation: target.operation,
-      connection: target.connection || "",
-      instance: target.instance || "",
-      inputJSON: target.input ? prettyJSON(target.input) : "",
-      cadence: preset.cadence,
-      hour: preset.hour,
-      weekday: preset.weekday,
-      monthDay: preset.monthDay,
-      cronDefinition: schedule.cron,
-      timezoneMode: normalizeTimezoneMode(schedule.timezone, browserTimezone),
-      paused: schedule.paused,
-    },
-    warning: preset.supported
-      ? null
-      : "This schedule uses a custom cron expression. The cadence controls are optional helpers, and changing them will replace the cron definition.",
-  };
-}
-
-function triggerFormFromTrigger(trigger: WorkflowEventTrigger): TriggerFormState {
-  const target = workflowTargetApp(trigger.target);
-  return {
-    app: target.name,
-    operation: target.operation,
-    connection: target.connection || "",
-    instance: target.instance || "",
-    inputJSON: target.input ? prettyJSON(target.input) : "",
-    type: trigger.match.type,
-    source: trigger.match.source || "",
-    subject: trigger.match.subject || "",
-    paused: trigger.paused,
-  };
-}
-
-function scheduleFormToUpsert(
-  form: ScheduleFormState,
-  browserTimezone: string,
-  provider?: string,
-): WorkflowScheduleUpsert {
-  const cron = form.cronDefinition.trim();
-  if (!cron) {
-    throw new Error("Cron definition is required.");
-  }
-  return {
-    provider: provider || undefined,
-    cron,
-    timezone: form.timezoneMode === "utc" ? "UTC" : browserTimezone,
-    target: {
-      steps: [workflowAppStepFromForm(form)],
-    },
-    paused: form.paused,
-  };
-}
-
-function triggerFormToUpsert(
-  form: TriggerFormState,
-  provider?: string,
-): WorkflowEventTriggerUpsert {
-  return {
-    provider: provider || undefined,
-    match: {
-      type: form.type.trim(),
-      source: emptyToUndefined(form.source),
-      subject: emptyToUndefined(form.subject),
-    },
-    target: {
-      steps: [workflowAppStepFromForm(form)],
-    },
-    paused: form.paused,
-  };
-}
-
-function workflowAppStepFromForm(
-  form: Pick<ScheduleFormState, "app" | "operation" | "connection" | "instance" | "inputJSON">,
-) {
-  return {
-    id: "run",
-    app: {
-      name: form.app.trim(),
-      operation: form.operation.trim(),
-      connection: emptyToUndefined(form.connection),
-      instance: emptyToUndefined(form.instance),
-      input: parseInputJSONObject(form.inputJSON),
-    },
-  };
-}
-
-function cronFromSchedulePreset(form: Pick<ScheduleFormState, "cadence" | "hour" | "weekday" | "monthDay">): string {
-  switch (form.cadence) {
-    case "hourly":
-      return "0 * * * *";
-    case "daily":
-      return `0 ${normalizeNumeric(form.hour, 0, 23, 9)} * * *`;
-    case "weekly":
-      return `0 ${normalizeNumeric(form.hour, 0, 23, 9)} * * ${normalizeNumeric(form.weekday, 0, 6, 1)}`;
-    case "monthly":
-      return `0 ${normalizeNumeric(form.hour, 0, 23, 9)} ${normalizeNumeric(form.monthDay, 1, 28, 1)} * *`;
+function stepStatusClassName(status?: string): string {
+  switch (status) {
+    case "succeeded":
+      return "rounded-full bg-grove-100 px-2 py-1 text-[11px] font-medium text-grove-700 dark:bg-grove-700/20 dark:text-grove-200";
+    case "failed":
+      return "rounded-full bg-ember-100 px-2 py-1 text-[11px] font-medium text-ember-700 dark:bg-ember-700/20 dark:text-ember-200";
+    case "running":
+      return "rounded-full bg-sky-100 px-2 py-1 text-[11px] font-medium text-sky-700 dark:bg-sky-700/20 dark:text-sky-200";
+    case "pending":
+      return "rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-700 dark:bg-amber-700/20 dark:text-amber-200";
+    case "skipped":
+      return "rounded-full bg-alpha-10 px-2 py-1 text-[11px] font-medium text-muted";
     default:
-      return "0 * * * *";
+      return "rounded-full bg-alpha-5 px-2 py-1 text-[11px] font-medium text-muted";
   }
 }
 
-function presetFromCron(cron: string): {
-  cadence: ScheduleCadence;
-  hour: string;
-  weekday: string;
-  monthDay: string;
-  supported: boolean;
-} {
-  const parts = cron.trim().split(/\s+/);
-  if (parts.length !== 5) {
-    return { cadence: "daily", hour: "9", weekday: "1", monthDay: "1", supported: false };
-  }
-
-  const [minute, hour, monthDay, month, weekday] = parts;
-  if (minute !== "0") {
-    return { cadence: "daily", hour: "9", weekday: "1", monthDay: "1", supported: false };
-  }
-
-  if (hour === "*" && monthDay === "*" && month === "*" && weekday === "*") {
-    return { cadence: "hourly", hour: "9", weekday: "1", monthDay: "1", supported: true };
-  }
-
-  if (isCronNumber(hour, 0, 23) && monthDay === "*" && month === "*" && weekday === "*") {
-    return { cadence: "daily", hour, weekday: "1", monthDay: "1", supported: true };
-  }
-
-  if (isCronNumber(hour, 0, 23) && monthDay === "*" && month === "*" && isCronNumber(weekday, 0, 6)) {
-    return { cadence: "weekly", hour, weekday, monthDay: "1", supported: true };
-  }
-
-  if (isCronNumber(hour, 0, 23) && isCronNumber(monthDay, 1, 28) && month === "*" && weekday === "*") {
-    return { cadence: "monthly", hour, weekday: "1", monthDay, supported: true };
-  }
-
-  return { cadence: "daily", hour: "9", weekday: "1", monthDay: "1", supported: false };
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function scheduleCadenceLabel(cron: string): string {
-  const preset = presetFromCron(cron);
-  if (!preset.supported) return "Custom";
-  switch (preset.cadence) {
-    case "hourly":
-      return "Hourly";
-    case "daily":
-      return "Daily";
-    case "weekly":
-      return "Weekly";
-    case "monthly":
-      return "Monthly";
-    default:
-      return "Custom";
-  }
-}
-
-function normalizeTimezoneMode(timezone: string | undefined, browserTimezone: string): TimezoneMode {
-  const normalized = (timezone || "").trim();
-  if (!normalized) {
-    return browserTimezone === "UTC" ? "utc" : "local";
-  }
-  return normalized.toUpperCase() === "UTC" ? "utc" : "local";
-}
-
-function parseInputJSONObject(value: string): Record<string, unknown> | undefined {
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  const parsed = JSON.parse(trimmed) as unknown;
-  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
-    throw new Error("Input JSON must be an object.");
-  }
-  return parsed as Record<string, unknown>;
-}
-
-function detectBrowserTimezone(): string {
-  try {
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    return timezone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
-
-function sortOperations(operations: IntegrationOperation[]): IntegrationOperation[] {
-  return operations
-    .filter((operation) => operation.visible !== false)
-    .slice()
-    .sort((left, right) =>
-      operationLabel(left).localeCompare(operationLabel(right), undefined, {
-        sensitivity: "base",
-      }),
-    );
-}
-
-function operationLabel(operation: IntegrationOperation): string {
-  return operation.title?.trim() || operation.id;
-}
-
-function integrationLabel(integration: Integration): string {
-  return integration.displayName?.trim() || integration.name;
-}
-
-function formatHourLabel(hour: number): string {
-  const normalized = hour % 24;
-  const suffix = normalized >= 12 ? "PM" : "AM";
-  const twelveHour = normalized % 12 === 0 ? 12 : normalized % 12;
-  return `${twelveHour}:00 ${suffix}`;
-}
-
-function ordinal(value: number): string {
-  const suffix =
-    value % 100 >= 11 && value % 100 <= 13
-      ? "th"
-      : value % 10 === 1
-        ? "st"
-        : value % 10 === 2
-          ? "nd"
-          : value % 10 === 3
-            ? "rd"
-            : "th";
-  return `${value}${suffix}`;
-}
-
-function normalizeNumeric(
-  value: string,
-  min: number,
-  max: number,
-  fallback: number,
-): string {
-  const numeric = Number.parseInt(value, 10);
-  if (Number.isNaN(numeric) || numeric < min || numeric > max) {
-    return String(fallback);
-  }
-  return String(numeric);
-}
-
-function isCronNumber(value: string, min: number, max: number): boolean {
-  const numeric = Number.parseInt(value, 10);
-  return !Number.isNaN(numeric) && numeric >= min && numeric <= max;
-}
-
-function emptyToUndefined(value: string): string | undefined {
-  const trimmed = value.trim();
-  return trimmed || undefined;
-}
-
-function errorMessage(reason: unknown, fallback: string): string {
-  if (reason instanceof Error) {
-    return reason.message;
-  }
-  if (typeof reason === "string") {
-    return reason;
-  }
+function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === "string" && err) return err;
   return fallback;
 }

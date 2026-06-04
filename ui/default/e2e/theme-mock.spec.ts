@@ -3,9 +3,7 @@ import {
   expect,
   mockIntegrations,
   mockTokens,
-  mockWorkflowEventTriggers,
   mockWorkflowRuns,
-  mockWorkflowSchedules,
 } from "./fixtures";
 
 const hasBackend =
@@ -26,8 +24,6 @@ test.describe("Theme", () => {
     });
     await mockIntegrations(page, []);
     await mockTokens(page, []);
-    await mockWorkflowSchedules(page, []);
-    await mockWorkflowEventTriggers(page, []);
     await mockWorkflowRuns(page, []);
 
     await page.goto("/");

@@ -32,8 +32,6 @@ export const docsNavItems: DocsNavItem[] = [
     label: "Manage Workflows",
     subsections: [
       { id: "wf-help", label: "Start with help" },
-      { id: "wf-schedules", label: "Manage schedules" },
-      { id: "wf-triggers", label: "Manage event triggers" },
       { id: "wf-runs", label: "Inspect runs" },
     ],
   },

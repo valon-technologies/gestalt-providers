@@ -86,7 +86,7 @@ if [[ -z "$CONFIG" && "$API_PORT" != "8080" ]]; then
     fi
     CONFIG="$DEV_STATE_DIR/config.yaml"
     cat > "$CONFIG" <<EOF
-apiVersion: gestaltd.config/v5
+apiVersion: gestaltd.config/v6
 server:
   public:
     port: $API_PORT
@@ -129,14 +129,14 @@ info "Starting Go API server on port $API_PORT..."
 warn "Dev mode - auth is disabled in the generated config."
 warn "Client UI is served by gestaltd from $SCRIPT_DIR/out. Re-run this script after UI changes."
 if [[ -n "$CONFIG" ]]; then
-    (cd "$GESTALTD_DIR" && GESTALTD_CLIENT_UI_DIR="$SCRIPT_DIR/out" "$BIN_DIR/gestaltd" --config "$CONFIG") &
+    (cd "$GESTALTD_DIR" && GESTALTD_ADMIN_UI_DIR="$SCRIPT_DIR/out" "$BIN_DIR/gestaltd" --config "$CONFIG") &
 else
-    (cd "$GESTALTD_DIR" && GESTALTD_CLIENT_UI_DIR="$SCRIPT_DIR/out" "$BIN_DIR/gestaltd") &
+    (cd "$GESTALTD_DIR" && GESTALTD_ADMIN_UI_DIR="$SCRIPT_DIR/out" "$BIN_DIR/gestaltd") &
 fi
 API_PID=$!
 
 API_READY=false
-for i in $(seq 1 30); do
+for i in $(seq 1 240); do
     if curl -sf "http://localhost:$API_PORT/health" >/dev/null 2>&1; then
         ok "Go server ready on port $API_PORT"
         API_READY=true
@@ -150,7 +150,7 @@ for i in $(seq 1 30); do
     sleep 0.5
 done
 if [[ "$API_READY" != "true" ]]; then
-    err "Go server did not become ready within 15 seconds"
+    err "Go server did not become ready within 120 seconds"
     exit 1
 fi
 
