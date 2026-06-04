@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from http import HTTPStatus
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, cast
 
 import gestalt
 
@@ -781,7 +781,6 @@ def github_events_handle(
 def _build_workflow_deliver_event_request(
     payload: dict[str, Any], summary: dict[str, Any]
 ) -> gestalt.WorkflowDeliverEvent:
-    event_type = str(summary.get("event_type", "")).strip()
     delivery_id = github_delivery_id(payload)
     event_id = (
         f"github:{delivery_id}" if delivery_id else f"github:{payload_digest(payload)}"
@@ -792,12 +791,20 @@ def _build_workflow_deliver_event_request(
             id=event_id,
             source="github",
             spec_version="1.0",
-            type=f"github.{event_type}",
+            type=_github_workflow_event_type(summary),
             subject=_github_workflow_event_subject(payload, summary),
             datacontenttype="application/json",
             data=_github_workflow_event_data(payload, summary),
         ),
     )
+
+
+def _github_workflow_event_type(summary: dict[str, Any]) -> str:
+    event_type = str(summary.get("event_type", "")).strip().lower()
+    action = str(summary.get("action", "")).strip().lower()
+    if action:
+        return f"github.{event_type}.{action}"
+    return f"github.{event_type}"
 
 
 def _github_workflow_event_name(payload: dict[str, Any]) -> str:
@@ -850,7 +857,7 @@ def github_identity_link_self(
             return _server_error("GitHub /user response did not include id and login")
         name = str_field(profile, "name")
         email = str_field(profile, "email")
-        req.authorization().add_relationship(
+        cast(Any, req).authorization().add_relationship(
             gestalt.AddRelationshipRequest(
                 relationship=gestalt.Relationship(
                     tuple=gestalt.RelationshipTuple(
@@ -1806,7 +1813,7 @@ def _linked_github_user_id(req: gestalt.Request) -> str:
     if not subject_id:
         return ""
     try:
-        response = req.authorization().list_relationships(
+        response = cast(Any, req).authorization().list_relationships(
             gestalt.ListRelationshipsRequest(
                 filter=gestalt.RelationshipFilter(
                     target=gestalt.RelationshipTarget(
@@ -1840,7 +1847,7 @@ def _linked_github_user_id(req: gestalt.Request) -> str:
 
 def _request_authorization(req: gestalt.Request) -> gestalt.AuthorizationProtocol:
     try:
-        return req.authorization()
+        return cast(Any, req).authorization()
     except Exception as err:
         raise GitHubAuthorizationError(
             "GitHub bot repository authorization is unavailable"

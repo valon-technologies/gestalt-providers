@@ -366,7 +366,10 @@ class GitHubProviderTests(unittest.TestCase):
         self.addCleanup(provider_module.configure, "github", {})
         self.authorization = FakeAuthorization()
         authorization_patch = mock.patch.object(
-            gestalt.Request, "authorization", return_value=self.authorization
+            gestalt.Request,
+            "authorization",
+            return_value=self.authorization,
+            create=True,
         )
         authorization_patch.start()
         self.addCleanup(authorization_patch.stop)
@@ -1057,7 +1060,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(event.id, "github:delivery-123")
         self.assertEqual(event.source, "github")
         self.assertEqual(event.spec_version, "1.0")
-        self.assertEqual(event.type, "github.pull_request")
+        self.assertEqual(event.type, "github.pull_request.opened")
         self.assertEqual(event.subject, "repo:acme/widgets")
         self.assertEqual(event.datacontenttype, "application/json")
         self.assertEqual(
@@ -1117,13 +1120,84 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIsNotNone(event)
         assert event is not None
         self.assertEqual(event.id, f"github:{provider_module.payload_digest(payload)}")
-        self.assertEqual(event.type, "github.check_run")
+        self.assertEqual(event.type, "github.check_run.completed")
         self.assertEqual(event.subject, "installation:99")
         data = sdk_value_to_dict(event.data)
         self.assertEqual(data["github"]["event_type"], "check_run")
         self.assertEqual(data["github"]["check_run_id"], 1234)
         self.assertNotIn("event_header", data["github"])
         self.assertEqual(data["raw"], payload)
+
+    def test_webhook_handler_uses_base_event_type_when_action_is_absent(
+        self,
+    ) -> None:
+        workflow_client = FakeWorkflowClient()
+        payload = {
+            "headers": {
+                "X-GitHub-Event": "pull_request",
+                "X-GitHub-Delivery": "delivery-123",
+            },
+            "installation": {"id": 99},
+            "repository": {"full_name": "acme/widgets"},
+            "pull_request": {"number": 7},
+            "sender": {"login": "octocat"},
+        }
+
+        with mock.patch.object(
+            gestalt.Request,
+            "workflows",
+            return_value=workflow_client,
+            create=True,
+        ):
+            result = provider_module.github_events_handle(payload, gestalt.Request())
+
+        self.assertEqual(operation_body(result)["ok"], True)
+        self.assertEqual(len(workflow_client.deliver_event_requests), 1)
+        event = workflow_client.deliver_event_requests[0].event
+        self.assertIsNotNone(event)
+        assert event is not None
+        self.assertEqual(event.type, "github.pull_request")
+        data = sdk_value_to_dict(event.data)
+        self.assertEqual(data["github"]["event_type"], "pull_request")
+        self.assertNotIn("action", data["github"])
+
+    def test_webhook_handler_qualifies_inferred_repository_event_type(
+        self,
+    ) -> None:
+        provider_module.configure(
+            "github",
+            {
+                "appId": "12345",
+                "appPrivateKey": "unused-in-tests",
+                "workflow": {"provider": "local"},
+                "webhookEvents": ["repository"],
+            },
+        )
+        workflow_client = FakeWorkflowClient()
+        payload = {
+            "action": "deleted",
+            "installation": {"id": 99},
+            "repository": {"full_name": "acme/widgets"},
+            "sender": {"login": "octocat"},
+        }
+
+        with mock.patch.object(
+            gestalt.Request,
+            "workflows",
+            return_value=workflow_client,
+            create=True,
+        ):
+            result = provider_module.github_events_handle(payload, gestalt.Request())
+
+        self.assertEqual(operation_body(result)["ok"], True)
+        self.assertEqual(len(workflow_client.deliver_event_requests), 1)
+        event = workflow_client.deliver_event_requests[0].event
+        self.assertIsNotNone(event)
+        assert event is not None
+        self.assertEqual(event.type, "github.repository.deleted")
+        data = sdk_value_to_dict(event.data)
+        self.assertEqual(data["github"]["event_type"], "repository")
+        self.assertEqual(data["github"]["action"], "deleted")
 
     def test_webhook_handler_delivery_failure_is_retryable_server_error(self) -> None:
         workflow_client = FakeWorkflowClient(fail=True)
