@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-import re
 from typing import Any, cast
 
 from .models import (
@@ -19,20 +18,6 @@ from .models import (
     SUPPORTED_AGENT_ROUTE_EVENT_TYPES,
     SUPPORTED_AGENT_ROUTE_THREAD_MATCHES,
 )
-
-WORKFLOW_KEY_TEMPLATE_FIELDS = frozenset(
-    {
-        "team_id",
-        "channel_id",
-        "message_ts",
-        "thread_ts",
-        "reply_thread_ts",
-        "event_id",
-        "route_id",
-    }
-)
-WORKFLOW_KEY_TEMPLATE_FIELD_RE = re.compile(r"\$\{([^}]+)\}")
-
 
 def agent_config_from_provider_config(
     app_name: str, config: dict[str, Any]
@@ -137,11 +122,33 @@ def _workflow_config_from_provider_config(
     _validate_workflow_config_keys(
         workflow,
         "workflow",
-        allowed_keys={"provider", "definitionId"},
+        allowed_keys={
+            "provider",
+            "workflowEventType",
+            "workflow_event_type",
+            "eventType",
+            "event_type",
+            "type",
+            "workflowInteractionEventType",
+            "workflow_interaction_event_type",
+            "interactionEventType",
+            "interaction_event_type",
+            "interactionType",
+            "interaction_type",
+            "subject",
+            "workflowEventSubject",
+            "interactionSubject",
+            "interaction_subject",
+            "workflowInteractionSubject",
+            "workflow_interaction_subject",
+        },
     )
     return SlackWorkflowConfig(
         provider_name=_config_string(workflow, "provider"),
-        definition_id=_config_string(workflow, "definitionId"),
+        event_type=_workflow_event_type_from_config(workflow),
+        interaction_event_type=_workflow_interaction_event_type_from_config(workflow),
+        subject=_workflow_subject_from_config(workflow),
+        interaction_subject=_workflow_interaction_subject_from_config(workflow),
     )
 
 
@@ -248,19 +255,47 @@ def _route_workflow_config_from_config(
     _validate_workflow_config_keys(
         workflow_data,
         f"agent.routes[{index}].workflow",
-        allowed_keys={"provider", "definitionId", "keyTemplate"},
+        allowed_keys={
+            "provider",
+            "workflowEventType",
+            "workflow_event_type",
+            "eventType",
+            "event_type",
+            "type",
+            "workflowInteractionEventType",
+            "workflow_interaction_event_type",
+            "interactionEventType",
+            "interaction_event_type",
+            "interactionType",
+            "interaction_type",
+            "subject",
+            "workflowEventSubject",
+            "interactionSubject",
+            "interaction_subject",
+            "workflowInteractionSubject",
+            "workflow_interaction_subject",
+        },
     )
     provider = _config_string(workflow_data, "provider")
-    definition_id = _config_string(workflow_data, "definitionId")
-    key_template = _workflow_key_template_from_config(
-        workflow_data, f"agent.routes[{index}].workflow"
-    )
-    if workflow is None and not provider and not definition_id and not key_template:
+    event_type = _workflow_event_type_from_config(workflow_data)
+    interaction_event_type = _workflow_interaction_event_type_from_config(workflow_data)
+    subject = _workflow_subject_from_config(workflow_data)
+    interaction_subject = _workflow_interaction_subject_from_config(workflow_data)
+    if (
+        workflow is None
+        and not provider
+        and not event_type
+        and not interaction_event_type
+        and not subject
+        and not interaction_subject
+    ):
         return None
     return SlackWorkflowConfig(
         provider_name=provider,
-        key_template=key_template,
-        definition_id=definition_id,
+        event_type=event_type,
+        interaction_event_type=interaction_event_type,
+        subject=subject,
+        interaction_subject=interaction_subject,
     )
 
 
@@ -274,20 +309,45 @@ def _validate_workflow_config_keys(
     if unknown:
         raise ValueError(
             f"{path} has unsupported key(s): {', '.join(unknown)}; use "
-            "workflow.provider and workflow.definitionId"
+            "workflow.provider, workflow.workflowEventType, and workflow.subject"
         )
 
 
-def _workflow_key_template_from_config(config: dict[str, Any], path: str) -> str:
-    key_template = _config_string(config, "keyTemplate")
-    for field in WORKFLOW_KEY_TEMPLATE_FIELD_RE.findall(key_template):
-        if field not in WORKFLOW_KEY_TEMPLATE_FIELDS:
-            allowed = ", ".join(sorted(WORKFLOW_KEY_TEMPLATE_FIELDS))
-            raise ValueError(
-                f"{path}.keyTemplate references unsupported field {field!r}; "
-                f"supported fields: {allowed}"
-            )
-    return key_template
+def _workflow_event_type_from_config(config: dict[str, Any]) -> str:
+    return _config_string(
+        config,
+        "workflowEventType",
+        "workflow_event_type",
+        "eventType",
+        "event_type",
+        "type",
+    )
+
+
+def _workflow_interaction_event_type_from_config(config: dict[str, Any]) -> str:
+    return _config_string(
+        config,
+        "workflowInteractionEventType",
+        "workflow_interaction_event_type",
+        "interactionEventType",
+        "interaction_event_type",
+        "interactionType",
+        "interaction_type",
+    )
+
+
+def _workflow_subject_from_config(config: dict[str, Any]) -> str:
+    return _config_string(config, "subject", "workflowEventSubject")
+
+
+def _workflow_interaction_subject_from_config(config: dict[str, Any]) -> str:
+    return _config_string(
+        config,
+        "interactionSubject",
+        "interaction_subject",
+        "workflowInteractionSubject",
+        "workflow_interaction_subject",
+    )
 
 
 def _route_assistant_config_from_config(

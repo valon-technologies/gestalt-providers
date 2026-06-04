@@ -60,7 +60,6 @@ apps:
             name: slack-bot-token
       workflow:
         provider: local
-        definitionId: slack-default-agent
       assistant:
         enabled: true
         suggestedPrompts:
@@ -81,31 +80,30 @@ apps:
     config:
       workflow:
         provider: local
-        definitionId: slack-default-agent
 ```
 
-`events.handle` calls `req.workflows().signal_or_start_run(WorkflowSignalOrStartRun(...))`
-with `provider_name=workflow.provider`, a thread-scoped workflow key, and a
-`slack.event` signal. The request references a global workflow definition with
-`workflow.definitionId`. Later Slack messages in the same thread signal the
-existing keyed run instead of replacing its workflow definition or authorization
-context. The global workflow should call Slack helper
-operations such as `events.reply`, `events.replySessionStarted`, status,
+`events.handle` calls `req.workflows().deliver_event(WorkflowDeliverEvent(...))`
+with `provider_name=workflow.provider` and a CloudEvent-style Slack agent event.
+The event data contains the Slack callback payload, a signed `reply_ref`, the
+generated user prompt, and `workflowKey` for workflow definitions that keep
+per-thread sessions. The event id is stable for the Slack delivery so
+provider-side triggers can dedupe retries. Triggered workflows should call Slack
+helper operations such as `events.reply`, `events.replySessionStarted`, status,
 reactions, and interactions explicitly.
 
-`events.handle` does not fetch thread context, add reactions, or set native
-assistant loading status. Declare those as workflow steps that call
-`conversations.getThreadContext`, `events.addReaction`,
-`events.setAssistantStatus`, or other Slack operations when the workflow needs
-that Slack-visible work.
+`events.handle` does not fetch thread context, add reactions, set native
+assistant loading status, or set native assistant suggested prompts. Declare
+those as workflow steps that call `conversations.getThreadContext`,
+`events.addReaction`, `events.setAssistantStatus`, `events.setSuggestedPrompts`,
+or other Slack operations when the workflow needs that Slack-visible work.
 
 ## Durable Handoff
 
 `events.handle` uses the workflow provider as the durable boundary. It signs a
-short-lived `reply_ref`, calls `req.workflows().signal_or_start_run(...)`, and
-only then acknowledges the Slack callback. If the workflow handoff fails, the
-handler returns an error so Slack can retry the same event. The workflow provider
-owns run state, signal idempotency, retries, and output delivery.
+short-lived `reply_ref`, calls `req.workflows().deliver_event(...)`, and only
+then acknowledges the Slack callback. If event delivery fails, the handler
+returns an error so Slack can retry the same event. The workflow provider owns
+run state, idempotency, retries, and output delivery.
 
 ## HTTP Routes
 
@@ -134,8 +132,8 @@ the configured service account before linked-user lookup.
 assistant helpers, the streaming helpers, and the interaction helpers are hidden
 operations.
 
-`events.handle` starts or signals a keyed workflow run and passes an opaque
-`reply_ref` in the signal payload. The workflow runtime invokes `events.reply`
+`events.handle` delivers a workflow event and passes an opaque `reply_ref` in
+the event data. The workflow runtime invokes `events.reply`
 using the configured output delivery binding. The same `reply_ref` scopes
 progress statuses, native assistant updates, suggested prompts, thread titles,
 native streaming replies, reactions, and interactions to the source event
@@ -173,7 +171,6 @@ apps:
     config:
       workflow:
         provider: local
-        definitionId: slack-default-agent
       agent:
         routes:
           - id: team-help-new-messages
@@ -184,7 +181,8 @@ apps:
                 - message.channels
               thread: root
             workflow:
-              definitionId: slack-team-help-new-message
+              eventType: slack.team_help.new_message
+              subject: route:team-help-new-messages
           - id: team-help-mentions
             match:
               channels:
@@ -193,7 +191,8 @@ apps:
                 - app_mention
               thread: any
             workflow:
-              definitionId: slack-team-help-mention
+              eventType: slack.team_help.mention
+              subject: route:team-help-mentions
           - id: operations-help
             match:
               channels:
@@ -204,7 +203,9 @@ apps:
                 - assistant_thread_context_changed
             workflow:
               provider: operations
-              definitionId: slack-operations-help
+              eventType: slack.operations.help
+              interactionType: slack.operations.interaction
+              subject: route:operations-help
             agent:
               assistant:
                 enabled: true
@@ -222,37 +223,38 @@ apps:
               thread: root
             workflow:
               provider: local
-              definitionId: slack-alert-triage
-              keyTemplate: slack:${team_id}:${channel_id}:${reply_thread_ts}:${route_id}
+              eventType: slack.alert.triage
+              subject: route:alert-triage
 ```
 
 Route settings inherit from the top-level provider configuration when omitted.
 Set `enabled: false` on route `agent.assistant` to explicitly disable inherited
 assistant suggested prompts. Route `workflow.provider` overrides the global
 `workflow.provider` for Slack events and Slack interaction button callbacks
-generated from that route. Route `workflow.definitionId` starts or signals the
-configured global workflow definition. The Slack provider selects the route,
-signs `reply_ref`, and signals the workflow; workflow behavior and Slack replies
-live in the global workflow definition. Use
+generated from that route. Route `workflow.eventType`,
+`workflow.interactionType`, `workflow.subject`, and
+`workflow.interactionSubject` set the event trigger fields. The Slack provider
+selects the route, signs `reply_ref`, and delivers the workflow event; workflow
+behavior and Slack replies live in triggered workflow definitions. Use
 `slack.events.reply` explicitly in the workflow when it should post back to
-Slack. `workflow.keyTemplate` is optional; when omitted, the provider uses the
-default Slack thread workflow key. Supported template fields are
-`team_id`, `channel_id`, `message_ts`, `thread_ts`, `reply_thread_ts`,
-`event_id`, and `route_id`.
+Slack. Delivered agent event data includes `workflowKey`, the Slack thread key
+workflow definitions can use for per-thread sessions.
 Route `runAs.subject` can name a managed service-account subject, such as
 `service_account:slack-bot`; matching Slack events then resolve to that subject
 instead of resolving the Slack bot user back to an end-user subject. This is only
 allowed for trusted bot-originated routes selected with `botIds`. Signed Slack
 interaction callbacks generated from that route use `runAs.subject` only when the
 signed ref subject ID already equals the configured runAs subject. Route `runAs`
-changes the Slack invocation subject for the workflow signal.
+changes the Slack invocation subject for the delivered workflow event.
 
 When a route uses `match.eventTypes`, include
 `assistant_thread_started` and `assistant_thread_context_changed` on routes that
-should handle native Slack assistant suggested prompts. For native assistant
-thread events, `match.channels` matches the active Slack context channel when
-Slack includes it; assistant API calls still use Slack's assistant thread
-channel internally. Signed interaction callbacks include the route ID; if a
+should handle native Slack assistant suggested prompts. Delivered event data
+includes the selected assistant prompt configuration, so workflows can call
+`events.setSuggestedPrompts` as a step. For native assistant thread events,
+`match.channels` matches the active Slack context channel when Slack includes it;
+assistant API calls still use Slack's assistant thread channel internally.
+Signed interaction callbacks include the route ID; if a
 non-empty signed route ID no longer exists in the provider configuration, the
 provider rejects the callback instead of silently falling back to global
 behavior.

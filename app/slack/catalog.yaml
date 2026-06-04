@@ -12,13 +12,12 @@ operations:
   visible: false
 - id: interactions.handle
   method: POST
-  description: Handle Slack interaction callbacks and signal the matching workflow
-    lane
+  description: Handle Slack interaction callbacks and deliver the matching workflow
+    event
   visible: false
 - id: interactions.request
   method: POST
-  description: Post a Slack message with signed button actions that signal the workflow
-    lane
+  description: Post a Slack message with signed button actions for workflow event delivery
   parameters:
   - name: reply_ref
     type: string
@@ -45,7 +44,7 @@ operations:
   parameters:
   - name: reply_ref
     type: string
-    description: Opaque Slack event reply reference from the current Slack signal
+    description: Opaque Slack event reply reference from the current Slack workflow event
     required: true
   - name: text
     type: string
@@ -58,7 +57,7 @@ operations:
   parameters:
   - name: reply_ref
     type: string
-    description: Opaque Slack event reply reference from the current Slack signal
+    description: Opaque Slack event reply reference from the current Slack workflow event
     required: true
   - name: filename
     type: string
@@ -99,7 +98,7 @@ operations:
   parameters:
   - name: reply_ref
     type: string
-    description: Opaque Slack event reply reference from the current Slack signal
+    description: Opaque Slack event reply reference from the current Slack workflow event
     required: true
   - name: session_id
     type: string

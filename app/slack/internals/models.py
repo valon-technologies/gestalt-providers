@@ -302,8 +302,10 @@ class SlackAssistantConfig:
 @dataclass(frozen=True, slots=True)
 class SlackWorkflowConfig:
     provider_name: str = ""
-    key_template: str = ""
-    definition_id: str = ""
+    event_type: str = ""
+    interaction_event_type: str = ""
+    subject: str = ""
+    interaction_subject: str = ""
 
 
 @dataclass(frozen=True, slots=True)

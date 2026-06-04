@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from http import HTTPStatus
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, cast
 
 import gestalt
 
@@ -289,7 +289,7 @@ class UploadFileInput(gestalt.Model):
 
 class SlackEventReplyInput(gestalt.Model):
     reply_ref: str = gestalt.field(
-        description="Opaque Slack event reply reference from the current Slack signal"
+        description="Opaque Slack event reply reference from the current Slack workflow event"
     )
     text: str = gestalt.field(
         description="Required complete Slack message body to post in the event thread"
@@ -298,7 +298,7 @@ class SlackEventReplyInput(gestalt.Model):
 
 class SlackEventUploadFileInput(gestalt.Model):
     reply_ref: str = gestalt.field(
-        description="Opaque Slack event reply reference from the current Slack signal"
+        description="Opaque Slack event reply reference from the current Slack workflow event"
     )
     filename: str = gestalt.field(description="Filename to show in Slack", default="")
     content: str = gestalt.field(
@@ -343,7 +343,7 @@ class SlackEventUploadFileInput(gestalt.Model):
 
 class SlackEventSessionStartedInput(gestalt.Model):
     reply_ref: str = gestalt.field(
-        description="Opaque Slack event reply reference from the current Slack signal"
+        description="Opaque Slack event reply reference from the current Slack workflow event"
     )
     session_id: str = gestalt.field(
         description="Gestalt agent session ID to include in the session link"
@@ -569,7 +569,7 @@ def slack_events_handle(input: dict[str, Any], req: gestalt.Request) -> Operatio
 @gestalt.operation(
     id=SLACK_INTERACTION_HANDLE_OPERATION,
     method="POST",
-    description="Handle Slack interaction callbacks and signal the matching workflow lane",
+    description="Handle Slack interaction callbacks and deliver the matching workflow event",
     visible=False,
 )
 def slack_interactions_handle(
@@ -581,7 +581,7 @@ def slack_interactions_handle(
 @gestalt.operation(
     id=SLACK_INTERACTION_REQUEST_OPERATION,
     method="POST",
-    description="Post a Slack message with signed button actions that signal the workflow lane",
+    description="Post a Slack message with signed button actions for workflow event delivery",
     visible=False,
 )
 def slack_interactions_request(
@@ -855,7 +855,7 @@ def slack_identity_link_self(
                 "Slack auth.test response did not include team_id and user_id"
             )
         resource_id = slack_user_resource_id(team_id, user_id)
-        req.authorization().add_relationship(
+        cast(Any, req).authorization().add_relationship(
             gestalt.AddRelationshipRequest(
                 relationship=gestalt.Relationship(
                     tuple=gestalt.RelationshipTuple(
@@ -1159,7 +1159,7 @@ def _linked_slack_user_id_from_request(req: gestalt.Request) -> str:
     if not subject_id:
         return ""
     try:
-        response = req.authorization().list_relationships(
+        response = cast(Any, req).authorization().list_relationships(
             gestalt.ListRelationshipsRequest(
                 filter=gestalt.RelationshipFilter(
                     target=gestalt.RelationshipTarget(
