@@ -19,8 +19,6 @@ const (
 	defaultTimezone    = "UTC"
 
 	configManagedWorkflowSubject = "system:config"
-	configManagedWorkflowKind    = "system"
-	configManagedWorkflowAuth    = "config"
 )
 
 type scopedTarget struct {
@@ -364,7 +362,7 @@ func normalizeWorkflowSignalInput(signal *gestalt.WorkflowSignal, now time.Time)
 	}
 	out.ID = strings.TrimSpace(out.ID)
 	out.Name = name
-	out.CreatedBy = cloneActorInput(out.CreatedBy)
+	out.CreatedBySubjectID = cloneCreatedBySubjectID(out.CreatedBySubjectID)
 	out.IdempotencyKey = strings.TrimSpace(out.IdempotencyKey)
 	return &out, nil
 }
@@ -378,7 +376,7 @@ func cloneRunInput(run *gestalt.BoundWorkflowRun) *gestalt.BoundWorkflowRun {
 	out.StatusMessage = strings.TrimSpace(out.StatusMessage)
 	out.WorkflowKey = strings.TrimSpace(out.WorkflowKey)
 	out.DefinitionID = strings.TrimSpace(out.DefinitionID)
-	out.CreatedBy = cloneActorInput(out.CreatedBy)
+	out.CreatedBySubjectID = cloneCreatedBySubjectID(out.CreatedBySubjectID)
 	return &out
 }
 
@@ -390,7 +388,7 @@ func cloneSignalInput(signal *gestalt.WorkflowSignal) *gestalt.WorkflowSignal {
 	out.ID = strings.TrimSpace(out.ID)
 	out.Name = strings.TrimSpace(out.Name)
 	out.IdempotencyKey = strings.TrimSpace(out.IdempotencyKey)
-	out.CreatedBy = cloneActorInput(out.CreatedBy)
+	out.CreatedBySubjectID = cloneCreatedBySubjectID(out.CreatedBySubjectID)
 	return &out
 }
 
@@ -410,11 +408,10 @@ func eventMatchesTriggerInput(event *gestalt.WorkflowEvent, trigger *gestalt.Bou
 	return true
 }
 
-func matchKeysInput(ownerKey string, match *gestalt.WorkflowEventMatch) []string {
+func matchKeysInput(match *gestalt.WorkflowEventMatch) []string {
 	if match == nil {
 		return nil
 	}
-	ownerKey = strings.TrimSpace(ownerKey)
 	typ := strings.TrimSpace(match.Type)
 	source := strings.TrimSpace(match.Source)
 	subject := strings.TrimSpace(match.Subject)
@@ -422,60 +419,67 @@ func matchKeysInput(ownerKey string, match *gestalt.WorkflowEventMatch) []string
 		return nil
 	}
 	return []string{
-		eventMatchKey(ownerKey, typ, source, subject),
+		eventMatchKey(typ, source, subject),
 	}
 }
 
-func eventLookupKeysInput(ownerKey string, event *gestalt.WorkflowEvent) []string {
+func eventLookupKeysInput(event *gestalt.WorkflowEvent) []string {
 	if event == nil {
 		return nil
 	}
-	ownerKey = strings.TrimSpace(ownerKey)
 	typ := strings.TrimSpace(event.Type)
 	source := strings.TrimSpace(event.Source)
 	subject := strings.TrimSpace(event.Subject)
-	return []string{
-		eventMatchKey(ownerKey, typ, "", ""),
-		eventMatchKey(ownerKey, typ, source, ""),
-		eventMatchKey(ownerKey, typ, "", subject),
-		eventMatchKey(ownerKey, typ, source, subject),
-	}
-}
-
-func eventMatchKey(ownerKey, typ, source, subject string) string {
-	return strings.TrimSpace(ownerKey) + "\x00" + strings.TrimSpace(typ) + "\x00" + strings.TrimSpace(source) + "\x00" + strings.TrimSpace(subject)
-}
-
-func actorHasSubject(actor *gestalt.WorkflowActor) bool {
-	return actor != nil && strings.TrimSpace(actor.SubjectID) != ""
-}
-
-func createdByForUpsertInput(existing, requested *gestalt.WorkflowActor) *gestalt.WorkflowActor {
-	if existing == nil || isConfigManagedActorInput(requested) {
-		return cloneActorInput(requested)
-	}
-	return cloneActorInput(existing)
-}
-
-func cloneActorInput(actor *gestalt.WorkflowActor) *gestalt.WorkflowActor {
-	if actor == nil {
+	if typ == "" {
 		return nil
 	}
-	out := *actor
-	out.SubjectID = strings.TrimSpace(out.SubjectID)
-	out.SubjectKind = strings.TrimSpace(out.SubjectKind)
-	out.DisplayName = strings.TrimSpace(out.DisplayName)
-	out.AuthSource = strings.TrimSpace(out.AuthSource)
-	return &out
+	keys := []string{
+		eventMatchKey(typ, "", ""),
+	}
+	if source != "" {
+		keys = append(keys, eventMatchKey(typ, source, ""))
+	}
+	if subject != "" {
+		keys = append(keys, eventMatchKey(typ, "", subject))
+		if source != "" {
+			keys = append(keys, eventMatchKey(typ, source, subject))
+		}
+	}
+	return keys
 }
 
-func isConfigManagedActorInput(actor *gestalt.WorkflowActor) bool {
-	if actor == nil {
-		return false
+func eventMatchKey(typ, source, subject string) string {
+	return strings.TrimSpace(typ) + "\x00" + strings.TrimSpace(source) + "\x00" + strings.TrimSpace(subject)
+}
+
+func createdBySubjectIDSet(subjectID string) bool {
+	return strings.TrimSpace(subjectID) != ""
+}
+
+func createdByForUpsert(existing, requested string) string {
+	if strings.TrimSpace(existing) == "" || isConfigManagedSubjectID(requested) {
+		return cloneCreatedBySubjectID(requested)
 	}
-	return strings.TrimSpace(actor.SubjectID) == configManagedWorkflowSubject &&
-		strings.TrimSpace(actor.SubjectKind) == configManagedWorkflowKind &&
-		strings.TrimSpace(actor.AuthSource) == configManagedWorkflowAuth
+	return cloneCreatedBySubjectID(existing)
+}
+
+func cloneCreatedBySubjectID(subjectID string) string {
+	return strings.TrimSpace(subjectID)
+}
+
+func cloneSubjectInput(subject *gestalt.Subject) *gestalt.Subject {
+	if subject == nil {
+		return nil
+	}
+	return &gestalt.Subject{
+		ID:                  strings.TrimSpace(subject.ID),
+		CredentialSubjectID: strings.TrimSpace(subject.CredentialSubjectID),
+		Email:               strings.TrimSpace(subject.Email),
+	}
+}
+
+func isConfigManagedSubjectID(subjectID string) bool {
+	return strings.TrimSpace(subjectID) == configManagedWorkflowSubject
 }
 
 func manualTriggerInput() *gestalt.WorkflowRunTrigger {

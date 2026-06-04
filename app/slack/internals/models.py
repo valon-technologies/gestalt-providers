@@ -203,8 +203,6 @@ class SlackAgentRoute:
     id: str = ""
     match: SlackAgentRouteMatch = field(default_factory=SlackAgentRouteMatch)
     run_as_subject_id: str = ""
-    run_as_subject_kind: str = ""
-    run_as_display_name: str = ""
     workflow: SlackWorkflowConfig | None = None
     assistant: SlackAssistantConfig | None = None
     acknowledgement: SlackAcknowledgementConfig | None = None

@@ -48,6 +48,7 @@ import {
   type StoredSession,
   type StoredSessionVisibility,
   sessionToAgentSession,
+  subjectIdFromActor,
   turnEventToAgentTurnEvent,
   turnToAgentTurn,
 } from "./store.ts";
@@ -137,9 +138,12 @@ export class CursorAgentProvider extends SDKAgentProvider {
             model,
             clientRef: request.clientRef,
             metadata,
-            visibility: sessionVisibilityForCreateMetadata(metadata, request.createdBy),
+            visibility: sessionVisibilityForCreateMetadata(
+              metadata,
+              subjectIdFromActor(request.createdBy),
+            ),
             preparedWorkspace,
-            createdBy: request.createdBy,
+            createdBySubjectId: subjectIdFromActor(request.createdBy),
           });
           return sessionToAgentSession(session);
         });
@@ -151,9 +155,12 @@ export class CursorAgentProvider extends SDKAgentProvider {
         model,
         clientRef: request.clientRef,
         metadata,
-        visibility: sessionVisibilityForCreateMetadata(metadata, request.createdBy),
+        visibility: sessionVisibilityForCreateMetadata(
+          metadata,
+          subjectIdFromActor(request.createdBy),
+        ),
         preparedWorkspace,
-        createdBy: request.createdBy,
+        createdBySubjectId: subjectIdFromActor(request.createdBy),
       });
       if (!created) {
         this.requireReadableSession(session, request.subject);
@@ -259,7 +266,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         providerName: this.name,
         model,
         messages: prependSessionStartContext(request.messages, session.metadata),
-        createdBy: request.createdBy,
+        createdBySubjectId: subjectIdFromActor(request.createdBy),
         executionRef: request.executionRef,
       });
       turn = result.turn;
@@ -632,9 +639,10 @@ function objectOrEmpty(value: unknown): Record<string, unknown> {
 
 function sessionVisibilityForCreateMetadata(
   metadata: Record<string, unknown>,
-  createdBy: ReadActor | undefined,
+  createdBySubjectId: string,
 ): StoredSessionVisibility {
-  return hasSlackSessionMetadata(metadata) && isManagedActor(createdBy)
+  return hasSlackSessionMetadata(metadata) &&
+    isManagedSubjectId(createdBySubjectId)
     ? SESSION_VISIBILITY_COMPANY
     : SESSION_VISIBILITY_PRIVATE;
 }
@@ -650,12 +658,8 @@ function hasSlackSessionMetadata(metadata: Record<string, unknown>): boolean {
   );
 }
 
-function isManagedActor(actor: ReadActor | undefined): boolean {
-  const subjectId = String(actor?.subjectId ?? "").trim();
-  return (
-    String(actor?.subjectKind ?? "").trim() === "service_account" ||
-    subjectId.startsWith("service_account:")
-  );
+function isManagedSubjectId(subjectId: string): boolean {
+  return subjectId.trim().startsWith("service_account:");
 }
 
 function nonEmptyString(value: unknown): boolean {
@@ -671,7 +675,7 @@ function canReadSession(
     return false;
   }
   return (
-    session.createdBy?.subjectId === subjectId ||
+    session.createdBySubjectId === subjectId ||
     session.visibility === SESSION_VISIBILITY_COMPANY
   );
 }
@@ -681,7 +685,7 @@ function requireOwnedSession(
   subject: ReadSubject | undefined,
 ): void {
   const subjectId = subjectIdFrom(subject);
-  if (!subjectId || session.createdBy?.subjectId !== subjectId) {
+  if (!subjectId || session.createdBySubjectId !== subjectId) {
     throw permissionDenied(
       `agent session ${JSON.stringify(session.sessionId)} is owned by another subject`,
     );

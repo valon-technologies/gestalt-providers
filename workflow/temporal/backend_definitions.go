@@ -95,7 +95,7 @@ func (b *temporalBackend) UpdateDefinition(ctx context.Context, req *gestalt.Upd
 	definition := &gestalt.BoundWorkflowDefinition{
 		ID:           definitionID,
 		Target:       target.Target,
-		CreatedBy:    cloneActorInput(existing.CreatedBy),
+		CreatedBySubjectID: cloneCreatedBySubjectID(existing.CreatedBySubjectID),
 		CreatedAt:    existing.CreatedAt,
 		ProviderName: b.providerName,
 	}

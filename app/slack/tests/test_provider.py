@@ -537,12 +537,6 @@ class SlackProviderTests(unittest.TestCase):
             {"subject": {"id": "user:gestalt-123"}},
             {"subject": {"id": "service_account:"}},
             {"subject": {"id": "automation-without-kind"}},
-            {
-                "subject": {
-                    "id": "automation-with-kind",
-                    "kind": "service_account",
-                }
-            },
             {"subject": {"id": "bot:gestalt-alerts", "kind": "bot"}},
         ]
 
@@ -1518,8 +1512,6 @@ class SlackProviderTests(unittest.TestCase):
         self.assertIsNotNone(resolved)
         assert resolved is not None
         self.assertEqual(resolved.id, "user:gestalt-123")
-        self.assertEqual(resolved.kind, "user")
-        self.assertEqual(resolved.display_name, "ada@example.com")
 
         self.assertEqual(len(authorization.requests), 1)
         request = authorization.requests[0]
@@ -1566,8 +1558,6 @@ class SlackProviderTests(unittest.TestCase):
         self.assertIsNotNone(resolved)
         assert resolved is not None
         self.assertEqual(resolved.id, "user:gestalt-123")
-        self.assertEqual(resolved.kind, "user")
-        self.assertEqual(resolved.display_name, "ada@example.com")
 
     def test_http_subject_defers_unlinked_slack_user_to_handler(self) -> None:
         authorization = FakeAuthorization([])
@@ -1643,7 +1633,6 @@ class SlackProviderTests(unittest.TestCase):
         self.assertIsNotNone(resolved)
         assert resolved is not None
         self.assertEqual(resolved.id, "user:gestalt-123")
-        self.assertEqual(resolved.kind, "user")
         self.assertEqual(len(authorization.requests), 1)
 
     def test_http_subject_uses_matching_route_run_as_before_linked_slack_user_lookup(
@@ -1702,9 +1691,6 @@ class SlackProviderTests(unittest.TestCase):
         self.assertIsNotNone(resolved)
         assert resolved is not None
         self.assertEqual(resolved.id, "service_account:slack-bot")
-        self.assertEqual(resolved.kind, "service_account")
-        self.assertEqual(resolved.display_name, "Platform Slack Bot")
-        self.assertEqual(resolved.auth_source, "slack_agent_route_run_as")
         self.assertEqual(authorization.requests, [])
 
     def test_http_subject_uses_route_run_as_for_unaddressed_channel_root(self) -> None:
@@ -1769,9 +1755,6 @@ class SlackProviderTests(unittest.TestCase):
         self.assertIsNotNone(resolved)
         assert resolved is not None
         self.assertEqual(resolved.id, "service_account:eng-background-agent")
-        self.assertEqual(resolved.kind, "service_account")
-        self.assertEqual(resolved.display_name, "Engineering Background Agent")
-        self.assertEqual(resolved.auth_source, "slack_agent_route_run_as")
         self.assertEqual(authorization.requests, [])
 
     def test_addressed_channel_message_skips_unaddressed_run_as_route(self) -> None:
@@ -1892,8 +1875,6 @@ class SlackProviderTests(unittest.TestCase):
         self.assertIsNotNone(resolved)
         assert resolved is not None
         self.assertEqual(resolved.id, "user:gestalt-123")
-        self.assertEqual(resolved.kind, "user")
-        self.assertEqual(resolved.auth_source, "authorization")
         self.assertEqual(len(authorization.requests), 1)
 
     def test_http_subject_does_not_use_route_run_as_for_route_mismatches(
@@ -2012,9 +1993,6 @@ class SlackProviderTests(unittest.TestCase):
         self.assertIsNotNone(resolved)
         assert resolved is not None
         self.assertEqual(resolved.id, "service_account:slack-bot")
-        self.assertEqual(resolved.kind, "service_account")
-        self.assertEqual(resolved.display_name, "Platform Slack Bot")
-        self.assertEqual(resolved.auth_source, "slack_agent_route_run_as")
         self.assertEqual(authorization.requests, [])
 
     def test_http_subject_uses_linked_slack_user_for_user_signed_interaction_on_run_as_route(
@@ -2069,8 +2047,6 @@ class SlackProviderTests(unittest.TestCase):
         self.assertIsNotNone(resolved)
         assert resolved is not None
         self.assertEqual(resolved.id, "user:gestalt-123")
-        self.assertEqual(resolved.kind, "user")
-        self.assertEqual(resolved.auth_source, "authorization")
         self.assertEqual(len(authorization.requests), 1)
 
     def test_slack_event_handler_signals_configured_workflow_definition(self) -> None:

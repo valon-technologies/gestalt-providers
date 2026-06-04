@@ -37,7 +37,7 @@ func TestProviderStartRunUsesIdempotencyAndExecutesSteps(t *testing.T) {
 	first, err := provider.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
 		IdempotencyKey: "manual-sync",
 		Target:         workflowTarget(t, "roadmap", "sync", map[string]any{"mode": "full"}),
-		CreatedBy:      &gestalt.WorkflowActor{SubjectID: "user:123", SubjectKind: "user", DisplayName: "Ada"},
+		CreatedBySubjectID: "user:123",
 	})
 	if err != nil {
 		t.Fatalf("StartRun(first): %v", err)
@@ -64,8 +64,8 @@ func TestProviderStartRunUsesIdempotencyAndExecutesSteps(t *testing.T) {
 	if got := workflowValueObjectField(call.Target, "mode"); got != "full" {
 		t.Fatalf("target.input.mode = %v, want full", got)
 	}
-	if call.CreatedBy.SubjectID != "user:123" {
-		t.Fatalf("created_by.subject_id = %q, want user:123", call.CreatedBy.SubjectID)
+	if call.CreatedBySubjectID != "user:123" {
+		t.Fatalf("created_by_subject_id = %q, want user:123", call.CreatedBySubjectID)
 	}
 
 	waitForCondition(t, time.Second, func() bool {
@@ -133,7 +133,7 @@ func TestProviderDefinitionCRUD(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("loadDefinitionRecord found=%v err=%v", found, err)
 	}
-	record.CreatedBy = &gestalt.WorkflowActor{SubjectID: "creator-1", SubjectKind: "user"}
+	record.CreatedBySubjectID = "creator-1"
 	if err := provider.definitionStore.Put(ctx, record.toRecord()); err != nil {
 		t.Fatalf("store definition creator: %v", err)
 	}
@@ -151,8 +151,8 @@ func TestProviderDefinitionCRUD(t *testing.T) {
 	if testAppStep(updated.Target).Operation != "refresh" {
 		t.Fatalf("updated operation = %q, want refresh", testAppStep(updated.Target).Operation)
 	}
-	if updated.CreatedBy == nil || updated.CreatedBy.SubjectID != "creator-1" {
-		t.Fatalf("updated created_by = %#v, want creator-1", updated.CreatedBy)
+	if updated.CreatedBySubjectID == "" || updated.CreatedBySubjectID != "creator-1" {
+		t.Fatalf("updated created_by = %#v, want creator-1", updated.CreatedBySubjectID)
 	}
 
 	got, err := provider.GetDefinition(ctx, &gestalt.GetWorkflowProviderDefinitionRequest{DefinitionID: created.ID})
@@ -162,8 +162,8 @@ func TestProviderDefinitionCRUD(t *testing.T) {
 	if testAppStep(got.Target).Operation != "refresh" {
 		t.Fatalf("stored operation = %q, want refresh", testAppStep(got.Target).Operation)
 	}
-	if got.CreatedBy == nil || got.CreatedBy.SubjectID != "creator-1" {
-		t.Fatalf("stored created_by = %#v, want creator-1", got.CreatedBy)
+	if got.CreatedBySubjectID == "" || got.CreatedBySubjectID != "creator-1" {
+		t.Fatalf("stored created_by = %#v, want creator-1", got.CreatedBySubjectID)
 	}
 
 	if err := provider.DeleteDefinition(ctx, &gestalt.DeleteWorkflowProviderDefinitionRequest{DefinitionID: created.ID}); err != nil {
@@ -663,7 +663,7 @@ func TestProviderListRunsDoesNotLoadEachRunByKey(t *testing.T) {
 		_, err := provider.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
 			IdempotencyKey: fmt.Sprintf("list-runs-%d", i),
 			Target:         workflowTarget(t, "roadmap", "sync", map[string]any{"index": i}),
-			CreatedBy:      &gestalt.WorkflowActor{SubjectID: "user:123", SubjectKind: "user"},
+			CreatedBySubjectID: "user:123",
 		})
 		if err != nil {
 			t.Fatalf("StartRun(%d): %v", i, err)
@@ -1626,12 +1626,12 @@ func TestProviderPublishEventAndCollapsesMissedCronTicks(t *testing.T) {
 	}
 	requestEvent := &gestalt.WorkflowEvent{
 		ID:          "evt-1",
-		Source:      "roadmap",
+		Source:      "spoofed",
 		Type:        "task.updated",
 		SpecVersion: "1.0",
 		Data:        mustStruct(t, map[string]any{"taskId": "task-1"}),
 	}
-	published, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{Event: requestEvent})
+	published, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{AppName: "roadmap", Event: requestEvent})
 	if err != nil {
 		t.Fatalf("PublishEvent: %v", err)
 	}
@@ -1844,32 +1844,22 @@ func TestProviderPublishEventUsesPublishedByAsCreator(t *testing.T) {
 	startProviderWorker(t, provider)
 	t.Cleanup(func() { _ = provider.Close() })
 
-	target := workflowTarget(t, "github", "events.runAgentFromWorkflowEvent", map[string]any{"repository": "gestalt"})
+	target := workflowTarget(t, "eventConsumer", "processEvent", map[string]any{"stream": "primary"})
 	if _, err := provider.UpsertEventTrigger(ctx, &gestalt.UpsertWorkflowProviderEventTriggerRequest{
-		TriggerID:    "github-webhook",
-		Match:        &gestalt.WorkflowEventMatch{Type: "github.app.webhook", Source: "github"},
+		TriggerID:    "publisher-event",
+		Match:        &gestalt.WorkflowEventMatch{Type: "record.changed", Source: "eventPublisher"},
 		Target:       target,
-		DefinitionID: "github-webhook-definition",
-		RequestedBy: &gestalt.WorkflowActor{
-			SubjectID:   "system:config",
-			SubjectKind: "system",
-			DisplayName: "Gestalt config",
-			AuthSource:  "config",
-		},
+		DefinitionID: "publisher-event-definition",
+		RequestedBySubjectID: "system:config",
 	}); err != nil {
 		t.Fatalf("UpsertEventTrigger: %v", err)
 	}
 
-	publishedBy := &gestalt.WorkflowActor{
-		SubjectID:   "service_account:github_app_installation:127579767:repo:valon-technologies/gestalt",
-		SubjectKind: "service_account",
-		DisplayName: "GitHub App installation 127579767 (valon-technologies/gestalt)",
-		AuthSource:  "github_app_webhook",
-	}
+	publishedBy := "service_account:event_publisher:primary"
 	if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
-		AppName:     "github",
-		PublishedBy: publishedBy,
-		Event:       githubWebhookWorkflowEvent(t),
+		AppName:     "eventPublisher",
+		PublishedBySubjectID: publishedBy,
+		Event:       publisherWorkflowEvent(t),
 	}); err != nil {
 		t.Fatalf("PublishEvent: %v", err)
 	}
@@ -1878,33 +1868,31 @@ func TestProviderPublishEventUsesPublishedByAsCreator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("waitForCall: %v", err)
 	}
-	if got := anyMap(call.Metadata)[workflowInvokeMetadataDefinitionID]; got != "github-webhook-definition" {
-		t.Fatalf("definition_id = %v, want github-webhook-definition", got)
+	if got := anyMap(call.Metadata)[workflowInvokeMetadataDefinitionID]; got != "publisher-event-definition" {
+		t.Fatalf("definition_id = %v, want publisher-event-definition", got)
 	}
-	if call.CreatedBy.SubjectID != publishedBy.SubjectID {
-		t.Fatalf("created_by.subject_id = %q, want %q", call.CreatedBy.SubjectID, publishedBy.SubjectID)
+	if call.CreatedBySubjectID != publishedBy {
+		t.Fatalf("created_by_subject_id = %q, want %q", call.CreatedBySubjectID, publishedBy)
 	}
 	run, err := provider.GetRun(ctx, &gestalt.GetWorkflowProviderRunRequest{RunID: call.RunID})
 	if err != nil {
 		t.Fatalf("GetRun: %v", err)
 	}
-	if run.DefinitionID != "github-webhook-definition" {
-		t.Fatalf("run definition_id = %q, want github-webhook-definition", run.DefinitionID)
+	if run.DefinitionID != "publisher-event-definition" {
+		t.Fatalf("run definition_id = %q, want publisher-event-definition", run.DefinitionID)
 	}
-	if run.CreatedBy.SubjectID != publishedBy.SubjectID {
-		t.Fatalf("run created_by.subject_id = %q, want %q", run.CreatedBy.SubjectID, publishedBy.SubjectID)
+	if run.CreatedBySubjectID != publishedBy {
+		t.Fatalf("run created_by_subject_id = %q, want %q", run.CreatedBySubjectID, publishedBy)
+	}
+	if run.Trigger == nil || run.Trigger.Event == nil || run.Trigger.Event.Event == nil || run.Trigger.Event.Event.Source != "eventPublisher" {
+		t.Fatalf("run trigger = %#v, want publisher event source", run.Trigger)
 	}
 
-	duplicatePublisher := &gestalt.WorkflowActor{
-		SubjectID:   "service_account:github_app_installation:127579767:repo:valon-technologies/other",
-		SubjectKind: "service_account",
-		DisplayName: "GitHub App installation 127579767 (valon-technologies/other)",
-		AuthSource:  "github_app_webhook",
-	}
+	duplicatePublisher := "service_account:event_publisher:duplicate"
 	if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
-		AppName:     "github",
-		PublishedBy: duplicatePublisher,
-		Event:       githubWebhookWorkflowEvent(t),
+		AppName:     "eventPublisher",
+		PublishedBySubjectID: duplicatePublisher,
+		Event:       publisherWorkflowEvent(t),
 	}); err != nil {
 		t.Fatalf("PublishEvent(duplicate): %v", err)
 	}
@@ -1915,19 +1903,19 @@ func TestProviderPublishEventUsesPublishedByAsCreator(t *testing.T) {
 	if len(runs.Runs) != 1 {
 		t.Fatalf("runs len = %d, want duplicate event to keep one run", len(runs.Runs))
 	}
-	if runs.Runs[0].CreatedBy.SubjectID != publishedBy.SubjectID {
-		t.Fatalf("duplicate publish changed created_by.subject_id = %q, want %q", runs.Runs[0].CreatedBy.SubjectID, publishedBy.SubjectID)
+	if runs.Runs[0].CreatedBySubjectID != publishedBy {
+		t.Fatalf("duplicate publish changed created_by_subject_id = %q, want %q", runs.Runs[0].CreatedBySubjectID, publishedBy)
 	}
 }
 
-func githubWebhookWorkflowEvent(t *testing.T) *gestalt.WorkflowEvent {
+func publisherWorkflowEvent(t *testing.T) *gestalt.WorkflowEvent {
 	t.Helper()
 	return &gestalt.WorkflowEvent{
-		ID:          "github:delivery-1",
-		Source:      "github",
-		Type:        "github.app.webhook",
+		ID:          "publisher-delivery-1",
+		Source:      "spoofedPublisher",
+		Type:        "record.changed",
 		SpecVersion: "1.0",
-		Data:        mustStruct(t, map[string]any{"repository": "valon-technologies/gestalt"}),
+		Data:        mustStruct(t, map[string]any{"recordId": "record-1"}),
 	}
 }
 
@@ -2185,10 +2173,14 @@ func TestProviderRequiresStoredTargetJSON(t *testing.T) {
 	}
 }
 
-func TestProviderPublishEventDoesNotCoalesceDifferentSources(t *testing.T) {
+func TestProviderPublishEventInjectsSourceAndMatchesWildcardSources(t *testing.T) {
 	ctx := context.Background()
 	host := newStepExecutorStub(202, `{"ok":true}`)
-	db := startTestIndexedDBBackend(t)
+	spy := &indexedDBServerSpy{failUnscopedEventTriggerGetAll: true}
+	db := startTestIndexedDBBackendWithWrapper(t, func(inner gestalt.IndexedDBProvider) gestalt.IndexedDBProvider {
+		spy.IndexedDBProvider = inner
+		return spy
+	})
 	newTestProvider := newTestProviderFactory(t, host)
 
 	provider := newTestProvider(db)
@@ -2199,45 +2191,54 @@ func TestProviderPublishEventDoesNotCoalesceDifferentSources(t *testing.T) {
 	t.Cleanup(func() { _ = provider.Close() })
 
 	if _, err := provider.UpsertEventTrigger(ctx, &gestalt.UpsertWorkflowProviderEventTriggerRequest{
-		TriggerID: "refresh-trigger",
-		Match:     &gestalt.WorkflowEventMatch{Type: "task.updated"},
-		Target:    workflowTarget(t, "roadmap", "sync", map[string]any{"kind": "event"}),
+		TriggerID: "any-source-trigger",
+		Match:     &gestalt.WorkflowEventMatch{Type: "record.changed"},
+		Target:    workflowTarget(t, "analytics", "sync", map[string]any{"kind": "event"}),
 	}); err != nil {
-		t.Fatalf("UpsertEventTrigger: %v", err)
+		t.Fatalf("UpsertEventTrigger(any): %v", err)
+	}
+	if _, err := provider.UpsertEventTrigger(ctx, &gestalt.UpsertWorkflowProviderEventTriggerRequest{
+		TriggerID: "publisher-a-trigger",
+		Match:     &gestalt.WorkflowEventMatch{Type: "record.changed", Source: "publisherA"},
+		Target:    workflowTarget(t, "sourceConsumer", "processRecord", map[string]any{"kind": "event"}),
+		RunAs:     &gestalt.Subject{ID: "service_account:publisher-a-workflow"},
+	}); err != nil {
+		t.Fatalf("UpsertEventTrigger(publisherA): %v", err)
+	}
+	if _, err := provider.UpsertEventTrigger(ctx, &gestalt.UpsertWorkflowProviderEventTriggerRequest{
+		TriggerID:    "publisher-a-trigger",
+		Match:        &gestalt.WorkflowEventMatch{Type: "record.changed", Source: "publisherA"},
+		Target:       workflowTarget(t, "sourceConsumer", "processRecord", map[string]any{"kind": "event"}),
+		DefinitionID: "updated-definition",
+		RunAs:        &gestalt.Subject{ID: "service_account:publisher-a-workflow"},
+	}); err != nil {
+		t.Fatalf("UpsertEventTrigger(publisherA update): %v", err)
 	}
 
-	events := []struct {
-		source string
-		id     string
+	for _, event := range []struct {
+		appName    string
+		bodySource string
+		id         string
 	}{
-		{source: "a:b", id: "c"},
-		{source: "a", id: "b:c"},
-	}
-	for _, event := range events {
-		if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
-			AppName: "roadmap",
+		{appName: "publisherA", bodySource: "publisherB", id: "publisher-a-event"},
+		{appName: "publisherB", bodySource: "publisherA", id: "publisher-b-event"},
+	} {
+		published, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
+			AppName: event.appName,
 			Event: &gestalt.WorkflowEvent{
 				ID:          event.id,
-				Source:      event.source,
-				Type:        "task.updated",
+				Source:      event.bodySource,
+				Type:        "record.changed",
 				SpecVersion: "1.0",
-				Data:        mustStruct(t, map[string]any{"taskId": event.source + "|" + event.id}),
+				Data:        mustStruct(t, map[string]any{"recordId": event.id}),
 			},
-		}); err != nil {
-			t.Fatalf("PublishEvent(%s,%s): %v", event.source, event.id, err)
+		})
+		if err != nil {
+			t.Fatalf("PublishEvent(%s): %v", event.appName, err)
 		}
-	}
-
-	first, err := host.waitForCall(time.Second)
-	if err != nil {
-		t.Fatalf("waitForCall(first): %v", err)
-	}
-	second, err := host.waitForCall(time.Second)
-	if err != nil {
-		t.Fatalf("waitForCall(second): %v", err)
-	}
-	if first.RunID == second.RunID {
-		t.Fatalf("run ids = %q and %q, want distinct per source", first.RunID, second.RunID)
+		if published.Source != event.appName {
+			t.Fatalf("published source = %q, want %q", published.Source, event.appName)
+		}
 	}
 
 	waitForCondition(t, time.Second, func() bool {
@@ -2245,8 +2246,27 @@ func TestProviderPublishEventDoesNotCoalesceDifferentSources(t *testing.T) {
 		if err != nil {
 			return false
 		}
-		return len(runs.Runs) == 2
+		return len(runs.Runs) == 3
 	})
+	calls := make([]*gestaltworkflow.Request, 0, 3)
+	for i := 0; i < 3; i++ {
+		call, err := host.waitForCall(time.Second)
+		if err != nil {
+			t.Fatalf("waitForCall(%d): %v", i, err)
+		}
+		calls = append(calls, call)
+	}
+	counts := map[string]int{}
+	for _, call := range calls {
+		step := testAppStep(call.Target)
+		counts[step.Name+"."+step.Operation]++
+		if step.Name == "sourceConsumer" && (call.RunAs == nil || call.RunAs.ID != "service_account:publisher-a-workflow") {
+			t.Fatalf("sourceConsumer runAs = %#v, want publisher-a workflow subject", call.RunAs)
+		}
+	}
+	if counts["analytics.sync"] != 2 || counts["sourceConsumer.processRecord"] != 1 {
+		t.Fatalf("call target counts = %#v, want wildcard twice and publisherA source once", counts)
+	}
 }
 
 func TestProviderEnqueueDueSchedulesReusesDeterministicRunID(t *testing.T) {
@@ -2840,9 +2860,10 @@ func TestProviderTickPrioritizesAppEventWhenPreferredWakeLost(t *testing.T) {
 	}
 	clock.Set(start.Add(time.Minute))
 	if _, err := provider.PublishEvent(ctx, &gestalt.PublishWorkflowProviderEventRequest{
+		AppName: "slack",
 		Event: &gestalt.WorkflowEvent{
 			ID:          "evt-lost-wake",
-			Source:      "slack",
+			Source:      "ignored",
 			Type:        "message",
 			SpecVersion: "1.0",
 			Data:        mustStruct(t, map[string]any{"channel": "C123"}),
@@ -3543,7 +3564,7 @@ func seedWorkflowObjectStores(t *testing.T, store *relationaldb.Provider) {
 		schema gestalt.ObjectStoreOptions
 	}{
 		{name: storeSchedules, schema: gestalt.ObjectStoreOptions{}},
-		{name: storeEventTriggers, schema: gestalt.ObjectStoreOptions{}},
+		{name: storeEventTriggers, schema: workflowEventTriggerSchema()},
 		{name: storeDefinitions, schema: gestalt.ObjectStoreOptions{}},
 		{name: storeIdempotency, schema: gestalt.ObjectStoreOptions{}},
 		{name: storeWorkflowKeys, schema: gestalt.ObjectStoreOptions{}},
@@ -3565,6 +3586,14 @@ func workflowRunClaimSchema() gestalt.ObjectStoreOptions {
 			{Name: "owner_id", Type: gestalt.TypeString, NotNull: true},
 			{Name: "claimed_at", Type: gestalt.TypeTime},
 			{Name: "expires_at", Type: gestalt.TypeTime},
+		},
+	}
+}
+
+func workflowEventTriggerSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
+		Indexes: []gestalt.IndexSchema{
+			{Name: indexByEventTriggerMatch, KeyPath: []string{"match_type", "match_source", "match_subject"}},
 		},
 	}
 }
@@ -3597,10 +3626,11 @@ func workflowSignalSchema() gestalt.ObjectStoreOptions {
 
 type indexedDBServerSpy struct {
 	gestalt.IndexedDBProvider
-	failUnscopedSignalGetAll bool
-	missingSignalIndex       string
-	mu                       sync.Mutex
-	getCounts                map[string]int
+	failUnscopedSignalGetAll       bool
+	failUnscopedEventTriggerGetAll bool
+	missingSignalIndex             string
+	mu                             sync.Mutex
+	getCounts                      map[string]int
 }
 
 type blockingGetAllServer struct {
@@ -3642,6 +3672,9 @@ func (s *indexedDBServerSpy) Get(ctx context.Context, req gestalt.IndexedDBObjec
 func (s *indexedDBServerSpy) GetAll(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]gestalt.Record, error) {
 	if s.failUnscopedSignalGetAll && req.Store == storeSignals && req.Range == nil {
 		return nil, status.Error(codes.Internal, "unexpected unscoped workflow_signals GetAll")
+	}
+	if s.failUnscopedEventTriggerGetAll && req.Store == storeEventTriggers && req.Range == nil {
+		return nil, status.Error(codes.Internal, "unexpected unscoped event_triggers GetAll")
 	}
 	return s.IndexedDBProvider.GetAll(ctx, req)
 }

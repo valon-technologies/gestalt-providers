@@ -96,10 +96,7 @@ test.describe("Workflows", () => {
           kind: "schedule",
           scheduleId: "sched_123",
         },
-        createdBy: {
-          subjectId: "user:123",
-          displayName: "Ada",
-        },
+        createdBySubjectId: "user:123",
         createdAt: "2026-04-20T00:00:00Z",
         startedAt: "2026-04-20T00:01:00Z",
         completedAt: "2026-04-20T00:02:00Z",

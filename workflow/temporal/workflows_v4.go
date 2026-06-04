@@ -17,12 +17,12 @@ type runWorkflowV4Input struct {
 	ProviderName                  string                       `json:"provider_name,omitempty"`
 	ScheduleID                    string                       `json:"schedule_id,omitempty"`
 	DefinitionID                  string                       `json:"definition_id,omitempty"`
-	InvocationToken               string                       `json:"invocation_token,omitempty"`
+	RunAs                         *gestalt.Subject             `json:"run_as,omitempty"`
 	WorkflowKey                   string                       `json:"workflow_key,omitempty"`
 	OwnerKey                      string                       `json:"owner_key,omitempty"`
 	Target                        *gestalt.BoundWorkflowTarget `json:"target,omitempty"`
 	Trigger                       *gestalt.WorkflowRunTrigger  `json:"trigger,omitempty"`
-	CreatedBy                     *gestalt.WorkflowActor       `json:"created_by,omitempty"`
+	CreatedBySubjectID string       `json:"created_by,omitempty"`
 	InitialSignal                 *gestalt.WorkflowSignal      `json:"initial_signal,omitempty"`
 	RequireSignal                 bool                         `json:"require_signal,omitempty"`
 	RequireClaim                  bool                         `json:"require_claim,omitempty"`
@@ -55,7 +55,8 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		Target:       input.targetInput(),
 		Trigger:      input.triggerInput(now),
 		CreatedAt:    now,
-		CreatedBy:    input.createdByInput(),
+		CreatedBySubjectID: input.createdByInput(),
+		RunAs:        cloneSubjectInput(input.RunAs),
 		WorkflowKey:  strings.TrimSpace(input.WorkflowKey),
 		DefinitionID: strings.TrimSpace(input.DefinitionID),
 	}
@@ -206,14 +207,14 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 			RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 		})
 		invokeReq := gestaltworkflow.Request{
-			ProviderName:    strings.TrimSpace(input.ProviderName),
-			RunID:           state.ID,
-			Target:          state.Target,
-			Trigger:         state.Trigger,
-			Metadata:        workflowInvokeMetadataInput(state.WorkflowKey, state.DefinitionID),
-			CreatedBy:       state.CreatedBy,
-			InvocationToken: strings.TrimSpace(input.InvocationToken),
-			Signals:         batch,
+			ProviderName: strings.TrimSpace(input.ProviderName),
+			RunID:        state.ID,
+			Target:       state.Target,
+			Trigger:      state.Trigger,
+			Metadata:     workflowInvokeMetadataInput(state.WorkflowKey, state.DefinitionID),
+			CreatedBySubjectID: state.CreatedBySubjectID,
+			RunAs:        cloneSubjectInput(state.RunAs),
+			Signals:      batch,
 		}
 		var resp gestaltworkflow.Response
 		invokeErr := workflow.ExecuteActivity(activityCtx, (*workflowActivities).ExecuteSteps, invokeReq).Get(activityCtx, &resp)
@@ -267,8 +268,8 @@ func (input runWorkflowV4Input) triggerInput(now time.Time) *gestalt.WorkflowRun
 	return nil
 }
 
-func (input runWorkflowV4Input) createdByInput() *gestalt.WorkflowActor {
-	return input.CreatedBy
+func (input runWorkflowV4Input) createdByInput() string {
+	return input.CreatedBySubjectID
 }
 
 func (input runWorkflowV4Input) initialSignalInput() *gestalt.WorkflowSignal {
