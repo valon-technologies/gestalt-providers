@@ -855,20 +855,23 @@ def slack_identity_link_self(
                 "Slack auth.test response did not include team_id and user_id"
             )
         resource_id = slack_user_resource_id(team_id, user_id)
-        req.authorization().write_relationships(
-            gestalt.WriteRelationshipsRequest(
-                writes=[
-                    gestalt.Relationship(
-                        subject=gestalt.AuthorizationSubject(
-                            type="subject", id=subject_id
+        req.authorization().add_relationship(
+            gestalt.AddRelationshipRequest(
+                relationship=gestalt.Relationship(
+                    tuple=gestalt.RelationshipTuple(
+                        target=gestalt.RelationshipTarget(
+                            subject=gestalt.AuthorizationSubject(
+                                type="subject", id=subject_id
+                            )
                         ),
                         relation=_agent.SLACK_USER_LINKED_ACTION,
                         resource=gestalt.AuthorizationResource(
                             type=_agent.SLACK_USER_RESOURCE_TYPE,
                             id=resource_id,
                         ),
-                    )
-                ]
+                    ),
+                    source_layer=gestalt.SOURCE_LAYER_RUNTIME,
+                )
             )
         )
     except SlackAPIError as err:
@@ -1156,19 +1159,29 @@ def _linked_slack_user_id_from_request(req: gestalt.Request) -> str:
     if not subject_id:
         return ""
     try:
-        response = req.authorization().search_resources(
-            gestalt.ResourceSearchRequest(
-                subject=gestalt.AuthorizationSubject(type="subject", id=subject_id),
-                action=gestalt.AuthorizationAction(
-                    name=_agent.SLACK_USER_LINKED_ACTION
+        response = req.authorization().list_relationships(
+            gestalt.ListRelationshipsRequest(
+                filter=gestalt.RelationshipFilter(
+                    target=gestalt.RelationshipTarget(
+                        subject=gestalt.AuthorizationSubject(
+                            type="subject", id=subject_id
+                        )
+                    ),
+                    relation=_agent.SLACK_USER_LINKED_ACTION,
+                    resource_type=_agent.SLACK_USER_RESOURCE_TYPE,
                 ),
-                resource_type=_agent.SLACK_USER_RESOURCE_TYPE,
                 page_size=2,
             )
         )
     except Exception:
         return ""
-    resources = [resource for resource in response.resources if resource.id.strip()]
+    resources = [
+        relationship.tuple.resource
+        for relationship in response.relationships
+        if relationship.tuple is not None
+        and relationship.tuple.resource is not None
+        and relationship.tuple.resource.id.strip()
+    ]
     if len(resources) != 1:
         return ""
     _, _, user_id = resources[0].id.strip().rpartition("/")

@@ -113,24 +113,40 @@ class FakeAuthorization:
     ) -> None:
         self.allowed = allowed
         self.resources = tuple(resources)
-        self.evaluation_requests: list[gestalt.AccessEvaluationRequest] = []
-        self.resource_search_requests: list[gestalt.ResourceSearchRequest] = []
-        self.relationship_writes: list[gestalt.WriteRelationshipsRequest] = []
+        self.check_access_requests: list[gestalt.CheckAccessRequest] = []
+        self.list_relationships_requests: list[gestalt.ListRelationshipsRequest] = []
+        self.relationship_adds: list[gestalt.AddRelationshipRequest] = []
 
-    def evaluate(
-        self, request: gestalt.AccessEvaluationRequest
-    ) -> gestalt.AccessDecision:
-        self.evaluation_requests.append(request)
-        return gestalt.AccessDecision(allowed=self.allowed)
+    def check_access(
+        self, request: gestalt.CheckAccessRequest
+    ) -> gestalt.CheckAccessResponse:
+        self.check_access_requests.append(request)
+        return gestalt.CheckAccessResponse(allowed=self.allowed)
 
-    def search_resources(
-        self, request: gestalt.ResourceSearchRequest
-    ) -> gestalt.ResourceSearchResponse:
-        self.resource_search_requests.append(request)
-        return gestalt.ResourceSearchResponse(resources=self.resources)
+    def list_relationships(
+        self, request: gestalt.ListRelationshipsRequest
+    ) -> gestalt.ListRelationshipsResponse:
+        self.list_relationships_requests.append(request)
+        target = request.filter.target if request.filter is not None else None
+        relation = request.filter.relation if request.filter is not None else ""
+        return gestalt.ListRelationshipsResponse(
+            relationships=[
+                gestalt.Relationship(
+                    tuple=gestalt.RelationshipTuple(
+                        target=target,
+                        relation=relation,
+                        resource=resource,
+                    )
+                )
+                for resource in self.resources
+            ]
+        )
 
-    def write_relationships(self, request: gestalt.WriteRelationshipsRequest) -> None:
-        self.relationship_writes.append(request)
+    def add_relationship(
+        self, request: gestalt.AddRelationshipRequest
+    ) -> gestalt.AddRelationshipResponse:
+        self.relationship_adds.append(request)
+        return gestalt.AddRelationshipResponse(relationship=request.relationship)
 
 
 def github_request(
@@ -417,21 +433,31 @@ class GitHubProviderTests(unittest.TestCase):
             },
         )
         self.assertEqual(client.requests, [("GET", "/user", "ghu-user", {})])
-        self.assertEqual(len(self.authorization.relationship_writes), 1)
-        write = self.authorization.relationship_writes[0].writes[0]
-        self.assertIsNotNone(write.subject)
-        self.assertIsNotNone(write.resource)
-        subject = cast(gestalt.AuthorizationSubject, write.subject)
-        resource = cast(gestalt.AuthorizationResource, write.resource)
+        self.assertEqual(len(self.authorization.relationship_adds), 1)
+        relationship = self.authorization.relationship_adds[0].relationship
+        self.assertIsNotNone(relationship)
+        assert relationship is not None
+        relationship_tuple = relationship.tuple
+        self.assertIsNotNone(relationship_tuple)
+        assert relationship_tuple is not None
+        self.assertIsNotNone(relationship_tuple.target)
+        assert relationship_tuple.target is not None
+        self.assertIsNotNone(relationship_tuple.target.subject)
+        self.assertIsNotNone(relationship_tuple.resource)
+        subject = cast(gestalt.AuthorizationSubject, relationship_tuple.target.subject)
+        resource = cast(gestalt.AuthorizationResource, relationship_tuple.resource)
         self.assertEqual(subject.type, "subject")
         self.assertEqual(subject.id, "user:gestalt-123")
-        self.assertEqual(write.relation, provider_module.GITHUB_USER_LINKED_ACTION)
+        self.assertEqual(
+            relationship_tuple.relation, provider_module.GITHUB_USER_LINKED_ACTION
+        )
         self.assertEqual(resource.type, provider_module.GITHUB_USER_RESOURCE_TYPE)
         self.assertEqual(resource.id, "222")
         self.assertEqual(
             resource.properties,
             {"login": "ghopper", "name": "Grace Hopper"},
         )
+        self.assertEqual(relationship.source_layer, gestalt.SOURCE_LAYER_RUNTIME)
 
     def test_catalog_and_schema_expose_events_and_generic_bot_operations(
         self,
@@ -824,9 +850,14 @@ class GitHubProviderTests(unittest.TestCase):
 
         self.assertEqual(request.author_name, "Grace Hopper")
         self.assertEqual(request.author_email, "222+ghopper@users.noreply.github.com")
-        self.assertEqual(
-            authorization.resource_search_requests[0].subject.id, "user:gestalt-123"
-        )
+        request = authorization.list_relationships_requests[0]
+        self.assertIsNotNone(request.filter)
+        assert request.filter is not None
+        self.assertIsNotNone(request.filter.target)
+        assert request.filter.target is not None
+        self.assertIsNotNone(request.filter.target.subject)
+        assert request.filter.target.subject is not None
+        self.assertEqual(request.filter.target.subject.id, "user:gestalt-123")
 
     def test_commit_files_uses_typed_github_client_interface(self) -> None:
         recording_client = RecordingGitHubClient()

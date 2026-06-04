@@ -245,30 +245,48 @@ class FakeAuthorization:
     ) -> None:
         self.subjects = subjects or []
         self.resources = resources or []
-        self.requests: list[gestalt.SubjectSearchRequest] = []
-        self.resource_requests: list[gestalt.ResourceSearchRequest] = []
-        self.relationship_writes: list[gestalt.WriteRelationshipsRequest] = []
+        self.requests: list[gestalt.ListRelationshipsRequest] = []
+        self.relationship_adds: list[gestalt.AddRelationshipRequest] = []
 
-    def search_subjects(
-        self, request: gestalt.SubjectSearchRequest
-    ) -> gestalt.SubjectSearchResponse:
+    def list_relationships(
+        self, request: gestalt.ListRelationshipsRequest
+    ) -> gestalt.ListRelationshipsResponse:
         self.requests.append(request)
-        subject_type = request.subject_type.strip()
-        subjects = [
-            subject
-            for subject in self.subjects
-            if not subject_type or subject.type.strip() == subject_type
-        ]
-        return gestalt.SubjectSearchResponse(subjects=subjects)
+        relationship_filter = request.filter
+        resource = relationship_filter.resource if relationship_filter else None
+        target = relationship_filter.target if relationship_filter else None
+        relation = relationship_filter.relation if relationship_filter else ""
+        relationships: list[gestalt.Relationship] = []
 
-    def search_resources(
-        self, request: gestalt.ResourceSearchRequest
-    ) -> gestalt.ResourceSearchResponse:
-        self.resource_requests.append(request)
-        return gestalt.ResourceSearchResponse(resources=self.resources)
+        for subject in self.subjects:
+            relationships.append(
+                gestalt.Relationship(
+                    tuple=gestalt.RelationshipTuple(
+                        target=gestalt.RelationshipTarget(subject=subject),
+                        relation=relation,
+                        resource=resource,
+                    )
+                )
+            )
 
-    def write_relationships(self, request: gestalt.WriteRelationshipsRequest) -> None:
-        self.relationship_writes.append(request)
+        for linked_resource in self.resources:
+            relationships.append(
+                gestalt.Relationship(
+                    tuple=gestalt.RelationshipTuple(
+                        target=target,
+                        relation=relation,
+                        resource=linked_resource,
+                    )
+                )
+            )
+
+        return gestalt.ListRelationshipsResponse(relationships=relationships)
+
+    def add_relationship(
+        self, request: gestalt.AddRelationshipRequest
+    ) -> gestalt.AddRelationshipResponse:
+        self.relationship_adds.append(request)
+        return gestalt.AddRelationshipResponse(relationship=request.relationship)
 
 
 class FakeWorkflowClient:
@@ -482,19 +500,28 @@ class SlackProviderTests(unittest.TestCase):
                 },
             },
         )
-        self.assertEqual(len(authorization.relationship_writes), 1)
-        write = authorization.relationship_writes[0].writes[0]
-        self.assertIsNotNone(write.subject)
-        self.assertIsNotNone(write.resource)
-        subject = cast(gestalt.AuthorizationSubject, write.subject)
-        resource = cast(gestalt.AuthorizationResource, write.resource)
+        self.assertEqual(len(authorization.relationship_adds), 1)
+        relationship = authorization.relationship_adds[0].relationship
+        self.assertIsNotNone(relationship)
+        assert relationship is not None
+        relationship_tuple = relationship.tuple
+        self.assertIsNotNone(relationship_tuple)
+        assert relationship_tuple is not None
+        self.assertIsNotNone(relationship_tuple.target)
+        assert relationship_tuple.target is not None
+        self.assertIsNotNone(relationship_tuple.target.subject)
+        self.assertIsNotNone(relationship_tuple.resource)
+        subject = cast(gestalt.AuthorizationSubject, relationship_tuple.target.subject)
+        resource = cast(gestalt.AuthorizationResource, relationship_tuple.resource)
         self.assertEqual(subject.type, "subject")
         self.assertEqual(subject.id, "user:gestalt-123")
         self.assertEqual(
-            write.relation, provider_module._agent.SLACK_USER_LINKED_ACTION
+            relationship_tuple.relation,
+            provider_module._agent.SLACK_USER_LINKED_ACTION,
         )
         self.assertEqual(resource.type, provider_module._agent.SLACK_USER_RESOURCE_TYPE)
         self.assertEqual(resource.id, "T123/U456")
+        self.assertEqual(relationship.source_layer, gestalt.SOURCE_LAYER_RUNTIME)
 
     def test_agent_routes_reject_duplicate_ids(self) -> None:
         with self.assertRaisesRegex(ValueError, "duplicates another agent route"):
@@ -1482,17 +1509,23 @@ class SlackProviderTests(unittest.TestCase):
 
         self.assertEqual(len(authorization.requests), 1)
         request = authorization.requests[0]
-        resource = request.resource
-        action = request.action
+        self.assertIsNotNone(request.filter)
+        assert request.filter is not None
+        resource = request.filter.resource
         self.assertIsNotNone(resource)
-        self.assertIsNotNone(action)
         self.assertEqual(resource.type, provider_module._agent.SLACK_USER_RESOURCE_TYPE)
         self.assertEqual(
             resource.id,
             provider_module.slack_user_resource_id("T123", "U456"),
         )
-        self.assertEqual(action.name, provider_module._agent.SLACK_USER_LINKED_ACTION)
-        self.assertEqual(request.subject_type, "")
+        self.assertEqual(
+            request.filter.relation,
+            provider_module._agent.SLACK_USER_LINKED_ACTION,
+        )
+        self.assertEqual(
+            request.filter.target_type,
+            gestalt.RELATIONSHIP_TARGET_TYPE_SUBJECT,
+        )
 
     def test_http_subject_dedupes_equivalent_linked_slack_user_subjects(
         self,

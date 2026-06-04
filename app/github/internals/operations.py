@@ -1934,8 +1934,8 @@ def require_repository_authorization(
             "GitHub bot operations require an authenticated subject"
         )
     try:
-        decision = (authorization or gestalt.Authorization()).evaluate(
-            gestalt.AccessEvaluationRequest(
+        decision = (authorization or gestalt.Authorization()).check_access(
+            gestalt.CheckAccessRequest(
                 subject=gestalt.AuthorizationSubject(type="subject", id=subject_id),
                 action=gestalt.AuthorizationAction(name=GITHUB_REPOSITORY_ACTION_BOT),
                 resource=gestalt.AuthorizationResource(

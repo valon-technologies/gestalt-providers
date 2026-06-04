@@ -850,12 +850,14 @@ def github_identity_link_self(
             return _server_error("GitHub /user response did not include id and login")
         name = str_field(profile, "name")
         email = str_field(profile, "email")
-        req.authorization().write_relationships(
-            gestalt.WriteRelationshipsRequest(
-                writes=[
-                    gestalt.Relationship(
-                        subject=gestalt.AuthorizationSubject(
-                            type="subject", id=subject_id
+        req.authorization().add_relationship(
+            gestalt.AddRelationshipRequest(
+                relationship=gestalt.Relationship(
+                    tuple=gestalt.RelationshipTuple(
+                        target=gestalt.RelationshipTarget(
+                            subject=gestalt.AuthorizationSubject(
+                                type="subject", id=subject_id
+                            )
                         ),
                         relation=GITHUB_USER_LINKED_ACTION,
                         resource=gestalt.AuthorizationResource(
@@ -866,8 +868,9 @@ def github_identity_link_self(
                                 "name": name,
                             },
                         ),
-                    )
-                ]
+                    ),
+                    source_layer=gestalt.SOURCE_LAYER_RUNTIME,
+                )
             )
         )
     except GitHubAPIError as err:
@@ -1803,18 +1806,30 @@ def _linked_github_user_id(req: gestalt.Request) -> str:
     if not subject_id:
         return ""
     try:
-        response = req.authorization().search_resources(
-            gestalt.ResourceSearchRequest(
-                subject=gestalt.AuthorizationSubject(type="subject", id=subject_id),
-                action=gestalt.AuthorizationAction(name=GITHUB_USER_LINKED_ACTION),
-                resource_type=GITHUB_USER_RESOURCE_TYPE,
+        response = req.authorization().list_relationships(
+            gestalt.ListRelationshipsRequest(
+                filter=gestalt.RelationshipFilter(
+                    target=gestalt.RelationshipTarget(
+                        subject=gestalt.AuthorizationSubject(
+                            type="subject", id=subject_id
+                        )
+                    ),
+                    relation=GITHUB_USER_LINKED_ACTION,
+                    resource_type=GITHUB_USER_RESOURCE_TYPE,
+                ),
                 page_size=2,
             )
         )
     except Exception as err:
         logger.warning("GitHub linked author lookup failed: %s", err)
         return ""
-    resources = [resource for resource in response.resources if resource.id.strip()]
+    resources = [
+        relationship.tuple.resource
+        for relationship in response.relationships
+        if relationship.tuple is not None
+        and relationship.tuple.resource is not None
+        and relationship.tuple.resource.id.strip()
+    ]
     if len(resources) != 1:
         if len(resources) > 1:
             logger.warning("GitHub subject resolved multiple linked users")

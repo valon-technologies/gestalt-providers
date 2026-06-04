@@ -2207,17 +2207,26 @@ def _resolve_slack_subject(
     user_id: str,
 ) -> gestalt.Subject | None:
     resource_id = slack_user_resource_id(team_id, user_id)
-    response = authorization.search_subjects(
-        gestalt.SubjectSearchRequest(
-            resource=gestalt.AuthorizationResource(
-                type=SLACK_USER_RESOURCE_TYPE,
-                id=resource_id,
+    response = authorization.list_relationships(
+        gestalt.ListRelationshipsRequest(
+            filter=gestalt.RelationshipFilter(
+                resource=gestalt.AuthorizationResource(
+                    type=SLACK_USER_RESOURCE_TYPE,
+                    id=resource_id,
+                ),
+                relation=SLACK_USER_LINKED_ACTION,
+                target_type=gestalt.RELATIONSHIP_TARGET_TYPE_SUBJECT,
             ),
-            action=gestalt.AuthorizationAction(name=SLACK_USER_LINKED_ACTION),
             page_size=10,
         )
     )
-    subjects = _dedupe_resolved_subjects(response.subjects)
+    subjects = _dedupe_resolved_subjects(
+        relationship.tuple.target.subject
+        for relationship in response.relationships
+        if relationship.tuple is not None
+        and relationship.tuple.target is not None
+        and relationship.tuple.target.subject is not None
+    )
     if len(subjects) > 1:
         raise gestalt.http_subject_error(
             HTTPStatus.INTERNAL_SERVER_ERROR,
