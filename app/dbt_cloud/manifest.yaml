@@ -9,6 +9,29 @@ spec:
     openapi:
       connection: default
       document: https://raw.githubusercontent.com/dbt-labs/dbt-cloud-openapi-spec/master/openapi-v2.yaml
+  allowedOperations:
+    "List Accounts":
+      alias: listAccounts
+    "Retrieve Account":
+      alias: retrieveAccount
+    "List Projects":
+      alias: listProjects
+    "Retrieve Project":
+      alias: retrieveProject
+    "List Jobs":
+      alias: listJobs
+    "Retrieve Job":
+      alias: retrieveJob
+    "Trigger Job Run":
+      alias: triggerJobRun
+    "List Runs":
+      alias: listRuns
+    "Retrieve Run":
+      alias: retrieveRun
+    "Cancel Run":
+      alias: cancelRun
+    "Retry Run":
+      alias: retryRun
   connections:
     default:
       auth:

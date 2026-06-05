@@ -10,63 +10,39 @@ spec:
       connection: default
       document: openapi.yaml
   allowedOperations:
-    counterparties.list:
-      alias: listCounterparties
+    listCounterparties:
       paginate: true
-    counterparties.get:
-      alias: getCounterparty
-    counterparties.create:
-      alias: createCounterparty
-    counterparties.update:
-      alias: updateCounterparty
-    externalAccounts.list:
-      alias: listExternalAccounts
+    getCounterparty:
+    createCounterparty:
+    updateCounterparty:
+    listExternalAccounts:
       paginate: true
-    externalAccounts.get:
-      alias: getExternalAccount
-    externalAccounts.create:
-      alias: createExternalAccount
-    externalAccounts.update:
-      alias: updateExternalAccount
-    internalAccounts.list:
-      alias: listInternalAccounts
+    getExternalAccount:
+    createExternalAccount:
+    updateExternalAccount:
+    listInternalAccounts:
       paginate: true
-    internalAccounts.get:
-      alias: getInternalAccount
-    paymentOrders.list:
-      alias: listPaymentOrders
+    getInternalAccount:
+    listPaymentOrders:
       paginate: true
-    paymentOrders.get:
-      alias: getPaymentOrder
-    paymentOrders.create:
-      alias: createPaymentOrder
-    paymentOrders.update:
-      alias: updatePaymentOrder
+    getPaymentOrder:
+    createPaymentOrder:
+    updatePaymentOrder:
       description: Update a payment order. To cancel a payment order, set `status` to `cancelled`.
-    transactions.list:
-      alias: listTransactions
+    listTransactions:
       paginate: true
-    transactions.get:
-      alias: getTransaction
-    returns.list:
-      alias: listReturns
+    getTransaction:
+    listReturns:
       paginate: true
-    returns.get:
-      alias: getReturn
-    incomingPaymentDetails.list:
-      alias: listIncomingPaymentDetails
+    getReturn:
+    listIncomingPaymentDetails:
       paginate: true
-    incomingPaymentDetails.get:
-      alias: getIncomingPaymentDetail
-    incomingPaymentDetails.update:
-      alias: updateIncomingPaymentDetail
-    balanceReports.list:
-      alias: listBalanceReports
+    getIncomingPaymentDetail:
+    updateIncomingPaymentDetail:
+    listBalanceReports:
       paginate: true
-    balanceReports.get:
-      alias: getBalanceReport
-    routingNumbers.validate:
-      alias: validateRoutingNumber
+    getBalanceReport:
+    validateRoutingNumber:
   connections:
     default:
       mode: subject
