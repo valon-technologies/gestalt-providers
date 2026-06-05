@@ -56,6 +56,7 @@ export class CursorSDKRunner {
     model: string;
     messages: readonly AgentMessage[];
     runGrant: string;
+    requestContext?: unknown;
     cwd: string;
     onEvent: TurnEventSink;
     schema?: Record<string, unknown> | undefined;
@@ -114,6 +115,7 @@ export class CursorSDKRunner {
       model: string;
       messages: readonly AgentMessage[];
       runGrant: string;
+      requestContext?: unknown;
       cwd: string;
       onEvent: TurnEventSink;
       schema?: Record<string, unknown> | undefined;
@@ -128,13 +130,14 @@ export class CursorSDKRunner {
         sessionId: input.sessionId,
         turnId: input.turnId,
         runGrant: input.runGrant,
+        requestContext: input.requestContext,
       });
       await this.raiseIfCanceled(active);
 
       active.bridge = await startMcpBridge({
         tools,
         executeTool: async (entry, toolCallId, args) => {
-          const request: ExecuteAgentToolRequest = {
+          const request: ExecuteAgentToolRequest & { context?: unknown } = {
             sessionId: input.sessionId,
             turnId: input.turnId,
             toolCallId,
@@ -143,6 +146,9 @@ export class CursorSDKRunner {
             runGrant: input.runGrant,
             idempotencyKey: `agent/cursor-sdk:${input.turnId}:${toolCallId}:${entry.mcpName}`,
           };
+          if (input.requestContext !== undefined) {
+            request.context = input.requestContext;
+          }
           const response = await host.executeTool(request);
           return { status: response.status, body: response.body };
         },

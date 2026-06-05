@@ -11,7 +11,7 @@ use axum::middleware::{self, Next};
 use axum::response::Response;
 use gestalt::{
     AgentHost, AgentHostExecuteToolInput, AgentHostListToolsInput, AgentToolAnnotations,
-    AgentToolRef, ListedAgentTool,
+    AgentToolRef, ListedAgentTool, proto::v1::RequestContext as GestaltRequestContext,
 };
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
@@ -101,9 +101,11 @@ pub async fn start_bridge(
     session_id: String,
     turn_id: String,
     run_grant: String,
+    request_context: Option<GestaltRequestContext>,
 ) -> Result<McpBridgeHandle, String> {
     let host = AgentHost::connect()
         .await
+        .map(|host| host.with_request_context(request_context))
         .map_err(|err| format!("connect Gestalt agent host for MCP bridge: {err}"))?;
     let bridge = GestaltMcpBridge {
         session_id,

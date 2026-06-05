@@ -39,11 +39,13 @@ class ToolExecutor:
         session_id: str,
         turn_id: str,
         run_grant: str,
+        request_context: Any | None = None,
         timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS,
     ) -> None:
         self._session_id = session_id
         self._turn_id = turn_id
         self._run_grant = run_grant
+        self._request_context = request_context
         self._timeout_seconds = timeout_seconds
         self._lock = threading.Lock()
         self._sequence = 0
@@ -60,6 +62,7 @@ class ToolExecutor:
             session_id=self._session_id,
             turn_id=self._turn_id,
             run_grant=self._run_grant,
+            request_context=self._request_context,
             entry=entry,
             tool_call_id=tool_call_id,
             idempotency_key=idempotency_key,
@@ -69,7 +72,12 @@ class ToolExecutor:
 
 
 def list_tools(
-    *, session_id: str, turn_id: str, run_grant: str, timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS
+    *,
+    session_id: str,
+    turn_id: str,
+    run_grant: str,
+    request_context: Any | None = None,
+    timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS,
 ) -> list[ToolEntry]:
     page_token = ""
     seen_tokens: set[str] = set()
@@ -90,6 +98,7 @@ def list_tools(
                 page_size=DEFAULT_PAGE_SIZE,
                 page_token=page_token,
                 run_grant=run_grant,
+                **_request_context_kwargs(request_context),
             )
             timeout = _coerce_timeout_seconds(timeout_seconds)
             try:
@@ -132,6 +141,7 @@ def execute_tool(
     session_id: str,
     turn_id: str,
     run_grant: str,
+    request_context: Any | None = None,
     entry: ToolEntry,
     tool_call_id: str,
     idempotency_key: str,
@@ -146,6 +156,7 @@ def execute_tool(
             tool_id=entry.tool_id,
             arguments=arguments or {},
             run_grant=run_grant,
+            **_request_context_kwargs(request_context),
             idempotency_key=idempotency_key,
         )
         timeout = _coerce_timeout_seconds(timeout_seconds)
@@ -295,3 +306,7 @@ def _grpc_error_message(rpc_name: str, exc: grpc.RpcError) -> str:
     code = code_value.name if code_value is not None else "UNKNOWN"
     details = error.details() or "gRPC call failed"
     return f"AgentHost.{rpc_name} failed: {code}: {details}"
+
+
+def _request_context_kwargs(request_context: Any | None) -> dict[str, Any]:
+    return {"context": request_context} if request_context is not None else {}

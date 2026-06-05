@@ -294,7 +294,13 @@ impl gestalt::AgentProvider for HermesAgentProvider {
 
         let turn = {
             let mut store = self.inner.store.lock().await;
-            match store.begin_turn(&req, &provider_name, model, &subject_id) {
+            match store.begin_turn(
+                &req,
+                &provider_name,
+                model,
+                &subject_id,
+                gestalt::current_request_context(),
+            ) {
                 Ok(BeginTurnResult::Created(turn)) => {
                     let worker = self.clone();
                     let turn_id = turn.id.clone();
@@ -621,6 +627,7 @@ impl HermesAgentProvider {
             tool_refs,
             tool_source,
             run_grant,
+            request_context,
         ) = {
             let store = self.inner.store.lock().await;
             let turn = store
@@ -638,6 +645,7 @@ impl HermesAgentProvider {
                 turn.tool_refs,
                 turn.tool_source,
                 turn.run_grant,
+                turn.request_context,
             )
         };
         let mcp_catalog_enabled = tool_source == gestalt::AgentToolSourceMode::McpCatalog;
@@ -667,6 +675,7 @@ impl HermesAgentProvider {
                     session_id.clone(),
                     turn_id.to_string(),
                     run_grant.clone(),
+                    request_context.clone(),
                 )
                 .await?;
                 let mcp_server = bridge.acp_server_config();
@@ -946,9 +955,9 @@ fn validate_turn_request(req: &gestalt::CreateAgentProviderTurnRequest) -> gesta
             }
         }
         gestalt::AgentToolSourceMode::McpCatalog => {
-            if req.run_grant.trim().is_empty() {
+            if gestalt::current_request_context().is_none() && req.run_grant.trim().is_empty() {
                 return Err(gestalt::Error::bad_request(
-                    "run_grant is required when tool_source=MCP_CATALOG",
+                    "request context is required when tool_source=MCP_CATALOG",
                 ));
             }
         }
@@ -1056,12 +1065,13 @@ fn turn_output_event_data(output: &gestalt::AgentTurnOutput) -> JsonValue {
 }
 
 fn validate_schema(schema: &JsonValue) -> Result<(), String> {
-    let object = schema.as_object().ok_or_else(|| {
-        "output.structured.schema must be a JSON schema object".to_string()
-    })?;
+    let object = schema
+        .as_object()
+        .ok_or_else(|| "output.structured.schema must be a JSON schema object".to_string())?;
     if object.is_empty() || schema.get("type").and_then(JsonValue::as_str) != Some("object") {
         return Err(
-            "output.structured.schema must be a non-empty JSON schema object with type 'object'".to_string(),
+            "output.structured.schema must be a non-empty JSON schema object with type 'object'"
+                .to_string(),
         );
     }
     jsonschema::validator_for(schema)
@@ -1125,8 +1135,7 @@ fn messages_to_prompt(
         writeln!(&mut prompt, "</message>").map_err(|err| err.to_string())?;
     }
     if let gestalt::AgentOutput::Structured(output) = output_request {
-        let schema =
-            serde_json::to_string(&output.schema).map_err(|err| err.to_string())?;
+        let schema = serde_json::to_string(&output.schema).map_err(|err| err.to_string())?;
         writeln!(
             &mut prompt,
             "\n<gestalt_structured_output>\nReturn only one JSON object matching this JSON Schema. Do not wrap it in Markdown or include explanatory text.\n{schema}\n</gestalt_structured_output>"

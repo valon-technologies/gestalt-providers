@@ -16,6 +16,7 @@ class BridgeContext:
     session_id: str
     turn_id: str
     run_grant: str
+    request_context: Any | None = None
     timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS
 
 
@@ -26,6 +27,7 @@ def create_server(context: BridgeContext) -> Server[Any, Any]:
         session_id=context.session_id,
         turn_id=context.turn_id,
         run_grant=context.run_grant,
+        request_context=context.request_context,
         timeout_seconds=context.timeout_seconds,
     )
 
@@ -36,6 +38,7 @@ def create_server(context: BridgeContext) -> Server[Any, Any]:
             session_id=context.session_id,
             turn_id=context.turn_id,
             run_grant=context.run_grant,
+            request_context=context.request_context,
             timeout_seconds=context.timeout_seconds,
         )
         entries_by_name.clear()
