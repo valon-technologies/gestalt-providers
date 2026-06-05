@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -640,53 +639,6 @@ func TestExternalCredentialProviderCredentialMaintenanceRejectsUnsupportedAuthCo
 	if !strings.Contains(err.Error(), "unknown tokenExchange") {
 		t.Fatalf("ConfigureProvider error = %v, want unknown tokenExchange", err)
 	}
-}
-
-func TestExternalCredentialProviderCredentialMaintenanceScansImmediately(t *testing.T) {
-	provider := New()
-	dbs := startTestIndexedDBs(t, testIndexedDBOptions{seedStore: true})
-	configureProvider(t, provider, dbs, map[string]any{
-		"encryptionKey": "maintenance-immediate-key",
-	})
-	defer func() { _ = provider.Close() }()
-
-	_, err := provider.UpsertCredential(context.Background(), &gestalt.UpsertExternalCredentialRequest{
-		Credential: &gestalt.ExternalCredential{
-			SubjectID:    "user:immediate",
-			ConnectionID: "gmail:default",
-			Instance:     "default",
-			AccessToken:  "old-access-token",
-			RefreshToken: "immediate-refresh-token",
-			ExpiresAt:    testTimePtr(time.Now().Add(5 * time.Minute)),
-		},
-	})
-	if err != nil {
-		t.Fatalf("UpsertCredential(seed): %v", err)
-	}
-
-	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"access_token":"immediate-access-token","expires_in":3600}`))
-	}))
-	defer tokenServer.Close()
-
-	configureProvider(t, provider, dbs, credentialRefreshProviderConfig("maintenance-immediate-key", tokenServer.URL))
-	waitForCondition(t, 2*time.Second, func() (bool, error) {
-		got, err := provider.GetCredential(context.Background(), &gestalt.GetExternalCredentialRequest{
-			Lookup: &gestalt.ExternalCredentialLookup{
-				SubjectID:    "user:immediate",
-				ConnectionID: "gmail:default",
-				Instance:     "default",
-			},
-		})
-		if err != nil {
-			return false, err
-		}
-		if got.GetAccessToken() != "immediate-access-token" {
-			return false, fmt.Errorf("access token = %q, want immediate-access-token", got.GetAccessToken())
-		}
-		return true, nil
-	})
 }
 
 func TestExternalCredentialProviderCredentialMaintenanceSharesResolveSingleflight(t *testing.T) {

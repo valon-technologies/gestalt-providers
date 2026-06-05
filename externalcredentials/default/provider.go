@@ -132,7 +132,6 @@ func (p *Provider) credentialRefreshLoop(ctx context.Context, st *store, targets
 	if interval <= 0 {
 		return
 	}
-	p.logCredentialRefreshStats(p.runCredentialRefreshOnceWith(ctx, st, targets))
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
