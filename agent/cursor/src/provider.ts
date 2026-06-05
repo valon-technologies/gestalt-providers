@@ -286,6 +286,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         model,
         messages: turn.messages,
         runGrant: request.runGrant.trim(),
+        requestContext: requestContext(request),
         cwd: session.preparedWorkspace?.cwd ?? "",
         schema,
       });
@@ -462,6 +463,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     model: string;
     messages: AgentMessage[];
     runGrant: string;
+    requestContext?: unknown;
     cwd: string;
     schema?: Record<string, unknown> | undefined;
   }): Promise<void> {
@@ -472,6 +474,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         model: input.model,
         messages: input.messages,
         runGrant: input.runGrant,
+        requestContext: input.requestContext,
         cwd: input.cwd,
         schema: input.schema,
         onEvent: (eventType, data) => {
@@ -550,8 +553,8 @@ function validateCreateTurnRequest(
   if (request.toolSource !== AgentToolSourceMode.MCP_CATALOG) {
     throw invalidArgument("agent/cursor requires toolSource mcp_catalog");
   }
-  if (!request.runGrant.trim()) {
-    throw invalidArgument("run_grant is required");
+  if (requestContext(request) === undefined && !request.runGrant.trim()) {
+    throw invalidArgument("request context is required");
   }
   if (request.tools.length > 0) {
     throw invalidArgument(
@@ -571,6 +574,10 @@ function validateCreateTurnRequest(
   }
   validateToolRefs(request.toolRefs);
   return schema;
+}
+
+function requestContext(request: CreateAgentProviderTurnRequest): unknown | undefined {
+  return (request as CreateAgentProviderTurnRequest & { context?: unknown }).context;
 }
 
 function schemaFromOutput(

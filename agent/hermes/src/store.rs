@@ -2,9 +2,10 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gestalt::{
-    AgentActor, AgentExecutionStatus, AgentMessage, AgentOutput, AgentSession, AgentSessionState,
-    AgentToolRef, AgentToolSourceMode, AgentTurn, AgentTurnDisplay, AgentTurnEvent,
-    AgentTurnOutput, CreateAgentProviderSessionRequest, CreateAgentProviderTurnRequest,
+    AgentExecutionStatus, AgentMessage, AgentOutput, AgentSession, AgentSessionState, AgentToolRef,
+    AgentToolSourceMode, AgentTurn, AgentTurnDisplay, AgentTurnEvent, AgentTurnOutput,
+    CreateAgentProviderSessionRequest, CreateAgentProviderTurnRequest,
+    proto::v1::RequestContext as GestaltRequestContext,
 };
 
 #[derive(Clone)]
@@ -50,6 +51,7 @@ pub struct StoredTurn {
     pub tool_refs: Vec<AgentToolRef>,
     pub tool_source: AgentToolSourceMode,
     pub run_grant: String,
+    pub request_context: Option<GestaltRequestContext>,
 }
 
 #[derive(Clone)]
@@ -126,10 +128,10 @@ impl Store {
             state: AgentSessionState::Active,
             visibility: session_visibility(
                 req.metadata.as_ref(),
-                &subject_id_from_actor(req.created_by.as_ref()),
+                req.created_by_subject_id.as_deref().unwrap_or_default(),
             ),
             metadata: req.metadata.clone(),
-            created_by_subject_id: subject_id_from_actor(req.created_by.as_ref()),
+            created_by_subject_id: req.created_by_subject_id.clone().unwrap_or_default(),
             created_at: Some(now),
             updated_at: Some(now),
             last_turn_at: None,
@@ -244,6 +246,7 @@ impl Store {
         provider_name: &str,
         model: String,
         subject_id: &str,
+        request_context: Option<GestaltRequestContext>,
     ) -> Result<BeginTurnResult, String> {
         let turn_id = req.turn_id.trim();
         let session_id = req.session_id.trim();
@@ -296,7 +299,7 @@ impl Store {
             output_buffer: String::new(),
             output: None,
             status_message: String::new(),
-            created_by_subject_id: subject_id_from_actor(req.created_by.as_ref()),
+            created_by_subject_id: req.created_by_subject_id.clone().unwrap_or_default(),
             created_at: Some(now),
             started_at: Some(now),
             completed_at: None,
@@ -304,6 +307,7 @@ impl Store {
             tool_refs: req.tool_refs.clone(),
             tool_source: req.tool_source,
             run_grant: req.run_grant.trim().to_string(),
+            request_context,
         };
         self.turns.insert(turn.id.clone(), turn.clone());
         if !idempotency_key.is_empty() {
@@ -511,7 +515,7 @@ pub fn agent_session(session: StoredSession, summary_only: bool) -> AgentSession
         client_ref: session.client_ref,
         state: session.state,
         metadata: if summary_only { None } else { session.metadata },
-        created_by: agent_actor_from_subject_id(&session.created_by_subject_id),
+        created_by_subject_id: Some(session.created_by_subject_id),
         created_at: session.created_at,
         updated_at: session.updated_at,
         last_turn_at: session.last_turn_at,
@@ -532,7 +536,7 @@ pub fn agent_turn(turn: StoredTurn, summary_only: bool) -> AgentTurn {
         },
         output: if summary_only { None } else { turn.output },
         status_message: turn.status_message,
-        created_by: agent_actor_from_subject_id(&turn.created_by_subject_id),
+        created_by_subject_id: Some(turn.created_by_subject_id),
         created_at: turn.created_at,
         started_at: turn.started_at,
         completed_at: turn.completed_at,
@@ -560,7 +564,10 @@ fn is_terminal(status: AgentExecutionStatus) -> bool {
         || status == AgentExecutionStatus::Canceled
 }
 
-fn session_visibility(metadata: Option<&serde_json::Value>, created_by_subject_id: &str) -> SessionVisibility {
+fn session_visibility(
+    metadata: Option<&serde_json::Value>,
+    created_by_subject_id: &str,
+) -> SessionVisibility {
     if is_slack_agent_session_metadata(metadata) && is_managed_subject_id(created_by_subject_id) {
         SessionVisibility::Company
     } else {
@@ -586,23 +593,6 @@ fn non_empty_json_string(value: Option<&serde_json::Value>) -> bool {
 
 fn is_managed_subject_id(subject_id: &str) -> bool {
     subject_id.trim().starts_with("service_account:")
-}
-
-fn subject_id_from_actor(actor: Option<&AgentActor>) -> String {
-    actor
-        .map(|actor| actor.subject_id.trim().to_string())
-        .unwrap_or_default()
-}
-
-fn agent_actor_from_subject_id(subject_id: &str) -> Option<AgentActor> {
-    let subject_id = subject_id.trim();
-    if subject_id.is_empty() {
-        return None;
-    }
-    Some(AgentActor {
-        subject_id: subject_id.to_string(),
-        ..AgentActor::default()
-    })
 }
 
 pub(crate) fn session_readable_by(session: &StoredSession, subject_id: &str) -> bool {

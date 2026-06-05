@@ -867,7 +867,7 @@ async fn explicit_no_tool_turn_allows_run_grant_without_mcp_servers() {
                 ..Default::default()
             }],
             output: gestalt::AgentOutput::text(),
-            created_by: Some(owner_actor()),
+            created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
             ..empty_turn_request()
         })
@@ -891,7 +891,7 @@ async fn explicit_no_tool_turn_allows_run_grant_without_mcp_servers() {
                 ..Default::default()
             }],
             output: gestalt::AgentOutput::text(),
-            created_by: Some(owner_actor()),
+            created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
             ..empty_turn_request()
         })
@@ -941,7 +941,7 @@ async fn structured_output_turn_returns_validated_value() {
                     }
                 }),
             }),
-            created_by: Some(owner_actor()),
+            created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
             ..empty_turn_request()
         })
@@ -986,7 +986,7 @@ async fn structured_output_turn_fails_invalid_json() {
                     "properties": {"score": {"type": "number"}}
                 }),
             }),
-            created_by: Some(owner_actor()),
+            created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
             ..empty_turn_request()
         })
@@ -1053,7 +1053,7 @@ async fn rejects_unsupported_tool_and_model_options() {
                 name: "tool".to_string(),
                 ..Default::default()
             }],
-            created_by: Some(owner_actor()),
+            created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
             ..empty_turn_request()
         })
@@ -1076,7 +1076,7 @@ async fn rejects_unsupported_tool_and_model_options() {
                 app: "*".to_string(),
                 ..Default::default()
             }],
-            created_by: Some(owner_actor()),
+            created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
             ..empty_turn_request()
         })
@@ -1096,7 +1096,7 @@ async fn rejects_unsupported_tool_and_model_options() {
             output: gestalt::AgentOutput::Structured(gestalt::AgentStructuredOutput {
                 schema: json!({}),
             }),
-            created_by: Some(owner_actor()),
+            created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
             ..empty_turn_request()
         })
@@ -1115,7 +1115,7 @@ async fn rejects_unsupported_tool_and_model_options() {
             }],
             output: gestalt::AgentOutput::text(),
             model_options: Some(json!({ "type": "object" })),
-            created_by: Some(owner_actor()),
+            created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
             ..empty_turn_request()
         })
@@ -1279,7 +1279,7 @@ async fn slack_metadata_makes_session_company_visible_at_create_only() {
         &provider,
         "session-company",
         "turn-company",
-        slack_actor(),
+        SLACK_SUBJECT_ID,
         slack_subject(),
     )
     .await;
@@ -1501,7 +1501,7 @@ async fn non_owner_cannot_mutate_company_visible_session_or_turn() {
             }],
             output: gestalt::AgentOutput::text(),
             subject: Some(other_subject()),
-            created_by: Some(subject_actor(OTHER_SUBJECT_ID)),
+            created_by_subject_id: Some(OTHER_SUBJECT_ID.to_string()),
             ..empty_turn_request()
         })
         .await
@@ -1512,7 +1512,7 @@ async fn non_owner_cannot_mutate_company_visible_session_or_turn() {
         &provider,
         "session-company-write",
         "turn-company-write-owner",
-        slack_actor(),
+        SLACK_SUBJECT_ID,
         slack_subject(),
     )
     .await;
@@ -1990,7 +1990,7 @@ async fn create_session_with(
             session_id: session_id.to_string(),
             model: "kimi-k2.6".to_string(),
             metadata,
-            created_by: Some(subject_actor(owner_subject_id)),
+            created_by_subject_id: Some(owner_subject_id.to_string()),
             subject,
             ..Default::default()
         })
@@ -2011,7 +2011,7 @@ async fn create_turn_in_session(
         provider,
         session_id,
         turn_id,
-        owner_actor(),
+        OWNER_SUBJECT_ID,
         owner_subject(),
     )
     .await
@@ -2021,7 +2021,7 @@ async fn create_turn_in_session_as(
     provider: &HermesAgentProvider,
     session_id: &str,
     turn_id: &str,
-    created_by: gestalt::AgentActor,
+    created_by_subject_id: &str,
     subject: gestalt::Subject,
 ) -> gestalt::AgentTurn {
     provider
@@ -2034,7 +2034,7 @@ async fn create_turn_in_session_as(
                 ..Default::default()
             }],
             output: gestalt::AgentOutput::text(),
-            created_by: Some(created_by),
+            created_by_subject_id: Some(created_by_subject_id.to_string()),
             subject: Some(subject),
             ..empty_turn_request()
         })
@@ -2059,7 +2059,7 @@ async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> gesta
                 ..Default::default()
             }],
             run_grant: "grant-mcp".to_string(),
-            created_by: Some(owner_actor()),
+            created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
             ..empty_turn_request()
         })
@@ -2067,16 +2067,8 @@ async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> gesta
         .unwrap()
 }
 
-fn owner_actor() -> gestalt::AgentActor {
-    subject_actor(OWNER_SUBJECT_ID)
-}
-
 fn owner_subject() -> gestalt::Subject {
     subject_context(OWNER_SUBJECT_ID)
-}
-
-fn slack_actor() -> gestalt::AgentActor {
-    service_account_actor(SLACK_SUBJECT_ID)
 }
 
 fn slack_subject() -> gestalt::Subject {
@@ -2105,7 +2097,7 @@ fn empty_turn_request() -> gestalt::CreateAgentProviderTurnRequest {
         tools: Vec::new(),
         output: gestalt::AgentOutput::text(),
         metadata: None,
-        created_by: None,
+        created_by_subject_id: None,
         execution_ref: String::new(),
         tool_refs: Vec::new(),
         tool_source: gestalt::AgentToolSourceMode::Unspecified,
@@ -2117,26 +2109,10 @@ fn empty_turn_request() -> gestalt::CreateAgentProviderTurnRequest {
     }
 }
 
-fn subject_actor(subject_id: &str) -> gestalt::AgentActor {
-    gestalt::AgentActor {
-        subject_id: subject_id.to_string(),
-        subject_kind: "human".to_string(),
-        ..Default::default()
-    }
-}
-
-fn service_account_actor(subject_id: &str) -> gestalt::AgentActor {
-    gestalt::AgentActor {
-        subject_id: subject_id.to_string(),
-        subject_kind: "service_account".to_string(),
-        ..Default::default()
-    }
-}
-
 fn subject_context(subject_id: &str) -> gestalt::Subject {
     gestalt::Subject {
         id: subject_id.to_string(),
-        kind: "human".to_string(),
+        credential_subject_id: subject_id.to_string(),
         ..Default::default()
     }
 }
@@ -2144,7 +2120,7 @@ fn subject_context(subject_id: &str) -> gestalt::Subject {
 fn service_account_subject(subject_id: &str) -> gestalt::Subject {
     gestalt::Subject {
         id: subject_id.to_string(),
-        kind: "service_account".to_string(),
+        credential_subject_id: subject_id.to_string(),
         ..Default::default()
     }
 }

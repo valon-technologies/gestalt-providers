@@ -1622,8 +1622,8 @@ class ClaudeProviderTests(unittest.TestCase):
         bad_source.tool_source = 999
         _assert_invalid(provider_client, bad_source, "requires toolSource none or mcp_catalog")
 
-        missing_grant = _turn_request(turn_id="turn-missing-grant", session_id="session-validation", run_grant="")
-        _assert_invalid(provider_client, missing_grant, "run_grant is required")
+        missing_context = _turn_request(turn_id="turn-missing-context", session_id="session-validation", run_grant="")
+        _assert_invalid(provider_client, missing_context, "request context is required")
 
         wildcard_ref = _turn_request(turn_id="turn-wildcard", session_id="session-validation")
         wildcard_ref.tool_refs[0].operation = "*"

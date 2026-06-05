@@ -540,8 +540,8 @@ class CodexProviderTests(unittest.TestCase):
         bad_source.tool_source = 999
         _assert_invalid(provider_client, bad_source, "requires toolSource mcp_catalog")
 
-        missing_grant = _turn_request(turn_id="turn-missing-grant", session_id="session-validation", run_grant="")
-        _assert_invalid(provider_client, missing_grant, "run_grant is required")
+        missing_context = _turn_request(turn_id="turn-missing-context", session_id="session-validation", run_grant="")
+        _assert_invalid(provider_client, missing_context, "request context is required")
 
         missing_refs = _turn_request(turn_id="turn-missing-refs", session_id="session-validation")
         del missing_refs.tool_refs[:]

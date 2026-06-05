@@ -1013,7 +1013,7 @@ describe("Cursor agent provider contract", () => {
         { toolSource: 999 as AgentToolSourceMode },
         "requires toolSource",
       ],
-      ["missing grant", { runGrant: "" }, "run_grant is required"],
+      ["missing request context", { runGrant: "" }, "request context is required"],
       ["missing refs", { toolRefs: [] }, "tool_refs are required"],
       [
         "wildcard ref",

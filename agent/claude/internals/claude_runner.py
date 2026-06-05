@@ -77,6 +77,7 @@ class _ClaudeResponse:
 class ClaudeTurnProfile:
     kind: Literal["catalog", "direct"]
     run_grant: str = ""
+    request_context: Any | None = None
     schema: dict[str, Any] | None = None
     claude_code_options: ClaudeCodeTurnOptions | None = None
     cwd: str | None = None
@@ -86,11 +87,19 @@ class ClaudeTurnProfile:
         cls,
         *,
         run_grant: str,
+        request_context: Any | None = None,
         schema: dict[str, Any] | None = None,
         claude_code_options: ClaudeCodeTurnOptions,
         cwd: str,
     ) -> "ClaudeTurnProfile":
-        return cls(kind="catalog", run_grant=run_grant, schema=schema, claude_code_options=claude_code_options, cwd=cwd)
+        return cls(
+            kind="catalog",
+            run_grant=run_grant,
+            request_context=request_context,
+            schema=schema,
+            claude_code_options=claude_code_options,
+            cwd=cwd,
+        )
 
     @classmethod
     def direct(cls, *, schema: dict[str, Any] | None = None) -> "ClaudeTurnProfile":
@@ -219,6 +228,7 @@ class ClaudeSDKRunner:
                     claude_code_options = self._config.claude_code.resolve_turn_options({})
                 turn_profile = ClaudeTurnProfile.catalog(
                     run_grant=str(run_grant or "").strip(),
+                    request_context=None,
                     schema=schema,
                     claude_code_options=claude_code_options,
                     cwd=cwd,
@@ -262,7 +272,10 @@ class ClaudeSDKRunner:
             allowed_tools=allowed_gestalt_mcp_tools() + claude_code_options.allowed_tools,
             mcp_servers={
                 MCP_SERVER_NAME: create_gestalt_sdk_mcp_server(
-                    session_id=session_id, turn_id=turn_id, run_grant=turn_profile.run_grant
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    run_grant=turn_profile.run_grant,
+                    request_context=turn_profile.request_context,
                 )
             },
             setting_sources=list(claude_code_options.setting_sources),

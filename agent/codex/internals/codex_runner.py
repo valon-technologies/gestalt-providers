@@ -133,6 +133,7 @@ class CodexMCPRunner:
         model: str,
         messages: list[dict[str, Any]],
         run_grant: str,
+        request_context: Any | None = None,
         skill_roots: list[str] | None = None,
         cwd: str = "",
         schema: dict[str, Any] | None = None,
@@ -146,6 +147,7 @@ class CodexMCPRunner:
                         model=model,
                         messages=messages,
                         run_grant=run_grant,
+                        request_context=request_context,
                         skill_roots=skill_roots or [],
                         cwd=cwd,
                         schema=schema,
@@ -183,6 +185,7 @@ class CodexMCPRunner:
         model: str,
         messages: list[dict[str, Any]],
         run_grant: str,
+        request_context: Any | None,
         skill_roots: list[str],
         cwd: str,
         schema: dict[str, Any] | None,
@@ -205,6 +208,7 @@ class CodexMCPRunner:
                     session_id=session_id,
                     turn_id=turn_id,
                     run_grant=run_grant,
+                    request_context=request_context,
                     timeout_seconds=self._config.timeout_seconds,
                 )
             except ToolBridgeError as exc:
@@ -216,6 +220,7 @@ class CodexMCPRunner:
                     session_id=session_id,
                     turn_id=turn_id,
                     run_grant=run_grant,
+                    request_context=request_context,
                     timeout_seconds=self._config.timeout_seconds,
                 )
             )
