@@ -6,6 +6,8 @@ import json
 import logging
 import tempfile
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
@@ -138,7 +140,6 @@ class ClaudeSDKRunner:
         turn_id = turn_id.strip()
         if not turn_id:
             return
-        active: _ActiveTurn | None = None
         with self._lock:
             self._canceled_turns.add(turn_id)
             active = self._active_turns.get(turn_id)
@@ -147,9 +148,9 @@ class ClaudeSDKRunner:
 
     def close(self) -> None:
         with self._lock:
-            active_turns = list(self._active_turns.items())
-            self._canceled_turns.update(turn_id for turn_id, _active in active_turns)
-        for _turn_id, active in active_turns:
+            active_turns = list(self._active_turns.values())
+            self._canceled_turns.update(self._active_turns)
+        for active in active_turns:
             if active.client is not None:
                 _schedule_interrupt(active.loop, active.client)
 
@@ -162,9 +163,7 @@ class ClaudeSDKRunner:
         messages: list[dict[str, Any]],
         turn_profile: ClaudeTurnProfile,
     ) -> gestalt.AgentTurnOutput:
-        loop = asyncio.get_running_loop()
-        self._register_active_turn(turn_id, _ActiveTurn(loop=loop))
-        try:
+        with self._active_turn(turn_id):
             self._raise_if_canceled(turn_id)
             prompt = _messages_to_prompt(messages)
             if not prompt:
@@ -176,18 +175,11 @@ class ClaudeSDKRunner:
                 client = ClaudeSDKClient(options=options)
                 self._register_active_client(turn_id, client)
                 self._raise_if_canceled(turn_id)
-                await client.connect()
-                await client.query(prompt, session_id=session_id)
-                output = await self._receive_result(client, turn_id=turn_id, turn_profile=turn_profile)
-                self._raise_if_canceled(turn_id)
-                return output
-        finally:
-            active = self._unregister_active_turn(turn_id)
-            if active is not None and active.client is not None:
-                try:
-                    await active.client.disconnect()
-                except Exception:
-                    logger.exception("failed to disconnect Claude SDK client")
+                async with client:
+                    await client.query(prompt, session_id=session_id)
+                    output = await self._receive_result(client, turn_id=turn_id, turn_profile=turn_profile)
+                    self._raise_if_canceled(turn_id)
+                    return output
 
     async def _receive_result(
         self, client: ClaudeSDKClient, *, turn_id: str, turn_profile: ClaudeTurnProfile
@@ -298,27 +290,26 @@ class ClaudeSDKRunner:
             output_format=output_format,
         )
 
-    def _register_active_turn(self, turn_id: str, active: _ActiveTurn) -> None:
+    @contextmanager
+    def _active_turn(self, turn_id: str) -> Iterator[None]:
         with self._lock:
-            self._active_turns[turn_id] = active
+            self._active_turns[turn_id] = _ActiveTurn(loop=asyncio.get_running_loop())
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._active_turns.pop(turn_id, None)
+                self._canceled_turns.discard(turn_id)
 
     def _register_active_client(self, turn_id: str, client: ClaudeSDKClient) -> None:
-        should_interrupt = False
         with self._lock:
             active = self._active_turns.get(turn_id)
-            if active is not None:
-                active.client = client
+            if active is None:
+                return
+            active.client = client
             should_interrupt = turn_id in self._canceled_turns
         if should_interrupt:
-            active = self._active_turns.get(turn_id)
-            if active is not None:
-                _schedule_interrupt(active.loop, client)
-
-    def _unregister_active_turn(self, turn_id: str) -> _ActiveTurn | None:
-        with self._lock:
-            active = self._active_turns.pop(turn_id, None)
-            self._canceled_turns.discard(turn_id)
-            return active
+            _schedule_interrupt(active.loop, client)
 
     def _raise_if_canceled(self, turn_id: str) -> None:
         if self._is_canceled(turn_id):

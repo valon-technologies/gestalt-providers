@@ -187,6 +187,14 @@ class _FakeClaudeSDKClient:
         self._interrupt_event: asyncio.Event | None = None
         self.instances.append(self)
 
+    async def __aenter__(self) -> "_FakeClaudeSDKClient":
+        await self.connect()
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+        await self.disconnect()
+        return False
+
     async def connect(self) -> None:
         self.connected = True
         self._interrupt_event = asyncio.Event()
