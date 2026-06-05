@@ -8,7 +8,7 @@ spec:
   surfaces:
     openapi:
       connection: default
-      document: https://raw.githubusercontent.com/dbt-labs/dbt-cloud-openapi-spec/master/openapi-v2.yaml
+      document: openapi.yaml
   allowedOperations:
     "List Accounts":
       alias: listAccounts
