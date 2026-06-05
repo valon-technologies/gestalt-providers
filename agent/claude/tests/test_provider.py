@@ -191,7 +191,7 @@ class _FakeClaudeSDKClient:
         await self.connect()
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> bool:
+    async def __aexit__(self, _exc_type: Any, _exc_val: Any, _exc_tb: Any) -> bool:
         await self.disconnect()
         return False
 
@@ -660,9 +660,7 @@ class ClaudeProviderTests(unittest.TestCase):
 
         provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-claude",
-                model="sonnet-session",
-                created_by_subject_id="user-123",
+                session_id="session-claude", model="sonnet-session", created_by_subject_id="user-123"
             )
         )
         started = provider_client.CreateTurn(
@@ -825,8 +823,7 @@ class ClaudeProviderTests(unittest.TestCase):
         _, provider_client = _configure_provider()
         private = provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-private",
-                created_by_subject_id="user-owner",
+                session_id="session-private", created_by_subject_id="user-owner"
             )
         )
         self.assertEqual(private.id, "session-private")
@@ -834,9 +831,7 @@ class ClaudeProviderTests(unittest.TestCase):
         slack_metadata.update(_slack_session_metadata())
         shared = provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-slack",
-                metadata=slack_metadata,
-                created_by_subject_id="service_account:slack-bot",
+                session_id="session-slack", metadata=slack_metadata, created_by_subject_id="service_account:slack-bot"
             )
         )
         self.assertEqual(shared.id, "session-slack")
@@ -1033,9 +1028,7 @@ class ClaudeProviderTests(unittest.TestCase):
 
         client_a.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-durable",
-                model="sonnet-session",
-                created_by_subject_id="user-123",
+                session_id="session-durable", model="sonnet-session", created_by_subject_id="user-123"
             )
         )
         _stop_runtime(provider_a, server_a, socket_a, channel_a)
@@ -1993,10 +1986,7 @@ def _turn_request(
 
 def _owned_session_request(session_id: str, **kwargs: Any) -> Any:
     return agent_pb2.CreateAgentProviderSessionRequest(
-        session_id=session_id,
-        created_by_subject_id="user-123",
-        subject=_subject_context("user-123"),
-        **kwargs,
+        session_id=session_id, created_by_subject_id="user-123", subject=_subject_context("user-123"), **kwargs
     )
 
 
