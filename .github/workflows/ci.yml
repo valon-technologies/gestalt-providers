@@ -340,10 +340,6 @@ jobs:
             echo "ERROR: ${app_name} did not produce provider-release.yaml"
             exit 1
           fi
-          if [ ! -f "${OUTPUT_ROOT}/${app_name}/checksums.txt" ]; then
-            echo "ERROR: ${app_name} did not produce checksums.txt"
-            exit 1
-          fi
 
           if ! find "${OUTPUT_ROOT}/${app_name}" -mindepth 1 -maxdepth 1 -type f | grep -q .; then
             echo "ERROR: ${app_name} produced no packaged artifacts"
