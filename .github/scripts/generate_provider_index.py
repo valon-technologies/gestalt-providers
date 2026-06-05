@@ -38,6 +38,7 @@ PACKAGE_ROOTS = (
     "workflow",
     "cache",
     "secrets",
+    "test",
     "ui",
 )
 GENERIC_PLATFORM = "generic"

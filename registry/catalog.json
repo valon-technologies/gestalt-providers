@@ -2880,6 +2880,35 @@
     },
     {
       "configTarget": {
+        "entryKind": "test",
+        "section": "providers.test"
+      },
+      "description": "Minimal kind=test provider used to validate provider registration and invocation.",
+      "displayName": "Test Provider",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/test/hello-world/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/test/hello-world/README.md",
+          "sourcePath": "test/hello-world/README.md",
+          "title": "Test Provider"
+        }
+      ],
+      "iconUrl": null,
+      "kind": "test",
+      "latestInstallableVersion": null,
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/test/hello-world/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "hello-world",
+      "package": "github.com/valon-technologies/gestalt-providers/test/hello-world",
+      "packagePath": "test/hello-world",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/test/hello-world/README.md",
+      "registryPath": "/providers/test/hello-world/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/test/hello-world",
+      "versions": []
+    },
+    {
+      "configTarget": {
         "entryKind": "ui",
         "requiredSet": {
           "path": "/"
