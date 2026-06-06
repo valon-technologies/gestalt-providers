@@ -11,9 +11,6 @@ const (
 	updateAddSignal = "gestalt.add_signal"
 	updateCancelRun = "gestalt.cancel_run"
 	updateClaimRun  = "gestalt.claim_run"
-
-	workflowInvokeMetadataWorkflowKey  = "workflow_key"
-	workflowInvokeMetadataDefinitionID = "definition_id"
 )
 
 type workflowActivities struct {

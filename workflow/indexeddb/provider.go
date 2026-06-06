@@ -54,13 +54,11 @@ const (
 	triggerKindSchedule = "schedule"
 	triggerKindEvent    = "event"
 
-	gestaltInputKey                    = "_gestalt"
-	configManagedWorkflowSubject       = "system:config"
-	workflowMetadataKey                = "workflow"
-	workflowInvokeMetadataWorkflowKey  = "workflow_key"
-	workflowInvokeMetadataDefinitionID = "definition_id"
-	dispatchPriorityMetadataKey        = "dispatchPriority"
-	staleRunStatusMessage              = "workflow provider restarted while run was in progress"
+	gestaltInputKey              = "_gestalt"
+	configManagedWorkflowSubject = "system:config"
+	workflowMetadataKey          = "workflow"
+	dispatchPriorityMetadataKey  = "dispatchPriority"
+	staleRunStatusMessage        = "workflow provider restarted while run was in progress"
 
 	signalStatePending   = "pending"
 	signalStateClaimed   = "claimed"
@@ -128,6 +126,7 @@ type workflowScheduleRecord struct {
 
 type workflowRunRecord struct {
 	ID                    string
+	ProviderName          string
 	Status                gestalt.WorkflowRunStatus
 	Target                *gestalt.BoundWorkflowTarget
 	TriggerKind           string
@@ -509,6 +508,7 @@ func (p *Provider) StartRun(ctx context.Context, req *gestalt.StartWorkflowProvi
 	}
 	run := workflowRunRecord{
 		ID:                   runID,
+		ProviderName:         state.providerName,
 		Status:               gestalt.WorkflowRunStatusValuePending,
 		Target:               cloneTarget(definition.Target),
 		TriggerKind:          triggerKindManual,
@@ -520,6 +520,10 @@ func (p *Provider) StartRun(ctx context.Context, req *gestalt.StartWorkflowProvi
 		RunAs:                firstSubject(req.RunAs, definition.RunAs),
 		WorkflowKey:          workflowKey,
 		NextSignalSequence:   1,
+	}
+	if err := validateWorkflowRunAs(run.RunAs); err != nil {
+		p.mu.Unlock()
+		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 	if err := state.runStore.Add(ctx, run.toRecord()); err != nil {
 		if key != "" && errors.Is(err, gestalt.ErrAlreadyExists) {
@@ -822,7 +826,7 @@ func (p *Provider) SignalOrStartRun(ctx context.Context, req *gestalt.SignalOrSt
 			return nil, status.Errorf(codes.Internal, "start signal transaction: %v", err)
 		}
 
-		resp, signalID, err := signalOrStartRunInTransaction(ctx, stores, target, definition, req, workflowKey, signal, now, state.runClaimTTL)
+		resp, signalID, err := signalOrStartRunInTransaction(ctx, stores, state.providerName, target, definition, req, workflowKey, signal, now, state.runClaimTTL)
 		if err != nil {
 			_ = tx.Abort(ctx)
 			var conflict *workflowSignalAddConflictError
@@ -942,6 +946,7 @@ func (p *Provider) DeliverEvent(ctx context.Context, req *gestalt.DeliverWorkflo
 		}
 		run := workflowRunRecord{
 			ID:                    runID,
+			ProviderName:          state.providerName,
 			Status:                gestalt.WorkflowRunStatusValuePending,
 			Target:                cloneTarget(match.Definition.Target),
 			TriggerKind:           triggerKindEvent,
@@ -954,6 +959,10 @@ func (p *Provider) DeliverEvent(ctx context.Context, req *gestalt.DeliverWorkflo
 			Input:                 cloneAnyMap(input),
 			RunAs:                 cloneSubject(match.Definition.RunAs),
 			NextSignalSequence:    1,
+		}
+		if err := validateWorkflowRunAs(run.RunAs); err != nil {
+			p.mu.RUnlock()
+			return nil, status.Errorf(codes.FailedPrecondition, "workflow definition %q run_as: %v", match.Definition.ID, err)
 		}
 		if err := state.runStore.Add(ctx, run.toRecord()); err != nil {
 			if errors.Is(err, gestalt.ErrAlreadyExists) {
@@ -1020,7 +1029,7 @@ func signalRunInTransaction(ctx context.Context, stores workflowSignalTxStores, 
 	return enqueueSignalInTransaction(ctx, stores.runStore, stores.idempotencyStore, stores.signalStore, run, signal, false)
 }
 
-func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrStartTxStores, target scopedTarget, definition workflowDefinitionRecord, req *gestalt.SignalOrStartWorkflowProviderRunRequest, workflowKey string, signal *gestalt.WorkflowSignal, now time.Time, runClaimTTL time.Duration) (*gestalt.SignalWorkflowRunResponse, string, error) {
+func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrStartTxStores, providerName string, target scopedTarget, definition workflowDefinitionRecord, req *gestalt.SignalOrStartWorkflowProviderRunRequest, workflowKey string, signal *gestalt.WorkflowSignal, now time.Time, runClaimTTL time.Duration) (*gestalt.SignalWorkflowRunResponse, string, error) {
 	startedRun := false
 	enqueueSignal := signal
 	run, active, err := activeWorkflowKeyRunInTransaction(ctx, stores.workflowKeyStore, stores.runStore, workflowKey)
@@ -1066,6 +1075,7 @@ func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrS
 		startedRun = true
 		run = workflowRunRecord{
 			ID:                   uuid.NewString(),
+			ProviderName:         strings.TrimSpace(providerName),
 			Status:               gestalt.WorkflowRunStatusValuePending,
 			Target:               cloneTarget(target.Target),
 			TriggerKind:          triggerKindManual,
@@ -1077,6 +1087,9 @@ func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrS
 			RunAs:                firstSubject(req.RunAs, definition.RunAs),
 			WorkflowKey:          workflowKey,
 			NextSignalSequence:   1,
+		}
+		if err := validateWorkflowRunAs(run.RunAs); err != nil {
+			return nil, "", status.Error(codes.InvalidArgument, err.Error())
 		}
 		if err := stores.runStore.Add(ctx, run.toRecord()); err != nil {
 			if indexedDBRetryableConflict(err) {
@@ -1427,6 +1440,7 @@ func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
 		}
 		run := workflowRunRecord{
 			ID:                   scheduleRunID(schedule.ID, latestDue),
+			ProviderName:         state.providerName,
 			Status:               gestalt.WorkflowRunStatusValuePending,
 			Target:               cloneTarget(definition.Target),
 			TriggerKind:          triggerKindSchedule,
@@ -1439,6 +1453,9 @@ func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
 			Input:                cloneAnyMap(input),
 			RunAs:                cloneSubject(definition.RunAs),
 			NextSignalSequence:   1,
+		}
+		if err := validateWorkflowRunAs(run.RunAs); err != nil {
+			return fmt.Errorf("schedule %q definition %q run_as: %w", schedule.ID, definition.ID, err)
 		}
 		if err := state.runStore.Add(ctx, run.toRecord()); err != nil {
 			if !errors.Is(err, gestalt.ErrAlreadyExists) {
@@ -1539,7 +1556,6 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 		}
 	}
 	executor := state.stepExecutor
-	providerName := state.providerName
 	releaseWorker()
 
 	var targetInput *gestalt.BoundWorkflowTarget
@@ -1555,15 +1571,17 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 	stopRenewingClaim := p.startRunClaimRenewal(ctx, pending.ID, claimOwnerID, runClaimRenewEvery)
 	stepResp, invokeErr := executor.ExecuteStep(ctx, gestaltworkflow.StepRequest{
 		Request: gestaltworkflow.Request{
-			ProviderName:       providerName,
-			RunID:              pending.ID,
-			Target:             targetInput,
-			Trigger:            pending.triggerInput(),
-			Input:              cloneAnyMap(pending.Input),
-			Metadata:           workflowInvokeMetadataInput(pending.WorkflowKey, pending.DefinitionID),
-			CreatedBySubjectID: cloneCreatedBySubjectID(pending.CreatedBySubjectID),
-			RunAs:              cloneSubject(pending.RunAs),
-			Signals:            signals,
+			ProviderName:         pending.ProviderName,
+			RunID:                pending.ID,
+			DefinitionID:         pending.DefinitionID,
+			DefinitionGeneration: pending.DefinitionGeneration,
+			WorkflowKey:          pending.WorkflowKey,
+			Target:               targetInput,
+			Trigger:              pending.triggerInput(),
+			Input:                cloneAnyMap(pending.Input),
+			CreatedBySubjectID:   cloneCreatedBySubjectID(pending.CreatedBySubjectID),
+			RunAs:                cloneSubject(pending.RunAs),
+			Signals:              signals,
 		},
 		StepIndex:      stepIndex,
 		Outputs:        stepOutputs,
@@ -2405,22 +2423,6 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func workflowInvokeMetadataInput(workflowKey, definitionID string) map[string]any {
-	workflowKey = strings.TrimSpace(workflowKey)
-	definitionID = strings.TrimSpace(definitionID)
-	if workflowKey == "" && definitionID == "" {
-		return nil
-	}
-	metadata := map[string]any{}
-	if workflowKey != "" {
-		metadata[workflowInvokeMetadataWorkflowKey] = workflowKey
-	}
-	if definitionID != "" {
-		metadata[workflowInvokeMetadataDefinitionID] = definitionID
-	}
-	return metadata
 }
 
 func failStaleRunningRun(ctx context.Context, runStore recordPutter, workflowKeyStore indexeddb.ObjectStore, signalStore indexeddb.ObjectStore, run workflowRunRecord, workflowKey string, now time.Time) error {
@@ -4122,6 +4124,25 @@ func cloneSubject(subject *gestalt.Subject) *gestalt.Subject {
 	}
 }
 
+func validateWorkflowRunAs(subject *gestalt.Subject) error {
+	if subject == nil || strings.TrimSpace(subject.ID) == "" {
+		return errors.New("run_as.subject.id is required")
+	}
+	return nil
+}
+
+func validateWorkflowActivationRunAs(activations []gestalt.WorkflowActivation, runAs *gestalt.Subject) error {
+	for _, activation := range activations {
+		if activation.Event == nil && activation.Schedule == nil {
+			continue
+		}
+		if err := validateWorkflowRunAs(runAs); err != nil {
+			return fmt.Errorf("activation %q run_as: %w", activation.ID, err)
+		}
+	}
+	return nil
+}
+
 func firstSubject(primary, fallback *gestalt.Subject) *gestalt.Subject {
 	if primary != nil {
 		return cloneSubject(primary)
@@ -4578,6 +4599,7 @@ func scheduleRecordFromRecord(record gestalt.Record) (workflowScheduleRecord, er
 func (r workflowRunRecord) toRecord() gestalt.Record {
 	record := gestalt.Record{
 		"id":                       r.ID,
+		"provider_name":            strings.TrimSpace(r.ProviderName),
 		"status":                   int64(r.Status),
 		"target_json":              targetJSON(r.Target),
 		"trigger_kind":             r.TriggerKind,
@@ -4624,6 +4646,7 @@ func runRecordFromRecord(record gestalt.Record) (workflowRunRecord, error) {
 	}
 	out := workflowRunRecord{
 		ID:                    id,
+		ProviderName:          stringField(value, "provider_name"),
 		Status:                gestalt.WorkflowRunStatus(intField(value, "status")),
 		Target:                target,
 		TriggerKind:           stringField(value, "trigger_kind"),
@@ -4654,6 +4677,7 @@ func runRecordFromRecord(record gestalt.Record) (workflowRunRecord, error) {
 func (r workflowRunRecord) toInput() (*gestalt.WorkflowRun, error) {
 	return cloneWorkflowRun(&gestalt.WorkflowRun{
 		ID:                   r.ID,
+		ProviderName:         strings.TrimSpace(r.ProviderName),
 		Status:               r.Status,
 		Target:               workflowTargetInput(r.Target),
 		Trigger:              r.triggerInput(),

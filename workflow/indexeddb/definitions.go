@@ -44,6 +44,9 @@ func (p *Provider) ApplyDefinition(ctx context.Context, req *gestalt.ApplyWorkfl
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
+	if err := validateWorkflowActivationRunAs(activations, spec.RunAs); err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 
 	p.mu.Lock()
 	state, err := p.requireConfiguredLocked()

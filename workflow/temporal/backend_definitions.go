@@ -223,6 +223,9 @@ func normalizeDefinitionSpec(spec *gestalt.WorkflowDefinitionSpec) (gestalt.Work
 	if err != nil {
 		return gestalt.WorkflowDefinitionSpec{}, "", err
 	}
+	if err := validateWorkflowActivationRunAsInput(activations, spec.RunAs); err != nil {
+		return gestalt.WorkflowDefinitionSpec{}, "", err
+	}
 	return gestalt.WorkflowDefinitionSpec{
 		ID:          strings.TrimSpace(spec.ID),
 		Target:      target.Target,

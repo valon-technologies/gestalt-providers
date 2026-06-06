@@ -214,15 +214,17 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		for stepIndex := 0; stepIndex < workflowTargetStepCountInput(state.Target); stepIndex++ {
 			stepStartedAt := workflow.Now(ctx).UTC()
 			invokeReq := gestaltworkflow.Request{
-				ProviderName:       strings.TrimSpace(input.ProviderName),
-				RunID:              state.ID,
-				Target:             state.Target,
-				Trigger:            state.Trigger,
-				Input:              cloneMapInput(state.Input),
-				Metadata:           workflowInvokeMetadataInput(state.WorkflowKey, state.DefinitionID),
-				CreatedBySubjectID: state.CreatedBySubjectID,
-				RunAs:              cloneSubjectInput(state.RunAs),
-				Signals:            batch,
+				ProviderName:         strings.TrimSpace(input.ProviderName),
+				RunID:                state.ID,
+				DefinitionID:         state.DefinitionID,
+				DefinitionGeneration: state.DefinitionGeneration,
+				WorkflowKey:          state.WorkflowKey,
+				Target:               state.Target,
+				Trigger:              state.Trigger,
+				Input:                cloneMapInput(state.Input),
+				CreatedBySubjectID:   state.CreatedBySubjectID,
+				RunAs:                cloneSubjectInput(state.RunAs),
+				Signals:              batch,
 			}
 			stepReq := gestaltworkflow.StepRequest{
 				Request:        invokeReq,
