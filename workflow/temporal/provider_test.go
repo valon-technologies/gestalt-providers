@@ -48,6 +48,7 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 		DefinitionID:                  "definition-1",
 		DefinitionGeneration:          7,
 		Input:                         map[string]any{"ticket": "T-1"},
+		RunAs:                         &gestalt.Subject{ID: "service:workflow-test"},
 		Target:                        nativeAppTargetInput("slack", "postMessage"),
 		Trigger:                       manualTriggerInput(),
 		CreatedBySubjectID:            actor("user-1"),
@@ -79,7 +80,10 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 	if projected.CurrentStepID != "postMessage" || len(projected.Steps) != 1 || projected.Steps[0].Output != "ok" {
 		t.Fatalf("projected steps = %#v", projected.Steps)
 	}
-	if len(host.calls) != 1 || host.calls[0].Request.Input["ticket"] != "T-1" || host.calls[0].Request.Metadata[workflowInvokeMetadataDefinitionID] != "definition-1" {
+	if len(host.calls) != 1 ||
+		host.calls[0].Request.Input["ticket"] != "T-1" ||
+		host.calls[0].Request.DefinitionID != "definition-1" ||
+		host.calls[0].Request.DefinitionGeneration != 7 {
 		t.Fatalf("host calls = %#v", host.calls)
 	}
 }
@@ -117,6 +121,7 @@ func TestGestaltRunWorkflowV4RunsOneDurableStepAtATime(t *testing.T) {
 		ProviderName:                  "temporal",
 		DefinitionID:                  "definition-1",
 		DefinitionGeneration:          7,
+		RunAs:                         &gestalt.Subject{ID: "service:workflow-test"},
 		Target:                        target,
 		Trigger:                       manualTriggerInput(),
 	})
@@ -222,6 +227,7 @@ func TestBackendStartRunUsesDefinitionSnapshotInputProjection(t *testing.T) {
 		Spec: &gestalt.WorkflowDefinitionSpec{
 			ID:     "definition-1",
 			Target: nativeAppTargetInput("slack", "postMessage"),
+			RunAs:  &gestalt.Subject{ID: "service:slack-post"},
 		},
 	})
 	if err != nil {
@@ -247,6 +253,9 @@ func TestBackendStartRunUsesDefinitionSnapshotInputProjection(t *testing.T) {
 	if firstWorkflowAppStep(startInput.Target).Operation != "postMessage" || startInput.Input["ticket"] != "T-1" {
 		t.Fatalf("start input = %#v", startInput)
 	}
+	if startInput.ProviderName != "temporal" || startInput.RunAs == nil || startInput.RunAs.ID != "service:slack-post" {
+		t.Fatalf("start input authority = %#v", startInput)
+	}
 
 	projected, found, err := state.getRun(ctx, run.ID)
 	if err != nil || !found {
@@ -271,6 +280,7 @@ func TestBackendDeliverEventStartsMatchingActivation(t *testing.T) {
 		Spec: &gestalt.WorkflowDefinitionSpec{
 			ID:     "definition-1",
 			Target: nativeAppTargetInput("slack", "postMessage"),
+			RunAs:  &gestalt.Subject{ID: "service:slack-events"},
 			Activations: []gestalt.WorkflowActivation{{
 				ID:    "message-created",
 				Input: gestalt.WorkflowValue{Object: map[string]gestalt.WorkflowValue{"channel": {Signal: "data.channel"}}},
@@ -284,6 +294,7 @@ func TestBackendDeliverEventStartsMatchingActivation(t *testing.T) {
 		Spec: &gestalt.WorkflowDefinitionSpec{
 			ID:     "definition-2",
 			Target: nativeAppTargetInput("github", "createIssue"),
+			RunAs:  &gestalt.Subject{ID: "service:github-events"},
 			Activations: []gestalt.WorkflowActivation{{
 				ID:    "issue-created",
 				Event: &gestalt.WorkflowEventActivation{Match: &gestalt.WorkflowEventMatch{Type: "issue.created", Source: "github"}},
@@ -309,6 +320,9 @@ func TestBackendDeliverEventStartsMatchingActivation(t *testing.T) {
 	startInput := tc.executions[0].Args[0].(runWorkflowV4Input)
 	if startInput.DefinitionID != "definition-1" || startInput.Trigger.Event.ActivationID != "message-created" || startInput.Input["channel"] != "alerts" {
 		t.Fatalf("event start input = %#v", startInput)
+	}
+	if startInput.ProviderName != "temporal" || startInput.RunAs == nil || startInput.RunAs.ID != "service:slack-events" {
+		t.Fatalf("event start input authority = %#v", startInput)
 	}
 }
 

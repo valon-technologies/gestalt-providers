@@ -29,6 +29,7 @@ func TestProviderApplyDefinitionStartRunUsesGenerationInputAndProjection(t *test
 		Spec: &gestalt.WorkflowDefinitionSpec{
 			ID:     "roadmap_sync",
 			Target: workflowTarget(t, "roadmap", "sync", map[string]any{"mode": "full"}),
+			RunAs:  &gestalt.Subject{ID: "service:roadmap-sync"},
 		},
 	})
 	if err != nil {
@@ -65,6 +66,12 @@ func TestProviderApplyDefinitionStartRunUsesGenerationInputAndProjection(t *test
 	if call.Request.RunID != first.ID || call.Request.Input["tenant"] != "primary" {
 		t.Fatalf("executor call = %#v", call)
 	}
+	if call.Request.DefinitionID != "roadmap_sync" || call.Request.DefinitionGeneration != 1 {
+		t.Fatalf("executor definition = %q/%d, want roadmap_sync/1", call.Request.DefinitionID, call.Request.DefinitionGeneration)
+	}
+	if call.Request.ProviderName != "indexeddb" || call.Request.RunAs == nil || call.Request.RunAs.ID != "service:roadmap-sync" {
+		t.Fatalf("executor request authority = %#v", call.Request)
+	}
 	if app := testAppStep(call.Request.Target); app == nil || app.Name != "roadmap" || app.Operation != "sync" {
 		t.Fatalf("executor target = %#v", call.Request.Target)
 	}
@@ -77,8 +84,8 @@ func TestProviderApplyDefinitionStartRunUsesGenerationInputAndProjection(t *test
 	if err != nil {
 		t.Fatalf("GetRun: %v", err)
 	}
-	if run.DefinitionGeneration != 1 || run.Input["tenant"] != "primary" {
-		t.Fatalf("run generation/input = %d/%#v", run.DefinitionGeneration, run.Input)
+	if run.ProviderName != "indexeddb" || run.DefinitionGeneration != 1 || run.Input["tenant"] != "primary" {
+		t.Fatalf("run provider/generation/input = %q/%d/%#v", run.ProviderName, run.DefinitionGeneration, run.Input)
 	}
 	if run.CurrentStepID != "sync" || len(run.Steps) != 1 || run.Steps[0].Status != gestalt.WorkflowStepStatusValueSucceeded {
 		t.Fatalf("run steps = %#v", run.Steps)
@@ -124,6 +131,7 @@ func TestProviderRunsAndPersistsOneDurableStepAtATime(t *testing.T) {
 					},
 				},
 			}},
+			RunAs: &gestalt.Subject{ID: "service:two-step"},
 		},
 	}); err != nil {
 		t.Fatalf("ApplyDefinition: %v", err)
@@ -187,6 +195,7 @@ func TestProviderSignalOrStartRequiresDefinitionAndCarriesInput(t *testing.T) {
 		Spec: &gestalt.WorkflowDefinitionSpec{
 			ID:     "slack_agent",
 			Target: workflowTarget(t, "slack", "reply", nil),
+			RunAs:  &gestalt.Subject{ID: "service:slack-agent"},
 		},
 	}); err != nil {
 		t.Fatalf("ApplyDefinition: %v", err)
@@ -215,6 +224,7 @@ func TestProviderDeliverEventMatchesActivationMapsInputAndPause(t *testing.T) {
 		Spec: &gestalt.WorkflowDefinitionSpec{
 			ID:     "roadmap_event",
 			Target: workflowTarget(t, "roadmap", "sync", nil),
+			RunAs:  &gestalt.Subject{ID: "service:roadmap-event"},
 			Activations: []gestalt.WorkflowActivation{{
 				ID: "item_updated",
 				Event: &gestalt.WorkflowEventActivation{Match: &gestalt.WorkflowEventMatch{
@@ -247,6 +257,9 @@ func TestProviderDeliverEventMatchesActivationMapsInputAndPause(t *testing.T) {
 	}
 	if len(runs.Runs) != 1 {
 		t.Fatalf("runs = %#v, want one event run", runs.Runs)
+	}
+	if runs.Runs[0].ProviderName != "indexeddb" || runs.Runs[0].RunAs == nil || runs.Runs[0].RunAs.ID != "service:roadmap-event" {
+		t.Fatalf("event run authority = %#v", runs.Runs[0])
 	}
 	item := runs.Runs[0].Input["item"].(map[string]any)
 	if item["id"] != "item-1" {

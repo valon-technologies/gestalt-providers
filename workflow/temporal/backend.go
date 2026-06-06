@@ -506,6 +506,9 @@ func (b *temporalBackend) DeliverEvent(ctx context.Context, req *gestalt.Deliver
 		}}
 		input := b.runV4Input(targetOwnerKeyInput(definition.Target), definition.ID, definition.Generation, "", definition.Target, activationInput, eventTriggerInput, createdBy, false)
 		input.RunAs = cloneSubjectInput(definition.RunAs)
+		if err := validateWorkflowRunAsInput(input.RunAs); err != nil {
+			return nil, status.Errorf(codes.FailedPrecondition, "workflow definition %q run_as: %v", definition.ID, err)
+		}
 		run, err := b.executeRunV4(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 		if err != nil {
 			if strings.TrimSpace(eventInput.ID) != "" && isAlreadyStarted(err) {
@@ -554,6 +557,9 @@ func (b *temporalBackend) manualRunStartSnapshot(ctx context.Context, definition
 	effectiveRunAs := cloneSubjectInput(definition.RunAs)
 	if runAs != nil {
 		effectiveRunAs = cloneSubjectInput(runAs)
+	}
+	if err := validateWorkflowRunAsInput(effectiveRunAs); err != nil {
+		return workflowRunStartSnapshot{}, status.Error(codes.InvalidArgument, err.Error())
 	}
 	return workflowRunStartSnapshot{
 		DefinitionID:         definition.ID,
@@ -659,6 +665,9 @@ func (b *temporalBackend) upsertDefinitionSchedule(ctx context.Context, definiti
 	actionInput := b.runV4Input(targetOwnerKeyInput(definition.Target), definition.ID, definition.Generation, "", definition.Target, activationInput, scheduleTriggerInput(activation.ID, time.Now().UTC()), definition.CreatedBySubjectID, false)
 	actionInput.ActivationID = activation.ID
 	actionInput.RunAs = cloneSubjectInput(definition.RunAs)
+	if err := validateWorkflowRunAsInput(actionInput.RunAs); err != nil {
+		return status.Errorf(codes.InvalidArgument, "workflow definition %q run_as: %v", definition.ID, err)
+	}
 	action := &client.ScheduleWorkflowAction{
 		Workflow:            gestaltRunWorkflowV4,
 		Args:                []any{actionInput},

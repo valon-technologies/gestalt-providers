@@ -89,22 +89,6 @@ func hashID(parts ...string) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-func workflowInvokeMetadataInput(workflowKey, definitionID string) map[string]any {
-	workflowKey = strings.TrimSpace(workflowKey)
-	definitionID = strings.TrimSpace(definitionID)
-	if workflowKey == "" && definitionID == "" {
-		return nil
-	}
-	metadata := map[string]any{}
-	if workflowKey != "" {
-		metadata[workflowInvokeMetadataWorkflowKey] = workflowKey
-	}
-	if definitionID != "" {
-		metadata[workflowInvokeMetadataDefinitionID] = definitionID
-	}
-	return metadata
-}
-
 func valueHashID(value any) string {
 	if value == nil {
 		return ""
@@ -495,6 +479,25 @@ func cloneSubjectInput(subject *gestalt.Subject) *gestalt.Subject {
 		CredentialSubjectID: strings.TrimSpace(subject.CredentialSubjectID),
 		Email:               strings.TrimSpace(subject.Email),
 	}
+}
+
+func validateWorkflowRunAsInput(subject *gestalt.Subject) error {
+	if subject == nil || strings.TrimSpace(subject.ID) == "" {
+		return errors.New("run_as.subject.id is required")
+	}
+	return nil
+}
+
+func validateWorkflowActivationRunAsInput(activations []gestalt.WorkflowActivation, runAs *gestalt.Subject) error {
+	for _, activation := range activations {
+		if activation.Event == nil && activation.Schedule == nil {
+			continue
+		}
+		if err := validateWorkflowRunAsInput(runAs); err != nil {
+			return fmt.Errorf("activation %q run_as: %w", activation.ID, err)
+		}
+	}
+	return nil
 }
 
 func isConfigManagedSubjectID(subjectID string) bool {
