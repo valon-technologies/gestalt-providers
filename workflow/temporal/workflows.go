@@ -11,6 +11,8 @@ const (
 	updateAddSignal = "gestalt.add_signal"
 	updateCancelRun = "gestalt.cancel_run"
 	updateClaimRun  = "gestalt.claim_run"
+
+	queryGetRun = "gestalt.get_run"
 )
 
 type workflowActivities struct {

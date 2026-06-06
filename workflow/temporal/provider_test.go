@@ -16,8 +16,12 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	gestaltworkflow "github.com/valon-technologies/gestalt/sdk/go/workflow"
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
+	workflowpb "go.temporal.io/api/workflow/v1"
+	workflowservicepb "go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/worker"
 	"google.golang.org/grpc/codes"
@@ -326,6 +330,70 @@ func TestBackendDeliverEventStartsMatchingActivation(t *testing.T) {
 	}
 }
 
+func TestBackendGetRunQueriesRunningWorkflow(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	runID := encodeTemporalRunHandle(temporalRunHandle{
+		RunWorkflowID:    "workflow-1",
+		RunTemporalRunID: "run-1",
+		OwnerKey:         "app:slack",
+	})
+	tc := &recordingTemporalClient{
+		describeResp: describeWorkflowStatus(enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING),
+		queryRun: &gestalt.WorkflowRun{
+			ID:     runID,
+			Status: gestalt.WorkflowRunStatusValueRunning,
+			Output: "live-state",
+		},
+	}
+	backend := newRecordingTemporalBackend(tc, state)
+
+	run, err := backend.GetRun(ctx, &gestalt.GetWorkflowProviderRunRequest{RunID: runID})
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.Output != "live-state" || run.Status != gestalt.WorkflowRunStatusValueRunning {
+		t.Fatalf("run = %#v", run)
+	}
+	if len(tc.queryCalls) != 1 || tc.queryCalls[0].WorkflowID != "workflow-1" || tc.queryCalls[0].RunID != "run-1" || tc.queryCalls[0].QueryType != queryGetRun {
+		t.Fatalf("query calls = %#v", tc.queryCalls)
+	}
+	if len(tc.getWorkflowCalls) != 0 {
+		t.Fatalf("get workflow calls = %#v, want none", tc.getWorkflowCalls)
+	}
+}
+
+func TestBackendGetRunReadsCompletedWorkflowResult(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	runID := encodeTemporalRunHandle(temporalRunHandle{
+		RunWorkflowID:    "workflow-1",
+		RunTemporalRunID: "run-1",
+		OwnerKey:         "app:slack",
+	})
+	tc := &recordingTemporalClient{
+		describeResp: describeWorkflowStatus(enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED),
+		workflowResult: &gestalt.WorkflowRun{
+			ID:     runID,
+			Status: gestalt.WorkflowRunStatusValueSucceeded,
+			Output: "completed-state",
+		},
+	}
+	backend := newRecordingTemporalBackend(tc, state)
+
+	run, err := backend.GetRun(ctx, &gestalt.GetWorkflowProviderRunRequest{RunID: runID})
+	if err != nil {
+		t.Fatalf("GetRun: %v", err)
+	}
+	if run.Output != "completed-state" || run.Status != gestalt.WorkflowRunStatusValueSucceeded {
+		t.Fatalf("run = %#v", run)
+	}
+	if len(tc.getWorkflowCalls) != 1 || tc.getWorkflowCalls[0].WorkflowID != "workflow-1" || tc.getWorkflowCalls[0].RunID != "run-1" {
+		t.Fatalf("get workflow calls = %#v", tc.getWorkflowCalls)
+	}
+	if len(tc.queryCalls) != 0 {
+		t.Fatalf("query calls = %#v, want none", tc.queryCalls)
+	}
+}
+
 func TestNormalizeTargetPreservesAppCredentialMode(t *testing.T) {
 	target := appTarget(" github ", " reviewPullRequest ")
 	target.Steps[0].App.CredentialMode = " none "
@@ -454,11 +522,25 @@ type recordedExecution struct {
 	Args       []any
 }
 
+type recordedTemporalCall struct {
+	WorkflowID string
+	RunID      string
+	QueryType  string
+}
+
 type recordingTemporalClient struct {
 	client.Client
-	mu             sync.Mutex
-	executions     []recordedExecution
-	scheduleClient client.ScheduleClient
+	mu               sync.Mutex
+	executions       []recordedExecution
+	describeResp     *workflowservicepb.DescribeWorkflowExecutionResponse
+	describeErr      error
+	queryRun         *gestalt.WorkflowRun
+	queryErr         error
+	queryCalls       []recordedTemporalCall
+	workflowResult   *gestalt.WorkflowRun
+	workflowErr      error
+	getWorkflowCalls []recordedTemporalCall
+	scheduleClient   client.ScheduleClient
 }
 
 func (c *recordingTemporalClient) ExecuteWorkflow(_ context.Context, options client.StartWorkflowOptions, _ interface{}, args ...interface{}) (client.WorkflowRun, error) {
@@ -466,6 +548,59 @@ func (c *recordingTemporalClient) ExecuteWorkflow(_ context.Context, options cli
 	defer c.mu.Unlock()
 	c.executions = append(c.executions, recordedExecution{WorkflowID: options.ID, Args: args})
 	return recordingWorkflowRun{id: options.ID, runID: fmt.Sprintf("run-%d", len(c.executions))}, nil
+}
+
+func (c *recordingTemporalClient) DescribeWorkflowExecution(_ context.Context, workflowID, runID string) (*workflowservicepb.DescribeWorkflowExecutionResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.describeErr != nil {
+		return nil, c.describeErr
+	}
+	if c.describeResp != nil {
+		return c.describeResp, nil
+	}
+	return describeWorkflowStatus(enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING), nil
+}
+
+func (c *recordingTemporalClient) QueryWorkflow(_ context.Context, workflowID string, runID string, queryType string, _ ...interface{}) (converter.EncodedValue, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.queryCalls = append(c.queryCalls, recordedTemporalCall{WorkflowID: workflowID, RunID: runID, QueryType: queryType})
+	if c.queryErr != nil {
+		return nil, c.queryErr
+	}
+	return encodedWorkflowRun{run: c.queryRun}, nil
+}
+
+type encodedWorkflowRun struct {
+	run *gestalt.WorkflowRun
+}
+
+func (v encodedWorkflowRun) HasValue() bool {
+	return v.run != nil
+}
+
+func (v encodedWorkflowRun) Get(valuePtr interface{}) error {
+	switch out := valuePtr.(type) {
+	case *gestalt.WorkflowRun:
+		*out = *cloneRunInput(v.run)
+		return nil
+	default:
+		return fmt.Errorf("unsupported query result target %T", valuePtr)
+	}
+}
+
+func describeWorkflowStatus(status enumspb.WorkflowExecutionStatus) *workflowservicepb.DescribeWorkflowExecutionResponse {
+	return &workflowservicepb.DescribeWorkflowExecutionResponse{
+		WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{Status: status},
+	}
+}
+
+func (c *recordingTemporalClient) GetWorkflow(_ context.Context, workflowID string, runID string) client.WorkflowRun {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.getWorkflowCalls = append(c.getWorkflowCalls, recordedTemporalCall{WorkflowID: workflowID, RunID: runID})
+	return recordingWorkflowRun{id: workflowID, runID: runID, result: c.workflowResult, err: c.workflowErr}
 }
 
 func (c *recordingTemporalClient) ScheduleClient() client.ScheduleClient {
@@ -478,18 +613,34 @@ func (c *recordingTemporalClient) ScheduleClient() client.ScheduleClient {
 func (c *recordingTemporalClient) Close() {}
 
 type recordingWorkflowRun struct {
-	id    string
-	runID string
+	id     string
+	runID  string
+	result *gestalt.WorkflowRun
+	err    error
 }
 
 func (r recordingWorkflowRun) GetID() string { return r.id }
 
 func (r recordingWorkflowRun) GetRunID() string { return r.runID }
 
-func (r recordingWorkflowRun) Get(context.Context, interface{}) error { return nil }
+func (r recordingWorkflowRun) Get(_ context.Context, valuePtr interface{}) error {
+	if r.err != nil {
+		return r.err
+	}
+	if r.result == nil {
+		return nil
+	}
+	switch out := valuePtr.(type) {
+	case *gestalt.WorkflowRun:
+		*out = *cloneRunInput(r.result)
+		return nil
+	default:
+		return fmt.Errorf("unsupported workflow result target %T", valuePtr)
+	}
+}
 
-func (r recordingWorkflowRun) GetWithOptions(context.Context, interface{}, client.WorkflowRunGetOptions) error {
-	return nil
+func (r recordingWorkflowRun) GetWithOptions(ctx context.Context, valuePtr interface{}, _ client.WorkflowRunGetOptions) error {
+	return r.Get(ctx, valuePtr)
 }
 
 type fakeScheduleClient struct {
