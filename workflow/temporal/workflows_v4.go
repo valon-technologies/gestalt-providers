@@ -83,6 +83,11 @@ func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gest
 		state = &next
 		return nil
 	}
+	if err := workflow.SetQueryHandler(ctx, queryGetRun, func() (*gestalt.WorkflowRun, error) {
+		return cloneRunInput(state), nil
+	}); err != nil {
+		return nil, err
+	}
 	appendSignalInput := func(signalInput gestalt.WorkflowSignal) (*gestalt.WorkflowSignal, error) {
 		if signalInput.CreatedAt.IsZero() {
 			signalInput.CreatedAt = workflow.Now(ctx).UTC()

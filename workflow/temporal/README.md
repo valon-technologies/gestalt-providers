@@ -77,8 +77,9 @@ Metadata-only reads do not start the Temporal worker.
   payloads while explicit signal IDs remain strict
 - public run IDs are opaque V4 handles that identify the run workflow and
   Temporal run ID
-- `GetRun`, `ListRuns`, `GetRunEvents`, and `GetRunOutput` read IndexedDB run
-  projections only
+- `GetRun`, `GetRunEvents`, and `GetRunOutput` read authoritative run state
+  from the Temporal workflow query or completed workflow result; `ListRuns`
+  reads IndexedDB run projections
 - IndexedDB stores workflow definitions, V4 run projections, V4 start
   idempotency, V4 signal idempotency, workflow-key ownership metadata, and
   internal Temporal schedule cursors

@@ -173,15 +173,53 @@ func (b *temporalBackend) GetRun(ctx context.Context, req *gestalt.GetWorkflowPr
 	if runID == "" {
 		return nil, status.Error(codes.InvalidArgument, "run_id is required")
 	}
-	if _, err := decodeTemporalRunHandle(runID); err != nil {
+	handle, err := decodeTemporalRunHandle(runID)
+	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if run, found, err := b.state.getRun(ctx, runID); err != nil {
-		return nil, status.Errorf(codes.Internal, "load workflow run projection: %v", err)
-	} else if found {
-		return run, nil
+	return b.getRunFromTemporal(ctx, handle)
+}
+
+func (b *temporalBackend) getRunFromTemporal(ctx context.Context, handle *temporalRunHandle) (*gestalt.WorkflowRun, error) {
+	desc, err := b.client.DescribeWorkflowExecution(ctx, handle.RunWorkflowID, handle.RunTemporalRunID)
+	if err != nil {
+		return nil, mapTemporalWorkflowCallError("describe temporal workflow", err)
 	}
-	return nil, status.Errorf(codes.NotFound, "workflow run %q not found", runID)
+	status := enumspb.WORKFLOW_EXECUTION_STATUS_UNSPECIFIED
+	if desc != nil && desc.WorkflowExecutionInfo != nil {
+		status = desc.WorkflowExecutionInfo.GetStatus()
+	}
+	switch status {
+	case enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+		enumspb.WORKFLOW_EXECUTION_STATUS_PAUSED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_UNSPECIFIED:
+		return b.queryRunFromTemporal(ctx, handle)
+	default:
+		return b.resultRunFromTemporal(ctx, handle)
+	}
+}
+
+func (b *temporalBackend) queryRunFromTemporal(ctx context.Context, handle *temporalRunHandle) (*gestalt.WorkflowRun, error) {
+	value, err := b.client.QueryWorkflow(ctx, handle.RunWorkflowID, handle.RunTemporalRunID, queryGetRun)
+	if err != nil {
+		return nil, mapTemporalWorkflowCallError("query temporal workflow run", err)
+	}
+	if value == nil || !value.HasValue() {
+		return nil, status.Errorf(codes.Internal, "query temporal workflow run: empty run state")
+	}
+	var run gestalt.WorkflowRun
+	if err := value.Get(&run); err != nil {
+		return nil, status.Errorf(codes.Internal, "decode temporal workflow run query: %v", err)
+	}
+	return cloneRunInput(&run), nil
+}
+
+func (b *temporalBackend) resultRunFromTemporal(ctx context.Context, handle *temporalRunHandle) (*gestalt.WorkflowRun, error) {
+	var run gestalt.WorkflowRun
+	if err := b.client.GetWorkflow(ctx, handle.RunWorkflowID, handle.RunTemporalRunID).Get(ctx, &run); err != nil {
+		return nil, mapTemporalWorkflowCallError("get temporal workflow result", err)
+	}
+	return cloneRunInput(&run), nil
 }
 
 func (b *temporalBackend) ListRuns(ctx context.Context, req *gestalt.ListWorkflowProviderRunsRequest) (*gestalt.ListWorkflowProviderRunsResponse, error) {
