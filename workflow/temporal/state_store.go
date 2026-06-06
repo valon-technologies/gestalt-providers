@@ -214,7 +214,10 @@ func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store inde
 	if found && workflowRunTerminal(existing.Status) && !workflowRunTerminal(run.Status) {
 		return existing, nil
 	}
-	if err := store.Put(ctx, s.runRecord(run)); err != nil {
+	if err := store.Delete(ctx, s.scopedID(run.ID)); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
+		return nil, fmt.Errorf("delete run projection: %w", err)
+	}
+	if err := store.Add(ctx, s.runRecord(run)); err != nil {
 		return nil, fmt.Errorf("store run projection: %w", err)
 	}
 	return run, nil
