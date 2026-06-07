@@ -113,14 +113,18 @@ class GestaltMCPBridge:
 
             def execute_tool() -> gestalt.ExecuteAgentToolResponse:
                 with gestalt.AgentHost() as host:
-                    return host.execute_tool_for_turn(
-                        self._session_id,
-                        self._turn_id,
-                        tool_call_id=tool_call_id,
-                        tool_id=entry.tool_id,
-                        arguments=arguments or {},
-                        context=self._request_context,
-                        idempotency_key=(f"agent/claude-sdk:{self._turn_id}:{tool_call_id}:{entry.mcp_name}"),
+                    return host.execute_tool(
+                        gestalt.ExecuteAgentToolRequest(
+                            session_id=self._session_id,
+                            turn_id=self._turn_id,
+                            tool_call_id=tool_call_id,
+                            tool_id=entry.tool_id,
+                            arguments=arguments or {},
+                            context=self._request_context,
+                            idempotency_key=(
+                                f"agent/claude-sdk:{self._turn_id}:{tool_call_id}:{entry.mcp_name}"
+                            ),
+                        ),
                     )
 
             try:
@@ -178,12 +182,14 @@ class GestaltMCPBridge:
 
     def _list_entries(self, page_token: str) -> tuple[list[ToolEntry], str]:
         with gestalt.AgentHost() as host:
-            response = host.list_tools_for_turn(
-                self._session_id,
-                self._turn_id,
-                page_size=DEFAULT_PAGE_SIZE,
-                page_token=page_token,
-                context=self._request_context,
+            response = host.list_tools(
+                gestalt.ListAgentToolsRequest(
+                    session_id=self._session_id,
+                    turn_id=self._turn_id,
+                    page_size=DEFAULT_PAGE_SIZE,
+                    page_token=page_token,
+                    context=self._request_context,
+                ),
             )
         return [_tool_entry(tool) for tool in response.tools], str(response.next_page_token or "").strip()
 
