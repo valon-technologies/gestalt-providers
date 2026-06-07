@@ -655,7 +655,7 @@ dependencies = [
 [[package]]
 name = "gestalt-sdk"
 version = "0.0.1-alpha.2"
-source = "git+https://github.com/valon-technologies/gestalt.git?rev=bca07680c54a27fecf71717c9395a47270c9e26f#bca07680c54a27fecf71717c9395a47270c9e26f"
+source = "git+https://github.com/valon-technologies/gestalt.git?rev=49bf894df13b0b3b21fddde7e88e21ee25fd51da#49bf894df13b0b3b21fddde7e88e21ee25fd51da"
 dependencies = [
  "hyper-util",
  "libc",
