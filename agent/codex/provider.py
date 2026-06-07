@@ -52,7 +52,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             kind=gestalt.ProviderKind.AGENT,
             name=self._name,
             display_name="Codex MCP Agent",
-            description="Runs Codex CLI through its MCP harness with Gestalt MCP catalog tools exposed by grant.",
+            description="Runs Codex CLI through its MCP harness with Gestalt MCP catalog tools exposed by tool scope.",
             version="0.0.1-alpha.1",
         )
 

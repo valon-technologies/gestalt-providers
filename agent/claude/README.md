@@ -71,9 +71,9 @@ agent:
           operation: pulls/list
 ```
 
-For small exact grants, the SDK MCP bridge exposes the granted catalog tools
+For small exact tool scopes, the SDK MCP bridge exposes the scoped catalog tools
 directly and passes exact allowed tool names like
-`mcp__gestalt__github_pulls_list`. For broad grants, it drains the AgentHost
+`mcp__gestalt__github_pulls_list`. For broad tool scopes, it drains the AgentHost
 tool pages into the SDK MCP `tools/list` response and relies on Claude Code
 native tool search. The provider sets `ENABLE_TOOL_SEARCH=auto:5` so those
 catalog tools can be discovered without a Gestalt-specific search wrapper.

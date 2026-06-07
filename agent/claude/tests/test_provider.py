@@ -1476,7 +1476,7 @@ class ClaudeProviderTests(unittest.TestCase):
 
         self.assertEqual(replayed.id, "turn-race-winner")
 
-    def test_sdk_mcp_bridge_exposes_direct_tools_for_small_grants(self) -> None:
+    def test_sdk_mcp_bridge_exposes_direct_tools_for_small_scopes(self) -> None:
         host = _host_servicer
         assert host is not None
         _configure_provider()
@@ -1495,7 +1495,7 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertNotIn("nextCursor", second["result"])
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2", "page-2"])
 
-    def test_sdk_mcp_bridge_exposes_direct_tools_for_large_grants(self) -> None:
+    def test_sdk_mcp_bridge_exposes_direct_tools_for_large_scopes(self) -> None:
         host = _host_servicer
         assert host is not None
         host.large_catalog = True

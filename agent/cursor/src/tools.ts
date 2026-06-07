@@ -82,7 +82,7 @@ export async function listGestaltTools(input: {
 
   if (tools.length === 0) {
     throw new CursorExecutionError(
-      "ListTools returned no tools for the requested grant",
+      "ListTools returned no tools for the requested tool scope",
     );
   }
   return tools;

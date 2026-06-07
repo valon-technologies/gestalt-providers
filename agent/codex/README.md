@@ -2,7 +2,7 @@
 
 `agent/codex` runs Codex through the Codex CLI MCP server. Gestalt does not rank
 or search tools in this provider. For session `tools.catalog`, the provider
-hydrates the exact granted catalog tools with `AgentHost.ListTools`, writes those
+hydrates the exact scoped catalog tools with `AgentHost.ListTools`, writes those
 tool names into a temporary Codex `mcp_servers.gestalt.enabled_tools` config,
 and routes nested Codex MCP tool calls back through `AgentHost.ExecuteTool`.
 
@@ -22,7 +22,7 @@ still use its own built-in behavior within the configured sandbox.
 
 The Gestalt tool bridge runs inside the provider process as a temporary
 `127.0.0.1` MCP HTTP endpoint with an unguessable per-turn path. Unified
-host-service socket credentials and tool grants are not serialized into Codex
+host-service socket credentials and tool scopes are not serialized into Codex
 config, and the generated Codex shell environment policy excludes
 `OPENAI_API_KEY` and `GESTALT_*` from shell commands.
 

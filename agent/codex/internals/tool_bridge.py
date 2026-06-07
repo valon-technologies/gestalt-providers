@@ -112,7 +112,7 @@ def list_tools(
             if not page_token:
                 break
     if not tools:
-        raise ToolBridgeError("ListTools returned no tools for the requested grant")
+        raise ToolBridgeError("ListTools returned no tools for the requested tool scope")
     return tools
 
 
