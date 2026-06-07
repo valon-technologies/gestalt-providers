@@ -106,8 +106,9 @@ def turn_create_request_from_provider_request(
 
     model = config.resolve_model(request.model.strip() or session.model)
     messages = gestalt.agent_messages_to_dicts(request_messages)
+    cwd = prepared_workspace_cwd(session.prepared_workspace)
     if tool_source == tool_source_modes.none:
-        turn_profile = ClaudeTurnProfile.direct(schema=schema)
+        turn_profile = ClaudeTurnProfile.direct(schema=schema, cwd=cwd)
     else:
         request_context = getattr(request, "context", None)
         if request_context is None:
@@ -117,7 +118,7 @@ def turn_create_request_from_provider_request(
             request_context=request_context,
             schema=schema,
             claude_code_options=claude_code_options,
-            cwd=prepared_workspace_cwd(session.prepared_workspace),
+            cwd=cwd,
         )
 
     return TurnCreateRequest(
@@ -158,7 +159,7 @@ def session_tool_scope_from_config(
     tools: gestalt.AgentToolConfig | None, *, tool_source_modes: ToolSourceModes
 ) -> tuple[int, list[gestalt.AgentToolRef]]:
     if tools is None:
-        return 0, []
+        return tool_source_modes.none, []
     if isinstance(tools, gestalt.AgentNoTools):
         return tool_source_modes.none, []
     if isinstance(tools, gestalt.AgentCatalogToolConfig):
@@ -176,13 +177,14 @@ def effective_turn_tool_scope(
         if request.tool_source and request.tool_source != session.tool_source:
             raise ValueError("agent turn toolSource must match session tool source")
         if tool_refs:
+            _validate_tool_refs(tool_refs)
             if not _tool_refs_within_session_scope(tool_refs, list(session.tool_refs)):
                 raise ValueError("agent turn tool_refs must be a subset of session tool_refs")
             return session.tool_source, tool_refs
         return session.tool_source, list(session.tool_refs)
     if request.tool_source or tool_refs:
-        return request.tool_source, tool_refs
-    return session.tool_source, list(session.tool_refs)
+        raise ValueError("agent turn tools must be configured on the session")
+    return gestalt.AGENT_TOOL_SOURCE_MODE_NONE, []
 
 
 def existing_session_for_create(

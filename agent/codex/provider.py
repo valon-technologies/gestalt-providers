@@ -538,12 +538,13 @@ def _effective_turn_tool_scope(
         if request.tool_source and request.tool_source != session.tool_source:
             raise gestalt.Error(400, "agent turn toolSource must match session tool source")
         if tool_refs:
+            _validate_tool_refs(tool_refs)
             if not _tool_refs_within_session_scope(tool_refs, list(session.tool_refs)):
                 raise gestalt.Error(403, "agent turn tool_refs must be a subset of session tool_refs")
             return session.tool_source, tool_refs
         return session.tool_source, list(session.tool_refs)
     if request.tool_source or tool_refs:
-        return request.tool_source, tool_refs
+        raise gestalt.Error(400, "agent turn tools must be configured on the session")
     return session.tool_source, list(session.tool_refs)
 
 
