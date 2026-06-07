@@ -73,7 +73,6 @@ struct BridgeAuth {
 struct GestaltMcpBridge {
     session_id: String,
     turn_id: String,
-    run_grant: String,
     host: Arc<Mutex<AgentHost>>,
     tools_by_name: Arc<Mutex<HashMap<String, ListedAgentTool>>>,
     next_tool_call_id: Arc<AtomicU64>,
@@ -100,17 +99,15 @@ struct ScoredTool {
 pub async fn start_bridge(
     session_id: String,
     turn_id: String,
-    run_grant: String,
-    request_context: Option<GestaltRequestContext>,
+    request_context: GestaltRequestContext,
 ) -> Result<McpBridgeHandle, String> {
     let host = AgentHost::connect()
         .await
-        .map(|host| host.with_request_context(request_context))
+        .map(|host| host.with_request_context(Some(request_context)))
         .map_err(|err| format!("connect Gestalt agent host for MCP bridge: {err}"))?;
     let bridge = GestaltMcpBridge {
         session_id,
         turn_id: turn_id.clone(),
-        run_grant,
         host: Arc::new(Mutex::new(host)),
         tools_by_name: Arc::new(Mutex::new(HashMap::new())),
         next_tool_call_id: Arc::new(AtomicU64::new(1)),
@@ -313,7 +310,6 @@ impl GestaltMcpBridge {
                     "agent/hermes-mcp:{}:{seq}:{}",
                     self.turn_id, tool.mcp_name
                 ),
-                run_grant: self.run_grant.clone(),
             })
             .await
             .map_err(|err| {
@@ -478,7 +474,6 @@ impl GestaltMcpBridge {
                 turn_id: self.turn_id.clone(),
                 page_size: MCP_PAGE_SIZE,
                 page_token: page_token.trim().to_string(),
-                run_grant: self.run_grant.clone(),
                 ..Default::default()
             })
             .await

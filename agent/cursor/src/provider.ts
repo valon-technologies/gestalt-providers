@@ -48,7 +48,6 @@ import {
   type StoredSession,
   type StoredSessionVisibility,
   sessionToAgentSession,
-  subjectIdFromActor,
   turnEventToAgentTurnEvent,
   turnToAgentTurn,
 } from "./store.ts";
@@ -140,10 +139,10 @@ export class CursorAgentProvider extends SDKAgentProvider {
             metadata,
             visibility: sessionVisibilityForCreateMetadata(
               metadata,
-              subjectIdFromActor(request.createdBy),
+              (request.createdBySubjectId ?? "").trim(),
             ),
             preparedWorkspace,
-            createdBySubjectId: subjectIdFromActor(request.createdBy),
+            createdBySubjectId: (request.createdBySubjectId ?? "").trim(),
           });
           return sessionToAgentSession(session);
         });
@@ -157,10 +156,10 @@ export class CursorAgentProvider extends SDKAgentProvider {
         metadata,
         visibility: sessionVisibilityForCreateMetadata(
           metadata,
-          subjectIdFromActor(request.createdBy),
+          (request.createdBySubjectId ?? "").trim(),
         ),
         preparedWorkspace,
-        createdBySubjectId: subjectIdFromActor(request.createdBy),
+        createdBySubjectId: (request.createdBySubjectId ?? "").trim(),
       });
       if (!created) {
         this.requireReadableSession(session, request.subject);
@@ -266,7 +265,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         providerName: this.name,
         model,
         messages: prependSessionStartContext(request.messages, session.metadata),
-        createdBySubjectId: subjectIdFromActor(request.createdBy),
+        createdBySubjectId: (request.createdBySubjectId ?? "").trim(),
         executionRef: request.executionRef,
       });
       turn = result.turn;
@@ -279,14 +278,17 @@ export class CursorAgentProvider extends SDKAgentProvider {
     }
 
     if (created) {
+      const requestContext = request.context;
+      if (requestContext === undefined) {
+        throw invalidArgument("request context is required");
+      }
       void this.completeTurn({
         runner,
         turnId: turn.turnId,
         sessionId: turn.sessionId,
         model,
         messages: turn.messages,
-        runGrant: request.runGrant.trim(),
-        requestContext: requestContext(request),
+        requestContext,
         cwd: session.preparedWorkspace?.cwd ?? "",
         schema,
       });
@@ -462,8 +464,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     sessionId: string;
     model: string;
     messages: AgentMessage[];
-    runGrant: string;
-    requestContext?: unknown;
+    requestContext: NonNullable<CreateAgentProviderTurnRequest["context"]>;
     cwd: string;
     schema?: Record<string, unknown> | undefined;
   }): Promise<void> {
@@ -473,7 +474,6 @@ export class CursorAgentProvider extends SDKAgentProvider {
         turnId: input.turnId,
         model: input.model,
         messages: input.messages,
-        runGrant: input.runGrant,
         requestContext: input.requestContext,
         cwd: input.cwd,
         schema: input.schema,
@@ -553,7 +553,7 @@ function validateCreateTurnRequest(
   if (request.toolSource !== AgentToolSourceMode.MCP_CATALOG) {
     throw invalidArgument("agent/cursor requires toolSource mcp_catalog");
   }
-  if (requestContext(request) === undefined && !request.runGrant.trim()) {
+  if (request.context === undefined) {
     throw invalidArgument("request context is required");
   }
   if (request.tools.length > 0) {
@@ -574,10 +574,6 @@ function validateCreateTurnRequest(
   }
   validateToolRefs(request.toolRefs);
   return schema;
-}
-
-function requestContext(request: CreateAgentProviderTurnRequest): unknown | undefined {
-  return (request as CreateAgentProviderTurnRequest & { context?: unknown }).context;
 }
 
 function schemaFromOutput(

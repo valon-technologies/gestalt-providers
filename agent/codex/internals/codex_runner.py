@@ -132,8 +132,7 @@ class CodexMCPRunner:
         turn_id: str,
         model: str,
         messages: list[dict[str, Any]],
-        run_grant: str,
-        request_context: Any | None = None,
+        request_context: Any,
         skill_roots: list[str] | None = None,
         cwd: str = "",
         schema: dict[str, Any] | None = None,
@@ -146,7 +145,6 @@ class CodexMCPRunner:
                         turn_id=turn_id,
                         model=model,
                         messages=messages,
-                        run_grant=run_grant,
                         request_context=request_context,
                         skill_roots=skill_roots or [],
                         cwd=cwd,
@@ -184,8 +182,7 @@ class CodexMCPRunner:
         turn_id: str,
         model: str,
         messages: list[dict[str, Any]],
-        run_grant: str,
-        request_context: Any | None,
+        request_context: Any,
         skill_roots: list[str],
         cwd: str,
         schema: dict[str, Any] | None,
@@ -207,7 +204,6 @@ class CodexMCPRunner:
                     list_tools,
                     session_id=session_id,
                     turn_id=turn_id,
-                    run_grant=run_grant,
                     request_context=request_context,
                     timeout_seconds=self._config.timeout_seconds,
                 )
@@ -219,7 +215,6 @@ class CodexMCPRunner:
                 BridgeContext(
                     session_id=session_id,
                     turn_id=turn_id,
-                    run_grant=run_grant,
                     request_context=request_context,
                     timeout_seconds=self._config.timeout_seconds,
                 )

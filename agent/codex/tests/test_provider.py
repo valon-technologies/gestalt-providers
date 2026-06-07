@@ -70,7 +70,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 "turn_id": request.turn_id,
                 "page_size": request.page_size,
                 "page_token": request.page_token,
-                "run_grant": request.run_grant,
+                "context_subject": request.context.subject.id,
             }
         )
         if self.mode == "list-slow":
@@ -127,7 +127,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 "turn_id": request.turn_id,
                 "tool_call_id": request.tool_call_id,
                 "tool_id": request.tool_id,
-                "run_grant": request.run_grant,
+                "context_subject": request.context.subject.id,
                 "idempotency_key": request.idempotency_key,
                 "arguments": dict(request.arguments),
             }
@@ -320,7 +320,7 @@ class CodexProviderTests(unittest.TestCase):
         self.assertNotIn("test-openai-key", repr(fake_server.called_arguments))
 
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
-        self.assertEqual(host.list_requests[0]["run_grant"], "grant-codex")
+        self.assertEqual(host.list_requests[0]["context_subject"], "user-123")
 
     def test_slack_sessions_are_company_readable_and_owner_writable(self) -> None:
         _, provider_client = _configure_provider()
@@ -540,7 +540,9 @@ class CodexProviderTests(unittest.TestCase):
         bad_source.tool_source = 999
         _assert_invalid(provider_client, bad_source, "requires toolSource mcp_catalog")
 
-        missing_context = _turn_request(turn_id="turn-missing-context", session_id="session-validation", run_grant="")
+        missing_context = _turn_request(
+            turn_id="turn-missing-context", session_id="session-validation", include_context=False
+        )
         _assert_invalid(provider_client, missing_context, "request context is required")
 
         missing_refs = _turn_request(turn_id="turn-missing-refs", session_id="session-validation")
@@ -680,7 +682,9 @@ class CodexProviderTests(unittest.TestCase):
                 host.reset()
                 host.mode = mode
                 with self.assertRaisesRegex(ToolBridgeError, message):
-                    list_tools(session_id="session-list", turn_id="turn-list", run_grant="grant-list")
+                    list_tools(
+                        session_id="session-list", turn_id="turn-list", request_context=_request_context("user-123")
+                    )
 
     def test_list_tools_uses_agent_host_grpc_deadline(self) -> None:
         host = _host_servicer
@@ -692,7 +696,7 @@ class CodexProviderTests(unittest.TestCase):
             list_tools(
                 session_id="session-list-deadline",
                 turn_id="turn-list-deadline",
-                run_grant="grant-list-deadline",
+                request_context=_request_context("user-123"),
                 timeout_seconds=0.05,
             )
         self.assertLess(time.monotonic() - started_at, 0.5)
@@ -705,7 +709,7 @@ class CodexProviderTests(unittest.TestCase):
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
         self.assertEqual(host.execute_requests[0]["tool_call_id"], "mcp-1")
         self.assertEqual(host.execute_requests[0]["tool_id"], "tool-linear-issues")
-        self.assertEqual(host.execute_requests[0]["run_grant"], "grant-bridge")
+        self.assertEqual(host.execute_requests[0]["context_subject"], "user-123")
         self.assertEqual(host.execute_requests[0]["idempotency_key"], "agent/codex-mcp:turn-bridge:1:linear__issues")
         self.assertEqual(host.execute_requests[0]["arguments"], {"query": "AIT"})
 
@@ -792,10 +796,10 @@ def _turn_request(
     session_id: str,
     model: str = "",
     messages: list[Any] | None = None,
-    run_grant: str = "grant-codex",
     execution_ref: str = "",
     output_schema: Any | None = None,
     model_options: Any | None = None,
+    include_context: bool = True,
 ) -> Any:
     request = agent_pb2.CreateAgentProviderTurnRequest(
         turn_id=turn_id,
@@ -803,11 +807,12 @@ def _turn_request(
         model=model,
         messages=messages or [agent_pb2.AgentMessage(role="user", text="List my Linear issues")],
         tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
-        run_grant=run_grant,
         execution_ref=execution_ref,
         created_by_subject_id="user-123",
         subject=_subject_context("user-123"),
     )
+    if include_context:
+        request.context.subject.CopyFrom(_subject_context("user-123"))
     if output_schema is None:
         request.output.text.SetInParent()
     else:
@@ -840,6 +845,10 @@ def _subject_context(subject_id: str) -> Any:
     return app_pb2.SubjectContext(id=subject_id)
 
 
+def _request_context(subject_id: str) -> Any:
+    return app_pb2.RequestContext(subject=_subject_context(subject_id))
+
+
 def _slack_session_metadata() -> dict[str, Any]:
     return {
         "slack": {
@@ -854,7 +863,7 @@ def _slack_session_metadata() -> dict[str, Any]:
 
 async def _exercise_bridge_http_server() -> None:
     bridge_server = BridgeHTTPServer(
-        BridgeContext(session_id="session-bridge", turn_id="turn-bridge", run_grant="grant-bridge")
+        BridgeContext(session_id="session-bridge", turn_id="turn-bridge", request_context=_request_context("user-123"))
     )
     bridge_server.start()
     bridge = MCPServerStreamableHttp(
@@ -880,7 +889,7 @@ async def _exercise_bridge_execute_deadline() -> None:
         BridgeContext(
             session_id="session-bridge-deadline",
             turn_id="turn-bridge-deadline",
-            run_grant="grant-bridge-deadline",
+            request_context=_request_context("user-123"),
             timeout_seconds=0.05,
         )
     )

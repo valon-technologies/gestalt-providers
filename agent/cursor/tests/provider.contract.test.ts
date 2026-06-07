@@ -53,6 +53,10 @@ import {
   ListedAgentToolSchema,
   UpdateAgentProviderSessionRequestSchema,
 } from "../node_modules/@valon-technologies/gestalt/src/internal/gen/v1/agent_pb.ts";
+import {
+  RequestContextSchema,
+  SubjectContextSchema,
+} from "../node_modules/@valon-technologies/gestalt/src/internal/gen/v1/app_pb.ts";
 
 import {
   AGENT_HOST_RELAY_TOKEN_HEADER,
@@ -73,16 +77,9 @@ import { CursorSDKRunner, type CursorAgentFactory } from "../src/runner.ts";
 import { schemaFromJson, type ToolEntry } from "../src/tools.ts";
 
 const activeHosts: FakeAgentHost[] = [];
-const OWNER_ACTOR = actorFixture("user:owner@example.com", "user", "Owner");
 const OWNER_SUBJECT = subjectFixture("user:owner@example.com", "user", "Owner");
-const OTHER_ACTOR = actorFixture("user:other@example.com", "user", "Other");
 const OTHER_SUBJECT = subjectFixture("user:other@example.com", "user", "Other");
-const SLACK_ACTOR = actorFixture("service_account:slack-bot", "service_account", "Slack Bot");
 const SLACK_SUBJECT = subjectFixture("service_account:slack-bot", "service_account", "Slack Bot");
-
-function actorFixture(subjectId: string, subjectKind: string, displayName: string) {
-  return { subjectId, subjectKind, displayName, authSource: "test" };
-}
 
 function subjectFixture(id: string, kind: string, displayName: string) {
   return {
@@ -95,13 +92,26 @@ function subjectFixture(id: string, kind: string, displayName: string) {
   };
 }
 
+function requestContext(
+  subject = OWNER_SUBJECT,
+): NonNullable<CreateAgentProviderTurnRequest["context"]> {
+  return createMessage(RequestContextSchema, {
+    subject: createMessage(SubjectContextSchema, {
+      id: subject.id,
+      credentialSubjectId: subject.credentialSubjectId,
+      displayName: subject.displayName,
+      email: subject.email,
+    }),
+  });
+}
+
 function create<Desc extends DescMessage>(
   schema: Desc,
   input: Record<string, unknown>,
 ): MessageShape<Desc> {
   let payload = input;
   if (schema.typeName === CreateAgentProviderSessionRequestSchema.typeName) {
-    payload = { createdBy: OWNER_ACTOR, subject: OWNER_SUBJECT, ...input };
+    payload = { createdBySubjectId: OWNER_SUBJECT.id, subject: OWNER_SUBJECT, ...input };
   } else if (
     [
       CancelAgentProviderTurnRequestSchema,
@@ -131,15 +141,16 @@ function turnRequest(
     tools: input.tools ?? [],
     output: input.output ?? { text: {} },
     metadata: input.metadata,
-    createdBy: input.createdBy ?? OWNER_ACTOR,
+    createdBySubjectId: input.createdBySubjectId ?? OWNER_SUBJECT.id,
     executionRef: input.executionRef ?? "",
     toolRefs: input.toolRefs ?? [],
     toolSource: input.toolSource ?? AgentToolSourceMode.UNSPECIFIED,
     subject: input.subject ?? OWNER_SUBJECT,
+    context: Object.prototype.hasOwnProperty.call(input, "context")
+      ? input.context
+      : requestContext(OWNER_SUBJECT),
     modelOptions: input.modelOptions,
-    runGrant: input.runGrant ?? "",
     timeoutSeconds: input.timeoutSeconds ?? 0,
-    invocationToken: input.invocationToken ?? "",
   };
 }
 
@@ -343,7 +354,6 @@ describe("Cursor agent provider contract", () => {
         sessionId: "session-start",
         messages: [{ role: "user", text: "hi" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        runGrant: "grant",
         toolRefs: [{ app: "linear", operation: "issues" }],
       }),
     );
@@ -424,7 +434,7 @@ describe("Cursor agent provider contract", () => {
     await provider.createSession(
       create(CreateAgentProviderSessionRequestSchema, {
         sessionId: "access-company",
-        createdBy: SLACK_ACTOR,
+        createdBySubjectId: SLACK_SUBJECT.id,
         subject: SLACK_SUBJECT,
         metadata: slackSessionMetadata(),
       }),
@@ -435,9 +445,8 @@ describe("Cursor agent provider contract", () => {
         sessionId: "access-company",
         messages: [{ role: "user", text: "hi" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        runGrant: "grant",
         toolRefs: [{ app: "p", operation: "o" }],
-        createdBy: SLACK_ACTOR,
+        createdBySubjectId: SLACK_SUBJECT.id,
         subject: SLACK_SUBJECT,
       }),
     );
@@ -525,7 +534,7 @@ describe("Cursor agent provider contract", () => {
     await provider.createSession(
       create(CreateAgentProviderSessionRequestSchema, {
         sessionId: "access-incomplete-slack",
-        createdBy: SLACK_ACTOR,
+        createdBySubjectId: SLACK_SUBJECT.id,
         subject: SLACK_SUBJECT,
         metadata: { slack: { team_id: "T123", channel_id: "C456" } },
       }),
@@ -564,7 +573,6 @@ describe("Cursor agent provider contract", () => {
         sessionId: "access-private-turns",
         messages: [{ role: "user", text: "hi" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        runGrant: "grant",
         toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
@@ -587,7 +595,6 @@ describe("Cursor agent provider contract", () => {
           subject: OTHER_SUBJECT,
           messages: [{ role: "user", text: "nope" }],
           toolSource: AgentToolSourceMode.MCP_CATALOG,
-          runGrant: "grant",
           toolRefs: [{ app: "p", operation: "o" }],
         }),
       ),
@@ -722,7 +729,6 @@ describe("Cursor agent provider contract", () => {
         idempotencyKey: "turn-key",
         messages: [{ role: "user", text: "weather?" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        runGrant: "grant-1",
         toolRefs: [{ app: "weather-plugin", operation: "forecast" }],
       }),
     );
@@ -734,7 +740,9 @@ describe("Cursor agent provider contract", () => {
     expect(turnText(turn)).toBe("Forecast: sunny");
     expect(host.relayTokens).toContain("relay-token");
     expect(host.listRequests).toHaveLength(1);
+    expect(host.listRequests[0]?.context?.subject?.id).toBe(OWNER_SUBJECT.id);
     expect(host.executeRequests).toHaveLength(1);
+    expect(host.executeRequests[0]?.context?.subject?.id).toBe(OWNER_SUBJECT.id);
     expect(host.executeRequests[0]?.toolCallId).toBe("sdk-1");
     expect(host.executeRequests[0]?.idempotencyKey).toBe(
       "agent/cursor-sdk:turn-1:sdk-1:weather",
@@ -780,7 +788,6 @@ describe("Cursor agent provider contract", () => {
         sessionId: "structured-session",
         messages: [{ role: "user", text: "grade" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        runGrant: "grant",
         toolRefs: [{ app: "grader-plugin", operation: "grade" }],
         output: {
           structured: {
@@ -842,7 +849,6 @@ describe("Cursor agent provider contract", () => {
         sessionId: "structured-invalid-session",
         messages: [{ role: "user", text: "grade" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        runGrant: "grant",
         toolRefs: [{ app: "grader-plugin", operation: "grade" }],
         output: {
           structured: {
@@ -895,7 +901,7 @@ describe("Cursor agent provider contract", () => {
       idempotencyKey: "",
       model: "",
       clientRef: "",
-      createdBy: OWNER_ACTOR,
+      createdBySubjectId: OWNER_SUBJECT.id,
       preparedWorkspace: { root: tmpdir(), cwd: preparedCwd },
     } as never);
     await provider.createTurn(
@@ -904,7 +910,6 @@ describe("Cursor agent provider contract", () => {
         sessionId: "session-workspace",
         messages: [{ role: "user", text: "inspect repo" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        runGrant: "grant",
         toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
@@ -923,7 +928,7 @@ describe("Cursor agent provider contract", () => {
         idempotencyKey: "",
         model: "",
         clientRef: "",
-        createdBy: OWNER_ACTOR,
+        createdBySubjectId: OWNER_SUBJECT.id,
         preparedWorkspace: { root: tmpdir(), cwd: "" },
       } as never),
     ).rejects.toThrow("preparedWorkspace root and cwd are required");
@@ -963,7 +968,6 @@ describe("Cursor agent provider contract", () => {
         sessionId: "s",
         messages: [{ role: "user", text: "hi" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        runGrant: "grant",
         toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
@@ -1004,7 +1008,6 @@ describe("Cursor agent provider contract", () => {
       sessionId: "s",
       messages: [{ role: "user", text: "hi" }],
       toolSource: AgentToolSourceMode.MCP_CATALOG,
-      runGrant: "grant",
       toolRefs: [{ app: "p", operation: "o" }],
     };
     const invalidCases: Array<[string, Record<string, unknown>, string]> = [
@@ -1013,7 +1016,7 @@ describe("Cursor agent provider contract", () => {
         { toolSource: 999 as AgentToolSourceMode },
         "requires toolSource",
       ],
-      ["missing request context", { runGrant: "" }, "request context is required"],
+      ["missing request context", { context: undefined }, "request context is required"],
       ["missing refs", { toolRefs: [] }, "tool_refs are required"],
       [
         "wildcard ref",
@@ -1090,7 +1093,6 @@ describe("Cursor agent provider contract", () => {
         sessionId: "failure",
         messages: [{ role: "user", text: "fail" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        runGrant: "grant",
         toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
@@ -1129,7 +1131,6 @@ describe("Cursor agent provider contract", () => {
         sessionId: "timeout",
         messages: [{ role: "user", text: "timeout" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        runGrant: "grant",
         toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
@@ -1160,7 +1161,6 @@ describe("Cursor agent provider contract", () => {
         sessionId: "pre-run-cancel",
         messages: [{ role: "user", text: "cancel" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        runGrant: "grant",
         toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
@@ -1202,7 +1202,6 @@ describe("Cursor agent provider contract", () => {
         sessionId: "send-cancel",
         messages: [{ role: "user", text: "cancel while sending" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        runGrant: "grant",
         toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
@@ -1263,7 +1262,6 @@ describe("Cursor agent provider contract", () => {
         sessionId: "live-cancel",
         messages: [{ role: "user", text: "cancel" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        runGrant: "grant",
         toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
@@ -1317,7 +1315,6 @@ describe("Cursor agent provider contract", () => {
         sessionId: "close",
         messages: [{ role: "user", text: "close" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        runGrant: "grant",
         toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
@@ -1402,7 +1399,6 @@ describe("Cursor agent provider contract", () => {
           sessionId: name,
           messages: [{ role: "user", text: "hi" }],
           toolSource: AgentToolSourceMode.MCP_CATALOG,
-          runGrant: "grant",
           toolRefs: [{ app: "p", operation: "o" }],
         }),
       );
@@ -1501,7 +1497,6 @@ describe("Cursor agent provider contract", () => {
         sessionId: "events",
         messages: [{ role: "user", text: "hi" }],
         toolSource: AgentToolSourceMode.MCP_CATALOG,
-        runGrant: "grant",
         toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
@@ -1756,7 +1751,7 @@ class FakeRun {
 }
 
 class FakeAgentHost {
-  readonly listRequests: unknown[] = [];
+  readonly listRequests: ListAgentToolsRequest[] = [];
   readonly executeRequests: ProtoExecuteAgentToolRequest[] = [];
   readonly relayTokens: string[] = [];
 

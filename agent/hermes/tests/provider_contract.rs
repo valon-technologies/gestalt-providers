@@ -189,7 +189,14 @@ async fn mcp_catalog_turn_bridges_gestalt_tools_to_hermes() {
     );
     assert_eq!(list_requests[0].session_id, "session-1");
     assert_eq!(list_requests[0].turn_id, "turn-mcp");
-    assert_eq!(list_requests[0].run_grant, "grant-mcp");
+    assert_eq!(
+        list_requests[0]
+            .context
+            .as_ref()
+            .and_then(|context| context.subject.as_ref())
+            .map(|subject| subject.id.as_str()),
+        Some(OWNER_SUBJECT_ID)
+    );
     assert_eq!(list_requests[0].page_size, 100);
 
     let execute_requests = host
@@ -202,7 +209,14 @@ async fn mcp_catalog_turn_bridges_gestalt_tools_to_hermes() {
     assert_eq!(execute_requests[0].turn_id, "turn-mcp");
     assert_eq!(execute_requests[0].tool_id, "linear-list");
     assert_eq!(execute_requests[0].tool_call_id, "mcp-1");
-    assert_eq!(execute_requests[0].run_grant, "grant-mcp");
+    assert_eq!(
+        execute_requests[0]
+            .context
+            .as_ref()
+            .and_then(|context| context.subject.as_ref())
+            .map(|subject| subject.id.as_str()),
+        Some(OWNER_SUBJECT_ID)
+    );
     assert_eq!(
         execute_requests[0].idempotency_key,
         "agent/hermes-mcp:turn-mcp:1:linear.issues"
@@ -851,16 +865,15 @@ async fn mcp_catalog_does_not_require_advertised_acp_http_mcp_support() {
 }
 
 #[tokio::test]
-async fn explicit_no_tool_turn_allows_run_grant_without_mcp_servers() {
+async fn explicit_no_tool_turn_does_not_require_request_context() {
     let fixture = Fixture::new("success");
     let provider = fixture.configure_provider().await;
 
     create_session(&provider).await;
     provider
         .create_turn(gestalt::CreateAgentProviderTurnRequest {
-            turn_id: "turn-no-tools-with-grant".to_string(),
+            turn_id: "turn-no-tools".to_string(),
             session_id: "session-1".to_string(),
-            run_grant: "grant-no-tools".to_string(),
             messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "say hi".to_string(),
@@ -875,16 +888,15 @@ async fn explicit_no_tool_turn_allows_run_grant_without_mcp_servers() {
         .unwrap();
     wait_for_turn(
         &provider,
-        "turn-no-tools-with-grant",
+        "turn-no-tools",
         gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
     provider
         .create_turn(gestalt::CreateAgentProviderTurnRequest {
-            turn_id: "turn-explicit-no-tools-with-grant".to_string(),
+            turn_id: "turn-explicit-no-tools".to_string(),
             session_id: "session-1".to_string(),
             tool_source: gestalt::AgentToolSourceMode::None,
-            run_grant: "grant-explicit-no-tools".to_string(),
             messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "say hi again".to_string(),
@@ -899,7 +911,7 @@ async fn explicit_no_tool_turn_allows_run_grant_without_mcp_servers() {
         .unwrap();
     wait_for_turn(
         &provider,
-        "turn-explicit-no-tools-with-grant",
+        "turn-explicit-no-tools",
         gestalt::AgentExecutionStatus::Succeeded,
     )
     .await;
@@ -2043,8 +2055,9 @@ async fn create_turn_in_session_as(
 }
 
 async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> gestalt::AgentTurn {
-    provider
-        .create_turn(gestalt::CreateAgentProviderTurnRequest {
+    gestalt::with_request_context(
+        Some(request_context(OWNER_SUBJECT_ID)),
+        provider.create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: turn_id.to_string(),
             session_id: "session-1".to_string(),
             messages: vec![gestalt::AgentMessage {
@@ -2058,13 +2071,13 @@ async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> gesta
                 app: "*".to_string(),
                 ..Default::default()
             }],
-            run_grant: "grant-mcp".to_string(),
             created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
             ..empty_turn_request()
-        })
-        .await
-        .unwrap()
+        }),
+    )
+    .await
+    .unwrap()
 }
 
 fn owner_subject() -> gestalt::Subject {
@@ -2103,9 +2116,7 @@ fn empty_turn_request() -> gestalt::CreateAgentProviderTurnRequest {
         tool_source: gestalt::AgentToolSourceMode::Unspecified,
         subject: None,
         model_options: None,
-        run_grant: String::new(),
         timeout_seconds: 0,
-        invocation_token: String::new(),
     }
 }
 
@@ -2113,6 +2124,16 @@ fn subject_context(subject_id: &str) -> gestalt::Subject {
     gestalt::Subject {
         id: subject_id.to_string(),
         credential_subject_id: subject_id.to_string(),
+        ..Default::default()
+    }
+}
+
+fn request_context(subject_id: &str) -> proto::RequestContext {
+    proto::RequestContext {
+        subject: Some(proto::SubjectContext {
+            id: subject_id.to_string(),
+            ..Default::default()
+        }),
         ..Default::default()
     }
 }

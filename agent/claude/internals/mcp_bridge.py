@@ -55,10 +55,9 @@ class ToolEntry:
 
 
 class GestaltMCPBridge:
-    def __init__(self, *, session_id: str, turn_id: str, run_grant: str, request_context: Any | None = None) -> None:
+    def __init__(self, *, session_id: str, turn_id: str, request_context: Any) -> None:
         self._session_id = session_id
         self._turn_id = turn_id
-        self._run_grant = run_grant
         self._request_context = request_context
         self._entries: dict[str, ToolEntry] = {}
         self._all_entries: list[ToolEntry] | None = None
@@ -120,8 +119,7 @@ class GestaltMCPBridge:
                         tool_call_id=tool_call_id,
                         tool_id=entry.tool_id,
                         arguments=arguments or {},
-                        run_grant=self._run_grant,
-                        **_request_context_kwargs(self._request_context),
+                        context=self._request_context,
                         idempotency_key=(f"agent/claude-sdk:{self._turn_id}:{tool_call_id}:{entry.mcp_name}"),
                     )
 
@@ -185,19 +183,14 @@ class GestaltMCPBridge:
                 self._turn_id,
                 page_size=DEFAULT_PAGE_SIZE,
                 page_token=page_token,
-                run_grant=self._run_grant,
-                **_request_context_kwargs(self._request_context),
+                context=self._request_context,
             )
         return [_tool_entry(tool) for tool in response.tools], str(response.next_page_token or "").strip()
 
 
-def create_gestalt_sdk_mcp_server(
-    *, session_id: str, turn_id: str, run_grant: str, request_context: Any | None = None
-) -> McpSdkServerConfig:
+def create_gestalt_sdk_mcp_server(*, session_id: str, turn_id: str, request_context: Any) -> McpSdkServerConfig:
     install_sdk_mcp_pagination_patch()
-    bridge = GestaltMCPBridge(
-        session_id=session_id, turn_id=turn_id, run_grant=run_grant, request_context=request_context
-    )
+    bridge = GestaltMCPBridge(session_id=session_id, turn_id=turn_id, request_context=request_context)
     return McpSdkServerConfig(type="sdk", name=MCP_SERVER_NAME, instance=bridge.server)
 
 
@@ -325,10 +318,6 @@ def _tool_error_entry(exc: Exception) -> ToolEntry:
 def _tool_error_result(exc: Exception) -> CallToolResult:
     body = json.dumps({"ok": False, "error": _tool_error_message(exc)}, ensure_ascii=False)
     return CallToolResult(content=[TextContent(type="text", text=body)], isError=True)
-
-
-def _request_context_kwargs(request_context: Any | None) -> dict[str, Any]:
-    return {"context": request_context} if request_context is not None else {}
 
 
 def _tool_error_message(exc: Exception) -> str:

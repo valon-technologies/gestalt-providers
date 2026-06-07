@@ -626,7 +626,6 @@ impl HermesAgentProvider {
             output_request,
             tool_refs,
             tool_source,
-            run_grant,
             request_context,
         ) = {
             let store = self.inner.store.lock().await;
@@ -644,7 +643,6 @@ impl HermesAgentProvider {
                 turn.output_request,
                 turn.tool_refs,
                 turn.tool_source,
-                turn.run_grant,
                 turn.request_context,
             )
         };
@@ -671,11 +669,13 @@ impl HermesAgentProvider {
             }
             let _initialize_result = process.initialize(config.timeout).await?;
             let mcp_servers = if mcp_catalog_enabled && !tool_refs.is_empty() {
+                let request_context = request_context
+                    .clone()
+                    .ok_or_else(|| "request context is required when tool_source=MCP_CATALOG".to_string())?;
                 let bridge = mcp_bridge::start_bridge(
                     session_id.clone(),
                     turn_id.to_string(),
-                    run_grant.clone(),
-                    request_context.clone(),
+                    request_context,
                 )
                 .await?;
                 let mcp_server = bridge.acp_server_config();
@@ -955,7 +955,7 @@ fn validate_turn_request(req: &gestalt::CreateAgentProviderTurnRequest) -> gesta
             }
         }
         gestalt::AgentToolSourceMode::McpCatalog => {
-            if gestalt::current_request_context().is_none() && req.run_grant.trim().is_empty() {
+            if gestalt::current_request_context().is_none() {
                 return Err(gestalt::Error::bad_request(
                     "request context is required when tool_source=MCP_CATALOG",
                 ));
