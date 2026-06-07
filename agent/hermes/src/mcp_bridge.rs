@@ -300,7 +300,7 @@ impl GestaltMcpBridge {
             .host
             .lock()
             .await
-            .execute_tool_for_turn(AgentHostExecuteToolInput {
+            .execute_tool(AgentHostExecuteToolInput {
                 session_id: self.session_id.clone(),
                 turn_id: self.turn_id.clone(),
                 tool_call_id,
@@ -469,7 +469,7 @@ impl GestaltMcpBridge {
             .host
             .lock()
             .await
-            .list_tools_for_turn(AgentHostListToolsInput {
+            .list_tools(AgentHostListToolsInput {
                 session_id: self.session_id.clone(),
                 turn_id: self.turn_id.clone(),
                 page_size: MCP_PAGE_SIZE,
