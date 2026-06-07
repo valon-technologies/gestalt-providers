@@ -27,12 +27,7 @@ from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.codex_runner import normalize_codex_result
 from internals.gestalt_mcp_bridge import BridgeContext
 from internals.http_bridge import BridgeHTTPServer
-from internals.tool_bridge import (
-    MAX_LISTED_TOOLS,
-    ToolBridgeError,
-    list_tools,
-    schema_from_json,
-)
+from internals.tool_bridge import MAX_LISTED_TOOLS, ToolBridgeError, list_tools, schema_from_json
 
 agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
@@ -256,9 +251,7 @@ class CodexProviderTests(unittest.TestCase):
 
         created = provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-codex",
-                created_by_subject_id="user-123",
-                tools=_catalog_tool_config(),
+                session_id="session-codex", created_by_subject_id="user-123", tools=_catalog_tool_config()
             )
         )
         self.assertEqual(created.model, "")
@@ -268,8 +261,6 @@ class CodexProviderTests(unittest.TestCase):
                 session_id="session-codex",
                 messages=[agent_pb2.AgentMessage(role="user", text="List my Linear issues")],
                 execution_ref="exec-codex",
-                tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_UNSPECIFIED,
-                include_tool_refs=False,
             )
         )
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
@@ -326,47 +317,18 @@ class CodexProviderTests(unittest.TestCase):
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
         self.assertEqual(host.list_requests[0]["context_subject"], "user-123")
 
-    def test_provider_rejects_turn_tools_outside_configured_session_scope(self) -> None:
-        _, provider_client = _configure_provider()
-        tools = agent_pb2.AgentToolConfig()
-        linear = tools.catalog.refs.add()
-        linear.app = "linear"
-        linear.operation = "searchIssues"
-        provider_client.CreateSession(
-            agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-linear-only",
-                created_by_subject_id="user-123",
-                tools=tools,
-            )
-        )
-
-        with self.assertRaises(grpc.RpcError) as raised:
-            provider_client.CreateTurn(
-                _turn_request(
-                    turn_id="turn-wide-tools",
-                    session_id="session-linear-only",
-                    tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
-                    include_tool_refs=True,
-                )
-            )
-        self.assertEqual(cast(Any, raised.exception).code(), grpc.StatusCode.INVALID_ARGUMENT)
-        self.assertIn("agent turn tools must be configured on the session", cast(Any, raised.exception).details())
-
     def test_slack_sessions_are_company_readable_and_owner_writable(self) -> None:
         _, provider_client = _configure_provider()
         provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-private",
-                created_by_subject_id="user-owner",
+                session_id="session-private", created_by_subject_id="user-owner"
             )
         )
         slack_metadata = struct_pb2.Struct()
         slack_metadata.update(_slack_session_metadata())
         provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-slack",
-                metadata=slack_metadata,
-                created_by_subject_id="service_account:slack-bot",
+                session_id="session-slack", metadata=slack_metadata, created_by_subject_id="service_account:slack-bot"
             )
         )
 
@@ -388,9 +350,7 @@ class CodexProviderTests(unittest.TestCase):
         with self.assertRaises(grpc.RpcError) as denied_update:
             provider_client.UpdateSession(
                 agent_pb2.UpdateAgentProviderSessionRequest(
-                    session_id="session-slack",
-                    subject=reader_subject,
-                    state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED,
+                    session_id="session-slack", subject=reader_subject, state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED
                 )
             )
         self.assertEqual(cast(Any, denied_update.exception).code(), grpc.StatusCode.PERMISSION_DENIED)
@@ -432,10 +392,7 @@ class CodexProviderTests(unittest.TestCase):
         self.assertEqual(fetched.id, "turn-slack")
         listed = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
-                session_id="session-slack-turn",
-                subject=reader_subject,
-                limit=10,
-                summary_only=True,
+                session_id="session-slack-turn", subject=reader_subject, limit=10, summary_only=True
             )
         )
         self.assertEqual([turn.id for turn in listed.turns], ["turn-slack"])
@@ -514,9 +471,7 @@ class CodexProviderTests(unittest.TestCase):
             hook.output.additional_context = True
             hook.output.metadata = True
 
-            provider_client.CreateSession(
-                _owned_session_request("session-codex-skills", session_start=session_start)
-            )
+            provider_client.CreateSession(_owned_session_request("session-codex-skills", session_start=session_start))
             provider_client.CreateTurn(_turn_request(turn_id="turn-codex-skills", session_id="session-codex-skills"))
             _wait_for_turn(provider_client, "turn-codex-skills", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
@@ -538,9 +493,7 @@ class CodexProviderTests(unittest.TestCase):
 
     def test_session_and_turn_models_are_passed_only_when_set(self) -> None:
         _, provider_client = _configure_provider()
-        provider_client.CreateSession(
-            _owned_session_request("session-model", model="gpt-session")
-        )
+        provider_client.CreateSession(_owned_session_request("session-model", model="gpt-session"))
         provider_client.CreateTurn(_turn_request(turn_id="turn-session-model", session_id="session-model"))
         _wait_for_turn(provider_client, "turn-session-model", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
         self.assertEqual(_FakeCodexMCPServer.instances[-1].called_arguments["model"], "gpt-session")
@@ -563,23 +516,10 @@ class CodexProviderTests(unittest.TestCase):
         _, provider_client = _configure_provider()
         _create_owned_session(provider_client, "session-validation")
 
-        bad_source = _turn_request(turn_id="turn-bad-source", session_id="session-validation")
-        bad_source.tool_source = 999
-        _assert_invalid(provider_client, bad_source, "agent turn tools must be configured on the session")
-
         missing_context = _turn_request(
             turn_id="turn-missing-context", session_id="session-validation", include_context=False
         )
         _assert_invalid(provider_client, missing_context, "request context is required")
-
-        wildcard_ref = _turn_request(
-            turn_id="turn-wildcard",
-            session_id="session-validation",
-            tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
-            include_tool_refs=True,
-        )
-        wildcard_ref.tool_refs[0].app = "*"
-        _assert_invalid(provider_client, wildcard_ref, "agent turn tools must be configured on the session")
 
         empty_schema = _turn_request(turn_id="turn-empty-schema", session_id="session-validation")
         empty_schema.output.structured.schema.CopyFrom(struct_pb2.Struct())
@@ -624,14 +564,10 @@ class CodexProviderTests(unittest.TestCase):
         schema.update({"type": "object", "required": ["score"], "properties": {"score": {"type": "number"}}})
         provider_client.CreateTurn(
             _turn_request(
-                turn_id="turn-structured-invalid",
-                session_id="session-structured-invalid",
-                output_schema=schema,
+                turn_id="turn-structured-invalid", session_id="session-structured-invalid", output_schema=schema
             )
         )
-        fetched = _wait_for_turn(
-            provider_client, "turn-structured-invalid", agent_pb2.AGENT_EXECUTION_STATUS_FAILED
-        )
+        fetched = _wait_for_turn(provider_client, "turn-structured-invalid", agent_pb2.AGENT_EXECUTION_STATUS_FAILED)
         self.assertIn("structured output", fetched.status_message)
 
     def test_configure_rejects_interactive_approval_policy(self) -> None:
@@ -654,9 +590,7 @@ class CodexProviderTests(unittest.TestCase):
 
         canceled = provider_client.CancelTurn(
             agent_pb2.CancelAgentProviderTurnRequest(
-                turn_id="turn-cancel",
-                reason="test cancellation",
-                subject=_subject_context("user-123"),
+                turn_id="turn-cancel", reason="test cancellation", subject=_subject_context("user-123")
             )
         )
         self.assertEqual(canceled.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
@@ -666,10 +600,7 @@ class CodexProviderTests(unittest.TestCase):
 
         time.sleep(0.1)
         fetched_again = provider_client.GetTurn(
-            agent_pb2.GetAgentProviderTurnRequest(
-                turn_id="turn-cancel",
-                subject=_subject_context("user-123"),
-            )
+            agent_pb2.GetAgentProviderTurnRequest(turn_id="turn-cancel", subject=_subject_context("user-123"))
         )
         self.assertEqual(fetched_again.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
         self.assertEqual(runner._canceled_turns, set())
@@ -827,8 +758,6 @@ def _turn_request(
     execution_ref: str = "",
     output_schema: Any | None = None,
     model_options: Any | None = None,
-    tool_source: int | None = None,
-    include_tool_refs: bool = False,
     include_context: bool = True,
 ) -> Any:
     request = agent_pb2.CreateAgentProviderTurnRequest(
@@ -836,7 +765,6 @@ def _turn_request(
         session_id=session_id,
         model=model,
         messages=messages or [agent_pb2.AgentMessage(role="user", text="List my Linear issues")],
-        tool_source=tool_source if tool_source is not None else agent_pb2.AGENT_TOOL_SOURCE_MODE_UNSPECIFIED,
         execution_ref=execution_ref,
         created_by_subject_id="user-123",
         subject=_subject_context("user-123"),
@@ -847,13 +775,6 @@ def _turn_request(
         request.output.text.SetInParent()
     else:
         request.output.structured.schema.CopyFrom(output_schema)
-    if include_tool_refs:
-        linear = request.tool_refs.add()
-        linear.app = "linear"
-        linear.operation = "searchIssues"
-        github = request.tool_refs.add()
-        github.app = "github"
-        github.operation = "pulls/list"
     if model_options is not None:
         request.model_options.CopyFrom(model_options)
     return request
@@ -863,10 +784,7 @@ def _owned_session_request(session_id: str, **kwargs: Any) -> Any:
     if "tools" not in kwargs:
         kwargs["tools"] = _catalog_tool_config()
     return agent_pb2.CreateAgentProviderSessionRequest(
-        session_id=session_id,
-        created_by_subject_id="user-123",
-        subject=_subject_context("user-123"),
-        **kwargs,
+        session_id=session_id, created_by_subject_id="user-123", subject=_subject_context("user-123"), **kwargs
     )
 
 
@@ -998,10 +916,7 @@ def _wait_for_turn(provider_client: Any, turn_id: str, status: int) -> Any:
     deadline = time.time() + 5
     while time.time() < deadline:
         turn = provider_client.GetTurn(
-            agent_pb2.GetAgentProviderTurnRequest(
-                turn_id=turn_id,
-                subject=_subject_context("user-123"),
-            )
+            agent_pb2.GetAgentProviderTurnRequest(turn_id=turn_id, subject=_subject_context("user-123"))
         )
         if turn.status == status:
             return turn

@@ -1,8 +1,8 @@
 # Claude Agent SDK Provider
 
-`agent/claude` runs Claude through the Claude Agent SDK. For
-`toolSource: mcp_catalog`, the provider registers an in-process SDK MCP server
-named `gestalt` and calls tools through `AgentHost.ExecuteTool`.
+`agent/claude` runs Claude through the Claude Agent SDK. For session
+`tools.catalog`, the provider registers an in-process SDK MCP server named
+`gestalt` and calls tools through `AgentHost.ExecuteTool`.
 
 The first cut is intentionally small:
 
@@ -62,12 +62,13 @@ Use exact, plugin-level, or global tool refs with the MCP catalog source:
 ```yaml
 agent:
   provider: claude
-  toolSource: mcp_catalog
-  toolRefs:
-    - plugin: linear
-      operation: searchIssues
-    - plugin: github
-      operation: pulls/list
+  tools:
+    catalog:
+      refs:
+        - plugin: linear
+          operation: searchIssues
+        - plugin: github
+          operation: pulls/list
 ```
 
 For small exact grants, the SDK MCP bridge exposes the granted catalog tools

@@ -147,6 +147,10 @@ function turnRequest(
   input: Partial<CreateAgentProviderTurnRequest> &
     Pick<CreateAgentProviderTurnRequest, "turnId" | "sessionId" | "messages">,
 ): CreateAgentProviderTurnRequest {
+  const legacyDefaults = {
+    toolRefs: [],
+    toolSource: AgentToolSourceMode.UNSPECIFIED,
+  } as Record<string, unknown>;
   return {
     turnId: input.turnId,
     sessionId: input.sessionId,
@@ -158,15 +162,14 @@ function turnRequest(
     metadata: input.metadata,
     createdBySubjectId: input.createdBySubjectId ?? OWNER_SUBJECT.id,
     executionRef: input.executionRef ?? "",
-    toolRefs: input.toolRefs ?? [],
-    toolSource: input.toolSource ?? AgentToolSourceMode.UNSPECIFIED,
+    ...legacyDefaults,
     subject: input.subject ?? OWNER_SUBJECT,
     context: Object.prototype.hasOwnProperty.call(input, "context")
       ? input.context
       : requestContext(OWNER_SUBJECT),
     modelOptions: input.modelOptions,
     timeoutSeconds: input.timeoutSeconds ?? 0,
-  };
+  } as CreateAgentProviderTurnRequest;
 }
 
 function turnText(turn: AgentTurn): string {
@@ -1072,14 +1075,6 @@ describe("Cursor agent provider contract", () => {
       messages: [{ role: "user", text: "hi" }],
     };
     const invalidCases: Array<[string, Record<string, unknown>, string]> = [
-      [
-        "turn tools",
-        {
-          toolSource: AgentToolSourceMode.MCP_CATALOG,
-          toolRefs: [{ app: "p", operation: "o" }],
-        },
-        "agent turn tools must be configured on the session",
-      ],
       ["missing request context", { context: undefined }, "request context is required"],
       [
         "empty structured output schema",

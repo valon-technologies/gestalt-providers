@@ -557,9 +557,6 @@ function validateCreateTurnRequest(
   request: CreateAgentProviderTurnRequest,
   session: StoredSession,
 ): Record<string, unknown> | undefined {
-  if (request.toolSource !== AgentToolSourceMode.UNSPECIFIED || request.toolRefs.length > 0) {
-    throw invalidArgument("agent turn tools must be configured on the session");
-  }
   if (session.toolSource !== AgentToolSourceMode.MCP_CATALOG) {
     throw invalidArgument("agent/cursor requires session tools.catalog");
   }
