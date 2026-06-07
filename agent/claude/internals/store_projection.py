@@ -77,6 +77,7 @@ def _record_to_session_projection(record: dict[str, Any] | None) -> StoredSessio
         prepared_workspace=None,
         tool_source=gestalt.AGENT_TOOL_SOURCE_MODE_UNSPECIFIED,
         tool_refs=[],
+        listed_tools=[],
         created_by_subject_id=created_by_subject_id_from_record(record),
         visibility=_projection_visibility(record.get("visibility")),
         created_at=_coerce_required_datetime(record.get("created_at")),

@@ -4,17 +4,14 @@ import json
 import re
 import threading
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 import gestalt
-import grpc
 from mcp import types as mcp_types
 
 
-DEFAULT_PAGE_SIZE = 100
 DEFAULT_HOST_RPC_TIMEOUT_SECONDS = 30.0
 MAX_LISTED_TOOLS = 1000
-MAX_PAGES = 100
 _UNSAFE_TOOL_NAME = re.compile(r"[*?,\s\x00-\x1f\x7f]")
 
 
@@ -24,10 +21,10 @@ class ToolBridgeError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class ToolEntry:
-    tool_id: str
     mcp_name: str
     title: str
     description: str
+    ref: gestalt.AgentToolRef
     input_schema: dict[str, Any]
     annotations: mcp_types.ToolAnnotations | None
 
@@ -36,12 +33,10 @@ class ToolExecutor:
     def __init__(
         self,
         *,
-        session_id: str,
         turn_id: str,
         request_context: Any,
         timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS,
     ) -> None:
-        self._session_id = session_id
         self._turn_id = turn_id
         self._request_context = request_context
         self._timeout_seconds = timeout_seconds
@@ -50,18 +45,14 @@ class ToolExecutor:
 
     def execute(
         self, *, entry: ToolEntry, arguments: dict[str, Any]
-    ) -> gestalt.ExecuteAgentToolResponse:
+    ) -> gestalt.Response[str]:
         with self._lock:
             self._sequence += 1
             sequence = self._sequence
-        tool_call_id = f"mcp-{sequence}"
         idempotency_key = f"agent/codex-mcp:{self._turn_id}:{sequence}:{entry.mcp_name}"
         return execute_tool(
-            session_id=self._session_id,
-            turn_id=self._turn_id,
             request_context=self._request_context,
             entry=entry,
-            tool_call_id=tool_call_id,
             idempotency_key=idempotency_key,
             arguments=arguments,
             timeout_seconds=self._timeout_seconds,
@@ -70,62 +61,35 @@ class ToolExecutor:
 
 def list_tools(
     *,
-    session_id: str,
-    turn_id: str,
-    request_context: Any,
-    timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS,
+    listed_tools: list[gestalt.ListedAgentTool],
 ) -> list[ToolEntry]:
-    page_token = ""
-    seen_tokens: set[str] = set()
     tools: list[ToolEntry] = []
     seen_names: set[str] = set()
-    pages = 0
-    with gestalt.AgentHost() as host:
-        while True:
-            pages += 1
-            if pages > MAX_PAGES:
-                raise ToolBridgeError(f"ListTools exceeded {MAX_PAGES} pages")
-            if page_token in seen_tokens:
-                raise ToolBridgeError(f"ListTools repeated page token {page_token!r}")
-            seen_tokens.add(page_token)
-            request = gestalt.ListAgentToolsRequest(
-                session_id=session_id,
-                turn_id=turn_id,
-                page_size=DEFAULT_PAGE_SIZE,
-                page_token=page_token,
-                context=request_context,
-            )
-            timeout = _coerce_timeout_seconds(timeout_seconds)
-            try:
-                response = host.list_tools(request, timeout_seconds=timeout)
-            except grpc.RpcError as exc:
-                raise ToolBridgeError(_grpc_error_message("ListTools", exc)) from exc
-            for listed in response.tools:
-                entry = tool_entry(listed)
-                if entry.mcp_name in seen_names:
-                    raise ToolBridgeError(f"ListTools returned duplicate mcp_name {entry.mcp_name!r}")
-                seen_names.add(entry.mcp_name)
-                tools.append(entry)
-                if len(tools) > MAX_LISTED_TOOLS:
-                    raise ToolBridgeError(f"ListTools returned more than {MAX_LISTED_TOOLS} tools")
-            page_token = str(response.next_page_token or "").strip()
-            if not page_token:
-                break
+    for listed in listed_tools:
+        entry = tool_entry(listed)
+        if entry.mcp_name in seen_names:
+            raise ToolBridgeError(f"tools.catalog.tools returned duplicate mcp_name {entry.mcp_name!r}")
+        seen_names.add(entry.mcp_name)
+        tools.append(entry)
+        if len(tools) > MAX_LISTED_TOOLS:
+            raise ToolBridgeError(f"tools.catalog.tools returned more than {MAX_LISTED_TOOLS} tools")
     if not tools:
-        raise ToolBridgeError("ListTools returned no tools for the requested tool scope")
+        raise ToolBridgeError("tools.catalog.tools is empty for the requested tool scope")
     return tools
 
 
 def tool_entry(tool: gestalt.ListedAgentTool) -> ToolEntry:
-    tool_id = tool.id.strip()
     mcp_name = tool.mcp_name.strip()
     if _UNSAFE_TOOL_NAME.search(mcp_name):
-        raise ToolBridgeError(f"ListTools returned unsafe mcp_name {mcp_name!r}")
+        raise ToolBridgeError(f"tools.catalog.tools returned unsafe mcp_name {mcp_name!r}")
+    ref = tool.ref
+    if ref is None or not ref.app.strip() or not ref.operation.strip() or ref.system.strip():
+        raise ToolBridgeError(f"tools.catalog.tools returned non-app tool {mcp_name!r}")
     return ToolEntry(
-        tool_id=tool_id,
         mcp_name=mcp_name,
         title=str(tool.title or "").strip(),
         description=str(tool.description or "").strip(),
+        ref=ref,
         input_schema=schema_from_json(str(tool.input_schema or "")),
         annotations=tool_annotations(tool.annotations, title=str(tool.title or "").strip()),
     )
@@ -133,30 +97,27 @@ def tool_entry(tool: gestalt.ListedAgentTool) -> ToolEntry:
 
 def execute_tool(
     *,
-    session_id: str,
-    turn_id: str,
     request_context: Any,
     entry: ToolEntry,
-    tool_call_id: str,
     idempotency_key: str,
     arguments: dict[str, Any],
     timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS,
-) -> gestalt.ExecuteAgentToolResponse:
-    with gestalt.AgentHost() as host:
-        request = gestalt.ExecuteAgentToolRequest(
-            session_id=session_id,
-            turn_id=turn_id,
-            tool_call_id=tool_call_id,
-            tool_id=entry.tool_id,
-            arguments=arguments or {},
-            context=request_context,
-            idempotency_key=idempotency_key,
-        )
-        timeout = _coerce_timeout_seconds(timeout_seconds)
+) -> gestalt.Response[str]:
+    request = gestalt.Request(context=request_context)
+    with request.app() as app:
         try:
-            return host.execute_tool(request, timeout_seconds=timeout)
-        except grpc.RpcError as exc:
-            raise ToolBridgeError(_grpc_error_message("ExecuteTool", exc)) from exc
+            return app.invoke(
+                entry.ref.app,
+                entry.ref.operation,
+                arguments or {},
+                connection=entry.ref.connection,
+                instance=entry.ref.instance,
+                idempotency_key=idempotency_key,
+                credential_mode=entry.ref.credential_mode,
+                timeout_seconds=timeout_seconds,
+            )
+        except Exception as exc:
+            raise ToolBridgeError(str(exc) or exc.__class__.__name__) from exc
 
 
 def mcp_tool(entry: ToolEntry) -> mcp_types.Tool:
@@ -169,9 +130,7 @@ def mcp_tool(entry: ToolEntry) -> mcp_types.Tool:
     )
 
 
-def mcp_tool_result(
-    response: gestalt.ExecuteAgentToolResponse,
-) -> mcp_types.CallToolResult:
+def mcp_tool_result(response: gestalt.Response[str]) -> mcp_types.CallToolResult:
     body = str(response.body or "")
     status = int(response.status or 0)
     if not body:
@@ -283,19 +242,3 @@ def tool_annotations(
         if annotations.open_world_hint is not None:
             values["openWorldHint"] = bool(annotations.open_world_hint)
     return mcp_types.ToolAnnotations(**values) if values else None
-
-
-def _coerce_timeout_seconds(value: float) -> float:
-    try:
-        timeout = float(value)
-    except (TypeError, ValueError):
-        timeout = DEFAULT_HOST_RPC_TIMEOUT_SECONDS
-    return timeout if timeout > 0 else DEFAULT_HOST_RPC_TIMEOUT_SECONDS
-
-
-def _grpc_error_message(rpc_name: str, exc: grpc.RpcError) -> str:
-    error = cast(Any, exc)
-    code_value = error.code()
-    code = code_value.name if code_value is not None else "UNKNOWN"
-    details = error.details() or "gRPC call failed"
-    return f"AgentHost.{rpc_name} failed: {code}: {details}"

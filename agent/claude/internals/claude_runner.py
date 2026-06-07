@@ -77,6 +77,7 @@ class _ClaudeResponse:
 class ClaudeTurnProfile:
     kind: Literal["catalog", "direct"]
     request_context: Any | None = None
+    listed_tools: list[gestalt.ListedAgentTool] = field(default_factory=list)
     schema: dict[str, Any] | None = None
     claude_code_options: ClaudeCodeTurnOptions | None = None
     cwd: str | None = None
@@ -86,6 +87,7 @@ class ClaudeTurnProfile:
         cls,
         *,
         request_context: Any,
+        listed_tools: list[gestalt.ListedAgentTool],
         schema: dict[str, Any] | None = None,
         claude_code_options: ClaudeCodeTurnOptions,
         cwd: str,
@@ -93,6 +95,7 @@ class ClaudeTurnProfile:
         return cls(
             kind="catalog",
             request_context=request_context,
+            listed_tools=list(listed_tools),
             schema=schema,
             claude_code_options=claude_code_options,
             cwd=cwd,
@@ -134,6 +137,7 @@ class ClaudeSDKRunner:
                         model=model,
                         messages=messages,
                         turn_profile=turn_profile,
+                        timeout_seconds=effective_timeout,
                     ),
                     timeout=effective_timeout,
                 )
@@ -168,6 +172,7 @@ class ClaudeSDKRunner:
         model: str,
         messages: list[dict[str, Any]],
         turn_profile: ClaudeTurnProfile,
+        timeout_seconds: float,
     ) -> gestalt.AgentTurnOutput:
         with self._active_turn(turn_id):
             self._raise_if_canceled(turn_id)
@@ -176,7 +181,13 @@ class ClaudeSDKRunner:
                 raise ClaudeExecutionError("turn prompt is empty")
 
             with tempfile.TemporaryDirectory(prefix="gestalt-claude-sdk-") as config_dir:
-                options = self._options(model=model, session_id=session_id, turn_id=turn_id, turn_profile=turn_profile)
+                options = self._options(
+                    model=model,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    turn_profile=turn_profile,
+                    timeout_seconds=timeout_seconds,
+                )
                 _set_config_dir(options, config_dir)
                 client = ClaudeSDKClient(options=options)
                 self._register_active_client(turn_id, client)
@@ -213,11 +224,18 @@ class ClaudeSDKRunner:
         turn_id: str,
         turn_profile: ClaudeTurnProfile | None = None,
         schema: dict[str, Any] | None = None,
+        timeout_seconds: float = 0.0,
     ) -> ClaudeAgentOptions:
         if turn_profile is None:
             turn_profile = ClaudeTurnProfile.direct(schema=schema)
         if turn_profile.uses_catalog_tools:
-            return self._catalog_options(model=model, session_id=session_id, turn_id=turn_id, turn_profile=turn_profile)
+            return self._catalog_options(
+                model=model,
+                session_id=session_id,
+                turn_id=turn_id,
+                turn_profile=turn_profile,
+                timeout_seconds=timeout_seconds,
+            )
         return self._direct_options(model=model, turn_profile=turn_profile)
 
     def _base_options_kwargs(
@@ -235,7 +253,7 @@ class ClaudeSDKRunner:
         }
 
     def _catalog_options(
-        self, *, model: str, session_id: str, turn_id: str, turn_profile: ClaudeTurnProfile
+        self, *, model: str, session_id: str, turn_id: str, turn_profile: ClaudeTurnProfile, timeout_seconds: float
     ) -> ClaudeAgentOptions:
         claude_code_options = turn_profile.claude_code_options
         assert claude_code_options is not None
@@ -255,7 +273,10 @@ class ClaudeSDKRunner:
             allowed_tools=allowed_gestalt_mcp_tools() + claude_code_options.allowed_tools,
             mcp_servers={
                 MCP_SERVER_NAME: create_gestalt_sdk_mcp_server(
-                    session_id=session_id, turn_id=turn_id, request_context=turn_profile.request_context
+                    turn_id=turn_id,
+                    request_context=turn_profile.request_context,
+                    listed_tools=list(turn_profile.listed_tools),
+                    timeout_seconds=timeout_seconds,
                 )
             },
             setting_sources=list(claude_code_options.setting_sources),

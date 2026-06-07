@@ -1,10 +1,11 @@
 # Codex MCP Agent Provider
 
 `agent/codex` runs Codex through the Codex CLI MCP server. Gestalt does not rank
-or search tools in this provider. For session `tools.catalog`, the provider
-hydrates the exact scoped catalog tools with `AgentHost.ListTools`, writes those
-tool names into a temporary Codex `mcp_servers.gestalt.enabled_tools` config,
-and routes nested Codex MCP tool calls back through `AgentHost.ExecuteTool`.
+or search tools in this provider. For session `tools.catalog`, gestaltd sends
+the exact listed catalog tools on `tools.catalog.tools`; the provider writes
+those tool names into a temporary Codex `mcp_servers.gestalt.enabled_tools`
+config and routes nested Codex MCP tool calls through direct `App.Invoke`
+requests with the current turn request context.
 
 The first cut is intentionally small:
 
@@ -15,7 +16,7 @@ The first cut is intentionally small:
 - no interactive approval prompts; `approvalPolicy` must be `never`
 - optional Codex surfaces such as apps, multi-agent tools, hooks, skills, and
   web search disabled in the generated per-turn config
-- Gestalt tool calls routed through `AgentHost.ExecuteTool`
+- Gestalt tool calls routed through direct app invocation
 
 `enabled_tools` constrains only the Gestalt MCP tools exposed to Codex. Codex may
 still use its own built-in behavior within the configured sandbox.
@@ -68,8 +69,8 @@ agent:
 ```
 
 The provider relies on the request context supplied by Gestalt for authorization
-and scoped tool calls. Session catalog refs are required so the caller's intent
-is explicit, while `AgentHost.ListTools` decides the actual tools exposed to
+and scoped tool calls. Session catalog refs express the caller's intent, while
+the denormalized `tools.catalog.tools` payload is the concrete set exposed to
 Codex for the current turn.
 
 `codexCommand` and `codexArgs` can be set when `codex mcp-server` is not on

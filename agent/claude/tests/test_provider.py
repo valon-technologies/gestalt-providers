@@ -27,6 +27,7 @@ from gestalt import ENV_HOST_SERVICE_SOCKET, ENV_HOST_SERVICE_TOKEN, ProviderKin
 from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt._gen.v1 import app_pb2 as _app_pb2
+from gestalt._gen.v1 import app_pb2_grpc as _app_pb2_grpc
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 import internals.claude_runner as claude_runner_module
@@ -38,6 +39,7 @@ agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
 empty_pb2: Any = _empty_pb2
 app_pb2: Any = cast(Any, _app_pb2)
+app_pb2_grpc: Any = _app_pb2_grpc
 runtime_pb2: Any = _runtime_pb2
 runtime_pb2_grpc: Any = _runtime_pb2_grpc
 struct_pb2: Any = _struct_pb2
@@ -48,128 +50,43 @@ _runtime_server: grpc.Server | None = None
 _host_server: grpc.Server | None = None
 _runtime_socket = ""
 _host_socket = ""
-_host_servicer: "_FakeAgentHost | None" = None
+_host_servicer: "_FakeAppHost | None" = None
 _indexeddb_servicer: "FakeIndexedDB | None" = None
 _previous_host_service_socket: str | None = None
 _previous_host_service_token: str | None = None
 _claude_client_patch: Any = None
 
 
-class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
+class _FakeAppHost(app_pb2_grpc.AppServicer):
     def __init__(self) -> None:
-        self.list_requests: list[dict[str, Any]] = []
-        self.execute_requests: list[dict[str, Any]] = []
-        self.large_catalog = False
-        self.include_reconnect_sentinel = False
-        self.metadata_supported = False
-        self.list_error = ""
-        self.execute_error = ""
+        self.invoke_requests: list[dict[str, Any]] = []
+        self.invoke_error = ""
 
     def reset(self) -> None:
-        self.list_requests.clear()
-        self.execute_requests.clear()
-        self.large_catalog = False
-        self.include_reconnect_sentinel = False
-        self.metadata_supported = False
-        self.list_error = ""
-        self.execute_error = ""
+        self.invoke_requests.clear()
+        self.invoke_error = ""
 
-    def ListTools(self, request: Any, context: grpc.ServicerContext) -> Any:
-        self.list_requests.append(
-            {
-                "session_id": request.session_id,
-                "turn_id": request.turn_id,
-                "page_size": request.page_size,
-                "page_token": request.page_token,
-                "context_subject": request.context.subject.id,
-            }
+    def Invoke(self, request: Any, context: grpc.ServicerContext) -> Any:
+        arguments = (
+            json_format.MessageToDict(request.params, preserving_proto_field_name=True)
+            if request.HasField("params")
+            else {}
         )
-        if self.list_error:
-            context.abort(grpc.StatusCode.UNKNOWN, self.list_error)
-        response = agent_pb2.ListAgentToolsResponse()
-        if self.large_catalog:
-            if request.page_token:
-                return response
-            for index in range(60):
-                plugin = "github" if index % 2 == 0 else "linear"
-                tool = response.tools.add()
-                tool.id = f"tool-{plugin}-{index}"
-                tool.mcp_name = f"{plugin}__operation_{index}"
-                tool.title = f"{plugin.title()} operation {index}"
-                tool.description = f"{plugin.title()} catalog operation {index}"
-                if hasattr(tool, "tags"):
-                    self.metadata_supported = True
-                    if plugin == "github":
-                        tool.tags.extend(["pr", "prs"])
-                        tool.search_text = "github pull request repository owner number"
-                tool.input_schema = '{"type":"object","properties":{"query":{"type":"string"}}}'
-                setattr(tool.ref, "app", plugin)
-                setattr(tool.ref, "operation", f"operation{index}")
-            return response
-        if request.page_token == "":
-            tool = response.tools.add()
-            tool.id = "tool-ashby-candidates"
-            tool.mcp_name = "ashby__candidate_list"
-            tool.title = "List Ashby candidates"
-            tool.description = "List Ashby candidates"
-            tool.input_schema = '{"type":"object"}'
-            setattr(tool.annotations, "read_only_hint", True)
-            setattr(tool.ref, "app", "ashby")
-            setattr(tool.ref, "operation", "candidate.list")
-            response.next_page_token = "page-2"
-        elif request.page_token == "page-2":
-            if self.include_reconnect_sentinel:
-                tool = response.tools.add()
-                tool.id = "tool-linear-reconnect"
-                tool.mcp_name = "linear__reconnect_required"
-                tool.title = "linear reconnect required"
-                tool.description = "linear credentials expired or refresh failed"
-                tool.input_schema = '{"type":"object","properties":{},"additionalProperties":false}'
-                setattr(tool.annotations, "read_only_hint", True)
-                setattr(tool.ref, "app", "linear")
-                return response
-            tool = response.tools.add()
-            tool.id = "tool-linear-issues"
-            tool.mcp_name = "linear__issues"
-            tool.title = "Search Linear issues"
-            tool.description = "Search Linear issues by text"
-            tool.input_schema = '{"type":"object","properties":{"query":{"type":"string"}}}'
-            setattr(tool.annotations, "read_only_hint", True)
-            setattr(tool.ref, "app", "linear")
-            setattr(tool.ref, "operation", "searchIssues")
-            tool = response.tools.add()
-            tool.id = "tool-github-pulls"
-            tool.mcp_name = "github__pulls_list"
-            tool.title = "List GitHub pull requests"
-            tool.description = "List pull requests from GitHub"
-            if hasattr(tool, "tags"):
-                self.metadata_supported = True
-                tool.tags.extend(["pr", "prs"])
-                tool.search_text = "github pull request repository owner number"
-            tool.input_schema = '{"type":"object"}'
-            setattr(tool.ref, "app", "github")
-            setattr(tool.ref, "operation", "pulls/list")
-        return response
-
-    def ExecuteTool(self, request: Any, context: grpc.ServicerContext) -> Any:
-        self.execute_requests.append(
+        self.invoke_requests.append(
             {
-                "session_id": request.session_id,
-                "turn_id": request.turn_id,
-                "tool_call_id": request.tool_call_id,
-                "tool_id": request.tool_id,
+                "app": request.app,
+                "operation": request.operation,
                 "context_subject": request.context.subject.id,
                 "idempotency_key": request.idempotency_key,
-                "arguments": dict(request.arguments),
+                "arguments": arguments,
+                "connection": request.connection,
+                "instance": request.instance,
+                "credential_mode": request.credential_mode,
             }
         )
-        if self.execute_error:
-            context.abort(grpc.StatusCode.UNKNOWN, self.execute_error)
-        if request.tool_id == "tool-linear-reconnect":
-            return agent_pb2.ExecuteAgentToolResponse(
-                status=424, body='{"error":{"code":"reconnect_required","plugin":"linear"}}'
-            )
-        return agent_pb2.ExecuteAgentToolResponse(status=200, body='{"ok":true}')
+        if self.invoke_error:
+            context.abort(grpc.StatusCode.UNKNOWN, self.invoke_error)
+        return app_pb2.OperationResult(status=200, body='{"ok":true}')
 
 
 class _FakeClaudeSDKClient:
@@ -718,15 +635,13 @@ class ClaudeProviderTests(unittest.TestCase):
             "Do not infer tool availability from Claude Code built-in tools only", fake_client.options.system_prompt
         )
 
-        self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
-        self.assertEqual(host.list_requests[0]["context_subject"], "user-123")
-        self.assertEqual(host.execute_requests[0]["tool_call_id"], "sdk-1")
-        self.assertEqual(host.execute_requests[0]["tool_id"], "tool-linear-issues")
-        self.assertEqual(host.execute_requests[0]["context_subject"], "user-123")
+        self.assertEqual(host.invoke_requests[0]["app"], "linear")
+        self.assertEqual(host.invoke_requests[0]["operation"], "searchIssues")
+        self.assertEqual(host.invoke_requests[0]["context_subject"], "user-123")
         self.assertEqual(
-            host.execute_requests[0]["idempotency_key"], "agent/claude-sdk:turn-claude:sdk-1:linear__issues"
+            host.invoke_requests[0]["idempotency_key"], "agent/claude-sdk:turn-claude:sdk-1:linear__issues"
         )
-        self.assertEqual(host.execute_requests[0]["arguments"], {"query": "AIT"})
+        self.assertEqual(host.invoke_requests[0]["arguments"], {"query": "AIT"})
         tool_result = cast(Any, fake_client.tool_result)
         self.assertEqual(tool_result.content[0].text, '{"ok":true}')
         self.assertFalse(tool_result.isError)
@@ -817,8 +732,7 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(fake_client.options.output_format["schema"]["type"], "object")
         host = _host_servicer
         assert host is not None
-        self.assertEqual(host.list_requests[0]["session_id"], "session-catalog-schema")
-        self.assertEqual(host.list_requests[0]["turn_id"], "turn-catalog-schema")
+        self.assertEqual(host.invoke_requests, [])
 
     def test_slack_sessions_are_company_readable_and_owner_writable(self) -> None:
         _, provider_client = _configure_provider()
@@ -1477,32 +1391,26 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(replayed.id, "turn-race-winner")
 
     def test_sdk_mcp_bridge_exposes_direct_tools_for_small_scopes(self) -> None:
-        host = _host_servicer
-        assert host is not None
         _configure_provider()
         runner = provider_module.provider._runner
         assert runner is not None
         options = _catalog_options(runner)
 
-        first, second = asyncio.run(_list_tools_through_sdk_bridge(options))
+        listed = asyncio.run(_list_tools_json_through_sdk_bridge(options))
 
         self.assertEqual(
-            [tool["name"] for tool in first["result"]["tools"]],
+            [tool["name"] for tool in listed["result"]["tools"]],
             ["ashby__candidate_list", "linear__issues", "github__pulls_list"],
         )
-        self.assertNotIn("nextCursor", first["result"])
-        self.assertEqual([tool["name"] for tool in second["result"]["tools"]], ["linear__issues", "github__pulls_list"])
-        self.assertNotIn("nextCursor", second["result"])
-        self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2", "page-2"])
+        self.assertNotIn("nextCursor", listed["result"])
 
     def test_sdk_mcp_bridge_exposes_direct_tools_for_large_scopes(self) -> None:
         host = _host_servicer
         assert host is not None
-        host.large_catalog = True
         _configure_provider()
         runner = provider_module.provider._runner
         assert runner is not None
-        options = _catalog_options(runner)
+        options = _catalog_options(runner, listed_tools=list(_large_catalog_tool_config().catalog.tools))
 
         sdk_tools = asyncio.run(_sdk_tools(options))
         visible_tools = [tool.name for tool in sdk_tools]
@@ -1510,45 +1418,26 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(len(visible_tools), 60)
         self.assertEqual(visible_tools[0], "github__operation_0")
         self.assertEqual(visible_tools[-1], "linear__operation_59")
-        self.assertEqual([request["page_token"] for request in host.list_requests], [""])
-        if host.metadata_supported:
-            self.assertIn("Search metadata:", sdk_tools[0].description)
-            self.assertIn("pr", sdk_tools[0].description)
-            self.assertIn("pull request", sdk_tools[0].description)
-            bridged = asyncio.run(_list_tools_json_through_sdk_bridge(options))
-            bridged_description = bridged["result"]["tools"][0]["description"]
-            self.assertIn("Search metadata:", bridged_description)
-            self.assertIn("pr", bridged_description)
-            self.assertIn("pull request", bridged_description)
+        self.assertIn("Search metadata:", sdk_tools[0].description)
+        self.assertIn("pr", sdk_tools[0].description)
+        self.assertIn("pull request", sdk_tools[0].description)
+        bridged = asyncio.run(_list_tools_json_through_sdk_bridge(options))
+        bridged_description = bridged["result"]["tools"][0]["description"]
+        self.assertIn("Search metadata:", bridged_description)
+        self.assertIn("pr", bridged_description)
+        self.assertIn("pull request", bridged_description)
 
         execute_result = asyncio.run(_call_sdk_tool(options, name="github__operation_0", arguments={"query": "mine"}))
 
         self.assertEqual(execute_result.content[0].text, '{"ok":true}')
-        self.assertEqual(host.execute_requests[-1]["tool_id"], "tool-github-0")
-        self.assertEqual(host.execute_requests[-1]["arguments"], {"query": "mine"})
+        self.assertEqual(host.invoke_requests[-1]["app"], "github")
+        self.assertEqual(host.invoke_requests[-1]["operation"], "operation0")
+        self.assertEqual(host.invoke_requests[-1]["arguments"], {"query": "mine"})
 
-    def test_sdk_mcp_bridge_marks_unavailable_sentinel_call_as_error(self) -> None:
+    def test_sdk_mcp_bridge_returns_tool_result_for_app_invoke_error(self) -> None:
         host = _host_servicer
         assert host is not None
-        host.include_reconnect_sentinel = True
-        _configure_provider()
-        runner = provider_module.provider._runner
-        assert runner is not None
-        options = _catalog_options(runner)
-
-        sdk_tools = asyncio.run(_sdk_tools(options))
-        self.assertEqual([tool.name for tool in sdk_tools], ["ashby__candidate_list", "linear__reconnect_required"])
-
-        execute_result = asyncio.run(_call_sdk_tool(options, name="linear__reconnect_required", arguments={}))
-
-        self.assertTrue(execute_result.isError)
-        self.assertEqual(execute_result.content[0].text, '{"error":{"code":"reconnect_required","plugin":"linear"}}')
-        self.assertEqual(host.execute_requests[-1]["tool_id"], "tool-linear-reconnect")
-
-    def test_sdk_mcp_bridge_returns_tool_result_for_execute_rpc_error(self) -> None:
-        host = _host_servicer
-        assert host is not None
-        host.execute_error = "integration reconnect required: token expired and refresh failed"
+        host.invoke_error = "integration reconnect required: token expired and refresh failed"
         _configure_provider()
         runner = provider_module.provider._runner
         assert runner is not None
@@ -1559,16 +1448,16 @@ class ClaudeProviderTests(unittest.TestCase):
 
         self.assertTrue(tool_result.isError)
         self.assertIn("integration reconnect required", tool_result.content[0].text)
-        self.assertEqual(host.execute_requests[0]["tool_id"], "tool-linear-issues")
+        self.assertEqual(host.invoke_requests[0]["operation"], "searchIssues")
 
     def test_sdk_mcp_bridge_exposes_tool_discovery_error_as_diagnostic_tool(self) -> None:
-        host = _host_servicer
-        assert host is not None
-        host.list_error = "integration reconnect required: token expired and refresh failed"
         _configure_provider()
         runner = provider_module.provider._runner
         assert runner is not None
-        options = _catalog_options(runner)
+        bad_config = _catalog_tool_config()
+        duplicate = bad_config.catalog.tools.add()
+        duplicate.CopyFrom(bad_config.catalog.tools[0])
+        options = _catalog_options(runner, listed_tools=list(bad_config.catalog.tools))
 
         server = options.mcp_servers["gestalt"]["instance"]
         list_result = asyncio.run(server.request_handlers[mcp_types.ListToolsRequest](mcp_types.ListToolsRequest()))
@@ -1580,23 +1469,131 @@ class ClaudeProviderTests(unittest.TestCase):
         )
 
         self.assertEqual(tool.name, "gestalt__tools_unavailable")
-        self.assertIn("integration reconnect required", tool.description)
+        self.assertIn("duplicate mcp_name", tool.description)
         self.assertTrue(call_result.root.isError)
-        self.assertIn("integration reconnect required", call_result.root.content[0].text)
+        self.assertIn("duplicate mcp_name", call_result.root.content[0].text)
 
     def test_sdk_mcp_bridge_returns_tool_result_for_lookup_error(self) -> None:
         host = _host_servicer
         assert host is not None
-        host.list_error = "integration reconnect required: token expired and refresh failed"
         bridge = GestaltMCPBridge(
-            session_id="session-claude", turn_id="turn-claude", request_context=_request_context("user-123")
+            turn_id="turn-claude",
+            request_context=_request_context("user-123"),
+            listed_tools=list(_catalog_tool_config().catalog.tools),
         )
 
-        tool_result = asyncio.run(bridge.call_tool("linear__issues", {"query": "AIT"}))
+        tool_result = asyncio.run(bridge.call_tool("missing__tool", {"query": "AIT"}))
 
         self.assertTrue(tool_result.isError)
-        self.assertIn("integration reconnect required", cast(Any, tool_result.content[0]).text)
-        self.assertEqual(host.execute_requests, [])
+        self.assertIn("not available in the current tool scope", cast(Any, tool_result.content[0]).text)
+        self.assertEqual(host.invoke_requests, [])
+
+    def test_create_session_rejects_invalid_catalog_tools(self) -> None:
+        _, provider_client = _configure_provider()
+        for mode, message in (
+            ("duplicate", "duplicate mcp_name"),
+            ("unsafe", "mcp_name is unsafe"),
+            ("bad-ref-credential-mode", "credential_mode is invalid"),
+            ("bad-ref-run-as", "run_as is not supported"),
+            ("wildcard-listed-connection", "concrete app operation"),
+            ("bad-listed-credential-mode", "credential_mode is invalid"),
+            ("listed-run-as", "run_as is not supported"),
+            ("mismatched-ref", "not covered by tools.catalog.refs"),
+            ("mismatched-credential-mode", "not covered by tools.catalog.refs"),
+        ):
+            with self.subTest(mode=mode):
+                config = _single_ref_catalog_config()
+                if mode == "duplicate":
+                    _add_tool(
+                        config.catalog,
+                        tool_id="tool-1",
+                        mcp_name="linear__issues",
+                        app="linear",
+                        operation="searchIssues",
+                        title="Search Linear issues",
+                        description="Search Linear issues",
+                    )
+                    _add_tool(
+                        config.catalog,
+                        tool_id="tool-2",
+                        mcp_name="linear__issues",
+                        app="linear",
+                        operation="searchIssues",
+                        title="Search Linear issues again",
+                        description="Search Linear issues again",
+                    )
+                elif mode == "unsafe":
+                    _add_tool(
+                        config.catalog,
+                        tool_id="tool-unsafe",
+                        mcp_name="bad tool",
+                        app="linear",
+                        operation="searchIssues",
+                        title="Bad tool",
+                        description="Bad tool",
+                    )
+                elif mode == "bad-ref-credential-mode":
+                    config.catalog.refs[0].credential_mode = "user"
+                elif mode == "bad-ref-run-as":
+                    config.catalog.refs[0].run_as.CopyFrom(_subject_context("user:delegate"))
+                elif mode == "wildcard-listed-connection":
+                    _add_tool(
+                        config.catalog,
+                        tool_id="tool-linear",
+                        mcp_name="linear__issues",
+                        app="linear",
+                        operation="searchIssues",
+                        title="Search Linear issues",
+                        description="Search Linear issues",
+                        connection="*",
+                    )
+                elif mode == "bad-listed-credential-mode":
+                    _add_tool(
+                        config.catalog,
+                        tool_id="tool-linear",
+                        mcp_name="linear__issues",
+                        app="linear",
+                        operation="searchIssues",
+                        title="Search Linear issues",
+                        description="Search Linear issues",
+                        credential_mode="user",
+                    )
+                elif mode == "listed-run-as":
+                    _add_tool(
+                        config.catalog,
+                        tool_id="tool-linear",
+                        mcp_name="linear__issues",
+                        app="linear",
+                        operation="searchIssues",
+                        title="Search Linear issues",
+                        description="Search Linear issues",
+                        run_as=_subject_context("user:delegate"),
+                    )
+                elif mode == "mismatched-ref":
+                    _add_tool(
+                        config.catalog,
+                        tool_id="tool-github",
+                        mcp_name="github__pulls_list",
+                        app="github",
+                        operation="pulls/list",
+                        title="List GitHub pull requests",
+                        description="List GitHub pull requests",
+                    )
+                elif mode == "mismatched-credential-mode":
+                    config.catalog.refs[0].credential_mode = "subject"
+                    _add_tool(
+                        config.catalog,
+                        tool_id="tool-linear",
+                        mcp_name="linear__issues",
+                        app="linear",
+                        operation="searchIssues",
+                        title="Search Linear issues",
+                        description="Search Linear issues",
+                        credential_mode="none",
+                    )
+                _assert_create_session_invalid(
+                    provider_client, _owned_session_request(f"bad-tools-{mode}", tools=config), message
+                )
 
     def test_create_turn_rejects_unsupported_tool_contract_inputs(self) -> None:
         _, provider_client = _configure_provider()
@@ -1736,10 +1733,10 @@ def setUpModule() -> None:
     _claude_client_patch = mock.patch.object(claude_runner_module, "ClaudeSDKClient", _FakeClaudeSDKClient)
     _claude_client_patch.start()
 
-    _host_servicer = _FakeAgentHost()
+    _host_servicer = _FakeAppHost()
     _indexeddb_servicer = FakeIndexedDB()
     _host_server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-    _agent_pb2_grpc.add_AgentHostServicer_to_server(_host_servicer, _host_server)
+    _app_pb2_grpc.add_AppServicer_to_server(_host_servicer, _host_server)
     datastore_pb2_grpc.add_IndexedDBServicer_to_server(_indexeddb_servicer, _host_server)
     _host_server.add_insecure_port(f"unix:{_host_socket}")
     _host_server.start()
@@ -1883,17 +1880,115 @@ def _owned_session_request(session_id: str, **kwargs: Any) -> Any:
 
 def _catalog_tool_config() -> Any:
     config = agent_pb2.AgentToolConfig()
+    ashby = config.catalog.refs.add()
+    ashby.app = "ashby"
+    ashby.operation = "candidate.list"
+    _add_tool(
+        config.catalog,
+        tool_id="tool-ashby-candidates",
+        mcp_name="ashby__candidate_list",
+        app="ashby",
+        operation="candidate.list",
+        title="List Ashby candidates",
+        description="List Ashby candidates",
+    )
     linear = config.catalog.refs.add()
     linear.app = "linear"
     linear.operation = "searchIssues"
+    _add_tool(
+        config.catalog,
+        tool_id="tool-linear-issues",
+        mcp_name="linear__issues",
+        app="linear",
+        operation="searchIssues",
+        title="Search Linear issues",
+        description="Search Linear issues by text",
+        input_schema='{"type":"object","properties":{"query":{"type":"string"}}}',
+    )
     github = config.catalog.refs.add()
     github.app = "github"
     github.operation = "pulls/list"
+    _add_tool(
+        config.catalog,
+        tool_id="tool-github-pulls",
+        mcp_name="github__pulls_list",
+        app="github",
+        operation="pulls/list",
+        title="List GitHub pull requests",
+        description="List pull requests from GitHub",
+        tags=["pr", "prs"],
+        search_text="github pull request repository owner number",
+    )
+    return config
+
+
+def _large_catalog_tool_config() -> Any:
+    config = agent_pb2.AgentToolConfig()
+    for index in range(60):
+        plugin = "github" if index % 2 == 0 else "linear"
+        ref = config.catalog.refs.add()
+        ref.app = plugin
+        ref.operation = f"operation{index}"
+        _add_tool(
+            config.catalog,
+            tool_id=f"tool-{plugin}-{index}",
+            mcp_name=f"{plugin}__operation_{index}",
+            app=plugin,
+            operation=f"operation{index}",
+            title=f"{plugin.title()} operation {index}",
+            description=f"{plugin.title()} catalog operation {index}",
+            input_schema='{"type":"object","properties":{"query":{"type":"string"}}}',
+            tags=["pr", "prs"] if plugin == "github" else [],
+            search_text="github pull request repository owner number" if plugin == "github" else "",
+        )
+    return config
+
+
+def _single_ref_catalog_config() -> Any:
+    config = agent_pb2.AgentToolConfig()
+    ref = config.catalog.refs.add()
+    ref.app = "linear"
+    ref.operation = "searchIssues"
     return config
 
 
 def _create_owned_session(provider_client: Any, session_id: str, **kwargs: Any) -> Any:
     return provider_client.CreateSession(_owned_session_request(session_id, **kwargs))
+
+
+def _add_tool(
+    response: Any,
+    *,
+    tool_id: str,
+    mcp_name: str,
+    app: str,
+    operation: str,
+    title: str,
+    description: str,
+    input_schema: str = '{"type":"object"}',
+    tags: list[str] | None = None,
+    search_text: str = "",
+    connection: str = "",
+    instance: str = "",
+    credential_mode: str = "",
+    run_as: Any | None = None,
+) -> None:
+    tool = response.tools.add()
+    tool.id = tool_id
+    tool.mcp_name = mcp_name
+    tool.title = title
+    tool.description = description
+    tool.input_schema = input_schema
+    tool.tags.extend(tags or [])
+    tool.search_text = search_text
+    setattr(tool.annotations, "read_only_hint", True)
+    setattr(tool.ref, "app", app)
+    setattr(tool.ref, "operation", operation)
+    setattr(tool.ref, "connection", connection)
+    setattr(tool.ref, "instance", instance)
+    setattr(tool.ref, "credential_mode", credential_mode)
+    if run_as is not None:
+        tool.ref.run_as.CopyFrom(run_as)
 
 
 def _subject_context(subject_id: str) -> Any:
@@ -1908,13 +2003,16 @@ def _sdk_subject(subject_id: str) -> Any:
     return gestalt.Subject(id=subject_id)
 
 
-def _catalog_options(runner: Any) -> Any:
+def _catalog_options(runner: Any, *, listed_tools: list[Any] | None = None) -> Any:
+    if listed_tools is None:
+        listed_tools = list(_catalog_tool_config().catalog.tools)
     return runner._options(
         model="sonnet-session",
         session_id="session-claude",
         turn_id="turn-claude",
         turn_profile=provider_module.ClaudeTurnProfile.catalog(
             request_context=_request_context("user-123"),
+            listed_tools=listed_tools,
             claude_code_options=runner._config.claude_code.resolve_turn_options({}),
             cwd="",
         ),
@@ -1951,18 +2049,6 @@ async def _call_sdk_tool(options: Any, *, name: str, arguments: dict[str, Any]) 
     return call_result.root
 
 
-async def _list_tools_through_sdk_bridge(options: Any) -> tuple[dict[str, Any], dict[str, Any]]:
-    from claude_agent_sdk._internal.query import Query
-
-    bridge = py_types.SimpleNamespace(sdk_mcp_servers={"gestalt": options.mcp_servers["gestalt"]["instance"]})
-    handle_request = cast(Any, Query._handle_sdk_mcp_request)
-    first = await handle_request(bridge, "gestalt", {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
-    second = await handle_request(
-        bridge, "gestalt", {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {"cursor": "page-2"}}
-    )
-    return first, second
-
-
 async def _list_tools_json_through_sdk_bridge(options: Any) -> dict[str, Any]:
     from claude_agent_sdk._internal.query import Query
 
@@ -1978,6 +2064,17 @@ def _assert_invalid(provider_client: Any, request: Any, message: str) -> None:
         error = cast(Any, exc)
     else:
         raise AssertionError("CreateTurn unexpectedly succeeded")
+    assert error.code() == grpc.StatusCode.INVALID_ARGUMENT
+    assert message in error.details(), error.details()
+
+
+def _assert_create_session_invalid(provider_client: Any, request: Any, message: str) -> None:
+    try:
+        provider_client.CreateSession(request)
+    except grpc.RpcError as exc:
+        error = cast(Any, exc)
+    else:
+        raise AssertionError("CreateSession unexpectedly succeeded")
     assert error.code() == grpc.StatusCode.INVALID_ARGUMENT
     assert message in error.details(), error.details()
 

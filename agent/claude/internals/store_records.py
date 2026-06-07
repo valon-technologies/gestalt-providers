@@ -31,6 +31,7 @@ class StoredSession:
     prepared_workspace: dict[str, str] | None
     tool_source: int
     tool_refs: list[gestalt.AgentToolRef]
+    listed_tools: list[gestalt.ListedAgentTool]
     created_by_subject_id: str
     visibility: str
     created_at: datetime
@@ -80,6 +81,7 @@ def _session_to_record(session: StoredSession) -> dict[str, Any]:
         "prepared_workspace": copy.deepcopy(session.prepared_workspace),
         "tool_source": session.tool_source,
         "tool_refs": [gestalt.agent_tool_ref_to_dict(ref) for ref in session.tool_refs],
+        "listed_tools": [_listed_tool_to_record(tool) for tool in session.listed_tools],
         "created_by_subject_id": session.created_by_subject_id,
         "visibility": session.visibility,
         "created_at": session.created_at,
@@ -104,6 +106,11 @@ def _record_to_session(record: dict[str, Any] | None) -> StoredSession | None:
         tool_refs=[
             gestalt.agent_tool_ref_from_dict(value)
             for value in (_coerce_optional_list(record.get("tool_refs")) or [])
+            if isinstance(value, dict)
+        ],
+        listed_tools=[
+            _listed_tool_from_record(value)
+            for value in (_coerce_optional_list(record.get("listed_tools")) or [])
             if isinstance(value, dict)
         ],
         created_by_subject_id=created_by_subject_id_from_record(record),
@@ -215,6 +222,64 @@ def _turn_output_from_record(value: Any) -> gestalt.AgentTurnOutput | None:
             )
         )
     return None
+
+
+def _listed_tool_to_record(tool: gestalt.ListedAgentTool) -> dict[str, Any]:
+    record: dict[str, Any] = {
+        "id": str(tool.id or ""),
+        "mcp_name": str(tool.mcp_name or ""),
+        "title": str(tool.title or ""),
+        "description": str(tool.description or ""),
+        "input_schema": str(tool.input_schema or ""),
+        "output_schema": str(tool.output_schema or ""),
+        "tags": [str(value or "") for value in (tool.tags or [])],
+        "search_text": str(tool.search_text or ""),
+    }
+    if tool.annotations is not None:
+        record["annotations"] = {
+            "read_only_hint": tool.annotations.read_only_hint,
+            "idempotent_hint": tool.annotations.idempotent_hint,
+            "destructive_hint": tool.annotations.destructive_hint,
+            "open_world_hint": tool.annotations.open_world_hint,
+        }
+    if tool.ref is not None:
+        record["ref"] = gestalt.agent_tool_ref_to_dict(tool.ref)
+    return record
+
+
+def _listed_tool_from_record(value: dict[str, Any]) -> gestalt.ListedAgentTool:
+    annotations = _listed_tool_annotations_from_record(value.get("annotations"))
+    ref = value.get("ref")
+    return gestalt.ListedAgentTool(
+        id=str(value.get("id") or ""),
+        mcp_name=str(value.get("mcp_name") or ""),
+        title=str(value.get("title") or ""),
+        description=str(value.get("description") or ""),
+        input_schema=str(value.get("input_schema") or ""),
+        output_schema=str(value.get("output_schema") or ""),
+        annotations=annotations,
+        ref=gestalt.agent_tool_ref_from_dict(ref) if isinstance(ref, dict) else None,
+        tags=[str(item or "") for item in (_coerce_optional_list(value.get("tags")) or [])],
+        search_text=str(value.get("search_text") or ""),
+    )
+
+
+def _listed_tool_annotations_from_record(value: Any) -> gestalt.AgentToolAnnotations | None:
+    if value is None:
+        return None
+    data = _coerce_optional_dict(value) or {}
+    return gestalt.AgentToolAnnotations(
+        read_only_hint=_optional_bool(data.get("read_only_hint")),
+        idempotent_hint=_optional_bool(data.get("idempotent_hint")),
+        destructive_hint=_optional_bool(data.get("destructive_hint")),
+        open_world_hint=_optional_bool(data.get("open_world_hint")),
+    )
+
+
+def _optional_bool(value: Any) -> bool | None:
+    if value is None:
+        return None
+    return bool(value)
 
 
 def _coerce_messages(raw_value: Any) -> list[dict[str, Any]]:
