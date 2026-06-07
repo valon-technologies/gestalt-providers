@@ -35,17 +35,17 @@ func newTestWorkflowEnvironment(suite *testsuite.WorkflowTestSuite) *testsuite.T
 	return env
 }
 
-func TestGestaltRunWorkflowV5ReturnsRunState(t *testing.T) {
+func TestTemporalRunReturnsRunState(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
 	host := &capturingHost{resp: &gestaltworkflow.Response{
 		Status: http.StatusOK,
 		Body:   `{"version":1,"status":"succeeded","steps":[{"id":"postMessage","status":"succeeded"}],"outputs":{"postMessage":"ok"},"finalStepId":"postMessage","finalOutput":"ok"}`,
 	}}
-	env.RegisterWorkflow(gestaltRunWorkflowV5)
+	env.RegisterWorkflow(TemporalRun)
 	env.RegisterActivity(&workflowActivities{executor: host})
 
-	env.ExecuteWorkflow(gestaltRunWorkflowV5, runWorkflowV4Input{
+	env.ExecuteWorkflow(TemporalRun, runWorkflowInput{
 		ActivityStartToCloseTimeoutNS: time.Minute,
 		ScopeID:                       "scope",
 		ProviderName:                  "temporal",
@@ -82,14 +82,14 @@ func TestGestaltRunWorkflowV5ReturnsRunState(t *testing.T) {
 	}
 }
 
-func TestGestaltRunWorkflowV5RunsOneDurableStepAtATime(t *testing.T) {
+func TestTemporalRunRunsOneDurableStepAtATime(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
 	host := &capturingHost{resp: &gestaltworkflow.Response{
 		Status: http.StatusOK,
 		Body:   `{"version":1,"status":"succeeded","steps":[{"id":"collect","status":"succeeded"},{"id":"notify","status":"succeeded"}],"outputs":{"collect":{"ok":true},"notify":{"sent":true}},"finalStepId":"notify","finalOutput":{"sent":true}}`,
 	}}
-	env.RegisterWorkflow(gestaltRunWorkflowV5)
+	env.RegisterWorkflow(TemporalRun)
 	env.RegisterActivity(&workflowActivities{executor: host})
 
 	target := &gestalt.BoundWorkflowTarget{Steps: []gestalt.WorkflowStep{
@@ -108,7 +108,7 @@ func TestGestaltRunWorkflowV5RunsOneDurableStepAtATime(t *testing.T) {
 			},
 		},
 	}}
-	env.ExecuteWorkflow(gestaltRunWorkflowV5, runWorkflowV4Input{
+	env.ExecuteWorkflow(TemporalRun, runWorkflowInput{
 		ActivityStartToCloseTimeoutNS: time.Minute,
 		ScopeID:                       "scope",
 		ProviderName:                  "temporal",
@@ -173,7 +173,7 @@ func TestBackendApplyDefinitionListAndActivationPause(t *testing.T) {
 	if handle == nil || handle.desc == nil {
 		t.Fatalf("schedule %q was not created", scheduleID)
 	}
-	actionInput := handle.desc.Schedule.Action.(*client.ScheduleWorkflowAction).Args[0].(runWorkflowV4Input)
+	actionInput := handle.desc.Schedule.Action.(*client.ScheduleWorkflowAction).Args[0].(runWorkflowInput)
 	if actionInput.DefinitionID != "definition-1" || actionInput.DefinitionGeneration != 1 || actionInput.ActivationID != "hourly" {
 		t.Fatalf("schedule action input = %#v", actionInput)
 	}
@@ -235,7 +235,7 @@ func TestBackendStartRunUsesDefinitionSnapshotInputAndVisibility(t *testing.T) {
 	if len(tc.executions) != 1 {
 		t.Fatalf("executions = %#v, want one", tc.executions)
 	}
-	startInput := tc.executions[0].Args[0].(runWorkflowV4Input)
+	startInput := tc.executions[0].Args[0].(runWorkflowInput)
 	if firstWorkflowAppStep(startInput.Target).Operation != "postMessage" || startInput.Input["ticket"] != "T-1" {
 		t.Fatalf("start input = %#v", startInput)
 	}
@@ -358,7 +358,7 @@ func TestBackendSignalOrStartUsesWorkflowKeyTemporalID(t *testing.T) {
 	if call.StartOptions.WorkflowIDConflictPolicy != enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING {
 		t.Fatalf("conflict policy = %s, want USE_EXISTING", call.StartOptions.WorkflowIDConflictPolicy)
 	}
-	startInput := call.Args[0].(runWorkflowV4Input)
+	startInput := call.Args[0].(runWorkflowInput)
 	if startInput.WorkflowKey != "thread:C123:170000" || !startInput.RequireSignal || startInput.ScopeID != "scope" {
 		t.Fatalf("signal-or-start input = %#v", startInput)
 	}
@@ -415,7 +415,7 @@ func TestBackendDeliverEventStartsMatchingActivation(t *testing.T) {
 	if len(tc.executions) != 1 {
 		t.Fatalf("executions = %#v, want one", tc.executions)
 	}
-	startInput := tc.executions[0].Args[0].(runWorkflowV4Input)
+	startInput := tc.executions[0].Args[0].(runWorkflowInput)
 	if startInput.DefinitionID != "definition-1" || startInput.Trigger.Event.ActivationID != "message-created" || startInput.Input["channel"] != "alerts" {
 		t.Fatalf("event start input = %#v", startInput)
 	}
@@ -548,7 +548,7 @@ func TestBackendListRunsUsesTemporalVisibilityAndHydratesRuns(t *testing.T) {
 		t.Fatalf("page size = %d, want 25", listReq.GetPageSize())
 	}
 	for _, want := range []string{
-		"WorkflowType = 'gestaltRunWorkflowV5'",
+		"WorkflowType = 'TemporalRun'",
 		"GestaltScopeId = 'scope'",
 		"GestaltProviderName = 'temporal'",
 		"GestaltRunStatus = 'running'",

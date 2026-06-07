@@ -11,7 +11,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
-type runWorkflowV4Input struct {
+type runWorkflowInput struct {
 	ActivityStartToCloseTimeoutNS time.Duration                `json:"activity_start_to_close_timeout_ns"`
 	ScopeID                       string                       `json:"scope_id,omitempty"`
 	ProviderName                  string                       `json:"provider_name,omitempty"`
@@ -27,44 +27,14 @@ type runWorkflowV4Input struct {
 	CreatedBySubjectID            string                       `json:"created_by,omitempty"`
 	InitialSignal                 *gestalt.WorkflowSignal      `json:"initial_signal,omitempty"`
 	RequireSignal                 bool                         `json:"require_signal,omitempty"`
-	RequireClaim                  bool                         `json:"require_claim,omitempty"`
 }
 
-type runWorkflowRuntimeOptions struct {
-	projectRuns              bool
-	upsertVisibility         bool
-	legacyHandleKindVersion  bool
-	projectionUpdateVersions bool
-}
-
-const (
-	changeV4AddSignalProjectionAfterUpdate = "v4-add-signal-projection-after-update"
-	changeV4ClaimProjectionAfterUpdate     = "v4-claim-projection-after-update"
-)
-
-func gestaltRunWorkflowV4(ctx workflow.Context, input runWorkflowV4Input) (*gestalt.WorkflowRun, error) {
-	return gestaltRunWorkflow(ctx, input, runWorkflowRuntimeOptions{
-		projectRuns:              true,
-		legacyHandleKindVersion:  true,
-		projectionUpdateVersions: true,
-	})
-}
-
-func gestaltRunWorkflowV5(ctx workflow.Context, input runWorkflowV4Input) (*gestalt.WorkflowRun, error) {
-	return gestaltRunWorkflow(ctx, input, runWorkflowRuntimeOptions{upsertVisibility: true})
-}
-
-func gestaltRunWorkflow(ctx workflow.Context, input runWorkflowV4Input, opts runWorkflowRuntimeOptions) (*gestalt.WorkflowRun, error) {
+// TemporalRun is the Temporal workflow type for Gestalt workflow runs.
+func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.WorkflowRun, error) {
 	info := workflow.GetInfo(ctx)
 	now := workflow.Now(ctx).UTC()
-	handleKind := runHandleKindV4
-	if opts.legacyHandleKindVersion && workflow.GetVersion(ctx, "temporal-run-v4-handle-kind", workflow.DefaultVersion, 1) == workflow.DefaultVersion {
-		// Alpha.19 V4 histories used the old handle kind. Preserve replay for
-		// those histories; provider APIs still reject old handles.
-		handleKind = "temporal-run-v3"
-	}
 	publicID := encodeTemporalRunHandle(temporalRunHandle{
-		Kind:             handleKind,
+		Kind:             runHandleKind,
 		RunWorkflowID:    info.WorkflowExecution.ID,
 		RunTemporalRunID: info.WorkflowExecution.RunID,
 		WorkflowKey:      input.WorkflowKey,
@@ -88,20 +58,9 @@ func gestaltRunWorkflow(ctx workflow.Context, input runWorkflowV4Input, opts run
 	nextSignalSequence := int64(1)
 	signalCount := 0
 	runMutex := workflow.NewMutex(ctx)
-	claimed := !input.RequireClaim
 
-	project := func(ctx workflow.Context) {
-		if opts.upsertVisibility {
-			_ = workflow.UpsertTypedSearchAttributes(ctx, workflowRunSearchAttributeUpdates(input.ScopeID, state)...)
-		}
-		if !opts.projectRuns {
-			return
-		}
-		activityCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: input.ActivityStartToCloseTimeoutNS,
-			RetryPolicy:         &sdktemporal.RetryPolicy{MaximumAttempts: 1},
-		})
-		_ = workflow.ExecuteActivity(activityCtx, (*workflowActivities).ProjectRun, *state).Get(activityCtx, nil)
+	upsertVisibility := func(ctx workflow.Context) {
+		_ = workflow.UpsertTypedSearchAttributes(ctx, workflowRunSearchAttributeUpdates(input.ScopeID, state)...)
 	}
 	rebuildRun := func(mutate func(*gestalt.WorkflowRun)) error {
 		next := *state
@@ -148,36 +107,13 @@ func gestaltRunWorkflow(ctx workflow.Context, input runWorkflowV4Input, opts run
 		if err != nil {
 			return nil, err
 		}
-		if opts.projectionUpdateVersions {
-			if workflow.GetVersion(ctx, changeV4AddSignalProjectionAfterUpdate, workflow.DefaultVersion, 1) == workflow.DefaultVersion {
-				project(ctx)
-			}
-		} else {
-			project(ctx)
-		}
+		upsertVisibility(ctx)
 		return &gestalt.SignalWorkflowRunResponse{
 			Run:         cloneRunInput(state),
 			Signal:      cloneSignalInput(appended),
 			StartedRun:  signalCount == 1 && state.StartedAt == nil,
 			WorkflowKey: strings.TrimSpace(state.WorkflowKey),
 		}, nil
-	}); err != nil {
-		return nil, err
-	}
-	if err := workflow.SetUpdateHandler(ctx, updateClaimRun, func(ctx workflow.Context) (*gestalt.WorkflowRun, error) {
-		if err := runMutex.Lock(ctx); err != nil {
-			return nil, err
-		}
-		defer runMutex.Unlock()
-		claimed = true
-		if opts.projectionUpdateVersions {
-			if workflow.GetVersion(ctx, changeV4ClaimProjectionAfterUpdate, workflow.DefaultVersion, 1) == workflow.DefaultVersion {
-				project(ctx)
-			}
-		} else {
-			project(ctx)
-		}
-		return cloneRunInput(state), nil
 	}); err != nil {
 		return nil, err
 	}
@@ -201,18 +137,13 @@ func gestaltRunWorkflow(ctx workflow.Context, input runWorkflowV4Input, opts run
 		}); err != nil {
 			return nil, err
 		}
-		project(ctx)
+		upsertVisibility(ctx)
 		return cloneRunInput(state), nil
 	}); err != nil {
 		return nil, err
 	}
 
-	if input.RequireClaim {
-		_ = workflow.Await(ctx, func() bool {
-			return claimed || workflowRunTerminal(state.Status)
-		})
-	}
-	project(ctx)
+	upsertVisibility(ctx)
 	if input.RequireSignal {
 		_ = workflow.Await(ctx, func() bool {
 			return len(pendingSignals) > 0 || workflowRunTerminal(state.Status)
@@ -240,7 +171,7 @@ func gestaltRunWorkflow(ctx workflow.Context, input runWorkflowV4Input, opts run
 			runMutex.Unlock()
 			return nil, err
 		}
-		project(ctx)
+		upsertVisibility(ctx)
 		batch := pendingSignals
 		pendingSignals = nil
 		runMutex.Unlock()
@@ -286,7 +217,7 @@ func gestaltRunWorkflow(ctx workflow.Context, input runWorkflowV4Input, opts run
 				nextRun.StatusMessage = invokeErr.Error()
 				state = &nextRun
 				failed = true
-				project(ctx)
+				upsertVisibility(ctx)
 				runMutex.Unlock()
 				break
 			}
@@ -305,7 +236,7 @@ func gestaltRunWorkflow(ctx workflow.Context, input runWorkflowV4Input, opts run
 				}
 				state = &nextRun
 				failed = true
-				project(ctx)
+				upsertVisibility(ctx)
 				runMutex.Unlock()
 				break
 			}
@@ -313,7 +244,7 @@ func gestaltRunWorkflow(ctx workflow.Context, input runWorkflowV4Input, opts run
 			nextRun.CompletedAt = nil
 			nextRun.StatusMessage = ""
 			state = &nextRun
-			project(ctx)
+			upsertVisibility(ctx)
 			runMutex.Unlock()
 		}
 		if failed {
@@ -332,7 +263,7 @@ func gestaltRunWorkflow(ctx workflow.Context, input runWorkflowV4Input, opts run
 			nextRun.Steps = nil
 			nextRun.Output = nil
 			state = &nextRun
-			project(ctx)
+			upsertVisibility(ctx)
 			runMutex.Unlock()
 			continue
 		}
@@ -340,20 +271,20 @@ func gestaltRunWorkflow(ctx workflow.Context, input runWorkflowV4Input, opts run
 		nextRun.CompletedAt = &completedAt
 		nextRun.StatusMessage = ""
 		state = &nextRun
-		project(ctx)
+		upsertVisibility(ctx)
 		runMutex.Unlock()
 		break
 	}
-	project(ctx)
+	upsertVisibility(ctx)
 	_ = workflow.Await(ctx, func() bool { return workflow.AllHandlersFinished(ctx) })
 	return cloneRunInput(state), nil
 }
 
-func (input runWorkflowV4Input) targetInput() *gestalt.BoundWorkflowTarget {
+func (input runWorkflowInput) targetInput() *gestalt.BoundWorkflowTarget {
 	return input.Target
 }
 
-func (input runWorkflowV4Input) triggerInput(now time.Time) *gestalt.WorkflowRunTrigger {
+func (input runWorkflowInput) triggerInput(now time.Time) *gestalt.WorkflowRunTrigger {
 	if input.ActivationID != "" {
 		return scheduleTriggerInput(input.ActivationID, now)
 	}
@@ -363,10 +294,10 @@ func (input runWorkflowV4Input) triggerInput(now time.Time) *gestalt.WorkflowRun
 	return nil
 }
 
-func (input runWorkflowV4Input) createdByInput() string {
+func (input runWorkflowInput) createdByInput() string {
 	return input.CreatedBySubjectID
 }
 
-func (input runWorkflowV4Input) initialSignalInput() *gestalt.WorkflowSignal {
+func (input runWorkflowInput) initialSignalInput() *gestalt.WorkflowSignal {
 	return input.InitialSignal
 }

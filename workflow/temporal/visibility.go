@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	temporalRunWorkflowV5Type = "gestaltRunWorkflowV5"
+	temporalRunWorkflowType = "TemporalRun"
 )
 
 var (
@@ -63,7 +63,7 @@ func workflowRunSearchAttributeUpdates(scopeID string, run *gestalt.WorkflowRun)
 	return updates
 }
 
-func workflowRunSearchAttributesFromInput(input runWorkflowV4Input, status gestalt.WorkflowRunStatus) sdktemporal.SearchAttributes {
+func workflowRunSearchAttributesFromInput(input runWorkflowInput, status gestalt.WorkflowRunStatus) sdktemporal.SearchAttributes {
 	run := &gestalt.WorkflowRun{
 		Status:               status,
 		Target:               input.targetInput(),

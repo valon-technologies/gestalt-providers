@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func (b *temporalBackend) startKeyedRunV4(ctx context.Context, start workflowRunStartSnapshot, workflowKey, key, fingerprint string) (*gestalt.WorkflowRun, error) {
+func (b *temporalBackend) startKeyedRun(ctx context.Context, start workflowRunStartSnapshot, workflowKey, key, fingerprint string) (*gestalt.WorkflowRun, error) {
 	now := time.Now().UTC()
 	key = strings.TrimSpace(key)
 	workflowKey = strings.TrimSpace(workflowKey)
@@ -34,14 +34,14 @@ func (b *temporalBackend) startKeyedRunV4(ctx context.Context, start workflowRun
 			return nil, status.Errorf(codes.Internal, "reserve workflow run idempotency: %v", err)
 		}
 		if existing && entry != nil && entry.Status == "completed" {
-			if run := runProjectionFromPayload(entry.RunPayload); run != nil {
+			if run := workflowRunFromPayload(entry.RunPayload); run != nil {
 				return run, nil
 			}
 		}
 	}
-	input := b.runV4Input(start.OwnerKey, start.DefinitionID, start.DefinitionGeneration, workflowKey, start.Target, start.Input, manualTriggerInput(), start.CreatedBySubjectID, false)
+	input := b.runInput(start.OwnerKey, start.DefinitionID, start.DefinitionGeneration, workflowKey, start.Target, start.Input, manualTriggerInput(), start.CreatedBySubjectID, false)
 	input.RunAs = cloneSubjectInput(start.RunAs)
-	run, err := b.executeRunV5(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE)
+	run, err := b.executeRun(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE)
 	if err != nil {
 		if isAlreadyStarted(err) {
 			return nil, status.Errorf(codes.FailedPrecondition, "workflow key %q already has an active run", workflowKey)
@@ -60,7 +60,7 @@ func (b *temporalBackend) startKeyedRunV4(ctx context.Context, start workflowRun
 	return run, nil
 }
 
-func (b *temporalBackend) startUnkeyedRunV4(ctx context.Context, start workflowRunStartSnapshot, key, fingerprint string) (*gestalt.WorkflowRun, error) {
+func (b *temporalBackend) startUnkeyedRun(ctx context.Context, start workflowRunStartSnapshot, key, fingerprint string) (*gestalt.WorkflowRun, error) {
 	now := time.Now().UTC()
 	entry, existing, err := b.state.reserveRunIdempotency(ctx, start.OwnerKey, key, fingerprint, defaultIdempotencyRetention, now)
 	if err != nil {
@@ -74,14 +74,14 @@ func (b *temporalBackend) startUnkeyedRunV4(ctx context.Context, start workflowR
 		return nil, status.Errorf(codes.Internal, "reserve workflow run idempotency: %v", err)
 	}
 	if existing && entry != nil && entry.Status == "completed" {
-		if run := runProjectionFromPayload(entry.RunPayload); run != nil {
+		if run := workflowRunFromPayload(entry.RunPayload); run != nil {
 			return run, nil
 		}
 	}
-	temporalWorkflowID := workflowID(b.cfg.ScopeID, "manual-v5", start.OwnerKey, key)
-	input := b.runV4Input(start.OwnerKey, start.DefinitionID, start.DefinitionGeneration, "", start.Target, start.Input, manualTriggerInput(), start.CreatedBySubjectID, false)
+	temporalWorkflowID := workflowID(b.cfg.ScopeID, "temporal-run-idempotent", start.OwnerKey, key)
+	input := b.runInput(start.OwnerKey, start.DefinitionID, start.DefinitionGeneration, "", start.Target, start.Input, manualTriggerInput(), start.CreatedBySubjectID, false)
 	input.RunAs = cloneSubjectInput(start.RunAs)
-	run, err := b.executeRunV5(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+	run, err := b.executeRun(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
 	}
@@ -95,21 +95,21 @@ func (b *temporalBackend) startUnkeyedRunV4(ctx context.Context, start workflowR
 	return run, nil
 }
 
-func (b *temporalBackend) signalOrStartRunV4(ctx context.Context, start workflowRunStartSnapshot, workflowKey string, signal *gestalt.WorkflowSignal, updateID string) (*gestalt.SignalWorkflowRunResponse, error) {
+func (b *temporalBackend) signalOrStartRun(ctx context.Context, start workflowRunStartSnapshot, workflowKey string, signal *gestalt.WorkflowSignal, updateID string) (*gestalt.SignalWorkflowRunResponse, error) {
 	workflowKey = strings.TrimSpace(workflowKey)
 	if workflowKey == "" {
 		return nil, status.Error(codes.InvalidArgument, "workflow_key is required")
 	}
-	return b.startSignalWorkflowRunV4(ctx, start, workflowKey, signal, updateID)
+	return b.startSignalWorkflowRun(ctx, start, workflowKey, signal, updateID)
 }
 
-func (b *temporalBackend) startSignalWorkflowRunV4(ctx context.Context, start workflowRunStartSnapshot, workflowKey string, signal *gestalt.WorkflowSignal, updateID string) (*gestalt.SignalWorkflowRunResponse, error) {
+func (b *temporalBackend) startSignalWorkflowRun(ctx context.Context, start workflowRunStartSnapshot, workflowKey string, signal *gestalt.WorkflowSignal, updateID string) (*gestalt.SignalWorkflowRunResponse, error) {
 	temporalWorkflowID := workflowKeyRunWorkflowID(b.cfg.ScopeID, workflowKey)
-	input := b.runV4Input(start.OwnerKey, start.DefinitionID, start.DefinitionGeneration, workflowKey, start.Target, start.Input, manualTriggerInput(), start.CreatedBySubjectID, true)
+	input := b.runInput(start.OwnerKey, start.DefinitionID, start.DefinitionGeneration, workflowKey, start.Target, start.Input, manualTriggerInput(), start.CreatedBySubjectID, true)
 	input.RunAs = cloneSubjectInput(start.RunAs)
 	startOperation := b.client.NewWithStartWorkflowOperation(
-		b.startWorkflowOptionsV5(temporalWorkflowID, enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE, input),
-		gestaltRunWorkflowV5,
+		b.startWorkflowOptionsWithVisibility(temporalWorkflowID, enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE, input),
+		TemporalRun,
 		input,
 	)
 	update, err := b.client.UpdateWithStartWorkflow(ctx, client.UpdateWithStartWorkflowOptions{
@@ -162,8 +162,8 @@ func mapTemporalWorkflowCallError(prefix string, err error) error {
 	}
 }
 
-func (b *temporalBackend) runV4Input(ownerKey, definitionID string, definitionGeneration int64, workflowKey string, target *gestalt.BoundWorkflowTarget, input map[string]any, trigger *gestalt.WorkflowRunTrigger, createdBySubjectID string, requireSignal bool) runWorkflowV4Input {
-	return runWorkflowV4Input{
+func (b *temporalBackend) runInput(ownerKey, definitionID string, definitionGeneration int64, workflowKey string, target *gestalt.BoundWorkflowTarget, input map[string]any, trigger *gestalt.WorkflowRunTrigger, createdBySubjectID string, requireSignal bool) runWorkflowInput {
+	return runWorkflowInput{
 		ActivityStartToCloseTimeoutNS: b.cfg.ActivityStartToCloseTimeout,
 		ScopeID:                       b.cfg.ScopeID,
 		ProviderName:                  b.providerName,
@@ -179,22 +179,22 @@ func (b *temporalBackend) runV4Input(ownerKey, definitionID string, definitionGe
 	}
 }
 
-func (b *temporalBackend) executeRunV5(ctx context.Context, workflowID string, input runWorkflowV4Input, conflict enumspb.WorkflowIdConflictPolicy, reuse enumspb.WorkflowIdReusePolicy) (*gestalt.WorkflowRun, error) {
-	run, err := b.client.ExecuteWorkflow(ctx, b.startWorkflowOptionsV5(workflowID, conflict, reuse, input), gestaltRunWorkflowV5, input)
+func (b *temporalBackend) executeRun(ctx context.Context, workflowID string, input runWorkflowInput, conflict enumspb.WorkflowIdConflictPolicy, reuse enumspb.WorkflowIdReusePolicy) (*gestalt.WorkflowRun, error) {
+	run, err := b.client.ExecuteWorkflow(ctx, b.startWorkflowOptionsWithVisibility(workflowID, conflict, reuse, input), TemporalRun, input)
 	if err != nil {
 		if isAlreadyStarted(err) {
 			return nil, err
 		}
-		return nil, status.Errorf(codes.Internal, "start temporal v5 workflow: %v", err)
+		return nil, status.Errorf(codes.Internal, "start temporal workflow: %v", err)
 	}
 	return b.pendingRunFromWorkflowRun(run, input), nil
 }
 
 func workflowKeyRunWorkflowID(scopeID, workflowKey string) string {
-	return workflowID(scopeID, "workflow-key-v5", hashID(workflowKey))
+	return workflowID(scopeID, "workflow-key", hashID(workflowKey))
 }
 
-func (b *temporalBackend) pendingRunFromWorkflowRun(run client.WorkflowRun, input runWorkflowV4Input) *gestalt.WorkflowRun {
+func (b *temporalBackend) pendingRunFromWorkflowRun(run client.WorkflowRun, input runWorkflowInput) *gestalt.WorkflowRun {
 	now := time.Now().UTC()
 	publicID := encodeTemporalRunHandle(temporalRunHandle{
 		RunWorkflowID:    run.GetID(),
@@ -225,7 +225,7 @@ func (b *temporalBackend) startWorkflowOptions(workflowID string, conflict enums
 	return opts
 }
 
-func (b *temporalBackend) startWorkflowOptionsV5(workflowID string, conflict enumspb.WorkflowIdConflictPolicy, reuse enumspb.WorkflowIdReusePolicy, input runWorkflowV4Input) client.StartWorkflowOptions {
+func (b *temporalBackend) startWorkflowOptionsWithVisibility(workflowID string, conflict enumspb.WorkflowIdConflictPolicy, reuse enumspb.WorkflowIdReusePolicy, input runWorkflowInput) client.StartWorkflowOptions {
 	opts := b.startWorkflowOptions(workflowID, conflict, reuse)
 	opts.TypedSearchAttributes = workflowRunSearchAttributesFromInput(input, gestalt.WorkflowRunStatusValuePending)
 	return opts

@@ -17,9 +17,8 @@ import (
 
 const (
 	storeTemporalDefinitions       = "workflow_temporal_definitions"
-	storeTemporalRunProjections    = "workflow_temporal_v4_run_projections"
-	storeTemporalRunIdempotency    = "workflow_temporal_v4_run_idempotency"
-	storeTemporalSignalIdempotency = "workflow_temporal_v4_signal_idempotency"
+	storeTemporalRunIdempotency    = "workflow_temporal_run_idempotency"
+	storeTemporalSignalIdempotency = "workflow_temporal_signal_idempotency"
 )
 
 type workflowStateStore struct {
@@ -27,7 +26,6 @@ type workflowStateStore struct {
 	scopeID string
 
 	definitions       indexeddb.ObjectStore
-	runProjections    indexeddb.ObjectStore
 	runIdempotency    indexeddb.ObjectStore
 	signalIdempotency indexeddb.ObjectStore
 }
@@ -52,7 +50,6 @@ func openWorkflowStateStore(ctx context.Context, scopeID string, db indexeddb.Da
 		scopeID:           scopeID,
 		db:                db,
 		definitions:       db.ObjectStore(storeTemporalDefinitions),
-		runProjections:    db.ObjectStore(storeTemporalRunProjections),
 		runIdempotency:    db.ObjectStore(storeTemporalRunIdempotency),
 		signalIdempotency: db.ObjectStore(storeTemporalSignalIdempotency),
 	}
@@ -66,9 +63,6 @@ func ensureWorkflowStateStores(ctx context.Context, db indexeddb.Database) error
 	if _, err := db.CreateObjectStore(ctx, storeTemporalDefinitions, temporalDefinitionSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow definition store: %w", err)
 	}
-	if _, err := db.CreateObjectStore(ctx, storeTemporalRunProjections, temporalRunProjectionSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-		return fmt.Errorf("create workflow run projection store: %w", err)
-	}
 	if _, err := db.CreateObjectStore(ctx, storeTemporalRunIdempotency, temporalRunIdempotencySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create workflow run idempotency store: %w", err)
 	}
@@ -76,31 +70,6 @@ func ensureWorkflowStateStores(ctx context.Context, db indexeddb.Database) error
 		return fmt.Errorf("create workflow signal idempotency store: %w", err)
 	}
 	return nil
-}
-
-func unsupportedTemporalRunID(id string) bool {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return false
-	}
-	_, err := decodeTemporalRunHandle(id)
-	return err != nil
-}
-
-func temporalRunProjectionSchema() gestalt.ObjectStoreOptions {
-	return gestalt.ObjectStoreOptions{
-		Columns: []gestalt.ColumnDef{
-			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
-			{Name: "scope_id", Type: gestalt.TypeString, NotNull: true},
-			{Name: "owner_key", Type: gestalt.TypeString},
-			{Name: "workflow_key", Type: gestalt.TypeString},
-			{Name: "status", Type: gestalt.TypeInt},
-			{Name: "created_at", Type: gestalt.TypeTime},
-			{Name: "started_at", Type: gestalt.TypeTime},
-			{Name: "completed_at", Type: gestalt.TypeTime},
-			{Name: "payload", Type: gestalt.TypeBytes, NotNull: true},
-		},
-	}
 }
 
 func temporalRunIdempotencySchema() gestalt.ObjectStoreOptions {
@@ -148,66 +117,6 @@ func (s *workflowStateStore) Close() error {
 		return nil
 	}
 	return s.db.Close()
-}
-
-func (s *workflowStateStore) putRun(ctx context.Context, run *gestalt.WorkflowRun) error {
-	if run == nil || strings.TrimSpace(run.ID) == "" {
-		return nil
-	}
-	tx, err := s.db.Transaction(ctx, []string{storeTemporalRunProjections}, gestalt.TransactionReadwrite, gestalt.TransactionOptions{DurabilityHint: gestalt.TransactionDurabilityStrict})
-	if err != nil {
-		return fmt.Errorf("begin run projection transaction: %w", err)
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Abort(ctx)
-		}
-	}()
-	if _, err := s.putRunInTransaction(ctx, tx.ObjectStore(storeTemporalRunProjections), run); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit run projection: %w", err)
-	}
-	committed = true
-	return nil
-}
-
-func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store indexeddb.TransactionObjectStore, run *gestalt.WorkflowRun) (*gestalt.WorkflowRun, error) {
-	if run == nil || strings.TrimSpace(run.ID) == "" {
-		return nil, nil
-	}
-	run.ID = strings.TrimSpace(run.ID)
-	if unsupportedTemporalRunID(run.ID) {
-		return nil, nil
-	}
-	existing, found, err := s.getRunInTransaction(ctx, store, run.ID)
-	if err != nil {
-		return nil, fmt.Errorf("load run projection: %w", err)
-	}
-	if found && workflowRunTerminal(existing.Status) && !workflowRunTerminal(run.Status) {
-		return existing, nil
-	}
-	if err := store.Delete(ctx, s.scopedID(run.ID)); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-		return nil, fmt.Errorf("delete run projection: %w", err)
-	}
-	if err := store.Add(ctx, s.runRecord(run)); err != nil {
-		return nil, fmt.Errorf("store run projection: %w", err)
-	}
-	return run, nil
-}
-
-func (s *workflowStateStore) getRunInTransaction(ctx context.Context, store indexeddb.TransactionObjectStore, id string) (*gestalt.WorkflowRun, bool, error) {
-	record, found, err := transactionGetRecord(ctx, store, s.scopedID(strings.TrimSpace(id)))
-	if err != nil || !found {
-		return nil, false, err
-	}
-	run, err := runFromRecord(record)
-	if err == nil && unsupportedTemporalRunID(run.ID) {
-		return nil, false, nil
-	}
-	return run, err == nil && strings.TrimSpace(run.ID) != "", err
 }
 
 func effectiveRunListPageSize(req *gestalt.ListWorkflowProviderRunsRequest) int {
@@ -380,7 +289,7 @@ func (s *workflowStateStore) completeRunIdempotencyOnce(ctx context.Context, own
 			}
 			return nil
 		}
-		if existing.Status == "completed" && runProjectionFromPayload(existing.RunPayload) != nil {
+		if existing.Status == "completed" && workflowRunFromPayload(existing.RunPayload) != nil {
 			if err := tx.Commit(ctx); err != nil {
 				return err
 			}
@@ -674,30 +583,6 @@ func yieldRunIdempotencyRetry(ctx context.Context) error {
 	}
 }
 
-func (s *workflowStateStore) runRecord(run *gestalt.WorkflowRun) gestalt.Record {
-	payload := nativePayload(run)
-	now := time.Now().UTC()
-	createdAt := run.CreatedAt
-	if createdAt.IsZero() {
-		createdAt = now
-	}
-	return gestalt.Record{
-		"id":           s.scopedID(run.ID),
-		"scope_id":     s.scopeID,
-		"owner_key":    targetOwnerKeyInput(run.Target),
-		"workflow_key": strings.TrimSpace(run.WorkflowKey),
-		"status":       int64(run.Status),
-		"created_at":   createdAt.UTC(),
-		"started_at":   optionalTime(run.StartedAt),
-		"completed_at": optionalTime(run.CompletedAt),
-		"payload":      payload,
-	}
-}
-
-func runFromRecord(record gestalt.Record) (*gestalt.WorkflowRun, error) {
-	return decodeNativePayload[gestalt.WorkflowRun](recordBytes(record, "payload"), "workflow run")
-}
-
 func (s *workflowStateStore) runIdempotencyID(ownerKey, key string) string {
 	return s.scopedID("start", hashID(ownerKey, key))
 }
@@ -809,7 +694,7 @@ func decodeNativePayload[T any](payload []byte, kind string) (*T, error) {
 	return &input, nil
 }
 
-func runProjectionFromPayload(payload []byte) *gestalt.WorkflowRun {
+func workflowRunFromPayload(payload []byte) *gestalt.WorkflowRun {
 	run, err := decodeNativePayload[gestalt.WorkflowRun](payload, "workflow run")
 	if err != nil {
 		return nil
@@ -841,21 +726,6 @@ func recordString(record gestalt.Record, key string) string {
 	return strings.TrimSpace(value)
 }
 
-func recordInt64(record gestalt.Record, key string) int64 {
-	switch value := record[key].(type) {
-	case int:
-		return int64(value)
-	case int32:
-		return int64(value)
-	case int64:
-		return value
-	case float64:
-		return int64(value)
-	default:
-		return 0
-	}
-}
-
 func recordTime(record gestalt.Record, key string) *time.Time {
 	switch value := record[key].(type) {
 	case time.Time:
@@ -870,14 +740,6 @@ func recordTime(record gestalt.Record, key string) *time.Time {
 	default:
 		return nil
 	}
-}
-
-func optionalTime(value *time.Time) *time.Time {
-	if value == nil || value.IsZero() {
-		return nil
-	}
-	asTime := value.UTC()
-	return &asTime
 }
 
 func transactionGetRecord(ctx context.Context, store indexeddb.TransactionObjectStore, id string) (gestalt.Record, bool, error) {
