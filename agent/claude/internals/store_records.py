@@ -29,6 +29,8 @@ class StoredSession:
     state: int
     metadata: dict[str, Any]
     prepared_workspace: dict[str, str] | None
+    tool_source: int
+    tool_refs: list[gestalt.AgentToolRef]
     created_by_subject_id: str
     visibility: str
     created_at: datetime
@@ -76,6 +78,8 @@ def _session_to_record(session: StoredSession) -> dict[str, Any]:
         "state": session.state,
         "metadata": copy.deepcopy(session.metadata),
         "prepared_workspace": copy.deepcopy(session.prepared_workspace),
+        "tool_source": session.tool_source,
+        "tool_refs": [gestalt.agent_tool_ref_to_dict(ref) for ref in session.tool_refs],
         "created_by_subject_id": session.created_by_subject_id,
         "visibility": session.visibility,
         "created_at": session.created_at,
@@ -96,6 +100,12 @@ def _record_to_session(record: dict[str, Any] | None) -> StoredSession | None:
         state=int(record.get("state") or gestalt.AGENT_SESSION_STATE_UNSPECIFIED),
         metadata=_coerce_optional_dict(record.get("metadata")) or {},
         prepared_workspace=_coerce_optional_string_dict(record.get("prepared_workspace")),
+        tool_source=int(record.get("tool_source") or gestalt.AGENT_TOOL_SOURCE_MODE_UNSPECIFIED),
+        tool_refs=[
+            gestalt.agent_tool_ref_from_dict(value)
+            for value in (_coerce_optional_list(record.get("tool_refs")) or [])
+            if isinstance(value, dict)
+        ],
         created_by_subject_id=created_by_subject_id_from_record(record),
         visibility=_session_visibility_from_record(record),
         created_at=_coerce_required_datetime(record.get("created_at")),
@@ -233,6 +243,14 @@ def _coerce_optional_dict(raw_value: Any) -> dict[str, Any] | None:
     return copy.deepcopy(raw_value)
 
 
+def _coerce_optional_list(raw_value: Any) -> list[Any] | None:
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, list):
+        raise ValueError("stored value must be a list")
+    return copy.deepcopy(raw_value)
+
+
 def _coerce_datetime(raw_value: Any) -> datetime | None:
     if raw_value is None or raw_value == "":
         return None
@@ -290,5 +308,3 @@ def _is_slack_agent_session_metadata(metadata: dict[str, Any]) -> bool:
         and str(slack.get("root_message_ts") or "").strip()
         and str(slack.get("session_ref") or "").strip()
     )
-
-
