@@ -109,6 +109,7 @@ impl gestalt::AgentProvider for HermesAgentProvider {
         if req.session_id.trim().is_empty() {
             return Err(gestalt::Error::bad_request("session_id is required"));
         }
+        validate_session_tool_config(&req)?;
         let config = self.require_config().await?;
         let provider_name = self.provider_name().await;
         let model = config.resolve_model(&req.model);
@@ -262,12 +263,12 @@ impl gestalt::AgentProvider for HermesAgentProvider {
 
     async fn create_turn(
         &self,
-        req: gestalt::CreateAgentProviderTurnRequest,
+        mut req: gestalt::CreateAgentProviderTurnRequest,
     ) -> gestalt::Result<gestalt::AgentTurn> {
         let config = self.require_config().await?;
         let provider_name = self.provider_name().await;
         let subject_id = subject_id(req.subject.as_ref());
-        let model = {
+        let (model, session_tool_source, session_tool_refs) = {
             let store = self.inner.store.lock().await;
             let session = store.get_session(&req.session_id).ok_or_else(|| {
                 gestalt::Error::not_found(format!(
@@ -284,12 +285,20 @@ impl gestalt::AgentProvider for HermesAgentProvider {
                     req.session_id
                 )));
             }
-            config.resolve_model(if req.model.trim().is_empty() {
-                &session.model
-            } else {
-                &req.model
-            })
+            (
+                config.resolve_model(if req.model.trim().is_empty() {
+                    &session.model
+                } else {
+                    &req.model
+                }),
+                session.tool_source,
+                session.tool_refs,
+            )
         };
+        let (tool_source, tool_refs) =
+            effective_turn_tool_scope(&req, session_tool_source, &session_tool_refs)?;
+        req.tool_source = tool_source;
+        req.tool_refs = tool_refs;
         let request_context = req.context.clone();
         validate_turn_request(&req)?;
 
@@ -507,7 +516,7 @@ impl gestalt::AgentProvider for HermesAgentProvider {
             resumable_turns: false,
             reasoning_summaries: true,
             bounded_list_hydration: true,
-            supported_tool_sources: vec![gestalt::AgentToolSourceMode::McpCatalog],
+            supported_tool_sources: vec![gestalt::AgentToolSourceMode::Catalog],
             supports_session_start: false,
             supports_prepared_workspace: false,
         })
@@ -641,7 +650,7 @@ impl HermesAgentProvider {
                 turn.request_context,
             )
         };
-        let mcp_catalog_enabled = tool_source == gestalt::AgentToolSourceMode::McpCatalog;
+        let catalog_tools_enabled = tool_source == gestalt::AgentToolSourceMode::Catalog;
         if self.is_turn_canceled(turn_id).await {
             return Err("turn canceled".to_string());
         }
@@ -663,10 +672,10 @@ impl HermesAgentProvider {
                 return Err("turn canceled".to_string());
             }
             let _initialize_result = process.initialize(config.timeout).await?;
-            let mcp_servers = if mcp_catalog_enabled && !tool_refs.is_empty() {
+            let mcp_servers = if catalog_tools_enabled && !tool_refs.is_empty() {
                 let request_context = request_context
                     .clone()
-                    .ok_or_else(|| "request context is required when tool_source=MCP_CATALOG".to_string())?;
+                    .ok_or_else(|| "request context is required when tool_source=CATALOG".to_string())?;
                 let bridge = mcp_bridge::start_bridge(
                     session_id.clone(),
                     turn_id.to_string(),
@@ -934,25 +943,25 @@ fn validate_turn_request(req: &gestalt::CreateAgentProviderTurnRequest) -> gesta
     }
     if !req.tools.is_empty() {
         return Err(gestalt::Error::bad_request(
-            "resolved tools are not supported by agent/hermes; use tool_source=MCP_CATALOG",
+            "resolved tools are not supported by agent/hermes; use tool_source=CATALOG",
         ));
     }
     if let gestalt::AgentOutput::Structured(output) = &req.output {
         validate_schema(&output.schema).map_err(gestalt::Error::bad_request)?;
     }
-    validate_mcp_catalog_tool_refs(&req.tool_refs)?;
+    validate_catalog_tool_refs(&req.tool_refs)?;
     match req.tool_source {
         gestalt::AgentToolSourceMode::Unspecified | gestalt::AgentToolSourceMode::None => {
             if !req.tool_refs.is_empty() {
                 return Err(gestalt::Error::bad_request(
-                    "tool_source=MCP_CATALOG is required when tool_refs are provided",
+                    "tool_source=CATALOG is required when tool_refs are provided",
                 ));
             }
         }
-        gestalt::AgentToolSourceMode::McpCatalog => {
+        gestalt::AgentToolSourceMode::Catalog => {
             if req.context.is_none() {
                 return Err(gestalt::Error::bad_request(
-                    "request context is required when tool_source=MCP_CATALOG",
+                    "request context is required when tool_source=CATALOG",
                 ));
             }
         }
@@ -965,7 +974,100 @@ fn validate_turn_request(req: &gestalt::CreateAgentProviderTurnRequest) -> gesta
     Ok(())
 }
 
-fn validate_mcp_catalog_tool_refs(refs: &[gestalt::AgentToolRef]) -> gestalt::Result<()> {
+fn validate_session_tool_config(
+    req: &gestalt::CreateAgentProviderSessionRequest,
+) -> gestalt::Result<()> {
+    match req.tools.as_ref().and_then(|tools| tools.source.as_ref()) {
+        Some(gestalt::AgentToolConfigSource::None(_)) => Err(gestalt::Error::bad_request(
+            "agent/hermes requires tools.catalog",
+        )),
+        Some(gestalt::AgentToolConfigSource::Catalog(catalog)) => {
+            validate_catalog_tool_refs(&catalog.refs)
+        }
+        None => Ok(()),
+    }
+}
+
+fn effective_turn_tool_scope(
+    req: &gestalt::CreateAgentProviderTurnRequest,
+    session_tool_source: gestalt::AgentToolSourceMode,
+    session_tool_refs: &[gestalt::AgentToolRef],
+) -> gestalt::Result<(gestalt::AgentToolSourceMode, Vec<gestalt::AgentToolRef>)> {
+    if session_tool_source != gestalt::AgentToolSourceMode::Unspecified {
+        if req.tool_source != gestalt::AgentToolSourceMode::Unspecified
+            && req.tool_source != session_tool_source
+        {
+            return Err(gestalt::Error::bad_request(
+                "agent turn tool_source must match session tool source",
+            ));
+        }
+        if !req.tool_refs.is_empty() {
+            if !tool_refs_within_session_scope(&req.tool_refs, session_tool_refs) {
+                return Err(gestalt::Error::permission_denied(
+                    "agent turn tool_refs must be a subset of session tool_refs",
+                ));
+            }
+            return Ok((session_tool_source, req.tool_refs.clone()));
+        }
+        return Ok((session_tool_source, session_tool_refs.to_vec()));
+    }
+    if req.tool_source != gestalt::AgentToolSourceMode::Unspecified || !req.tool_refs.is_empty() {
+        return Ok((req.tool_source, req.tool_refs.clone()));
+    }
+    Ok((session_tool_source, session_tool_refs.to_vec()))
+}
+
+fn tool_refs_within_session_scope(
+    requested: &[gestalt::AgentToolRef],
+    allowed: &[gestalt::AgentToolRef],
+) -> bool {
+    if requested.is_empty() {
+        return true;
+    }
+    if allowed.is_empty() {
+        return false;
+    }
+    requested.iter().all(|requested_ref| {
+        allowed
+            .iter()
+            .any(|allowed_ref| tool_ref_allows(allowed_ref, requested_ref))
+    })
+}
+
+fn tool_ref_allows(allowed: &gestalt::AgentToolRef, requested: &gestalt::AgentToolRef) -> bool {
+    if !allowed.system.trim().is_empty() || !requested.system.trim().is_empty() {
+        return !allowed.system.trim().is_empty()
+            && allowed.system.trim() == requested.system.trim()
+            && optional_scope_field_allows(&allowed.operation, &requested.operation)
+            && optional_scope_field_allows(&allowed.app, &requested.app);
+    }
+    if allowed.app.trim() != "*" && allowed.app.trim() != requested.app.trim() {
+        return false;
+    }
+    optional_scope_field_allows(&allowed.operation, &requested.operation)
+        && optional_scope_field_allows(&allowed.connection, &requested.connection)
+        && optional_scope_field_allows(&allowed.instance, &requested.instance)
+        && optional_scope_field_allows(&allowed.credential_mode, &requested.credential_mode)
+        && run_as_allows(allowed.run_as.as_ref(), requested.run_as.as_ref())
+}
+
+fn optional_scope_field_allows(allowed: &str, requested: &str) -> bool {
+    let allowed = allowed.trim();
+    allowed.is_empty() || allowed == requested.trim()
+}
+
+fn run_as_allows(allowed: Option<&gestalt::Subject>, requested: Option<&gestalt::Subject>) -> bool {
+    let Some(allowed) = allowed else {
+        return true;
+    };
+    let Some(requested) = requested else {
+        return false;
+    };
+    allowed.id.trim() == requested.id.trim()
+        && allowed.credential_subject_id.trim() == requested.credential_subject_id.trim()
+}
+
+fn validate_catalog_tool_refs(refs: &[gestalt::AgentToolRef]) -> gestalt::Result<()> {
     for (index, tool_ref) in refs.iter().enumerate() {
         let system = tool_ref.system.trim();
         let app = tool_ref.app.trim();
