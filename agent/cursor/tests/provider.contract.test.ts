@@ -30,40 +30,36 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   AgentExecutionStatus,
   AgentToolSourceMode,
+  ENV_HOST_SERVICE_SOCKET,
+  ENV_HOST_SERVICE_TOKEN,
   createAgentProviderService,
   type AgentTurn,
+  type AgentToolRef,
   type CreateAgentProviderSessionRequest,
   type CreateAgentProviderTurnRequest,
   type ListedAgentTool,
 } from "@valon-technologies/gestalt";
 import {
-  AgentHost as AgentHostService,
   AgentProvider as VendoredAgentProviderService,
   CancelAgentProviderTurnRequestSchema,
   CreateAgentProviderSessionRequestSchema,
-  type ExecuteAgentToolRequest as ProtoExecuteAgentToolRequest,
-  ExecuteAgentToolResponseSchema,
   GetAgentProviderCapabilitiesRequestSchema,
   GetAgentProviderSessionRequestSchema,
   GetAgentProviderTurnRequestSchema,
   ListAgentProviderSessionsRequestSchema,
   ListAgentProviderTurnEventsRequestSchema,
   ListAgentProviderTurnsRequestSchema,
-  type ListAgentToolsRequest,
-  ListAgentToolsResponseSchema,
   ListedAgentToolSchema,
   UpdateAgentProviderSessionRequestSchema,
 } from "../node_modules/@valon-technologies/gestalt/src/internal/gen/v1/agent_pb.ts";
 import {
+  App as AppService,
+  type AppInvokeRequest,
+  OperationResultSchema,
   RequestContextSchema,
   SubjectContextSchema,
 } from "../node_modules/@valon-technologies/gestalt/src/internal/gen/v1/app_pb.ts";
 
-import {
-  AGENT_HOST_RELAY_TOKEN_HEADER,
-  ENV_HOST_SERVICE_SOCKET,
-  ENV_HOST_SERVICE_TOKEN,
-} from "../src/agent_host.ts";
 import {
   DEFAULT_TIMEOUT_SECONDS,
   type CursorAgentConfig,
@@ -77,12 +73,16 @@ import {
 import { CursorSDKRunner, type CursorAgentFactory } from "../src/runner.ts";
 import { schemaFromJson, type ToolEntry } from "../src/tools.ts";
 
-const activeHosts: FakeAgentHost[] = [];
+const activeHosts: FakeAppHost[] = [];
+const HOST_SERVICE_RELAY_TOKEN_HEADER = "x-gestalt-host-service-relay-token";
 const OWNER_SUBJECT = subjectFixture("user:owner@example.com", "user", "Owner");
 const OTHER_SUBJECT = subjectFixture("user:other@example.com", "user", "Other");
 const SLACK_SUBJECT = subjectFixture("service_account:slack-bot", "service_account", "Slack Bot");
 const DEFAULT_SESSION_TOOLS: NonNullable<CreateAgentProviderSessionRequest["tools"]> = {
-  catalog: { refs: [{ app: "p", operation: "o" }] },
+  catalog: {
+    refs: [{ app: "p", operation: "o" }],
+    tools: [tool({ id: "tool-p-o", mcpName: "p__o", app: "p", operation: "o" })],
+  },
 };
 
 function subjectFixture(id: string, kind: string, displayName: string) {
@@ -147,7 +147,7 @@ function turnRequest(
   input: Partial<CreateAgentProviderTurnRequest> &
     Pick<CreateAgentProviderTurnRequest, "turnId" | "sessionId" | "messages">,
 ): CreateAgentProviderTurnRequest {
-  const legacyDefaults = {
+  const protoDefaults = {
     toolRefs: [],
     toolSource: AgentToolSourceMode.UNSPECIFIED,
   } as Record<string, unknown>;
@@ -162,7 +162,7 @@ function turnRequest(
     metadata: input.metadata,
     createdBySubjectId: input.createdBySubjectId ?? OWNER_SUBJECT.id,
     executionRef: input.executionRef ?? "",
-    ...legacyDefaults,
+    ...protoDefaults,
     subject: input.subject ?? OWNER_SUBJECT,
     context: Object.prototype.hasOwnProperty.call(input, "context")
       ? input.context
@@ -301,8 +301,7 @@ describe("Cursor agent provider contract", () => {
   });
 
   test("sessionStart hooks run once and prepend context to turns", async () => {
-    const host = await FakeAgentHost.start({
-      pages: [{ tools: [tool({ id: "tool", mcpName: "linear__issues" })] }],
+    const host = await FakeAppHost.start({
     });
     activeHosts.push(host);
     process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
@@ -436,8 +435,7 @@ describe("Cursor agent provider contract", () => {
   });
 
   test("Slack-created company sessions are readable and listed by non-owners", async () => {
-    const host = await FakeAgentHost.start({
-      pages: [{ tools: [tool({ id: "t", mcpName: "t" })] }],
+    const host = await FakeAppHost.start({
     });
     activeHosts.push(host);
     process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
@@ -565,8 +563,7 @@ describe("Cursor agent provider contract", () => {
   });
 
   test("non-owner writes are denied and private turns and events stay hidden", async () => {
-    const host = await FakeAgentHost.start({
-      pages: [{ tools: [tool({ id: "t", mcpName: "t" })] }],
+    const host = await FakeAppHost.start({
     });
     activeHosts.push(host);
     process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
@@ -656,24 +653,9 @@ describe("Cursor agent provider contract", () => {
     ).toEqual([]);
   });
 
-  test("runs a turn through Cursor SDK options, MCP tools, and AgentHost ExecuteTool", async () => {
-    const host = await FakeAgentHost.start({
-      pages: [
-        {
-          tools: [
-            tool({
-              id: "tool-weather",
-              mcpName: "weather",
-              title: "Weather",
-              inputSchema: JSON.stringify({
-                type: "object",
-                properties: { city: { type: "string" } },
-              }),
-            }),
-          ],
-        },
-      ],
-      executeBody: '{"forecast":"sunny"}',
+  test("runs a turn through Cursor SDK options, MCP tools, and direct App.Invoke", async () => {
+    const host = await FakeAppHost.start({
+      body: '{"forecast":"sunny"}',
     });
     activeHosts.push(host);
     process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
@@ -729,6 +711,24 @@ describe("Cursor agent provider contract", () => {
       create(CreateAgentProviderSessionRequestSchema, {
         sessionId: "session-1",
         idempotencyKey: "session-key",
+        tools: {
+          catalog: {
+            refs: [{ app: "weather", operation: "forecast" }],
+            tools: [
+              tool({
+                id: "tool-weather",
+                mcpName: "weather",
+                app: "weather",
+                operation: "forecast",
+                title: "Weather",
+                inputSchema: JSON.stringify({
+                  type: "object",
+                  properties: { city: { type: "string" } },
+                }),
+              }),
+            ],
+          },
+        },
       }),
     );
 
@@ -747,21 +747,19 @@ describe("Cursor agent provider contract", () => {
     );
     expect(turnText(turn)).toBe("Forecast: sunny");
     expect(host.relayTokens).toContain("relay-token");
-    expect(host.listRequests).toHaveLength(1);
-    expect(host.listRequests[0]?.context?.subject?.id).toBe(OWNER_SUBJECT.id);
-    expect(host.executeRequests).toHaveLength(1);
-    expect(host.executeRequests[0]?.context?.subject?.id).toBe(OWNER_SUBJECT.id);
-    expect(host.executeRequests[0]?.toolCallId).toBe("sdk-1");
-    expect(host.executeRequests[0]?.idempotencyKey).toBe(
+    expect(host.invokeRequests).toHaveLength(1);
+    expect(host.invokeRequests[0]?.app).toBe("weather");
+    expect(host.invokeRequests[0]?.operation).toBe("forecast");
+    expect(host.invokeRequests[0]?.context?.subject?.id).toBe(OWNER_SUBJECT.id);
+    expect(host.invokeRequests[0]?.idempotencyKey).toBe(
       "agent/cursor-sdk:turn-1:sdk-1:weather",
     );
-    expect(host.executeRequests[0]?.arguments).toEqual({ city: "Oakland" });
+    expect(host.invokeRequests[0]?.params).toEqual({ city: "Oakland" });
     expect(existsSync(cursor.stateRoots[0] ?? "")).toBe(false);
   });
 
   test("structured output requests return validated values", async () => {
-    const host = await FakeAgentHost.start({
-      pages: [{ tools: [tool({ id: "tool", mcpName: "grader" })] }],
+    const host = await FakeAppHost.start({
     });
     activeHosts.push(host);
     process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
@@ -823,8 +821,7 @@ describe("Cursor agent provider contract", () => {
   });
 
   test("structured output requests fail invalid JSON", async () => {
-    const host = await FakeAgentHost.start({
-      pages: [{ tools: [tool({ id: "tool", mcpName: "grader" })] }],
+    const host = await FakeAppHost.start({
     });
     activeHosts.push(host);
     process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
@@ -875,8 +872,7 @@ describe("Cursor agent provider contract", () => {
   });
 
   test("prepared workspace cwd overrides configured working directory", async () => {
-    const host = await FakeAgentHost.start({
-      pages: [{ tools: [tool({ id: "tool", mcpName: "workspace" })] }],
+    const host = await FakeAppHost.start({
     });
     activeHosts.push(host);
     process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
@@ -952,8 +948,7 @@ describe("Cursor agent provider contract", () => {
         },
       ];
     });
-    const host = await FakeAgentHost.start({
-      pages: [{ tools: [tool({ id: "t", mcpName: "t" })] }],
+    const host = await FakeAppHost.start({
     });
     activeHosts.push(host);
     process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
@@ -1003,6 +998,11 @@ describe("Cursor agent provider contract", () => {
     const provider = await configuredProvider();
     const invalidSessionCases: Array<[string, CreateAgentProviderSessionRequest["tools"], string]> = [
       [
+        "none tools",
+        { none: {} },
+        "requires tools.catalog",
+      ],
+      [
         "missing refs",
         { catalog: { refs: [] } },
         "tools.catalog.refs are required",
@@ -1033,9 +1033,14 @@ describe("Cursor agent provider contract", () => {
         "not supported",
       ],
       [
-        "resolved tools",
-        { catalog: { refs: [{ app: "p", operation: "o" }], tools: [tool({ id: "resolved", mcpName: "resolved" })] } },
-        "resolved tools are not supported",
+        "bad credential mode",
+        { catalog: { refs: [{ app: "p", operation: "o", credentialMode: "user" }] } },
+        "credential_mode is invalid",
+      ],
+      [
+        "bad run as",
+        { catalog: { refs: [{ app: "p", operation: "o", runAs: { id: "user:delegate" } }] } },
+        "run_as is not supported",
       ],
     ];
     for (const [name, tools, message] of invalidSessionCases) {
@@ -1049,22 +1054,6 @@ describe("Cursor agent provider contract", () => {
         name,
       ).rejects.toThrow(message);
     }
-
-    await provider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, {
-        sessionId: "no-tools-session",
-        tools: { none: {} },
-      }),
-    );
-    await expect(
-      provider.createTurn(
-        turnRequest({
-          turnId: "no-tools-turn",
-          sessionId: "no-tools-session",
-          messages: [{ role: "user", text: "hi" }],
-        }),
-      ),
-    ).rejects.toThrow("requires session tools.catalog");
 
     await provider.createSession(
       create(CreateAgentProviderSessionRequestSchema, { sessionId: "s" }),
@@ -1098,8 +1087,7 @@ describe("Cursor agent provider contract", () => {
   });
 
   test("maps Cursor failures, timeouts, and cancellations onto terminal turns", async () => {
-    const host = await FakeAgentHost.start({
-      pages: [{ tools: [tool({ id: "t", mcpName: "tool" })] }],
+    const host = await FakeAppHost.start({
     });
     activeHosts.push(host);
     process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
@@ -1300,8 +1288,7 @@ describe("Cursor agent provider contract", () => {
   });
 
   test("close waits for active turn cancellation and cleanup", async () => {
-    const host = await FakeAgentHost.start({
-      pages: [{ tools: [tool({ id: "t", mcpName: "tool" })] }],
+    const host = await FakeAppHost.start({
     });
     activeHosts.push(host);
     process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
@@ -1344,86 +1331,104 @@ describe("Cursor agent provider contract", () => {
     expect(existsSync(stateRoot)).toBe(false);
   });
 
-  test("handles ListTools paging errors without invoking tools", async () => {
-    const cases: Array<
+  test("rejects invalid listed catalog tools at session creation", async () => {
+    const provider = await configuredProvider();
+    const baseRef: AgentToolRef = { app: "p", operation: "o" };
+    const cases: Array<[string, NonNullable<CreateAgentProviderSessionRequest["tools"]>, string]> = [
       [
-        string,
-        Array<{ tools: ListedAgentTool[]; nextPageToken?: string }>,
-        string,
-      ]
-    > = [
-      ["empty", [{ tools: [] }], "no tools"],
+        "empty",
+        { catalog: { refs: [baseRef], tools: [] } },
+        "tools.catalog.tools are required",
+      ],
       [
         "duplicate",
-        [
-          {
+        {
+          catalog: {
+            refs: [baseRef],
             tools: [
               tool({ id: "a", mcpName: "dup" }),
               tool({ id: "b", mcpName: "dup" }),
             ],
           },
-        ],
+        },
         "duplicate",
       ],
       [
         "unsafe",
-        [{ tools: [tool({ id: "a", mcpName: "bad name" })] }],
+        { catalog: { refs: [baseRef], tools: [tool({ id: "a", mcpName: "bad name" })] } },
         "unsafe",
       ],
       [
-        "unsafe slash",
-        [{ tools: [tool({ id: "a", mcpName: "bad/name" })] }],
-        "unsafe",
+        "non-app",
+        {
+          catalog: {
+            refs: [baseRef],
+            tools: [
+              create(ListedAgentToolSchema, {
+                id: "workflow",
+                mcpName: "workflow__start",
+                ref: { system: "workflow", operation: "start" },
+              }),
+            ],
+          },
+        },
+        "must target an app operation",
       ],
       [
-        "unsafe colon",
-        [{ tools: [tool({ id: "a", mcpName: "bad:name" })] }],
-        "unsafe",
+        "mismatched-ref",
+        {
+          catalog: {
+            refs: [baseRef],
+            tools: [tool({ id: "github", mcpName: "github__pulls", app: "github", operation: "pulls" })],
+          },
+        },
+        "not covered by tools.catalog.refs",
       ],
       [
-        "unsafe unicode",
-        [{ tools: [tool({ id: "a", mcpName: "å" })] }],
-        "unsafe",
+        "mismatched-credential-mode",
+        {
+          catalog: {
+            refs: [{ ...baseRef, credentialMode: "subject" }],
+            tools: [tool({ id: "a", mcpName: "p__o", credentialMode: "none" })],
+          },
+        },
+        "not covered by tools.catalog.refs",
       ],
       [
-        "unsafe length",
-        [{ tools: [tool({ id: "a", mcpName: "a".repeat(129) })] }],
-        "unsafe",
+        "wildcard-listed-connection",
+        {
+          catalog: {
+            refs: [baseRef],
+            tools: [tool({ id: "a", mcpName: "p__o", connection: "*" })],
+          },
+        },
+        "concrete app operation",
       ],
       [
-        "repeated token",
-        [{ tools: [], nextPageToken: "again" }],
-        "repeated page token",
+        "bad-listed-credential-mode",
+        {
+          catalog: {
+            refs: [baseRef],
+            tools: [tool({ id: "a", mcpName: "p__o", credentialMode: "user" })],
+          },
+        },
+        "credential_mode is invalid",
+      ],
+      [
+        "listed-run-as",
+        {
+          catalog: {
+            refs: [baseRef],
+            tools: [tool({ id: "a", mcpName: "p__o", runAs: { id: "user:delegate" } })],
+          },
+        },
+        "run_as is not supported",
       ],
     ];
-    for (const [name, pages, message] of cases) {
-      const host = await FakeAgentHost.start({ pages });
-      activeHosts.push(host);
-      process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
-      const provider = await configuredProvider({
-        runnerFactory: (config) =>
-          new CursorSDKRunner(config, {
-            agentFactory: new FakeCursorAgentFactory(),
-          }),
-      });
-      await provider.createSession(
-        create(CreateAgentProviderSessionRequestSchema, { sessionId: name }),
-      );
-      await provider.createTurn(
-        turnRequest({
-          turnId: `turn-${name}`,
-          sessionId: name,
-          messages: [{ role: "user", text: "hi" }],
-        }),
-      );
-      const turn = await waitForTurn(
-        provider,
-        `turn-${name}`,
-        AgentExecutionStatus.FAILED,
-      );
-      expect(turn.statusMessage).toContain(message);
-      await host.close();
-      activeHosts.pop();
+    for (const [name, tools, message] of cases) {
+      await expect(
+        provider.createSession(create(CreateAgentProviderSessionRequestSchema, { sessionId: name, tools })),
+      ).rejects.toThrow(message);
     }
   });
 
@@ -1432,10 +1437,10 @@ describe("Cursor agent provider contract", () => {
     const bridge = await startMcpBridge({
       tools: [
         {
-          toolId: "raw-id",
           mcpName: "raw_tool",
           title: "Raw Tool",
           description: "Uses raw MCP names",
+          ref: { app: "raw", operation: "call" },
           inputSchema: { type: "object", additionalProperties: true },
         },
       ],
@@ -1482,8 +1487,7 @@ describe("Cursor agent provider contract", () => {
     await provider.createSession(
       create(CreateAgentProviderSessionRequestSchema, { sessionId: "events" }),
     );
-    const host = await FakeAgentHost.start({
-      pages: [{ tools: [tool({ id: "t", mcpName: "t" })] }],
+    const host = await FakeAppHost.start({
     });
     activeHosts.push(host);
     process.env[ENV_HOST_SERVICE_SOCKET] = host.socketPath;
@@ -1550,6 +1554,12 @@ function tool(input: {
   title?: string;
   description?: string;
   inputSchema?: string;
+  app?: string;
+  operation?: string;
+  connection?: string;
+  instance?: string;
+  credentialMode?: string;
+  runAs?: AgentToolRef["runAs"];
 }): ListedAgentTool {
   return create(ListedAgentToolSchema, {
     id: input.id,
@@ -1558,6 +1568,14 @@ function tool(input: {
     description: input.description ?? "",
     inputSchema:
       input.inputSchema ?? '{"type":"object","additionalProperties":true}',
+    ref: {
+      app: input.app ?? "p",
+      operation: input.operation ?? "o",
+      connection: input.connection ?? "",
+      instance: input.instance ?? "",
+      credentialMode: input.credentialMode ?? "",
+      runAs: input.runAs,
+    },
   });
 }
 
@@ -1762,9 +1780,8 @@ class FakeRun {
   }
 }
 
-class FakeAgentHost {
-  readonly listRequests: ListAgentToolsRequest[] = [];
-  readonly executeRequests: ProtoExecuteAgentToolRequest[] = [];
+class FakeAppHost {
+  readonly invokeRequests: AppInvokeRequest[] = [];
   readonly relayTokens: string[] = [];
 
   private constructor(
@@ -1773,49 +1790,34 @@ class FakeAgentHost {
   ) {}
 
   static async start(input: {
-    pages: Array<{ tools: ListedAgentTool[]; nextPageToken?: string }>;
-    executeBody?: string;
-    executeStatus?: number;
-  }): Promise<FakeAgentHost> {
-    const dir = await mkdtemp(join(tmpdir(), "cursor-agent-host-"));
+    body?: string;
+    status?: number;
+  }): Promise<FakeAppHost> {
+    const dir = await mkdtemp(join(tmpdir(), "cursor-app-host-"));
     const socketPath = join(dir, "host.sock");
-    let host: FakeAgentHost;
+    let host: FakeAppHost;
     const server = createServer(
       connectNodeAdapter({
         grpc: true,
         grpcWeb: false,
         connect: false,
         routes(router) {
-          router.service(AgentHostService, {
-            listTools(request: ListAgentToolsRequest, context: HandlerContext) {
+          router.service(AppService, {
+            invoke(request: AppInvokeRequest, context: HandlerContext) {
               host.relayTokens.push(
-                context.requestHeader.get(AGENT_HOST_RELAY_TOKEN_HEADER) ?? "",
+                context.requestHeader.get(HOST_SERVICE_RELAY_TOKEN_HEADER) ?? "",
               );
-              host.listRequests.push(request);
-              const pageIndex = request.pageToken
-                ? input.pages.findIndex(
-                    (page) => page.nextPageToken === request.pageToken,
-                  ) + 1
-                : 0;
-              const page = input.pages[pageIndex] ??
-                input.pages[input.pages.length - 1] ?? { tools: [] };
-              return create(ListAgentToolsResponseSchema, {
-                tools: page.tools,
-                nextPageToken: page.nextPageToken ?? "",
-              });
-            },
-            executeTool(request: ProtoExecuteAgentToolRequest) {
-              host.executeRequests.push(request);
-              return create(ExecuteAgentToolResponseSchema, {
-                status: input.executeStatus ?? 200,
-                body: input.executeBody ?? "{}",
+              host.invokeRequests.push(request);
+              return create(OperationResultSchema, {
+                status: input.status ?? 200,
+                body: input.body ?? "{}",
               });
             },
           });
         },
       }),
     );
-    host = new FakeAgentHost(socketPath, server);
+    host = new FakeAppHost(socketPath, server);
     await listenUnix(server, socketPath);
     return host;
   }

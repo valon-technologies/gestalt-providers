@@ -5,14 +5,16 @@ import { join } from "node:path";
 import Ajv from "ajv";
 import Ajv2020 from "ajv/dist/2020.js";
 import type { AgentOptions, Run, SDKAgent, SDKMessage } from "@cursor/sdk";
-import type {
-  AgentMessage,
-  AgentTurnOutput,
-  ExecuteAgentToolRequest,
-  CreateAgentProviderTurnRequest,
+import {
+  App,
+  request as gestaltRequest,
+  type AppInvokeOptions,
+  type AgentMessage,
+  type AgentTurnOutput,
+  type CreateAgentProviderTurnRequest,
+  type ListedAgentTool,
 } from "@valon-technologies/gestalt";
 
-import { GestaltAgentHost } from "./agent_host.ts";
 import type { CursorAgentConfig } from "./config.ts";
 import { createCursorPlatformOptions } from "./cursor_platform.ts";
 import { CursorExecutionCanceled, CursorExecutionError } from "./errors.ts";
@@ -22,8 +24,6 @@ import { listGestaltTools, type ToolEntry } from "./tools.ts";
 export type CursorAgentFactory = {
   create(options: AgentOptions): Promise<SDKAgent>;
 };
-
-export type AgentHostFactory = () => GestaltAgentHost;
 
 export type TurnEventSink = (
   eventType: string,
@@ -47,7 +47,6 @@ export class CursorSDKRunner {
     private readonly config: CursorAgentConfig,
     private readonly options: {
       agentFactory?: CursorAgentFactory;
-      hostFactory?: AgentHostFactory;
     } = {},
   ) {}
 
@@ -57,6 +56,7 @@ export class CursorSDKRunner {
     model: string;
     messages: readonly AgentMessage[];
     requestContext: CreateAgentProviderTurnRequest["context"];
+    listedTools: readonly ListedAgentTool[];
     cwd: string;
     onEvent: TurnEventSink;
     schema?: Record<string, unknown> | undefined;
@@ -115,6 +115,7 @@ export class CursorSDKRunner {
       model: string;
       messages: readonly AgentMessage[];
       requestContext: CreateAgentProviderTurnRequest["context"];
+      listedTools: readonly ListedAgentTool[];
       cwd: string;
       onEvent: TurnEventSink;
       schema?: Record<string, unknown> | undefined;
@@ -123,28 +124,49 @@ export class CursorSDKRunner {
   ): Promise<AgentTurnOutput> {
     try {
       await this.raiseIfCanceled(active);
-      const host = this.createHost();
       const tools = await listGestaltTools({
-        host,
-        sessionId: input.sessionId,
-        turnId: input.turnId,
-        requestContext: input.requestContext,
+        listedTools: input.listedTools,
       });
       await this.raiseIfCanceled(active);
 
       active.bridge = await startMcpBridge({
         tools,
         executeTool: async (entry, toolCallId, args) => {
-          const request: ExecuteAgentToolRequest = {
-            sessionId: input.sessionId,
-            turnId: input.turnId,
-            toolCallId,
-            toolId: entry.toolId,
-            arguments: args,
-            context: input.requestContext,
+          const request = gestaltRequest(
+            "",
+            {},
+            {},
+            {},
+            {},
+            {},
+            "",
+            {},
+            {},
+            [],
+            false,
+            input.requestContext,
+          );
+          const options: AppInvokeOptions = {
             idempotencyKey: `agent/cursor-sdk:${input.turnId}:${toolCallId}:${entry.mcpName}`,
           };
-          const response = await host.executeTool(request);
+          const connection = entry.ref.connection?.trim();
+          if (connection) {
+            options.connection = connection;
+          }
+          const instance = entry.ref.instance?.trim();
+          if (instance) {
+            options.instance = instance;
+          }
+          const credentialMode = appCredentialMode(entry.ref.credentialMode);
+          if (credentialMode !== undefined) {
+            options.credentialMode = credentialMode;
+          }
+          const response = await new App(request).invoke(
+            entry.ref.app ?? "",
+            entry.ref.operation ?? "",
+            args,
+            options,
+          );
           return { status: response.status, body: response.body };
         },
       });
@@ -244,12 +266,6 @@ export class CursorSDKRunner {
     }
     const cursor = await import("@cursor/sdk");
     return cursor.Agent;
-  }
-
-  private createHost(): GestaltAgentHost {
-    return this.options.hostFactory
-      ? this.options.hostFactory()
-      : new GestaltAgentHost();
   }
 
   private async raiseIfCanceled(active: ActiveTurn): Promise<void> {
@@ -441,6 +457,19 @@ function messagesToPrompt(
     }),
   );
   return sections.join("\n\n");
+}
+
+function appCredentialMode(value: string | undefined): AppInvokeOptions["credentialMode"] {
+  const mode = value?.trim();
+  if (!mode) {
+    return undefined;
+  }
+  if (mode === "none" || mode === "subject" || mode === "unspecified") {
+    return mode;
+  }
+  throw new CursorExecutionError(
+    `tools.catalog.tools returned invalid credential_mode ${JSON.stringify(mode)}`,
+  );
 }
 
 function escapeAttribute(value: string): string {

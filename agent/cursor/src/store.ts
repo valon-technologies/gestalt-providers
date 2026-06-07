@@ -3,6 +3,7 @@ import {
   AgentSessionState,
   AgentToolSourceMode,
   type AgentMessage,
+  type ListedAgentTool,
   type AgentToolRef,
   type AgentSession,
   type AgentTurnEvent,
@@ -47,6 +48,7 @@ export type StoredSession = {
   preparedWorkspace: PreparedWorkspace | undefined;
   toolSource: AgentToolSourceMode;
   toolRefs: AgentToolRef[];
+  listedTools: ListedAgentTool[];
   createdBySubjectId: string;
   createdAt: Date;
   updatedAt: Date;
@@ -107,6 +109,7 @@ export class InMemoryRunStore {
     preparedWorkspace: PreparedWorkspace | undefined;
     toolSource: AgentToolSourceMode;
     toolRefs: readonly AgentToolRef[];
+    listedTools: readonly ListedAgentTool[];
     createdBySubjectId: string;
   }): { session: StoredSession; created: boolean } {
     const sessionId = input.sessionId.trim();
@@ -139,6 +142,7 @@ export class InMemoryRunStore {
       preparedWorkspace: cloneMaybe(input.preparedWorkspace),
       toolSource: input.toolSource,
       toolRefs: cloneToolRefs(input.toolRefs),
+      listedTools: cloneListedTools(input.listedTools),
       createdBySubjectId: input.createdBySubjectId.trim(),
       createdAt: now,
       updatedAt: now,
@@ -495,6 +499,7 @@ function cloneSession(session: StoredSession): StoredSession {
     metadata: cloneRecord(session.metadata),
     preparedWorkspace: cloneMaybe(session.preparedWorkspace),
     toolRefs: cloneToolRefs(session.toolRefs),
+    listedTools: cloneListedTools(session.listedTools),
     createdBySubjectId: session.createdBySubjectId,
     createdAt: new Date(session.createdAt),
     updatedAt: new Date(session.updatedAt),
@@ -536,6 +541,10 @@ function cloneMessages(messages: readonly AgentMessage[]): AgentMessage[] {
 
 function cloneToolRefs(refs: readonly AgentToolRef[]): AgentToolRef[] {
   return structuredClone([...refs]);
+}
+
+function cloneListedTools(tools: readonly ListedAgentTool[]): ListedAgentTool[] {
+  return structuredClone([...tools]);
 }
 
 function cloneMaybe<T>(value: T | undefined): T | undefined {
