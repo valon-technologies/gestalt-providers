@@ -349,7 +349,8 @@ class CodexProviderTests(unittest.TestCase):
                     include_tool_refs=True,
                 )
             )
-        self.assertEqual(cast(Any, raised.exception).code(), grpc.StatusCode.PERMISSION_DENIED)
+        self.assertEqual(cast(Any, raised.exception).code(), grpc.StatusCode.INVALID_ARGUMENT)
+        self.assertIn("agent turn tools must be configured on the session", cast(Any, raised.exception).details())
 
     def test_slack_sessions_are_company_readable_and_owner_writable(self) -> None:
         _, provider_client = _configure_provider()
@@ -564,7 +565,7 @@ class CodexProviderTests(unittest.TestCase):
 
         bad_source = _turn_request(turn_id="turn-bad-source", session_id="session-validation")
         bad_source.tool_source = 999
-        _assert_invalid(provider_client, bad_source, "agent turn toolSource must match session tool source")
+        _assert_invalid(provider_client, bad_source, "agent turn tools must be configured on the session")
 
         missing_context = _turn_request(
             turn_id="turn-missing-context", session_id="session-validation", include_context=False
@@ -578,7 +579,7 @@ class CodexProviderTests(unittest.TestCase):
             include_tool_refs=True,
         )
         wildcard_ref.tool_refs[0].app = "*"
-        _assert_invalid(provider_client, wildcard_ref, "wildcard tool_refs are not supported")
+        _assert_invalid(provider_client, wildcard_ref, "agent turn tools must be configured on the session")
 
         empty_schema = _turn_request(turn_id="turn-empty-schema", session_id="session-validation")
         empty_schema.output.structured.schema.CopyFrom(struct_pb2.Struct())

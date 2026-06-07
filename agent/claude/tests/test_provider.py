@@ -759,7 +759,6 @@ class ClaudeProviderTests(unittest.TestCase):
                 turn_id="turn-structured",
                 session_id="session-structured",
                 messages=[agent_pb2.AgentMessage(role="user", text="Grade the answer")],
-                tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
                 output_schema=schema,
                 include_tool_refs=False,
             )
@@ -980,7 +979,6 @@ class ClaudeProviderTests(unittest.TestCase):
                     _turn_request(
                         turn_id=f"turn-{mode}",
                         session_id=f"session-{mode}",
-                        tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
                         output_schema=schema,
                         include_tool_refs=False,
                     )
@@ -1034,7 +1032,6 @@ class ClaudeProviderTests(unittest.TestCase):
                     turn_id="turn-request-timeout",
                     session_id="session-request-timeout",
                     output_schema=schema,
-                    tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
                     timeout_seconds=2,
                     include_tool_refs=False,
                 )
@@ -1667,7 +1664,7 @@ class ClaudeProviderTests(unittest.TestCase):
 
         bad_source = _turn_request(turn_id="turn-bad-source", session_id="session-validation")
         bad_source.tool_source = 999
-        _assert_invalid(provider_client, bad_source, "agent turn toolSource must match session tool source")
+        _assert_invalid(provider_client, bad_source, "agent turn tools must be configured on the session")
 
         missing_context = _turn_request(
             turn_id="turn-missing-context", session_id="session-validation", include_context=False
@@ -1681,12 +1678,11 @@ class ClaudeProviderTests(unittest.TestCase):
             include_tool_refs=True,
         )
         wildcard_ref.tool_refs[0].operation = "*"
-        _assert_invalid(provider_client, wildcard_ref, "wildcard tool_refs are not supported")
+        _assert_invalid(provider_client, wildcard_ref, "agent turn tools must be configured on the session")
 
         empty_schema = _turn_request(
             turn_id="turn-empty-response-schema",
             session_id="session-validation-no-tools",
-            tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
             include_tool_refs=False,
             output_schema=struct_pb2.Struct(),
         )
@@ -1697,7 +1693,6 @@ class ClaudeProviderTests(unittest.TestCase):
         bad_schema = _turn_request(
             turn_id="turn-response-schema",
             session_id="session-validation-no-tools",
-            tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
             include_tool_refs=False,
             output_schema=scalar_schema,
         )
@@ -1720,12 +1715,11 @@ class ClaudeProviderTests(unittest.TestCase):
             include_tool_refs=True,
             tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
         )
-        _assert_invalid(provider_client, none_with_refs, "agent turn tool_refs must be a subset of session tool_refs")
+        _assert_invalid(provider_client, none_with_refs, "agent turn tools must be configured on the session")
 
         none_without_schema = _turn_request(
             turn_id="turn-none-without-schema",
             session_id="session-validation-no-tools",
-            tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
             include_tool_refs=False,
         )
         _FakeClaudeSDKClient.mode = "text_fallback"

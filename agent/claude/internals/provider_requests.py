@@ -173,17 +173,10 @@ def effective_turn_tool_scope(
     request: gestalt.CreateAgentProviderTurnRequest, *, session: StoredSession
 ) -> tuple[int, list[gestalt.AgentToolRef]]:
     tool_refs = list(request.tool_refs)
-    if session.tool_source:
-        if request.tool_source and request.tool_source != session.tool_source:
-            raise ValueError("agent turn toolSource must match session tool source")
-        if tool_refs:
-            _validate_tool_refs(tool_refs)
-            if not _tool_refs_within_session_scope(tool_refs, list(session.tool_refs)):
-                raise ValueError("agent turn tool_refs must be a subset of session tool_refs")
-            return session.tool_source, tool_refs
-        return session.tool_source, list(session.tool_refs)
     if request.tool_source or tool_refs:
         raise ValueError("agent turn tools must be configured on the session")
+    if session.tool_source:
+        return session.tool_source, list(session.tool_refs)
     return gestalt.AGENT_TOOL_SOURCE_MODE_NONE, []
 
 
@@ -253,51 +246,6 @@ def _validate_tool_refs(tool_refs: list[gestalt.AgentToolRef]) -> None:
             return
         if not tool_ref.plugin:
             raise ValueError(f"tool_refs[{index}].plugin is required")
-
-
-def _tool_refs_within_session_scope(
-    requested: list[gestalt.AgentToolRef], allowed: list[gestalt.AgentToolRef]
-) -> bool:
-    if not requested:
-        return True
-    if not allowed:
-        return False
-    return all(any(_tool_ref_allows(allow, request) for allow in allowed) for request in requested)
-
-
-def _tool_ref_allows(allowed: gestalt.AgentToolRef, requested: gestalt.AgentToolRef) -> bool:
-    if allowed.system.strip() or requested.system.strip():
-        return (
-            bool(allowed.system.strip())
-            and allowed.system.strip() == requested.system.strip()
-            and _optional_scope_field_allows(allowed.operation, requested.operation)
-            and _optional_scope_field_allows(allowed.app, requested.app)
-        )
-    if allowed.app.strip() != requested.app.strip() and allowed.app.strip() != "*":
-        return False
-    return (
-        _optional_scope_field_allows(allowed.operation, requested.operation)
-        and _optional_scope_field_allows(allowed.connection, requested.connection)
-        and _optional_scope_field_allows(allowed.instance, requested.instance)
-        and _run_as_allows(getattr(allowed, "run_as", None), getattr(requested, "run_as", None))
-    )
-
-
-def _optional_scope_field_allows(allowed: str, requested: str) -> bool:
-    allowed = allowed.strip()
-    return not allowed or allowed == requested.strip()
-
-
-def _run_as_allows(allowed: Any, requested: Any) -> bool:
-    if allowed is None:
-        return True
-    if requested is None:
-        return False
-    return (
-        getattr(allowed, "id", "").strip() == getattr(requested, "id", "").strip()
-        and getattr(allowed, "credential_subject_id", "").strip()
-        == getattr(requested, "credential_subject_id", "").strip()
-    )
 
 
 def _tool_ref_request(*, index: int, ref: gestalt.AgentToolRef) -> ToolRefRequest:

@@ -993,80 +993,15 @@ fn effective_turn_tool_scope(
     session_tool_source: gestalt::AgentToolSourceMode,
     session_tool_refs: &[gestalt::AgentToolRef],
 ) -> gestalt::Result<(gestalt::AgentToolSourceMode, Vec<gestalt::AgentToolRef>)> {
-    if session_tool_source != gestalt::AgentToolSourceMode::Unspecified {
-        if req.tool_source != gestalt::AgentToolSourceMode::Unspecified
-            && req.tool_source != session_tool_source
-        {
-            return Err(gestalt::Error::bad_request(
-                "agent turn tool_source must match session tool source",
-            ));
-        }
-        if !req.tool_refs.is_empty() {
-            if !tool_refs_within_session_scope(&req.tool_refs, session_tool_refs) {
-                return Err(gestalt::Error::permission_denied(
-                    "agent turn tool_refs must be a subset of session tool_refs",
-                ));
-            }
-            return Ok((session_tool_source, req.tool_refs.clone()));
-        }
-        return Ok((session_tool_source, session_tool_refs.to_vec()));
-    }
     if req.tool_source != gestalt::AgentToolSourceMode::Unspecified || !req.tool_refs.is_empty() {
         return Err(gestalt::Error::bad_request(
             "agent turn tools must be configured on the session",
         ));
     }
+    if session_tool_source != gestalt::AgentToolSourceMode::Unspecified {
+        return Ok((session_tool_source, session_tool_refs.to_vec()));
+    }
     Ok((gestalt::AgentToolSourceMode::None, Vec::new()))
-}
-
-fn tool_refs_within_session_scope(
-    requested: &[gestalt::AgentToolRef],
-    allowed: &[gestalt::AgentToolRef],
-) -> bool {
-    if requested.is_empty() {
-        return true;
-    }
-    if allowed.is_empty() {
-        return false;
-    }
-    requested.iter().all(|requested_ref| {
-        allowed
-            .iter()
-            .any(|allowed_ref| tool_ref_allows(allowed_ref, requested_ref))
-    })
-}
-
-fn tool_ref_allows(allowed: &gestalt::AgentToolRef, requested: &gestalt::AgentToolRef) -> bool {
-    if !allowed.system.trim().is_empty() || !requested.system.trim().is_empty() {
-        return !allowed.system.trim().is_empty()
-            && allowed.system.trim() == requested.system.trim()
-            && optional_scope_field_allows(&allowed.operation, &requested.operation)
-            && optional_scope_field_allows(&allowed.app, &requested.app);
-    }
-    if allowed.app.trim() != "*" && allowed.app.trim() != requested.app.trim() {
-        return false;
-    }
-    optional_scope_field_allows(&allowed.operation, &requested.operation)
-        && optional_scope_field_allows(&allowed.connection, &requested.connection)
-        && optional_scope_field_allows(&allowed.instance, &requested.instance)
-        && optional_scope_field_allows(&allowed.credential_mode, &requested.credential_mode)
-        && run_as_allows(allowed.run_as.as_ref(), requested.run_as.as_ref())
-}
-
-fn optional_scope_field_allows(allowed: &str, requested: &str) -> bool {
-    let allowed = allowed.trim();
-    allowed.is_empty() || allowed == requested.trim()
-}
-
-fn run_as_allows(allowed: Option<&gestalt::Subject>, requested: Option<&gestalt::Subject>) -> bool {
-    let Some(allowed) = allowed else {
-        return true;
-    };
-    let Some(requested) = requested else {
-        return false;
-    };
-    allowed.id.trim() == requested.id.trim()
-        && allowed.credential_subject_id.trim() == requested.credential_subject_id.trim()
 }
 
 fn validate_catalog_tool_refs(refs: &[gestalt::AgentToolRef]) -> gestalt::Result<()> {

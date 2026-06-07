@@ -1,7 +1,9 @@
 import {
   AgentExecutionStatus,
   AgentSessionState,
+  AgentToolSourceMode,
   type AgentMessage,
+  type AgentToolRef,
   type AgentSession,
   type AgentTurnEvent,
   type AgentTurn,
@@ -43,6 +45,8 @@ export type StoredSession = {
   metadata: Record<string, unknown>;
   visibility: StoredSessionVisibility;
   preparedWorkspace: PreparedWorkspace | undefined;
+  toolSource: AgentToolSourceMode;
+  toolRefs: AgentToolRef[];
   createdBySubjectId: string;
   createdAt: Date;
   updatedAt: Date;
@@ -101,6 +105,8 @@ export class InMemoryRunStore {
     metadata: Record<string, unknown>;
     visibility: StoredSessionVisibility;
     preparedWorkspace: PreparedWorkspace | undefined;
+    toolSource: AgentToolSourceMode;
+    toolRefs: readonly AgentToolRef[];
     createdBySubjectId: string;
   }): { session: StoredSession; created: boolean } {
     const sessionId = input.sessionId.trim();
@@ -131,6 +137,8 @@ export class InMemoryRunStore {
       metadata: cloneRecord(input.metadata),
       visibility: input.visibility,
       preparedWorkspace: cloneMaybe(input.preparedWorkspace),
+      toolSource: input.toolSource,
+      toolRefs: cloneToolRefs(input.toolRefs),
       createdBySubjectId: input.createdBySubjectId.trim(),
       createdAt: now,
       updatedAt: now,
@@ -486,6 +494,7 @@ function cloneSession(session: StoredSession): StoredSession {
     ...session,
     metadata: cloneRecord(session.metadata),
     preparedWorkspace: cloneMaybe(session.preparedWorkspace),
+    toolRefs: cloneToolRefs(session.toolRefs),
     createdBySubjectId: session.createdBySubjectId,
     createdAt: new Date(session.createdAt),
     updatedAt: new Date(session.updatedAt),
@@ -523,6 +532,10 @@ function cloneEvent(event: StoredTurnEvent): StoredTurnEvent {
 
 function cloneMessages(messages: readonly AgentMessage[]): AgentMessage[] {
   return structuredClone([...messages]);
+}
+
+function cloneToolRefs(refs: readonly AgentToolRef[]): AgentToolRef[] {
+  return structuredClone([...refs]);
 }
 
 function cloneMaybe<T>(value: T | undefined): T | undefined {

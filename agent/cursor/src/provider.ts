@@ -10,6 +10,7 @@ import {
   type AgentProviderCapabilities,
   type AgentSession,
   type AgentSessionStartConfig,
+  type AgentToolRef,
   type AgentTurn,
   type AgentTurnEvent,
   type CancelAgentProviderTurnRequest,
@@ -119,6 +120,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
       let metadata = objectOrEmpty(request.metadata);
       validateSessionStartUserMetadata(metadata);
       const preparedWorkspace = preparedWorkspaceFromRequest(request);
+      const { toolSource, toolRefs } = sessionToolScopeFromConfig(request.tools);
       if (hasSessionStartHooks(request.sessionStart)) {
         return await this.withSessionStartLock(async () => {
           const existing = this.existingSessionForCreate(
@@ -142,6 +144,8 @@ export class CursorAgentProvider extends SDKAgentProvider {
               (request.createdBySubjectId ?? "").trim(),
             ),
             preparedWorkspace,
+            toolSource,
+            toolRefs,
             createdBySubjectId: (request.createdBySubjectId ?? "").trim(),
           });
           return sessionToAgentSession(session);
@@ -159,6 +163,8 @@ export class CursorAgentProvider extends SDKAgentProvider {
           (request.createdBySubjectId ?? "").trim(),
         ),
         preparedWorkspace,
+        toolSource,
+        toolRefs,
         createdBySubjectId: (request.createdBySubjectId ?? "").trim(),
       });
       if (!created) {
@@ -242,7 +248,6 @@ export class CursorAgentProvider extends SDKAgentProvider {
     request: CreateAgentProviderTurnRequest,
   ): Promise<AgentTurn> {
     const { config, runner } = this.requireRuntime();
-    const schema = validateCreateTurnRequest(request);
     const session = this.store.getSession(request.sessionId);
     if (!session) {
       throw notFound(
@@ -250,6 +255,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
       );
     }
     requireOwnedSession(session, request.subject);
+    const schema = validateCreateTurnRequest(request, session);
     if (request.messages.length === 0) {
       throw invalidArgument("messages must contain at least one entry");
     }
@@ -549,9 +555,13 @@ export const provider = createCursorAgentProvider();
 
 function validateCreateTurnRequest(
   request: CreateAgentProviderTurnRequest,
+  session: StoredSession,
 ): Record<string, unknown> | undefined {
-  if (request.toolSource !== AgentToolSourceMode.MCP_CATALOG) {
-    throw invalidArgument("agent/cursor requires toolSource mcp_catalog");
+  if (request.toolSource !== AgentToolSourceMode.UNSPECIFIED || request.toolRefs.length > 0) {
+    throw invalidArgument("agent turn tools must be configured on the session");
+  }
+  if (session.toolSource !== AgentToolSourceMode.MCP_CATALOG) {
+    throw invalidArgument("agent/cursor requires session tools.catalog");
   }
   if (request.context === undefined) {
     throw invalidArgument("request context is required");
@@ -572,8 +582,30 @@ function validateCreateTurnRequest(
   if (hasObjectData(request.modelOptions)) {
     throw invalidArgument("model_options are not supported by agent/cursor");
   }
-  validateToolRefs(request.toolRefs);
+  validateToolRefs(session.toolRefs);
   return schema;
+}
+
+function sessionToolScopeFromConfig(
+  tools: CreateAgentProviderSessionRequest["tools"] | undefined,
+): {
+  toolSource: AgentToolSourceMode;
+  toolRefs: AgentToolRef[];
+} {
+  if (!tools || tools.none !== undefined) {
+    return { toolSource: AgentToolSourceMode.NONE, toolRefs: [] };
+  }
+  if (tools.catalog !== undefined) {
+    if ((tools.catalog.tools ?? []).length > 0) {
+      throw invalidArgument(
+        "resolved tools are not supported; use tools.catalog.refs",
+      );
+    }
+    const refs = [...(tools.catalog.refs ?? [])];
+    validateToolRefs(refs);
+    return { toolSource: AgentToolSourceMode.MCP_CATALOG, toolRefs: refs };
+  }
+  return { toolSource: AgentToolSourceMode.NONE, toolRefs: [] };
 }
 
 function schemaFromOutput(
@@ -594,10 +626,10 @@ function schemaFromOutput(
 }
 
 function validateToolRefs(
-  toolRefs: CreateAgentProviderTurnRequest["toolRefs"],
+  toolRefs: readonly AgentToolRef[],
 ): void {
   if (toolRefs.length === 0) {
-    throw invalidArgument("tool_refs are required for mcp_catalog turns");
+    throw invalidArgument("tools.catalog.refs are required");
   }
   toolRefs.forEach((ref, index) => {
     const app = (ref.app ?? "").trim();
