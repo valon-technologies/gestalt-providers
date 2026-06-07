@@ -4,13 +4,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
-use gestalt::proto::v1::agent_host_server::{
-    AgentHost as AgentHostRpc, AgentHostServer as AgentHostGrpcServer,
-};
+use gestalt::proto::v1::app_server::{App as AppRpc, AppServer as AppGrpcServer};
 use gestalt::{
     AgentProvider as _, ENV_HOST_SERVICE_SOCKET, ENV_HOST_SERVICE_TOKEN, proto::v1 as proto,
 };
-use serde_json::{Map as JsonMap, Value as JsonValue, json};
+use serde_json::{Map as JsonMap, Number as JsonNumber, Value as JsonValue, json};
 use tempfile::TempDir;
 use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
@@ -165,11 +163,11 @@ async fn fixed_profile_mode_skips_acp_model_switching() {
 async fn catalog_turn_bridges_gestalt_tools_to_hermes() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-call");
-    let host = TestAgentHostService::default();
-    let socket_path = fixture.tmp.path().join("agent-host.sock");
+    let app = TestAppService::default();
+    let socket_path = fixture.tmp.path().join("app-host.sock");
     let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
     let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
+    let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
     create_mcp_session(&provider).await;
@@ -182,44 +180,57 @@ async fn catalog_turn_bridges_gestalt_tools_to_hermes() {
     .await;
     assert_eq!(turn_text(&turn), "Hermes used Gestalt MCP");
 
-    let list_requests = host.list_requests.lock().expect("list requests").clone();
-    assert!(
-        !list_requests.is_empty(),
-        "expected Hermes to list Gestalt MCP tools"
-    );
-    assert_eq!(list_requests[0].session_id, "session-1");
-    assert_eq!(list_requests[0].turn_id, "turn-mcp");
+    let invoke_requests = app.invoke_requests.lock().expect("invoke requests").clone();
+    assert_eq!(invoke_requests.len(), 1);
+    assert_eq!(invoke_requests[0].app, "linear");
+    assert_eq!(invoke_requests[0].operation, "issues");
     assert_eq!(
-        list_requests[0]
+        invoke_requests[0]
             .context
             .as_ref()
             .and_then(|context| context.subject.as_ref())
             .map(|subject| subject.id.as_str()),
         Some(OWNER_SUBJECT_ID)
     );
-    assert_eq!(list_requests[0].page_size, 100);
-
-    let execute_requests = host
-        .execute_requests
-        .lock()
-        .expect("execute requests")
-        .clone();
-    assert_eq!(execute_requests.len(), 1);
-    assert_eq!(execute_requests[0].session_id, "session-1");
-    assert_eq!(execute_requests[0].turn_id, "turn-mcp");
-    assert_eq!(execute_requests[0].tool_id, "linear-list");
-    assert_eq!(execute_requests[0].tool_call_id, "mcp-1");
+    let context = invoke_requests[0]
+        .context
+        .as_ref()
+        .expect("request context");
     assert_eq!(
-        execute_requests[0]
-            .context
-            .as_ref()
-            .and_then(|context| context.subject.as_ref())
-            .map(|subject| subject.id.as_str()),
-        Some(OWNER_SUBJECT_ID)
+        context.caller.as_ref().map(|caller| caller.kind.as_str()),
+        Some("agent")
     );
     assert_eq!(
-        execute_requests[0].idempotency_key,
+        context.caller.as_ref().map(|caller| caller.name.as_str()),
+        Some("hermes")
+    );
+    assert_eq!(
+        context.agent.as_ref().map(|agent| (
+            agent.provider_name.as_str(),
+            agent.session_id.as_str(),
+            agent.turn_id.as_str()
+        )),
+        Some(("hermes", "session-1", "turn-mcp"))
+    );
+    assert!(context.tool_refs_set);
+    assert_eq!(context.tool_refs.len(), 1);
+    assert_eq!(context.tool_refs[0].app, "linear");
+    assert_eq!(context.tool_refs[0].operation, "issues");
+    assert_eq!(context.tool_refs[0].credential_mode, "subject");
+    assert_eq!(invoke_requests[0].connection, "primary");
+    assert_eq!(invoke_requests[0].instance, "workspace-a");
+    assert_eq!(invoke_requests[0].credential_mode, "subject");
+    assert_eq!(
+        invoke_requests[0].idempotency_key,
         "agent/hermes-mcp:turn-mcp:1:linear.issues"
+    );
+    assert_eq!(
+        invoke_param_json(&invoke_requests[0])["query"].as_str(),
+        Some("Ada Lovelace")
+    );
+    assert_eq!(
+        app.relay_tokens.lock().expect("relay tokens").clone(),
+        vec!["relay-token".to_string()]
     );
 
     let log = fixture.log_events();
@@ -274,19 +285,19 @@ async fn catalog_turn_bridges_gestalt_tools_to_hermes() {
         Some("linear tickets")
     );
 
-    host_task.abort();
-    let _ = host_task.await;
+    app_task.abort();
+    let _ = app_task.await;
 }
 
 #[tokio::test]
 async fn catalog_turn_inherits_session_tool_scope() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-call");
-    let host = TestAgentHostService::default();
-    let socket_path = fixture.tmp.path().join("agent-host.sock");
+    let app = TestAppService::default();
+    let socket_path = fixture.tmp.path().join("app-host.sock");
     let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
     let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
+    let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
     create_session_with_tools(
@@ -294,6 +305,7 @@ async fn catalog_turn_inherits_session_tool_scope() {
         "session-1",
         catalog_tool_config(vec![gestalt::AgentToolRef {
             app: "*".to_string(),
+            credential_mode: "subject".to_string(),
             ..Default::default()
         }]),
     )
@@ -310,7 +322,11 @@ async fn catalog_turn_inherits_session_tool_scope() {
             output: gestalt::AgentOutput::text(),
             created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
-            context: Some(request_context(OWNER_SUBJECT_ID)),
+            context: Some(request_context_for_turn(
+                OWNER_SUBJECT_ID,
+                "session-1",
+                "turn-session-tools",
+            )),
             ..empty_turn_request()
         })
         .await
@@ -323,22 +339,25 @@ async fn catalog_turn_inherits_session_tool_scope() {
     .await;
     assert_eq!(turn_text(&turn), "Hermes used Gestalt MCP");
 
-    let list_requests = host.list_requests.lock().expect("list requests").clone();
-    assert_eq!(list_requests[0].session_id, "session-1");
-    assert_eq!(list_requests[0].turn_id, "turn-session-tools");
-    host_task.abort();
-    let _ = host_task.await;
+    let invoke_requests = app.invoke_requests.lock().expect("invoke requests").clone();
+    assert_eq!(invoke_requests.len(), 1);
+    assert_eq!(
+        invoke_requests[0].idempotency_key,
+        "agent/hermes-mcp:turn-session-tools:1:linear.issues"
+    );
+    app_task.abort();
+    let _ = app_task.await;
 }
 
 #[tokio::test]
-async fn catalog_turn_does_not_prefetch_tools_before_mcp_use() {
+async fn catalog_turn_does_not_invoke_apps_for_mcp_tool_listing() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-list-only");
-    let host = TestAgentHostService::default();
-    let socket_path = fixture.tmp.path().join("agent-host.sock");
+    let app = TestAppService::default();
+    let socket_path = fixture.tmp.path().join("app-host.sock");
     let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
     let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
+    let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
     create_mcp_session(&provider).await;
@@ -351,10 +370,10 @@ async fn catalog_turn_does_not_prefetch_tools_before_mcp_use() {
     .await;
     assert_eq!(turn_text(&turn), "Hermes used Gestalt MCP");
 
-    let list_requests = host.list_requests.lock().expect("list requests").clone();
+    let invoke_requests = app.invoke_requests.lock().expect("invoke requests").clone();
     assert!(
-        list_requests.is_empty(),
-        "MCP bridge should not list Gestalt tools during proxy tools/list: {list_requests:?}"
+        invoke_requests.is_empty(),
+        "MCP bridge should not invoke apps during proxy tools/list: {invoke_requests:?}"
     );
 
     let log = fixture.log_events();
@@ -379,24 +398,23 @@ async fn catalog_turn_does_not_prefetch_tools_before_mcp_use() {
         ]
     );
 
-    host_task.abort();
-    let _ = host_task.await;
+    app_task.abort();
+    let _ = app_task.await;
 }
 
 #[tokio::test]
-async fn catalog_turn_marks_unavailable_sentinel_call_as_error() {
+async fn catalog_turn_marks_target_app_error_status_as_tool_error() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-call");
-    let host = TestAgentHostService {
-        list_reconnect_sentinel: true,
-        execute_status: 424,
-        execute_body: Some(r#"{"error":{"code":"reconnect_required","plugin":"linear"}}"#),
+    let app = TestAppService {
+        invoke_status: 424,
+        invoke_body: Some(r#"{"error":{"code":"reconnect_required","plugin":"linear"}}"#),
         ..Default::default()
     };
-    let socket_path = fixture.tmp.path().join("agent-host.sock");
+    let socket_path = fixture.tmp.path().join("app-host.sock");
     let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
     let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
+    let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
     create_mcp_session(&provider).await;
@@ -409,13 +427,10 @@ async fn catalog_turn_marks_unavailable_sentinel_call_as_error() {
     .await;
     assert_eq!(turn_text(&turn), "Hermes used Gestalt MCP");
 
-    let execute_requests = host
-        .execute_requests
-        .lock()
-        .expect("execute requests")
-        .clone();
-    assert_eq!(execute_requests.len(), 1);
-    assert_eq!(execute_requests[0].tool_id, "linear-reconnect");
+    assert_eq!(
+        app.invoke_requests.lock().expect("invoke requests").len(),
+        1
+    );
 
     let log = fixture.log_events();
     let mcp_result = log
@@ -437,60 +452,19 @@ async fn catalog_turn_marks_unavailable_sentinel_call_as_error() {
         Some(r#"{"error":{"code":"reconnect_required","plugin":"linear"}}"#)
     );
 
-    host_task.abort();
-    let _ = host_task.await;
-}
-
-#[tokio::test]
-async fn catalog_turn_preserves_empty_target_error_body() {
-    let _env_lock = ENV_LOCK.lock().await;
-    let fixture = Fixture::new("mcp-call");
-    let host = TestAgentHostService {
-        execute_status: 500,
-        execute_body: Some(""),
-        ..Default::default()
-    };
-    let socket_path = fixture.tmp.path().join("agent-host-empty-error.sock");
-    let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
-    let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
-    let provider = fixture.configure_provider().await;
-
-    create_mcp_session(&provider).await;
-    create_mcp_turn(&provider, "turn-mcp-empty-error").await;
-    wait_for_turn(
-        &provider,
-        "turn-mcp-empty-error",
-        gestalt::AgentExecutionStatus::Succeeded,
-    )
-    .await;
-
-    let log = fixture.log_events();
-    let mcp_result = log
-        .iter()
-        .find(|event| event["event"] == "mcp_result")
-        .expect("mcp result logged");
-    let payload = tool_call_payload(&mcp_result["result"]["call"]);
-    assert_eq!(
-        mcp_result["result"]["call"]["result"]["isError"],
-        serde_json::Value::Bool(true)
-    );
-    assert_eq!(payload["error"]["status"].as_i64(), Some(500));
-    assert_eq!(payload["error"]["body"].as_str(), Some(""));
-
-    host_task.abort();
-    let _ = host_task.await;
+    app_task.abort();
+    let _ = app_task.await;
 }
 
 #[tokio::test]
 async fn catalog_proxy_gets_schema_by_returned_mcp_name() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-schema");
-    let host = TestAgentHostService::default();
-    let socket_path = fixture.tmp.path().join("agent-host-schema.sock");
+    let app = TestAppService::default();
+    let socket_path = fixture.tmp.path().join("app-host-schema.sock");
     let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
     let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
+    let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
     create_mcp_session(&provider).await;
@@ -514,31 +488,39 @@ async fn catalog_proxy_gets_schema_by_returned_mcp_name() {
     );
     assert!(schema_payload["tool"]["input_schema"]["properties"]["query"].is_object());
     assert!(
-        host.execute_requests
+        app.invoke_requests
             .lock()
-            .expect("execute requests")
+            .expect("invoke requests")
             .is_empty()
     );
 
-    host_task.abort();
-    let _ = host_task.await;
+    app_task.abort();
+    let _ = app_task.await;
 }
 
 #[tokio::test]
 async fn catalog_proxy_rejects_ambiguous_ref_selectors() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-ambiguous-ref");
-    let host = TestAgentHostService {
-        ambiguous_refs: true,
-        ..Default::default()
-    };
-    let socket_path = fixture.tmp.path().join("agent-host-ambiguous.sock");
+    let app = TestAppService::default();
+    let socket_path = fixture.tmp.path().join("app-host-ambiguous.sock");
     let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
     let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
+    let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_mcp_session(&provider).await;
+    create_mcp_session_with_tools(
+        &provider,
+        vec![
+            listed_tool("linear-list-a", "linear.issues", "Linear issues A"),
+            listed_tool(
+                "linear-list-b",
+                "linear.issues.secondary",
+                "Linear issues B",
+            ),
+        ],
+    )
+    .await;
     create_mcp_turn(&provider, "turn-mcp-ambiguous").await;
     wait_for_turn(
         &provider,
@@ -561,19 +543,19 @@ async fn catalog_proxy_rejects_ambiguous_ref_selectors() {
         "{payload}"
     );
 
-    host_task.abort();
-    let _ = host_task.await;
+    app_task.abort();
+    let _ = app_task.await;
 }
 
 #[tokio::test]
 async fn catalog_proxy_rejects_invalid_selectors_before_lookup() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-invalid-selector");
-    let host = TestAgentHostService::default();
-    let socket_path = fixture.tmp.path().join("agent-host-invalid-selector.sock");
+    let app = TestAppService::default();
+    let socket_path = fixture.tmp.path().join("app-host-invalid-selector.sock");
     let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
     let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
+    let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
     create_mcp_session(&provider).await;
@@ -592,25 +574,40 @@ async fn catalog_proxy_rejects_invalid_selectors_before_lookup() {
         .expect("mcp result logged");
     assert_proxy_error(&mcp_result["result"]["schema"], "invalid_selector");
 
-    host_task.abort();
-    let _ = host_task.await;
+    app_task.abort();
+    let _ = app_task.await;
 }
 
 #[tokio::test]
 async fn catalog_proxy_searches_only_catalog_metadata() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-search-schema-only");
-    let host = TestAgentHostService {
-        schema_only_tool: true,
-        ..Default::default()
-    };
-    let socket_path = fixture.tmp.path().join("agent-host-schema-only.sock");
+    let app = TestAppService::default();
+    let socket_path = fixture.tmp.path().join("app-host-schema-only.sock");
     let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
     let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
+    let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_mcp_session(&provider).await;
+    create_mcp_session_with_tools(
+        &provider,
+        vec![gestalt::ListedAgentTool {
+            id: "schema-only".to_string(),
+            mcp_name: "neutral.tool".to_string(),
+            title: "Neutral tool".to_string(),
+            description: "No matching metadata".to_string(),
+            input_schema:
+                r#"{"type":"object","properties":{"schemaOnlySecret":{"type":"string"}}}"#
+                    .to_string(),
+            r#ref: Some(gestalt::AgentToolRef {
+                app: "neutral".to_string(),
+                operation: "lookup".to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }],
+    )
+    .await;
     create_mcp_turn(&provider, "turn-mcp-schema-only").await;
     wait_for_turn(
         &provider,
@@ -628,25 +625,43 @@ async fn catalog_proxy_searches_only_catalog_metadata() {
     assert_eq!(search_payload["tools"].as_array().map(Vec::len), Some(0));
     assert_eq!(search_payload["candidates"].as_array().map(Vec::len), None);
 
-    host_task.abort();
-    let _ = host_task.await;
+    app_task.abort();
+    let _ = app_task.await;
 }
 
 #[tokio::test]
-async fn catalog_proxy_ranks_matches_across_pages() {
+async fn catalog_proxy_ranks_matches_across_catalog_tools() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-search-only");
-    let host = TestAgentHostService {
-        ranked_pages: true,
-        ..Default::default()
-    };
-    let socket_path = fixture.tmp.path().join("agent-host-ranked-pages.sock");
+    let app = TestAppService::default();
+    let socket_path = fixture.tmp.path().join("app-host-ranked-tools.sock");
     let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
     let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
+    let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_mcp_session(&provider).await;
+    let mut tools: Vec<_> = (0..20)
+        .map(|index| gestalt::ListedAgentTool {
+            id: format!("linear-partial-{index}"),
+            mcp_name: format!("linear.partial.{index}"),
+            title: "Linear catalog entry".to_string(),
+            description: "Catalog entry visible to the user".to_string(),
+            input_schema: r#"{"type":"object","properties":{"query":{"type":"string"}}}"#
+                .to_string(),
+            r#ref: Some(gestalt::AgentToolRef {
+                app: "linear".to_string(),
+                operation: format!("partial-{index}"),
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .collect();
+    tools.push(listed_tool(
+        "linear-best",
+        "linear.issues.best",
+        "Linear issues",
+    ));
+    create_mcp_session_with_tools(&provider, tools).await;
     create_mcp_turn(&provider, "turn-mcp-ranked-pages").await;
     wait_for_turn(
         &provider,
@@ -668,163 +683,77 @@ async fn catalog_proxy_ranks_matches_across_pages() {
     );
     assert_eq!(search_payload["has_more"], JsonValue::Bool(true));
 
-    host_task.abort();
-    let _ = host_task.await;
+    app_task.abort();
+    let _ = app_task.await;
 }
 
 #[tokio::test]
-async fn catalog_proxy_reports_cursor_and_page_errors_as_tool_errors() {
-    let _env_lock = ENV_LOCK.lock().await;
-    for (name, host, code) in [
-        (
-            "repeated",
-            TestAgentHostService {
-                repeated_cursor: true,
-                ..Default::default()
-            },
-            "repeated_cursor",
-        ),
-        (
-            "page-cap",
-            TestAgentHostService {
-                endless_pages: true,
-                ..Default::default()
-            },
-            "page_limit_exceeded",
-        ),
-    ] {
-        let fixture = Fixture::new("mcp-search-only");
-        let socket_path = fixture.tmp.path().join(format!("agent-host-{name}.sock"));
-        let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
-        let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
-        let host_task = serve_agent_host(socket_path, host.clone()).await;
-        let provider = fixture.configure_provider().await;
-
-        create_mcp_session(&provider).await;
-        create_mcp_turn(&provider, &format!("turn-mcp-{name}")).await;
-        wait_for_turn(
-            &provider,
-            &format!("turn-mcp-{name}"),
-            gestalt::AgentExecutionStatus::Succeeded,
-        )
-        .await;
-
-        let log = fixture.log_events();
-        let mcp_result = log
-            .iter()
-            .find(|event| event["event"] == "mcp_result")
-            .expect("mcp result logged");
-        assert_proxy_error(&mcp_result["result"]["search"], code);
-
-        host_task.abort();
-        let _ = host_task.await;
-    }
-}
-
-#[tokio::test]
-async fn catalog_proxy_reports_list_rpc_errors_as_tool_errors() {
-    let _env_lock = ENV_LOCK.lock().await;
+async fn rejects_invalid_session_catalog_tools_without_spawning_hermes() {
     let fixture = Fixture::new("mcp-search-only");
-    let host = TestAgentHostService {
-        list_error: Some("catalog unavailable"),
-        ..Default::default()
-    };
-    let socket_path = fixture.tmp.path().join("agent-host-list-error.sock");
-    let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
-    let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
+    let unsafe_tool = listed_tool("unsafe", "unsafe tool", "Unsafe tool");
+    let mut missing_ref = listed_tool("missing-ref", "linear.missing_ref", "Linear missing ref");
+    missing_ref.r#ref = None;
+    let mut wildcard_listed_ref = listed_tool("wildcard", "linear.wildcard", "Linear wildcard");
+    wildcard_listed_ref.r#ref = Some(gestalt::AgentToolRef {
+        app: "linear".to_string(),
+        operation: "*".to_string(),
+        ..Default::default()
+    });
+    let mut run_as_listed_ref = listed_tool("run-as", "linear.run_as", "Linear run as");
+    run_as_listed_ref.r#ref.as_mut().expect("ref").run_as = Some(gestalt::Subject {
+        id: "user:other".to_string(),
+        ..Default::default()
+    });
 
-    create_mcp_session(&provider).await;
-    create_mcp_turn(&provider, "turn-mcp-list-error").await;
-    wait_for_turn(
-        &provider,
-        "turn-mcp-list-error",
-        gestalt::AgentExecutionStatus::Succeeded,
-    )
-    .await;
-
-    let log = fixture.log_events();
-    let mcp_result = log
-        .iter()
-        .find(|event| event["event"] == "mcp_result")
-        .expect("mcp result logged");
-    let payload = assert_proxy_error(&mcp_result["result"]["search"], "list_tools_failed");
-    assert!(
-        payload["error"]["message"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("catalog unavailable"),
-        "{payload}"
-    );
-
-    host_task.abort();
-    let _ = host_task.await;
-}
-
-#[tokio::test]
-async fn catalog_proxy_reports_invalid_catalog_tools_as_tool_errors() {
-    let _env_lock = ENV_LOCK.lock().await;
-    for (name, host) in [
-        (
-            "unsafe-name",
-            TestAgentHostService {
-                unsafe_mcp_name: true,
-                ..Default::default()
-            },
-        ),
-        (
-            "missing-id",
-            TestAgentHostService {
-                missing_tool_id: true,
-                ..Default::default()
-            },
-        ),
+    for (name, tools) in [
+        ("unsafe-name", vec![unsafe_tool]),
         (
             "duplicate-name",
-            TestAgentHostService {
-                duplicate_mcp_name: true,
-                ..Default::default()
-            },
+            vec![
+                listed_tool("linear-list-a", "linear.issues", "Linear issues A"),
+                listed_tool("linear-list-b", "linear.issues", "Linear issues B"),
+            ],
         ),
+        ("missing-ref", vec![missing_ref]),
+        ("wildcard-listed-ref", vec![wildcard_listed_ref]),
+        ("run-as-listed-ref", vec![run_as_listed_ref]),
     ] {
-        let fixture = Fixture::new("mcp-search-only");
-        let socket_path = fixture.tmp.path().join(format!("agent-host-{name}.sock"));
-        let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
-        let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
-        let host_task = serve_agent_host(socket_path, host.clone()).await;
-        let provider = fixture.configure_provider().await;
-
-        create_mcp_session(&provider).await;
-        create_mcp_turn(&provider, &format!("turn-mcp-{name}")).await;
-        wait_for_turn(
-            &provider,
-            &format!("turn-mcp-{name}"),
-            gestalt::AgentExecutionStatus::Succeeded,
-        )
-        .await;
-
-        let log = fixture.log_events();
-        let mcp_result = log
-            .iter()
-            .find(|event| event["event"] == "mcp_result")
-            .expect("mcp result logged");
-        assert_proxy_error(&mcp_result["result"]["search"], "invalid_catalog_tool");
-
-        host_task.abort();
-        let _ = host_task.await;
+        let err = provider
+            .create_session(gestalt::CreateAgentProviderSessionRequest {
+                session_id: format!("session-{name}"),
+                model: "kimi-k2.6".to_string(),
+                tools: Some(catalog_tool_config_with_tools(
+                    vec![gestalt::AgentToolRef {
+                        app: "*".to_string(),
+                        credential_mode: "subject".to_string(),
+                        ..Default::default()
+                    }],
+                    tools,
+                )),
+                created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
+                subject: Some(owner_subject()),
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(err.status(), Some(400), "{name}: {err}");
     }
+    assert!(
+        fixture.log_events().is_empty(),
+        "Hermes should not start for invalid catalog tools"
+    );
 }
 
 #[tokio::test]
-async fn catalog_proxy_reports_input_cap_errors_without_listing_tools() {
+async fn catalog_proxy_reports_input_cap_errors_without_invoking_apps() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-input-caps");
-    let host = TestAgentHostService::default();
-    let socket_path = fixture.tmp.path().join("agent-host-input-caps.sock");
+    let app = TestAppService::default();
+    let socket_path = fixture.tmp.path().join("app-host-input-caps.sock");
     let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
     let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
+    let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
     create_mcp_session(&provider).await;
@@ -842,24 +771,29 @@ async fn catalog_proxy_reports_input_cap_errors_without_listing_tools() {
         .find(|event| event["event"] == "mcp_result")
         .expect("mcp result logged");
     assert_proxy_error(&mcp_result["result"]["search"], "invalid_arguments");
-    assert!(host.list_requests.lock().expect("list requests").is_empty());
+    assert!(
+        app.invoke_requests
+            .lock()
+            .expect("invoke requests")
+            .is_empty()
+    );
 
-    host_task.abort();
-    let _ = host_task.await;
+    app_task.abort();
+    let _ = app_task.await;
 }
 
 #[tokio::test]
-async fn catalog_proxy_reports_execute_rpc_errors_as_tool_errors() {
+async fn catalog_proxy_reports_app_invoke_errors_as_tool_errors() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-call");
-    let host = TestAgentHostService {
-        execute_error: Some("agent host execute failed"),
+    let app = TestAppService {
+        invoke_error: Some("app invoke failed"),
         ..Default::default()
     };
-    let socket_path = fixture.tmp.path().join("agent-host-execute-error.sock");
+    let socket_path = fixture.tmp.path().join("app-host-invoke-error.sock");
     let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
     let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
+    let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
     create_mcp_session(&provider).await;
@@ -876,28 +810,28 @@ async fn catalog_proxy_reports_execute_rpc_errors_as_tool_errors() {
         .iter()
         .find(|event| event["event"] == "mcp_result")
         .expect("mcp result logged");
-    let payload = assert_proxy_error(&mcp_result["result"]["call"], "execute_tool_failed");
+    let payload = assert_proxy_error(&mcp_result["result"]["call"], "invoke_tool_failed");
     assert!(
         payload["error"]["message"]
             .as_str()
             .unwrap_or_default()
-            .contains("agent host execute failed"),
+            .contains("app invoke failed"),
         "{payload}"
     );
 
-    host_task.abort();
-    let _ = host_task.await;
+    app_task.abort();
+    let _ = app_task.await;
 }
 
 #[tokio::test]
 async fn catalog_does_not_require_advertised_acp_http_mcp_support() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-call-no-cap");
-    let host = TestAgentHostService::default();
-    let socket_path = fixture.tmp.path().join("agent-host-no-cap.sock");
+    let app = TestAppService::default();
+    let socket_path = fixture.tmp.path().join("app-host-no-cap.sock");
     let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
     let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
+    let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
     create_mcp_session(&provider).await;
@@ -912,71 +846,8 @@ async fn catalog_does_not_require_advertised_acp_http_mcp_support() {
     let log = fixture.log_events();
     assert!(log.iter().any(|event| event["event"] == "mcp_result"));
 
-    host_task.abort();
-    let _ = host_task.await;
-}
-
-#[tokio::test]
-async fn explicit_no_tool_turn_does_not_require_request_context() {
-    let fixture = Fixture::new("success");
-    let provider = fixture.configure_provider().await;
-
-    create_session(&provider).await;
-    provider
-        .create_turn(gestalt::CreateAgentProviderTurnRequest {
-            turn_id: "turn-no-tools".to_string(),
-            session_id: "session-1".to_string(),
-            messages: vec![gestalt::AgentMessage {
-                role: "user".to_string(),
-                text: "say hi".to_string(),
-                ..Default::default()
-            }],
-            output: gestalt::AgentOutput::text(),
-            created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
-            subject: Some(owner_subject()),
-            ..empty_turn_request()
-        })
-        .await
-        .unwrap();
-    wait_for_turn(
-        &provider,
-        "turn-no-tools",
-        gestalt::AgentExecutionStatus::Succeeded,
-    )
-    .await;
-    provider
-        .create_turn(gestalt::CreateAgentProviderTurnRequest {
-            turn_id: "turn-explicit-no-tools".to_string(),
-            session_id: "session-1".to_string(),
-            messages: vec![gestalt::AgentMessage {
-                role: "user".to_string(),
-                text: "say hi again".to_string(),
-                ..Default::default()
-            }],
-            output: gestalt::AgentOutput::text(),
-            created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
-            subject: Some(owner_subject()),
-            ..empty_turn_request()
-        })
-        .await
-        .unwrap();
-    wait_for_turn(
-        &provider,
-        "turn-explicit-no-tools",
-        gestalt::AgentExecutionStatus::Succeeded,
-    )
-    .await;
-
-    let log = fixture.log_events();
-    let load = log
-        .iter()
-        .find(|event| event["event"] == "load")
-        .expect("session/load logged");
-    assert_eq!(
-        load["params"]["mcpServers"].as_array().map(Vec::len),
-        Some(0),
-        "{log:?}"
-    );
+    app_task.abort();
+    let _ = app_task.await;
 }
 
 #[tokio::test]
@@ -1006,6 +877,7 @@ async fn structured_output_turn_returns_validated_value() {
             }),
             created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
+            context: Some(request_context(OWNER_SUBJECT_ID)),
             ..empty_turn_request()
         })
         .await
@@ -1051,6 +923,7 @@ async fn structured_output_turn_fails_invalid_json() {
             }),
             created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
+            context: Some(request_context(OWNER_SUBJECT_ID)),
             ..empty_turn_request()
         })
         .await
@@ -1118,6 +991,7 @@ async fn rejects_unsupported_tool_and_model_options() {
             }],
             created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
+            context: Some(request_context(OWNER_SUBJECT_ID)),
             ..empty_turn_request()
         })
         .await
@@ -1138,6 +1012,7 @@ async fn rejects_unsupported_tool_and_model_options() {
             }),
             created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
+            context: Some(request_context(OWNER_SUBJECT_ID)),
             ..empty_turn_request()
         })
         .await
@@ -1157,6 +1032,7 @@ async fn rejects_unsupported_tool_and_model_options() {
             model_options: Some(json!({ "type": "object" })),
             created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
+            context: Some(request_context(OWNER_SUBJECT_ID)),
             ..empty_turn_request()
         })
         .await
@@ -1201,7 +1077,6 @@ async fn owner_can_read_and_mutate_private_session() {
         .get_session(gestalt::GetAgentProviderSessionRequest {
             session_id: "session-owner-private".to_string(),
             subject: Some(owner_subject()),
-            ..Default::default()
         })
         .await
         .unwrap();
@@ -1271,7 +1146,6 @@ async fn slack_metadata_makes_session_company_visible_at_create_only() {
         .get_session(gestalt::GetAgentProviderSessionRequest {
             session_id: "session-company".to_string(),
             subject: Some(other_subject()),
-            ..Default::default()
         })
         .await
         .unwrap();
@@ -1310,7 +1184,6 @@ async fn slack_metadata_makes_session_company_visible_at_create_only() {
         .get_session(gestalt::GetAgentProviderSessionRequest {
             session_id: "session-company".to_string(),
             subject: Some(other_subject()),
-            ..Default::default()
         })
         .await
         .unwrap();
@@ -1333,7 +1206,6 @@ async fn slack_metadata_makes_session_company_visible_at_create_only() {
         .get_turn(gestalt::GetAgentProviderTurnRequest {
             turn_id: "turn-company".to_string(),
             subject: Some(other_subject()),
-            ..Default::default()
         })
         .await
         .unwrap();
@@ -1395,7 +1267,6 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
         .get_session(gestalt::GetAgentProviderSessionRequest {
             session_id: "session-private-hidden".to_string(),
             subject: Some(other_subject()),
-            ..Default::default()
         })
         .await
         .unwrap_err();
@@ -1429,7 +1300,6 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
         .get_turn(gestalt::GetAgentProviderTurnRequest {
             turn_id: "turn-private-hidden".to_string(),
             subject: Some(other_subject()),
-            ..Default::default()
         })
         .await
         .unwrap_err();
@@ -1474,7 +1344,6 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
         .get_session(gestalt::GetAgentProviderSessionRequest {
             session_id: "session-private-hidden".to_string(),
             subject: Some(other_subject()),
-            ..Default::default()
         })
         .await
         .unwrap_err();
@@ -1492,7 +1361,6 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
         .get_session(gestalt::GetAgentProviderSessionRequest {
             session_id: "session-incomplete-slack".to_string(),
             subject: Some(other_subject()),
-            ..Default::default()
         })
         .await
         .unwrap_err();
@@ -1561,7 +1429,6 @@ async fn non_owner_cannot_mutate_company_visible_session_or_turn() {
             turn_id: "turn-company-write-owner".to_string(),
             reason: "other subject requested".to_string(),
             subject: Some(other_subject()),
-            ..Default::default()
         })
         .await
         .unwrap_err();
@@ -1587,7 +1454,6 @@ async fn cancel_turn_sends_acp_cancel_and_marks_turn_canceled() {
             turn_id: "turn-cancel".to_string(),
             reason: "operator requested".to_string(),
             subject: Some(owner_subject()),
-            ..Default::default()
         })
         .await
         .unwrap();
@@ -1608,7 +1474,6 @@ async fn cancel_before_acp_spawn_prevents_prompt() {
             turn_id: "turn-early-cancel".to_string(),
             reason: "operator requested".to_string(),
             subject: Some(owner_subject()),
-            ..Default::default()
         })
         .await
         .unwrap();
@@ -1639,230 +1504,78 @@ struct Fixture {
 }
 
 #[derive(Clone, Default)]
-struct TestAgentHostService {
-    list_requests: Arc<StdMutex<Vec<proto::ListAgentToolsRequest>>>,
-    execute_requests: Arc<StdMutex<Vec<proto::ExecuteAgentToolRequest>>>,
-    list_reconnect_sentinel: bool,
-    list_error: Option<&'static str>,
-    repeated_cursor: bool,
-    endless_pages: bool,
-    ambiguous_refs: bool,
-    unsafe_mcp_name: bool,
-    missing_tool_id: bool,
-    duplicate_mcp_name: bool,
-    schema_only_tool: bool,
-    ranked_pages: bool,
-    execute_status: i32,
-    execute_body: Option<&'static str>,
-    execute_error: Option<&'static str>,
+struct TestAppService {
+    invoke_requests: Arc<StdMutex<Vec<proto::AppInvokeRequest>>>,
+    relay_tokens: Arc<StdMutex<Vec<String>>>,
+    invoke_status: i32,
+    invoke_body: Option<&'static str>,
+    invoke_error: Option<&'static str>,
 }
 
 #[tonic::async_trait]
-impl AgentHostRpc for TestAgentHostService {
-    async fn list_tools(
+impl AppRpc for TestAppService {
+    async fn invoke(
         &self,
-        request: Request<proto::ListAgentToolsRequest>,
-    ) -> Result<tonic::Response<proto::ListAgentToolsResponse>, tonic::Status> {
-        let request = request.into_inner();
-        self.list_requests
+        request: Request<proto::AppInvokeRequest>,
+    ) -> Result<tonic::Response<proto::OperationResult>, tonic::Status> {
+        let relay_tokens = request
+            .metadata()
+            .get_all("x-gestalt-host-service-relay-token")
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        self.relay_tokens
             .lock()
-            .expect("list requests")
-            .push(request.clone());
-        if let Some(message) = self.list_error {
-            return Err(tonic::Status::internal(message));
-        }
-        if self.repeated_cursor {
-            return Ok(tonic::Response::new(proto::ListAgentToolsResponse {
-                tools: Vec::new(),
-                next_page_token: "same-cursor".to_string(),
-            }));
-        }
-        if self.endless_pages {
-            let count = self.list_requests.lock().expect("list requests").len();
-            return Ok(tonic::Response::new(proto::ListAgentToolsResponse {
-                tools: Vec::new(),
-                next_page_token: format!("page-{count}"),
-            }));
-        }
-        if self.ranked_pages {
-            if request.page_token.trim().is_empty() {
-                let tools = (0..20)
-                    .map(|index| proto::ListedAgentTool {
-                        id: format!("linear-partial-{index}"),
-                        mcp_name: format!("linear.partial.{index}"),
-                        title: "Linear catalog entry".to_string(),
-                        description: "Catalog entry visible to the user".to_string(),
-                        input_schema:
-                            r#"{"type":"object","properties":{"query":{"type":"string"}}}"#
-                                .to_string(),
-                        r#ref: Some(proto::AgentToolRef {
-                            app: "linear".to_string(),
-                            operation: format!("partial-{index}"),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    })
-                    .collect();
-                return Ok(tonic::Response::new(proto::ListAgentToolsResponse {
-                    tools,
-                    next_page_token: "page-2".to_string(),
-                }));
-            }
-            return Ok(tonic::Response::new(proto::ListAgentToolsResponse {
-                tools: vec![listed_tool(
-                    "linear-best",
-                    "linear.issues.best",
-                    "Linear issues",
-                )],
-                next_page_token: String::new(),
-            }));
-        }
-        Ok(tonic::Response::new(proto::ListAgentToolsResponse {
-            tools: if request.page_token.trim().is_empty() {
-                if self.list_reconnect_sentinel {
-                    vec![proto::ListedAgentTool {
-                        id: "linear-reconnect".to_string(),
-                        mcp_name: "linear__reconnect_required".to_string(),
-                        title: "linear reconnect required".to_string(),
-                        description: "linear credentials expired or refresh failed".to_string(),
-                        input_schema:
-                            r#"{"type":"object","properties":{},"additionalProperties":false}"#
-                                .to_string(),
-                        annotations: Some(proto::OperationAnnotations {
-                            read_only_hint: Some(true),
-                            open_world_hint: Some(false),
-                            ..Default::default()
-                        }),
-                        r#ref: Some(proto::AgentToolRef {
-                            app: "linear".to_string(),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    }]
-                } else if self.ambiguous_refs {
-                    vec![
-                        listed_tool("linear-list-a", "linear.issues", "Linear issues A"),
-                        listed_tool(
-                            "linear-list-b",
-                            "linear.issues.secondary",
-                            "Linear issues B",
-                        ),
-                    ]
-                } else if self.unsafe_mcp_name {
-                    vec![proto::ListedAgentTool {
-                        id: "unsafe".to_string(),
-                        mcp_name: "unsafe tool".to_string(),
-                        title: "Unsafe tool".to_string(),
-                        description: "Unsafe MCP name".to_string(),
-                        input_schema: r#"{"type":"object"}"#.to_string(),
-                        r#ref: Some(proto::AgentToolRef {
-                            app: "linear".to_string(),
-                            operation: "issues".to_string(),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    }]
-                } else if self.missing_tool_id {
-                    let mut tool = listed_tool("", "linear.issues", "Linear issues");
-                    tool.id.clear();
-                    vec![tool]
-                } else if self.duplicate_mcp_name {
-                    vec![
-                        listed_tool("linear-list-a", "linear.issues", "Linear issues A"),
-                        listed_tool("linear-list-b", "linear.issues", "Linear issues B"),
-                    ]
-                } else if self.schema_only_tool {
-                    vec![proto::ListedAgentTool {
-                        id: "schema-only".to_string(),
-                        mcp_name: "neutral.tool".to_string(),
-                        title: "Neutral tool".to_string(),
-                        description: "No matching metadata".to_string(),
-                        input_schema:
-                            r#"{"type":"object","properties":{"schemaOnlySecret":{"type":"string"}}}"#
-                                .to_string(),
-                        r#ref: Some(proto::AgentToolRef {
-                            app: "neutral".to_string(),
-                            operation: "lookup".to_string(),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    }]
-                } else {
-                    vec![proto::ListedAgentTool {
-                        id: "linear-list".to_string(),
-                        mcp_name: "linear.issues".to_string(),
-                        title: "Linear issues".to_string(),
-                        description: "List Linear issues visible to the user".to_string(),
-                        input_schema:
-                            r#"{"type":"object","properties":{"query":{"type":"string"}}}"#
-                                .to_string(),
-                        annotations: Some(proto::OperationAnnotations {
-                            read_only_hint: Some(true),
-                            open_world_hint: Some(false),
-                            ..Default::default()
-                        }),
-                        r#ref: Some(proto::AgentToolRef {
-                            app: "linear".to_string(),
-                            operation: "issues".to_string(),
-                            ..Default::default()
-                        }),
-                        ..Default::default()
-                    }]
-                }
-            } else {
-                Vec::new()
-            },
-            next_page_token: String::new(),
-        }))
-    }
-
-    async fn execute_tool(
-        &self,
-        request: Request<proto::ExecuteAgentToolRequest>,
-    ) -> Result<tonic::Response<proto::ExecuteAgentToolResponse>, tonic::Status> {
+            .expect("relay tokens")
+            .extend(relay_tokens);
         let request = request.into_inner();
-        self.execute_requests
+        self.invoke_requests
             .lock()
-            .expect("execute requests")
+            .expect("invoke requests")
             .push(request);
-        if let Some(message) = self.execute_error {
+        if let Some(message) = self.invoke_error {
             return Err(tonic::Status::internal(message));
         }
-        Ok(tonic::Response::new(proto::ExecuteAgentToolResponse {
-            status: if self.execute_status == 0 {
+        Ok(tonic::Response::new(proto::OperationResult {
+            status: if self.invoke_status == 0 {
                 200
             } else {
-                self.execute_status
+                self.invoke_status
             },
-            body: self.execute_body.unwrap_or("linear tickets").to_string(),
+            body: self.invoke_body.unwrap_or("linear tickets").to_string(),
+            headers: Default::default(),
         }))
     }
 
-    async fn resolve_connection(
+    async fn invoke_graph_ql(
         &self,
-        _request: Request<proto::ResolveAgentConnectionRequest>,
-    ) -> Result<tonic::Response<proto::ResolvedAgentConnection>, tonic::Status> {
+        _request: Request<proto::AppInvokeGraphQlRequest>,
+    ) -> Result<tonic::Response<proto::OperationResult>, tonic::Status> {
         Err(tonic::Status::unimplemented(
-            "connection resolution is not used by this test",
+            "GraphQL invocation is not used by this test",
         ))
     }
 }
 
-fn listed_tool(id: &str, mcp_name: &str, title: &str) -> proto::ListedAgentTool {
-    proto::ListedAgentTool {
+fn listed_tool(id: &str, mcp_name: &str, title: &str) -> gestalt::ListedAgentTool {
+    gestalt::ListedAgentTool {
         id: id.to_string(),
         mcp_name: mcp_name.to_string(),
         title: title.to_string(),
         description: "List Linear issues visible to the user".to_string(),
         input_schema: r#"{"type":"object","properties":{"query":{"type":"string"}}}"#.to_string(),
-        annotations: Some(proto::OperationAnnotations {
+        annotations: Some(gestalt::AgentToolAnnotations {
             read_only_hint: Some(true),
             open_world_hint: Some(false),
             ..Default::default()
         }),
-        r#ref: Some(proto::AgentToolRef {
+        r#ref: Some(gestalt::AgentToolRef {
             app: "linear".to_string(),
             operation: "issues".to_string(),
+            connection: "primary".to_string(),
+            instance: "workspace-a".to_string(),
+            credential_mode: "subject".to_string(),
             ..Default::default()
         }),
         ..Default::default()
@@ -1898,6 +1611,41 @@ fn tool_call_payload(call_result: &JsonValue) -> JsonValue {
         .unwrap_or_else(|| panic!("tool call result has no text content: {call_result}"));
     serde_json::from_str(text)
         .unwrap_or_else(|err| panic!("decode tool call payload {text:?}: {err}"))
+}
+
+fn invoke_param_json(request: &proto::AppInvokeRequest) -> JsonValue {
+    request
+        .params
+        .as_ref()
+        .map(prost_struct_to_json)
+        .unwrap_or_else(|| JsonValue::Object(JsonMap::new()))
+}
+
+fn prost_struct_to_json(value: &prost_types::Struct) -> JsonValue {
+    JsonValue::Object(
+        value
+            .fields
+            .iter()
+            .map(|(key, value)| (key.clone(), prost_value_to_json(value)))
+            .collect(),
+    )
+}
+
+fn prost_value_to_json(value: &prost_types::Value) -> JsonValue {
+    use prost_types::value::Kind;
+
+    match value.kind.as_ref() {
+        Some(Kind::NullValue(_)) | None => JsonValue::Null,
+        Some(Kind::NumberValue(value)) => JsonNumber::from_f64(*value)
+            .map(JsonValue::Number)
+            .unwrap_or(JsonValue::Null),
+        Some(Kind::StringValue(value)) => JsonValue::String(value.clone()),
+        Some(Kind::BoolValue(value)) => JsonValue::Bool(*value),
+        Some(Kind::StructValue(value)) => prost_struct_to_json(value),
+        Some(Kind::ListValue(value)) => {
+            JsonValue::Array(value.values.iter().map(prost_value_to_json).collect())
+        }
+    }
 }
 
 fn assert_proxy_error(call_result: &JsonValue, code: &str) -> JsonValue {
@@ -2037,14 +1785,25 @@ async fn create_session_with_tools(
 }
 
 fn catalog_tool_config(refs: Vec<gestalt::AgentToolRef>) -> gestalt::AgentToolConfig {
+    catalog_tool_config_with_tools(
+        refs,
+        vec![listed_tool("linear-list", "linear.issues", "Linear issues")],
+    )
+}
+
+fn catalog_tool_config_with_tools(
+    refs: Vec<gestalt::AgentToolRef>,
+    tools: Vec<gestalt::ListedAgentTool>,
+) -> gestalt::AgentToolConfig {
     gestalt::AgentToolConfig {
         source: Some(gestalt::AgentToolConfigSource::Catalog(
-            gestalt::AgentCatalogToolConfig {
-                refs,
-                tools: Vec::new(),
-            },
+            gestalt::AgentCatalogToolConfig { refs, tools },
         )),
     }
+}
+
+fn listed_tool_refs(tools: &[gestalt::ListedAgentTool]) -> Vec<gestalt::AgentToolRef> {
+    tools.iter().filter_map(|tool| tool.r#ref.clone()).collect()
 }
 
 async fn create_session_with(
@@ -2059,6 +1818,11 @@ async fn create_session_with(
             session_id: session_id.to_string(),
             model: "kimi-k2.6".to_string(),
             metadata,
+            tools: Some(catalog_tool_config(vec![gestalt::AgentToolRef {
+                app: "*".to_string(),
+                credential_mode: "subject".to_string(),
+                ..Default::default()
+            }])),
             created_by_subject_id: Some(owner_subject_id.to_string()),
             subject,
             ..Default::default()
@@ -2105,6 +1869,11 @@ async fn create_turn_in_session_as(
             output: gestalt::AgentOutput::text(),
             created_by_subject_id: Some(created_by_subject_id.to_string()),
             subject: Some(subject),
+            context: Some(request_context_for_turn(
+                created_by_subject_id,
+                session_id,
+                turn_id,
+            )),
             ..empty_turn_request()
         })
         .await
@@ -2112,13 +1881,21 @@ async fn create_turn_in_session_as(
 }
 
 async fn create_mcp_session(provider: &HermesAgentProvider) -> gestalt::AgentSession {
+    create_mcp_session_with_tools(
+        provider,
+        vec![listed_tool("linear-list", "linear.issues", "Linear issues")],
+    )
+    .await
+}
+
+async fn create_mcp_session_with_tools(
+    provider: &HermesAgentProvider,
+    tools: Vec<gestalt::ListedAgentTool>,
+) -> gestalt::AgentSession {
     create_session_with_tools(
         provider,
         "session-1",
-        catalog_tool_config(vec![gestalt::AgentToolRef {
-            app: "*".to_string(),
-            ..Default::default()
-        }]),
+        catalog_tool_config_with_tools(listed_tool_refs(&tools), tools),
     )
     .await
 }
@@ -2136,7 +1913,11 @@ async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> gesta
             output: gestalt::AgentOutput::text(),
             created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
-            context: Some(request_context(OWNER_SUBJECT_ID)),
+            context: Some(request_context_for_turn(
+                OWNER_SUBJECT_ID,
+                "session-1",
+                turn_id,
+            )),
             ..empty_turn_request()
         })
         .await
@@ -2175,8 +1956,6 @@ fn empty_turn_request() -> gestalt::CreateAgentProviderTurnRequest {
         metadata: None,
         created_by_subject_id: None,
         execution_ref: String::new(),
-        tool_refs: Vec::new(),
-        tool_source: gestalt::AgentToolSourceMode::Unspecified,
         subject: None,
         model_options: None,
         timeout_seconds: 0,
@@ -2193,10 +1972,37 @@ fn subject_context(subject_id: &str) -> gestalt::Subject {
 }
 
 fn request_context(subject_id: &str) -> proto::RequestContext {
+    request_context_for_turn(subject_id, "session-1", "")
+}
+
+fn request_context_for_turn(
+    subject_id: &str,
+    session_id: &str,
+    turn_id: &str,
+) -> proto::RequestContext {
     proto::RequestContext {
         subject: Some(proto::SubjectContext {
             id: subject_id.to_string(),
+            credential_subject_id: subject_id.to_string(),
             ..Default::default()
+        }),
+        caller: Some(proto::ProviderContext {
+            kind: "agent".to_string(),
+            name: "hermes".to_string(),
+        }),
+        tool_refs: vec![proto::AgentToolRef {
+            app: "linear".to_string(),
+            operation: "issues".to_string(),
+            connection: "primary".to_string(),
+            instance: "workspace-a".to_string(),
+            credential_mode: "subject".to_string(),
+            ..Default::default()
+        }],
+        tool_refs_set: true,
+        agent: Some(proto::AgentInvocationContext {
+            provider_name: "hermes".to_string(),
+            session_id: session_id.to_string(),
+            turn_id: turn_id.to_string(),
         }),
         ..Default::default()
     }
@@ -2210,17 +2016,14 @@ fn service_account_subject(subject_id: &str) -> gestalt::Subject {
     }
 }
 
-async fn serve_agent_host(
-    socket_path: PathBuf,
-    host: TestAgentHostService,
-) -> tokio::task::JoinHandle<()> {
-    let listener = UnixListener::bind(&socket_path).expect("bind agent host socket");
+async fn serve_app_host(socket_path: PathBuf, app: TestAppService) -> tokio::task::JoinHandle<()> {
+    let listener = UnixListener::bind(&socket_path).expect("bind app host socket");
     let handle = tokio::spawn(async move {
         Server::builder()
-            .add_service(AgentHostGrpcServer::new(host))
+            .add_service(AppGrpcServer::new(app))
             .serve_with_incoming(UnixListenerStream::new(listener))
             .await
-            .expect("serve agent host");
+            .expect("serve app host");
     });
     tokio::time::sleep(Duration::from_millis(25)).await;
     handle
@@ -2237,7 +2040,6 @@ async fn wait_for_turn(
             .get_turn(gestalt::GetAgentProviderTurnRequest {
                 turn_id: turn_id.to_string(),
                 subject: Some(owner_subject()),
-                ..Default::default()
             })
             .await
             .unwrap();

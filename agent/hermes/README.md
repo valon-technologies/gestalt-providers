@@ -53,9 +53,9 @@ The bridge exposes a small provider-owned catalog proxy instead of eagerly
 listing every authorized integration tool. Hermes sees `gestalt_search_tools`,
 `gestalt_get_tool_schema`, and `gestalt_call_tool`; the search response returns
 opaque `mcp_name` values that Hermes passes back unchanged when loading a schema
-or calling a tool. The proxy searches only catalog metadata returned by
-`AgentHost.ListTools`, and tool execution still goes through
-`AgentHost.ExecuteTool` with the current turn's request context.
+or calling a tool. The proxy searches only the denormalized
+`tools.catalog.tools` stored on the session, and tool execution invokes the
+target app directly with `App.Invoke` and the current turn's request context.
 
 Resolved inline tools are not supported. Structured output requests are prompted
 as JSON-only turns and validated against the requested schema before the turn is

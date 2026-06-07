@@ -3,9 +3,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use gestalt::{
     AgentExecutionStatus, AgentMessage, AgentOutput, AgentSession, AgentSessionState,
-    AgentToolConfigSource, AgentToolRef, AgentToolSourceMode, AgentTurn, AgentTurnDisplay,
-    AgentTurnEvent, AgentTurnOutput, CreateAgentProviderSessionRequest,
-    CreateAgentProviderTurnRequest, proto::v1::RequestContext as GestaltRequestContext,
+    AgentToolConfigSource, AgentTurn, AgentTurnDisplay, AgentTurnEvent, AgentTurnOutput,
+    CreateAgentProviderSessionRequest, CreateAgentProviderTurnRequest, ListedAgentTool,
+    proto::v1::RequestContext as GestaltRequestContext,
 };
 
 #[derive(Clone)]
@@ -18,8 +18,7 @@ pub struct StoredSession {
     pub state: AgentSessionState,
     pub visibility: SessionVisibility,
     pub metadata: Option<serde_json::Value>,
-    pub tool_refs: Vec<AgentToolRef>,
-    pub tool_source: AgentToolSourceMode,
+    pub listed_tools: Vec<ListedAgentTool>,
     pub created_by_subject_id: String,
     pub created_at: Option<SystemTime>,
     pub updated_at: Option<SystemTime>,
@@ -50,8 +49,7 @@ pub struct StoredTurn {
     pub started_at: Option<SystemTime>,
     pub completed_at: Option<SystemTime>,
     pub execution_ref: String,
-    pub tool_refs: Vec<AgentToolRef>,
-    pub tool_source: AgentToolSourceMode,
+    pub listed_tools: Vec<ListedAgentTool>,
     pub request_context: Option<GestaltRequestContext>,
 }
 
@@ -120,7 +118,7 @@ impl Store {
         }
 
         let now = SystemTime::now();
-        let (tool_source, tool_refs) = session_tool_scope(req);
+        let listed_tools = session_tools(req);
         let session = StoredSession {
             id: session_id.to_string(),
             provider_name: provider_name.to_string(),
@@ -133,8 +131,7 @@ impl Store {
                 req.created_by_subject_id.as_deref().unwrap_or_default(),
             ),
             metadata: req.metadata.clone(),
-            tool_refs,
-            tool_source,
+            listed_tools,
             created_by_subject_id: req.created_by_subject_id.clone().unwrap_or_default(),
             created_at: Some(now),
             updated_at: Some(now),
@@ -250,8 +247,7 @@ impl Store {
         provider_name: &str,
         model: String,
         subject_id: &str,
-        tool_source: AgentToolSourceMode,
-        tool_refs: Vec<AgentToolRef>,
+        listed_tools: Vec<ListedAgentTool>,
         request_context: Option<GestaltRequestContext>,
     ) -> Result<BeginTurnResult, String> {
         let turn_id = req.turn_id.trim();
@@ -310,8 +306,7 @@ impl Store {
             started_at: Some(now),
             completed_at: None,
             execution_ref: req.execution_ref.trim().to_string(),
-            tool_refs,
-            tool_source,
+            listed_tools,
             request_context,
         };
         self.turns.insert(turn.id.clone(), turn.clone());
@@ -580,16 +575,13 @@ fn session_visibility(
     }
 }
 
-fn session_tool_scope(
-    req: &CreateAgentProviderSessionRequest,
-) -> (AgentToolSourceMode, Vec<AgentToolRef>) {
-    match req.tools.as_ref().and_then(|tools| tools.source.as_ref()) {
-        Some(AgentToolConfigSource::Catalog(catalog)) => {
-            (AgentToolSourceMode::Catalog, catalog.refs.clone())
-        }
-        Some(AgentToolConfigSource::None(_)) => (AgentToolSourceMode::None, Vec::new()),
-        None => (AgentToolSourceMode::Unspecified, Vec::new()),
-    }
+fn session_tools(req: &CreateAgentProviderSessionRequest) -> Vec<ListedAgentTool> {
+    let Some(AgentToolConfigSource::Catalog(catalog)) =
+        req.tools.as_ref().and_then(|tools| tools.source.as_ref())
+    else {
+        unreachable!("Hermes sessions are validated before storage and require tools.catalog");
+    };
+    catalog.tools.clone()
 }
 
 fn is_slack_agent_session_metadata(metadata: Option<&serde_json::Value>) -> bool {
