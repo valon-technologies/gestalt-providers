@@ -447,7 +447,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
       supportsSessionStart: true,
       supportsPreparedWorkspace: true,
       boundedListHydration: true,
-      supportedToolSources: [AgentToolSourceMode.MCP_CATALOG],
+      supportedToolSources: [AgentToolSourceMode.CATALOG],
     };
   }
 
@@ -557,7 +557,7 @@ function validateCreateTurnRequest(
   request: CreateAgentProviderTurnRequest,
   session: StoredSession,
 ): Record<string, unknown> | undefined {
-  if (session.toolSource !== AgentToolSourceMode.MCP_CATALOG) {
+  if (session.toolSource !== AgentToolSourceMode.CATALOG) {
     throw invalidArgument("agent/cursor requires session tools.catalog");
   }
   if (request.context === undefined) {
@@ -565,7 +565,7 @@ function validateCreateTurnRequest(
   }
   if (request.tools.length > 0) {
     throw invalidArgument(
-      "resolved tools are not supported; use tool_refs with mcp_catalog",
+      "resolved tools are not supported; use tool_refs with catalog",
     );
   }
   const schema = schemaFromOutput(request.output);
@@ -600,7 +600,7 @@ function sessionToolScopeFromConfig(
     }
     const refs = [...(tools.catalog.refs ?? [])];
     validateToolRefs(refs);
-    return { toolSource: AgentToolSourceMode.MCP_CATALOG, toolRefs: refs };
+    return { toolSource: AgentToolSourceMode.CATALOG, toolRefs: refs };
   }
   return { toolSource: AgentToolSourceMode.NONE, toolRefs: [] };
 }

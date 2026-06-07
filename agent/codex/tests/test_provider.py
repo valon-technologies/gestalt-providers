@@ -246,7 +246,7 @@ class CodexProviderTests(unittest.TestCase):
         self.assertTrue(capabilities.bounded_list_hydration)
         if hasattr(capabilities, "supports_prepared_workspace"):
             self.assertTrue(capabilities.supports_prepared_workspace)
-        self.assertEqual(list(capabilities.supported_tool_sources), [agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG])
+        self.assertEqual(list(capabilities.supported_tool_sources), [agent_pb2.AGENT_TOOL_SOURCE_MODE_CATALOG])
         self.assertEqual(lifecycle.GetProviderIdentity(empty_pb2.Empty()).name, "codex")
 
         created = provider_client.CreateSession(

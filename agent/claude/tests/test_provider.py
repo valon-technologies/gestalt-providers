@@ -653,7 +653,7 @@ class ClaudeProviderTests(unittest.TestCase):
         capabilities = provider_client.GetCapabilities(agent_pb2.GetAgentProviderCapabilitiesRequest())
         self.assertEqual(
             list(capabilities.supported_tool_sources),
-            [AGENT_TOOL_SOURCE_MODE_NONE, agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG],
+            [AGENT_TOOL_SOURCE_MODE_NONE, agent_pb2.AGENT_TOOL_SOURCE_MODE_CATALOG],
         )
         if hasattr(capabilities, "supports_prepared_workspace"):
             self.assertTrue(capabilities.supports_prepared_workspace)
@@ -711,7 +711,7 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(fake_client.options.env["ANTHROPIC_API_KEY"], "test-anthropic-key")
         self.assertEqual(fake_client.options.env["ENABLE_TOOL_SEARCH"], "auto:5")
         self.assertIn("CLAUDE_CONFIG_DIR", fake_client.options.env)
-        self.assertIn("Gestalt MCP catalog tools", fake_client.options.system_prompt)
+        self.assertIn("Gestalt catalog tools", fake_client.options.system_prompt)
         self.assertIn("Linear", fake_client.options.system_prompt)
         self.assertIn("native tool search", fake_client.options.system_prompt)
         self.assertIn(
