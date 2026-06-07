@@ -38,13 +38,11 @@ class ToolExecutor:
         *,
         session_id: str,
         turn_id: str,
-        run_grant: str,
-        request_context: Any | None = None,
+        request_context: Any,
         timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS,
     ) -> None:
         self._session_id = session_id
         self._turn_id = turn_id
-        self._run_grant = run_grant
         self._request_context = request_context
         self._timeout_seconds = timeout_seconds
         self._lock = threading.Lock()
@@ -61,7 +59,6 @@ class ToolExecutor:
         return execute_tool(
             session_id=self._session_id,
             turn_id=self._turn_id,
-            run_grant=self._run_grant,
             request_context=self._request_context,
             entry=entry,
             tool_call_id=tool_call_id,
@@ -75,8 +72,7 @@ def list_tools(
     *,
     session_id: str,
     turn_id: str,
-    run_grant: str,
-    request_context: Any | None = None,
+    request_context: Any,
     timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS,
 ) -> list[ToolEntry]:
     page_token = ""
@@ -97,7 +93,6 @@ def list_tools(
                 turn_id=turn_id,
                 page_size=DEFAULT_PAGE_SIZE,
                 page_token=page_token,
-                run_grant=run_grant,
                 **_request_context_kwargs(request_context),
             )
             timeout = _coerce_timeout_seconds(timeout_seconds)
@@ -140,8 +135,7 @@ def execute_tool(
     *,
     session_id: str,
     turn_id: str,
-    run_grant: str,
-    request_context: Any | None = None,
+    request_context: Any,
     entry: ToolEntry,
     tool_call_id: str,
     idempotency_key: str,
@@ -155,7 +149,6 @@ def execute_tool(
             tool_call_id=tool_call_id,
             tool_id=entry.tool_id,
             arguments=arguments or {},
-            run_grant=run_grant,
             **_request_context_kwargs(request_context),
             idempotency_key=idempotency_key,
         )

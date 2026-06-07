@@ -215,7 +215,6 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                     "session_id": turn.session_id,
                     "model": model,
                     "messages": list(turn.messages),
-                    "run_grant": request.run_grant.strip(),
                     "request_context": request_context,
                     "skill_roots": skill_roots,
                     "cwd": cwd,
@@ -349,7 +348,6 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         session_id: str,
         model: str,
         messages: list[dict[str, Any]],
-        run_grant: str,
         request_context: Any | None,
         skill_roots: list[str],
         cwd: str,
@@ -361,7 +359,6 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                 turn_id=turn_id,
                 model=model,
                 messages=messages,
-                run_grant=run_grant,
                 request_context=request_context,
                 skill_roots=skill_roots,
                 cwd=cwd,
@@ -492,7 +489,7 @@ def _which(binary: str) -> str | None:
 def _validate_create_turn_request(request: gestalt.CreateAgentProviderTurnRequest) -> dict[str, Any] | None:
     if request.tool_source != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
         raise gestalt.Error(400, "agent/codex requires toolSource mcp_catalog")
-    if _request_context(request) is None and not request.run_grant.strip():
+    if _request_context(request) is None:
         raise gestalt.Error(400, "request context is required")
     if len(list(request.tools)) > 0:
         raise gestalt.Error(400, "resolved tools are not supported; use tool_refs with mcp_catalog")

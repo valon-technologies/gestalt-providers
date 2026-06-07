@@ -33,8 +33,7 @@ export async function listGestaltTools(input: {
   host: GestaltAgentHost;
   sessionId: string;
   turnId: string;
-  runGrant: string;
-  requestContext?: unknown;
+  requestContext: Parameters<GestaltAgentHost["listTools"]>[0]["context"];
 }): Promise<ToolEntry[]> {
   let pageToken = "";
   const seenTokens = new Set<string>();
@@ -52,16 +51,13 @@ export async function listGestaltTools(input: {
     }
     seenTokens.add(pageToken);
 
-    const request: Parameters<GestaltAgentHost["listTools"]>[0] & { context?: unknown } = {
+    const request: Parameters<GestaltAgentHost["listTools"]>[0] = {
       sessionId: input.sessionId,
       turnId: input.turnId,
       pageSize: DEFAULT_PAGE_SIZE,
       pageToken,
-      runGrant: input.runGrant,
+      context: input.requestContext,
     };
-    if (input.requestContext !== undefined) {
-      request.context = input.requestContext;
-    }
     const response = await input.host.listTools(request);
     for (const listed of response.tools) {
       const entry = toolEntry(listed);

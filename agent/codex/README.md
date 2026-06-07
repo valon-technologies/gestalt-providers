@@ -66,9 +66,10 @@ agent:
       operation: pulls/list
 ```
 
-`runGrant` is the authorization source of truth. `toolRefs` are required so the
-caller's intent is explicit, while `AgentHost.ListTools` decides the actual
-tools exposed to Codex for the grant.
+The provider relies on the request context supplied by Gestalt for authorization
+and scoped tool calls. `toolRefs` are required so the caller's intent is
+explicit, while `AgentHost.ListTools` decides the actual tools exposed to Codex
+for the current turn.
 
 `codexCommand` and `codexArgs` can be set when `codex mcp-server` is not on
 `PATH`, for example:

@@ -81,7 +81,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 "turn_id": request.turn_id,
                 "page_size": request.page_size,
                 "page_token": request.page_token,
-                "run_grant": request.run_grant,
+                "context_subject": request.context.subject.id,
             }
         )
         if self.list_error:
@@ -158,7 +158,7 @@ class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
                 "turn_id": request.turn_id,
                 "tool_call_id": request.tool_call_id,
                 "tool_id": request.tool_id,
-                "run_grant": request.run_grant,
+                "context_subject": request.context.subject.id,
                 "idempotency_key": request.idempotency_key,
                 "arguments": dict(request.arguments),
             }
@@ -715,10 +715,10 @@ class ClaudeProviderTests(unittest.TestCase):
         )
 
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
-        self.assertEqual(host.list_requests[0]["run_grant"], "grant-claude")
+        self.assertEqual(host.list_requests[0]["context_subject"], "user-123")
         self.assertEqual(host.execute_requests[0]["tool_call_id"], "sdk-1")
         self.assertEqual(host.execute_requests[0]["tool_id"], "tool-linear-issues")
-        self.assertEqual(host.execute_requests[0]["run_grant"], "grant-claude")
+        self.assertEqual(host.execute_requests[0]["context_subject"], "user-123")
         self.assertEqual(
             host.execute_requests[0]["idempotency_key"], "agent/claude-sdk:turn-claude:sdk-1:linear__issues"
         )
@@ -753,7 +753,6 @@ class ClaudeProviderTests(unittest.TestCase):
                 turn_id="turn-structured",
                 session_id="session-structured",
                 messages=[agent_pb2.AgentMessage(role="user", text="Grade the answer")],
-                run_grant="",
                 tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
                 output_schema=schema,
                 include_tool_refs=False,
@@ -925,7 +924,6 @@ class ClaudeProviderTests(unittest.TestCase):
                     _turn_request(
                         turn_id=f"turn-{mode}",
                         session_id=f"session-{mode}",
-                        run_grant="",
                         tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
                         output_schema=schema,
                         include_tool_refs=False,
@@ -1490,9 +1488,7 @@ class ClaudeProviderTests(unittest.TestCase):
         _configure_provider()
         runner = provider_module.provider._runner
         assert runner is not None
-        options = runner._options(
-            model="sonnet-session", session_id="session-claude", turn_id="turn-claude", run_grant="grant-claude"
-        )
+        options = _catalog_options(runner)
 
         first, second = asyncio.run(_list_tools_through_sdk_bridge(options))
 
@@ -1512,9 +1508,7 @@ class ClaudeProviderTests(unittest.TestCase):
         _configure_provider()
         runner = provider_module.provider._runner
         assert runner is not None
-        options = runner._options(
-            model="sonnet-session", session_id="session-claude", turn_id="turn-claude", run_grant="grant-claude"
-        )
+        options = _catalog_options(runner)
 
         sdk_tools = asyncio.run(_sdk_tools(options))
         visible_tools = [tool.name for tool in sdk_tools]
@@ -1546,9 +1540,7 @@ class ClaudeProviderTests(unittest.TestCase):
         _configure_provider()
         runner = provider_module.provider._runner
         assert runner is not None
-        options = runner._options(
-            model="sonnet-session", session_id="session-claude", turn_id="turn-claude", run_grant="grant-claude"
-        )
+        options = _catalog_options(runner)
 
         sdk_tools = asyncio.run(_sdk_tools(options))
         self.assertEqual([tool.name for tool in sdk_tools], ["ashby__candidate_list", "linear__reconnect_required"])
@@ -1566,9 +1558,7 @@ class ClaudeProviderTests(unittest.TestCase):
         _configure_provider()
         runner = provider_module.provider._runner
         assert runner is not None
-        options = runner._options(
-            model="sonnet-session", session_id="session-claude", turn_id="turn-claude", run_grant="grant-claude"
-        )
+        options = _catalog_options(runner)
 
         asyncio.run(_sdk_tools(options))
         tool_result = asyncio.run(_call_sdk_tool(options, name="linear__issues", arguments={"query": "AIT"}))
@@ -1584,9 +1574,7 @@ class ClaudeProviderTests(unittest.TestCase):
         _configure_provider()
         runner = provider_module.provider._runner
         assert runner is not None
-        options = runner._options(
-            model="sonnet-session", session_id="session-claude", turn_id="turn-claude", run_grant="grant-claude"
-        )
+        options = _catalog_options(runner)
 
         server = options.mcp_servers["gestalt"]["instance"]
         list_result = asyncio.run(server.request_handlers[mcp_types.ListToolsRequest](mcp_types.ListToolsRequest()))
@@ -1606,7 +1594,9 @@ class ClaudeProviderTests(unittest.TestCase):
         host = _host_servicer
         assert host is not None
         host.list_error = "integration reconnect required: token expired and refresh failed"
-        bridge = GestaltMCPBridge(session_id="session-claude", turn_id="turn-claude", run_grant="grant-claude")
+        bridge = GestaltMCPBridge(
+            session_id="session-claude", turn_id="turn-claude", request_context=_request_context("user-123")
+        )
 
         tool_result = asyncio.run(bridge.call_tool("linear__issues", {"query": "AIT"}))
 
@@ -1622,7 +1612,9 @@ class ClaudeProviderTests(unittest.TestCase):
         bad_source.tool_source = 999
         _assert_invalid(provider_client, bad_source, "requires toolSource none or mcp_catalog")
 
-        missing_context = _turn_request(turn_id="turn-missing-context", session_id="session-validation", run_grant="")
+        missing_context = _turn_request(
+            turn_id="turn-missing-context", session_id="session-validation", include_context=False
+        )
         _assert_invalid(provider_client, missing_context, "request context is required")
 
         wildcard_ref = _turn_request(turn_id="turn-wildcard", session_id="session-validation")
@@ -1663,7 +1655,6 @@ class ClaudeProviderTests(unittest.TestCase):
         none_with_refs = _turn_request(
             turn_id="turn-none-with-refs",
             session_id="session-validation",
-            run_grant="",
             tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
         )
         _assert_invalid(provider_client, none_with_refs, "tool_refs are not supported with toolSource none")
@@ -1946,7 +1937,6 @@ def _turn_request(
     turn_id: str,
     session_id: str,
     messages: list[Any] | None = None,
-    run_grant: str = "grant-claude",
     execution_ref: str = "",
     idempotency_key: str = "",
     output_schema: Any | None = None,
@@ -1954,18 +1944,20 @@ def _turn_request(
     tool_source: int | None = None,
     timeout_seconds: int = 0,
     include_tool_refs: bool = True,
+    include_context: bool = True,
 ) -> Any:
     request = agent_pb2.CreateAgentProviderTurnRequest(
         turn_id=turn_id,
         session_id=session_id,
         messages=messages or [agent_pb2.AgentMessage(role="user", text="List my Linear issues")],
         tool_source=tool_source if tool_source is not None else agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
-        run_grant=run_grant,
         execution_ref=execution_ref,
         idempotency_key=idempotency_key,
         created_by_subject_id="user-123",
         subject=_subject_context("user-123"),
     )
+    if include_context:
+        request.context.subject.CopyFrom(_subject_context("user-123"))
     if timeout_seconds:
         request.timeout_seconds = timeout_seconds
     if include_tool_refs:
@@ -1998,8 +1990,25 @@ def _subject_context(subject_id: str) -> Any:
     return app_pb2.SubjectContext(id=subject_id)
 
 
+def _request_context(subject_id: str) -> Any:
+    return app_pb2.RequestContext(subject=_subject_context(subject_id))
+
+
 def _sdk_subject(subject_id: str) -> Any:
     return gestalt.Subject(id=subject_id)
+
+
+def _catalog_options(runner: Any) -> Any:
+    return runner._options(
+        model="sonnet-session",
+        session_id="session-claude",
+        turn_id="turn-claude",
+        turn_profile=provider_module.ClaudeTurnProfile.catalog(
+            request_context=_request_context("user-123"),
+            claude_code_options=runner._config.claude_code.resolve_turn_options({}),
+            cwd="",
+        ),
+    )
 
 
 def _slack_session_metadata() -> dict[str, Any]:

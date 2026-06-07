@@ -1,7 +1,6 @@
 import {
   AgentExecutionStatus,
   AgentSessionState,
-  type AgentActor,
   type AgentMessage,
   type AgentSession,
   type AgentTurnEvent,
@@ -429,9 +428,8 @@ export function sessionToAgentSession(session: StoredSession, summaryOnly = fals
   if (!summaryOnly && Object.keys(session.metadata).length > 0) {
     out.metadata = session.metadata;
   }
-  const createdBy = agentActorFromSubjectId(session.createdBySubjectId);
-  if (createdBy) {
-    out.createdBy = createdBy;
+  if (session.createdBySubjectId) {
+    out.createdBySubjectId = session.createdBySubjectId;
   }
   if (session.lastTurnAt) {
     out.lastTurnAt = new Date(session.lastTurnAt);
@@ -454,9 +452,8 @@ export function turnToAgentTurn(turn: StoredTurn, summaryOnly = false): AgentTur
   if (!summaryOnly) {
     out.messages = cloneMessages(turn.messages);
   }
-  const createdBy = agentActorFromSubjectId(turn.createdBySubjectId);
-  if (createdBy) {
-    out.createdBy = createdBy;
+  if (turn.createdBySubjectId) {
+    out.createdBySubjectId = turn.createdBySubjectId;
   }
   if (turn.startedAt) {
     out.startedAt = new Date(turn.startedAt);
@@ -482,20 +479,6 @@ export function turnEventToAgentTurnEvent(event: StoredTurnEvent): AgentTurnEven
 
 export function cloneRecord(value: Record<string, unknown>): Record<string, unknown> {
   return structuredClone(value);
-}
-
-export function subjectIdFromActor(actor: AgentActor | undefined): string {
-  return actor?.subjectId?.trim() ?? "";
-}
-
-export function agentActorFromSubjectId(
-  subjectId: string | undefined,
-): AgentActor | undefined {
-  const id = subjectId?.trim();
-  if (!id) {
-    return undefined;
-  }
-  return { subjectId: id };
 }
 
 function cloneSession(session: StoredSession): StoredSession {

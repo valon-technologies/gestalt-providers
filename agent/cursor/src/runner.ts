@@ -9,6 +9,7 @@ import type {
   AgentMessage,
   AgentTurnOutput,
   ExecuteAgentToolRequest,
+  CreateAgentProviderTurnRequest,
 } from "@valon-technologies/gestalt";
 
 import { GestaltAgentHost } from "./agent_host.ts";
@@ -55,8 +56,7 @@ export class CursorSDKRunner {
     turnId: string;
     model: string;
     messages: readonly AgentMessage[];
-    runGrant: string;
-    requestContext?: unknown;
+    requestContext: CreateAgentProviderTurnRequest["context"];
     cwd: string;
     onEvent: TurnEventSink;
     schema?: Record<string, unknown> | undefined;
@@ -114,8 +114,7 @@ export class CursorSDKRunner {
       turnId: string;
       model: string;
       messages: readonly AgentMessage[];
-      runGrant: string;
-      requestContext?: unknown;
+      requestContext: CreateAgentProviderTurnRequest["context"];
       cwd: string;
       onEvent: TurnEventSink;
       schema?: Record<string, unknown> | undefined;
@@ -129,7 +128,6 @@ export class CursorSDKRunner {
         host,
         sessionId: input.sessionId,
         turnId: input.turnId,
-        runGrant: input.runGrant,
         requestContext: input.requestContext,
       });
       await this.raiseIfCanceled(active);
@@ -137,18 +135,15 @@ export class CursorSDKRunner {
       active.bridge = await startMcpBridge({
         tools,
         executeTool: async (entry, toolCallId, args) => {
-          const request: ExecuteAgentToolRequest & { context?: unknown } = {
+          const request: ExecuteAgentToolRequest = {
             sessionId: input.sessionId,
             turnId: input.turnId,
             toolCallId,
             toolId: entry.toolId,
             arguments: args,
-            runGrant: input.runGrant,
+            context: input.requestContext,
             idempotencyKey: `agent/cursor-sdk:${input.turnId}:${toolCallId}:${entry.mcpName}`,
           };
-          if (input.requestContext !== undefined) {
-            request.context = input.requestContext;
-          }
           const response = await host.executeTool(request);
           return { status: response.status, body: response.body };
         },

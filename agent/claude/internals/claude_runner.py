@@ -76,7 +76,6 @@ class _ClaudeResponse:
 @dataclass(frozen=True, slots=True)
 class ClaudeTurnProfile:
     kind: Literal["catalog", "direct"]
-    run_grant: str = ""
     request_context: Any | None = None
     schema: dict[str, Any] | None = None
     claude_code_options: ClaudeCodeTurnOptions | None = None
@@ -86,15 +85,13 @@ class ClaudeTurnProfile:
     def catalog(
         cls,
         *,
-        run_grant: str,
-        request_context: Any | None = None,
+        request_context: Any,
         schema: dict[str, Any] | None = None,
         claude_code_options: ClaudeCodeTurnOptions,
         cwd: str,
     ) -> "ClaudeTurnProfile":
         return cls(
             kind="catalog",
-            run_grant=run_grant,
             request_context=request_context,
             schema=schema,
             claude_code_options=claude_code_options,
@@ -215,24 +212,15 @@ class ClaudeSDKRunner:
         session_id: str,
         turn_id: str,
         turn_profile: ClaudeTurnProfile | None = None,
-        run_grant: str = "",
         schema: dict[str, Any] | None = None,
         claude_code_options: ClaudeCodeTurnOptions | None = None,
         cwd: str = "",
     ) -> ClaudeAgentOptions:
         if turn_profile is None:
-            if schema is not None and not str(run_grant or "").strip():
+            if schema is not None:
                 turn_profile = ClaudeTurnProfile.direct(schema=schema)
             else:
-                if claude_code_options is None:
-                    claude_code_options = self._config.claude_code.resolve_turn_options({})
-                turn_profile = ClaudeTurnProfile.catalog(
-                    run_grant=str(run_grant or "").strip(),
-                    request_context=None,
-                    schema=schema,
-                    claude_code_options=claude_code_options,
-                    cwd=cwd,
-                )
+                turn_profile = ClaudeTurnProfile.direct(schema=schema)
         if turn_profile.uses_catalog_tools:
             return self._catalog_options(model=model, session_id=session_id, turn_id=turn_id, turn_profile=turn_profile)
         return self._direct_options(model=model, turn_profile=turn_profile)
@@ -274,7 +262,6 @@ class ClaudeSDKRunner:
                 MCP_SERVER_NAME: create_gestalt_sdk_mcp_server(
                     session_id=session_id,
                     turn_id=turn_id,
-                    run_grant=turn_profile.run_grant,
                     request_context=turn_profile.request_context,
                 )
             },

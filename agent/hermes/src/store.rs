@@ -50,7 +50,6 @@ pub struct StoredTurn {
     pub execution_ref: String,
     pub tool_refs: Vec<AgentToolRef>,
     pub tool_source: AgentToolSourceMode,
-    pub run_grant: String,
     pub request_context: Option<GestaltRequestContext>,
 }
 
@@ -306,7 +305,6 @@ impl Store {
             execution_ref: req.execution_ref.trim().to_string(),
             tool_refs: req.tool_refs.clone(),
             tool_source: req.tool_source,
-            run_grant: req.run_grant.trim().to_string(),
             request_context,
         };
         self.turns.insert(turn.id.clone(), turn.clone());
