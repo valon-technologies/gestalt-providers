@@ -179,6 +179,18 @@ func (s *workflowStateStore) putRun(ctx context.Context, run *gestalt.WorkflowRu
 	if run == nil || strings.TrimSpace(run.ID) == "" {
 		return nil
 	}
+	for attempt := 0; attempt < runIdempotencyMaxAttempts; attempt++ {
+		if err := s.putRunOnce(ctx, run); err == nil || !isRunIdempotencyRetryableConflict(err) {
+			return err
+		}
+		if err := yieldRunIdempotencyRetry(ctx); err != nil {
+			return err
+		}
+	}
+	return status.Error(codes.Aborted, "workflow run projection raced too many times")
+}
+
+func (s *workflowStateStore) putRunOnce(ctx context.Context, run *gestalt.WorkflowRun) error {
 	tx, err := s.db.Transaction(ctx, []string{storeTemporalRunProjections}, gestalt.TransactionReadwrite, gestalt.TransactionOptions{DurabilityHint: gestalt.TransactionDurabilityStrict})
 	if err != nil {
 		return fmt.Errorf("begin run projection transaction: %w", err)
@@ -214,10 +226,7 @@ func (s *workflowStateStore) putRunInTransaction(ctx context.Context, store inde
 	if found && workflowRunTerminal(existing.Status) && !workflowRunTerminal(run.Status) {
 		return existing, nil
 	}
-	if err := store.Delete(ctx, s.scopedID(run.ID)); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-		return nil, fmt.Errorf("delete run projection: %w", err)
-	}
-	if err := store.Add(ctx, s.runRecord(run)); err != nil {
+	if err := store.Put(ctx, s.runRecord(run)); err != nil {
 		return nil, fmt.Errorf("store run projection: %w", err)
 	}
 	return run, nil

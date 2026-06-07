@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -89,6 +90,130 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 		host.calls[0].Request.DefinitionID != "definition-1" ||
 		host.calls[0].Request.DefinitionGeneration != 7 {
 		t.Fatalf("host calls = %#v", host.calls)
+	}
+}
+
+func TestWorkflowStateStorePutRunRefreshesProjection(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	createdAt := time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC)
+	startedAt := createdAt.Add(time.Second)
+	completedAt := startedAt.Add(time.Second)
+	runID := encodeTemporalRunHandle(temporalRunHandle{
+		RunWorkflowID:    "workflow-1",
+		RunTemporalRunID: "run-1",
+		OwnerKey:         "app:slack",
+	})
+
+	run := &gestalt.WorkflowRun{
+		ID:                   runID,
+		Status:               gestalt.WorkflowRunStatusValuePending,
+		Target:               nativeAppTargetInput("slack", "postMessage"),
+		CreatedAt:            createdAt,
+		ProviderName:         "temporal",
+		DefinitionID:         "definition-1",
+		DefinitionGeneration: 1,
+		Input:                map[string]any{"version": "pending"},
+	}
+	if err := state.putRun(ctx, run); err != nil {
+		t.Fatalf("putRun(pending): %v", err)
+	}
+
+	running := *run
+	running.Status = gestalt.WorkflowRunStatusValueRunning
+	running.StartedAt = &startedAt
+	running.CurrentStepID = "postMessage"
+	running.Input = map[string]any{"version": "running"}
+	running.Steps = []gestalt.WorkflowStepExecution{{
+		StepID:    "postMessage",
+		Status:    gestalt.WorkflowStepStatusValueRunning,
+		StartedAt: &startedAt,
+	}}
+	if err := state.putRun(ctx, &running); err != nil {
+		t.Fatalf("putRun(running refresh): %v", err)
+	}
+
+	projected, found, err := state.getRun(ctx, runID)
+	if err != nil || !found {
+		t.Fatalf("getRun after refresh found=%v err=%v", found, err)
+	}
+	if projected.Status != gestalt.WorkflowRunStatusValueRunning ||
+		projected.CurrentStepID != "postMessage" ||
+		projected.Input["version"] != "running" ||
+		len(projected.Steps) != 1 ||
+		projected.Steps[0].Status != gestalt.WorkflowStepStatusValueRunning {
+		t.Fatalf("projected refresh = %#v", projected)
+	}
+
+	staleRunning := running
+	staleRunning.Steps = append([]gestalt.WorkflowStepExecution(nil), running.Steps...)
+
+	succeeded := running
+	succeeded.Steps = append([]gestalt.WorkflowStepExecution(nil), running.Steps...)
+	succeeded.Status = gestalt.WorkflowRunStatusValueSucceeded
+	succeeded.CompletedAt = &completedAt
+	succeeded.Output = "ok"
+	succeeded.Steps[0].Status = gestalt.WorkflowStepStatusValueSucceeded
+	succeeded.Steps[0].CompletedAt = &completedAt
+	if err := state.putRun(ctx, &succeeded); err != nil {
+		t.Fatalf("putRun(succeeded): %v", err)
+	}
+	if err := state.putRun(ctx, &staleRunning); err != nil {
+		t.Fatalf("putRun(stale running): %v", err)
+	}
+
+	projected, found, err = state.getRun(ctx, runID)
+	if err != nil || !found {
+		t.Fatalf("getRun after stale refresh found=%v err=%v", found, err)
+	}
+	if projected.Status != gestalt.WorkflowRunStatusValueSucceeded ||
+		projected.Output != "ok" ||
+		projected.CompletedAt == nil ||
+		len(projected.Steps) != 1 ||
+		projected.Steps[0].Status != gestalt.WorkflowStepStatusValueSucceeded {
+		t.Fatalf("projected terminal = %#v", projected)
+	}
+	runs, nextPageToken, err := state.listRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{PageSize: 10})
+	if err != nil {
+		t.Fatalf("listRuns: %v", err)
+	}
+	if nextPageToken != "" || len(runs) != 1 || runs[0].ID != runID {
+		t.Fatalf("listed runs len=%d next=%q runs=%#v", len(runs), nextPageToken, runs)
+	}
+}
+
+func TestWorkflowStateStorePutRunRetriesProjectionConflict(t *testing.T) {
+	ctx := context.Background()
+	db := &projectionConflictDB{Database: startTestIndexedDBBackend(t)}
+	db.failNextProjectionPut.Store(true)
+	state, err := openWorkflowStateStore(ctx, "scope", db)
+	if err != nil {
+		t.Fatalf("openWorkflowStateStore: %v", err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+
+	runID := encodeTemporalRunHandle(temporalRunHandle{
+		RunWorkflowID:    "workflow-1",
+		RunTemporalRunID: "run-1",
+		OwnerKey:         "app:slack",
+	})
+	if err := state.putRun(ctx, &gestalt.WorkflowRun{
+		ID:          runID,
+		Status:      gestalt.WorkflowRunStatusValueRunning,
+		Target:      nativeAppTargetInput("slack", "postMessage"),
+		CreatedAt:   time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC),
+		WorkflowKey: "workflow-key-1",
+	}); err != nil {
+		t.Fatalf("putRun after injected conflict: %v", err)
+	}
+	if db.failNextProjectionPut.Load() {
+		t.Fatalf("projection conflict was not exercised")
+	}
+	projected, found, err := state.getRun(ctx, runID)
+	if err != nil || !found {
+		t.Fatalf("projected run found=%v err=%v", found, err)
+	}
+	if projected.Status != gestalt.WorkflowRunStatusValueRunning || projected.WorkflowKey != "workflow-key-1" {
+		t.Fatalf("projected run = %#v", projected)
 	}
 }
 
@@ -733,4 +858,42 @@ func startTestIndexedDBBackend(t *testing.T) indexeddb.Database {
 
 	t.Cleanup(func() { _ = store.Close() })
 	return workflowfake.NewProviderDB(store)
+}
+
+type projectionConflictDB struct {
+	indexeddb.Database
+	failNextProjectionPut atomic.Bool
+}
+
+func (db *projectionConflictDB) Transaction(ctx context.Context, stores []string, mode indexeddb.TransactionMode, opts indexeddb.TransactionOptions) (indexeddb.Transaction, error) {
+	tx, err := db.Database.Transaction(ctx, stores, mode, opts)
+	if err != nil {
+		return nil, err
+	}
+	return &projectionConflictTx{Transaction: tx, db: db}, nil
+}
+
+type projectionConflictTx struct {
+	indexeddb.Transaction
+	db *projectionConflictDB
+}
+
+func (tx *projectionConflictTx) ObjectStore(name string) indexeddb.TransactionObjectStore {
+	store := tx.Transaction.ObjectStore(name)
+	if name != storeTemporalRunProjections {
+		return store
+	}
+	return &projectionConflictStore{TransactionObjectStore: store, db: tx.db}
+}
+
+type projectionConflictStore struct {
+	indexeddb.TransactionObjectStore
+	db *projectionConflictDB
+}
+
+func (s *projectionConflictStore) Put(ctx context.Context, record indexeddb.Record) error {
+	if s.db.failNextProjectionPut.Swap(false) {
+		return status.Error(codes.AlreadyExists, "already exists")
+	}
+	return s.TransactionObjectStore.Put(ctx, record)
 }
