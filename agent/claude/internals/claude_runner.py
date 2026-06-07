@@ -99,8 +99,8 @@ class ClaudeTurnProfile:
         )
 
     @classmethod
-    def direct(cls, *, schema: dict[str, Any] | None = None) -> "ClaudeTurnProfile":
-        return cls(kind="direct", schema=schema)
+    def direct(cls, *, schema: dict[str, Any] | None = None, cwd: str | None = None) -> "ClaudeTurnProfile":
+        return cls(kind="direct", schema=schema, cwd=cwd)
 
     @property
     def uses_catalog_tools(self) -> bool:
@@ -275,7 +275,12 @@ class ClaudeSDKRunner:
         schema = turn_profile.schema
         output_format = {"type": "json_schema", "schema": schema} if schema is not None else None
         return ClaudeAgentOptions(
-            **self._base_options_kwargs(model=model, env=env, cwd=None, system_prompt=system_prompt),
+            **self._base_options_kwargs(
+                model=model,
+                env=env,
+                cwd=turn_profile.cwd or self._config.working_directory or None,
+                system_prompt=system_prompt,
+            ),
             tools=[],
             allowed_tools=[],
             mcp_servers={},

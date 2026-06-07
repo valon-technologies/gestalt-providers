@@ -1012,9 +1012,11 @@ fn effective_turn_tool_scope(
         return Ok((session_tool_source, session_tool_refs.to_vec()));
     }
     if req.tool_source != gestalt::AgentToolSourceMode::Unspecified || !req.tool_refs.is_empty() {
-        return Ok((req.tool_source, req.tool_refs.clone()));
+        return Err(gestalt::Error::bad_request(
+            "agent turn tools must be configured on the session",
+        ));
     }
-    Ok((session_tool_source, session_tool_refs.to_vec()))
+    Ok((gestalt::AgentToolSourceMode::None, Vec::new()))
 }
 
 fn tool_refs_within_session_scope(

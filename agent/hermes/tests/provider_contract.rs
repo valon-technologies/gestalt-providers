@@ -172,7 +172,7 @@ async fn mcp_catalog_turn_bridges_gestalt_tools_to_hermes() {
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_session(&provider).await;
+    create_mcp_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp").await;
     let turn = wait_for_turn(
         &provider,
@@ -442,7 +442,7 @@ async fn mcp_catalog_turn_does_not_prefetch_tools_before_mcp_use() {
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_session(&provider).await;
+    create_mcp_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-no-prefetch").await;
     let turn = wait_for_turn(
         &provider,
@@ -500,7 +500,7 @@ async fn mcp_catalog_turn_marks_unavailable_sentinel_call_as_error() {
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_session(&provider).await;
+    create_mcp_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-sentinel").await;
     let turn = wait_for_turn(
         &provider,
@@ -557,7 +557,7 @@ async fn mcp_catalog_turn_preserves_empty_target_error_body() {
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_session(&provider).await;
+    create_mcp_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-empty-error").await;
     wait_for_turn(
         &provider,
@@ -594,7 +594,7 @@ async fn mcp_catalog_proxy_gets_schema_by_returned_mcp_name() {
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_session(&provider).await;
+    create_mcp_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-schema").await;
     wait_for_turn(
         &provider,
@@ -639,7 +639,7 @@ async fn mcp_catalog_proxy_rejects_ambiguous_ref_selectors() {
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_session(&provider).await;
+    create_mcp_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-ambiguous").await;
     wait_for_turn(
         &provider,
@@ -677,7 +677,7 @@ async fn mcp_catalog_proxy_rejects_invalid_selectors_before_lookup() {
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_session(&provider).await;
+    create_mcp_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-invalid-selector").await;
     wait_for_turn(
         &provider,
@@ -711,7 +711,7 @@ async fn mcp_catalog_proxy_searches_only_catalog_metadata() {
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_session(&provider).await;
+    create_mcp_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-schema-only").await;
     wait_for_turn(
         &provider,
@@ -747,7 +747,7 @@ async fn mcp_catalog_proxy_ranks_matches_across_pages() {
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_session(&provider).await;
+    create_mcp_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-ranked-pages").await;
     wait_for_turn(
         &provider,
@@ -801,7 +801,7 @@ async fn mcp_catalog_proxy_reports_cursor_and_page_errors_as_tool_errors() {
         let host_task = serve_agent_host(socket_path, host.clone()).await;
         let provider = fixture.configure_provider().await;
 
-        create_session(&provider).await;
+        create_mcp_session(&provider).await;
         create_mcp_turn(&provider, &format!("turn-mcp-{name}")).await;
         wait_for_turn(
             &provider,
@@ -836,7 +836,7 @@ async fn mcp_catalog_proxy_reports_list_rpc_errors_as_tool_errors() {
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_session(&provider).await;
+    create_mcp_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-list-error").await;
     wait_for_turn(
         &provider,
@@ -896,7 +896,7 @@ async fn mcp_catalog_proxy_reports_invalid_catalog_tools_as_tool_errors() {
         let host_task = serve_agent_host(socket_path, host.clone()).await;
         let provider = fixture.configure_provider().await;
 
-        create_session(&provider).await;
+        create_mcp_session(&provider).await;
         create_mcp_turn(&provider, &format!("turn-mcp-{name}")).await;
         wait_for_turn(
             &provider,
@@ -928,7 +928,7 @@ async fn mcp_catalog_proxy_reports_input_cap_errors_without_listing_tools() {
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_session(&provider).await;
+    create_mcp_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-input-caps").await;
     wait_for_turn(
         &provider,
@@ -963,7 +963,7 @@ async fn mcp_catalog_proxy_reports_execute_rpc_errors_as_tool_errors() {
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_session(&provider).await;
+    create_mcp_session(&provider).await;
     create_mcp_turn(&provider, "turn-mcp-execute-error").await;
     wait_for_turn(
         &provider,
@@ -1001,7 +1001,7 @@ async fn mcp_catalog_does_not_require_advertised_acp_http_mcp_support() {
     let host_task = serve_agent_host(socket_path, host.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_session(&provider).await;
+    create_mcp_session(&provider).await;
     create_mcp_turn(&provider, "turn-no-cap").await;
     let turn = wait_for_turn(
         &provider,
@@ -1049,7 +1049,6 @@ async fn explicit_no_tool_turn_does_not_require_request_context() {
         .create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: "turn-explicit-no-tools".to_string(),
             session_id: "session-1".to_string(),
-            tool_source: gestalt::AgentToolSourceMode::None,
             messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "say hi again".to_string(),
@@ -2236,6 +2235,18 @@ async fn create_turn_in_session_as(
         .unwrap()
 }
 
+async fn create_mcp_session(provider: &HermesAgentProvider) -> gestalt::AgentSession {
+    create_session_with_tools(
+        provider,
+        "session-1",
+        catalog_tool_config(vec![gestalt::AgentToolRef {
+            app: "*".to_string(),
+            ..Default::default()
+        }]),
+    )
+    .await
+}
+
 async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> gestalt::AgentTurn {
     provider
         .create_turn(gestalt::CreateAgentProviderTurnRequest {
@@ -2247,11 +2258,6 @@ async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> gesta
                 ..Default::default()
             }],
             output: gestalt::AgentOutput::text(),
-            tool_source: gestalt::AgentToolSourceMode::Catalog,
-            tool_refs: vec![gestalt::AgentToolRef {
-                app: "*".to_string(),
-                ..Default::default()
-            }],
             created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
             context: Some(request_context(OWNER_SUBJECT_ID)),

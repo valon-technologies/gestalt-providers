@@ -341,7 +341,14 @@ class CodexProviderTests(unittest.TestCase):
         )
 
         with self.assertRaises(grpc.RpcError) as raised:
-            provider_client.CreateTurn(_turn_request(turn_id="turn-wide-tools", session_id="session-linear-only"))
+            provider_client.CreateTurn(
+                _turn_request(
+                    turn_id="turn-wide-tools",
+                    session_id="session-linear-only",
+                    tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
+                    include_tool_refs=True,
+                )
+            )
         self.assertEqual(cast(Any, raised.exception).code(), grpc.StatusCode.PERMISSION_DENIED)
 
     def test_slack_sessions_are_company_readable_and_owner_writable(self) -> None:
@@ -404,6 +411,7 @@ class CodexProviderTests(unittest.TestCase):
                 session_id="session-slack-turn",
                 metadata=slack_metadata,
                 created_by_subject_id="service_account:slack-bot",
+                tools=_catalog_tool_config(),
             )
         )
         turn_request = _turn_request(
@@ -521,10 +529,6 @@ class CodexProviderTests(unittest.TestCase):
         _, provider_client = _configure_provider()
         _create_owned_session(provider_client, "session-grant")
         request = _turn_request(turn_id="turn-grant", session_id="session-grant")
-        del request.tool_refs[:]
-        ref = request.tool_refs.add()
-        ref.app = "notion"
-        ref.operation = "search"
         provider_client.CreateTurn(request)
 
         _wait_for_turn(provider_client, "turn-grant", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
@@ -560,18 +564,19 @@ class CodexProviderTests(unittest.TestCase):
 
         bad_source = _turn_request(turn_id="turn-bad-source", session_id="session-validation")
         bad_source.tool_source = 999
-        _assert_invalid(provider_client, bad_source, "requires toolSource mcp_catalog")
+        _assert_invalid(provider_client, bad_source, "agent turn toolSource must match session tool source")
 
         missing_context = _turn_request(
             turn_id="turn-missing-context", session_id="session-validation", include_context=False
         )
         _assert_invalid(provider_client, missing_context, "request context is required")
 
-        missing_refs = _turn_request(turn_id="turn-missing-refs", session_id="session-validation")
-        del missing_refs.tool_refs[:]
-        _assert_invalid(provider_client, missing_refs, "tool_refs are required")
-
-        wildcard_ref = _turn_request(turn_id="turn-wildcard", session_id="session-validation")
+        wildcard_ref = _turn_request(
+            turn_id="turn-wildcard",
+            session_id="session-validation",
+            tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
+            include_tool_refs=True,
+        )
         wildcard_ref.tool_refs[0].app = "*"
         _assert_invalid(provider_client, wildcard_ref, "wildcard tool_refs are not supported")
 
@@ -822,7 +827,7 @@ def _turn_request(
     output_schema: Any | None = None,
     model_options: Any | None = None,
     tool_source: int | None = None,
-    include_tool_refs: bool = True,
+    include_tool_refs: bool = False,
     include_context: bool = True,
 ) -> Any:
     request = agent_pb2.CreateAgentProviderTurnRequest(
@@ -830,7 +835,7 @@ def _turn_request(
         session_id=session_id,
         model=model,
         messages=messages or [agent_pb2.AgentMessage(role="user", text="List my Linear issues")],
-        tool_source=tool_source if tool_source is not None else agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
+        tool_source=tool_source if tool_source is not None else agent_pb2.AGENT_TOOL_SOURCE_MODE_UNSPECIFIED,
         execution_ref=execution_ref,
         created_by_subject_id="user-123",
         subject=_subject_context("user-123"),
@@ -854,6 +859,8 @@ def _turn_request(
 
 
 def _owned_session_request(session_id: str, **kwargs: Any) -> Any:
+    if "tools" not in kwargs:
+        kwargs["tools"] = _catalog_tool_config()
     return agent_pb2.CreateAgentProviderSessionRequest(
         session_id=session_id,
         created_by_subject_id="user-123",
