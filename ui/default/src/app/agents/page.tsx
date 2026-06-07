@@ -13,13 +13,10 @@ import type {
   AgentInteraction,
   AgentProvider,
   AgentSession,
-  AgentToolRef,
   AgentTurn,
   AgentTurnCreate,
   AgentTurnEvent,
   AgentTurnEventStream,
-  Integration,
-  IntegrationOperation,
 } from "@/lib/api";
 import {
   cancelAgentTurn,
@@ -32,8 +29,6 @@ import {
   getAgentTurn,
   getAgentTurns,
   getAllAgentTurnEvents,
-  getIntegrationOperations,
-  getIntegrations,
   isAPIErrorStatus,
   openAgentTurnEventStream,
   resolveAgentInteraction,
@@ -53,17 +48,7 @@ import {
 import AuthGuard from "@/components/AuthGuard";
 import Nav from "@/components/Nav";
 
-type AgentToolMode = "none" | "selected";
 type InteractionDrafts = Record<string, string>;
-
-interface AgentToolForm {
-  plugin: string;
-  operation: string;
-  connection: string;
-  instance: string;
-  title: string;
-  description: string;
-}
 
 interface AgentComposerState {
   provider: string;
@@ -75,11 +60,8 @@ interface AgentComposerState {
   schemaJSON: string;
   metadataJSON: string;
   modelOptionsJSON: string;
-  toolMode: AgentToolMode;
-  tools: AgentToolForm[];
 }
 
-const EMPTY_OPERATIONS: IntegrationOperation[] = [];
 const AGENT_BOOTSTRAP_TIMEOUT_MS = 15_000;
 
 export default function AgentsPage() {
@@ -107,8 +89,6 @@ export default function AgentsPage() {
     createTranscriptState(),
   );
   const [transcriptReady, setTranscriptReady] = useState(false);
-  const [integrations, setIntegrations] = useState<Integration[]>([]);
-
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -116,9 +96,6 @@ export default function AgentsPage() {
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [providersError, setProvidersError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [integrationsError, setIntegrationsError] = useState<string | null>(
-    null,
-  );
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -138,16 +115,6 @@ export default function AgentsPage() {
   const [resolvingInteractionID, setResolvingInteractionID] = useState<
     string | null
   >(null);
-
-  const [operationsByPlugin, setOperationsByPlugin] = useState<
-    Record<string, IntegrationOperation[]>
-  >({});
-  const [operationsLoadingByPlugin, setOperationsLoadingByPlugin] = useState<
-    Record<string, boolean>
-  >({});
-  const [operationErrorsByPlugin, setOperationErrorsByPlugin] = useState<
-    Record<string, string | undefined>
-  >({});
 
   useEffect(() => {
     function readQuerySelection() {
@@ -183,17 +150,6 @@ export default function AgentsPage() {
       .catch((err) => {
         if (!active) return;
         setProvidersError(errorMessage(err, "Failed to load agent providers"));
-      });
-
-    withLoadTimeout(getIntegrations(), "Loading apps")
-      .then((value) => {
-        if (!active) return;
-        setIntegrations(value);
-        setIntegrationsError(null);
-      })
-      .catch((err) => {
-        if (!active) return;
-        setIntegrationsError(errorMessage(err, "Failed to load apps"));
       });
 
     withLoadTimeout(
@@ -427,69 +383,9 @@ export default function AgentsPage() {
     }
   }, [selectedSessionID, selectedTurnID]);
 
-  async function ensureOperationsLoaded(plugin: string): Promise<void> {
-    const normalized = plugin.trim();
-    if (!normalized) return;
-    if (operationsByPlugin[normalized] || operationsLoadingByPlugin[normalized]) {
-      return;
-    }
-
-    setOperationsLoadingByPlugin((current) => ({
-      ...current,
-      [normalized]: true,
-    }));
-    setOperationErrorsByPlugin((current) => ({
-      ...current,
-      [normalized]: undefined,
-    }));
-
-    try {
-      const operations = await getIntegrationOperations(normalized);
-      setOperationsByPlugin((current) => ({
-        ...current,
-        [normalized]: sortOperations(operations),
-      }));
-    } catch (err) {
-      setOperationErrorsByPlugin((current) => ({
-        ...current,
-        [normalized]: errorMessage(err, "Failed to load app operations"),
-      }));
-    } finally {
-      setOperationsLoadingByPlugin((current) => ({
-        ...current,
-        [normalized]: false,
-      }));
-    }
-  }
-
-  const agentIntegrations = useMemo(
-    () =>
-      integrations
-        .filter((integration) => !integration.mountedPath)
-        .slice()
-        .sort((left, right) =>
-          integrationLabel(left).localeCompare(
-            integrationLabel(right),
-            undefined,
-            { sensitivity: "base" },
-          ),
-        ),
-    [integrations],
-  );
-
   const filteredSessions = useMemo(
     () => filterSessions(sessions, deferredQuery, statusFilter),
     [deferredQuery, sessions, statusFilter],
-  );
-
-  const selectedProvider = providerForSessionOrComposer(
-    providers,
-    selectedSession,
-    composer.provider,
-  );
-  const providerSupportsSelectedTools = providerSupportsMCPCatalog(
-    selectedProvider,
-    providers.length > 0,
   );
 
   function selectSession(sessionID: string | null, turnID?: string | null) {
@@ -512,7 +408,7 @@ export default function AgentsPage() {
 
     let turnBody: AgentTurnCreate;
     try {
-      turnBody = composerToTurnCreate(composer, providerSupportsSelectedTools);
+      turnBody = composerToTurnCreate(composer);
     } catch (err) {
       setComposerError(errorMessage(err, "Invalid turn request"));
       return;
@@ -730,17 +626,10 @@ export default function AgentsPage() {
                     selectedSession={selectedSession}
                     providers={providers}
                     providersError={providersError}
-                    integrations={agentIntegrations}
-                    integrationsError={integrationsError}
-                    operationsByPlugin={operationsByPlugin}
-                    operationsLoadingByPlugin={operationsLoadingByPlugin}
-                    operationErrorsByPlugin={operationErrorsByPlugin}
                     formError={composerError}
                     submitting={submitting}
-                    providerSupportsSelectedTools={providerSupportsSelectedTools}
                     setComposer={setComposer}
                     onSubmit={handleSubmit}
-                    ensureOperationsLoaded={ensureOperationsLoaded}
                   />
                 </div>
               </section>
@@ -1458,17 +1347,10 @@ function AgentComposer({
   selectedSession: AgentSession | null;
   providers: AgentProvider[];
   providersError: string | null;
-  integrations: Integration[];
-  integrationsError: string | null;
-  operationsByPlugin: Record<string, IntegrationOperation[]>;
-  operationsLoadingByPlugin: Record<string, boolean>;
-  operationErrorsByPlugin: Record<string, string | undefined>;
   formError: string | null;
   submitting: boolean;
-  providerSupportsSelectedTools: boolean;
   setComposer: React.Dispatch<React.SetStateAction<AgentComposerState>>;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void | Promise<void>;
-  ensureOperationsLoaded: (plugin: string) => Promise<void>;
 }) {
   function handleUserPromptKeyDown(
     event: React.KeyboardEvent<HTMLTextAreaElement>,
@@ -1814,26 +1696,10 @@ function defaultComposer(): AgentComposerState {
     schemaJSON: "",
     metadataJSON: "",
     modelOptionsJSON: "",
-    toolMode: "none",
-    tools: [emptyToolForm()],
   };
 }
 
-function emptyToolForm(): AgentToolForm {
-  return {
-    plugin: "",
-    operation: "",
-    connection: "",
-    instance: "",
-    title: "",
-    description: "",
-  };
-}
-
-function composerToTurnCreate(
-  composer: AgentComposerState,
-  providerSupportsSelectedTools: boolean,
-): AgentTurnCreate {
+function composerToTurnCreate(composer: AgentComposerState): AgentTurnCreate {
   const userText = composer.userPrompt.trim();
   if (!userText) {
     throw new Error("User message is required");
@@ -1869,44 +1735,7 @@ function composerToTurnCreate(
   if (metadata) body.metadata = metadata;
   if (modelOptions) body.modelOptions = modelOptions;
 
-  if (composer.toolMode === "selected") {
-    if (!providerSupportsSelectedTools) {
-      throw new Error("Selected provider does not support mcp_catalog tools");
-    }
-    const toolRefs = toolRefsFromForm(composer.tools);
-    if (toolRefs.length === 0) {
-      throw new Error("At least one app operation is required");
-    }
-    body.toolSource = "mcp_catalog";
-    body.toolRefs = toolRefs;
-  }
-
   return body;
-}
-
-function toolRefsFromForm(tools: AgentToolForm[]): AgentToolRef[] {
-  return tools
-    .map((tool) => ({
-      plugin: tool.plugin.trim(),
-      operation: tool.operation.trim(),
-      connection: tool.connection.trim(),
-      instance: tool.instance.trim(),
-      title: tool.title.trim(),
-      description: tool.description.trim(),
-    }))
-    .filter((tool) => tool.plugin || tool.operation)
-    .map((tool) => {
-      if (!tool.plugin) throw new Error("Tool app is required");
-      if (!tool.operation) throw new Error("Tool operation is required");
-      return stripEmpty({
-        plugin: tool.plugin,
-        operation: tool.operation,
-        connection: tool.connection,
-        instance: tool.instance,
-        title: tool.title,
-        description: tool.description,
-      }) as AgentToolRef;
-    });
 }
 
 function parseOptionalObject(
@@ -1926,12 +1755,6 @@ function parseOptionalObject(
     throw new Error(`${label} must be a JSON object`);
   }
   return parsed as Record<string, unknown>;
-}
-
-function stripEmpty(value: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(value).filter(([, item]) => item.trim() !== ""),
-  );
 }
 
 function filterSessions(
@@ -2048,39 +1871,6 @@ function toolPhaseClassName(phase?: string | null): string {
   return `${base} border-alpha text-faint`;
 }
 
-function sortOperations(
-  operations: IntegrationOperation[],
-): IntegrationOperation[] {
-  return operations
-    .filter((operation) => operation.visible !== false)
-    .slice()
-    .sort((left, right) =>
-      (left.title || left.id).localeCompare(
-        right.title || right.id,
-        undefined,
-        { sensitivity: "base" },
-      ),
-    );
-}
-
-function providerForSessionOrComposer(
-  providers: AgentProvider[],
-  session: AgentSession | null,
-  composerProvider: string,
-): AgentProvider | undefined {
-  const name = session?.provider || composerProvider;
-  return providers.find((provider) => provider.name === name) ?? providers.find((provider) => provider.default);
-}
-
-function providerSupportsMCPCatalog(
-  provider: AgentProvider | undefined,
-  providersLoaded: boolean,
-): boolean {
-  if (!providersLoaded) return true;
-  const sources = provider?.capabilities?.supportedToolSources ?? [];
-  return sources.includes("mcp_catalog");
-}
-
 function providerSourceLabel(
   providers: AgentProvider[],
   providerName?: string,
@@ -2144,10 +1934,6 @@ function interactionDefaultValue(interaction: AgentInteraction): string {
   return interaction.type === "clarification" || interaction.type === "input"
     ? ""
     : "{}";
-}
-
-function integrationLabel(integration: Integration): string {
-  return integration.displayName || integration.name;
 }
 
 function trimmedOrUndefined(value: string): string | undefined {
