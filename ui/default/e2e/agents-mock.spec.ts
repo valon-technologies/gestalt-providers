@@ -75,7 +75,7 @@ test.describe("Agents", () => {
         {
           name: "simple",
           default: true,
-          capabilities: { supportedToolSources: ["mcp_catalog"] },
+          capabilities: { supportedToolSources: ["catalog"] },
         },
       ],
       sessions: [
