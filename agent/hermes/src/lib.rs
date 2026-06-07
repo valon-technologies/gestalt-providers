@@ -290,17 +290,12 @@ impl gestalt::AgentProvider for HermesAgentProvider {
                 &req.model
             })
         };
+        let request_context = req.context.clone();
         validate_turn_request(&req)?;
 
         let turn = {
             let mut store = self.inner.store.lock().await;
-            match store.begin_turn(
-                &req,
-                &provider_name,
-                model,
-                &subject_id,
-                gestalt::current_request_context(),
-            ) {
+            match store.begin_turn(&req, &provider_name, model, &subject_id, request_context) {
                 Ok(BeginTurnResult::Created(turn)) => {
                     let worker = self.clone();
                     let turn_id = turn.id.clone();
@@ -955,7 +950,7 @@ fn validate_turn_request(req: &gestalt::CreateAgentProviderTurnRequest) -> gesta
             }
         }
         gestalt::AgentToolSourceMode::McpCatalog => {
-            if gestalt::current_request_context().is_none() {
+            if req.context.is_none() {
                 return Err(gestalt::Error::bad_request(
                     "request context is required when tool_source=MCP_CATALOG",
                 ));
