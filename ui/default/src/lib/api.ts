@@ -519,10 +519,15 @@ export interface AgentSessionCreate {
   provider?: string;
   model?: string;
   clientRef?: string;
+  tools?: AgentSessionTools;
   metadata?: Record<string, unknown>;
   modelOptions?: Record<string, unknown>;
   idempotencyKey?: string;
 }
+
+export type AgentSessionTools =
+  | { none: Record<string, never>; catalog?: never }
+  | { none?: never; catalog: { refs?: AgentToolRef[] } };
 
 export interface AgentSessionUpdate {
   clientRef?: string;
@@ -533,8 +538,6 @@ export interface AgentSessionUpdate {
 export interface AgentTurnCreate {
   model?: string;
   messages: AgentMessage[];
-  toolRefs?: AgentToolRef[];
-  toolSource?: "mcp_catalog";
   output?: AgentOutput;
   metadata?: Record<string, unknown>;
   modelOptions?: Record<string, unknown>;
@@ -628,7 +631,9 @@ function idempotencyKeyPart(prefix: string, key?: string): string | undefined {
   return key ? `${prefix}:${key}` : undefined;
 }
 
-function agentToolRefsToRequest(toolRefs?: AgentToolRef[]) {
+function agentToolRefsToRequest(
+  toolRefs?: AgentToolRef[],
+): AgentToolRef[] | undefined {
   return toolRefs?.map((tool) => ({
     system: tool.system,
     plugin: tool.plugin,
@@ -640,15 +645,16 @@ function agentToolRefsToRequest(toolRefs?: AgentToolRef[]) {
   }));
 }
 
-function agentToolSourceToRequest(
-  value?: AgentRunCreate["toolSource"] | AgentTurnCreate["toolSource"],
-): "mcp_catalog" | undefined {
+function agentToolsToRequest(
+  value?: AgentRunCreate["toolSource"],
+  refs?: AgentToolRef[],
+): AgentSessionTools | undefined {
   switch (value) {
     case undefined:
       return undefined;
     case "mcp_catalog":
     case "explicit":
-      return "mcp_catalog";
+      return { catalog: { refs: agentToolRefsToRequest(refs) } };
     case "inherit_invokes":
       throw new Error("inherit_invokes is not supported by the agent API");
     default:
@@ -985,9 +991,12 @@ export async function createAgentTurn(
     {
       method: "POST",
       body: JSON.stringify({
-        ...body,
+        model: body.model,
+        messages: body.messages,
         output,
-        toolSource: agentToolSourceToRequest(body.toolSource),
+        metadata: body.metadata,
+        modelOptions: body.modelOptions,
+        idempotencyKey: body.idempotencyKey,
       }),
     },
   );
@@ -1177,8 +1186,7 @@ export async function getAgentRun(id: string): Promise<AgentRun> {
 }
 
 export async function createAgentRun(body: AgentRunCreate): Promise<AgentRun> {
-  const toolRefs = agentToolRefsToRequest(body.toolRefs);
-  const toolSource = agentToolSourceToRequest(body.toolSource);
+  const tools = agentToolsToRequest(body.toolSource, body.toolRefs);
 
   const session = await fetchAPI<AgentSession>("/api/v1/agent/sessions", {
     method: "POST",
@@ -1186,6 +1194,7 @@ export async function createAgentRun(body: AgentRunCreate): Promise<AgentRun> {
       provider: body.provider,
       model: body.model,
       clientRef: body.sessionRef,
+      tools,
       metadata: body.metadata,
       idempotencyKey: idempotencyKeyPart("session", body.idempotencyKey),
     }),
@@ -1198,8 +1207,6 @@ export async function createAgentRun(body: AgentRunCreate): Promise<AgentRun> {
       body: JSON.stringify({
         model: body.model,
         messages: body.messages,
-        toolRefs,
-        toolSource,
         output: body.output ?? { text: {} },
         metadata: body.metadata,
         modelOptions: body.modelOptions,

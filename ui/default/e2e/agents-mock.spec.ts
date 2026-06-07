@@ -3,8 +3,6 @@ import {
   expect,
   mockAgentSessions,
   mockAuthInfo,
-  mockIntegrationOperations,
-  mockIntegrations,
 } from "./fixtures";
 import { agentSessionHref } from "../src/lib/agentLinks";
 
@@ -13,21 +11,6 @@ test.describe("Agents", () => {
     await mockAuthInfo(authenticatedPage, {
       provider: "test-sso",
       displayName: "Test SSO",
-    });
-    await mockIntegrations(authenticatedPage, [
-      {
-        name: "github",
-        displayName: "GitHub",
-        description: "Repository operations",
-      },
-    ]);
-    await mockIntegrationOperations(authenticatedPage, {
-      github: [
-        {
-          id: "pull_requests.list",
-          title: "List pull requests",
-        },
-      ],
     });
   });
 
@@ -418,60 +401,6 @@ test.describe("Agents", () => {
       { role: "user", text: "Check the latest rollout." },
     ]);
     expect(createTurnBody?.toolRefs).toBeUndefined();
-  });
-
-  test.skip("starts a selected-tool turn using the mcp_catalog wire contract", async ({
-    authenticatedPage: page,
-  }) => {
-    let createTurnBody: Record<string, unknown> | null = null;
-    await mockAgentSessions(
-      page,
-      {
-        sessions: [
-          {
-            id: "agent_session_tools",
-            provider: "simple",
-            model: "fast",
-            state: "active",
-            createdAt: "2026-04-23T00:00:00Z",
-            updatedAt: "2026-04-23T00:00:00Z",
-          },
-        ],
-        turns: { agent_session_tools: [] },
-      },
-      {
-        onCreateTurn(session, body) {
-          createTurnBody = body;
-          return {
-            id: "agent_turn_tools",
-            sessionId: session.id,
-            provider: session.provider,
-            model: "fast",
-            status: "running",
-            messages: body.messages as never,
-            createdAt: "2026-04-23T00:00:00Z",
-            startedAt: "2026-04-23T00:00:00Z",
-          };
-        },
-      },
-    );
-
-    await page.goto(agentSessionHref("agent_session_tools"));
-    await page.getByLabel("User message").fill("Summarize the latest open PRs.");
-    await page.getByText("Turn options").click();
-    await page.getByLabel("Tools", { exact: true }).selectOption("selected");
-    await page.getByLabel("Plugin").selectOption("github");
-    await page.getByLabel("Operation").selectOption("pull_requests.list");
-    await page.getByRole("button", { name: "Send turn" }).click();
-
-    await expect(page.getByText("Agent turn started.")).toBeVisible();
-    expect(createTurnBody?.toolSource).toBe("mcp_catalog");
-    expect(createTurnBody?.toolRefs).toEqual([
-      {
-        plugin: "github",
-        operation: "pull_requests.list",
-      },
-    ]);
   });
 
   test("handles waiting_for_input turns with cancel and approval resolution", async ({
