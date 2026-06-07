@@ -32,6 +32,7 @@ import {
   AgentToolSourceMode,
   createAgentProviderService,
   type AgentTurn,
+  type CreateAgentProviderSessionRequest,
   type CreateAgentProviderTurnRequest,
   type ListedAgentTool,
 } from "@valon-technologies/gestalt";
@@ -80,6 +81,9 @@ const activeHosts: FakeAgentHost[] = [];
 const OWNER_SUBJECT = subjectFixture("user:owner@example.com", "user", "Owner");
 const OTHER_SUBJECT = subjectFixture("user:other@example.com", "user", "Other");
 const SLACK_SUBJECT = subjectFixture("service_account:slack-bot", "service_account", "Slack Bot");
+const DEFAULT_SESSION_TOOLS: NonNullable<CreateAgentProviderSessionRequest["tools"]> = {
+  catalog: { refs: [{ app: "p", operation: "o" }] },
+};
 
 function subjectFixture(id: string, kind: string, displayName: string) {
   return {
@@ -105,13 +109,17 @@ function requestContext(
   });
 }
 
-function create<Desc extends DescMessage>(
-  schema: Desc,
-  input: Record<string, unknown>,
-): MessageShape<Desc> {
+function create(
+  schema: DescMessage,
+  input: Record<string, unknown> | Partial<CreateAgentProviderSessionRequest>,
+): any {
   let payload = input;
   if (schema.typeName === CreateAgentProviderSessionRequestSchema.typeName) {
-    payload = { createdBySubjectId: OWNER_SUBJECT.id, subject: OWNER_SUBJECT, ...input };
+    payload = {
+      createdBySubjectId: OWNER_SUBJECT.id,
+      subject: OWNER_SUBJECT,
+      ...input,
+    };
   } else if (
     [
       CancelAgentProviderTurnRequestSchema,
@@ -125,7 +133,14 @@ function create<Desc extends DescMessage>(
   ) {
     payload = { subject: OWNER_SUBJECT, ...input };
   }
-  return createMessage(schema, payload as MessageInitShape<Desc>);
+  const message = createMessage(schema, payload as MessageInitShape<DescMessage>);
+  if (schema.typeName === CreateAgentProviderSessionRequestSchema.typeName) {
+    const sessionRequest = message as unknown as CreateAgentProviderSessionRequest;
+    sessionRequest.tools =
+      (input as Partial<CreateAgentProviderSessionRequest>).tools ??
+      DEFAULT_SESSION_TOOLS;
+  }
+  return message;
 }
 
 function turnRequest(
@@ -353,8 +368,6 @@ describe("Cursor agent provider contract", () => {
         turnId: "session-start-turn",
         sessionId: "session-start",
         messages: [{ role: "user", text: "hi" }],
-        toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolRefs: [{ app: "linear", operation: "issues" }],
       }),
     );
     await waitForTurn(
@@ -444,8 +457,6 @@ describe("Cursor agent provider contract", () => {
         turnId: "access-company-turn",
         sessionId: "access-company",
         messages: [{ role: "user", text: "hi" }],
-        toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolRefs: [{ app: "p", operation: "o" }],
         createdBySubjectId: SLACK_SUBJECT.id,
         subject: SLACK_SUBJECT,
       }),
@@ -572,8 +583,6 @@ describe("Cursor agent provider contract", () => {
         turnId: "access-private-turn",
         sessionId: "access-private-turns",
         messages: [{ role: "user", text: "hi" }],
-        toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
 
@@ -594,8 +603,6 @@ describe("Cursor agent provider contract", () => {
           sessionId: "access-private-turns",
           subject: OTHER_SUBJECT,
           messages: [{ role: "user", text: "nope" }],
-          toolSource: AgentToolSourceMode.MCP_CATALOG,
-          toolRefs: [{ app: "p", operation: "o" }],
         }),
       ),
       Code.PermissionDenied,
@@ -728,8 +735,6 @@ describe("Cursor agent provider contract", () => {
         sessionId: "session-1",
         idempotencyKey: "turn-key",
         messages: [{ role: "user", text: "weather?" }],
-        toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolRefs: [{ app: "weather-plugin", operation: "forecast" }],
       }),
     );
     const turn = await waitForTurn(
@@ -787,8 +792,6 @@ describe("Cursor agent provider contract", () => {
         turnId: "structured-turn",
         sessionId: "structured-session",
         messages: [{ role: "user", text: "grade" }],
-        toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolRefs: [{ app: "grader-plugin", operation: "grade" }],
         output: {
           structured: {
             schema: {
@@ -848,8 +851,6 @@ describe("Cursor agent provider contract", () => {
         turnId: "structured-invalid-turn",
         sessionId: "structured-invalid-session",
         messages: [{ role: "user", text: "grade" }],
-        toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolRefs: [{ app: "grader-plugin", operation: "grade" }],
         output: {
           structured: {
             schema: {
@@ -903,14 +904,13 @@ describe("Cursor agent provider contract", () => {
       clientRef: "",
       createdBySubjectId: OWNER_SUBJECT.id,
       preparedWorkspace: { root: tmpdir(), cwd: preparedCwd },
+      tools: DEFAULT_SESSION_TOOLS,
     } as never);
     await provider.createTurn(
       turnRequest({
         turnId: "turn-workspace",
         sessionId: "session-workspace",
         messages: [{ role: "user", text: "inspect repo" }],
-        toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     await waitForTurn(
@@ -967,8 +967,6 @@ describe("Cursor agent provider contract", () => {
         turnId: "t",
         sessionId: "s",
         messages: [{ role: "user", text: "hi" }],
-        toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     await waitForTurn(provider, "t", AgentExecutionStatus.SUCCEEDED);
@@ -1000,6 +998,71 @@ describe("Cursor agent provider contract", () => {
 
   test("rejects unsupported session and turn inputs", async () => {
     const provider = await configuredProvider();
+    const invalidSessionCases: Array<[string, CreateAgentProviderSessionRequest["tools"], string]> = [
+      [
+        "missing refs",
+        { catalog: { refs: [] } },
+        "tools.catalog.refs are required",
+      ],
+      [
+        "wildcard ref",
+        { catalog: { refs: [{ app: "p", operation: "*" }] } },
+        "wildcard",
+      ],
+      [
+        "missing operation",
+        { catalog: { refs: [{ app: "p" }] } },
+        "operation is required",
+      ],
+      [
+        "missing app system",
+        { catalog: { refs: [{ operation: "o" }] } },
+        "exactly one",
+      ],
+      [
+        "both app system",
+        { catalog: { refs: [{ app: "p", system: "workflow", operation: "o" }] } },
+        "exactly one",
+      ],
+      [
+        "bad system",
+        { catalog: { refs: [{ system: "not-workflow", operation: "o" }] } },
+        "not supported",
+      ],
+      [
+        "resolved tools",
+        { catalog: { refs: [{ app: "p", operation: "o" }], tools: [tool({ id: "resolved", mcpName: "resolved" })] } },
+        "resolved tools are not supported",
+      ],
+    ];
+    for (const [name, tools, message] of invalidSessionCases) {
+      await expect(
+        provider.createSession(
+          create(CreateAgentProviderSessionRequestSchema, {
+            sessionId: `bad-session-${name.replaceAll(" ", "-")}`,
+            tools,
+          }),
+        ),
+        name,
+      ).rejects.toThrow(message);
+    }
+
+    await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {
+        sessionId: "no-tools-session",
+        tools: { none: {} },
+      }),
+    );
+    await expect(
+      provider.createTurn(
+        turnRequest({
+          turnId: "no-tools-turn",
+          sessionId: "no-tools-session",
+          messages: [{ role: "user", text: "hi" }],
+        }),
+      ),
+    ).rejects.toThrow("requires session tools.catalog");
+
     await provider.createSession(
       create(CreateAgentProviderSessionRequestSchema, { sessionId: "s" }),
     );
@@ -1007,47 +1070,17 @@ describe("Cursor agent provider contract", () => {
       turnId: "turn",
       sessionId: "s",
       messages: [{ role: "user", text: "hi" }],
-      toolSource: AgentToolSourceMode.MCP_CATALOG,
-      toolRefs: [{ app: "p", operation: "o" }],
     };
     const invalidCases: Array<[string, Record<string, unknown>, string]> = [
       [
-        "wrong source",
-        { toolSource: 999 as AgentToolSourceMode },
-        "requires toolSource",
+        "turn tools",
+        {
+          toolSource: AgentToolSourceMode.MCP_CATALOG,
+          toolRefs: [{ app: "p", operation: "o" }],
+        },
+        "agent turn tools must be configured on the session",
       ],
       ["missing request context", { context: undefined }, "request context is required"],
-      ["missing refs", { toolRefs: [] }, "tool_refs are required"],
-      [
-        "wildcard ref",
-        { toolRefs: [{ app: "p", operation: "*" }] },
-        "wildcard",
-      ],
-      [
-        "missing operation",
-        { toolRefs: [{ app: "p" }] },
-        "operation is required",
-      ],
-      [
-        "missing app system",
-        { toolRefs: [{ operation: "o" }] },
-        "exactly one",
-      ],
-      [
-        "both app system",
-        { toolRefs: [{ app: "p", system: "workflow", operation: "o" }] },
-        "exactly one",
-      ],
-      [
-        "bad system",
-        { toolRefs: [{ system: "not-workflow", operation: "o" }] },
-        "not supported",
-      ],
-      [
-        "resolved tools",
-        { tools: [{ id: "resolved" }] },
-        "resolved tools are not supported",
-      ],
       [
         "empty structured output schema",
         { output: { structured: { schema: {} } } },
@@ -1092,8 +1125,6 @@ describe("Cursor agent provider contract", () => {
         turnId: "failure-turn",
         sessionId: "failure",
         messages: [{ role: "user", text: "fail" }],
-        toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     const failed = await waitForTurn(
@@ -1130,8 +1161,6 @@ describe("Cursor agent provider contract", () => {
         turnId: "timeout-turn",
         sessionId: "timeout",
         messages: [{ role: "user", text: "timeout" }],
-        toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     const timedOut = await waitForTurn(
@@ -1160,8 +1189,6 @@ describe("Cursor agent provider contract", () => {
         turnId: "pre-run-turn",
         sessionId: "pre-run-cancel",
         messages: [{ role: "user", text: "cancel" }],
-        toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     await preRunProvider.cancelTurn(
@@ -1201,8 +1228,6 @@ describe("Cursor agent provider contract", () => {
         turnId: "send-turn",
         sessionId: "send-cancel",
         messages: [{ role: "user", text: "cancel while sending" }],
-        toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     await waitUntil(() => sendStarted);
@@ -1261,8 +1286,6 @@ describe("Cursor agent provider contract", () => {
         turnId: "live-turn",
         sessionId: "live-cancel",
         messages: [{ role: "user", text: "cancel" }],
-        toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     await waitUntil(() => liveCursor.runs.length === 1);
@@ -1314,8 +1337,6 @@ describe("Cursor agent provider contract", () => {
         turnId: "close-turn",
         sessionId: "close",
         messages: [{ role: "user", text: "close" }],
-        toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     await waitUntil(() => cursor.runs.length === 1);
@@ -1398,8 +1419,6 @@ describe("Cursor agent provider contract", () => {
           turnId: `turn-${name}`,
           sessionId: name,
           messages: [{ role: "user", text: "hi" }],
-          toolSource: AgentToolSourceMode.MCP_CATALOG,
-          toolRefs: [{ app: "p", operation: "o" }],
         }),
       );
       const turn = await waitForTurn(
@@ -1496,8 +1515,6 @@ describe("Cursor agent provider contract", () => {
         turnId: "events-turn",
         sessionId: "events",
         messages: [{ role: "user", text: "hi" }],
-        toolSource: AgentToolSourceMode.MCP_CATALOG,
-        toolRefs: [{ app: "p", operation: "o" }],
       }),
     );
     await waitForTurn(

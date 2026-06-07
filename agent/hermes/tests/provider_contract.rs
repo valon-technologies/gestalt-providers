@@ -331,64 +331,6 @@ async fn mcp_catalog_turn_inherits_session_tool_scope() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_turn_allows_explicit_subset_of_session_tool_scope() {
-    let _env_lock = ENV_LOCK.lock().await;
-    let fixture = Fixture::new("mcp-call");
-    let host = TestAgentHostService::default();
-    let socket_path = fixture.tmp.path().join("agent-host.sock");
-    let _socket_guard = EnvGuard::set(ENV_HOST_SERVICE_SOCKET, socket_path.as_os_str());
-    let _token_guard = EnvGuard::set(ENV_HOST_SERVICE_TOKEN, "relay-token");
-    let host_task = serve_agent_host(socket_path, host.clone()).await;
-    let provider = fixture.configure_provider().await;
-
-    create_session_with_tools(
-        &provider,
-        "session-1",
-        catalog_tool_config(vec![gestalt::AgentToolRef {
-            app: "*".to_string(),
-            ..Default::default()
-        }]),
-    )
-    .await;
-    provider
-        .create_turn(gestalt::CreateAgentProviderTurnRequest {
-            turn_id: "turn-narrow-tools".to_string(),
-            session_id: "session-1".to_string(),
-            messages: vec![gestalt::AgentMessage {
-                role: "user".to_string(),
-                text: "show me my linear tickets".to_string(),
-                ..Default::default()
-            }],
-            output: gestalt::AgentOutput::text(),
-            tool_source: gestalt::AgentToolSourceMode::Catalog,
-            tool_refs: vec![gestalt::AgentToolRef {
-                app: "linear".to_string(),
-                operation: "issues".to_string(),
-                ..Default::default()
-            }],
-            created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
-            subject: Some(owner_subject()),
-            context: Some(request_context(OWNER_SUBJECT_ID)),
-            ..empty_turn_request()
-        })
-        .await
-        .unwrap();
-    let turn = wait_for_turn(
-        &provider,
-        "turn-narrow-tools",
-        gestalt::AgentExecutionStatus::Succeeded,
-    )
-    .await;
-    assert_eq!(turn_text(&turn), "Hermes used Gestalt MCP");
-
-    let list_requests = host.list_requests.lock().expect("list requests").clone();
-    assert_eq!(list_requests[0].session_id, "session-1");
-    assert_eq!(list_requests[0].turn_id, "turn-narrow-tools");
-    host_task.abort();
-    let _ = host_task.await;
-}
-
-#[tokio::test]
 async fn rejects_turn_refs_outside_configured_session_scope() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("success");
@@ -428,7 +370,11 @@ async fn rejects_turn_refs_outside_configured_session_scope() {
         })
         .await
         .unwrap_err();
-    assert_eq!(err.status(), Some(403));
+    assert_eq!(err.status(), Some(400));
+    assert_eq!(
+        err.message(),
+        "agent turn tools must be configured on the session"
+    );
 }
 
 #[tokio::test]
