@@ -292,7 +292,7 @@ describe("Cursor agent provider contract", () => {
       expect(capabilities.interactions).toBe(false);
       expect(capabilities.resumableTurns).toBe(false);
       expect(capabilities.supportedToolSources).toEqual([
-        AgentToolSourceMode.MCP_CATALOG,
+        AgentToolSourceMode.CATALOG,
       ]);
     } finally {
       await closeHttp2(server);

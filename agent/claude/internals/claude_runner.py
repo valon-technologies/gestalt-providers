@@ -34,8 +34,8 @@ from .mcp_bridge import (
 logger = logging.getLogger(__name__)
 
 MAX_ERROR_TEXT = 4000
-GESTALT_MCP_CATALOG_PROMPT = (
-    "Gestalt MCP catalog tools are available through the `gestalt` MCP server for connected apps such as "
+GESTALT_CATALOG_PROMPT = (
+    "Gestalt catalog tools are available through the `gestalt` MCP server for connected apps such as "
     "Linear, GitHub, Slack, Gmail, Google Drive, Google Calendar, Google Docs, Google Sheets, BigQuery, Datadog, "
     "PagerDuty, Notion, Figma, Ramp, Ashby, and other configured integrations. When a user asks for data or actions "
     "in an external service, use Claude Code native tool search over the `gestalt` MCP server before concluding "
@@ -255,9 +255,7 @@ class ClaudeSDKRunner:
             allowed_tools=allowed_gestalt_mcp_tools() + claude_code_options.allowed_tools,
             mcp_servers={
                 MCP_SERVER_NAME: create_gestalt_sdk_mcp_server(
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    request_context=turn_profile.request_context,
+                    session_id=session_id, turn_id=turn_id, request_context=turn_profile.request_context
                 )
             },
             setting_sources=list(claude_code_options.setting_sources),
@@ -402,8 +400,8 @@ def _messages_to_prompt(messages: list[dict[str, Any]]) -> str:
 def _system_prompt(configured: str) -> str:
     configured = _configured_system_prompt(configured) or ""
     if not configured:
-        return GESTALT_MCP_CATALOG_PROMPT
-    return f"{configured}\n\n{GESTALT_MCP_CATALOG_PROMPT}"
+        return GESTALT_CATALOG_PROMPT
+    return f"{configured}\n\n{GESTALT_CATALOG_PROMPT}"
 
 
 def _configured_system_prompt(configured: str) -> str | None:

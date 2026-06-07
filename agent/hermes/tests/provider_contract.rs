@@ -162,7 +162,7 @@ async fn fixed_profile_mode_skips_acp_model_switching() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_turn_bridges_gestalt_tools_to_hermes() {
+async fn catalog_turn_bridges_gestalt_tools_to_hermes() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-call");
     let host = TestAgentHostService::default();
@@ -279,7 +279,7 @@ async fn mcp_catalog_turn_bridges_gestalt_tools_to_hermes() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_turn_inherits_session_tool_scope() {
+async fn catalog_turn_inherits_session_tool_scope() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-call");
     let host = TestAgentHostService::default();
@@ -331,7 +331,7 @@ async fn mcp_catalog_turn_inherits_session_tool_scope() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_turn_does_not_prefetch_tools_before_mcp_use() {
+async fn catalog_turn_does_not_prefetch_tools_before_mcp_use() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-list-only");
     let host = TestAgentHostService::default();
@@ -384,7 +384,7 @@ async fn mcp_catalog_turn_does_not_prefetch_tools_before_mcp_use() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_turn_marks_unavailable_sentinel_call_as_error() {
+async fn catalog_turn_marks_unavailable_sentinel_call_as_error() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-call");
     let host = TestAgentHostService {
@@ -442,7 +442,7 @@ async fn mcp_catalog_turn_marks_unavailable_sentinel_call_as_error() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_turn_preserves_empty_target_error_body() {
+async fn catalog_turn_preserves_empty_target_error_body() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-call");
     let host = TestAgentHostService {
@@ -483,7 +483,7 @@ async fn mcp_catalog_turn_preserves_empty_target_error_body() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_proxy_gets_schema_by_returned_mcp_name() {
+async fn catalog_proxy_gets_schema_by_returned_mcp_name() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-schema");
     let host = TestAgentHostService::default();
@@ -525,7 +525,7 @@ async fn mcp_catalog_proxy_gets_schema_by_returned_mcp_name() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_proxy_rejects_ambiguous_ref_selectors() {
+async fn catalog_proxy_rejects_ambiguous_ref_selectors() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-ambiguous-ref");
     let host = TestAgentHostService {
@@ -566,7 +566,7 @@ async fn mcp_catalog_proxy_rejects_ambiguous_ref_selectors() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_proxy_rejects_invalid_selectors_before_lookup() {
+async fn catalog_proxy_rejects_invalid_selectors_before_lookup() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-invalid-selector");
     let host = TestAgentHostService::default();
@@ -597,7 +597,7 @@ async fn mcp_catalog_proxy_rejects_invalid_selectors_before_lookup() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_proxy_searches_only_catalog_metadata() {
+async fn catalog_proxy_searches_only_catalog_metadata() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-search-schema-only");
     let host = TestAgentHostService {
@@ -633,7 +633,7 @@ async fn mcp_catalog_proxy_searches_only_catalog_metadata() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_proxy_ranks_matches_across_pages() {
+async fn catalog_proxy_ranks_matches_across_pages() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-search-only");
     let host = TestAgentHostService {
@@ -673,7 +673,7 @@ async fn mcp_catalog_proxy_ranks_matches_across_pages() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_proxy_reports_cursor_and_page_errors_as_tool_errors() {
+async fn catalog_proxy_reports_cursor_and_page_errors_as_tool_errors() {
     let _env_lock = ENV_LOCK.lock().await;
     for (name, host, code) in [
         (
@@ -722,7 +722,7 @@ async fn mcp_catalog_proxy_reports_cursor_and_page_errors_as_tool_errors() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_proxy_reports_list_rpc_errors_as_tool_errors() {
+async fn catalog_proxy_reports_list_rpc_errors_as_tool_errors() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-search-only");
     let host = TestAgentHostService {
@@ -763,7 +763,7 @@ async fn mcp_catalog_proxy_reports_list_rpc_errors_as_tool_errors() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_proxy_reports_invalid_catalog_tools_as_tool_errors() {
+async fn catalog_proxy_reports_invalid_catalog_tools_as_tool_errors() {
     let _env_lock = ENV_LOCK.lock().await;
     for (name, host) in [
         (
@@ -817,7 +817,7 @@ async fn mcp_catalog_proxy_reports_invalid_catalog_tools_as_tool_errors() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_proxy_reports_input_cap_errors_without_listing_tools() {
+async fn catalog_proxy_reports_input_cap_errors_without_listing_tools() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-input-caps");
     let host = TestAgentHostService::default();
@@ -849,7 +849,7 @@ async fn mcp_catalog_proxy_reports_input_cap_errors_without_listing_tools() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_proxy_reports_execute_rpc_errors_as_tool_errors() {
+async fn catalog_proxy_reports_execute_rpc_errors_as_tool_errors() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-call");
     let host = TestAgentHostService {
@@ -890,7 +890,7 @@ async fn mcp_catalog_proxy_reports_execute_rpc_errors_as_tool_errors() {
 }
 
 #[tokio::test]
-async fn mcp_catalog_does_not_require_advertised_acp_http_mcp_support() {
+async fn catalog_does_not_require_advertised_acp_http_mcp_support() {
     let _env_lock = ENV_LOCK.lock().await;
     let fixture = Fixture::new("mcp-call-no-cap");
     let host = TestAgentHostService::default();

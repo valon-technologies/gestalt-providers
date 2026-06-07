@@ -17,7 +17,7 @@ from .store_records import StoredSession
 @dataclass(frozen=True, slots=True)
 class ToolSourceModes:
     none: int
-    mcp_catalog: int
+    catalog: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,10 +115,7 @@ def turn_create_request_from_provider_request(
             raise ValueError("request context is required")
         claude_code_options = config.claude_code.resolve_turn_options(session.metadata)
         turn_profile = ClaudeTurnProfile.catalog(
-            request_context=request_context,
-            schema=schema,
-            claude_code_options=claude_code_options,
-            cwd=cwd,
+            request_context=request_context, schema=schema, claude_code_options=claude_code_options, cwd=cwd
         )
 
     return TurnCreateRequest(
@@ -139,9 +136,9 @@ def validate_turn_contract(
 ) -> tuple[dict[str, Any] | None, int]:
     tool_source = session.tool_source or tool_source_modes.none
     tool_refs = list(session.tool_refs)
-    if tool_source not in {tool_source_modes.mcp_catalog, tool_source_modes.none}:
-        raise ValueError("agent/claude requires toolSource none or mcp_catalog")
-    if tool_source == tool_source_modes.mcp_catalog and getattr(request, "context", None) is None:
+    if tool_source not in {tool_source_modes.catalog, tool_source_modes.none}:
+        raise ValueError("agent/claude requires toolSource none or catalog")
+    if tool_source == tool_source_modes.catalog and getattr(request, "context", None) is None:
         raise ValueError("request context is required")
     if list(request.tools):
         raise ValueError("resolved tools are not supported by agent/claude")
@@ -151,7 +148,7 @@ def validate_turn_contract(
     _validate_schema(schema)
     if dict(request.model_options or {}):
         raise ValueError("model_options are not supported by agent/claude")
-    if tool_source == tool_source_modes.mcp_catalog:
+    if tool_source == tool_source_modes.catalog:
         _validate_tool_refs(tool_refs)
     return schema, tool_source
 
@@ -166,7 +163,7 @@ def session_tool_scope_from_config(
     if isinstance(tools, gestalt.AgentCatalogToolConfig):
         refs = list(tools.refs)
         _validate_tool_refs(refs)
-        return tool_source_modes.mcp_catalog, refs
+        return tool_source_modes.catalog, refs
     raise ValueError("agent session tools must be none or catalog")
 
 

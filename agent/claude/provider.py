@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 AGENT_TOOL_SOURCE_MODE_NONE = int(gestalt.AGENT_TOOL_SOURCE_MODE_NONE)
-AGENT_TOOL_SOURCE_MODE_MCP_CATALOG = int(gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG)
+AGENT_TOOL_SOURCE_MODE_CATALOG = int(gestalt.AGENT_TOOL_SOURCE_MODE_CATALOG)
 
 
 class ClaudeCodeAgentProvider(
@@ -78,10 +78,7 @@ class ClaudeCodeAgentProvider(
     def create_session(self, request: gestalt.CreateAgentProviderSessionRequest) -> gestalt.AgentSession:
         _, store, config = self._require_runtime()
         request_subject_id = request.subject.id.strip() if request.subject is not None else ""
-        tool_source_modes = ToolSourceModes(
-            none=AGENT_TOOL_SOURCE_MODE_NONE,
-            mcp_catalog=AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
-        )
+        tool_source_modes = ToolSourceModes(none=AGENT_TOOL_SOURCE_MODE_NONE, catalog=AGENT_TOOL_SOURCE_MODE_CATALOG)
         try:
             create_request = session_create_request_from_provider_request(
                 request, config=config, tool_source_modes=tool_source_modes
@@ -105,9 +102,7 @@ class ClaudeCodeAgentProvider(
                     )
                 except Exception as exc:
                     raise gestalt.Error(412, str(exc)) from exc
-                return self._create_session(
-                    store=store, request=create_request, request_subject_id=request_subject_id
-                )
+                return self._create_session(store=store, request=create_request, request_subject_id=request_subject_id)
 
         return self._create_session(store=store, request=create_request, request_subject_id=request_subject_id)
 
@@ -188,19 +183,14 @@ class ClaudeCodeAgentProvider(
 
     def create_turn(self, request: gestalt.CreateAgentProviderTurnRequest) -> gestalt.AgentTurn:
         runner, store, config = self._require_runtime()
-        tool_source_modes = ToolSourceModes(
-            none=AGENT_TOOL_SOURCE_MODE_NONE,
-            mcp_catalog=AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
-        )
+        tool_source_modes = ToolSourceModes(none=AGENT_TOOL_SOURCE_MODE_NONE, catalog=AGENT_TOOL_SOURCE_MODE_CATALOG)
         session_id = request.session_id.strip()
         session = self._store_call(lambda: store.get_session(session_id))
         if session is None:
             raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
         _require_session_writable(session, request.subject.id.strip() if request.subject is not None else "")
         try:
-            schema, tool_source = validate_turn_contract(
-                request, session=session, tool_source_modes=tool_source_modes
-            )
+            schema, tool_source = validate_turn_contract(request, session=session, tool_source_modes=tool_source_modes)
         except ValueError as exc:
             raise gestalt.Error(400, str(exc)) from exc
         try:
@@ -298,13 +288,10 @@ class ClaudeCodeAgentProvider(
         if existing is None:
             raise gestalt.Error(404, f"agent turn {request.turn_id!r} was not found")
         _require_session_writable(
-            self._session_for_turn(store, existing),
-            request.subject.id.strip() if request.subject is not None else "",
+            self._session_for_turn(store, existing), request.subject.id.strip() if request.subject is not None else ""
         )
         turn = self._store_call(
-            lambda: store.cancel_turn(
-                turn_id=request.turn_id.strip(), reason=request.reason.strip()
-            )
+            lambda: store.cancel_turn(turn_id=request.turn_id.strip(), reason=request.reason.strip())
         )
         if turn is None:
             raise gestalt.Error(404, f"agent turn {request.turn_id!r} was not found")
@@ -327,9 +314,7 @@ class ClaudeCodeAgentProvider(
                 agent_turn_event(event)
                 for event in self._store_call(
                     lambda: store.list_turn_events(
-                        turn_id=request.turn_id.strip(),
-                        after_seq=request.after_seq,
-                        limit=request.limit,
+                        turn_id=request.turn_id.strip(), after_seq=request.after_seq, limit=request.limit
                     )
                 )
             ]
@@ -361,7 +346,7 @@ class ClaudeCodeAgentProvider(
             resumable_turns=False,
             reasoning_summaries=False,
             bounded_list_hydration=True,
-            supported_tool_sources=[AGENT_TOOL_SOURCE_MODE_NONE, AGENT_TOOL_SOURCE_MODE_MCP_CATALOG],
+            supported_tool_sources=[AGENT_TOOL_SOURCE_MODE_NONE, AGENT_TOOL_SOURCE_MODE_CATALOG],
             supports_session_start=True,
             supports_prepared_workspace=True,
         )

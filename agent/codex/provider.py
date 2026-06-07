@@ -239,8 +239,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         if turn is None:
             raise gestalt.Error(404, f"agent turn {request.turn_id!r} was not found")
         _require_session_readable(
-            _session_for_turn(store, turn),
-            request.subject.id.strip() if request.subject is not None else "",
+            _session_for_turn(store, turn), request.subject.id.strip() if request.subject is not None else ""
         )
         return _agent_turn(turn)
 
@@ -260,11 +259,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         turns = _readable_turns(
             store,
             store.list_turns(
-                session_id=session_id,
-                turn_ids=turn_ids,
-                subject_id="",
-                status=request.status,
-                limit=store_limit,
+                session_id=session_id, turn_ids=turn_ids, subject_id="", status=request.status, limit=store_limit
             ),
             request_subject_id,
         )
@@ -280,8 +275,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         if existing is None:
             raise gestalt.Error(404, f"agent turn {request.turn_id!r} was not found")
         _require_session_writable(
-            _session_for_turn(store, existing),
-            request.subject.id.strip() if request.subject is not None else "",
+            _session_for_turn(store, existing), request.subject.id.strip() if request.subject is not None else ""
         )
         turn = store.cancel_turn(turn_id=request.turn_id.strip(), reason=request.reason.strip())
         if turn is None:
@@ -304,9 +298,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             events=[
                 _agent_turn_event(event)
                 for event in store.list_turn_events(
-                    turn_id=request.turn_id.strip(),
-                    after_seq=request.after_seq,
-                    limit=request.limit,
+                    turn_id=request.turn_id.strip(), after_seq=request.after_seq, limit=request.limit
                 )
             ]
         )
@@ -337,7 +329,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             resumable_turns=False,
             reasoning_summaries=False,
             bounded_list_hydration=True,
-            supported_tool_sources=[gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG],
+            supported_tool_sources=[gestalt.AGENT_TOOL_SOURCE_MODE_CATALOG],
             supports_session_start=True,
             supports_prepared_workspace=True,
         )
@@ -498,12 +490,12 @@ def _which(binary: str) -> str | None:
 def _validate_create_turn_request(
     request: gestalt.CreateAgentProviderTurnRequest, *, session: StoredSession
 ) -> dict[str, Any] | None:
-    if session.tool_source != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
-        raise gestalt.Error(400, "agent/codex requires toolSource mcp_catalog")
+    if session.tool_source != gestalt.AGENT_TOOL_SOURCE_MODE_CATALOG:
+        raise gestalt.Error(400, "agent/codex requires toolSource catalog")
     if getattr(request, "context", None) is None:
         raise gestalt.Error(400, "request context is required")
     if len(list(request.tools)) > 0:
-        raise gestalt.Error(400, "resolved tools are not supported; use tool_refs with mcp_catalog")
+        raise gestalt.Error(400, "resolved tools are not supported; use tool_refs with catalog")
     try:
         schema = _schema_from_output(request.output)
         if schema is not None:
@@ -516,9 +508,7 @@ def _validate_create_turn_request(
     return schema
 
 
-def _session_tool_scope_from_config(
-    tools: gestalt.AgentToolConfig | None,
-) -> tuple[int, list[gestalt.AgentToolRef]]:
+def _session_tool_scope_from_config(tools: gestalt.AgentToolConfig | None) -> tuple[int, list[gestalt.AgentToolRef]]:
     if tools is None:
         return gestalt.AGENT_TOOL_SOURCE_MODE_UNSPECIFIED, []
     if isinstance(tools, gestalt.AgentNoTools):
@@ -526,7 +516,7 @@ def _session_tool_scope_from_config(
     if isinstance(tools, gestalt.AgentCatalogToolConfig):
         refs = list(tools.refs)
         _validate_tool_refs(refs)
-        return gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG, refs
+        return gestalt.AGENT_TOOL_SOURCE_MODE_CATALOG, refs
     raise ValueError("agent session tools must be catalog")
 
 
@@ -545,7 +535,7 @@ def _schema_from_output(output: gestalt.AgentOutput | None) -> dict[str, Any] | 
 
 def _validate_tool_refs(tool_refs: list[gestalt.AgentToolRef]) -> None:
     if not tool_refs:
-        raise gestalt.Error(400, "tool_refs are required for mcp_catalog turns")
+        raise gestalt.Error(400, "tool_refs are required for catalog turns")
     for index, ref in enumerate(tool_refs, start=1):
         plugin = ref.app.strip()
         system = ref.system.strip()
