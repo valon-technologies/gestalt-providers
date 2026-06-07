@@ -28,6 +28,8 @@ class SessionCreateRequest:
     client_ref: str
     metadata: dict[str, Any]
     prepared_workspace: dict[str, str] | None
+    tool_source: int
+    tool_refs: list[gestalt.AgentToolRef]
     created_by_subject_id: str
     session_start: gestalt.AgentSessionStartConfig | None
 
@@ -65,7 +67,7 @@ class ToolRefRequest:
 
 
 def session_create_request_from_provider_request(
-    request: gestalt.CreateAgentProviderSessionRequest, *, config: ClaudeAgentConfig
+    request: gestalt.CreateAgentProviderSessionRequest, *, config: ClaudeAgentConfig, tool_source_modes: ToolSourceModes
 ) -> SessionCreateRequest:
     session_id = request.session_id.strip()
     if not session_id:
@@ -74,6 +76,7 @@ def session_create_request_from_provider_request(
     metadata = dict(request.metadata or {})
     validate_session_start_user_metadata(metadata)
     prepared_workspace = _prepared_workspace_from_request(request)
+    tool_source, tool_refs = session_tool_scope_from_config(request.tools, tool_source_modes=tool_source_modes)
     return SessionCreateRequest(
         session_id=session_id,
         idempotency_key=request.idempotency_key.strip(),
@@ -81,6 +84,8 @@ def session_create_request_from_provider_request(
         client_ref=request.client_ref.strip(),
         metadata=metadata,
         prepared_workspace=prepared_workspace,
+        tool_source=tool_source,
+        tool_refs=tool_refs,
         created_by_subject_id=request.created_by_subject_id.strip(),
         session_start=request.session_start,
     )
@@ -92,6 +97,7 @@ def turn_create_request_from_provider_request(
     config: ClaudeAgentConfig,
     session: StoredSession,
     tool_source_modes: ToolSourceModes,
+    tool_source: int,
     schema: dict[str, Any] | None,
 ) -> TurnCreateRequest:
     request_messages = list(request.messages)
@@ -100,7 +106,7 @@ def turn_create_request_from_provider_request(
 
     model = config.resolve_model(request.model.strip() or session.model)
     messages = gestalt.agent_messages_to_dicts(request_messages)
-    if request.tool_source == tool_source_modes.none:
+    if tool_source == tool_source_modes.none:
         turn_profile = ClaudeTurnProfile.direct(schema=schema)
     else:
         request_context = getattr(request, "context", None)
@@ -128,23 +134,55 @@ def turn_create_request_from_provider_request(
 
 
 def validate_turn_contract(
-    request: gestalt.CreateAgentProviderTurnRequest, *, tool_source_modes: ToolSourceModes
-) -> dict[str, Any] | None:
-    if request.tool_source not in {tool_source_modes.mcp_catalog, tool_source_modes.none}:
+    request: gestalt.CreateAgentProviderTurnRequest, *, session: StoredSession, tool_source_modes: ToolSourceModes
+) -> tuple[dict[str, Any] | None, int]:
+    tool_source, tool_refs = effective_turn_tool_scope(request, session=session)
+    if tool_source not in {tool_source_modes.mcp_catalog, tool_source_modes.none}:
         raise ValueError("agent/claude requires toolSource none or mcp_catalog")
-    if request.tool_source == tool_source_modes.mcp_catalog and getattr(request, "context", None) is None:
+    if tool_source == tool_source_modes.mcp_catalog and getattr(request, "context", None) is None:
         raise ValueError("request context is required")
     if list(request.tools):
         raise ValueError("resolved tools are not supported by agent/claude")
-    if request.tool_source == tool_source_modes.none and list(request.tool_refs):
+    if tool_source == tool_source_modes.none and tool_refs:
         raise ValueError("tool_refs are not supported with toolSource none")
     schema = _schema_from_output(request.output)
     _validate_schema(schema)
     if dict(request.model_options or {}):
         raise ValueError("model_options are not supported by agent/claude")
-    if request.tool_source == tool_source_modes.mcp_catalog:
-        _validate_tool_refs(list(request.tool_refs))
-    return schema
+    if tool_source == tool_source_modes.mcp_catalog:
+        _validate_tool_refs(tool_refs)
+    return schema, tool_source
+
+
+def session_tool_scope_from_config(
+    tools: gestalt.AgentToolConfig | None, *, tool_source_modes: ToolSourceModes
+) -> tuple[int, list[gestalt.AgentToolRef]]:
+    if tools is None:
+        return 0, []
+    if isinstance(tools, gestalt.AgentNoTools):
+        return tool_source_modes.none, []
+    if isinstance(tools, gestalt.AgentCatalogToolConfig):
+        refs = list(tools.refs)
+        _validate_tool_refs(refs)
+        return tool_source_modes.mcp_catalog, refs
+    raise ValueError("agent session tools must be none or catalog")
+
+
+def effective_turn_tool_scope(
+    request: gestalt.CreateAgentProviderTurnRequest, *, session: StoredSession
+) -> tuple[int, list[gestalt.AgentToolRef]]:
+    tool_refs = list(request.tool_refs)
+    if session.tool_source:
+        if request.tool_source and request.tool_source != session.tool_source:
+            raise ValueError("agent turn toolSource must match session tool source")
+        if tool_refs:
+            if not _tool_refs_within_session_scope(tool_refs, list(session.tool_refs)):
+                raise ValueError("agent turn tool_refs must be a subset of session tool_refs")
+            return session.tool_source, tool_refs
+        return session.tool_source, list(session.tool_refs)
+    if request.tool_source or tool_refs:
+        return request.tool_source, tool_refs
+    return session.tool_source, list(session.tool_refs)
 
 
 def existing_session_for_create(
@@ -213,6 +251,51 @@ def _validate_tool_refs(tool_refs: list[gestalt.AgentToolRef]) -> None:
             return
         if not tool_ref.plugin:
             raise ValueError(f"tool_refs[{index}].plugin is required")
+
+
+def _tool_refs_within_session_scope(
+    requested: list[gestalt.AgentToolRef], allowed: list[gestalt.AgentToolRef]
+) -> bool:
+    if not requested:
+        return True
+    if not allowed:
+        return False
+    return all(any(_tool_ref_allows(allow, request) for allow in allowed) for request in requested)
+
+
+def _tool_ref_allows(allowed: gestalt.AgentToolRef, requested: gestalt.AgentToolRef) -> bool:
+    if allowed.system.strip() or requested.system.strip():
+        return (
+            bool(allowed.system.strip())
+            and allowed.system.strip() == requested.system.strip()
+            and _optional_scope_field_allows(allowed.operation, requested.operation)
+            and _optional_scope_field_allows(allowed.app, requested.app)
+        )
+    if allowed.app.strip() != requested.app.strip() and allowed.app.strip() != "*":
+        return False
+    return (
+        _optional_scope_field_allows(allowed.operation, requested.operation)
+        and _optional_scope_field_allows(allowed.connection, requested.connection)
+        and _optional_scope_field_allows(allowed.instance, requested.instance)
+        and _run_as_allows(getattr(allowed, "run_as", None), getattr(requested, "run_as", None))
+    )
+
+
+def _optional_scope_field_allows(allowed: str, requested: str) -> bool:
+    allowed = allowed.strip()
+    return not allowed or allowed == requested.strip()
+
+
+def _run_as_allows(allowed: Any, requested: Any) -> bool:
+    if allowed is None:
+        return True
+    if requested is None:
+        return False
+    return (
+        getattr(allowed, "id", "").strip() == getattr(requested, "id", "").strip()
+        and getattr(allowed, "credential_subject_id", "").strip()
+        == getattr(requested, "credential_subject_id", "").strip()
+    )
 
 
 def _tool_ref_request(*, index: int, ref: gestalt.AgentToolRef) -> ToolRefRequest:

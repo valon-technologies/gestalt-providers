@@ -85,6 +85,10 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         if prepared_workspace and (not prepared_workspace.get("root") or not prepared_workspace.get("cwd")):
             raise gestalt.Error(400, "prepared_workspace root and cwd are required")
         prepared_workspace = prepared_workspace or None
+        try:
+            tool_source, tool_refs = _session_tool_scope_from_config(request.tools)
+        except ValueError as exc:
+            raise gestalt.Error(400, str(exc)) from exc
         idempotency_key = request.idempotency_key.strip()
         request_subject_id = request.subject.id.strip() if request.subject is not None else ""
         if request.session_start is not None and len(list(request.session_start.hooks)) > 0:
@@ -105,6 +109,8 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                     client_ref=request.client_ref.strip(),
                     metadata=metadata,
                     prepared_workspace=prepared_workspace,
+                    tool_source=tool_source,
+                    tool_refs=tool_refs,
                     created_by_subject_id=request.created_by_subject_id.strip(),
                 )
                 return _agent_session(session)
@@ -116,6 +122,8 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             client_ref=request.client_ref.strip(),
             metadata=metadata,
             prepared_workspace=prepared_workspace,
+            tool_source=tool_source,
+            tool_refs=tool_refs,
             created_by_subject_id=request.created_by_subject_id.strip(),
         )
         if not created:
@@ -172,11 +180,11 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
 
     def create_turn(self, request: gestalt.CreateAgentProviderTurnRequest) -> gestalt.AgentTurn:
         runner, store, config = self._require_runtime()
-        schema = _validate_create_turn_request(request)
         session = store.get_session(request.session_id.strip())
         if session is None:
             raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
         _require_session_writable(session, request.subject.id.strip() if request.subject is not None else "")
+        schema = _validate_create_turn_request(request, session=session)
         if len(list(request.messages)) == 0:
             raise gestalt.Error(400, "messages must contain at least one entry")
         try:
@@ -486,8 +494,11 @@ def _which(binary: str) -> str | None:
     return None
 
 
-def _validate_create_turn_request(request: gestalt.CreateAgentProviderTurnRequest) -> dict[str, Any] | None:
-    if request.tool_source != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
+def _validate_create_turn_request(
+    request: gestalt.CreateAgentProviderTurnRequest, *, session: StoredSession
+) -> dict[str, Any] | None:
+    tool_source, tool_refs = _effective_turn_tool_scope(request, session=session)
+    if tool_source != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
         raise gestalt.Error(400, "agent/codex requires toolSource mcp_catalog")
     if getattr(request, "context", None) is None:
         raise gestalt.Error(400, "request context is required")
@@ -501,8 +512,39 @@ def _validate_create_turn_request(request: gestalt.CreateAgentProviderTurnReques
         raise gestalt.Error(400, str(exc)) from exc
     if dict(request.model_options or {}):
         raise gestalt.Error(400, "model_options are not supported by agent/codex")
-    _validate_tool_refs(list(request.tool_refs))
+    _validate_tool_refs(tool_refs)
     return schema
+
+
+def _session_tool_scope_from_config(
+    tools: gestalt.AgentToolConfig | None,
+) -> tuple[int, list[gestalt.AgentToolRef]]:
+    if tools is None:
+        return gestalt.AGENT_TOOL_SOURCE_MODE_UNSPECIFIED, []
+    if isinstance(tools, gestalt.AgentNoTools):
+        raise ValueError("agent/codex requires tools.catalog")
+    if isinstance(tools, gestalt.AgentCatalogToolConfig):
+        refs = list(tools.refs)
+        _validate_tool_refs(refs)
+        return gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG, refs
+    raise ValueError("agent session tools must be catalog")
+
+
+def _effective_turn_tool_scope(
+    request: gestalt.CreateAgentProviderTurnRequest, *, session: StoredSession
+) -> tuple[int, list[gestalt.AgentToolRef]]:
+    tool_refs = list(request.tool_refs)
+    if session.tool_source:
+        if request.tool_source and request.tool_source != session.tool_source:
+            raise gestalt.Error(400, "agent turn toolSource must match session tool source")
+        if tool_refs:
+            if not _tool_refs_within_session_scope(tool_refs, list(session.tool_refs)):
+                raise gestalt.Error(403, "agent turn tool_refs must be a subset of session tool_refs")
+            return session.tool_source, tool_refs
+        return session.tool_source, list(session.tool_refs)
+    if request.tool_source or tool_refs:
+        return request.tool_source, tool_refs
+    return session.tool_source, list(session.tool_refs)
 
 
 def _schema_from_output(output: gestalt.AgentOutput | None) -> dict[str, Any] | None:
@@ -535,6 +577,51 @@ def _validate_tool_refs(tool_refs: list[gestalt.AgentToolRef]) -> None:
             raise gestalt.Error(400, f"tool_refs[{index}] must set exactly one of plugin or system")
         if system and system != "workflow":
             raise gestalt.Error(400, f"tool_refs[{index}].system {system!r} is not supported")
+
+
+def _tool_refs_within_session_scope(
+    requested: list[gestalt.AgentToolRef], allowed: list[gestalt.AgentToolRef]
+) -> bool:
+    if not requested:
+        return True
+    if not allowed:
+        return False
+    return all(any(_tool_ref_allows(allow, request) for allow in allowed) for request in requested)
+
+
+def _tool_ref_allows(allowed: gestalt.AgentToolRef, requested: gestalt.AgentToolRef) -> bool:
+    if allowed.system.strip() or requested.system.strip():
+        return (
+            bool(allowed.system.strip())
+            and allowed.system.strip() == requested.system.strip()
+            and _optional_scope_field_allows(allowed.operation, requested.operation)
+            and _optional_scope_field_allows(allowed.app, requested.app)
+        )
+    if allowed.app.strip() != requested.app.strip() and allowed.app.strip() != "*":
+        return False
+    return (
+        _optional_scope_field_allows(allowed.operation, requested.operation)
+        and _optional_scope_field_allows(allowed.connection, requested.connection)
+        and _optional_scope_field_allows(allowed.instance, requested.instance)
+        and _run_as_allows(getattr(allowed, "run_as", None), getattr(requested, "run_as", None))
+    )
+
+
+def _optional_scope_field_allows(allowed: str, requested: str) -> bool:
+    allowed = allowed.strip()
+    return not allowed or allowed == requested.strip()
+
+
+def _run_as_allows(allowed: Any, requested: Any) -> bool:
+    if allowed is None:
+        return True
+    if requested is None:
+        return False
+    return (
+        getattr(allowed, "id", "").strip() == getattr(requested, "id", "").strip()
+        and getattr(allowed, "credential_subject_id", "").strip()
+        == getattr(requested, "credential_subject_id", "").strip()
+    )
 
 
 def _existing_session_for_create(

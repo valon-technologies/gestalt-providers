@@ -34,6 +34,8 @@ class StoredSession:
     state: int
     metadata: dict[str, Any]
     prepared_workspace: dict[str, str] | None
+    tool_source: int
+    tool_refs: list[gestalt.AgentToolRef]
     created_by_subject_id: str
     visibility: str
     created_at: datetime
@@ -98,6 +100,8 @@ class InMemoryRunStore:
         client_ref: str,
         metadata: dict[str, Any],
         prepared_workspace: dict[str, str] | None,
+        tool_source: int,
+        tool_refs: list[gestalt.AgentToolRef],
         created_by_subject_id: str,
     ) -> tuple[StoredSession, bool]:
         session_id = session_id.strip()
@@ -118,6 +122,8 @@ class InMemoryRunStore:
                 state=gestalt.AGENT_SESSION_STATE_ACTIVE,
                 metadata=copy.deepcopy(metadata),
                 prepared_workspace=copy.deepcopy(prepared_workspace) if prepared_workspace is not None else None,
+                tool_source=tool_source,
+                tool_refs=copy.deepcopy(tool_refs),
                 created_by_subject_id=created_by_subject_id.strip(),
                 visibility=session_visibility_for_create(metadata, created_by_subject_id),
                 created_at=now,
@@ -392,5 +398,4 @@ def _is_slack_agent_session_metadata(metadata: dict[str, Any]) -> bool:
         and str(slack.get("root_message_ts") or "").strip()
         and str(slack.get("session_ref") or "").strip()
     )
-
 

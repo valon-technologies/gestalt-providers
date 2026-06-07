@@ -660,7 +660,10 @@ class ClaudeProviderTests(unittest.TestCase):
 
         provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-claude", model="sonnet-session", created_by_subject_id="user-123"
+                session_id="session-claude",
+                model="sonnet-session",
+                created_by_subject_id="user-123",
+                tools=_catalog_tool_config(),
             )
         )
         started = provider_client.CreateTurn(
@@ -669,6 +672,8 @@ class ClaudeProviderTests(unittest.TestCase):
                 session_id="session-claude",
                 messages=[agent_pb2.AgentMessage(role="user", text="List my Linear issues")],
                 execution_ref="exec-claude",
+                tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_UNSPECIFIED,
+                include_tool_refs=False,
             )
         )
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
@@ -795,6 +800,42 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         message_events = [event for event in events.events if event.type == "assistant.message"]
         self.assertEqual(message_events[0].data.fields["value"].struct_value.fields["score"].number_value, 1)
+
+    def test_provider_rejects_turn_tools_outside_configured_session_scope(self) -> None:
+        _, provider_client = _configure_provider()
+        no_tools = agent_pb2.AgentToolConfig()
+        no_tools.none.SetInParent()
+        provider_client.CreateSession(
+            agent_pb2.CreateAgentProviderSessionRequest(
+                session_id="session-no-tools",
+                model="sonnet-session",
+                created_by_subject_id="user-123",
+                tools=no_tools,
+            )
+        )
+
+        with self.assertRaises(grpc.RpcError) as raised:
+            provider_client.CreateTurn(_turn_request(turn_id="turn-wide-tools", session_id="session-no-tools"))
+        self.assertEqual(cast(Any, raised.exception).code(), grpc.StatusCode.INVALID_ARGUMENT)
+
+    def test_provider_rejects_turn_refs_outside_configured_catalog_session_scope(self) -> None:
+        _, provider_client = _configure_provider()
+        tools = agent_pb2.AgentToolConfig()
+        linear = tools.catalog.refs.add()
+        linear.app = "linear"
+        linear.operation = "searchIssues"
+        provider_client.CreateSession(
+            agent_pb2.CreateAgentProviderSessionRequest(
+                session_id="session-linear-only",
+                model="sonnet-session",
+                created_by_subject_id="user-123",
+                tools=tools,
+            )
+        )
+
+        with self.assertRaises(grpc.RpcError) as raised:
+            provider_client.CreateTurn(_turn_request(turn_id="turn-wide-catalog", session_id="session-linear-only"))
+        self.assertEqual(cast(Any, raised.exception).code(), grpc.StatusCode.INVALID_ARGUMENT)
 
     def test_provider_allows_catalog_tools_with_schema(self) -> None:
         _FakeClaudeSDKClient.mode = "catalog_structured_success"
@@ -1980,6 +2021,17 @@ def _owned_session_request(session_id: str, **kwargs: Any) -> Any:
     return agent_pb2.CreateAgentProviderSessionRequest(
         session_id=session_id, created_by_subject_id="user-123", subject=_subject_context("user-123"), **kwargs
     )
+
+
+def _catalog_tool_config() -> Any:
+    config = agent_pb2.AgentToolConfig()
+    linear = config.catalog.refs.add()
+    linear.app = "linear"
+    linear.operation = "searchIssues"
+    github = config.catalog.refs.add()
+    github.app = "github"
+    github.operation = "pulls/list"
+    return config
 
 
 def _create_owned_session(provider_client: Any, session_id: str, **kwargs: Any) -> Any:

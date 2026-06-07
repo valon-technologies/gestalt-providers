@@ -256,7 +256,9 @@ class CodexProviderTests(unittest.TestCase):
 
         created = provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-codex", created_by_subject_id="user-123"
+                session_id="session-codex",
+                created_by_subject_id="user-123",
+                tools=_catalog_tool_config(),
             )
         )
         self.assertEqual(created.model, "")
@@ -266,6 +268,8 @@ class CodexProviderTests(unittest.TestCase):
                 session_id="session-codex",
                 messages=[agent_pb2.AgentMessage(role="user", text="List my Linear issues")],
                 execution_ref="exec-codex",
+                tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_UNSPECIFIED,
+                include_tool_refs=False,
             )
         )
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
@@ -321,6 +325,24 @@ class CodexProviderTests(unittest.TestCase):
 
         self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
         self.assertEqual(host.list_requests[0]["context_subject"], "user-123")
+
+    def test_provider_rejects_turn_tools_outside_configured_session_scope(self) -> None:
+        _, provider_client = _configure_provider()
+        tools = agent_pb2.AgentToolConfig()
+        linear = tools.catalog.refs.add()
+        linear.app = "linear"
+        linear.operation = "searchIssues"
+        provider_client.CreateSession(
+            agent_pb2.CreateAgentProviderSessionRequest(
+                session_id="session-linear-only",
+                created_by_subject_id="user-123",
+                tools=tools,
+            )
+        )
+
+        with self.assertRaises(grpc.RpcError) as raised:
+            provider_client.CreateTurn(_turn_request(turn_id="turn-wide-tools", session_id="session-linear-only"))
+        self.assertEqual(cast(Any, raised.exception).code(), grpc.StatusCode.PERMISSION_DENIED)
 
     def test_slack_sessions_are_company_readable_and_owner_writable(self) -> None:
         _, provider_client = _configure_provider()
@@ -799,6 +821,8 @@ def _turn_request(
     execution_ref: str = "",
     output_schema: Any | None = None,
     model_options: Any | None = None,
+    tool_source: int | None = None,
+    include_tool_refs: bool = True,
     include_context: bool = True,
 ) -> Any:
     request = agent_pb2.CreateAgentProviderTurnRequest(
@@ -806,7 +830,7 @@ def _turn_request(
         session_id=session_id,
         model=model,
         messages=messages or [agent_pb2.AgentMessage(role="user", text="List my Linear issues")],
-        tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
+        tool_source=tool_source if tool_source is not None else agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
         execution_ref=execution_ref,
         created_by_subject_id="user-123",
         subject=_subject_context("user-123"),
@@ -817,12 +841,13 @@ def _turn_request(
         request.output.text.SetInParent()
     else:
         request.output.structured.schema.CopyFrom(output_schema)
-    linear = request.tool_refs.add()
-    linear.app = "linear"
-    linear.operation = "searchIssues"
-    github = request.tool_refs.add()
-    github.app = "github"
-    github.operation = "pulls/list"
+    if include_tool_refs:
+        linear = request.tool_refs.add()
+        linear.app = "linear"
+        linear.operation = "searchIssues"
+        github = request.tool_refs.add()
+        github.app = "github"
+        github.operation = "pulls/list"
     if model_options is not None:
         request.model_options.CopyFrom(model_options)
     return request
@@ -835,6 +860,17 @@ def _owned_session_request(session_id: str, **kwargs: Any) -> Any:
         subject=_subject_context("user-123"),
         **kwargs,
     )
+
+
+def _catalog_tool_config() -> Any:
+    config = agent_pb2.AgentToolConfig()
+    linear = config.catalog.refs.add()
+    linear.app = "linear"
+    linear.operation = "searchIssues"
+    github = config.catalog.refs.add()
+    github.app = "github"
+    github.operation = "pulls/list"
+    return config
 
 
 def _create_owned_session(provider_client: Any, session_id: str, **kwargs: Any) -> Any:

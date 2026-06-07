@@ -78,8 +78,14 @@ class ClaudeCodeAgentProvider(
     def create_session(self, request: gestalt.CreateAgentProviderSessionRequest) -> gestalt.AgentSession:
         _, store, config = self._require_runtime()
         request_subject_id = request.subject.id.strip() if request.subject is not None else ""
+        tool_source_modes = ToolSourceModes(
+            none=AGENT_TOOL_SOURCE_MODE_NONE,
+            mcp_catalog=AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
+        )
         try:
-            create_request = session_create_request_from_provider_request(request, config=config)
+            create_request = session_create_request_from_provider_request(
+                request, config=config, tool_source_modes=tool_source_modes
+            )
         except ValueError as exc:
             raise gestalt.Error(400, str(exc)) from exc
 
@@ -117,6 +123,8 @@ class ClaudeCodeAgentProvider(
                 client_ref=request.client_ref,
                 metadata=request.metadata,
                 prepared_workspace=request.prepared_workspace,
+                tool_source=request.tool_source,
+                tool_refs=request.tool_refs,
                 created_by_subject_id=request.created_by_subject_id,
             )
         )
@@ -184,22 +192,24 @@ class ClaudeCodeAgentProvider(
             none=AGENT_TOOL_SOURCE_MODE_NONE,
             mcp_catalog=AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
         )
-        try:
-            schema = validate_turn_contract(request, tool_source_modes=tool_source_modes)
-        except ValueError as exc:
-            raise gestalt.Error(400, str(exc)) from exc
-
         session_id = request.session_id.strip()
         session = self._store_call(lambda: store.get_session(session_id))
         if session is None:
             raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
         _require_session_writable(session, request.subject.id.strip() if request.subject is not None else "")
         try:
+            schema, tool_source = validate_turn_contract(
+                request, session=session, tool_source_modes=tool_source_modes
+            )
+        except ValueError as exc:
+            raise gestalt.Error(400, str(exc)) from exc
+        try:
             create_request = turn_create_request_from_provider_request(
                 request,
                 config=config,
                 session=session,
                 tool_source_modes=tool_source_modes,
+                tool_source=tool_source,
                 schema=schema,
             )
         except ValueError as exc:
