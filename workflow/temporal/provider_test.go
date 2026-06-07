@@ -16,6 +16,7 @@ import (
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	gestaltworkflow "github.com/valon-technologies/gestalt/sdk/go/workflow"
+	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	workflowpb "go.temporal.io/api/workflow/v1"
@@ -34,20 +35,19 @@ func newTestWorkflowEnvironment(suite *testsuite.WorkflowTestSuite) *testsuite.T
 	return env
 }
 
-func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
-	ctx, state := newTestWorkflowStateStore(t)
-
+func TestGestaltRunWorkflowV5ReturnsRunState(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
 	host := &capturingHost{resp: &gestaltworkflow.Response{
 		Status: http.StatusOK,
 		Body:   `{"version":1,"status":"succeeded","steps":[{"id":"postMessage","status":"succeeded"}],"outputs":{"postMessage":"ok"},"finalStepId":"postMessage","finalOutput":"ok"}`,
 	}}
-	env.RegisterWorkflow(gestaltRunWorkflowV4)
-	env.RegisterActivity(&workflowActivities{executor: host, state: state})
+	env.RegisterWorkflow(gestaltRunWorkflowV5)
+	env.RegisterActivity(&workflowActivities{executor: host})
 
-	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
+	env.ExecuteWorkflow(gestaltRunWorkflowV5, runWorkflowV4Input{
 		ActivityStartToCloseTimeoutNS: time.Minute,
+		ScopeID:                       "scope",
 		ProviderName:                  "temporal",
 		DefinitionID:                  "definition-1",
 		DefinitionGeneration:          7,
@@ -72,17 +72,7 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 		t.Fatalf("run steps = %#v", run.Steps)
 	}
 	if run.DefinitionGeneration != 7 || run.Input["ticket"] != "T-1" || run.ProviderName != "temporal" {
-		t.Fatalf("run projection fields = %#v", &run)
-	}
-	projected, found, err := state.getRun(ctx, run.ID)
-	if err != nil || !found {
-		t.Fatalf("projected run found=%v err=%v", found, err)
-	}
-	if projected.Output != "ok" || projected.DefinitionGeneration != 7 || projected.Input["ticket"] != "T-1" {
-		t.Fatalf("projected = %#v, want output/input/generation", projected)
-	}
-	if projected.CurrentStepID != "postMessage" || len(projected.Steps) != 1 || projected.Steps[0].Output != "ok" {
-		t.Fatalf("projected steps = %#v", projected.Steps)
+		t.Fatalf("run fields = %#v", &run)
 	}
 	if len(host.calls) != 1 ||
 		host.calls[0].Request.Input["ticket"] != "T-1" ||
@@ -92,17 +82,15 @@ func TestGestaltRunWorkflowV4ProjectsRunStateToIndexedDB(t *testing.T) {
 	}
 }
 
-func TestGestaltRunWorkflowV4RunsOneDurableStepAtATime(t *testing.T) {
-	ctx, state := newTestWorkflowStateStore(t)
-
+func TestGestaltRunWorkflowV5RunsOneDurableStepAtATime(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := newTestWorkflowEnvironment(&suite)
 	host := &capturingHost{resp: &gestaltworkflow.Response{
 		Status: http.StatusOK,
 		Body:   `{"version":1,"status":"succeeded","steps":[{"id":"collect","status":"succeeded"},{"id":"notify","status":"succeeded"}],"outputs":{"collect":{"ok":true},"notify":{"sent":true}},"finalStepId":"notify","finalOutput":{"sent":true}}`,
 	}}
-	env.RegisterWorkflow(gestaltRunWorkflowV4)
-	env.RegisterActivity(&workflowActivities{executor: host, state: state})
+	env.RegisterWorkflow(gestaltRunWorkflowV5)
+	env.RegisterActivity(&workflowActivities{executor: host})
 
 	target := &gestalt.BoundWorkflowTarget{Steps: []gestalt.WorkflowStep{
 		{
@@ -120,8 +108,9 @@ func TestGestaltRunWorkflowV4RunsOneDurableStepAtATime(t *testing.T) {
 			},
 		},
 	}}
-	env.ExecuteWorkflow(gestaltRunWorkflowV4, runWorkflowV4Input{
+	env.ExecuteWorkflow(gestaltRunWorkflowV5, runWorkflowV4Input{
 		ActivityStartToCloseTimeoutNS: time.Minute,
+		ScopeID:                       "scope",
 		ProviderName:                  "temporal",
 		DefinitionID:                  "definition-1",
 		DefinitionGeneration:          7,
@@ -146,13 +135,6 @@ func TestGestaltRunWorkflowV4RunsOneDurableStepAtATime(t *testing.T) {
 	collectOutput := host.calls[1].Outputs["collect"].(map[string]any)
 	if collectOutput["ok"] != true {
 		t.Fatalf("second call outputs = %#v", host.calls[1].Outputs)
-	}
-	projected, found, err := state.getRun(ctx, run.ID)
-	if err != nil || !found {
-		t.Fatalf("projected run found=%v err=%v", found, err)
-	}
-	if projected.CurrentStepID != "notify" || len(projected.Steps) != 2 {
-		t.Fatalf("projected steps = %#v", projected.Steps)
 	}
 }
 
@@ -223,7 +205,7 @@ func TestBackendApplyDefinitionListAndActivationPause(t *testing.T) {
 	}
 }
 
-func TestBackendStartRunUsesDefinitionSnapshotInputProjection(t *testing.T) {
+func TestBackendStartRunUsesDefinitionSnapshotInputAndVisibility(t *testing.T) {
 	ctx, state := newTestWorkflowStateStore(t)
 	tc := &recordingTemporalClient{}
 	backend := newRecordingTemporalBackend(tc, state)
@@ -260,19 +242,131 @@ func TestBackendStartRunUsesDefinitionSnapshotInputProjection(t *testing.T) {
 	if startInput.ProviderName != "temporal" || startInput.RunAs == nil || startInput.RunAs.ID != "service:slack-post" {
 		t.Fatalf("start input authority = %#v", startInput)
 	}
-
-	projected, found, err := state.getRun(ctx, run.ID)
-	if err != nil || !found {
-		t.Fatalf("getRun projection found=%v err=%v", found, err)
+	if startInput.ScopeID != "scope" {
+		t.Fatalf("start input scope_id = %q, want scope", startInput.ScopeID)
 	}
-	if projected.Input["ticket"] != "T-1" || projected.DefinitionGeneration != definition.Generation {
-		t.Fatalf("projected run = %#v", projected)
+	attrs := tc.executions[0].Options.TypedSearchAttributes
+	if got, ok := attrs.GetKeyword(searchAttrScopeID); !ok || got != "scope" {
+		t.Fatalf("scope search attribute = %q ok=%v", got, ok)
+	}
+	if got, ok := attrs.GetKeyword(searchAttrRunStatus); !ok || got != "pending" {
+		t.Fatalf("status search attribute = %q ok=%v", got, ok)
+	}
+	if got, ok := attrs.GetKeyword(searchAttrProviderName); !ok || got != "temporal" {
+		t.Fatalf("provider search attribute = %q ok=%v", got, ok)
+	}
+	if got, ok := attrs.GetKeyword(searchAttrDefinitionID); !ok || got != definition.ID {
+		t.Fatalf("definition search attribute = %q ok=%v", got, ok)
+	}
+	if got, ok := attrs.GetKeywordList(searchAttrTargetApps); !ok || len(got) != 1 || got[0] != "slack" {
+		t.Fatalf("target app search attribute = %#v ok=%v", got, ok)
 	}
 	if _, err := backend.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
 		DefinitionID:                 definition.ID,
 		ExpectedDefinitionGeneration: definition.Generation + 1,
 	}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("StartRun generation mismatch error = %v, want FailedPrecondition", err)
+	}
+}
+
+func TestBackendStartRunWorkflowKeyRejectsActiveRun(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	tc := &recordingTemporalClient{}
+	backend := newRecordingTemporalBackend(tc, state)
+	definition, err := backend.ApplyDefinition(ctx, &gestalt.ApplyWorkflowProviderDefinitionRequest{
+		Spec: &gestalt.WorkflowDefinitionSpec{
+			ID:     "definition-1",
+			Target: nativeAppTargetInput("slack", "postMessage"),
+			RunAs:  &gestalt.Subject{ID: "service:slack-post"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyDefinition: %v", err)
+	}
+
+	if _, err := backend.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
+		DefinitionID:                 definition.ID,
+		ExpectedDefinitionGeneration: definition.Generation,
+		WorkflowKey:                  "thread:C123:170000",
+	}); err != nil {
+		t.Fatalf("StartRun(first): %v", err)
+	}
+	if len(tc.executions) != 1 {
+		t.Fatalf("executions = %#v, want one", tc.executions)
+	}
+	expectedWorkflowID := workflowKeyRunWorkflowID("scope", "thread:C123:170000")
+	if tc.executions[0].WorkflowID != expectedWorkflowID {
+		t.Fatalf("workflow ID = %q, want %q", tc.executions[0].WorkflowID, expectedWorkflowID)
+	}
+	if !tc.executions[0].Options.WorkflowExecutionErrorWhenAlreadyStarted {
+		t.Fatal("WorkflowExecutionErrorWhenAlreadyStarted = false, want true")
+	}
+
+	_, err = backend.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
+		DefinitionID:                 definition.ID,
+		ExpectedDefinitionGeneration: definition.Generation,
+		WorkflowKey:                  "thread:C123:170000",
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("StartRun(duplicate) error = %v, want FailedPrecondition", err)
+	}
+}
+
+func TestBackendSignalOrStartUsesWorkflowKeyTemporalID(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	tc := &recordingTemporalClient{}
+	backend := newRecordingTemporalBackend(tc, state)
+	definition, err := backend.ApplyDefinition(ctx, &gestalt.ApplyWorkflowProviderDefinitionRequest{
+		Spec: &gestalt.WorkflowDefinitionSpec{
+			ID:     "definition-1",
+			Target: nativeAppTargetInput("slack", "postMessage"),
+			RunAs:  &gestalt.Subject{ID: "service:slack-post"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyDefinition: %v", err)
+	}
+
+	resp, err := backend.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
+		DefinitionID:                 definition.ID,
+		ExpectedDefinitionGeneration: definition.Generation,
+		WorkflowKey:                  " thread:C123:170000 ",
+		Signal:                       &gestalt.WorkflowSignal{ID: "signal-1", Name: "message", Payload: map[string]any{"text": "hello"}},
+		CreatedBySubjectID:           actor("user-1"),
+	})
+	if err != nil {
+		t.Fatalf("SignalOrStartRun: %v", err)
+	}
+	expectedWorkflowID := workflowKeyRunWorkflowID("scope", "thread:C123:170000")
+	if resp.Run == nil || resp.Run.ID == "" || resp.WorkflowKey != "thread:C123:170000" {
+		t.Fatalf("response = %#v", resp)
+	}
+	handle, err := decodeTemporalRunHandle(resp.Run.ID)
+	if err != nil {
+		t.Fatalf("decode run handle: %v", err)
+	}
+	if handle.RunWorkflowID != expectedWorkflowID || handle.WorkflowKey != "thread:C123:170000" {
+		t.Fatalf("run handle = %#v", handle)
+	}
+	if len(tc.updateWithStartCalls) != 1 {
+		t.Fatalf("update-with-start calls = %#v, want one", tc.updateWithStartCalls)
+	}
+	call := tc.updateWithStartCalls[0]
+	if call.StartOptions.ID != expectedWorkflowID || call.UpdateOptions.WorkflowID != expectedWorkflowID {
+		t.Fatalf("workflow IDs = start %q update %q, want %q", call.StartOptions.ID, call.UpdateOptions.WorkflowID, expectedWorkflowID)
+	}
+	if call.StartOptions.WorkflowIDConflictPolicy != enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING {
+		t.Fatalf("conflict policy = %s, want USE_EXISTING", call.StartOptions.WorkflowIDConflictPolicy)
+	}
+	startInput := call.Args[0].(runWorkflowV4Input)
+	if startInput.WorkflowKey != "thread:C123:170000" || !startInput.RequireSignal || startInput.ScopeID != "scope" {
+		t.Fatalf("signal-or-start input = %#v", startInput)
+	}
+	if got, ok := call.StartOptions.TypedSearchAttributes.GetKeyword(searchAttrScopeID); !ok || got != "scope" {
+		t.Fatalf("scope search attribute = %q ok=%v", got, ok)
+	}
+	if got, ok := call.StartOptions.TypedSearchAttributes.GetKeywordList(searchAttrTargetApps); !ok || len(got) != 1 || got[0] != "slack" {
+		t.Fatalf("target app search attribute = %#v ok=%v", got, ok)
 	}
 }
 
@@ -327,6 +421,16 @@ func TestBackendDeliverEventStartsMatchingActivation(t *testing.T) {
 	}
 	if startInput.ProviderName != "temporal" || startInput.RunAs == nil || startInput.RunAs.ID != "service:slack-events" {
 		t.Fatalf("event start input authority = %#v", startInput)
+	}
+
+	if _, err := backend.DeliverEvent(ctx, &gestalt.DeliverWorkflowProviderEventRequest{
+		AppName: "slack",
+		Event:   &gestalt.WorkflowEvent{ID: "event-1", Type: "message.created", Data: map[string]any{"channel": "alerts"}},
+	}); err != nil {
+		t.Fatalf("DeliverEvent(duplicate): %v", err)
+	}
+	if len(tc.executions) != 1 {
+		t.Fatalf("executions after duplicate event = %#v, want one", tc.executions)
 	}
 }
 
@@ -391,6 +495,71 @@ func TestBackendGetRunReadsCompletedWorkflowResult(t *testing.T) {
 	}
 	if len(tc.queryCalls) != 0 {
 		t.Fatalf("query calls = %#v, want none", tc.queryCalls)
+	}
+}
+
+func TestBackendListRunsUsesTemporalVisibilityAndHydratesRuns(t *testing.T) {
+	ctx, state := newTestWorkflowStateStore(t)
+	runID := encodeTemporalRunHandle(temporalRunHandle{
+		RunWorkflowID:    "workflow-1",
+		RunTemporalRunID: "run-1",
+		OwnerKey:         "slack",
+	})
+	nextToken := []byte("next-page")
+	tc := &recordingTemporalClient{
+		listResp: &workflowservicepb.ListWorkflowExecutionsResponse{
+			Executions: []*workflowpb.WorkflowExecutionInfo{{
+				Execution: &commonpb.WorkflowExecution{WorkflowId: "workflow-1", RunId: "run-1"},
+				Status:    enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+			}},
+			NextPageToken: nextToken,
+		},
+		queryRun: &gestalt.WorkflowRun{
+			ID:                   runID,
+			Status:               gestalt.WorkflowRunStatusValueRunning,
+			Target:               nativeAppTargetInput("slack", "postMessage"),
+			CreatedBySubjectID:   actor("user-1"),
+			ProviderName:         "temporal",
+			DefinitionID:         "definition-1",
+			DefinitionGeneration: 7,
+		},
+	}
+	backend := newRecordingTemporalBackend(tc, state)
+
+	resp, err := backend.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{
+		PageSize:  25,
+		Status:    gestalt.WorkflowRunStatusValueRunning,
+		TargetApp: "slack",
+	})
+	if err != nil {
+		t.Fatalf("ListRuns: %v", err)
+	}
+	if len(resp.GetRuns()) != 1 || resp.GetRuns()[0].ID != runID || resp.GetRuns()[0].DefinitionID != "definition-1" {
+		t.Fatalf("runs = %#v", resp.GetRuns())
+	}
+	if resp.NextPageToken != encodeTemporalListPageToken(nextToken) {
+		t.Fatalf("next page token = %q", resp.NextPageToken)
+	}
+	if len(tc.listWorkflowRequests) != 1 {
+		t.Fatalf("list workflow requests = %#v", tc.listWorkflowRequests)
+	}
+	listReq := tc.listWorkflowRequests[0]
+	if listReq.GetPageSize() != 25 {
+		t.Fatalf("page size = %d, want 25", listReq.GetPageSize())
+	}
+	for _, want := range []string{
+		"WorkflowType = 'gestaltRunWorkflowV5'",
+		"GestaltScopeId = 'scope'",
+		"GestaltProviderName = 'temporal'",
+		"GestaltRunStatus = 'running'",
+		"GestaltTargetApps = 'slack'",
+	} {
+		if !strings.Contains(listReq.GetQuery(), want) {
+			t.Fatalf("query = %q, missing %q", listReq.GetQuery(), want)
+		}
+	}
+	if len(tc.queryCalls) != 1 || tc.queryCalls[0].WorkflowID != "workflow-1" || tc.queryCalls[0].RunID != "run-1" {
+		t.Fatalf("query calls = %#v", tc.queryCalls)
 	}
 }
 
@@ -519,6 +688,8 @@ func newRecordingTemporalBackend(tc *recordingTemporalClient, state *workflowSta
 
 type recordedExecution struct {
 	WorkflowID string
+	Options    client.StartWorkflowOptions
+	Workflow   interface{}
 	Args       []any
 }
 
@@ -530,24 +701,83 @@ type recordedTemporalCall struct {
 
 type recordingTemporalClient struct {
 	client.Client
-	mu               sync.Mutex
-	executions       []recordedExecution
-	describeResp     *workflowservicepb.DescribeWorkflowExecutionResponse
-	describeErr      error
-	queryRun         *gestalt.WorkflowRun
-	queryErr         error
-	queryCalls       []recordedTemporalCall
-	workflowResult   *gestalt.WorkflowRun
-	workflowErr      error
-	getWorkflowCalls []recordedTemporalCall
-	scheduleClient   client.ScheduleClient
+	mu                   sync.Mutex
+	executions           []recordedExecution
+	updateWithStartCalls []recordedUpdateWithStart
+	listWorkflowRequests []*workflowservicepb.ListWorkflowExecutionsRequest
+	listResp             *workflowservicepb.ListWorkflowExecutionsResponse
+	listErr              error
+	describeResp         *workflowservicepb.DescribeWorkflowExecutionResponse
+	describeErr          error
+	queryRun             *gestalt.WorkflowRun
+	queryErr             error
+	queryCalls           []recordedTemporalCall
+	workflowResult       *gestalt.WorkflowRun
+	workflowErr          error
+	getWorkflowCalls     []recordedTemporalCall
+	scheduleClient       client.ScheduleClient
 }
 
-func (c *recordingTemporalClient) ExecuteWorkflow(_ context.Context, options client.StartWorkflowOptions, _ interface{}, args ...interface{}) (client.WorkflowRun, error) {
+type recordedUpdateWithStart struct {
+	StartOptions  client.StartWorkflowOptions
+	Workflow      interface{}
+	Args          []any
+	UpdateOptions client.UpdateWorkflowOptions
+}
+
+func (c *recordingTemporalClient) ExecuteWorkflow(_ context.Context, options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) (client.WorkflowRun, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.executions = append(c.executions, recordedExecution{WorkflowID: options.ID, Args: args})
+	for _, execution := range c.executions {
+		if execution.WorkflowID == options.ID && options.WorkflowIDConflictPolicy == enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL {
+			if options.WorkflowExecutionErrorWhenAlreadyStarted {
+				return nil, serviceerror.NewWorkflowExecutionAlreadyStarted("workflow execution already started", "", "existing-run")
+			}
+			return recordingWorkflowRun{id: execution.WorkflowID, runID: "existing-run"}, nil
+		}
+	}
+	c.executions = append(c.executions, recordedExecution{WorkflowID: options.ID, Options: options, Workflow: workflow, Args: args})
 	return recordingWorkflowRun{id: options.ID, runID: fmt.Sprintf("run-%d", len(c.executions))}, nil
+}
+
+func (c *recordingTemporalClient) NewWithStartWorkflowOperation(options client.StartWorkflowOptions, workflow interface{}, args ...interface{}) client.WithStartWorkflowOperation {
+	return &recordingWithStartWorkflowOperation{
+		execution: recordedExecution{WorkflowID: options.ID, Options: options, Workflow: workflow, Args: args},
+		run:       recordingWorkflowRun{id: options.ID, runID: "run-update-with-start"},
+	}
+}
+
+func (c *recordingTemporalClient) UpdateWithStartWorkflow(_ context.Context, options client.UpdateWithStartWorkflowOptions) (client.WorkflowUpdateHandle, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	op, ok := options.StartWorkflowOperation.(*recordingWithStartWorkflowOperation)
+	if !ok {
+		return nil, fmt.Errorf("unsupported start operation %T", options.StartWorkflowOperation)
+	}
+	c.updateWithStartCalls = append(c.updateWithStartCalls, recordedUpdateWithStart{
+		StartOptions:  op.execution.Options,
+		Workflow:      op.execution.Workflow,
+		Args:          op.execution.Args,
+		UpdateOptions: options.UpdateOptions,
+	})
+	return recordingWorkflowUpdateHandle{
+		workflowID: options.UpdateOptions.WorkflowID,
+		runID:      op.run.GetRunID(),
+		updateID:   options.UpdateOptions.UpdateID,
+	}, nil
+}
+
+func (c *recordingTemporalClient) ListWorkflow(_ context.Context, req *workflowservicepb.ListWorkflowExecutionsRequest) (*workflowservicepb.ListWorkflowExecutionsResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.listWorkflowRequests = append(c.listWorkflowRequests, req)
+	if c.listErr != nil {
+		return nil, c.listErr
+	}
+	if c.listResp != nil {
+		return c.listResp, nil
+	}
+	return &workflowservicepb.ListWorkflowExecutionsResponse{}, nil
 }
 
 func (c *recordingTemporalClient) DescribeWorkflowExecution(_ context.Context, workflowID, runID string) (*workflowservicepb.DescribeWorkflowExecutionResponse, error) {
@@ -641,6 +871,49 @@ func (r recordingWorkflowRun) Get(_ context.Context, valuePtr interface{}) error
 
 func (r recordingWorkflowRun) GetWithOptions(ctx context.Context, valuePtr interface{}, _ client.WorkflowRunGetOptions) error {
 	return r.Get(ctx, valuePtr)
+}
+
+type recordingWithStartWorkflowOperation struct {
+	execution recordedExecution
+	run       recordingWorkflowRun
+	err       error
+}
+
+func (o *recordingWithStartWorkflowOperation) Get(context.Context) (client.WorkflowRun, error) {
+	if o.err != nil {
+		return nil, o.err
+	}
+	return o.run, nil
+}
+
+type recordingWorkflowUpdateHandle struct {
+	workflowID string
+	runID      string
+	updateID   string
+	resp       *gestalt.SignalWorkflowRunResponse
+	err        error
+}
+
+func (h recordingWorkflowUpdateHandle) WorkflowID() string { return h.workflowID }
+
+func (h recordingWorkflowUpdateHandle) RunID() string { return h.runID }
+
+func (h recordingWorkflowUpdateHandle) UpdateID() string { return h.updateID }
+
+func (h recordingWorkflowUpdateHandle) Get(_ context.Context, valuePtr interface{}) error {
+	if h.err != nil {
+		return h.err
+	}
+	if h.resp == nil || valuePtr == nil {
+		return nil
+	}
+	switch out := valuePtr.(type) {
+	case *gestalt.SignalWorkflowRunResponse:
+		*out = *cloneSignalResponseInput(h.resp)
+		return nil
+	default:
+		return fmt.Errorf("unsupported workflow update target %T", valuePtr)
+	}
 }
 
 type fakeScheduleClient struct {
