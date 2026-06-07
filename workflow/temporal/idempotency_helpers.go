@@ -48,7 +48,7 @@ func idempotentDefinitionID(ownerKey, key string) string {
 
 func eventRunWorkflowID(scopeID, triggerID string, event *gestalt.WorkflowEvent) string {
 	// The event-v3 family is a persisted idempotency namespace for delivered event
-	// IDs. Keep it stable even though the provider runtime is now V4-only.
+	// IDs.
 	if event != nil && strings.TrimSpace(event.ID) != "" {
 		return workflowID(scopeID, "event-v3", triggerID, event.Source, event.ID)
 	}

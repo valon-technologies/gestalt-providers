@@ -59,29 +59,28 @@ Metadata-only reads do not start the Temporal worker.
 ## Runtime Behavior
 
 - Temporal Cloud API-key authentication
-- Temporal V4 run workflows invoke the Gestalt workflow host through activities
-  and project run state into IndexedDB for unkeyed, keyed, scheduled, and event
-  runs
+- `TemporalRun` workflows invoke the Gestalt workflow host through activities
+  and store run authority in Temporal workflow state
 - `ApplyDefinition` stores durable workflow definitions, compiled activations,
   and definition generations atomically
 - native Temporal schedules for cron dispatch with skip overlap policy;
   activation metadata is stored on the workflow definition while Temporal
   schedule records are internal dispatch cursors
-- keyed `StartRun` and `SignalOrStartRun` route directly to claim-gated V4 run
-  workflows and store workflow-key ownership in IndexedDB
+- keyed `StartRun` and `SignalOrStartRun` use deterministic Temporal workflow
+  IDs for workflow-key ownership
 - the first `SignalOrStartRun` signal is delivered with Temporal
   Update-with-Start, using a deterministic update ID derived from the workflow
   signal idempotency key
 - unkeyed and keyed `StartRun` idempotency and workflow signal idempotency are
   stored in IndexedDB; owner-scoped signal idempotency keys coalesce duplicate
   payloads while explicit signal IDs remain strict
-- public run IDs are opaque V4 handles that identify the run workflow and
-  Temporal run ID
+- public run IDs are opaque `temporal-run` handles that identify the run
+  workflow and Temporal run ID
 - `GetRun`, `GetRunEvents`, and `GetRunOutput` read authoritative run state
   from the Temporal workflow query or completed workflow result; `ListRuns`
-  reads IndexedDB run projections
-- IndexedDB stores workflow definitions, V4 run projections, V4 start
-  idempotency, V4 signal idempotency, workflow-key ownership metadata, and
-  internal Temporal schedule cursors
+  queries Temporal Visibility and hydrates from Temporal workflow state
+- IndexedDB stores workflow definitions and request idempotency records only;
+  Temporal owns run listing, current run state, schedule cursors, and
+  workflow-key ownership
 - event activation runs use the delivering subject as `created_by` when it is
   provided

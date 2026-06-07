@@ -27,7 +27,7 @@ type scopedTarget struct {
 	Target   *gestalt.BoundWorkflowTarget
 }
 
-const runHandleKindV4 = "temporal-run-v4"
+const runHandleKind = "temporal-run"
 
 type temporalRunHandle struct {
 	Kind             string `json:"kind"`
@@ -40,7 +40,7 @@ type temporalRunHandle struct {
 func encodeTemporalRunHandle(handle temporalRunHandle) string {
 	handle.Kind = strings.TrimSpace(handle.Kind)
 	if handle.Kind == "" {
-		handle.Kind = runHandleKindV4
+		handle.Kind = runHandleKind
 	}
 	handle.RunWorkflowID = strings.TrimSpace(handle.RunWorkflowID)
 	handle.RunTemporalRunID = strings.TrimSpace(handle.RunTemporalRunID)
@@ -68,7 +68,7 @@ func decodeTemporalRunHandle(id string) (*temporalRunHandle, error) {
 	handle.RunTemporalRunID = strings.TrimSpace(handle.RunTemporalRunID)
 	handle.WorkflowKey = strings.TrimSpace(handle.WorkflowKey)
 	handle.OwnerKey = strings.TrimSpace(handle.OwnerKey)
-	if handle.Kind != runHandleKindV4 {
+	if handle.Kind != runHandleKind {
 		return nil, fmt.Errorf("run_id is not a supported temporal workflow handle")
 	}
 	if handle.RunWorkflowID == "" {
@@ -617,61 +617,6 @@ func cloneAnyInput(input any) any {
 	var out any
 	if err := json.Unmarshal(payload, &out); err != nil {
 		return nil
-	}
-	return out
-}
-
-func applyWorkflowExecutionProjectionInput(run *gestalt.WorkflowRun, body string, completedAt time.Time) {
-	if run == nil {
-		return
-	}
-	result := workflowExecutionResultFromBodyInput(body)
-	run.Output = result.FinalOutput
-	run.CurrentStepID = result.FinalStepID
-	run.Steps = workflowStepExecutionsFromResultInput(result, completedAt)
-}
-
-func workflowExecutionResultFromBodyInput(body string) gestaltworkflow.StepsResult {
-	var result gestaltworkflow.StepsResult
-	if strings.TrimSpace(body) == "" {
-		return result
-	}
-	_ = json.Unmarshal([]byte(body), &result)
-	return result
-}
-
-func workflowStepExecutionsFromResultInput(result gestaltworkflow.StepsResult, completedAt time.Time) []gestalt.WorkflowStepExecution {
-	if len(result.Steps) == 0 {
-		return nil
-	}
-	out := make([]gestalt.WorkflowStepExecution, 0, len(result.Steps))
-	for _, step := range result.Steps {
-		statusValue := workflowStepStatusFromStringInput(step.Status)
-		output := cloneAnyInput(result.Outputs[strings.TrimSpace(step.ID)])
-		message := ""
-		if step.Error != nil {
-			message = strings.TrimSpace(step.Error.Message)
-		}
-		execution := gestalt.WorkflowStepExecution{
-			StepID:        strings.TrimSpace(step.ID),
-			Status:        statusValue,
-			Output:        output,
-			StatusMessage: message,
-			SkipReason:    strings.TrimSpace(step.SkippedReason),
-			CompletedAt:   timePtrInput(completedAt),
-		}
-		if statusValue == gestalt.WorkflowStepStatusValueSucceeded ||
-			statusValue == gestalt.WorkflowStepStatusValueFailed ||
-			statusValue == gestalt.WorkflowStepStatusValueSkipped {
-			execution.Attempts = []gestalt.WorkflowStepAttempt{{
-				ID:            execution.StepID + ":1",
-				Status:        statusValue,
-				Output:        output,
-				StatusMessage: message,
-				CompletedAt:   timePtrInput(completedAt),
-			}}
-		}
-		out = append(out, execution)
 	}
 	return out
 }

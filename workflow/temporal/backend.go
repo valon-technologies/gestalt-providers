@@ -13,11 +13,18 @@ import (
 	gestaltworkflow "github.com/valon-technologies/gestalt/sdk/go/workflow"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
+	workflowpb "go.temporal.io/api/workflow/v1"
+	workflowservicepb "go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 	sdkworkflow "go.temporal.io/sdk/workflow"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+)
+
+const (
+	runListHydrationConcurrency = 8
+	runListHydrationTimeout     = 10 * time.Second
 )
 
 type temporalWorker interface {
@@ -81,8 +88,8 @@ func (b *temporalBackend) Start(ctx context.Context) error {
 		return nil
 	}
 	w := b.newWorker(b.client, b.cfg.TaskQueue, b.workerOptions())
-	w.RegisterWorkflow(gestaltRunWorkflowV4)
-	w.RegisterActivity(&workflowActivities{executor: b.stepExecutor, state: b.state})
+	w.RegisterWorkflow(TemporalRun)
+	w.RegisterActivity(&workflowActivities{executor: b.stepExecutor})
 	if err := w.Start(); err != nil {
 		return fmt.Errorf("start temporal worker: %w", err)
 	}
@@ -149,16 +156,16 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkfl
 	workflowKey := strings.TrimSpace(req.WorkflowKey)
 	fingerprint := startFingerprint(start.OwnerKey, key, workflowKey, start.DefinitionID, start.DefinitionGeneration, start.Input, start.CreatedBySubjectID)
 	if key != "" && workflowKey == "" {
-		return b.startUnkeyedRunV4(ctx, start, key, fingerprint)
+		return b.startUnkeyedRun(ctx, start, key, fingerprint)
 	}
 	if workflowKey != "" {
-		return b.startKeyedRunV4(ctx, start, workflowKey, key, fingerprint)
+		return b.startKeyedRun(ctx, start, workflowKey, key, fingerprint)
 	}
-	temporalWorkflowID := workflowID(b.cfg.ScopeID, "run-v4", uuid.NewString())
+	temporalWorkflowID := workflowID(b.cfg.ScopeID, "temporal-run", uuid.NewString())
 	conflictPolicy := enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL
-	input := b.runV4Input(start.OwnerKey, start.DefinitionID, start.DefinitionGeneration, "", start.Target, start.Input, manualTriggerInput(), start.CreatedBySubjectID, false)
+	input := b.runInput(start.OwnerKey, start.DefinitionID, start.DefinitionGeneration, "", start.Target, start.Input, manualTriggerInput(), start.CreatedBySubjectID, false)
 	input.RunAs = cloneSubjectInput(start.RunAs)
-	run, err := b.executeRunV4(ctx, temporalWorkflowID, input, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+	run, err := b.executeRun(ctx, temporalWorkflowID, input, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +230,24 @@ func (b *temporalBackend) resultRunFromTemporal(ctx context.Context, handle *tem
 }
 
 func (b *temporalBackend) ListRuns(ctx context.Context, req *gestalt.ListWorkflowProviderRunsRequest) (*gestalt.ListWorkflowProviderRunsResponse, error) {
-	runs, nextPageToken, err := b.state.listRuns(ctx, req)
+	pageSize := effectiveRunListPageSize(req)
+	pageToken := ""
+	if req != nil {
+		pageToken = req.PageToken
+	}
+	nextPageToken, err := decodeTemporalListPageToken(pageToken)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "page_token is invalid")
+	}
+	resp, err := b.client.ListWorkflow(ctx, &workflowservicepb.ListWorkflowExecutionsRequest{
+		PageSize:      int32(pageSize),
+		NextPageToken: nextPageToken,
+		Query:         b.runVisibilityQuery(req),
+	})
+	if err != nil {
+		return nil, mapTemporalWorkflowCallError("list temporal workflows", err)
+	}
+	runs, err := b.hydrateListedRuns(ctx, resp.GetExecutions())
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +257,99 @@ func (b *temporalBackend) ListRuns(ctx context.Context, req *gestalt.ListWorkflo
 			inputs = append(inputs, *run)
 		}
 	}
-	return &gestalt.ListWorkflowProviderRunsResponse{Runs: inputs, NextPageToken: nextPageToken}, nil
+	return &gestalt.ListWorkflowProviderRunsResponse{Runs: inputs, NextPageToken: encodeTemporalListPageToken(resp.GetNextPageToken())}, nil
+}
+
+func (b *temporalBackend) runVisibilityQuery(req *gestalt.ListWorkflowProviderRunsRequest) string {
+	parts := []string{
+		"WorkflowType = " + temporalVisibilityQuote(temporalRunWorkflowType),
+		"GestaltScopeId = " + temporalVisibilityQuote(b.cfg.ScopeID),
+		"GestaltProviderName = " + temporalVisibilityQuote(b.providerName),
+	}
+	if req != nil && req.Status != gestalt.WorkflowRunStatusValueUnspecified {
+		if statusName := workflowRunStatusName(req.Status); statusName != "" && statusName != "unspecified" {
+			parts = append(parts, "GestaltRunStatus = "+temporalVisibilityQuote(statusName))
+		}
+	}
+	if req != nil {
+		if targetApp := strings.TrimSpace(req.TargetApp); targetApp != "" {
+			parts = append(parts, "GestaltTargetApps = "+temporalVisibilityQuote(targetApp))
+		}
+	}
+	return strings.Join(parts, " AND ")
+}
+
+func (b *temporalBackend) hydrateListedRuns(ctx context.Context, executions []*workflowpb.WorkflowExecutionInfo) ([]*gestalt.WorkflowRun, error) {
+	type result struct {
+		index int
+		run   *gestalt.WorkflowRun
+		err   error
+	}
+	if len(executions) == 0 {
+		return nil, nil
+	}
+	limit := runListHydrationConcurrency
+	if limit <= 0 || limit > len(executions) {
+		limit = len(executions)
+	}
+	sem := make(chan struct{}, limit)
+	results := make(chan result, len(executions))
+	var wg sync.WaitGroup
+	for index, info := range executions {
+		if info == nil || info.GetExecution() == nil {
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(index int, info *workflowpb.WorkflowExecutionInfo) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			runCtx, cancel := context.WithTimeout(ctx, runListHydrationTimeout)
+			defer cancel()
+			run, err := b.getRunFromTemporalInfo(runCtx, info)
+			if err != nil && isNotFoundLike(err) {
+				err = nil
+			}
+			results <- result{index: index, run: run, err: err}
+		}(index, info)
+	}
+	wg.Wait()
+	close(results)
+	ordered := make([]*gestalt.WorkflowRun, len(executions))
+	for res := range results {
+		if res.err != nil {
+			return nil, res.err
+		}
+		ordered[res.index] = res.run
+	}
+	runs := make([]*gestalt.WorkflowRun, 0, len(executions))
+	for _, run := range ordered {
+		if run != nil {
+			runs = append(runs, run)
+		}
+	}
+	return runs, nil
+}
+
+func (b *temporalBackend) getRunFromTemporalInfo(ctx context.Context, info *workflowpb.WorkflowExecutionInfo) (*gestalt.WorkflowRun, error) {
+	if info == nil || info.GetExecution() == nil {
+		return nil, nil
+	}
+	handle := &temporalRunHandle{
+		RunWorkflowID:    strings.TrimSpace(info.GetExecution().GetWorkflowId()),
+		RunTemporalRunID: strings.TrimSpace(info.GetExecution().GetRunId()),
+	}
+	if handle.RunWorkflowID == "" {
+		return nil, nil
+	}
+	switch info.GetStatus() {
+	case enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+		enumspb.WORKFLOW_EXECUTION_STATUS_PAUSED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_UNSPECIFIED:
+		return b.queryRunFromTemporal(ctx, handle)
+	default:
+		return b.resultRunFromTemporal(ctx, handle)
+	}
 }
 
 func (b *temporalBackend) GetRunEvents(ctx context.Context, req *gestalt.GetWorkflowProviderRunEventsRequest) (*gestalt.GetWorkflowProviderRunEventsResponse, error) {
@@ -467,7 +583,7 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *gestalt.Sig
 		}
 		return ownerResp, nil
 	}
-	resp, err := b.signalOrStartRunV4(ctx, start, workflowKey, signal, updateID)
+	resp, err := b.signalOrStartRun(ctx, start, workflowKey, signal, updateID)
 	if err != nil {
 		return nil, err
 	}
@@ -542,12 +658,12 @@ func (b *temporalBackend) DeliverEvent(ctx context.Context, req *gestalt.Deliver
 			ActivationID: activation.ID,
 			Event:        eventInput,
 		}}
-		input := b.runV4Input(targetOwnerKeyInput(definition.Target), definition.ID, definition.Generation, "", definition.Target, activationInput, eventTriggerInput, createdBy, false)
+		input := b.runInput(targetOwnerKeyInput(definition.Target), definition.ID, definition.Generation, "", definition.Target, activationInput, eventTriggerInput, createdBy, false)
 		input.RunAs = cloneSubjectInput(definition.RunAs)
 		if err := validateWorkflowRunAsInput(input.RunAs); err != nil {
 			return nil, status.Errorf(codes.FailedPrecondition, "workflow definition %q run_as: %v", definition.ID, err)
 		}
-		run, err := b.executeRunV4(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+		run, err := b.executeRun(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 		if err != nil {
 			if strings.TrimSpace(eventInput.ID) != "" && isAlreadyStarted(err) {
 				continue
@@ -700,18 +816,19 @@ func (b *temporalBackend) upsertDefinitionSchedule(ctx context.Context, definiti
 	if err != nil {
 		return err
 	}
-	actionInput := b.runV4Input(targetOwnerKeyInput(definition.Target), definition.ID, definition.Generation, "", definition.Target, activationInput, scheduleTriggerInput(activation.ID, time.Now().UTC()), definition.CreatedBySubjectID, false)
+	actionInput := b.runInput(targetOwnerKeyInput(definition.Target), definition.ID, definition.Generation, "", definition.Target, activationInput, scheduleTriggerInput(activation.ID, time.Now().UTC()), definition.CreatedBySubjectID, false)
 	actionInput.ActivationID = activation.ID
 	actionInput.RunAs = cloneSubjectInput(definition.RunAs)
 	if err := validateWorkflowRunAsInput(actionInput.RunAs); err != nil {
 		return status.Errorf(codes.InvalidArgument, "workflow definition %q run_as: %v", definition.ID, err)
 	}
 	action := &client.ScheduleWorkflowAction{
-		Workflow:            gestaltRunWorkflowV4,
-		Args:                []any{actionInput},
-		TaskQueue:           b.cfg.TaskQueue,
-		WorkflowRunTimeout:  b.cfg.WorkflowRunTimeout,
-		WorkflowTaskTimeout: defaultWorkflowTaskTimeout,
+		Workflow:              TemporalRun,
+		Args:                  []any{actionInput},
+		TaskQueue:             b.cfg.TaskQueue,
+		WorkflowRunTimeout:    b.cfg.WorkflowRunTimeout,
+		WorkflowTaskTimeout:   defaultWorkflowTaskTimeout,
+		TypedSearchAttributes: workflowRunSearchAttributesFromInput(actionInput, gestalt.WorkflowRunStatusValuePending),
 	}
 	temporalID := b.temporalScheduleID(definition.ID, activation.ID)
 	spec := client.ScheduleSpec{
@@ -773,7 +890,7 @@ func (b *temporalBackend) runStartOptions(workflowID string, conflict enumspb.Wo
 		TaskQueue:                                b.cfg.TaskQueue,
 		WorkflowIDConflictPolicy:                 conflict,
 		WorkflowIDReusePolicy:                    reuse,
-		WorkflowExecutionErrorWhenAlreadyStarted: false,
+		WorkflowExecutionErrorWhenAlreadyStarted: conflict == enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL,
 		WorkflowTaskTimeout:                      defaultWorkflowTaskTimeout,
 		WorkflowRunTimeout:                       b.cfg.WorkflowRunTimeout,
 	}
