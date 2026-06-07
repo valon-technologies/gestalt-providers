@@ -184,7 +184,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         except ValueError as exc:
             raise gestalt.Error(400, str(exc)) from exc
 
-        request_context = _request_context(request)
+        request_context = getattr(request, "context", None)
         messages = prepend_session_start_context(gestalt.agent_messages_to_dicts(request.messages), session.metadata)
         skill_roots = session_start_metadata_paths(
             session.metadata, "codexSkillRoots", allowed_basenames={"mortgage", "vds", "tools", "rnb"}
@@ -348,7 +348,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         session_id: str,
         model: str,
         messages: list[dict[str, Any]],
-        request_context: Any | None,
+        request_context: Any,
         skill_roots: list[str],
         cwd: str,
         schema: dict[str, Any] | None,
@@ -489,7 +489,7 @@ def _which(binary: str) -> str | None:
 def _validate_create_turn_request(request: gestalt.CreateAgentProviderTurnRequest) -> dict[str, Any] | None:
     if request.tool_source != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
         raise gestalt.Error(400, "agent/codex requires toolSource mcp_catalog")
-    if _request_context(request) is None:
+    if getattr(request, "context", None) is None:
         raise gestalt.Error(400, "request context is required")
     if len(list(request.tools)) > 0:
         raise gestalt.Error(400, "resolved tools are not supported; use tool_refs with mcp_catalog")
@@ -546,10 +546,6 @@ def _existing_session_for_create(
     if not idempotency_key:
         return None
     return store.get_session_by_idempotency_key(idempotency_key)
-
-
-def _request_context(request: Any) -> Any | None:
-    return getattr(request, "context", None)
 
 
 provider = CodexMCPAgentProvider()

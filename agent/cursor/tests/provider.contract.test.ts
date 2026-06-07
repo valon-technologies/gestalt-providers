@@ -92,7 +92,9 @@ function subjectFixture(id: string, kind: string, displayName: string) {
   };
 }
 
-function requestContext(subject = OWNER_SUBJECT) {
+function requestContext(
+  subject = OWNER_SUBJECT,
+): NonNullable<CreateAgentProviderTurnRequest["context"]> {
   return createMessage(RequestContextSchema, {
     subject: createMessage(SubjectContextSchema, {
       id: subject.id,

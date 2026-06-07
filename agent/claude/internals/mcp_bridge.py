@@ -119,7 +119,7 @@ class GestaltMCPBridge:
                         tool_call_id=tool_call_id,
                         tool_id=entry.tool_id,
                         arguments=arguments or {},
-                        **_request_context_kwargs(self._request_context),
+                        context=self._request_context,
                         idempotency_key=(f"agent/claude-sdk:{self._turn_id}:{tool_call_id}:{entry.mcp_name}"),
                     )
 
@@ -183,7 +183,7 @@ class GestaltMCPBridge:
                 self._turn_id,
                 page_size=DEFAULT_PAGE_SIZE,
                 page_token=page_token,
-                **_request_context_kwargs(self._request_context),
+                context=self._request_context,
             )
         return [_tool_entry(tool) for tool in response.tools], str(response.next_page_token or "").strip()
 
@@ -318,10 +318,6 @@ def _tool_error_entry(exc: Exception) -> ToolEntry:
 def _tool_error_result(exc: Exception) -> CallToolResult:
     body = json.dumps({"ok": False, "error": _tool_error_message(exc)}, ensure_ascii=False)
     return CallToolResult(content=[TextContent(type="text", text=body)], isError=True)
-
-
-def _request_context_kwargs(request_context: Any | None) -> dict[str, Any]:
-    return {"context": request_context} if request_context is not None else {}
 
 
 def _tool_error_message(exc: Exception) -> str:

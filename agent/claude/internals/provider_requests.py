@@ -103,9 +103,12 @@ def turn_create_request_from_provider_request(
     if request.tool_source == tool_source_modes.none:
         turn_profile = ClaudeTurnProfile.direct(schema=schema)
     else:
+        request_context = getattr(request, "context", None)
+        if request_context is None:
+            raise ValueError("request context is required")
         claude_code_options = config.claude_code.resolve_turn_options(session.metadata)
         turn_profile = ClaudeTurnProfile.catalog(
-            request_context=_required_request_context(request),
+            request_context=request_context,
             schema=schema,
             claude_code_options=claude_code_options,
             cwd=prepared_workspace_cwd(session.prepared_workspace),
@@ -129,7 +132,7 @@ def validate_turn_contract(
 ) -> dict[str, Any] | None:
     if request.tool_source not in {tool_source_modes.mcp_catalog, tool_source_modes.none}:
         raise ValueError("agent/claude requires toolSource none or mcp_catalog")
-    if request.tool_source == tool_source_modes.mcp_catalog and _request_context(request) is None:
+    if request.tool_source == tool_source_modes.mcp_catalog and getattr(request, "context", None) is None:
         raise ValueError("request context is required")
     if list(request.tools):
         raise ValueError("resolved tools are not supported by agent/claude")
@@ -181,17 +184,6 @@ def _schema_from_output(output: gestalt.AgentOutput | None) -> dict[str, Any] | 
         assert output.structured is not None
         return dict(output.structured.schema)
     return None
-
-
-def _request_context(request: Any) -> Any | None:
-    return getattr(request, "context", None)
-
-
-def _required_request_context(request: Any) -> Any:
-    context = _request_context(request)
-    if context is None:
-        raise ValueError("request context is required")
-    return context
 
 
 def _validate_schema(schema: dict[str, Any] | None) -> None:

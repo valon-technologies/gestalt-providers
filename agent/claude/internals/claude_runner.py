@@ -213,14 +213,9 @@ class ClaudeSDKRunner:
         turn_id: str,
         turn_profile: ClaudeTurnProfile | None = None,
         schema: dict[str, Any] | None = None,
-        claude_code_options: ClaudeCodeTurnOptions | None = None,
-        cwd: str = "",
     ) -> ClaudeAgentOptions:
         if turn_profile is None:
-            if schema is not None:
-                turn_profile = ClaudeTurnProfile.direct(schema=schema)
-            else:
-                turn_profile = ClaudeTurnProfile.direct(schema=schema)
+            turn_profile = ClaudeTurnProfile.direct(schema=schema)
         if turn_profile.uses_catalog_tools:
             return self._catalog_options(model=model, session_id=session_id, turn_id=turn_id, turn_profile=turn_profile)
         return self._direct_options(model=model, turn_profile=turn_profile)

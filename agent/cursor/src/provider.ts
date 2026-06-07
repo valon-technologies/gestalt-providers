@@ -139,10 +139,10 @@ export class CursorAgentProvider extends SDKAgentProvider {
             metadata,
             visibility: sessionVisibilityForCreateMetadata(
               metadata,
-              createdBySubjectId(request),
+              (request.createdBySubjectId ?? "").trim(),
             ),
             preparedWorkspace,
-            createdBySubjectId: createdBySubjectId(request),
+            createdBySubjectId: (request.createdBySubjectId ?? "").trim(),
           });
           return sessionToAgentSession(session);
         });
@@ -156,10 +156,10 @@ export class CursorAgentProvider extends SDKAgentProvider {
         metadata,
         visibility: sessionVisibilityForCreateMetadata(
           metadata,
-          createdBySubjectId(request),
+          (request.createdBySubjectId ?? "").trim(),
         ),
         preparedWorkspace,
-        createdBySubjectId: createdBySubjectId(request),
+        createdBySubjectId: (request.createdBySubjectId ?? "").trim(),
       });
       if (!created) {
         this.requireReadableSession(session, request.subject);
@@ -265,7 +265,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         providerName: this.name,
         model,
         messages: prependSessionStartContext(request.messages, session.metadata),
-        createdBySubjectId: createdBySubjectId(request),
+        createdBySubjectId: (request.createdBySubjectId ?? "").trim(),
         executionRef: request.executionRef,
       });
       turn = result.turn;
@@ -278,13 +278,17 @@ export class CursorAgentProvider extends SDKAgentProvider {
     }
 
     if (created) {
+      const requestContext = request.context;
+      if (requestContext === undefined) {
+        throw invalidArgument("request context is required");
+      }
       void this.completeTurn({
         runner,
         turnId: turn.turnId,
         sessionId: turn.sessionId,
         model,
         messages: turn.messages,
-        requestContext: requiredRequestContext(request),
+        requestContext,
         cwd: session.preparedWorkspace?.cwd ?? "",
         schema,
       });
@@ -549,7 +553,7 @@ function validateCreateTurnRequest(
   if (request.toolSource !== AgentToolSourceMode.MCP_CATALOG) {
     throw invalidArgument("agent/cursor requires toolSource mcp_catalog");
   }
-  if (requestContext(request) === undefined) {
+  if (request.context === undefined) {
     throw invalidArgument("request context is required");
   }
   if (request.tools.length > 0) {
@@ -570,28 +574,6 @@ function validateCreateTurnRequest(
   }
   validateToolRefs(request.toolRefs);
   return schema;
-}
-
-function requestContext(
-  request: CreateAgentProviderTurnRequest,
-): CreateAgentProviderTurnRequest["context"] {
-  return request.context;
-}
-
-function requiredRequestContext(
-  request: CreateAgentProviderTurnRequest,
-): NonNullable<CreateAgentProviderTurnRequest["context"]> {
-  const context = requestContext(request);
-  if (context === undefined) {
-    throw invalidArgument("request context is required");
-  }
-  return context;
-}
-
-function createdBySubjectId(
-  request: CreateAgentProviderSessionRequest | CreateAgentProviderTurnRequest,
-): string {
-  return String(request.createdBySubjectId ?? "").trim();
 }
 
 function schemaFromOutput(

@@ -93,7 +93,7 @@ def list_tools(
                 turn_id=turn_id,
                 page_size=DEFAULT_PAGE_SIZE,
                 page_token=page_token,
-                **_request_context_kwargs(request_context),
+                context=request_context,
             )
             timeout = _coerce_timeout_seconds(timeout_seconds)
             try:
@@ -149,7 +149,7 @@ def execute_tool(
             tool_call_id=tool_call_id,
             tool_id=entry.tool_id,
             arguments=arguments or {},
-            **_request_context_kwargs(request_context),
+            context=request_context,
             idempotency_key=idempotency_key,
         )
         timeout = _coerce_timeout_seconds(timeout_seconds)
@@ -299,7 +299,3 @@ def _grpc_error_message(rpc_name: str, exc: grpc.RpcError) -> str:
     code = code_value.name if code_value is not None else "UNKNOWN"
     details = error.details() or "gRPC call failed"
     return f"AgentHost.{rpc_name} failed: {code}: {details}"
-
-
-def _request_context_kwargs(request_context: Any | None) -> dict[str, Any]:
-    return {"context": request_context} if request_context is not None else {}
