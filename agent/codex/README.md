@@ -1,7 +1,7 @@
 # Codex MCP Agent Provider
 
 `agent/codex` runs Codex through the Codex CLI MCP server. Gestalt does not rank
-or search tools in this provider. For `toolSource: mcp_catalog`, the provider
+or search tools in this provider. For session `tools.catalog`, the provider
 hydrates the exact granted catalog tools with `AgentHost.ListTools`, writes those
 tool names into a temporary Codex `mcp_servers.gestalt.enabled_tools` config,
 and routes nested Codex MCP tool calls back through `AgentHost.ExecuteTool`.
@@ -58,18 +58,19 @@ Use exact tool refs with the MCP catalog source:
 ```yaml
 agent:
   provider: codex
-  toolSource: mcp_catalog
-  toolRefs:
-    - plugin: linear
-      operation: searchIssues
-    - plugin: github
-      operation: pulls/list
+  tools:
+    catalog:
+      refs:
+        - plugin: linear
+          operation: searchIssues
+        - plugin: github
+          operation: pulls/list
 ```
 
 The provider relies on the request context supplied by Gestalt for authorization
-and scoped tool calls. `toolRefs` are required so the caller's intent is
-explicit, while `AgentHost.ListTools` decides the actual tools exposed to Codex
-for the current turn.
+and scoped tool calls. Session catalog refs are required so the caller's intent
+is explicit, while `AgentHost.ListTools` decides the actual tools exposed to
+Codex for the current turn.
 
 `codexCommand` and `codexArgs` can be set when `codex mcp-server` is not on
 `PATH`, for example:

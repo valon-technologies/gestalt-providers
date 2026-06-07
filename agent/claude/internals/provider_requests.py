@@ -137,7 +137,8 @@ def turn_create_request_from_provider_request(
 def validate_turn_contract(
     request: gestalt.CreateAgentProviderTurnRequest, *, session: StoredSession, tool_source_modes: ToolSourceModes
 ) -> tuple[dict[str, Any] | None, int]:
-    tool_source, tool_refs = effective_turn_tool_scope(request, session=session)
+    tool_source = session.tool_source or tool_source_modes.none
+    tool_refs = list(session.tool_refs)
     if tool_source not in {tool_source_modes.mcp_catalog, tool_source_modes.none}:
         raise ValueError("agent/claude requires toolSource none or mcp_catalog")
     if tool_source == tool_source_modes.mcp_catalog and getattr(request, "context", None) is None:
@@ -167,17 +168,6 @@ def session_tool_scope_from_config(
         _validate_tool_refs(refs)
         return tool_source_modes.mcp_catalog, refs
     raise ValueError("agent session tools must be none or catalog")
-
-
-def effective_turn_tool_scope(
-    request: gestalt.CreateAgentProviderTurnRequest, *, session: StoredSession
-) -> tuple[int, list[gestalt.AgentToolRef]]:
-    tool_refs = list(request.tool_refs)
-    if request.tool_source or tool_refs:
-        raise ValueError("agent turn tools must be configured on the session")
-    if session.tool_source:
-        return session.tool_source, list(session.tool_refs)
-    return gestalt.AGENT_TOOL_SOURCE_MODE_NONE, []
 
 
 def existing_session_for_create(

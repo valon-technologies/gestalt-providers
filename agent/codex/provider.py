@@ -25,6 +25,7 @@ from internals.store import (
     session_writable_by,
 )
 from internals.store import InMemoryRunStore
+
 logger = logging.getLogger(__name__)
 
 
@@ -497,8 +498,7 @@ def _which(binary: str) -> str | None:
 def _validate_create_turn_request(
     request: gestalt.CreateAgentProviderTurnRequest, *, session: StoredSession
 ) -> dict[str, Any] | None:
-    tool_source, tool_refs = _effective_turn_tool_scope(request, session=session)
-    if tool_source != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
+    if session.tool_source != gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG:
         raise gestalt.Error(400, "agent/codex requires toolSource mcp_catalog")
     if getattr(request, "context", None) is None:
         raise gestalt.Error(400, "request context is required")
@@ -512,7 +512,7 @@ def _validate_create_turn_request(
         raise gestalt.Error(400, str(exc)) from exc
     if dict(request.model_options or {}):
         raise gestalt.Error(400, "model_options are not supported by agent/codex")
-    _validate_tool_refs(tool_refs)
+    _validate_tool_refs(list(session.tool_refs))
     return schema
 
 
@@ -528,15 +528,6 @@ def _session_tool_scope_from_config(
         _validate_tool_refs(refs)
         return gestalt.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG, refs
     raise ValueError("agent session tools must be catalog")
-
-
-def _effective_turn_tool_scope(
-    request: gestalt.CreateAgentProviderTurnRequest, *, session: StoredSession
-) -> tuple[int, list[gestalt.AgentToolRef]]:
-    tool_refs = list(request.tool_refs)
-    if request.tool_source or tool_refs:
-        raise gestalt.Error(400, "agent turn tools must be configured on the session")
-    return session.tool_source, list(session.tool_refs)
 
 
 def _schema_from_output(output: gestalt.AgentOutput | None) -> dict[str, Any] | None:

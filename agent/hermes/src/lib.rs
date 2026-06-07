@@ -263,12 +263,12 @@ impl gestalt::AgentProvider for HermesAgentProvider {
 
     async fn create_turn(
         &self,
-        mut req: gestalt::CreateAgentProviderTurnRequest,
+        req: gestalt::CreateAgentProviderTurnRequest,
     ) -> gestalt::Result<gestalt::AgentTurn> {
         let config = self.require_config().await?;
         let provider_name = self.provider_name().await;
         let subject_id = subject_id(req.subject.as_ref());
-        let (model, session_tool_source, session_tool_refs) = {
+        let (model, mut session_tool_source, session_tool_refs) = {
             let store = self.inner.store.lock().await;
             let session = store.get_session(&req.session_id).ok_or_else(|| {
                 gestalt::Error::not_found(format!(
@@ -295,16 +295,23 @@ impl gestalt::AgentProvider for HermesAgentProvider {
                 session.tool_refs,
             )
         };
-        let (tool_source, tool_refs) =
-            effective_turn_tool_scope(&req, session_tool_source, &session_tool_refs)?;
-        req.tool_source = tool_source;
-        req.tool_refs = tool_refs;
+        if session_tool_source == gestalt::AgentToolSourceMode::Unspecified {
+            session_tool_source = gestalt::AgentToolSourceMode::None;
+        }
         let request_context = req.context.clone();
-        validate_turn_request(&req)?;
+        validate_turn_request(&req, session_tool_source, &session_tool_refs)?;
 
         let turn = {
             let mut store = self.inner.store.lock().await;
-            match store.begin_turn(&req, &provider_name, model, &subject_id, request_context) {
+            match store.begin_turn(
+                &req,
+                &provider_name,
+                model,
+                &subject_id,
+                session_tool_source,
+                session_tool_refs,
+                request_context,
+            ) {
                 Ok(BeginTurnResult::Created(turn)) => {
                     let worker = self.clone();
                     let turn_id = turn.id.clone();
@@ -930,7 +937,11 @@ fn truncate_for_status(value: &str, max_chars: usize) -> String {
     result
 }
 
-fn validate_turn_request(req: &gestalt::CreateAgentProviderTurnRequest) -> gestalt::Result<()> {
+fn validate_turn_request(
+    req: &gestalt::CreateAgentProviderTurnRequest,
+    tool_source: gestalt::AgentToolSourceMode,
+    tool_refs: &[gestalt::AgentToolRef],
+) -> gestalt::Result<()> {
     let has_object_fields = |value: Option<&JsonValue>| {
         value
             .and_then(JsonValue::as_object)
@@ -949,10 +960,10 @@ fn validate_turn_request(req: &gestalt::CreateAgentProviderTurnRequest) -> gesta
     if let gestalt::AgentOutput::Structured(output) = &req.output {
         validate_schema(&output.schema).map_err(gestalt::Error::bad_request)?;
     }
-    validate_catalog_tool_refs(&req.tool_refs)?;
-    match req.tool_source {
+    validate_catalog_tool_refs(tool_refs)?;
+    match tool_source {
         gestalt::AgentToolSourceMode::Unspecified | gestalt::AgentToolSourceMode::None => {
-            if !req.tool_refs.is_empty() {
+            if !tool_refs.is_empty() {
                 return Err(gestalt::Error::bad_request(
                     "tool_source=CATALOG is required when tool_refs are provided",
                 ));
@@ -986,22 +997,6 @@ fn validate_session_tool_config(
         }
         None => Ok(()),
     }
-}
-
-fn effective_turn_tool_scope(
-    req: &gestalt::CreateAgentProviderTurnRequest,
-    session_tool_source: gestalt::AgentToolSourceMode,
-    session_tool_refs: &[gestalt::AgentToolRef],
-) -> gestalt::Result<(gestalt::AgentToolSourceMode, Vec<gestalt::AgentToolRef>)> {
-    if req.tool_source != gestalt::AgentToolSourceMode::Unspecified || !req.tool_refs.is_empty() {
-        return Err(gestalt::Error::bad_request(
-            "agent turn tools must be configured on the session",
-        ));
-    }
-    if session_tool_source != gestalt::AgentToolSourceMode::Unspecified {
-        return Ok((session_tool_source, session_tool_refs.to_vec()));
-    }
-    Ok((gestalt::AgentToolSourceMode::None, Vec::new()))
 }
 
 fn validate_catalog_tool_refs(refs: &[gestalt::AgentToolRef]) -> gestalt::Result<()> {

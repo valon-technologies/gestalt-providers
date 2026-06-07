@@ -250,6 +250,8 @@ impl Store {
         provider_name: &str,
         model: String,
         subject_id: &str,
+        tool_source: AgentToolSourceMode,
+        tool_refs: Vec<AgentToolRef>,
         request_context: Option<GestaltRequestContext>,
     ) -> Result<BeginTurnResult, String> {
         let turn_id = req.turn_id.trim();
@@ -308,8 +310,8 @@ impl Store {
             started_at: Some(now),
             completed_at: None,
             execution_ref: req.execution_ref.trim().to_string(),
-            tool_refs: req.tool_refs.clone(),
-            tool_source: req.tool_source,
+            tool_refs,
+            tool_source,
             request_context,
         };
         self.turns.insert(turn.id.clone(), turn.clone());

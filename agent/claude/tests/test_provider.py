@@ -673,8 +673,6 @@ class ClaudeProviderTests(unittest.TestCase):
                 session_id="session-claude",
                 messages=[agent_pb2.AgentMessage(role="user", text="List my Linear issues")],
                 execution_ref="exec-claude",
-                tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_UNSPECIFIED,
-                include_tool_refs=False,
             )
         )
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
@@ -760,7 +758,6 @@ class ClaudeProviderTests(unittest.TestCase):
                 session_id="session-structured",
                 messages=[agent_pb2.AgentMessage(role="user", text="Grade the answer")],
                 output_schema=schema,
-                include_tool_refs=False,
             )
         )
         self.assertEqual(started.status, agent_pb2.AGENT_EXECUTION_STATUS_RUNNING)
@@ -800,56 +797,6 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         message_events = [event for event in events.events if event.type == "assistant.message"]
         self.assertEqual(message_events[0].data.fields["value"].struct_value.fields["score"].number_value, 1)
-
-    def test_provider_rejects_turn_tools_outside_configured_session_scope(self) -> None:
-        _, provider_client = _configure_provider()
-        no_tools = agent_pb2.AgentToolConfig()
-        no_tools.none.SetInParent()
-        provider_client.CreateSession(
-            agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-no-tools",
-                model="sonnet-session",
-                created_by_subject_id="user-123",
-                tools=no_tools,
-            )
-        )
-
-        with self.assertRaises(grpc.RpcError) as raised:
-            provider_client.CreateTurn(
-                _turn_request(
-                    turn_id="turn-wide-tools",
-                    session_id="session-no-tools",
-                    tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
-                    include_tool_refs=True,
-                )
-            )
-        self.assertEqual(cast(Any, raised.exception).code(), grpc.StatusCode.INVALID_ARGUMENT)
-
-    def test_provider_rejects_turn_refs_outside_configured_catalog_session_scope(self) -> None:
-        _, provider_client = _configure_provider()
-        tools = agent_pb2.AgentToolConfig()
-        linear = tools.catalog.refs.add()
-        linear.app = "linear"
-        linear.operation = "searchIssues"
-        provider_client.CreateSession(
-            agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-linear-only",
-                model="sonnet-session",
-                created_by_subject_id="user-123",
-                tools=tools,
-            )
-        )
-
-        with self.assertRaises(grpc.RpcError) as raised:
-            provider_client.CreateTurn(
-                _turn_request(
-                    turn_id="turn-wide-catalog",
-                    session_id="session-linear-only",
-                    tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
-                    include_tool_refs=True,
-                )
-            )
-        self.assertEqual(cast(Any, raised.exception).code(), grpc.StatusCode.INVALID_ARGUMENT)
 
     def test_provider_allows_catalog_tools_with_schema(self) -> None:
         _FakeClaudeSDKClient.mode = "catalog_structured_success"
@@ -976,12 +923,7 @@ class ClaudeProviderTests(unittest.TestCase):
                 schema = struct_pb2.Struct()
                 schema.update({"type": "object"})
                 provider_client.CreateTurn(
-                    _turn_request(
-                        turn_id=f"turn-{mode}",
-                        session_id=f"session-{mode}",
-                        output_schema=schema,
-                        include_tool_refs=False,
-                    )
+                    _turn_request(turn_id=f"turn-{mode}", session_id=f"session-{mode}", output_schema=schema)
                 )
                 failed = _wait_for_turn(provider_client, f"turn-{mode}", agent_pb2.AGENT_EXECUTION_STATUS_FAILED)
                 self.assertIn(message, failed.status_message)
@@ -1033,7 +975,6 @@ class ClaudeProviderTests(unittest.TestCase):
                     session_id="session-request-timeout",
                     output_schema=schema,
                     timeout_seconds=2,
-                    include_tool_refs=False,
                 )
             )
 
@@ -1662,28 +1603,14 @@ class ClaudeProviderTests(unittest.TestCase):
         _create_owned_session(provider_client, "session-validation", tools=_catalog_tool_config())
         _create_owned_session(provider_client, "session-validation-no-tools")
 
-        bad_source = _turn_request(turn_id="turn-bad-source", session_id="session-validation")
-        bad_source.tool_source = 999
-        _assert_invalid(provider_client, bad_source, "agent turn tools must be configured on the session")
-
         missing_context = _turn_request(
             turn_id="turn-missing-context", session_id="session-validation", include_context=False
         )
         _assert_invalid(provider_client, missing_context, "request context is required")
 
-        wildcard_ref = _turn_request(
-            turn_id="turn-wildcard",
-            session_id="session-validation",
-            tool_source=agent_pb2.AGENT_TOOL_SOURCE_MODE_MCP_CATALOG,
-            include_tool_refs=True,
-        )
-        wildcard_ref.tool_refs[0].operation = "*"
-        _assert_invalid(provider_client, wildcard_ref, "agent turn tools must be configured on the session")
-
         empty_schema = _turn_request(
             turn_id="turn-empty-response-schema",
             session_id="session-validation-no-tools",
-            include_tool_refs=False,
             output_schema=struct_pb2.Struct(),
         )
         _assert_invalid(provider_client, empty_schema, "output.structured.schema")
@@ -1691,10 +1618,7 @@ class ClaudeProviderTests(unittest.TestCase):
         scalar_schema = struct_pb2.Struct()
         scalar_schema.update({"type": "array"})
         bad_schema = _turn_request(
-            turn_id="turn-response-schema",
-            session_id="session-validation-no-tools",
-            include_tool_refs=False,
-            output_schema=scalar_schema,
+            turn_id="turn-response-schema", session_id="session-validation-no-tools", output_schema=scalar_schema
         )
         _assert_invalid(provider_client, bad_schema, "output.structured.schema.type must be")
 
@@ -1709,18 +1633,8 @@ class ClaudeProviderTests(unittest.TestCase):
         resolved_tools.tools.add(id="resolved-tool", name="legacy", description="legacy")
         _assert_invalid(provider_client, resolved_tools, "resolved tools are not supported")
 
-        none_with_refs = _turn_request(
-            turn_id="turn-none-with-refs",
-            session_id="session-validation-no-tools",
-            include_tool_refs=True,
-            tool_source=AGENT_TOOL_SOURCE_MODE_NONE,
-        )
-        _assert_invalid(provider_client, none_with_refs, "agent turn tools must be configured on the session")
-
         none_without_schema = _turn_request(
-            turn_id="turn-none-without-schema",
-            session_id="session-validation-no-tools",
-            include_tool_refs=False,
+            turn_id="turn-none-without-schema", session_id="session-validation-no-tools"
         )
         _FakeClaudeSDKClient.mode = "text_fallback"
         self.assertEqual(
@@ -1936,16 +1850,13 @@ def _turn_request(
     idempotency_key: str = "",
     output_schema: Any | None = None,
     model_options: Any | None = None,
-    tool_source: int | None = None,
     timeout_seconds: int = 0,
-    include_tool_refs: bool = False,
     include_context: bool = True,
 ) -> Any:
     request = agent_pb2.CreateAgentProviderTurnRequest(
         turn_id=turn_id,
         session_id=session_id,
         messages=messages or [agent_pb2.AgentMessage(role="user", text="List my Linear issues")],
-        tool_source=tool_source if tool_source is not None else agent_pb2.AGENT_TOOL_SOURCE_MODE_UNSPECIFIED,
         execution_ref=execution_ref,
         idempotency_key=idempotency_key,
         created_by_subject_id="user-123",
@@ -1955,13 +1866,6 @@ def _turn_request(
         request.context.subject.CopyFrom(_subject_context("user-123"))
     if timeout_seconds:
         request.timeout_seconds = timeout_seconds
-    if include_tool_refs:
-        linear = request.tool_refs.add()
-        linear.app = "linear"
-        linear.operation = "searchIssues"
-        github = request.tool_refs.add()
-        github.app = "github"
-        github.operation = "pulls/list"
     if output_schema is None:
         request.output.text.SetInParent()
     else:
