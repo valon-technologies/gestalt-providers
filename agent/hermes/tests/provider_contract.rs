@@ -2055,9 +2055,8 @@ async fn create_turn_in_session_as(
 }
 
 async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> gestalt::AgentTurn {
-    gestalt::with_request_context(
-        Some(request_context(OWNER_SUBJECT_ID)),
-        provider.create_turn(gestalt::CreateAgentProviderTurnRequest {
+    provider
+        .create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: turn_id.to_string(),
             session_id: "session-1".to_string(),
             messages: vec![gestalt::AgentMessage {
@@ -2073,11 +2072,11 @@ async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> gesta
             }],
             created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
+            context: Some(request_context(OWNER_SUBJECT_ID)),
             ..empty_turn_request()
-        }),
-    )
-    .await
-    .unwrap()
+        })
+        .await
+        .unwrap()
 }
 
 fn owner_subject() -> gestalt::Subject {
@@ -2117,6 +2116,7 @@ fn empty_turn_request() -> gestalt::CreateAgentProviderTurnRequest {
         subject: None,
         model_options: None,
         timeout_seconds: 0,
+        context: None,
     }
 }
 
