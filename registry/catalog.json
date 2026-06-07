@@ -48,7 +48,7 @@
         "entryKind": "agent",
         "section": "providers.agent"
       },
-      "description": "Agent provider that runs Codex CLI through its MCP harness with Gestalt MCP catalog tools exposed by grant.",
+      "description": "Agent provider that runs Codex CLI through its MCP harness with Gestalt MCP catalog tools scoped to the current turn.",
       "displayName": "Codex MCP Agent",
       "docs": [
         {
