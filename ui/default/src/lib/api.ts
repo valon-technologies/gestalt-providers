@@ -459,7 +459,7 @@ export interface AgentRunCreate {
   model?: string;
   messages: AgentMessage[];
   toolRefs?: AgentToolRef[];
-  toolSource?: "mcp_catalog" | "explicit" | "inherit_invokes";
+  toolSource?: "catalog" | "explicit" | "inherit_invokes";
   output?: AgentOutput;
   sessionRef?: string;
   metadata?: Record<string, unknown>;
@@ -652,7 +652,7 @@ function agentToolsToRequest(
   switch (value) {
     case undefined:
       return undefined;
-    case "mcp_catalog":
+    case "catalog":
     case "explicit":
       return { catalog: { refs: agentToolRefsToRequest(refs) } };
     case "inherit_invokes":

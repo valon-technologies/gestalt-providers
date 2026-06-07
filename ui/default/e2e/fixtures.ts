@@ -200,7 +200,7 @@ export async function mockAgentSessions(
           streamingText: true,
           toolCalls: true,
           interactions: true,
-          supportedToolSources: ["mcp_catalog"],
+          supportedToolSources: ["catalog"],
         },
       },
     ] satisfies AgentProvider[]);
@@ -531,7 +531,7 @@ export async function mockAgentRuns(
                 streamingText: true,
                 toolCalls: true,
                 interactions: true,
-                supportedToolSources: ["mcp_catalog"],
+                supportedToolSources: ["catalog"],
               },
             },
           ],
