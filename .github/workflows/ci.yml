@@ -105,7 +105,7 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          package_roots = ("agent", "runtime", "app", "auth", "authorization", "externalcredentials", "s3", "indexeddb", "workflow", "cache", "secrets")
+          package_roots = ("agent", "runtime", "app", "auth", "authorization", "externalcredentials", "s3", "indexeddb", "workflow", "cache", "secrets", "test")
           all_apps = []
           for root_name in package_roots:
               root = repo / root_name

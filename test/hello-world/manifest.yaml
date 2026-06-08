@@ -1,0 +1,6 @@
+source: github.com/valon-technologies/gestalt-providers/test/hello-world
+version: 0.0.1-alpha.1
+displayName: Test Provider
+description: Minimal kind=test provider used to validate provider registration and invocation.
+kind: test
+spec: {}
