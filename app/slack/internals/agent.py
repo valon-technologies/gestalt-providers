@@ -564,7 +564,14 @@ def handle_slack_interaction(
 
 
 def reply_to_slack_event(
-    reply_ref: str, text: str, req: gestalt.Request
+    reply_ref: str,
+    *,
+    text: str,
+    blocks: list[dict[str, Any]] | None,
+    metadata: dict[str, Any] | None,
+    unfurl_links: bool,
+    unfurl_media: bool,
+    req: gestalt.Request,
 ) -> OperationResult:
     normalized_text = text.strip()
     log_context = _slack_delivery_log_context(
@@ -592,6 +599,10 @@ def reply_to_slack_event(
             channel=verified_ref.channel_id,
             text=normalized_text,
             thread_ts=verified_ref.reply_thread_ts,
+            unfurl_links=unfurl_links,
+            unfurl_media=unfurl_media,
+            blocks=blocks,
+            metadata=metadata,
             client_msg_id=_slack_client_msg_id(req.idempotency_key),
         )
     except ValueError as err:

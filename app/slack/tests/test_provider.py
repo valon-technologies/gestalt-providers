@@ -1036,7 +1036,7 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(
             _catalog_parameter_names(catalog_ops["events.reply"]),
-            ["reply_ref", "text"],
+            ["reply_ref", "message"],
         )
         self.assertEqual(
             _catalog_parameter_names(catalog_ops["events.uploadFile"]),
@@ -1073,7 +1073,7 @@ class SlackProviderTests(unittest.TestCase):
             _catalog_parameter(catalog_ops["events.uploadFile"], "content_base64"),
         )
         self.assertIn(
-            "requires reply_ref and text", catalog_ops["events.reply"]["description"]
+            "requires reply_ref and message", catalog_ops["events.reply"]["description"]
         )
         reply_parameters = {
             parameter["name"]: parameter
@@ -1084,7 +1084,7 @@ class SlackProviderTests(unittest.TestCase):
             reply_parameters["reply_ref"]["description"],
         )
         self.assertIn(
-            "complete Slack message body", reply_parameters["text"]["description"]
+            "Structured Slack message", reply_parameters["message"]["description"]
         )
         self.assertEqual(
             _catalog_parameter_names(catalog_ops["events.replySessionStarted"]),
@@ -2999,7 +2999,10 @@ class SlackProviderTests(unittest.TestCase):
         ):
             result = provider_module.slack_events_reply(
                 provider_module.SlackEventReplyInput(
-                    reply_ref=reply_ref, text="Here is the answer"
+                    reply_ref=reply_ref,
+                    message=provider_module.SlackEventMessageInput(
+                        fallback_text="Here is the answer"
+                    ),
                 ),
                 gestalt.Request(
                     subject=gestalt.Subject(id="user:gestalt-123"),
@@ -3013,6 +3016,12 @@ class SlackProviderTests(unittest.TestCase):
                 "channel": "C789",
                 "text": "Here is the answer",
                 "thread_ts": "1712161829.000300",
+                "unfurl_links": False,
+                "unfurl_media": False,
+                "metadata": {
+                    "event_type": "gestalt_message",
+                    "event_payload": {"sent_with": "gestalt"},
+                },
                 "client_msg_id": expected_client_msg_id,
             },
         )
@@ -3028,7 +3037,10 @@ class SlackProviderTests(unittest.TestCase):
 
         denied = provider_module.slack_events_reply(
             provider_module.SlackEventReplyInput(
-                reply_ref=reply_ref, text="wrong subject"
+                reply_ref=reply_ref,
+                message=provider_module.SlackEventMessageInput(
+                    fallback_text="wrong subject"
+                ),
             ),
             gestalt.Request(subject=gestalt.Subject(id="user:other")),
         )
@@ -3038,6 +3050,111 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(
             denied_response.body,
             {"error": "reply_ref does not belong to this subject"},
+        )
+
+    def test_slack_events_reply_renders_structured_message_blocks(self) -> None:
+        provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
+        self.addCleanup(provider_module.configure, "slack", {})
+        reply_ref = self._signed_reply_ref(subject_id="user:gestalt-123")
+        captured: dict[str, Any] = {}
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(request.full_url, "https://slack.com/api/chat.postMessage")
+            captured["payload"] = json.loads(cast(bytes, request.data).decode("utf-8"))
+            return FakeHTTPResponse(
+                '{"ok": true, "channel": "C789", "ts": "1712161830.000400"}'
+            )
+
+        with mock.patch(
+            "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            result = provider_module.slack_events_reply(
+                provider_module.SlackEventReplyInput(
+                    reply_ref=reply_ref,
+                    message=provider_module.SlackEventMessageInput(
+                        fallback_text="Diagnosis: webhook auth failed. Next: rotate the secret.",
+                        sections=[
+                            provider_module.SlackEventMessageSectionInput(
+                                heading="Diagnosis",
+                                body="Webhook auth failed because requests use the old secret.",
+                            ),
+                            provider_module.SlackEventMessageSectionInput(
+                                heading="Next",
+                                body="Rotate the Slack signing secret and redeploy.",
+                            ),
+                        ],
+                        metadata={},
+                        unfurl_links=True,
+                    ),
+                ),
+                gestalt.Request(subject=gestalt.Subject(id="user:gestalt-123")),
+            )
+
+        self.assertEqual(operation_body(result)["ok"], True)
+        self.assertEqual(
+            captured["payload"],
+            {
+                "channel": "C789",
+                "text": "Diagnosis: webhook auth failed. Next: rotate the secret.",
+                "thread_ts": "1712161829.000300",
+                "unfurl_links": True,
+                "unfurl_media": False,
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "*Diagnosis*\nWebhook auth failed because requests use the old secret.",
+                        },
+                    },
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "*Next*\nRotate the Slack signing secret and redeploy.",
+                        },
+                    },
+                ],
+            },
+        )
+
+    def test_slack_events_reply_rejects_invalid_structured_messages(self) -> None:
+        provider_module.configure("slack", {"bot": {"token": "xoxb-test-bot"}})
+        self.addCleanup(provider_module.configure, "slack", {})
+        reply_ref = self._signed_reply_ref(subject_id="user:gestalt-123")
+
+        blank_fallback = provider_module.slack_events_reply(
+            provider_module.SlackEventReplyInput(
+                reply_ref=reply_ref,
+                message=provider_module.SlackEventMessageInput(fallback_text=" "),
+            ),
+            gestalt.Request(subject=gestalt.Subject(id="user:gestalt-123")),
+        )
+        self.assertEqual(
+            cast(gestalt.Response[dict[str, str]], blank_fallback).body,
+            {"error": "message.fallback_text is required"},
+        )
+
+        ambiguous_body = provider_module.slack_events_reply(
+            provider_module.SlackEventReplyInput(
+                reply_ref=reply_ref,
+                message=provider_module.SlackEventMessageInput(
+                    fallback_text="fallback",
+                    body="body",
+                    sections=[
+                        provider_module.SlackEventMessageSectionInput(body="section")
+                    ],
+                ),
+            ),
+            gestalt.Request(subject=gestalt.Subject(id="user:gestalt-123")),
+        )
+        self.assertEqual(
+            cast(gestalt.Response[dict[str, str]], ambiguous_body).body,
+            {
+                "error": "message.body cannot be combined with message.sections"
+            },
         )
 
     def test_slack_events_reply_allows_matching_workflow_event_context_for_invocation_subject(
@@ -3064,7 +3181,10 @@ class SlackProviderTests(unittest.TestCase):
         ):
             result = provider_module.slack_events_reply(
                 provider_module.SlackEventReplyInput(
-                    reply_ref=reply_ref, text="workflow answer"
+                    reply_ref=reply_ref,
+                    message=provider_module.SlackEventMessageInput(
+                        fallback_text="workflow answer"
+                    ),
                 ),
                 gestalt.Request(
                     subject=gestalt.Subject(id="user:workflow-invoker"),
@@ -3100,7 +3220,10 @@ class SlackProviderTests(unittest.TestCase):
         ):
             result = provider_module.slack_events_reply(
                 provider_module.SlackEventReplyInput(
-                    reply_ref=reply_ref, text="custom workflow answer"
+                    reply_ref=reply_ref,
+                    message=provider_module.SlackEventMessageInput(
+                        fallback_text="custom workflow answer"
+                    ),
                 ),
                 gestalt.Request(
                     subject=gestalt.Subject(id="user:workflow-invoker"),
@@ -3139,7 +3262,10 @@ class SlackProviderTests(unittest.TestCase):
         ):
             result = provider_module.slack_events_reply(
                 provider_module.SlackEventReplyInput(
-                    reply_ref=reply_ref, text="interaction workflow answer"
+                    reply_ref=reply_ref,
+                    message=provider_module.SlackEventMessageInput(
+                        fallback_text="interaction workflow answer"
+                    ),
                 ),
                 gestalt.Request(
                     subject=gestalt.Subject(id="user:workflow-invoker"),
@@ -3168,7 +3294,10 @@ class SlackProviderTests(unittest.TestCase):
 
         result = provider_module.slack_events_reply(
             provider_module.SlackEventReplyInput(
-                reply_ref=reply_ref, text="wrong workflow"
+                reply_ref=reply_ref,
+                message=provider_module.SlackEventMessageInput(
+                    fallback_text="wrong workflow"
+                ),
             ),
             gestalt.Request(
                 subject=gestalt.Subject(id="user:workflow-invoker"),
