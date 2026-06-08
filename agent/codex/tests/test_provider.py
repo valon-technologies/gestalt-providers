@@ -78,7 +78,7 @@ class _FakeAppHost(app_pb2_grpc.AppServicer):
         )
         if self.invoke_error:
             context.abort(grpc.StatusCode.UNKNOWN, self.invoke_error)
-        return app_pb2.OperationResult(status=200, body='{"ok":true}')
+        return app_pb2.OperationResult(status=200, body=b'{"ok":true}')
 
 
 class _FakeCodexMCPServer:
@@ -603,12 +603,7 @@ class CodexProviderTests(unittest.TestCase):
                 elif mode == "wildcard-listed-connection":
                     _add_tool(config.catalog, tool_id="tool-linear", mcp_name="linear__issues", connection="*")
                 elif mode == "bad-listed-credential-mode":
-                    _add_tool(
-                        config.catalog,
-                        tool_id="tool-linear",
-                        mcp_name="linear__issues",
-                        credential_mode="user",
-                    )
+                    _add_tool(config.catalog, tool_id="tool-linear", mcp_name="linear__issues", credential_mode="user")
                 elif mode == "listed-run-as":
                     _add_tool(
                         config.catalog,
@@ -626,12 +621,7 @@ class CodexProviderTests(unittest.TestCase):
                     )
                 elif mode == "mismatched-credential-mode":
                     config.catalog.refs[0].credential_mode = "subject"
-                    _add_tool(
-                        config.catalog,
-                        tool_id="tool-linear",
-                        mcp_name="linear__issues",
-                        credential_mode="none",
-                    )
+                    _add_tool(config.catalog, tool_id="tool-linear", mcp_name="linear__issues", credential_mode="none")
                 elif mode == "too-many":
                     for index in range(MAX_LISTED_TOOLS + 1):
                         _add_tool(config.catalog, tool_id=f"tool-{index}", mcp_name=f"tool__{index}")
@@ -778,22 +768,12 @@ def _catalog_tool_config() -> Any:
     linear = config.catalog.refs.add()
     linear.app = "linear"
     linear.operation = "searchIssues"
-    _add_tool(
-        config.catalog,
-        tool_id="tool-linear",
-        mcp_name="linear__issues",
-        app="linear",
-        operation="searchIssues",
-    )
+    _add_tool(config.catalog, tool_id="tool-linear", mcp_name="linear__issues", app="linear", operation="searchIssues")
     github = config.catalog.refs.add()
     github.app = "github"
     github.operation = "pulls/list"
     _add_tool(
-        config.catalog,
-        tool_id="tool-github",
-        mcp_name="github__pulls_list",
-        app="github",
-        operation="pulls/list",
+        config.catalog, tool_id="tool-github", mcp_name="github__pulls_list", app="github", operation="pulls/list"
     )
     return config
 

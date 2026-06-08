@@ -26,7 +26,7 @@ export async function startMcpBridge(input: {
     entry: ToolEntry,
     toolCallId: string,
     args: Record<string, unknown>,
-  ) => Promise<{ status: number; body: string }>;
+  ) => Promise<{ status: number; body: string | Uint8Array }>;
 }): Promise<StartedMcpBridge> {
   const token = randomBytes(24).toString("base64url");
   const toolsByName = new Map(input.tools.map((tool) => [tool.mcpName, tool]));
@@ -84,7 +84,7 @@ function createMcpServer(
   executeTool: (
     toolName: string,
     args: Record<string, unknown>,
-  ) => Promise<{ status: number; body: string }>,
+  ) => Promise<{ status: number; body: string | Uint8Array }>,
 ): Server {
   const server = new Server(
     { name: MCP_SERVER_NAME, version: "0.0.1-alpha.1" },
@@ -110,7 +110,7 @@ function createMcpServer(
 
   server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
     const response = await executeTool(request.params.name, request.params.arguments ?? {});
-    const body = response.body || "{}";
+    const body = operationBodyText(response.body) || "{}";
     return {
       content: [{ type: "text", text: body }],
       isError: response.status >= 400,
@@ -118,6 +118,16 @@ function createMcpServer(
   });
 
   return server;
+}
+
+function operationBodyText(body: string | Uint8Array | null | undefined): string {
+  if (body == null) {
+    return "";
+  }
+  if (typeof body === "string") {
+    return body;
+  }
+  return new TextDecoder().decode(body);
 }
 
 async function handleMcpRequest(

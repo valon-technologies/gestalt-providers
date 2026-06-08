@@ -137,7 +137,7 @@ class GestaltMCPBridge:
                 response = await asyncio.to_thread(execute_tool)
             except Exception as exc:
                 return _tool_error_result(exc)
-        body = str(response.body or "")
+        body = operation_body_text(response.body)
         status = int(response.status or 0)
         if not body:
             body = "{}"
@@ -202,10 +202,7 @@ def create_gestalt_sdk_mcp_server(
 ) -> McpSdkServerConfig:
     install_sdk_mcp_pagination_patch()
     bridge = GestaltMCPBridge(
-        turn_id=turn_id,
-        request_context=request_context,
-        listed_tools=listed_tools,
-        timeout_seconds=timeout_seconds,
+        turn_id=turn_id, request_context=request_context, listed_tools=listed_tools, timeout_seconds=timeout_seconds
     )
     return McpSdkServerConfig(type="sdk", name=MCP_SERVER_NAME, instance=bridge.server)
 
@@ -342,6 +339,14 @@ def _tool_error_message(exc: Exception) -> str:
     if len(message) > TOOL_ERROR_MAX_CHARS:
         return message[: TOOL_ERROR_MAX_CHARS - 3].rstrip() + "..."
     return message
+
+
+def operation_body_text(body: object) -> str:
+    if body is None:
+        return ""
+    if isinstance(body, bytes | bytearray | memoryview):
+        return bytes(body).decode("utf-8", errors="replace")
+    return str(body)
 
 
 def _tool_entry(tool: gestalt.ListedAgentTool) -> ToolEntry:
