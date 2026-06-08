@@ -1810,7 +1810,7 @@ class FakeAppHost {
               host.invokeRequests.push(request);
               return create(OperationResultSchema, {
                 status: input.status ?? 200,
-                body: input.body ?? "{}",
+                body: new TextEncoder().encode(input.body ?? "{}"),
               });
             },
           });

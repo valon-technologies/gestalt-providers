@@ -119,10 +119,10 @@ class GestaltMCPBridge:
             self._sequence += 1
             tool_call_id = f"sdk-{self._sequence}"
 
-            def execute_tool() -> gestalt.Response[str]:
+            def execute_tool() -> gestalt.Response[bytes]:
                 request = gestalt.Request(context=self._request_context)
                 with request.app() as app:
-                    return app.invoke(
+                    return app.invoke_raw(
                         entry.ref.app,
                         entry.ref.operation,
                         arguments or {},

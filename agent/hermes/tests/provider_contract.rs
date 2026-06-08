@@ -1075,6 +1075,7 @@ async fn owner_can_read_and_mutate_private_session() {
 
     let session = provider
         .get_session(gestalt::GetAgentProviderSessionRequest {
+            provider_name: "hermes".to_string(),
             session_id: "session-owner-private".to_string(),
             subject: Some(owner_subject()),
         })
@@ -1144,6 +1145,7 @@ async fn slack_metadata_makes_session_company_visible_at_create_only() {
 
     let session = provider
         .get_session(gestalt::GetAgentProviderSessionRequest {
+            provider_name: "hermes".to_string(),
             session_id: "session-company".to_string(),
             subject: Some(other_subject()),
         })
@@ -1182,6 +1184,7 @@ async fn slack_metadata_makes_session_company_visible_at_create_only() {
         .unwrap();
     provider
         .get_session(gestalt::GetAgentProviderSessionRequest {
+            provider_name: "hermes".to_string(),
             session_id: "session-company".to_string(),
             subject: Some(other_subject()),
         })
@@ -1204,6 +1207,7 @@ async fn slack_metadata_makes_session_company_visible_at_create_only() {
     .await;
     provider
         .get_turn(gestalt::GetAgentProviderTurnRequest {
+            provider_name: "hermes".to_string(),
             turn_id: "turn-company".to_string(),
             subject: Some(other_subject()),
         })
@@ -1265,6 +1269,7 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
 
     let err = provider
         .get_session(gestalt::GetAgentProviderSessionRequest {
+            provider_name: "hermes".to_string(),
             session_id: "session-private-hidden".to_string(),
             subject: Some(other_subject()),
         })
@@ -1298,6 +1303,7 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
 
     let err = provider
         .get_turn(gestalt::GetAgentProviderTurnRequest {
+            provider_name: "hermes".to_string(),
             turn_id: "turn-private-hidden".to_string(),
             subject: Some(other_subject()),
         })
@@ -1342,6 +1348,7 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
         .unwrap();
     let err = provider
         .get_session(gestalt::GetAgentProviderSessionRequest {
+            provider_name: "hermes".to_string(),
             session_id: "session-private-hidden".to_string(),
             subject: Some(other_subject()),
         })
@@ -1359,6 +1366,7 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
     .await;
     let err = provider
         .get_session(gestalt::GetAgentProviderSessionRequest {
+            provider_name: "hermes".to_string(),
             session_id: "session-incomplete-slack".to_string(),
             subject: Some(other_subject()),
         })
@@ -1426,6 +1434,7 @@ async fn non_owner_cannot_mutate_company_visible_session_or_turn() {
     .await;
     let err = provider
         .cancel_turn(gestalt::CancelAgentProviderTurnRequest {
+            provider_name: "hermes".to_string(),
             turn_id: "turn-company-write-owner".to_string(),
             reason: "other subject requested".to_string(),
             subject: Some(other_subject()),
@@ -1451,6 +1460,7 @@ async fn cancel_turn_sends_acp_cancel_and_marks_turn_canceled() {
     wait_for_log_event(&fixture.log_path, "prompt").await;
     let canceled = provider
         .cancel_turn(gestalt::CancelAgentProviderTurnRequest {
+            provider_name: "hermes".to_string(),
             turn_id: "turn-cancel".to_string(),
             reason: "operator requested".to_string(),
             subject: Some(owner_subject()),
@@ -1471,6 +1481,7 @@ async fn cancel_before_acp_spawn_prevents_prompt() {
 
     let canceled = provider
         .cancel_turn(gestalt::CancelAgentProviderTurnRequest {
+            provider_name: "hermes".to_string(),
             turn_id: "turn-early-cancel".to_string(),
             reason: "operator requested".to_string(),
             subject: Some(owner_subject()),
@@ -1543,7 +1554,11 @@ impl AppRpc for TestAppService {
             } else {
                 self.invoke_status
             },
-            body: self.invoke_body.unwrap_or("linear tickets").to_string(),
+            body: self
+                .invoke_body
+                .unwrap_or("linear tickets")
+                .as_bytes()
+                .to_vec(),
             headers: Default::default(),
         }))
     }
@@ -1946,6 +1961,7 @@ fn turn_text(turn: &gestalt::AgentTurn) -> &str {
 
 fn empty_turn_request() -> gestalt::CreateAgentProviderTurnRequest {
     gestalt::CreateAgentProviderTurnRequest {
+        provider_name: "hermes".to_string(),
         turn_id: String::new(),
         session_id: String::new(),
         idempotency_key: String::new(),
@@ -2038,6 +2054,7 @@ async fn wait_for_turn(
     loop {
         let turn = provider
             .get_turn(gestalt::GetAgentProviderTurnRequest {
+                provider_name: "hermes".to_string(),
                 turn_id: turn_id.to_string(),
                 subject: Some(owner_subject()),
             })

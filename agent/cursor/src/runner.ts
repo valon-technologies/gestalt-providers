@@ -161,13 +161,13 @@ export class CursorSDKRunner {
           if (credentialMode !== undefined) {
             options.credentialMode = credentialMode;
           }
-          const response = await new App(request).invoke(
+          const response = await new App(request).invokeRaw(
             entry.ref.app ?? "",
             entry.ref.operation ?? "",
             args,
             options,
           );
-          return { status: response.status, body: response.body };
+          return { status: response.status, body: response.text() };
         },
       });
       active.stateRoot = await mkdtemp(join(tmpdir(), "gestalt-cursor-sdk-"));
