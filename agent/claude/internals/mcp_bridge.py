@@ -174,11 +174,11 @@ class GestaltMCPBridge:
         if entry := self._entries.get(mcp_name):
             return entry
         if self._catalog_loaded:
-            raise ValueError(f"tool {mcp_name!r} is not available in the current grant")
+            raise ValueError(f"tool {mcp_name!r} is not available in the current tool scope")
         for entry in self._list_all_entries():
             if entry.mcp_name == mcp_name:
                 return entry
-        raise ValueError(f"tool {mcp_name!r} is not available in the current grant")
+        raise ValueError(f"tool {mcp_name!r} is not available in the current tool scope")
 
     def _list_entries(self, page_token: str) -> tuple[list[ToolEntry], str]:
         with gestalt.AgentHost() as host:

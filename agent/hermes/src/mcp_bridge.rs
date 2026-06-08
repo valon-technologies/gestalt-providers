@@ -418,7 +418,7 @@ impl GestaltMcpBridge {
         }
         Err(ProxyError::new(
             "tool_lookup_failed",
-            format!("tool {name:?} is not available in the current grant"),
+            format!("tool {name:?} is not available in the current tool scope"),
         ))
     }
 

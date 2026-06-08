@@ -306,7 +306,6 @@ class CodexProviderTests(unittest.TestCase):
         self.assertNotIn("env", bridge)
         self.assertNotIn(_host_socket, repr(fake_server.called_arguments))
         self.assertNotIn("relay-token", repr(fake_server.called_arguments))
-        self.assertNotIn("grant-codex", repr(fake_server.called_arguments))
 
         self.assertEqual(fake_server.params["command"], "codex")
         self.assertEqual(fake_server.params["args"], ["mcp-server"])
@@ -483,11 +482,11 @@ class CodexProviderTests(unittest.TestCase):
 
     def test_enabled_tools_come_from_list_tools_not_tool_refs(self) -> None:
         _, provider_client = _configure_provider()
-        _create_owned_session(provider_client, "session-grant")
-        request = _turn_request(turn_id="turn-grant", session_id="session-grant")
+        _create_owned_session(provider_client, "session-scope")
+        request = _turn_request(turn_id="turn-scope", session_id="session-scope")
         provider_client.CreateTurn(request)
 
-        _wait_for_turn(provider_client, "turn-grant", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        _wait_for_turn(provider_client, "turn-scope", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
         config = _FakeCodexMCPServer.instances[0].called_arguments["config"]
         self.assertEqual(config["mcp_servers"]["gestalt"]["enabled_tools"], ["linear__issues", "github__pulls_list"])
 
