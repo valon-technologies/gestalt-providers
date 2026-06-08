@@ -59,7 +59,7 @@ Metadata-only reads do not start the Temporal worker.
 ## Runtime Behavior
 
 - Temporal Cloud API-key authentication
-- `TemporalRun` workflows invoke the Gestalt workflow host through activities
+- `TemporalRun` workflows invoke Gestalt workflow services through activities
   and store run authority in Temporal workflow state
 - `ApplyDefinition` stores durable workflow definitions, compiled activations,
   and definition generations atomically

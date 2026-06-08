@@ -459,7 +459,7 @@ func TestRuntimeProviderContractListsSessions(t *testing.T) {
 	}
 }
 
-func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(t *testing.T) {
+func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndHostServiceRelay(t *testing.T) {
 	t.Parallel()
 
 	appTarget := startAppLifecycleServer(t)
@@ -749,7 +749,7 @@ func TestRuntimeProviderContractRejectsHostnameEgressWithoutProxy(t *testing.T) 
 	}
 }
 
-func TestRuntimeProviderContractAllowsRelayOnlyAgentHostLaunchWithoutProxy(t *testing.T) {
+func TestRuntimeProviderContractAllowsRelayOnlyHostServiceLaunchWithoutProxy(t *testing.T) {
 	t.Parallel()
 
 	appTarget := startAppLifecycleServer(t)

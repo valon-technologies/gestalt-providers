@@ -36,7 +36,7 @@ to one third of `runClaimTTL`.
 
 Poll workers start only when the host calls
 `ProviderLifecycle.StartProvider`, after agents, authorization, app providers,
-and workflow host services are ready.
+and workflow services are ready.
 
 ## Runtime Requirements
 
@@ -60,5 +60,5 @@ and workflow host services are ready.
   prioritized ahead of generic agent backlog
 - `GetRun`, `GetRunEvents`, and `GetRunOutput` read persisted run projections,
   including per-step status and output
-- agent tool reference validation happens in the workflow host; this provider
+- agent tool reference validation happens in Gestalt workflow services; this provider
   only validates the runnable agent fields needed for storage and dispatch
