@@ -318,10 +318,10 @@ impl GestaltMcpBridge {
             credential_mode: tool_ref.credential_mode.trim().to_string(),
         };
         let request_context = self.request_context.clone();
-        let response = with_request_context(Some(request_context), async move {
+        let response: gestalt::OperationResult = with_request_context(Some(request_context), async move {
             let request = GestaltRequest::default();
             let mut app = App::connect(&request).await?;
-            app.invoke(
+            app.invoke_raw(
                 &tool_ref.app,
                 &tool_ref.operation,
                 JsonValue::Object(call_arguments),

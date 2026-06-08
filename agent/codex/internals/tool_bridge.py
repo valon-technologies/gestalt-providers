@@ -39,7 +39,7 @@ class ToolExecutor:
         self._lock = threading.Lock()
         self._sequence = 0
 
-    def execute(self, *, entry: ToolEntry, arguments: dict[str, Any]) -> gestalt.Response[str]:
+    def execute(self, *, entry: ToolEntry, arguments: dict[str, Any]) -> gestalt.Response[bytes]:
         with self._lock:
             self._sequence += 1
             sequence = self._sequence
@@ -93,11 +93,11 @@ def execute_tool(
     idempotency_key: str,
     arguments: dict[str, Any],
     timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS,
-) -> gestalt.Response[str]:
+) -> gestalt.Response[bytes]:
     request = gestalt.Request(context=request_context)
     with request.app() as app:
         try:
-            return app.invoke(
+            return app.invoke_raw(
                 entry.ref.app,
                 entry.ref.operation,
                 arguments or {},
@@ -121,7 +121,7 @@ def mcp_tool(entry: ToolEntry) -> mcp_types.Tool:
     )
 
 
-def mcp_tool_result(response: gestalt.Response[str]) -> mcp_types.CallToolResult:
+def mcp_tool_result(response: gestalt.Response[bytes]) -> mcp_types.CallToolResult:
     body = operation_body_text(response.body)
     status = int(response.status or 0)
     if not body:
