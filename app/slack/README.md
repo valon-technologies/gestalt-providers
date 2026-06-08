@@ -189,7 +189,7 @@ so the agent never needs raw `chat.postMessage` access for event replies.
 Runtime reply app input:
 
 ```json
-{"reply_ref":"...","text":"I'll check that now."}
+{"reply_ref":"...","message":{"fallback_text":"I'll check that now."}}
 ```
 
 To deliver Slack Events API callbacks directly into Gestalt workflow events,

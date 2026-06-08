@@ -287,12 +287,46 @@ class UploadFileInput(gestalt.Model):
     )
 
 
+class SlackEventMessageSectionInput(gestalt.Model):
+    body: str = gestalt.field(description="Slack mrkdwn section body")
+    heading: str = gestalt.field(
+        description="Optional short section heading", default="", required=False
+    )
+
+
+class SlackEventMessageInput(gestalt.Model):
+    fallback_text: str = gestalt.field(
+        description="Required top-level Slack fallback text for notifications and accessibility"
+    )
+    body: str = gestalt.field(
+        description="Optional Slack mrkdwn body when no sections are provided",
+        default="",
+        required=False,
+    )
+    sections: list[SlackEventMessageSectionInput] = gestalt.field(
+        description="Optional semantic sections rendered as Slack Block Kit sections",
+        default_factory=list,
+        required=False,
+    )
+    metadata: dict[str, Any] | None = gestalt.field(
+        description="Optional Slack message metadata. Omit for default Gestalt metadata; pass {} for no metadata.",
+        default=None,
+        required=False,
+    )
+    unfurl_links: bool = gestalt.field(
+        description="Whether Slack should unfurl links", default=False, required=False
+    )
+    unfurl_media: bool = gestalt.field(
+        description="Whether Slack should unfurl media", default=False, required=False
+    )
+
+
 class SlackEventReplyInput(gestalt.Model):
     reply_ref: str = gestalt.field(
         description="Opaque Slack event reply reference from the current Slack workflow event"
     )
-    text: str = gestalt.field(
-        description="Required complete Slack message body to post in the event thread"
+    message: SlackEventMessageInput = gestalt.field(
+        description="Structured Slack message to post in the event thread"
     )
 
 
@@ -607,13 +641,24 @@ def slack_interactions_request(
 @gestalt.operation(
     id=SLACK_REPLY_OPERATION,
     method="POST",
-    description="Reply to the Slack event that started an agent turn; requires reply_ref and text",
+    description="Reply to the Slack event that started an agent turn; requires reply_ref and message",
     visible=False,
 )
 def slack_events_reply(
     input: SlackEventReplyInput, req: gestalt.Request
 ) -> OperationResult:
-    return reply_to_slack_event(input.reply_ref, input.text, req)
+    message_or_error = _slack_event_message(input.message)
+    if isinstance(message_or_error, gestalt.Response):
+        return message_or_error
+    return reply_to_slack_event(
+        input.reply_ref,
+        text=message_or_error["text"],
+        blocks=message_or_error["blocks"],
+        metadata=message_or_error["metadata"],
+        unfurl_links=message_or_error["unfurl_links"],
+        unfurl_media=message_or_error["unfurl_media"],
+        req=req,
+    )
 
 
 @gestalt.operation(
@@ -1248,6 +1293,47 @@ def _slack_section_blocks(text: str) -> list[dict[str, Any]]:
         for index in range(0, len(text), SLACK_MAX_SECTION_TEXT_CHARS)
         if (chunk := text[index : index + SLACK_MAX_SECTION_TEXT_CHARS])
     ]
+
+
+def _slack_event_message(
+    message: SlackEventMessageInput,
+) -> dict[str, Any] | ErrorResponse:
+    fallback_text = message.fallback_text.strip()
+    if not fallback_text:
+        return _bad_request("message.fallback_text is required")
+
+    body = message.body.strip()
+    sections = list(message.sections or [])
+    if body and sections:
+        return _bad_request("message.body cannot be combined with message.sections")
+
+    blocks: list[dict[str, Any]] = []
+    if body:
+        blocks = _slack_section_blocks(body)
+    for section in sections:
+        section_body = section.body.strip()
+        if not section_body:
+            return _bad_request("message.sections[].body is required")
+        heading = section.heading.strip()
+        text = f"*{heading}*\n{section_body}" if heading else section_body
+        if len(text) > SLACK_MAX_SECTION_TEXT_CHARS:
+            return _bad_request(
+                f"message.sections[] text exceeds {SLACK_MAX_SECTION_TEXT_CHARS} characters"
+            )
+        blocks.extend(_slack_section_blocks(text))
+    if len(blocks) > SLACK_MAX_BLOCKS:
+        return _bad_request(
+            f"message renders to more than {SLACK_MAX_BLOCKS} Slack blocks"
+        )
+    if blocks == _slack_section_blocks(fallback_text):
+        blocks = []
+    return {
+        "text": fallback_text,
+        "blocks": blocks,
+        "metadata": _chat_post_message_metadata(message.metadata),
+        "unfurl_links": message.unfurl_links,
+        "unfurl_media": message.unfurl_media,
+    }
 
 
 def _chat_post_message_metadata(
