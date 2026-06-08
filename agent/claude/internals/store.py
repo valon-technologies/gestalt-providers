@@ -111,6 +111,7 @@ class IndexedDBRunStore:
         prepared_workspace: dict[str, str] | None,
         tool_source: int,
         tool_refs: list[gestalt.AgentToolRef],
+        listed_tools: list[gestalt.ListedAgentTool],
         created_by_subject_id: str,
     ) -> tuple[StoredSession, bool]:
         session_id = session_id.strip()
@@ -145,6 +146,7 @@ class IndexedDBRunStore:
                 prepared_workspace=copy.deepcopy(prepared_workspace) if prepared_workspace is not None else None,
                 tool_source=tool_source,
                 tool_refs=copy.deepcopy(tool_refs),
+                listed_tools=copy.deepcopy(listed_tools),
                 created_by_subject_id=created_by_subject_id.strip(),
                 visibility=session_visibility_for_create(metadata, created_by_subject_id),
                 created_at=now,

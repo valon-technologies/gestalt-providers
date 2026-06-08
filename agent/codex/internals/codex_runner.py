@@ -133,6 +133,7 @@ class CodexMCPRunner:
         model: str,
         messages: list[dict[str, Any]],
         request_context: Any,
+        listed_tools: list[gestalt.ListedAgentTool],
         skill_roots: list[str] | None = None,
         cwd: str = "",
         schema: dict[str, Any] | None = None,
@@ -146,6 +147,7 @@ class CodexMCPRunner:
                         model=model,
                         messages=messages,
                         request_context=request_context,
+                        listed_tools=listed_tools,
                         skill_roots=skill_roots or [],
                         cwd=cwd,
                         schema=schema,
@@ -183,6 +185,7 @@ class CodexMCPRunner:
         model: str,
         messages: list[dict[str, Any]],
         request_context: Any,
+        listed_tools: list[gestalt.ListedAgentTool],
         skill_roots: list[str],
         cwd: str,
         schema: dict[str, Any] | None,
@@ -200,12 +203,9 @@ class CodexMCPRunner:
                 prompt = structured_output_prompt(prompt, schema)
 
             try:
-                listed_tools = await asyncio.to_thread(
+                tool_entries = await asyncio.to_thread(
                     list_tools,
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    request_context=request_context,
-                    timeout_seconds=self._config.timeout_seconds,
+                    listed_tools=listed_tools,
                 )
             except ToolBridgeError as exc:
                 raise CodexExecutionError(str(exc)) from exc
@@ -213,9 +213,9 @@ class CodexMCPRunner:
 
             bridge = BridgeHTTPServer(
                 BridgeContext(
-                    session_id=session_id,
                     turn_id=turn_id,
                     request_context=request_context,
+                    listed_tools=listed_tools,
                     timeout_seconds=self._config.timeout_seconds,
                 )
             )
@@ -237,7 +237,7 @@ class CodexMCPRunner:
                 result = await server.call_tool(
                     CODEX_TOOL_NAME,
                     self._codex_tool_arguments(
-                        model=model, prompt=prompt, listed_tools=listed_tools, bridge_url=bridge.url, cwd=cwd
+                        model=model, prompt=prompt, listed_tools=tool_entries, bridge_url=bridge.url, cwd=cwd
                     ),
                 )
                 self._raise_if_canceled(turn_id)

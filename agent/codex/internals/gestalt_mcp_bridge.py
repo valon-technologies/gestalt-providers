@@ -13,9 +13,9 @@ from .tool_bridge import list_tools, mcp_tool, mcp_tool_result
 
 @dataclass(frozen=True, slots=True)
 class BridgeContext:
-    session_id: str
     turn_id: str
     request_context: Any
+    listed_tools: list[Any]
     timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS
 
 
@@ -23,7 +23,6 @@ def create_server(context: BridgeContext) -> Server[Any, Any]:
     server: Server[Any, Any] = Server("gestalt")
     entries_by_name: dict[str, ToolEntry] = {}
     executor = ToolExecutor(
-        session_id=context.session_id,
         turn_id=context.turn_id,
         request_context=context.request_context,
         timeout_seconds=context.timeout_seconds,
@@ -33,10 +32,7 @@ def create_server(context: BridgeContext) -> Server[Any, Any]:
     async def handle_list_tools() -> list[mcp_types.Tool]:
         entries = await asyncio.to_thread(
             list_tools,
-            session_id=context.session_id,
-            turn_id=context.turn_id,
-            request_context=context.request_context,
-            timeout_seconds=context.timeout_seconds,
+            listed_tools=context.listed_tools,
         )
         entries_by_name.clear()
         entries_by_name.update({entry.mcp_name: entry for entry in entries})

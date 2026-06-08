@@ -14,6 +14,7 @@ from typing import Any, cast
 import grpc
 from agents.mcp import MCPServerStreamableHttp
 from google.protobuf import empty_pb2 as _empty_pb2
+from google.protobuf import json_format
 from google.protobuf import struct_pb2 as _struct_pb2
 from mcp import types as mcp_types
 
@@ -22,17 +23,19 @@ from gestalt import ENV_HOST_SERVICE_SOCKET, ENV_HOST_SERVICE_TOKEN, ProviderKin
 from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt._gen.v1 import app_pb2 as _app_pb2
+from gestalt._gen.v1 import app_pb2_grpc as _app_pb2_grpc
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.codex_runner import normalize_codex_result
 from internals.gestalt_mcp_bridge import BridgeContext
 from internals.http_bridge import BridgeHTTPServer
-from internals.tool_bridge import MAX_LISTED_TOOLS, ToolBridgeError, list_tools, schema_from_json
+from internals.tool_bridge import MAX_LISTED_TOOLS, schema_from_json
 
 agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
 empty_pb2: Any = _empty_pb2
 app_pb2: Any = cast(Any, _app_pb2)
+app_pb2_grpc: Any = _app_pb2_grpc
 runtime_pb2: Any = _runtime_pb2
 runtime_pb2_grpc: Any = _runtime_pb2_grpc
 struct_pb2: Any = _struct_pb2
@@ -41,95 +44,41 @@ _runtime_server: grpc.Server | None = None
 _host_server: grpc.Server | None = None
 _runtime_socket = ""
 _host_socket = ""
-_host_servicer: "_FakeAgentHost | None" = None
+_host_servicer: "_FakeAppHost | None" = None
 _previous_host_service_socket: str | None = None
 _previous_host_service_token: str | None = None
 
 
-class _FakeAgentHost(agent_pb2_grpc.AgentHostServicer):
+class _FakeAppHost(app_pb2_grpc.AppServicer):
     def __init__(self) -> None:
-        self.mode = "normal"
-        self.list_requests: list[dict[str, Any]] = []
-        self.execute_requests: list[dict[str, Any]] = []
+        self.invoke_requests: list[dict[str, Any]] = []
+        self.invoke_error = ""
 
     def reset(self) -> None:
-        self.mode = "normal"
-        self.list_requests.clear()
-        self.execute_requests.clear()
+        self.invoke_requests.clear()
+        self.invoke_error = ""
 
-    def ListTools(self, request: Any, context: grpc.ServicerContext) -> Any:
-        del context
-        self.list_requests.append(
-            {
-                "session_id": request.session_id,
-                "turn_id": request.turn_id,
-                "page_size": request.page_size,
-                "page_token": request.page_token,
-                "context_subject": request.context.subject.id,
-            }
+    def Invoke(self, request: Any, context: grpc.ServicerContext) -> Any:
+        arguments = (
+            json_format.MessageToDict(request.params, preserving_proto_field_name=True)
+            if request.HasField("params")
+            else {}
         )
-        if self.mode == "list-slow":
-            time.sleep(0.2)
-        if self.mode == "duplicate":
-            response = agent_pb2.ListAgentToolsResponse()
-            _add_tool(response, tool_id="tool-1", mcp_name="duplicate")
-            _add_tool(response, tool_id="tool-2", mcp_name="duplicate")
-            return response
-        if self.mode == "unsafe":
-            response = agent_pb2.ListAgentToolsResponse()
-            _add_tool(response, tool_id="tool-unsafe", mcp_name="bad tool")
-            return response
-        if self.mode == "repeat-token":
-            response = agent_pb2.ListAgentToolsResponse()
-            if request.page_token == "":
-                response.next_page_token = "loop"
-            elif request.page_token == "loop":
-                response.next_page_token = "loop"
-            return response
-        if self.mode == "too-many":
-            response = agent_pb2.ListAgentToolsResponse()
-            for index in range(MAX_LISTED_TOOLS + 1):
-                _add_tool(response, tool_id=f"tool-{index}", mcp_name=f"tool__{index}")
-            return response
-
-        response = agent_pb2.ListAgentToolsResponse()
-        if request.page_token == "":
-            _add_tool(
-                response,
-                tool_id="tool-linear-issues",
-                mcp_name="linear__issues",
-                title="Search Linear issues",
-                description="Search Linear issues by text",
-                input_schema='{"type":"object","properties":{"query":{"type":"string"}}}',
-            )
-            response.next_page_token = "page-2"
-        elif request.page_token == "page-2":
-            _add_tool(
-                response,
-                tool_id="tool-github-pulls",
-                mcp_name="github__pulls_list",
-                title="List GitHub pull requests",
-                description="List pull requests from GitHub",
-                input_schema='{"type":"object"}',
-            )
-        return response
-
-    def ExecuteTool(self, request: Any, context: grpc.ServicerContext) -> Any:
-        del context
-        self.execute_requests.append(
+        self.invoke_requests.append(
             {
-                "session_id": request.session_id,
-                "turn_id": request.turn_id,
-                "tool_call_id": request.tool_call_id,
-                "tool_id": request.tool_id,
+                "app": request.app,
+                "operation": request.operation,
                 "context_subject": request.context.subject.id,
                 "idempotency_key": request.idempotency_key,
-                "arguments": dict(request.arguments),
+                "arguments": arguments,
+                "connection": request.connection,
+                "instance": request.instance,
+                "credential_mode": request.credential_mode,
             }
         )
-        if self.mode == "execute-slow":
-            time.sleep(0.2)
-        return agent_pb2.ExecuteAgentToolResponse(status=200, body='{"ok":true}')
+        if self.invoke_error:
+            context.abort(grpc.StatusCode.UNKNOWN, self.invoke_error)
+        return app_pb2.OperationResult(status=200, body='{"ok":true}')
 
 
 class _FakeCodexMCPServer:
@@ -313,8 +262,7 @@ class CodexProviderTests(unittest.TestCase):
         self.assertEqual(fake_server.params["env"]["OPENAI_API_KEY"], "test-openai-key")
         self.assertNotIn("test-openai-key", repr(fake_server.called_arguments))
 
-        self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
-        self.assertEqual(host.list_requests[0]["context_subject"], "user-123")
+        self.assertEqual(host.invoke_requests, [])
 
     def test_slack_sessions_are_company_readable_and_owner_writable(self) -> None:
         _, provider_client = _configure_provider()
@@ -627,56 +575,94 @@ class CodexProviderTests(unittest.TestCase):
         self.assertGreaterEqual(_FakeCodexMCPServer.instances[0].cleanup_count, 1)
         self.assertEqual(runner._canceled_turns, set())
 
-    def test_list_tools_contract_errors_cross_grpc_agent_host(self) -> None:
-        host = _host_servicer
-        assert host is not None
+    def test_create_session_rejects_invalid_catalog_tools(self) -> None:
+        _, provider_client = _configure_provider()
         for mode, message in (
             ("duplicate", "duplicate mcp_name"),
-            ("unsafe", "unsafe mcp_name"),
-            ("repeat-token", "repeated page token"),
+            ("unsafe", "mcp_name is unsafe"),
+            ("bad-ref-credential-mode", "credential_mode is invalid"),
+            ("bad-ref-run-as", "run_as is not supported"),
+            ("wildcard-listed-connection", "concrete app operation"),
+            ("bad-listed-credential-mode", "credential_mode is invalid"),
+            ("listed-run-as", "run_as is not supported"),
+            ("mismatched-ref", "not covered by tools.catalog.refs"),
+            ("mismatched-credential-mode", "not covered by tools.catalog.refs"),
             ("too-many", "more than"),
         ):
             with self.subTest(mode=mode):
-                host.reset()
-                host.mode = mode
-                with self.assertRaisesRegex(ToolBridgeError, message):
-                    list_tools(
-                        session_id="session-list", turn_id="turn-list", request_context=_request_context("user-123")
+                config = _single_ref_catalog_config()
+                if mode == "duplicate":
+                    _add_tool(config.catalog, tool_id="tool-1", mcp_name="duplicate")
+                    _add_tool(config.catalog, tool_id="tool-2", mcp_name="duplicate")
+                elif mode == "unsafe":
+                    _add_tool(config.catalog, tool_id="tool-unsafe", mcp_name="bad tool")
+                elif mode == "bad-ref-credential-mode":
+                    config.catalog.refs[0].credential_mode = "user"
+                elif mode == "bad-ref-run-as":
+                    config.catalog.refs[0].run_as.CopyFrom(_subject_context("user:delegate"))
+                elif mode == "wildcard-listed-connection":
+                    _add_tool(config.catalog, tool_id="tool-linear", mcp_name="linear__issues", connection="*")
+                elif mode == "bad-listed-credential-mode":
+                    _add_tool(
+                        config.catalog,
+                        tool_id="tool-linear",
+                        mcp_name="linear__issues",
+                        credential_mode="user",
                     )
-
-    def test_list_tools_uses_agent_host_grpc_deadline(self) -> None:
-        host = _host_servicer
-        assert host is not None
-        host.mode = "list-slow"
-
-        started_at = time.monotonic()
-        with self.assertRaisesRegex(ToolBridgeError, "DEADLINE_EXCEEDED"):
-            list_tools(
-                session_id="session-list-deadline",
-                turn_id="turn-list-deadline",
-                request_context=_request_context("user-123"),
-                timeout_seconds=0.05,
-            )
-        self.assertLess(time.monotonic() - started_at, 0.5)
+                elif mode == "listed-run-as":
+                    _add_tool(
+                        config.catalog,
+                        tool_id="tool-linear",
+                        mcp_name="linear__issues",
+                        run_as=_subject_context("user:delegate"),
+                    )
+                elif mode == "mismatched-ref":
+                    _add_tool(
+                        config.catalog,
+                        tool_id="tool-github",
+                        mcp_name="github__pulls_list",
+                        app="github",
+                        operation="pulls/list",
+                    )
+                elif mode == "mismatched-credential-mode":
+                    config.catalog.refs[0].credential_mode = "subject"
+                    _add_tool(
+                        config.catalog,
+                        tool_id="tool-linear",
+                        mcp_name="linear__issues",
+                        credential_mode="none",
+                    )
+                elif mode == "too-many":
+                    for index in range(MAX_LISTED_TOOLS + 1):
+                        _add_tool(config.catalog, tool_id=f"tool-{index}", mcp_name=f"tool__{index}")
+                _assert_create_session_invalid(
+                    provider_client, _owned_session_request(f"bad-tools-{mode}", tools=config), message
+                )
 
     def test_bridge_http_server_lists_and_executes_tools(self) -> None:
         host = _host_servicer
         assert host is not None
-        asyncio.run(_exercise_bridge_http_server())
+        host.reset()
+        result = asyncio.run(_exercise_bridge_http_server())
 
-        self.assertEqual([request["page_token"] for request in host.list_requests], ["", "page-2"])
-        self.assertEqual(host.execute_requests[0]["tool_call_id"], "mcp-1")
-        self.assertEqual(host.execute_requests[0]["tool_id"], "tool-linear-issues")
-        self.assertEqual(host.execute_requests[0]["context_subject"], "user-123")
-        self.assertEqual(host.execute_requests[0]["idempotency_key"], "agent/codex-mcp:turn-bridge:1:linear__issues")
-        self.assertEqual(host.execute_requests[0]["arguments"], {"query": "AIT"})
+        self.assertEqual(len(host.invoke_requests), 1)
+        self.assertEqual(host.invoke_requests[0]["app"], "linear")
+        self.assertEqual(host.invoke_requests[0]["operation"], "searchIssues")
+        self.assertEqual(host.invoke_requests[0]["context_subject"], "user-123")
+        self.assertEqual(host.invoke_requests[0]["idempotency_key"], "agent/codex-mcp:turn-bridge:1:linear__issues")
+        self.assertEqual(host.invoke_requests[0]["arguments"], {"query": "AIT"})
+        self.assertEqual(result.content[0].text, '{"ok":true}')
+        self.assertFalse(result.isError)
 
-    def test_bridge_execute_tool_uses_agent_host_grpc_deadline(self) -> None:
+    def test_bridge_http_server_returns_tool_error_for_app_invoke_error(self) -> None:
         host = _host_servicer
         assert host is not None
-        host.mode = "execute-slow"
+        host.invoke_error = "integration reconnect required"
 
-        asyncio.run(_exercise_bridge_execute_deadline())
+        result = asyncio.run(_exercise_bridge_http_server())
+
+        self.assertTrue(result.isError)
+        self.assertIn("integration reconnect required", result.content[0].text)
 
     def test_normalize_codex_result_prefers_structured_content(self) -> None:
         result = mcp_types.CallToolResult(
@@ -697,9 +683,9 @@ def setUpModule() -> None:
     os.environ[ENV_HOST_SERVICE_SOCKET] = _host_socket
     os.environ[ENV_HOST_SERVICE_TOKEN] = "relay-token"
 
-    _host_servicer = _FakeAgentHost()
+    _host_servicer = _FakeAppHost()
     _host_server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-    agent_pb2_grpc.add_AgentHostServicer_to_server(_host_servicer, _host_server)
+    app_pb2_grpc.add_AppServicer_to_server(_host_servicer, _host_server)
     _host_server.add_insecure_port(f"unix:{_host_socket}")
     _host_server.start()
 
@@ -792,9 +778,31 @@ def _catalog_tool_config() -> Any:
     linear = config.catalog.refs.add()
     linear.app = "linear"
     linear.operation = "searchIssues"
+    _add_tool(
+        config.catalog,
+        tool_id="tool-linear",
+        mcp_name="linear__issues",
+        app="linear",
+        operation="searchIssues",
+    )
     github = config.catalog.refs.add()
     github.app = "github"
     github.operation = "pulls/list"
+    _add_tool(
+        config.catalog,
+        tool_id="tool-github",
+        mcp_name="github__pulls_list",
+        app="github",
+        operation="pulls/list",
+    )
+    return config
+
+
+def _single_ref_catalog_config() -> Any:
+    config = agent_pb2.AgentToolConfig()
+    ref = config.catalog.refs.add()
+    ref.app = "linear"
+    ref.operation = "searchIssues"
     return config
 
 
@@ -822,36 +830,12 @@ def _slack_session_metadata() -> dict[str, Any]:
     }
 
 
-async def _exercise_bridge_http_server() -> None:
-    bridge_server = BridgeHTTPServer(
-        BridgeContext(session_id="session-bridge", turn_id="turn-bridge", request_context=_request_context("user-123"))
-    )
-    bridge_server.start()
-    bridge = MCPServerStreamableHttp(
-        name="Gestalt Bridge", params={"url": bridge_server.url}, client_session_timeout_seconds=5
-    )
-    try:
-        await bridge.connect()
-        tools = await bridge.list_tools()
-        self_names = [tool.name for tool in tools]
-        assert self_names == ["linear__issues", "github__pulls_list"], self_names
-        result = await bridge.call_tool("linear__issues", {"query": "AIT"})
-        first_content = result.content[0]
-        assert isinstance(first_content, mcp_types.TextContent), result
-        assert first_content.text == '{"ok":true}', result
-        assert not result.isError
-    finally:
-        await bridge.cleanup()
-        bridge_server.stop()
-
-
-async def _exercise_bridge_execute_deadline() -> None:
+async def _exercise_bridge_http_server() -> Any:
     bridge_server = BridgeHTTPServer(
         BridgeContext(
-            session_id="session-bridge-deadline",
-            turn_id="turn-bridge-deadline",
+            turn_id="turn-bridge",
             request_context=_request_context("user-123"),
-            timeout_seconds=0.05,
+            listed_tools=list(_catalog_tool_config().catalog.tools),
         )
     )
     bridge_server.start()
@@ -866,8 +850,7 @@ async def _exercise_bridge_execute_deadline() -> None:
         result = await bridge.call_tool("linear__issues", {"query": "AIT"})
         first_content = result.content[0]
         assert isinstance(first_content, mcp_types.TextContent), result
-        assert result.isError
-        assert "DEADLINE_EXCEEDED" in first_content.text, result
+        return result
     finally:
         await bridge.cleanup()
         bridge_server.stop()
@@ -885,9 +868,15 @@ def _add_tool(
     *,
     tool_id: str,
     mcp_name: str,
+    app: str = "linear",
+    operation: str = "searchIssues",
     title: str = "Tool",
     description: str = "Tool description",
     input_schema: str = '{"type":"object"}',
+    connection: str = "",
+    instance: str = "",
+    credential_mode: str = "",
+    run_as: Any | None = None,
 ) -> None:
     tool = response.tools.add()
     tool.id = tool_id
@@ -896,8 +885,13 @@ def _add_tool(
     tool.description = description
     tool.input_schema = input_schema
     setattr(tool.annotations, "read_only_hint", True)
-    setattr(tool.ref, "app", "linear")
-    setattr(tool.ref, "operation", "searchIssues")
+    setattr(tool.ref, "app", app)
+    setattr(tool.ref, "operation", operation)
+    setattr(tool.ref, "connection", connection)
+    setattr(tool.ref, "instance", instance)
+    setattr(tool.ref, "credential_mode", credential_mode)
+    if run_as is not None:
+        tool.ref.run_as.CopyFrom(run_as)
 
 
 def _assert_invalid(provider_client: Any, request: Any, message: str) -> None:
@@ -909,6 +903,17 @@ def _assert_invalid(provider_client: Any, request: Any, message: str) -> None:
         raise AssertionError("CreateTurn unexpectedly succeeded")
     assert error.code() == grpc.StatusCode.INVALID_ARGUMENT
     assert message in error.details()
+
+
+def _assert_create_session_invalid(provider_client: Any, request: Any, message: str) -> None:
+    try:
+        provider_client.CreateSession(request)
+    except grpc.RpcError as exc:
+        error = cast(Any, exc)
+    else:
+        raise AssertionError("CreateSession unexpectedly succeeded")
+    assert error.code() == grpc.StatusCode.INVALID_ARGUMENT
+    assert message in error.details(), error.details()
 
 
 def _wait_for_turn(provider_client: Any, turn_id: str, status: int) -> Any:

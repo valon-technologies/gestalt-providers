@@ -44,10 +44,10 @@ _GESTALT_MCP_TOOL_PREFIX = f"mcp__{MCP_SERVER_NAME}__"
 
 @dataclass(frozen=True, slots=True)
 class ToolEntry:
-    tool_id: str
     mcp_name: str
     title: str
     description: str
+    ref: gestalt.AgentToolRef
     tags: tuple[str, ...]
     search_text: str
     input_schema: dict[str, Any]
@@ -55,10 +55,18 @@ class ToolEntry:
 
 
 class GestaltMCPBridge:
-    def __init__(self, *, session_id: str, turn_id: str, request_context: Any) -> None:
-        self._session_id = session_id
+    def __init__(
+        self,
+        *,
+        turn_id: str,
+        request_context: Any,
+        listed_tools: list[gestalt.ListedAgentTool],
+        timeout_seconds: float = 0.0,
+    ) -> None:
         self._turn_id = turn_id
         self._request_context = request_context
+        self._listed_tools = list(listed_tools)
+        self._timeout_seconds = timeout_seconds if timeout_seconds > 0 else None
         self._entries: dict[str, ToolEntry] = {}
         self._all_entries: list[ToolEntry] | None = None
         self._catalog_loaded = False
@@ -111,20 +119,18 @@ class GestaltMCPBridge:
             self._sequence += 1
             tool_call_id = f"sdk-{self._sequence}"
 
-            def execute_tool() -> gestalt.ExecuteAgentToolResponse:
-                with gestalt.AgentHost() as host:
-                    return host.execute_tool(
-                        gestalt.ExecuteAgentToolRequest(
-                            session_id=self._session_id,
-                            turn_id=self._turn_id,
-                            tool_call_id=tool_call_id,
-                            tool_id=entry.tool_id,
-                            arguments=arguments or {},
-                            context=self._request_context,
-                            idempotency_key=(
-                                f"agent/claude-sdk:{self._turn_id}:{tool_call_id}:{entry.mcp_name}"
-                            ),
-                        ),
+            def execute_tool() -> gestalt.Response[str]:
+                request = gestalt.Request(context=self._request_context)
+                with request.app() as app:
+                    return app.invoke(
+                        entry.ref.app,
+                        entry.ref.operation,
+                        arguments or {},
+                        connection=entry.ref.connection,
+                        instance=entry.ref.instance,
+                        idempotency_key=f"agent/claude-sdk:{self._turn_id}:{tool_call_id}:{entry.mcp_name}",
+                        credential_mode=entry.ref.credential_mode,
+                        timeout_seconds=self._timeout_seconds,
                     )
 
             try:
@@ -157,10 +163,13 @@ class GestaltMCPBridge:
             entries, next_page_token = self._list_entries(page_token)
             self._remember_entries(entries)
             all_entries.extend(entries)
+            _validate_unique_entries(all_entries)
             if len(all_entries) > MAX_CATALOG_TOOLS:
                 raise ValueError(f"ListTools exceeded {MAX_CATALOG_TOOLS} tools")
             page_token = next_page_token
             if not page_token:
+                if not all_entries:
+                    raise ValueError("tools.catalog.tools is empty for the requested tool scope")
                 self._catalog_loaded = True
                 self._all_entries = list(all_entries)
                 return all_entries
@@ -181,22 +190,23 @@ class GestaltMCPBridge:
         raise ValueError(f"tool {mcp_name!r} is not available in the current tool scope")
 
     def _list_entries(self, page_token: str) -> tuple[list[ToolEntry], str]:
-        with gestalt.AgentHost() as host:
-            response = host.list_tools(
-                gestalt.ListAgentToolsRequest(
-                    session_id=self._session_id,
-                    turn_id=self._turn_id,
-                    page_size=DEFAULT_PAGE_SIZE,
-                    page_token=page_token,
-                    context=self._request_context,
-                ),
-            )
-        return [_tool_entry(tool) for tool in response.tools], str(response.next_page_token or "").strip()
+        offset = _page_token_offset(page_token)
+        next_offset = offset + DEFAULT_PAGE_SIZE
+        tools = self._listed_tools[offset:next_offset]
+        next_page_token = str(next_offset) if next_offset < len(self._listed_tools) else ""
+        return [_tool_entry(tool) for tool in tools], next_page_token
 
 
-def create_gestalt_sdk_mcp_server(*, session_id: str, turn_id: str, request_context: Any) -> McpSdkServerConfig:
+def create_gestalt_sdk_mcp_server(
+    *, turn_id: str, request_context: Any, listed_tools: list[gestalt.ListedAgentTool], timeout_seconds: float = 0.0
+) -> McpSdkServerConfig:
     install_sdk_mcp_pagination_patch()
-    bridge = GestaltMCPBridge(session_id=session_id, turn_id=turn_id, request_context=request_context)
+    bridge = GestaltMCPBridge(
+        turn_id=turn_id,
+        request_context=request_context,
+        listed_tools=listed_tools,
+        timeout_seconds=timeout_seconds,
+    )
     return McpSdkServerConfig(type="sdk", name=MCP_SERVER_NAME, instance=bridge.server)
 
 
@@ -307,13 +317,13 @@ def _mcp_tool(entry: ToolEntry) -> Tool:
 def _tool_error_entry(exc: Exception) -> ToolEntry:
     message = _tool_error_message(exc)
     return ToolEntry(
-        tool_id="",
         mcp_name=TOOL_ERROR_NAME,
         title="Gestalt tools unavailable",
         description=(
             "Gestalt tool discovery failed. Use this diagnostic tool, then tell the user the "
             f"integration needs attention before retrying. Error: {message}"
         ),
+        ref=gestalt.AgentToolRef(),
         tags=(),
         search_text="",
         input_schema={"type": "object", "additionalProperties": False},
@@ -335,20 +345,45 @@ def _tool_error_message(exc: Exception) -> str:
 
 
 def _tool_entry(tool: gestalt.ListedAgentTool) -> ToolEntry:
-    tool_id = tool.id.strip()
     mcp_name = tool.mcp_name.strip()
+    if not mcp_name:
+        raise ValueError("tools.catalog.tools returned a tool without mcp_name")
     if _UNSAFE_TOOL_NAME.search(mcp_name):
-        raise ValueError(f"ListTools returned unsafe mcp_name {mcp_name!r}")
+        raise ValueError(f"tools.catalog.tools returned unsafe mcp_name {mcp_name!r}")
+    ref = tool.ref
+    if ref is None or not ref.app.strip() or not ref.operation.strip() or ref.system.strip():
+        raise ValueError(f"tools.catalog.tools returned non-app tool {mcp_name!r}")
     return ToolEntry(
-        tool_id=tool_id,
         mcp_name=mcp_name,
         title=str(tool.title or "").strip(),
         description=str(tool.description or "").strip(),
+        ref=ref,
         tags=_string_list(tool.tags),
         search_text=str(tool.search_text or "").strip(),
         input_schema=_schema_from_json(str(tool.input_schema or "")),
         annotations=_annotations(tool.annotations, title=str(tool.title or "").strip()),
     )
+
+
+def _validate_unique_entries(entries: list[ToolEntry]) -> None:
+    seen_names: set[str] = set()
+    for entry in entries:
+        if entry.mcp_name in seen_names:
+            raise ValueError(f"tools.catalog.tools returned duplicate mcp_name {entry.mcp_name!r}")
+        seen_names.add(entry.mcp_name)
+
+
+def _page_token_offset(page_token: str) -> int:
+    token = str(page_token or "").strip()
+    if not token:
+        return 0
+    try:
+        offset = int(token)
+    except ValueError as exc:
+        raise ValueError(f"invalid tools/list cursor {page_token!r}") from exc
+    if offset < 0:
+        raise ValueError(f"invalid tools/list cursor {page_token!r}")
+    return offset
 
 
 def _tool_description(entry: ToolEntry) -> str:

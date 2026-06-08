@@ -120,6 +120,7 @@ class ClaudeCodeAgentProvider(
                 prepared_workspace=request.prepared_workspace,
                 tool_source=request.tool_source,
                 tool_refs=request.tool_refs,
+                listed_tools=request.listed_tools,
                 created_by_subject_id=request.created_by_subject_id,
             )
         )
