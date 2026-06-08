@@ -13,6 +13,7 @@ import {
   type AgentToolRef,
   type AgentTurn,
   type AgentTurnEvent,
+  type ListedAgentTool,
   type CancelAgentProviderTurnRequest,
   type CreateAgentProviderSessionRequest,
   type CreateAgentProviderTurnRequest,
@@ -52,6 +53,7 @@ import {
   turnEventToAgentTurnEvent,
   turnToAgentTurn,
 } from "./store.ts";
+import { MAX_LISTED_TOOLS } from "./tools.ts";
 
 export type CursorAgentProviderDependencies = {
   store?: InMemoryRunStore;
@@ -120,7 +122,9 @@ export class CursorAgentProvider extends SDKAgentProvider {
       let metadata = objectOrEmpty(request.metadata);
       validateSessionStartUserMetadata(metadata);
       const preparedWorkspace = preparedWorkspaceFromRequest(request);
-      const { toolSource, toolRefs } = sessionToolScopeFromConfig(request.tools);
+      const { toolSource, toolRefs, listedTools } = sessionToolScopeFromConfig(
+        request.tools,
+      );
       if (hasSessionStartHooks(request.sessionStart)) {
         return await this.withSessionStartLock(async () => {
           const existing = this.existingSessionForCreate(
@@ -146,6 +150,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
             preparedWorkspace,
             toolSource,
             toolRefs,
+            listedTools,
             createdBySubjectId: (request.createdBySubjectId ?? "").trim(),
           });
           return sessionToAgentSession(session);
@@ -165,6 +170,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         preparedWorkspace,
         toolSource,
         toolRefs,
+        listedTools,
         createdBySubjectId: (request.createdBySubjectId ?? "").trim(),
       });
       if (!created) {
@@ -295,6 +301,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         model,
         messages: turn.messages,
         requestContext,
+        listedTools: session.listedTools,
         cwd: session.preparedWorkspace?.cwd ?? "",
         schema,
       });
@@ -471,6 +478,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     model: string;
     messages: AgentMessage[];
     requestContext: NonNullable<CreateAgentProviderTurnRequest["context"]>;
+    listedTools: ListedAgentTool[];
     cwd: string;
     schema?: Record<string, unknown> | undefined;
   }): Promise<void> {
@@ -481,6 +489,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         model: input.model,
         messages: input.messages,
         requestContext: input.requestContext,
+        listedTools: input.listedTools,
         cwd: input.cwd,
         schema: input.schema,
         onEvent: (eventType, data) => {
@@ -580,6 +589,7 @@ function validateCreateTurnRequest(
     throw invalidArgument("model_options are not supported by agent/cursor");
   }
   validateToolRefs(session.toolRefs);
+  validateListedTools(session.listedTools);
   return schema;
 }
 
@@ -588,21 +598,24 @@ function sessionToolScopeFromConfig(
 ): {
   toolSource: AgentToolSourceMode;
   toolRefs: AgentToolRef[];
+  listedTools: ListedAgentTool[];
 } {
   if (!tools || tools.none !== undefined) {
-    return { toolSource: AgentToolSourceMode.NONE, toolRefs: [] };
+    throw invalidArgument("agent/cursor requires tools.catalog");
   }
   if (tools.catalog !== undefined) {
-    if ((tools.catalog.tools ?? []).length > 0) {
-      throw invalidArgument(
-        "resolved tools are not supported; use tools.catalog.refs",
-      );
-    }
     const refs = [...(tools.catalog.refs ?? [])];
+    const listedTools = [...(tools.catalog.tools ?? [])];
     validateToolRefs(refs);
-    return { toolSource: AgentToolSourceMode.CATALOG, toolRefs: refs };
+    validateListedTools(listedTools);
+    validateListedToolsCoveredByRefs(listedTools, refs);
+    return {
+      toolSource: AgentToolSourceMode.CATALOG,
+      toolRefs: refs,
+      listedTools,
+    };
   }
-  return { toolSource: AgentToolSourceMode.NONE, toolRefs: [] };
+  throw invalidArgument("agent/cursor requires tools.catalog");
 }
 
 function schemaFromOutput(
@@ -634,12 +647,19 @@ function validateToolRefs(
     const operation = (ref.operation ?? "").trim();
     const connection = (ref.connection ?? "").trim();
     const instance = (ref.instance ?? "").trim();
+    const credentialMode = (ref.credentialMode ?? "").trim();
     const label = `tool_refs[${index + 1}]`;
     if (!operation) {
       throw invalidArgument(`${label}.operation is required`);
     }
     if ([app, system, operation, connection, instance].includes("*")) {
       throw invalidArgument("wildcard tool_refs are not supported");
+    }
+    if (credentialMode && !CREDENTIAL_MODES.has(credentialMode)) {
+      throw invalidArgument(`${label}.credential_mode is invalid`);
+    }
+    if (ref.runAs !== undefined) {
+      throw invalidArgument(`${label}.run_as is not supported`);
     }
     if (Boolean(app) === Boolean(system)) {
       throw invalidArgument(
@@ -652,6 +672,103 @@ function validateToolRefs(
       );
     }
   });
+}
+
+const MCP_TOOL_NAME = /^[A-Za-z0-9._-]{1,128}$/;
+const CREDENTIAL_MODES = new Set(["unspecified", "none", "subject"]);
+
+function validateListedTools(tools: readonly ListedAgentTool[]): void {
+  if (tools.length === 0) {
+    throw invalidArgument("tools.catalog.tools are required");
+  }
+  const seenNames = new Set<string>();
+  for (const [index, tool] of tools.entries()) {
+    const label = `tools.catalog.tools[${index + 1}]`;
+    const mcpName = (tool.mcpName ?? "").trim();
+    if (!mcpName) {
+      throw invalidArgument(`${label}.mcp_name is required`);
+    }
+    if (!MCP_TOOL_NAME.test(mcpName)) {
+      throw invalidArgument(`${label}.mcp_name is unsafe`);
+    }
+    if (seenNames.has(mcpName)) {
+      throw invalidArgument(
+        `tools.catalog.tools contains duplicate mcp_name ${JSON.stringify(mcpName)}`,
+      );
+    }
+    seenNames.add(mcpName);
+    if (seenNames.size > MAX_LISTED_TOOLS) {
+      throw invalidArgument(
+        `tools.catalog.tools contains more than ${MAX_LISTED_TOOLS} tools`,
+      );
+    }
+    const ref = tool.ref;
+    if (!ref || !ref.app?.trim() || !ref.operation?.trim() || ref.system?.trim()) {
+      throw invalidArgument(`${label} must target an app operation`);
+    }
+    if (
+      [ref.app, ref.operation, ref.connection, ref.instance].some(
+        (value) => value?.trim() === "*",
+      )
+    ) {
+      throw invalidArgument(`${label} must target a concrete app operation`);
+    }
+    const credentialMode = (ref.credentialMode ?? "").trim();
+    if (credentialMode && !CREDENTIAL_MODES.has(credentialMode)) {
+      throw invalidArgument(`${label}.ref.credential_mode is invalid`);
+    }
+    if (ref.runAs !== undefined) {
+      throw invalidArgument(`${label}.ref.run_as is not supported`);
+    }
+  }
+}
+
+function validateListedToolsCoveredByRefs(
+  listedTools: readonly ListedAgentTool[],
+  toolRefs: readonly AgentToolRef[],
+): void {
+  for (const [index, tool] of listedTools.entries()) {
+    const ref = tool.ref;
+    if (!ref || !toolRefs.some((selector) => toolRefCoversListedRef(selector, ref))) {
+      throw invalidArgument(
+        `tools.catalog.tools[${index + 1}] is not covered by tools.catalog.refs`,
+      );
+    }
+  }
+}
+
+function toolRefCoversListedRef(
+  selector: AgentToolRef,
+  listed: AgentToolRef,
+): boolean {
+  if (selector.system?.trim()) {
+    return false;
+  }
+  if (selector.app?.trim() !== listed.app?.trim()) {
+    return false;
+  }
+  if (selector.operation?.trim() !== listed.operation?.trim()) {
+    return false;
+  }
+  if (
+    selector.connection?.trim() &&
+    selector.connection.trim() !== listed.connection?.trim()
+  ) {
+    return false;
+  }
+  if (
+    selector.instance?.trim() &&
+    selector.instance.trim() !== listed.instance?.trim()
+  ) {
+    return false;
+  }
+  if (
+    selector.credentialMode?.trim() &&
+    selector.credentialMode.trim() !== listed.credentialMode?.trim()
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function modelFor(config: CursorAgentConfig, requested: string): string {

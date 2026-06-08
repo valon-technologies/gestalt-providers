@@ -1,13 +1,10 @@
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
-import type { ListedAgentTool } from "@valon-technologies/gestalt";
+import type { AgentToolRef, ListedAgentTool } from "@valon-technologies/gestalt";
 
-import type { GestaltAgentHost } from "./agent_host.ts";
 import { CursorExecutionError } from "./errors.ts";
 
 export const MCP_SERVER_NAME = "gestalt";
-export const DEFAULT_PAGE_SIZE = 100;
 export const MAX_LISTED_TOOLS = 1000;
-export const MAX_PAGES = 100;
 export const MAX_ERROR_TEXT = 4000;
 
 const MCP_TOOL_NAME = /^[A-Za-z0-9._-]{1,128}$/;
@@ -21,88 +18,64 @@ export type ObjectJsonSchema = {
 };
 
 export type ToolEntry = {
-  toolId: string;
   mcpName: string;
   title: string;
   description: string;
+  ref: AgentToolRef;
   inputSchema: ObjectJsonSchema;
   annotations?: ToolAnnotations;
 };
 
 export async function listGestaltTools(input: {
-  host: GestaltAgentHost;
-  sessionId: string;
-  turnId: string;
-  requestContext: Parameters<GestaltAgentHost["listTools"]>[0]["context"];
+  listedTools: readonly ListedAgentTool[];
 }): Promise<ToolEntry[]> {
-  let pageToken = "";
-  const seenTokens = new Set<string>();
   const tools: ToolEntry[] = [];
   const seenNames = new Set<string>();
 
-  for (let pages = 1; ; pages += 1) {
-    if (pages > MAX_PAGES) {
-      throw new CursorExecutionError(`ListTools exceeded ${MAX_PAGES} pages`);
-    }
-    if (seenTokens.has(pageToken)) {
+  for (const listed of input.listedTools) {
+    const entry = toolEntry(listed);
+    if (seenNames.has(entry.mcpName)) {
       throw new CursorExecutionError(
-        `ListTools repeated page token ${JSON.stringify(pageToken)}`,
+        `tools.catalog.tools contains duplicate mcp_name ${JSON.stringify(entry.mcpName)}`,
       );
     }
-    seenTokens.add(pageToken);
-
-    const request: Parameters<GestaltAgentHost["listTools"]>[0] = {
-      sessionId: input.sessionId,
-      turnId: input.turnId,
-      pageSize: DEFAULT_PAGE_SIZE,
-      pageToken,
-      context: input.requestContext,
-    };
-    const response = await input.host.listTools(request);
-    for (const listed of response.tools) {
-      const entry = toolEntry(listed);
-      if (seenNames.has(entry.mcpName)) {
-        throw new CursorExecutionError(
-          `ListTools returned duplicate mcp_name ${JSON.stringify(entry.mcpName)}`,
-        );
-      }
-      seenNames.add(entry.mcpName);
-      tools.push(entry);
-      if (tools.length > MAX_LISTED_TOOLS) {
-        throw new CursorExecutionError(
-          `ListTools returned more than ${MAX_LISTED_TOOLS} tools`,
-        );
-      }
-    }
-    pageToken = (response.nextPageToken ?? "").trim();
-    if (!pageToken) {
-      break;
+    seenNames.add(entry.mcpName);
+    tools.push(entry);
+    if (tools.length > MAX_LISTED_TOOLS) {
+      throw new CursorExecutionError(
+        `tools.catalog.tools contains more than ${MAX_LISTED_TOOLS} tools`,
+      );
     }
   }
 
   if (tools.length === 0) {
     throw new CursorExecutionError(
-      "ListTools returned no tools for the requested tool scope",
+      "tools.catalog.tools are required",
     );
   }
   return tools;
 }
 
 export function toolEntry(tool: ListedAgentTool): ToolEntry {
-  const toolId = (tool.id ?? "").trim();
   const mcpName = (tool.mcpName ?? "").trim();
   if (!MCP_TOOL_NAME.test(mcpName)) {
     throw new CursorExecutionError(
-      `ListTools returned unsafe mcp_name ${JSON.stringify(mcpName)}`,
+      `tools.catalog.tools returned unsafe mcp_name ${JSON.stringify(mcpName)}`,
+    );
+  }
+  const ref = tool.ref;
+  if (!ref || !ref.app?.trim() || !ref.operation?.trim() || ref.system?.trim()) {
+    throw new CursorExecutionError(
+      `tools.catalog.tools returned non-app tool ${JSON.stringify(mcpName)}`,
     );
   }
 
   const annotations = annotationsFromTool(tool);
   return {
-    toolId,
     mcpName,
     title: (tool.title ?? "").trim(),
     description: (tool.description ?? "").trim(),
+    ref,
     inputSchema: schemaFromJson(tool.inputSchema ?? ""),
     ...(annotations ? { annotations } : {}),
   };
