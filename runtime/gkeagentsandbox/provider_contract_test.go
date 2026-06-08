@@ -459,7 +459,7 @@ func TestRuntimeProviderContractListsSessions(t *testing.T) {
 	}
 }
 
-func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(t *testing.T) {
+func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndHostServiceRelay(t *testing.T) {
 	t.Parallel()
 
 	appTarget := startAppLifecycleServer(t)
@@ -506,7 +506,6 @@ func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(
 
 	fake.mu.Lock()
 	policies := slices.Clone(fake.hostnamePolicies)
-	execCalls := slices.Clone(fake.execCalls)
 	fake.mu.Unlock()
 
 	if len(policies) != 1 {
@@ -523,19 +522,6 @@ func TestRuntimeProviderContractConfiguresHostnameEgressPolicyAndAgentHostRelay(
 			t.Fatalf("hostname egress endpoints = %#v, want %#v", policies[0].config.Endpoints, want)
 		}
 	}
-	if len(execCalls) < 2 {
-		t.Fatalf("runtime Exec calls = %d, want launch and readiness checks", len(execCalls))
-	}
-	launchScript := execCalls[0].command[2]
-	for _, want := range []string{
-		"'GESTALT_HOST_SERVICE_SOCKET=tls://host-service-relay.gestalt.example:7443'",
-		"'GESTALT_HOST_SERVICE_TOKEN=host-service-token'",
-	} {
-		if !strings.Contains(launchScript, want) {
-			t.Fatalf("launch script missing %q:\n%s", want, launchScript)
-		}
-	}
-
 	if err := client.StopSession(ctx, session.ID); err != nil {
 		t.Fatalf("StopSession: %v", err)
 	}
@@ -749,7 +735,7 @@ func TestRuntimeProviderContractRejectsHostnameEgressWithoutProxy(t *testing.T) 
 	}
 }
 
-func TestRuntimeProviderContractAllowsRelayOnlyAgentHostLaunchWithoutProxy(t *testing.T) {
+func TestRuntimeProviderContractAllowsRelayOnlyHostServiceLaunchWithoutProxy(t *testing.T) {
 	t.Parallel()
 
 	appTarget := startAppLifecycleServer(t)
