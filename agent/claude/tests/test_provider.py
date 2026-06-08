@@ -27,7 +27,6 @@ from gestalt import ENV_HOST_SERVICE_SOCKET, ENV_HOST_SERVICE_TOKEN, ProviderKin
 from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt._gen.v1 import app_pb2 as _app_pb2
-from gestalt._gen.v1 import app_pb2_grpc as _app_pb2_grpc
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 import internals.claude_runner as claude_runner_module
@@ -39,54 +38,48 @@ agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
 empty_pb2: Any = _empty_pb2
 app_pb2: Any = cast(Any, _app_pb2)
-app_pb2_grpc: Any = _app_pb2_grpc
 runtime_pb2: Any = _runtime_pb2
 runtime_pb2_grpc: Any = _runtime_pb2_grpc
 struct_pb2: Any = _struct_pb2
 AGENT_TOOL_SOURCE_MODE_NONE = provider_module.AGENT_TOOL_SOURCE_MODE_NONE
+AGENT_TOOL_SOURCE_MODE_CATALOG = provider_module.AGENT_TOOL_SOURCE_MODE_CATALOG
 
 
 _runtime_server: grpc.Server | None = None
 _host_server: grpc.Server | None = None
 _runtime_socket = ""
 _host_socket = ""
-_host_servicer: "_FakeAppHost | None" = None
+_host_servicer: "_FakeAgentToolProvider | None" = None
 _indexeddb_servicer: "FakeIndexedDB | None" = None
 _previous_host_service_socket: str | None = None
 _previous_host_service_token: str | None = None
 _claude_client_patch: Any = None
 
 
-class _FakeAppHost(app_pb2_grpc.AppServicer):
+class _FakeAgentToolProvider(agent_pb2_grpc.AgentProviderServicer):
     def __init__(self) -> None:
-        self.invoke_requests: list[dict[str, Any]] = []
-        self.invoke_error = ""
+        self.execute_requests: list[dict[str, Any]] = []
+        self.execute_error = ""
 
     def reset(self) -> None:
-        self.invoke_requests.clear()
-        self.invoke_error = ""
+        self.execute_requests.clear()
+        self.execute_error = ""
 
-    def Invoke(self, request: Any, context: grpc.ServicerContext) -> Any:
+    def ExecuteTool(self, request: Any, context: grpc.ServicerContext) -> Any:
         arguments = (
-            json_format.MessageToDict(request.params, preserving_proto_field_name=True)
-            if request.HasField("params")
+            json_format.MessageToDict(request.arguments, preserving_proto_field_name=True)
+            if request.HasField("arguments")
             else {}
         )
-        self.invoke_requests.append(
+        self.execute_requests.append(
             {
-                "app": request.app,
-                "operation": request.operation,
-                "context_subject": request.context.subject.id,
-                "idempotency_key": request.idempotency_key,
+                "tool_id": request.tool_id,
                 "arguments": arguments,
-                "connection": request.connection,
-                "instance": request.instance,
-                "credential_mode": request.credential_mode,
             }
         )
-        if self.invoke_error:
-            context.abort(grpc.StatusCode.UNKNOWN, self.invoke_error)
-        return app_pb2.OperationResult(status=200, body=b'{"ok":true}')
+        if self.execute_error:
+            context.abort(grpc.StatusCode.UNKNOWN, self.execute_error)
+        return agent_pb2.ExecuteAgentToolResponse(status=200, body='{"ok":true}')
 
 
 class _FakeClaudeSDKClient:
@@ -635,13 +628,8 @@ class ClaudeProviderTests(unittest.TestCase):
             "Do not infer tool availability from Claude Code built-in tools only", fake_client.options.system_prompt
         )
 
-        self.assertEqual(host.invoke_requests[0]["app"], "linear")
-        self.assertEqual(host.invoke_requests[0]["operation"], "searchIssues")
-        self.assertEqual(host.invoke_requests[0]["context_subject"], "user-123")
-        self.assertEqual(
-            host.invoke_requests[0]["idempotency_key"], "agent/claude-sdk:turn-claude:sdk-1:linear__issues"
-        )
-        self.assertEqual(host.invoke_requests[0]["arguments"], {"query": "AIT"})
+        self.assertEqual(host.execute_requests[0]["tool_id"], "tool-linear-issues")
+        self.assertEqual(host.execute_requests[0]["arguments"], {"query": "AIT"})
         tool_result = cast(Any, fake_client.tool_result)
         self.assertEqual(tool_result.content[0].text, '{"ok":true}')
         self.assertFalse(tool_result.isError)
@@ -732,7 +720,7 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(fake_client.options.output_format["schema"]["type"], "object")
         host = _host_servicer
         assert host is not None
-        self.assertEqual(host.invoke_requests, [])
+        self.assertEqual(host.execute_requests, [])
 
     def test_slack_sessions_are_company_readable_and_owner_writable(self) -> None:
         _, provider_client = _configure_provider()
@@ -855,11 +843,12 @@ class ClaudeProviderTests(unittest.TestCase):
 
         with mock.patch("internals.claude_runner.asyncio.wait_for", side_effect=fake_wait_for):
             result = runner.run_turn(
-                session_id="session-timeout",
+                session=_test_session("session-timeout", tool_source=AGENT_TOOL_SOURCE_MODE_NONE),
                 turn_id="turn-timeout",
                 model="sonnet-session",
                 messages=[{"role": "user", "text": "hello"}],
-                turn_profile=provider_module.ClaudeTurnProfile.direct(schema={"type": "object"}),
+                request_context=None,
+                schema={"type": "object"},
                 timeout_seconds=1.25,
             )
 
@@ -1430,14 +1419,13 @@ class ClaudeProviderTests(unittest.TestCase):
         execute_result = asyncio.run(_call_sdk_tool(options, name="github__operation_0", arguments={"query": "mine"}))
 
         self.assertEqual(execute_result.content[0].text, '{"ok":true}')
-        self.assertEqual(host.invoke_requests[-1]["app"], "github")
-        self.assertEqual(host.invoke_requests[-1]["operation"], "operation0")
-        self.assertEqual(host.invoke_requests[-1]["arguments"], {"query": "mine"})
+        self.assertEqual(host.execute_requests[-1]["tool_id"], "tool-github-0")
+        self.assertEqual(host.execute_requests[-1]["arguments"], {"query": "mine"})
 
-    def test_sdk_mcp_bridge_returns_tool_result_for_app_invoke_error(self) -> None:
+    def test_sdk_mcp_bridge_returns_tool_result_for_host_execution_error(self) -> None:
         host = _host_servicer
         assert host is not None
-        host.invoke_error = "integration reconnect required: token expired and refresh failed"
+        host.execute_error = "integration reconnect required: token expired and refresh failed"
         _configure_provider()
         runner = provider_module.provider._runner
         assert runner is not None
@@ -1448,7 +1436,7 @@ class ClaudeProviderTests(unittest.TestCase):
 
         self.assertTrue(tool_result.isError)
         self.assertIn("integration reconnect required", tool_result.content[0].text)
-        self.assertEqual(host.invoke_requests[0]["operation"], "searchIssues")
+        self.assertEqual(host.execute_requests[0]["tool_id"], "tool-linear-issues")
 
     def test_sdk_mcp_bridge_exposes_tool_discovery_error_as_diagnostic_tool(self) -> None:
         _configure_provider()
@@ -1477,6 +1465,7 @@ class ClaudeProviderTests(unittest.TestCase):
         host = _host_servicer
         assert host is not None
         bridge = GestaltMCPBridge(
+            session_id="session-claude",
             turn_id="turn-claude",
             request_context=_request_context("user-123"),
             listed_tools=list(_catalog_tool_config().catalog.tools),
@@ -1486,114 +1475,7 @@ class ClaudeProviderTests(unittest.TestCase):
 
         self.assertTrue(tool_result.isError)
         self.assertIn("not available in the current tool scope", cast(Any, tool_result.content[0]).text)
-        self.assertEqual(host.invoke_requests, [])
-
-    def test_create_session_rejects_invalid_catalog_tools(self) -> None:
-        _, provider_client = _configure_provider()
-        for mode, message in (
-            ("duplicate", "duplicate mcp_name"),
-            ("unsafe", "mcp_name is unsafe"),
-            ("bad-ref-credential-mode", "credential_mode is invalid"),
-            ("bad-ref-run-as", "run_as is not supported"),
-            ("wildcard-listed-connection", "concrete app operation"),
-            ("bad-listed-credential-mode", "credential_mode is invalid"),
-            ("listed-run-as", "run_as is not supported"),
-            ("mismatched-ref", "not covered by tools.catalog.refs"),
-            ("mismatched-credential-mode", "not covered by tools.catalog.refs"),
-        ):
-            with self.subTest(mode=mode):
-                config = _single_ref_catalog_config()
-                if mode == "duplicate":
-                    _add_tool(
-                        config.catalog,
-                        tool_id="tool-1",
-                        mcp_name="linear__issues",
-                        app="linear",
-                        operation="searchIssues",
-                        title="Search Linear issues",
-                        description="Search Linear issues",
-                    )
-                    _add_tool(
-                        config.catalog,
-                        tool_id="tool-2",
-                        mcp_name="linear__issues",
-                        app="linear",
-                        operation="searchIssues",
-                        title="Search Linear issues again",
-                        description="Search Linear issues again",
-                    )
-                elif mode == "unsafe":
-                    _add_tool(
-                        config.catalog,
-                        tool_id="tool-unsafe",
-                        mcp_name="bad tool",
-                        app="linear",
-                        operation="searchIssues",
-                        title="Bad tool",
-                        description="Bad tool",
-                    )
-                elif mode == "bad-ref-credential-mode":
-                    config.catalog.refs[0].credential_mode = "user"
-                elif mode == "bad-ref-run-as":
-                    config.catalog.refs[0].run_as.CopyFrom(_subject_context("user:delegate"))
-                elif mode == "wildcard-listed-connection":
-                    _add_tool(
-                        config.catalog,
-                        tool_id="tool-linear",
-                        mcp_name="linear__issues",
-                        app="linear",
-                        operation="searchIssues",
-                        title="Search Linear issues",
-                        description="Search Linear issues",
-                        connection="*",
-                    )
-                elif mode == "bad-listed-credential-mode":
-                    _add_tool(
-                        config.catalog,
-                        tool_id="tool-linear",
-                        mcp_name="linear__issues",
-                        app="linear",
-                        operation="searchIssues",
-                        title="Search Linear issues",
-                        description="Search Linear issues",
-                        credential_mode="user",
-                    )
-                elif mode == "listed-run-as":
-                    _add_tool(
-                        config.catalog,
-                        tool_id="tool-linear",
-                        mcp_name="linear__issues",
-                        app="linear",
-                        operation="searchIssues",
-                        title="Search Linear issues",
-                        description="Search Linear issues",
-                        run_as=_subject_context("user:delegate"),
-                    )
-                elif mode == "mismatched-ref":
-                    _add_tool(
-                        config.catalog,
-                        tool_id="tool-github",
-                        mcp_name="github__pulls_list",
-                        app="github",
-                        operation="pulls/list",
-                        title="List GitHub pull requests",
-                        description="List GitHub pull requests",
-                    )
-                elif mode == "mismatched-credential-mode":
-                    config.catalog.refs[0].credential_mode = "subject"
-                    _add_tool(
-                        config.catalog,
-                        tool_id="tool-linear",
-                        mcp_name="linear__issues",
-                        app="linear",
-                        operation="searchIssues",
-                        title="Search Linear issues",
-                        description="Search Linear issues",
-                        credential_mode="none",
-                    )
-                _assert_create_session_invalid(
-                    provider_client, _owned_session_request(f"bad-tools-{mode}", tools=config), message
-                )
+        self.assertEqual(host.execute_requests, [])
 
     def test_create_turn_rejects_unsupported_tool_contract_inputs(self) -> None:
         _, provider_client = _configure_provider()
@@ -1733,10 +1615,10 @@ def setUpModule() -> None:
     _claude_client_patch = mock.patch.object(claude_runner_module, "ClaudeSDKClient", _FakeClaudeSDKClient)
     _claude_client_patch.start()
 
-    _host_servicer = _FakeAppHost()
+    _host_servicer = _FakeAgentToolProvider()
     _indexeddb_servicer = FakeIndexedDB()
     _host_server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-    _app_pb2_grpc.add_AppServicer_to_server(_host_servicer, _host_server)
+    agent_pb2_grpc.add_AgentProviderServicer_to_server(_host_servicer, _host_server)
     datastore_pb2_grpc.add_IndexedDBServicer_to_server(_indexeddb_servicer, _host_server)
     _host_server.add_insecure_port(f"unix:{_host_socket}")
     _host_server.start()
@@ -1968,10 +1850,6 @@ def _add_tool(
     input_schema: str = '{"type":"object"}',
     tags: list[str] | None = None,
     search_text: str = "",
-    connection: str = "",
-    instance: str = "",
-    credential_mode: str = "",
-    run_as: Any | None = None,
 ) -> None:
     tool = response.tools.add()
     tool.id = tool_id
@@ -1984,11 +1862,6 @@ def _add_tool(
     setattr(tool.annotations, "read_only_hint", True)
     setattr(tool.ref, "app", app)
     setattr(tool.ref, "operation", operation)
-    setattr(tool.ref, "connection", connection)
-    setattr(tool.ref, "instance", instance)
-    setattr(tool.ref, "credential_mode", credential_mode)
-    if run_as is not None:
-        tool.ref.run_as.CopyFrom(run_as)
 
 
 def _subject_context(subject_id: str) -> Any:
@@ -2008,14 +1881,26 @@ def _catalog_options(runner: Any, *, listed_tools: list[Any] | None = None) -> A
         listed_tools = list(_catalog_tool_config().catalog.tools)
     return runner._options(
         model="sonnet-session",
-        session_id="session-claude",
+        session=_test_session("session-claude", listed_tools=listed_tools),
         turn_id="turn-claude",
-        turn_profile=provider_module.ClaudeTurnProfile.catalog(
-            request_context=_request_context("user-123"),
-            listed_tools=listed_tools,
-            claude_code_options=runner._config.claude_code.resolve_turn_options({}),
-            cwd="",
-        ),
+        request_context=_request_context("user-123"),
+    )
+
+
+def _test_session(
+    session_id: str,
+    *,
+    tool_source: int = AGENT_TOOL_SOURCE_MODE_CATALOG,
+    listed_tools: list[Any] | None = None,
+    metadata: dict[str, Any] | None = None,
+    prepared_workspace: dict[str, str] | None = None,
+) -> Any:
+    return py_types.SimpleNamespace(
+        session_id=session_id,
+        tool_source=tool_source,
+        listed_tools=list(listed_tools or []),
+        metadata=dict(metadata or {}),
+        prepared_workspace=prepared_workspace,
     )
 
 

@@ -22,7 +22,7 @@ override-dependencies = [
 ]
 
 [tool.uv.sources]
-gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", rev = "b5eea875dcbdd604af16d5c1d1e2831e39dae3f2", subdirectory = "sdk/python" }
+gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", rev = "7cae772b2fd555cbcafe227dcd36189c25372a53", subdirectory = "sdk/python" }
 
 [tool.gestalt]
 plugin = "provider"
@@ -32,6 +32,7 @@ agent = "provider"
 vulture-ignore-names = [
   "configure",
   "metadata",
+  "ExecuteTool",
   "Invoke",
   "ResolveConnection",
   "create_turn",

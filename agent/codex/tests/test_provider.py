@@ -23,19 +23,17 @@ from gestalt import ENV_HOST_SERVICE_SOCKET, ENV_HOST_SERVICE_TOKEN, ProviderKin
 from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt._gen.v1 import app_pb2 as _app_pb2
-from gestalt._gen.v1 import app_pb2_grpc as _app_pb2_grpc
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.codex_runner import normalize_codex_result
 from internals.gestalt_mcp_bridge import BridgeContext
 from internals.http_bridge import BridgeHTTPServer
-from internals.tool_bridge import MAX_LISTED_TOOLS, schema_from_json
+from internals.tool_bridge import schema_from_json
 
 agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
 empty_pb2: Any = _empty_pb2
 app_pb2: Any = cast(Any, _app_pb2)
-app_pb2_grpc: Any = _app_pb2_grpc
 runtime_pb2: Any = _runtime_pb2
 runtime_pb2_grpc: Any = _runtime_pb2_grpc
 struct_pb2: Any = _struct_pb2
@@ -44,41 +42,35 @@ _runtime_server: grpc.Server | None = None
 _host_server: grpc.Server | None = None
 _runtime_socket = ""
 _host_socket = ""
-_host_servicer: "_FakeAppHost | None" = None
+_host_servicer: "_FakeAgentToolProvider | None" = None
 _previous_host_service_socket: str | None = None
 _previous_host_service_token: str | None = None
 
 
-class _FakeAppHost(app_pb2_grpc.AppServicer):
+class _FakeAgentToolProvider(agent_pb2_grpc.AgentProviderServicer):
     def __init__(self) -> None:
-        self.invoke_requests: list[dict[str, Any]] = []
-        self.invoke_error = ""
+        self.execute_requests: list[dict[str, Any]] = []
+        self.execute_error = ""
 
     def reset(self) -> None:
-        self.invoke_requests.clear()
-        self.invoke_error = ""
+        self.execute_requests.clear()
+        self.execute_error = ""
 
-    def Invoke(self, request: Any, context: grpc.ServicerContext) -> Any:
+    def ExecuteTool(self, request: Any, context: grpc.ServicerContext) -> Any:
         arguments = (
-            json_format.MessageToDict(request.params, preserving_proto_field_name=True)
-            if request.HasField("params")
+            json_format.MessageToDict(request.arguments, preserving_proto_field_name=True)
+            if request.HasField("arguments")
             else {}
         )
-        self.invoke_requests.append(
+        self.execute_requests.append(
             {
-                "app": request.app,
-                "operation": request.operation,
-                "context_subject": request.context.subject.id,
-                "idempotency_key": request.idempotency_key,
+                "tool_id": request.tool_id,
                 "arguments": arguments,
-                "connection": request.connection,
-                "instance": request.instance,
-                "credential_mode": request.credential_mode,
             }
         )
-        if self.invoke_error:
-            context.abort(grpc.StatusCode.UNKNOWN, self.invoke_error)
-        return app_pb2.OperationResult(status=200, body=b'{"ok":true}')
+        if self.execute_error:
+            context.abort(grpc.StatusCode.UNKNOWN, self.execute_error)
+        return agent_pb2.ExecuteAgentToolResponse(status=200, body='{"ok":true}')
 
 
 class _FakeCodexMCPServer:
@@ -262,7 +254,7 @@ class CodexProviderTests(unittest.TestCase):
         self.assertEqual(fake_server.params["env"]["OPENAI_API_KEY"], "test-openai-key")
         self.assertNotIn("test-openai-key", repr(fake_server.called_arguments))
 
-        self.assertEqual(host.invoke_requests, [])
+        self.assertEqual(host.execute_requests, [])
 
     def test_slack_sessions_are_company_readable_and_owner_writable(self) -> None:
         _, provider_client = _configure_provider()
@@ -575,79 +567,22 @@ class CodexProviderTests(unittest.TestCase):
         self.assertGreaterEqual(_FakeCodexMCPServer.instances[0].cleanup_count, 1)
         self.assertEqual(runner._canceled_turns, set())
 
-    def test_create_session_rejects_invalid_catalog_tools(self) -> None:
-        _, provider_client = _configure_provider()
-        for mode, message in (
-            ("duplicate", "duplicate mcp_name"),
-            ("unsafe", "mcp_name is unsafe"),
-            ("bad-ref-credential-mode", "credential_mode is invalid"),
-            ("bad-ref-run-as", "run_as is not supported"),
-            ("wildcard-listed-connection", "concrete app operation"),
-            ("bad-listed-credential-mode", "credential_mode is invalid"),
-            ("listed-run-as", "run_as is not supported"),
-            ("mismatched-ref", "not covered by tools.catalog.refs"),
-            ("mismatched-credential-mode", "not covered by tools.catalog.refs"),
-            ("too-many", "more than"),
-        ):
-            with self.subTest(mode=mode):
-                config = _single_ref_catalog_config()
-                if mode == "duplicate":
-                    _add_tool(config.catalog, tool_id="tool-1", mcp_name="duplicate")
-                    _add_tool(config.catalog, tool_id="tool-2", mcp_name="duplicate")
-                elif mode == "unsafe":
-                    _add_tool(config.catalog, tool_id="tool-unsafe", mcp_name="bad tool")
-                elif mode == "bad-ref-credential-mode":
-                    config.catalog.refs[0].credential_mode = "user"
-                elif mode == "bad-ref-run-as":
-                    config.catalog.refs[0].run_as.CopyFrom(_subject_context("user:delegate"))
-                elif mode == "wildcard-listed-connection":
-                    _add_tool(config.catalog, tool_id="tool-linear", mcp_name="linear__issues", connection="*")
-                elif mode == "bad-listed-credential-mode":
-                    _add_tool(config.catalog, tool_id="tool-linear", mcp_name="linear__issues", credential_mode="user")
-                elif mode == "listed-run-as":
-                    _add_tool(
-                        config.catalog,
-                        tool_id="tool-linear",
-                        mcp_name="linear__issues",
-                        run_as=_subject_context("user:delegate"),
-                    )
-                elif mode == "mismatched-ref":
-                    _add_tool(
-                        config.catalog,
-                        tool_id="tool-github",
-                        mcp_name="github__pulls_list",
-                        app="github",
-                        operation="pulls/list",
-                    )
-                elif mode == "mismatched-credential-mode":
-                    config.catalog.refs[0].credential_mode = "subject"
-                    _add_tool(config.catalog, tool_id="tool-linear", mcp_name="linear__issues", credential_mode="none")
-                elif mode == "too-many":
-                    for index in range(MAX_LISTED_TOOLS + 1):
-                        _add_tool(config.catalog, tool_id=f"tool-{index}", mcp_name=f"tool__{index}")
-                _assert_create_session_invalid(
-                    provider_client, _owned_session_request(f"bad-tools-{mode}", tools=config), message
-                )
-
     def test_bridge_http_server_lists_and_executes_tools(self) -> None:
         host = _host_servicer
         assert host is not None
         host.reset()
         result = asyncio.run(_exercise_bridge_http_server())
 
-        self.assertEqual(len(host.invoke_requests), 1)
-        self.assertEqual(host.invoke_requests[0]["app"], "linear")
-        self.assertEqual(host.invoke_requests[0]["operation"], "searchIssues")
-        self.assertEqual(host.invoke_requests[0]["context_subject"], "user-123")
-        self.assertEqual(host.invoke_requests[0]["idempotency_key"], "agent/codex-mcp:turn-bridge:1:linear__issues")
-        self.assertEqual(host.invoke_requests[0]["arguments"], {"query": "AIT"})
+        self.assertEqual(len(host.execute_requests), 1)
+        self.assertEqual(host.execute_requests[0]["tool_id"], "tool-linear")
+        self.assertEqual(host.execute_requests[0]["arguments"], {"query": "AIT"})
         self.assertEqual(result.content[0].text, '{"ok":true}')
         self.assertFalse(result.isError)
 
-    def test_bridge_http_server_returns_tool_error_for_app_invoke_error(self) -> None:
+    def test_bridge_http_server_returns_tool_error_for_host_execution_error(self) -> None:
         host = _host_servicer
         assert host is not None
-        host.invoke_error = "integration reconnect required"
+        host.execute_error = "integration reconnect required"
 
         result = asyncio.run(_exercise_bridge_http_server())
 
@@ -673,9 +608,9 @@ def setUpModule() -> None:
     os.environ[ENV_HOST_SERVICE_SOCKET] = _host_socket
     os.environ[ENV_HOST_SERVICE_TOKEN] = "relay-token"
 
-    _host_servicer = _FakeAppHost()
+    _host_servicer = _FakeAgentToolProvider()
     _host_server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-    app_pb2_grpc.add_AppServicer_to_server(_host_servicer, _host_server)
+    agent_pb2_grpc.add_AgentProviderServicer_to_server(_host_servicer, _host_server)
     _host_server.add_insecure_port(f"unix:{_host_socket}")
     _host_server.start()
 
@@ -813,6 +748,7 @@ def _slack_session_metadata() -> dict[str, Any]:
 async def _exercise_bridge_http_server() -> Any:
     bridge_server = BridgeHTTPServer(
         BridgeContext(
+            session_id="session-bridge",
             turn_id="turn-bridge",
             request_context=_request_context("user-123"),
             listed_tools=list(_catalog_tool_config().catalog.tools),
@@ -853,10 +789,6 @@ def _add_tool(
     title: str = "Tool",
     description: str = "Tool description",
     input_schema: str = '{"type":"object"}',
-    connection: str = "",
-    instance: str = "",
-    credential_mode: str = "",
-    run_as: Any | None = None,
 ) -> None:
     tool = response.tools.add()
     tool.id = tool_id
@@ -867,11 +799,6 @@ def _add_tool(
     setattr(tool.annotations, "read_only_hint", True)
     setattr(tool.ref, "app", app)
     setattr(tool.ref, "operation", operation)
-    setattr(tool.ref, "connection", connection)
-    setattr(tool.ref, "instance", instance)
-    setattr(tool.ref, "credential_mode", credential_mode)
-    if run_as is not None:
-        tool.ref.run_as.CopyFrom(run_as)
 
 
 def _assert_invalid(provider_client: Any, request: Any, message: str) -> None:

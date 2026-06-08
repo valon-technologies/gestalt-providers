@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import threading
 from typing import Any
 
@@ -14,7 +13,6 @@ from internals.config import CodexAgentConfig
 from internals.session_start import (
     prepend_session_start_context,
     run_session_start_hooks,
-    session_start_metadata_paths,
     validate_session_start_user_metadata,
 )
 from internals.store import (
@@ -28,11 +26,6 @@ from internals.store import (
 from internals.store import InMemoryRunStore
 
 logger = logging.getLogger(__name__)
-
-_UNSAFE_TOOL_NAME = re.compile(r"[*?,\s\x00-\x1f\x7f]")
-_CREDENTIAL_MODES = {"unspecified", "none", "subject"}
-MAX_LISTED_TOOLS = 1000
-
 
 class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, gestalt.WarningsProvider, gestalt.Closer):
     def __init__(self) -> None:
@@ -202,10 +195,6 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
 
         request_context = getattr(request, "context", None)
         messages = prepend_session_start_context(gestalt.agent_messages_to_dicts(request.messages), session.metadata)
-        skill_roots = session_start_metadata_paths(
-            session.metadata, "codexSkillRoots", allowed_basenames={"mortgage", "vds", "tools", "rnb"}
-        )
-        cwd = session.prepared_workspace.get("cwd", "").strip() if session.prepared_workspace else ""
         try:
             turn, created = store.begin_turn(
                 turn_id=request.turn_id.strip(),
@@ -228,13 +217,10 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                     "runner": runner,
                     "store": store,
                     "turn_id": turn.turn_id,
-                    "session_id": turn.session_id,
+                    "session": session,
                     "model": model,
                     "messages": list(turn.messages),
                     "request_context": request_context,
-                    "listed_tools": list(session.listed_tools),
-                    "skill_roots": skill_roots,
-                    "cwd": cwd,
                     "schema": schema,
                 },
                 daemon=True,
@@ -354,25 +340,19 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         runner: CodexMCPRunner,
         store: InMemoryRunStore,
         turn_id: str,
-        session_id: str,
+        session: StoredSession,
         model: str,
         messages: list[dict[str, Any]],
         request_context: Any,
-        listed_tools: list[gestalt.ListedAgentTool],
-        skill_roots: list[str],
-        cwd: str,
         schema: dict[str, Any] | None,
     ) -> None:
         try:
             output = runner.run_turn(
-                session_id=session_id,
+                session=session,
                 turn_id=turn_id,
                 model=model,
                 messages=messages,
                 request_context=request_context,
-                listed_tools=listed_tools,
-                skill_roots=skill_roots,
-                cwd=cwd,
                 schema=schema,
             )
         except CodexExecutionCanceled as exc:
@@ -514,7 +494,6 @@ def _validate_create_turn_request(
         raise gestalt.Error(400, str(exc)) from exc
     if dict(request.model_options or {}):
         raise gestalt.Error(400, "model_options are not supported by agent/codex")
-    _validate_tool_refs(list(session.tool_refs))
     return schema
 
 
@@ -526,12 +505,7 @@ def _session_tool_scope_from_config(
     if isinstance(tools, gestalt.AgentNoTools):
         raise ValueError("agent/codex requires tools.catalog")
     if isinstance(tools, gestalt.AgentCatalogToolConfig):
-        refs = list(tools.refs)
-        listed_tools = list(tools.tools)
-        _validate_tool_refs(refs)
-        _validate_listed_tools(listed_tools)
-        _validate_listed_tools_covered_by_refs(listed_tools, refs)
-        return gestalt.AGENT_TOOL_SOURCE_MODE_CATALOG, refs, listed_tools
+        return gestalt.AGENT_TOOL_SOURCE_MODE_CATALOG, list(tools.refs), list(tools.tools)
     raise ValueError("agent session tools must be catalog")
 
 
@@ -546,84 +520,6 @@ def _schema_from_output(output: gestalt.AgentOutput | None) -> dict[str, Any] | 
         assert output.structured is not None
         return dict(output.structured.schema)
     return None
-
-
-def _validate_tool_refs(tool_refs: list[gestalt.AgentToolRef]) -> None:
-    if not tool_refs:
-        raise gestalt.Error(400, "tool_refs are required for catalog turns")
-    for index, ref in enumerate(tool_refs, start=1):
-        plugin = ref.app.strip()
-        system = ref.system.strip()
-        operation = ref.operation.strip()
-        connection = ref.connection.strip()
-        instance = ref.instance.strip()
-        credential_mode = ref.credential_mode.strip()
-        if not operation:
-            raise gestalt.Error(400, f"tool_refs[{index}].operation is required")
-        if "*" in {plugin, system, operation, connection, instance}:
-            raise gestalt.Error(400, "wildcard tool_refs are not supported")
-        if credential_mode and credential_mode not in _CREDENTIAL_MODES:
-            raise gestalt.Error(400, f"tool_refs[{index}].credential_mode is invalid")
-        if ref.run_as is not None:
-            raise gestalt.Error(400, f"tool_refs[{index}].run_as is not supported")
-        if bool(plugin) == bool(system):
-            raise gestalt.Error(400, f"tool_refs[{index}] must set exactly one of plugin or system")
-        if system and system != "workflow":
-            raise gestalt.Error(400, f"tool_refs[{index}].system {system!r} is not supported")
-
-
-def _validate_listed_tools(tools: list[gestalt.ListedAgentTool]) -> None:
-    if not tools:
-        raise ValueError("tools.catalog.tools are required")
-    seen_names: set[str] = set()
-    for index, tool in enumerate(tools, start=1):
-        mcp_name = tool.mcp_name.strip()
-        if not mcp_name:
-            raise ValueError(f"tools.catalog.tools[{index}].mcp_name is required")
-        if _UNSAFE_TOOL_NAME.search(mcp_name):
-            raise ValueError(f"tools.catalog.tools[{index}].mcp_name is unsafe")
-        if mcp_name in seen_names:
-            raise ValueError(f"tools.catalog.tools contains duplicate mcp_name {mcp_name!r}")
-        seen_names.add(mcp_name)
-        if len(seen_names) > MAX_LISTED_TOOLS:
-            raise ValueError(f"tools.catalog.tools contains more than {MAX_LISTED_TOOLS} tools")
-        ref = tool.ref
-        if ref is None or not ref.app.strip() or not ref.operation.strip() or ref.system.strip():
-            raise ValueError(f"tools.catalog.tools[{index}] must target an app operation")
-        if "*" in {ref.app.strip(), ref.operation.strip(), ref.connection.strip(), ref.instance.strip()}:
-            raise ValueError(f"tools.catalog.tools[{index}] must target a concrete app operation")
-        credential_mode = ref.credential_mode.strip()
-        if credential_mode and credential_mode not in _CREDENTIAL_MODES:
-            raise ValueError(f"tools.catalog.tools[{index}].ref.credential_mode is invalid")
-        if ref.run_as is not None:
-            raise ValueError(f"tools.catalog.tools[{index}].ref.run_as is not supported")
-
-
-def _validate_listed_tools_covered_by_refs(
-    listed_tools: list[gestalt.ListedAgentTool], tool_refs: list[gestalt.AgentToolRef]
-) -> None:
-    for index, tool in enumerate(listed_tools, start=1):
-        ref = tool.ref
-        if ref is None:
-            raise ValueError(f"tools.catalog.tools[{index}] must target an app operation")
-        if not any(_tool_ref_covers_listed_ref(selector, ref) for selector in tool_refs):
-            raise ValueError(f"tools.catalog.tools[{index}] is not covered by tools.catalog.refs")
-
-
-def _tool_ref_covers_listed_ref(selector: gestalt.AgentToolRef, listed: gestalt.AgentToolRef) -> bool:
-    if selector.system.strip():
-        return False
-    if selector.app.strip() != listed.app.strip():
-        return False
-    if selector.operation.strip() != listed.operation.strip():
-        return False
-    if selector.connection.strip() and selector.connection.strip() != listed.connection.strip():
-        return False
-    if selector.instance.strip() and selector.instance.strip() != listed.instance.strip():
-        return False
-    if selector.credential_mode.strip() and selector.credential_mode.strip() != listed.credential_mode.strip():
-        return False
-    return True
 
 
 def _existing_session_for_create(

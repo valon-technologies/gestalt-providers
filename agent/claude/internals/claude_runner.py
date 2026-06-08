@@ -22,7 +22,6 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
-from .claude_code_config import ClaudeCodeTurnOptions
 from .config import ClaudeAgentConfig
 from .mcp_bridge import (
     MCP_SERVER_NAME,
@@ -73,43 +72,6 @@ class _ClaudeResponse:
         return ""
 
 
-@dataclass(frozen=True, slots=True)
-class ClaudeTurnProfile:
-    kind: Literal["catalog", "direct"]
-    request_context: Any | None = None
-    listed_tools: list[gestalt.ListedAgentTool] = field(default_factory=list)
-    schema: dict[str, Any] | None = None
-    claude_code_options: ClaudeCodeTurnOptions | None = None
-    cwd: str | None = None
-
-    @classmethod
-    def catalog(
-        cls,
-        *,
-        request_context: Any,
-        listed_tools: list[gestalt.ListedAgentTool],
-        schema: dict[str, Any] | None = None,
-        claude_code_options: ClaudeCodeTurnOptions,
-        cwd: str,
-    ) -> "ClaudeTurnProfile":
-        return cls(
-            kind="catalog",
-            request_context=request_context,
-            listed_tools=list(listed_tools),
-            schema=schema,
-            claude_code_options=claude_code_options,
-            cwd=cwd,
-        )
-
-    @classmethod
-    def direct(cls, *, schema: dict[str, Any] | None = None, cwd: str | None = None) -> "ClaudeTurnProfile":
-        return cls(kind="direct", schema=schema, cwd=cwd)
-
-    @property
-    def uses_catalog_tools(self) -> bool:
-        return self.kind == "catalog"
-
-
 class ClaudeSDKRunner:
     def __init__(self, config: ClaudeAgentConfig) -> None:
         self._config = config
@@ -120,11 +82,12 @@ class ClaudeSDKRunner:
     def run_turn(
         self,
         *,
-        session_id: str,
+        session: Any,
         turn_id: str,
         model: str,
         messages: list[dict[str, Any]],
-        turn_profile: ClaudeTurnProfile,
+        request_context: Any | None,
+        schema: dict[str, Any] | None,
         timeout_seconds: float = 0.0,
     ) -> gestalt.AgentTurnOutput:
         effective_timeout = timeout_seconds if timeout_seconds > 0 else self._config.timeout_seconds
@@ -132,11 +95,12 @@ class ClaudeSDKRunner:
             return asyncio.run(
                 asyncio.wait_for(
                     self._run_turn(
-                        session_id=session_id,
+                        session=session,
                         turn_id=turn_id,
                         model=model,
                         messages=messages,
-                        turn_profile=turn_profile,
+                        request_context=request_context,
+                        schema=schema,
                         timeout_seconds=effective_timeout,
                     ),
                     timeout=effective_timeout,
@@ -167,11 +131,12 @@ class ClaudeSDKRunner:
     async def _run_turn(
         self,
         *,
-        session_id: str,
+        session: Any,
         turn_id: str,
         model: str,
         messages: list[dict[str, Any]],
-        turn_profile: ClaudeTurnProfile,
+        request_context: Any | None,
+        schema: dict[str, Any] | None,
         timeout_seconds: float,
     ) -> gestalt.AgentTurnOutput:
         with self._active_turn(turn_id):
@@ -183,9 +148,10 @@ class ClaudeSDKRunner:
             with tempfile.TemporaryDirectory(prefix="gestalt-claude-sdk-") as config_dir:
                 options = self._options(
                     model=model,
-                    session_id=session_id,
+                    session=session,
                     turn_id=turn_id,
-                    turn_profile=turn_profile,
+                    request_context=request_context,
+                    schema=schema,
                     timeout_seconds=timeout_seconds,
                 )
                 _set_config_dir(options, config_dir)
@@ -193,13 +159,13 @@ class ClaudeSDKRunner:
                 self._register_active_client(turn_id, client)
                 self._raise_if_canceled(turn_id)
                 async with client:
-                    await client.query(prompt, session_id=session_id)
-                    output = await self._receive_result(client, turn_id=turn_id, turn_profile=turn_profile)
+                    await client.query(prompt, session_id=session.session_id)
+                    output = await self._receive_result(client, turn_id=turn_id, schema=schema)
                     self._raise_if_canceled(turn_id)
                     return output
 
     async def _receive_result(
-        self, client: ClaudeSDKClient, *, turn_id: str, turn_profile: ClaudeTurnProfile
+        self, client: ClaudeSDKClient, *, turn_id: str, schema: dict[str, Any] | None
     ) -> gestalt.AgentTurnOutput:
         response = _ClaudeResponse()
         result_message: ResultMessage | None = None
@@ -212,7 +178,7 @@ class ClaudeSDKRunner:
         return _result_output(
             response,
             result_message,
-            requires_structured_output=turn_profile.schema is not None,
+            requires_structured_output=schema is not None,
             canceled=self._is_canceled(turn_id),
         )
 
@@ -220,23 +186,22 @@ class ClaudeSDKRunner:
         self,
         *,
         model: str,
-        session_id: str,
+        session: Any,
         turn_id: str,
-        turn_profile: ClaudeTurnProfile | None = None,
+        request_context: Any | None = None,
         schema: dict[str, Any] | None = None,
         timeout_seconds: float = 0.0,
     ) -> ClaudeAgentOptions:
-        if turn_profile is None:
-            turn_profile = ClaudeTurnProfile.direct(schema=schema)
-        if turn_profile.uses_catalog_tools:
+        if session.tool_source == gestalt.AGENT_TOOL_SOURCE_MODE_CATALOG:
             return self._catalog_options(
                 model=model,
-                session_id=session_id,
+                session=session,
                 turn_id=turn_id,
-                turn_profile=turn_profile,
+                request_context=request_context,
+                schema=schema,
                 timeout_seconds=timeout_seconds,
             )
-        return self._direct_options(model=model, turn_profile=turn_profile)
+        return self._direct_options(model=model, session=session, schema=schema)
 
     def _base_options_kwargs(
         self, *, model: str, env: dict[str, str], cwd: str | None, system_prompt: str | None
@@ -253,10 +218,24 @@ class ClaudeSDKRunner:
         }
 
     def _catalog_options(
-        self, *, model: str, session_id: str, turn_id: str, turn_profile: ClaudeTurnProfile, timeout_seconds: float
+        self,
+        *,
+        model: str,
+        session: Any,
+        turn_id: str,
+        request_context: Any | None,
+        schema: dict[str, Any] | None,
+        timeout_seconds: float,
     ) -> ClaudeAgentOptions:
-        claude_code_options = turn_profile.claude_code_options
-        assert claude_code_options is not None
+        claude_code_options = self._config.claude_code.resolve_turn_options(session.metadata)
+        if claude_code_options.plugins:
+            logger.info(
+                "starting Claude Agent SDK turn with configured Claude Code plugins",
+                extra={
+                    "plugin_names": claude_code_options.plugin_names,
+                    "plugin_count": len(claude_code_options.plugins),
+                },
+            )
         env: dict[str, str] = {"ENABLE_TOOL_SEARCH": "auto:5"}
         if self._config.anthropic_api_key:
             env["ANTHROPIC_API_KEY"] = self._config.anthropic_api_key
@@ -266,16 +245,17 @@ class ClaudeSDKRunner:
             **self._base_options_kwargs(
                 model=model,
                 env=env,
-                cwd=turn_profile.cwd or self._config.working_directory or None,
+                cwd=_session_cwd(session) or self._config.working_directory or None,
                 system_prompt=_system_prompt(self._config.system_prompt),
             ),
             tools=allowed_gestalt_mcp_tools() + claude_code_options.base_tools,
             allowed_tools=allowed_gestalt_mcp_tools() + claude_code_options.allowed_tools,
             mcp_servers={
                 MCP_SERVER_NAME: create_gestalt_sdk_mcp_server(
+                    session_id=session.session_id,
                     turn_id=turn_id,
-                    request_context=turn_profile.request_context,
-                    listed_tools=list(turn_profile.listed_tools),
+                    request_context=request_context,
+                    listed_tools=list(session.listed_tools),
                     timeout_seconds=timeout_seconds,
                 )
             },
@@ -283,21 +263,20 @@ class ClaudeSDKRunner:
             skills=claude_code_options.sdk_skills,
             plugins=claude_code_options.sdk_plugins,
             can_use_tool=create_tool_permission_callback(claude_code_options.tool_permissions),
-            output_format=_output_format(turn_profile.schema),
+            output_format=_output_format(schema),
         )
 
-    def _direct_options(self, *, model: str, turn_profile: ClaudeTurnProfile) -> ClaudeAgentOptions:
+    def _direct_options(self, *, model: str, session: Any, schema: dict[str, Any] | None) -> ClaudeAgentOptions:
         env: dict[str, str] = {}
         if self._config.anthropic_api_key:
             env["ANTHROPIC_API_KEY"] = self._config.anthropic_api_key
         system_prompt = _configured_system_prompt(self._config.system_prompt)
-        schema = turn_profile.schema
         output_format = {"type": "json_schema", "schema": schema} if schema is not None else None
         return ClaudeAgentOptions(
             **self._base_options_kwargs(
                 model=model,
                 env=env,
-                cwd=turn_profile.cwd or self._config.working_directory or None,
+                cwd=_session_cwd(session) or self._config.working_directory or None,
                 system_prompt=system_prompt,
             ),
             tools=[],
@@ -492,6 +471,13 @@ def _set_config_dir(options: ClaudeAgentOptions, config_dir: str) -> None:
     env = dict(options.env or {})
     env["CLAUDE_CONFIG_DIR"] = config_dir
     options.env = env
+
+
+def _session_cwd(session: Any) -> str:
+    prepared_workspace = getattr(session, "prepared_workspace", None)
+    if not prepared_workspace:
+        return ""
+    return str(prepared_workspace.get("cwd") or "").strip()
 
 
 def _jsonable(value: Any) -> Any:

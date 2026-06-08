@@ -245,7 +245,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "claude-agent-sdk", specifier = "==0.1.71" },
-    { name = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&rev=b5eea875dcbdd604af16d5c1d1e2831e39dae3f2" },
+    { name = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&rev=7cae772b2fd555cbcafe227dcd36189c25372a53" },
     { name = "jsonschema", specifier = "==4.26.0" },
 ]
 
@@ -259,7 +259,7 @@ dev = [
 [[package]]
 name = "gestalt-sdk"
 version = "0.0.1a2"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&rev=b5eea875dcbdd604af16d5c1d1e2831e39dae3f2#b5eea875dcbdd604af16d5c1d1e2831e39dae3f2" }
+source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&rev=7cae772b2fd555cbcafe227dcd36189c25372a53#7cae772b2fd555cbcafe227dcd36189c25372a53" }
 dependencies = [
     { name = "googleapis-common-protos" },
     { name = "grpcio" },
