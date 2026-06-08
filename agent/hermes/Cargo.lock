@@ -641,6 +641,7 @@ dependencies = [
  "gestalt-sdk",
  "getrandom 0.4.2",
  "jsonschema",
+ "prost-types",
  "rmcp",
  "serde",
  "serde_json",
@@ -655,7 +656,7 @@ dependencies = [
 [[package]]
 name = "gestalt-sdk"
 version = "0.0.1-alpha.2"
-source = "git+https://github.com/valon-technologies/gestalt.git?rev=9f1f3a9dd427aa8584a613f14e2980d2c6b517fc#9f1f3a9dd427aa8584a613f14e2980d2c6b517fc"
+source = "git+https://github.com/valon-technologies/gestalt.git?rev=eabd04dd7189e4b2ee8fd8a897ae7956ef3aeba7#eabd04dd7189e4b2ee8fd8a897ae7956ef3aeba7"
 dependencies = [
  "hyper-util",
  "libc",

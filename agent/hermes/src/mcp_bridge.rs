@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -10,8 +9,9 @@ use axum::http::{Request, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::Response;
 use gestalt::{
-    AgentHost, AgentHostExecuteToolInput, AgentHostListToolsInput, AgentToolAnnotations,
-    AgentToolRef, ListedAgentTool, proto::v1::RequestContext as GestaltRequestContext,
+    AgentToolAnnotations, AgentToolRef, App, InvokeOptions, ListedAgentTool,
+    Request as GestaltRequest, proto::v1::RequestContext as GestaltRequestContext,
+    with_request_context,
 };
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
@@ -24,11 +24,8 @@ use rmcp::transport::streamable_http_server::{
 };
 use serde_json::{Map as JsonMap, Value as JsonValue, json};
 use tokio::net::TcpListener;
-use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-const MCP_PAGE_SIZE: i32 = 100;
-const MAX_SCAN_PAGES: usize = 100;
 const TOOL_SEARCH_DEFAULT_MAX_RESULTS: usize = 8;
 const TOOL_SEARCH_DEFAULT_CANDIDATE_LIMIT: usize = 10;
 const TOOL_SEARCH_MAX_RESULTS: usize = 20;
@@ -71,10 +68,9 @@ struct BridgeAuth {
 
 #[derive(Clone)]
 struct GestaltMcpBridge {
-    session_id: String,
     turn_id: String,
-    host: Arc<Mutex<AgentHost>>,
-    tools_by_name: Arc<Mutex<HashMap<String, ListedAgentTool>>>,
+    request_context: GestaltRequestContext,
+    tools: Arc<Vec<ListedAgentTool>>,
     next_tool_call_id: Arc<AtomicU64>,
 }
 
@@ -87,7 +83,7 @@ struct ProxyError {
 #[derive(Clone)]
 enum ToolSelector {
     MCPName(String),
-    Ref(AgentToolRef),
+    Ref(Box<AgentToolRef>),
 }
 
 struct ScoredTool {
@@ -97,19 +93,14 @@ struct ScoredTool {
 }
 
 pub async fn start_bridge(
-    session_id: String,
     turn_id: String,
+    tools: Vec<ListedAgentTool>,
     request_context: GestaltRequestContext,
 ) -> Result<McpBridgeHandle, String> {
-    let host = AgentHost::connect()
-        .await
-        .map(|host| host.with_request_context(Some(request_context)))
-        .map_err(|err| format!("connect Gestalt agent host for MCP bridge: {err}"))?;
     let bridge = GestaltMcpBridge {
-        session_id,
         turn_id: turn_id.clone(),
-        host: Arc::new(Mutex::new(host)),
-        tools_by_name: Arc::new(Mutex::new(HashMap::new())),
+        request_context,
+        tools: Arc::new(tools),
         next_tool_call_id: Arc::new(AtomicU64::new(1)),
     };
     let shutdown = CancellationToken::new();
@@ -200,8 +191,8 @@ impl ServerHandler for GestaltMcpBridge {
         let name = request.name.to_string();
         let arguments = request.arguments.unwrap_or_default();
         let result = match name.as_str() {
-            TOOL_SEARCH_NAME => self.search_tools(arguments).await,
-            TOOL_GET_SCHEMA_NAME => self.get_tool_schema(arguments).await,
+            TOOL_SEARCH_NAME => self.search_tools(arguments),
+            TOOL_GET_SCHEMA_NAME => self.get_tool_schema(arguments),
             TOOL_CALL_NAME => self.call_gestalt_tool(arguments).await,
             _ => Err(ProxyError::new(
                 "unknown_proxy_tool",
@@ -213,7 +204,7 @@ impl ServerHandler for GestaltMcpBridge {
 }
 
 impl GestaltMcpBridge {
-    async fn search_tools(
+    fn search_tools(
         &self,
         arguments: JsonMap<String, JsonValue>,
     ) -> Result<CallToolResult, ProxyError> {
@@ -242,7 +233,6 @@ impl GestaltMcpBridge {
             (Vec::new(), false)
         } else {
             self.list_matching_tools(&query, &load_refs, desired_count)
-                .await?
         };
 
         let full_tools: Vec<JsonValue> = matched
@@ -265,11 +255,11 @@ impl GestaltMcpBridge {
         Ok(json_result(JsonValue::Object(body), false))
     }
 
-    async fn get_tool_schema(
+    fn get_tool_schema(
         &self,
         arguments: JsonMap<String, JsonValue>,
     ) -> Result<CallToolResult, ProxyError> {
-        let tool = self.resolve_selector(selector_arg(&arguments)?).await?;
+        let tool = self.resolve_selector(selector_arg(&arguments)?)?;
         Ok(json_result(
             json!({
                 "tool": listed_tool_json(&tool, true),
@@ -283,7 +273,7 @@ impl GestaltMcpBridge {
         arguments: JsonMap<String, JsonValue>,
     ) -> Result<CallToolResult, ProxyError> {
         let selector = selector_arg(&arguments)?;
-        let tool = self.resolve_selector(selector).await?;
+        let tool = self.resolve_selector(selector)?;
         let call_arguments = match arguments.get("arguments") {
             None | Some(JsonValue::Null) => JsonMap::new(),
             Some(JsonValue::Object(object)) => object.clone(),
@@ -295,29 +285,37 @@ impl GestaltMcpBridge {
             }
         };
         let seq = self.next_tool_call_id.fetch_add(1, Ordering::Relaxed);
-        let tool_call_id = format!("mcp-{seq}");
-        let response = self
-            .host
-            .lock()
+        let tool_ref = tool.r#ref.as_ref().ok_or_else(|| {
+            ProxyError::new(
+                "invalid_catalog_tool",
+                format!("tool {:?} is missing an app ref", tool.mcp_name),
+            )
+        })?;
+        let options = InvokeOptions {
+            connection: tool_ref.connection.trim().to_string(),
+            instance: tool_ref.instance.trim().to_string(),
+            idempotency_key: format!("agent/hermes-mcp:{}:{seq}:{}", self.turn_id, tool.mcp_name),
+            credential_mode: tool_ref.credential_mode.trim().to_string(),
+        };
+        let request_context = self.request_context.clone();
+        let response = with_request_context(Some(request_context), async move {
+            let request = GestaltRequest::default();
+            let mut app = App::connect(&request).await?;
+            app.invoke(
+                &tool_ref.app,
+                &tool_ref.operation,
+                JsonValue::Object(call_arguments),
+                Some(options),
+            )
             .await
-            .execute_tool(AgentHostExecuteToolInput {
-                session_id: self.session_id.clone(),
-                turn_id: self.turn_id.clone(),
-                tool_call_id,
-                tool_id: tool.id.clone(),
-                arguments: Some(JsonValue::Object(call_arguments)),
-                idempotency_key: format!(
-                    "agent/hermes-mcp:{}:{seq}:{}",
-                    self.turn_id, tool.mcp_name
-                ),
-            })
-            .await
-            .map_err(|err| {
-                ProxyError::new(
-                    "execute_tool_failed",
-                    format!("execute Gestalt MCP tool {:?}: {err}", tool.mcp_name),
-                )
-            })?;
+        })
+        .await
+        .map_err(|err| {
+            ProxyError::new(
+                "invoke_tool_failed",
+                format!("invoke Gestalt MCP tool {:?}: {err}", tool.mcp_name),
+            )
+        })?;
         let body = response.body;
         if response.status >= 400 {
             Ok(json_result(
@@ -337,84 +335,53 @@ impl GestaltMcpBridge {
         }
     }
 
-    async fn list_matching_tools(
+    fn list_matching_tools(
         &self,
         query: &str,
         load_refs: &[AgentToolRef],
         desired_count: usize,
-    ) -> Result<(Vec<ScoredTool>, bool), ProxyError> {
+    ) -> (Vec<ScoredTool>, bool) {
         let tokens = query_tokens(query);
-        let mut page_token = String::new();
-        let mut seen_tokens = HashSet::new();
-        let mut matched: Vec<ScoredTool> = Vec::new();
-        let mut order = 0_usize;
-        for _ in 0..MAX_SCAN_PAGES {
-            if !seen_tokens.insert(page_token.clone()) {
-                return Err(ProxyError::new(
-                    "repeated_cursor",
-                    "Gestalt agent host returned a repeated MCP tool page cursor",
-                ));
-            }
-            let (tools, next_page_token) = self.fetch_tools_page(&page_token).await?;
-            for tool in tools {
-                order += 1;
-                let Some(score) = tool_match_score(&tool, &tokens, load_refs) else {
-                    continue;
-                };
-                matched.push(ScoredTool { tool, score, order });
-            }
-            if next_page_token.is_empty() {
-                matched.sort_by(|left, right| {
-                    right
-                        .score
-                        .cmp(&left.score)
-                        .then(left.order.cmp(&right.order))
-                });
-                let has_more = matched.len() > desired_count;
-                matched.truncate(desired_count);
-                return Ok((matched, has_more));
-            }
-            page_token = next_page_token;
-        }
-        Err(ProxyError::new(
-            "page_limit_exceeded",
-            format!("ListTools exceeded {MAX_SCAN_PAGES} pages"),
-        ))
+        let mut matched: Vec<ScoredTool> = self
+            .tools
+            .iter()
+            .enumerate()
+            .filter_map(|(order, tool)| {
+                tool_match_score(tool, &tokens, load_refs).map(|score| ScoredTool {
+                    tool: tool.clone(),
+                    score,
+                    order,
+                })
+            })
+            .collect();
+        matched.sort_by(|left, right| {
+            right
+                .score
+                .cmp(&left.score)
+                .then(left.order.cmp(&right.order))
+        });
+        let has_more = matched.len() > desired_count;
+        matched.truncate(desired_count);
+        (matched, has_more)
     }
 
-    async fn resolve_selector(
-        &self,
-        selector: ToolSelector,
-    ) -> Result<ListedAgentTool, ProxyError> {
+    fn resolve_selector(&self, selector: ToolSelector) -> Result<ListedAgentTool, ProxyError> {
         match selector {
-            ToolSelector::MCPName(name) => self.find_tool_by_mcp_name(&name).await,
-            ToolSelector::Ref(ref_selector) => self.find_tool_by_ref(&ref_selector).await,
+            ToolSelector::MCPName(name) => self.find_tool_by_mcp_name(&name),
+            ToolSelector::Ref(ref_selector) => self.find_tool_by_ref(&ref_selector),
         }
     }
 
-    async fn find_tool_by_mcp_name(&self, name: &str) -> Result<ListedAgentTool, ProxyError> {
+    fn find_tool_by_mcp_name(&self, name: &str) -> Result<ListedAgentTool, ProxyError> {
         validate_mcp_name_text(name)
             .map_err(|message| ProxyError::new("invalid_selector", message))?;
-        if let Some(tool) = self.tools_by_name.lock().await.get(name).cloned() {
+        if let Some(tool) = self
+            .tools
+            .iter()
+            .find(|tool| tool.mcp_name == name)
+            .cloned()
+        {
             return Ok(tool);
-        }
-        let mut page_token = String::new();
-        let mut seen_tokens = HashSet::new();
-        for _ in 0..MAX_SCAN_PAGES {
-            if !seen_tokens.insert(page_token.clone()) {
-                return Err(ProxyError::new(
-                    "repeated_cursor",
-                    "Gestalt agent host returned a repeated MCP tool page cursor",
-                ));
-            }
-            let (tools, next_page_token) = self.fetch_tools_page(&page_token).await?;
-            if let Some(tool) = tools.into_iter().find(|tool| tool.mcp_name == name) {
-                return Ok(tool);
-            }
-            if next_page_token.is_empty() {
-                break;
-            }
-            page_token = next_page_token;
         }
         Err(ProxyError::new(
             "tool_lookup_failed",
@@ -422,36 +389,18 @@ impl GestaltMcpBridge {
         ))
     }
 
-    async fn find_tool_by_ref(
-        &self,
-        ref_selector: &AgentToolRef,
-    ) -> Result<ListedAgentTool, ProxyError> {
-        let mut page_token = String::new();
-        let mut seen_tokens = HashSet::new();
+    fn find_tool_by_ref(&self, ref_selector: &AgentToolRef) -> Result<ListedAgentTool, ProxyError> {
         let mut matched: Vec<ListedAgentTool> = Vec::new();
-        for _ in 0..MAX_SCAN_PAGES {
-            if !seen_tokens.insert(page_token.clone()) {
-                return Err(ProxyError::new(
-                    "repeated_cursor",
-                    "Gestalt agent host returned a repeated MCP tool page cursor",
-                ));
-            }
-            let (tools, next_page_token) = self.fetch_tools_page(&page_token).await?;
-            for tool in tools {
-                if listed_tool_ref_matches(tool.r#ref.as_ref(), ref_selector) {
-                    matched.push(tool);
-                    if matched.len() > 1 {
-                        return Err(ProxyError::new(
-                            "ambiguous_tool_ref",
-                            "ref selector matched more than one Gestalt MCP tool; use mcp_name from search results",
-                        ));
-                    }
+        for tool in self.tools.iter() {
+            if listed_tool_ref_matches(tool.r#ref.as_ref(), ref_selector) {
+                matched.push(tool.clone());
+                if matched.len() > 1 {
+                    return Err(ProxyError::new(
+                        "ambiguous_tool_ref",
+                        "ref selector matched more than one Gestalt MCP tool; use mcp_name from search results",
+                    ));
                 }
             }
-            if next_page_token.is_empty() {
-                break;
-            }
-            page_token = next_page_token;
         }
         matched.into_iter().next().ok_or_else(|| {
             ProxyError::new(
@@ -459,57 +408,6 @@ impl GestaltMcpBridge {
                 "ref selector did not match any Gestalt MCP tool",
             )
         })
-    }
-
-    async fn fetch_tools_page(
-        &self,
-        page_token: &str,
-    ) -> Result<(Vec<ListedAgentTool>, String), ProxyError> {
-        let response = self
-            .host
-            .lock()
-            .await
-            .list_tools(AgentHostListToolsInput {
-                session_id: self.session_id.clone(),
-                turn_id: self.turn_id.clone(),
-                page_size: MCP_PAGE_SIZE,
-                page_token: page_token.trim().to_string(),
-                ..Default::default()
-            })
-            .await
-            .map_err(|err| {
-                ProxyError::new(
-                    "list_tools_failed",
-                    format!("list Gestalt MCP tools: {err}"),
-                )
-            })?;
-        self.remember_tools(&response.tools).await?;
-        Ok((response.tools, response.next_page_token.trim().to_string()))
-    }
-
-    async fn remember_tools(&self, tools: &[ListedAgentTool]) -> Result<(), ProxyError> {
-        let mut cache = self.tools_by_name.lock().await;
-        for tool in tools {
-            validate_mcp_name_text(&tool.mcp_name)
-                .map_err(|message| ProxyError::new("invalid_catalog_tool", message))?;
-            if tool.id.trim().is_empty() {
-                return Err(ProxyError::new(
-                    "invalid_catalog_tool",
-                    format!("ListTools returned tool {:?} without an id", tool.mcp_name),
-                ));
-            }
-            let Some(existing) = cache.get(&tool.mcp_name) else {
-                cache.insert(tool.mcp_name.clone(), tool.clone());
-                continue;
-            };
-            if existing.id != tool.id {
-                return Err(ProxyError::new(
-                    "invalid_catalog_tool",
-                    format!("duplicate Gestalt MCP tool name {:?}", tool.mcp_name),
-                ));
-            }
-        }
-        Ok(())
     }
 }
 
@@ -647,7 +545,7 @@ fn selector_arg(arguments: &JsonMap<String, JsonValue>) -> Result<ToolSelector, 
     let ref_value = arguments.get("ref").filter(|value| !value.is_null());
     match (mcp_name.trim().is_empty(), ref_value) {
         (false, None) => Ok(ToolSelector::MCPName(mcp_name)),
-        (true, Some(value)) => Ok(ToolSelector::Ref(agent_tool_ref_arg(value)?)),
+        (true, Some(value)) => Ok(ToolSelector::Ref(Box::new(agent_tool_ref_arg(value)?))),
         (true, None) => Err(ProxyError::new(
             "invalid_selector",
             "exactly one of mcp_name or ref is required",
