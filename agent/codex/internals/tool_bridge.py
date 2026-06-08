@@ -31,11 +31,7 @@ class ToolEntry:
 
 class ToolExecutor:
     def __init__(
-        self,
-        *,
-        turn_id: str,
-        request_context: Any,
-        timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS,
+        self, *, turn_id: str, request_context: Any, timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS
     ) -> None:
         self._turn_id = turn_id
         self._request_context = request_context
@@ -43,9 +39,7 @@ class ToolExecutor:
         self._lock = threading.Lock()
         self._sequence = 0
 
-    def execute(
-        self, *, entry: ToolEntry, arguments: dict[str, Any]
-    ) -> gestalt.Response[str]:
+    def execute(self, *, entry: ToolEntry, arguments: dict[str, Any]) -> gestalt.Response[str]:
         with self._lock:
             self._sequence += 1
             sequence = self._sequence
@@ -59,10 +53,7 @@ class ToolExecutor:
         )
 
 
-def list_tools(
-    *,
-    listed_tools: list[gestalt.ListedAgentTool],
-) -> list[ToolEntry]:
+def list_tools(*, listed_tools: list[gestalt.ListedAgentTool]) -> list[ToolEntry]:
     tools: list[ToolEntry] = []
     seen_names: set[str] = set()
     for listed in listed_tools:
@@ -131,11 +122,19 @@ def mcp_tool(entry: ToolEntry) -> mcp_types.Tool:
 
 
 def mcp_tool_result(response: gestalt.Response[str]) -> mcp_types.CallToolResult:
-    body = str(response.body or "")
+    body = operation_body_text(response.body)
     status = int(response.status or 0)
     if not body:
         body = "{}"
     return mcp_types.CallToolResult(content=[mcp_types.TextContent(type="text", text=body)], isError=status >= 400)
+
+
+def operation_body_text(body: object) -> str:
+    if body is None:
+        return ""
+    if isinstance(body, bytes | bytearray | memoryview):
+        return bytes(body).decode("utf-8", errors="replace")
+    return str(body)
 
 
 def schema_from_json(value: str) -> dict[str, Any]:

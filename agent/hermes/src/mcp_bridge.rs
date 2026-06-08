@@ -37,6 +37,26 @@ const TOOL_SEARCH_NAME: &str = "gestalt_search_tools";
 const TOOL_GET_SCHEMA_NAME: &str = "gestalt_get_tool_schema";
 const TOOL_CALL_NAME: &str = "gestalt_call_tool";
 
+trait OperationBodyText {
+    fn into_text(self) -> String;
+}
+
+impl OperationBodyText for String {
+    fn into_text(self) -> String {
+        self
+    }
+}
+
+impl OperationBodyText for Vec<u8> {
+    fn into_text(self) -> String {
+        String::from_utf8_lossy(&self).into_owned()
+    }
+}
+
+fn operation_body_text(body: impl OperationBodyText) -> String {
+    body.into_text()
+}
+
 #[derive(Clone)]
 pub struct McpBridgeHandle {
     url: String,
@@ -316,7 +336,7 @@ impl GestaltMcpBridge {
                 format!("invoke Gestalt MCP tool {:?}: {err}", tool.mcp_name),
             )
         })?;
-        let body = response.body;
+        let body = operation_body_text(response.body);
         if response.status >= 400 {
             Ok(json_result(
                 json!({

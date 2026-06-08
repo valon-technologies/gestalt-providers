@@ -86,7 +86,7 @@ class _FakeAppHost(app_pb2_grpc.AppServicer):
         )
         if self.invoke_error:
             context.abort(grpc.StatusCode.UNKNOWN, self.invoke_error)
-        return app_pb2.OperationResult(status=200, body='{"ok":true}')
+        return app_pb2.OperationResult(status=200, body=b'{"ok":true}')
 
 
 class _FakeClaudeSDKClient:
