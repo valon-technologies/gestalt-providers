@@ -8,7 +8,7 @@ from typing import Any
 
 import gestalt
 
-from internals import ClaudeAgentConfig, ClaudeSDKRunner, ClaudeTurnProfile, IndexedDBRunStore
+from internals import ClaudeAgentConfig, ClaudeSDKRunner, IndexedDBRunStore
 from internals.claude_runner import ClaudeExecutionCanceled, ClaudeExecutionError
 from internals.provider_requests import (
     SessionCreateRequest,
@@ -191,7 +191,7 @@ class ClaudeCodeAgentProvider(
             raise gestalt.Error(404, f"agent session {request.session_id!r} was not found")
         _require_session_writable(session, request.subject.id.strip() if request.subject is not None else "")
         try:
-            schema, tool_source = validate_turn_contract(request, session=session, tool_source_modes=tool_source_modes)
+            schema = validate_turn_contract(request, session=session, tool_source_modes=tool_source_modes)
         except ValueError as exc:
             raise gestalt.Error(400, str(exc)) from exc
         try:
@@ -199,8 +199,6 @@ class ClaudeCodeAgentProvider(
                 request,
                 config=config,
                 session=session,
-                tool_source_modes=tool_source_modes,
-                tool_source=tool_source,
                 schema=schema,
             )
         except ValueError as exc:
@@ -230,10 +228,11 @@ class ClaudeCodeAgentProvider(
                     "runner": runner,
                     "store": store,
                     "turn_id": turn.turn_id,
-                    "session_id": turn.session_id,
+                    "session": session,
                     "model": create_request.model,
                     "messages": list(turn.messages),
-                    "turn_profile": create_request.turn_profile,
+                    "request_context": getattr(request, "context", None),
+                    "schema": schema,
                     "timeout_seconds": create_request.timeout_seconds,
                 },
                 daemon=True,
@@ -392,28 +391,21 @@ class ClaudeCodeAgentProvider(
         runner: ClaudeSDKRunner,
         store: IndexedDBRunStore,
         turn_id: str,
-        session_id: str,
+        session: StoredSession,
         model: str,
         messages: list[dict[str, Any]],
-        turn_profile: ClaudeTurnProfile,
+        request_context: Any | None,
+        schema: dict[str, Any] | None,
         timeout_seconds: float,
     ) -> None:
         try:
-            claude_code_options = turn_profile.claude_code_options
-            if claude_code_options is not None and claude_code_options.plugins:
-                logger.info(
-                    "starting Claude Agent SDK turn with configured Claude Code plugins",
-                    extra={
-                        "plugin_names": claude_code_options.plugin_names,
-                        "plugin_count": len(claude_code_options.plugins),
-                    },
-                )
             output = runner.run_turn(
-                session_id=session_id,
+                session=session,
                 turn_id=turn_id,
                 model=model,
                 messages=messages,
-                turn_profile=turn_profile,
+                request_context=request_context,
+                schema=schema,
                 timeout_seconds=timeout_seconds,
             )
         except ClaudeExecutionCanceled as exc:

@@ -21,17 +21,22 @@ class ToolBridgeError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class ToolEntry:
+    id: str
     mcp_name: str
+    ref: gestalt.AgentToolRef
     title: str
     description: str
-    ref: gestalt.AgentToolRef
     input_schema: dict[str, Any]
     annotations: mcp_types.ToolAnnotations | None
 
 
 class ToolExecutor:
     def __init__(
-        self, *, turn_id: str, request_context: Any, timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS
+        self,
+        *,
+        turn_id: str,
+        request_context: Any,
+        timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS,
     ) -> None:
         self._turn_id = turn_id
         self._request_context = request_context
@@ -39,18 +44,26 @@ class ToolExecutor:
         self._lock = threading.Lock()
         self._sequence = 0
 
-    def execute(self, *, entry: ToolEntry, arguments: dict[str, Any]) -> gestalt.Response[bytes]:
+    def execute(self, *, entry: ToolEntry, arguments: dict[str, Any]) -> gestalt.Response[str]:
         with self._lock:
             self._sequence += 1
             sequence = self._sequence
         idempotency_key = f"agent/codex-mcp:{self._turn_id}:{sequence}:{entry.mcp_name}"
-        return execute_tool(
-            request_context=self._request_context,
-            entry=entry,
-            idempotency_key=idempotency_key,
-            arguments=arguments,
-            timeout_seconds=self._timeout_seconds,
-        )
+        try:
+            with gestalt.Request(context=self._request_context).app() as app:
+                response = app.invoke_raw(
+                    entry.ref.app,
+                    entry.ref.operation,
+                    arguments or {},
+                    connection=entry.ref.connection,
+                    instance=entry.ref.instance,
+                    credential_mode=entry.ref.credential_mode,
+                    idempotency_key=idempotency_key,
+                    timeout_seconds=self._timeout_seconds,
+                )
+            return gestalt.Response[str](status=response.status, body=operation_body_text(response.body))
+        except Exception as exc:
+            raise ToolBridgeError(str(exc) or exc.__class__.__name__) from exc
 
 
 def list_tools(*, listed_tools: list[gestalt.ListedAgentTool]) -> list[ToolEntry]:
@@ -70,45 +83,24 @@ def list_tools(*, listed_tools: list[gestalt.ListedAgentTool]) -> list[ToolEntry
 
 
 def tool_entry(tool: gestalt.ListedAgentTool) -> ToolEntry:
+    tool_id = str(tool.id or "").strip()
+    if not tool_id:
+        raise ToolBridgeError("tools.catalog.tools returned a tool without id")
+    ref = tool.ref
+    if ref is None or not ref.app.strip() or not ref.operation.strip():
+        raise ToolBridgeError(f"tools.catalog.tools returned tool {tool_id!r} without an app operation ref")
     mcp_name = tool.mcp_name.strip()
     if _UNSAFE_TOOL_NAME.search(mcp_name):
         raise ToolBridgeError(f"tools.catalog.tools returned unsafe mcp_name {mcp_name!r}")
-    ref = tool.ref
-    if ref is None or not ref.app.strip() or not ref.operation.strip() or ref.system.strip():
-        raise ToolBridgeError(f"tools.catalog.tools returned non-app tool {mcp_name!r}")
     return ToolEntry(
+        id=tool_id,
         mcp_name=mcp_name,
+        ref=ref,
         title=str(tool.title or "").strip(),
         description=str(tool.description or "").strip(),
-        ref=ref,
         input_schema=schema_from_json(str(tool.input_schema or "")),
         annotations=tool_annotations(tool.annotations, title=str(tool.title or "").strip()),
     )
-
-
-def execute_tool(
-    *,
-    request_context: Any,
-    entry: ToolEntry,
-    idempotency_key: str,
-    arguments: dict[str, Any],
-    timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS,
-) -> gestalt.Response[bytes]:
-    request = gestalt.Request(context=request_context)
-    with request.app() as app:
-        try:
-            return app.invoke_raw(
-                entry.ref.app,
-                entry.ref.operation,
-                arguments or {},
-                connection=entry.ref.connection,
-                instance=entry.ref.instance,
-                idempotency_key=idempotency_key,
-                credential_mode=entry.ref.credential_mode,
-                timeout_seconds=timeout_seconds,
-            )
-        except Exception as exc:
-            raise ToolBridgeError(str(exc) or exc.__class__.__name__) from exc
 
 
 def mcp_tool(entry: ToolEntry) -> mcp_types.Tool:
@@ -121,7 +113,7 @@ def mcp_tool(entry: ToolEntry) -> mcp_types.Tool:
     )
 
 
-def mcp_tool_result(response: gestalt.Response[bytes]) -> mcp_types.CallToolResult:
+def mcp_tool_result(response: gestalt.Response[Any]) -> mcp_types.CallToolResult:
     body = operation_body_text(response.body)
     status = int(response.status or 0)
     if not body:

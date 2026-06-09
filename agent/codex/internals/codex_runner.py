@@ -23,6 +23,7 @@ from mcp import types as mcp_types
 from .config import CodexAgentConfig
 from .gestalt_mcp_bridge import BridgeContext
 from .http_bridge import BridgeHTTPServer
+from .session_start import session_start_metadata_paths
 from .tool_bridge import ToolBridgeError, ToolEntry, list_tools
 
 logger = logging.getLogger(__name__)
@@ -128,28 +129,22 @@ class CodexMCPRunner:
     def run_turn(
         self,
         *,
-        session_id: str,
+        session: Any,
         turn_id: str,
         model: str,
         messages: list[dict[str, Any]],
         request_context: Any,
-        listed_tools: list[gestalt.ListedAgentTool],
-        skill_roots: list[str] | None = None,
-        cwd: str = "",
         schema: dict[str, Any] | None = None,
     ) -> gestalt.AgentTurnOutput:
         try:
             return asyncio.run(
                 asyncio.wait_for(
                     self._run_turn(
-                        session_id=session_id,
+                        session=session,
                         turn_id=turn_id,
                         model=model,
                         messages=messages,
                         request_context=request_context,
-                        listed_tools=listed_tools,
-                        skill_roots=skill_roots or [],
-                        cwd=cwd,
                         schema=schema,
                     ),
                     timeout=self._config.timeout_seconds,
@@ -180,14 +175,11 @@ class CodexMCPRunner:
     async def _run_turn(
         self,
         *,
-        session_id: str,
+        session: Any,
         turn_id: str,
         model: str,
         messages: list[dict[str, Any]],
         request_context: Any,
-        listed_tools: list[gestalt.ListedAgentTool],
-        skill_roots: list[str],
-        cwd: str,
         schema: dict[str, Any] | None,
     ) -> gestalt.AgentTurnOutput:
         loop = asyncio.get_running_loop()
@@ -205,7 +197,7 @@ class CodexMCPRunner:
             try:
                 tool_entries = await asyncio.to_thread(
                     list_tools,
-                    listed_tools=listed_tools,
+                    listed_tools=session.listed_tools,
                 )
             except ToolBridgeError as exc:
                 raise CodexExecutionError(str(exc)) from exc
@@ -215,7 +207,7 @@ class CodexMCPRunner:
                 BridgeContext(
                     turn_id=turn_id,
                     request_context=request_context,
-                    listed_tools=listed_tools,
+                    listed_tools=session.listed_tools,
                     timeout_seconds=self._config.timeout_seconds,
                 )
             )
@@ -223,7 +215,8 @@ class CodexMCPRunner:
             self._raise_if_canceled(turn_id)
 
             with tempfile.TemporaryDirectory(prefix="gestalt-codex-home-") as codex_home:
-                _materialize_codex_skills(codex_home=codex_home, skill_roots=skill_roots)
+                cwd = _session_cwd(session)
+                _materialize_codex_skills(codex_home=codex_home, skill_roots=_session_skill_roots(session))
                 server = self._server_factory(
                     params=self._server_params(codex_home=codex_home, cwd=cwd),
                     name="Codex CLI",
@@ -406,6 +399,19 @@ def messages_to_prompt(messages: list[dict[str, Any]]) -> str:
             continue
         lines.append(f"<message {index} role={json.dumps(role)}>\n{content}\n</message {index}>")
     return "\n\n".join(lines).strip()
+
+
+def _session_skill_roots(session: Any) -> list[str]:
+    return session_start_metadata_paths(
+        getattr(session, "metadata", {}), "codexSkillRoots", allowed_basenames={"mortgage", "vds", "tools", "rnb"}
+    )
+
+
+def _session_cwd(session: Any) -> str:
+    prepared_workspace = getattr(session, "prepared_workspace", None)
+    if not prepared_workspace:
+        return ""
+    return str(prepared_workspace.get("cwd") or "").strip()
 
 
 def _message_content(message: dict[str, Any]) -> str:

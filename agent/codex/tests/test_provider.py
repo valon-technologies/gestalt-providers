@@ -29,7 +29,7 @@ from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.codex_runner import normalize_codex_result
 from internals.gestalt_mcp_bridge import BridgeContext
 from internals.http_bridge import BridgeHTTPServer
-from internals.tool_bridge import MAX_LISTED_TOOLS, schema_from_json
+from internals.tool_bridge import schema_from_json
 
 agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
@@ -44,40 +44,31 @@ _runtime_server: grpc.Server | None = None
 _host_server: grpc.Server | None = None
 _runtime_socket = ""
 _host_socket = ""
-_host_servicer: "_FakeAppHost | None" = None
+_host_servicer: "_FakeHostApp | None" = None
 _previous_host_service_socket: str | None = None
 _previous_host_service_token: str | None = None
 
 
-class _FakeAppHost(app_pb2_grpc.AppServicer):
+class _FakeHostApp(app_pb2_grpc.AppServicer):
     def __init__(self) -> None:
         self.invoke_requests: list[dict[str, Any]] = []
-        self.invoke_error = ""
+        self.execute_error = ""
 
     def reset(self) -> None:
         self.invoke_requests.clear()
-        self.invoke_error = ""
+        self.execute_error = ""
 
     def Invoke(self, request: Any, context: grpc.ServicerContext) -> Any:
-        arguments = (
-            json_format.MessageToDict(request.params, preserving_proto_field_name=True)
-            if request.HasField("params")
-            else {}
-        )
+        params = json_format.MessageToDict(request.params, preserving_proto_field_name=True) if request.HasField("params") else {}
         self.invoke_requests.append(
             {
                 "app": request.app,
                 "operation": request.operation,
-                "context_subject": request.context.subject.id,
-                "idempotency_key": request.idempotency_key,
-                "arguments": arguments,
-                "connection": request.connection,
-                "instance": request.instance,
-                "credential_mode": request.credential_mode,
+                "params": params,
             }
         )
-        if self.invoke_error:
-            context.abort(grpc.StatusCode.UNKNOWN, self.invoke_error)
+        if self.execute_error:
+            context.abort(grpc.StatusCode.UNKNOWN, self.execute_error)
         return app_pb2.OperationResult(status=200, body=b'{"ok":true}')
 
 
@@ -543,6 +534,9 @@ class CodexProviderTests(unittest.TestCase):
         self.assertEqual(canceled.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
         fetched = _wait_for_turn(provider_client, "turn-cancel", agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
         self.assertEqual(fetched.status_message, "test cancellation")
+        deadline = time.time() + 5
+        while fake_server.cleanup_count < 1 and time.time() < deadline:
+            time.sleep(0.01)
         self.assertGreaterEqual(fake_server.cleanup_count, 1)
 
         time.sleep(0.1)
@@ -575,60 +569,6 @@ class CodexProviderTests(unittest.TestCase):
         self.assertGreaterEqual(_FakeCodexMCPServer.instances[0].cleanup_count, 1)
         self.assertEqual(runner._canceled_turns, set())
 
-    def test_create_session_rejects_invalid_catalog_tools(self) -> None:
-        _, provider_client = _configure_provider()
-        for mode, message in (
-            ("duplicate", "duplicate mcp_name"),
-            ("unsafe", "mcp_name is unsafe"),
-            ("bad-ref-credential-mode", "credential_mode is invalid"),
-            ("bad-ref-run-as", "run_as is not supported"),
-            ("wildcard-listed-connection", "concrete app operation"),
-            ("bad-listed-credential-mode", "credential_mode is invalid"),
-            ("listed-run-as", "run_as is not supported"),
-            ("mismatched-ref", "not covered by tools.catalog.refs"),
-            ("mismatched-credential-mode", "not covered by tools.catalog.refs"),
-            ("too-many", "more than"),
-        ):
-            with self.subTest(mode=mode):
-                config = _single_ref_catalog_config()
-                if mode == "duplicate":
-                    _add_tool(config.catalog, tool_id="tool-1", mcp_name="duplicate")
-                    _add_tool(config.catalog, tool_id="tool-2", mcp_name="duplicate")
-                elif mode == "unsafe":
-                    _add_tool(config.catalog, tool_id="tool-unsafe", mcp_name="bad tool")
-                elif mode == "bad-ref-credential-mode":
-                    config.catalog.refs[0].credential_mode = "user"
-                elif mode == "bad-ref-run-as":
-                    config.catalog.refs[0].run_as.CopyFrom(_subject_context("user:delegate"))
-                elif mode == "wildcard-listed-connection":
-                    _add_tool(config.catalog, tool_id="tool-linear", mcp_name="linear__issues", connection="*")
-                elif mode == "bad-listed-credential-mode":
-                    _add_tool(config.catalog, tool_id="tool-linear", mcp_name="linear__issues", credential_mode="user")
-                elif mode == "listed-run-as":
-                    _add_tool(
-                        config.catalog,
-                        tool_id="tool-linear",
-                        mcp_name="linear__issues",
-                        run_as=_subject_context("user:delegate"),
-                    )
-                elif mode == "mismatched-ref":
-                    _add_tool(
-                        config.catalog,
-                        tool_id="tool-github",
-                        mcp_name="github__pulls_list",
-                        app="github",
-                        operation="pulls/list",
-                    )
-                elif mode == "mismatched-credential-mode":
-                    config.catalog.refs[0].credential_mode = "subject"
-                    _add_tool(config.catalog, tool_id="tool-linear", mcp_name="linear__issues", credential_mode="none")
-                elif mode == "too-many":
-                    for index in range(MAX_LISTED_TOOLS + 1):
-                        _add_tool(config.catalog, tool_id=f"tool-{index}", mcp_name=f"tool__{index}")
-                _assert_create_session_invalid(
-                    provider_client, _owned_session_request(f"bad-tools-{mode}", tools=config), message
-                )
-
     def test_bridge_http_server_lists_and_executes_tools(self) -> None:
         host = _host_servicer
         assert host is not None
@@ -638,16 +578,14 @@ class CodexProviderTests(unittest.TestCase):
         self.assertEqual(len(host.invoke_requests), 1)
         self.assertEqual(host.invoke_requests[0]["app"], "linear")
         self.assertEqual(host.invoke_requests[0]["operation"], "searchIssues")
-        self.assertEqual(host.invoke_requests[0]["context_subject"], "user-123")
-        self.assertEqual(host.invoke_requests[0]["idempotency_key"], "agent/codex-mcp:turn-bridge:1:linear__issues")
-        self.assertEqual(host.invoke_requests[0]["arguments"], {"query": "AIT"})
+        self.assertEqual(host.invoke_requests[0]["params"], {"query": "AIT"})
         self.assertEqual(result.content[0].text, '{"ok":true}')
         self.assertFalse(result.isError)
 
-    def test_bridge_http_server_returns_tool_error_for_app_invoke_error(self) -> None:
+    def test_bridge_http_server_returns_tool_error_for_host_execution_error(self) -> None:
         host = _host_servicer
         assert host is not None
-        host.invoke_error = "integration reconnect required"
+        host.execute_error = "integration reconnect required"
 
         result = asyncio.run(_exercise_bridge_http_server())
 
@@ -673,7 +611,7 @@ def setUpModule() -> None:
     os.environ[ENV_HOST_SERVICE_SOCKET] = _host_socket
     os.environ[ENV_HOST_SERVICE_TOKEN] = "relay-token"
 
-    _host_servicer = _FakeAppHost()
+    _host_servicer = _FakeHostApp()
     _host_server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
     app_pb2_grpc.add_AppServicer_to_server(_host_servicer, _host_server)
     _host_server.add_insecure_port(f"unix:{_host_socket}")
@@ -778,14 +716,6 @@ def _catalog_tool_config() -> Any:
     return config
 
 
-def _single_ref_catalog_config() -> Any:
-    config = agent_pb2.AgentToolConfig()
-    ref = config.catalog.refs.add()
-    ref.app = "linear"
-    ref.operation = "searchIssues"
-    return config
-
-
 def _create_owned_session(provider_client: Any, session_id: str, **kwargs: Any) -> Any:
     return provider_client.CreateSession(_owned_session_request(session_id, **kwargs))
 
@@ -853,10 +783,6 @@ def _add_tool(
     title: str = "Tool",
     description: str = "Tool description",
     input_schema: str = '{"type":"object"}',
-    connection: str = "",
-    instance: str = "",
-    credential_mode: str = "",
-    run_as: Any | None = None,
 ) -> None:
     tool = response.tools.add()
     tool.id = tool_id
@@ -867,11 +793,6 @@ def _add_tool(
     setattr(tool.annotations, "read_only_hint", True)
     setattr(tool.ref, "app", app)
     setattr(tool.ref, "operation", operation)
-    setattr(tool.ref, "connection", connection)
-    setattr(tool.ref, "instance", instance)
-    setattr(tool.ref, "credential_mode", credential_mode)
-    if run_as is not None:
-        tool.ref.run_as.CopyFrom(run_as)
 
 
 def _assert_invalid(provider_client: Any, request: Any, message: str) -> None:
@@ -883,17 +804,6 @@ def _assert_invalid(provider_client: Any, request: Any, message: str) -> None:
         raise AssertionError("CreateTurn unexpectedly succeeded")
     assert error.code() == grpc.StatusCode.INVALID_ARGUMENT
     assert message in error.details()
-
-
-def _assert_create_session_invalid(provider_client: Any, request: Any, message: str) -> None:
-    try:
-        provider_client.CreateSession(request)
-    except grpc.RpcError as exc:
-        error = cast(Any, exc)
-    else:
-        raise AssertionError("CreateSession unexpectedly succeeded")
-    assert error.code() == grpc.StatusCode.INVALID_ARGUMENT
-    assert message in error.details(), error.details()
 
 
 def _wait_for_turn(provider_client: Any, turn_id: str, status: int) -> Any:

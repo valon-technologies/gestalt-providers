@@ -44,10 +44,11 @@ _GESTALT_MCP_TOOL_PREFIX = f"mcp__{MCP_SERVER_NAME}__"
 
 @dataclass(frozen=True, slots=True)
 class ToolEntry:
+    id: str
     mcp_name: str
+    ref: gestalt.AgentToolRef
     title: str
     description: str
-    ref: gestalt.AgentToolRef
     tags: tuple[str, ...]
     search_text: str
     input_schema: dict[str, Any]
@@ -117,24 +118,24 @@ class GestaltMCPBridge:
     async def _execute_entry(self, entry: ToolEntry, arguments: dict[str, Any]) -> CallToolResult:
         async with self._execute_lock:
             self._sequence += 1
-            tool_call_id = f"sdk-{self._sequence}"
+            idempotency_key = f"agent/claude-sdk:{self._turn_id}:{self._sequence}:{entry.mcp_name}"
 
-            def execute_tool() -> gestalt.Response[bytes]:
-                request = gestalt.Request(context=self._request_context)
-                with request.app() as app:
-                    return app.invoke_raw(
+            def execute() -> gestalt.Response[str]:
+                with gestalt.Request(context=self._request_context).app() as app:
+                    response = app.invoke_raw(
                         entry.ref.app,
                         entry.ref.operation,
                         arguments or {},
                         connection=entry.ref.connection,
                         instance=entry.ref.instance,
-                        idempotency_key=f"agent/claude-sdk:{self._turn_id}:{tool_call_id}:{entry.mcp_name}",
                         credential_mode=entry.ref.credential_mode,
+                        idempotency_key=idempotency_key,
                         timeout_seconds=self._timeout_seconds,
                     )
+                return gestalt.Response[str](status=response.status, body=operation_body_text(response.body))
 
             try:
-                response = await asyncio.to_thread(execute_tool)
+                response = await asyncio.to_thread(execute)
             except Exception as exc:
                 return _tool_error_result(exc)
         body = operation_body_text(response.body)
@@ -198,11 +199,18 @@ class GestaltMCPBridge:
 
 
 def create_gestalt_sdk_mcp_server(
-    *, turn_id: str, request_context: Any, listed_tools: list[gestalt.ListedAgentTool], timeout_seconds: float = 0.0
+    *,
+    turn_id: str,
+    request_context: Any,
+    listed_tools: list[gestalt.ListedAgentTool],
+    timeout_seconds: float = 0.0,
 ) -> McpSdkServerConfig:
     install_sdk_mcp_pagination_patch()
     bridge = GestaltMCPBridge(
-        turn_id=turn_id, request_context=request_context, listed_tools=listed_tools, timeout_seconds=timeout_seconds
+        turn_id=turn_id,
+        request_context=request_context,
+        listed_tools=listed_tools,
+        timeout_seconds=timeout_seconds,
     )
     return McpSdkServerConfig(type="sdk", name=MCP_SERVER_NAME, instance=bridge.server)
 
@@ -314,13 +322,14 @@ def _mcp_tool(entry: ToolEntry) -> Tool:
 def _tool_error_entry(exc: Exception) -> ToolEntry:
     message = _tool_error_message(exc)
     return ToolEntry(
+        id="",
         mcp_name=TOOL_ERROR_NAME,
+        ref=gestalt.AgentToolRef(),
         title="Gestalt tools unavailable",
         description=(
             "Gestalt tool discovery failed. Use this diagnostic tool, then tell the user the "
             f"integration needs attention before retrying. Error: {message}"
         ),
-        ref=gestalt.AgentToolRef(),
         tags=(),
         search_text="",
         input_schema={"type": "object", "additionalProperties": False},
@@ -350,19 +359,23 @@ def operation_body_text(body: object) -> str:
 
 
 def _tool_entry(tool: gestalt.ListedAgentTool) -> ToolEntry:
+    tool_id = str(tool.id or "").strip()
+    if not tool_id:
+        raise ValueError("tools.catalog.tools returned a tool without id")
+    ref = tool.ref
+    if ref is None or not ref.app.strip() or not ref.operation.strip():
+        raise ValueError(f"tools.catalog.tools returned tool {tool_id!r} without an app operation ref")
     mcp_name = tool.mcp_name.strip()
     if not mcp_name:
         raise ValueError("tools.catalog.tools returned a tool without mcp_name")
     if _UNSAFE_TOOL_NAME.search(mcp_name):
         raise ValueError(f"tools.catalog.tools returned unsafe mcp_name {mcp_name!r}")
-    ref = tool.ref
-    if ref is None or not ref.app.strip() or not ref.operation.strip() or ref.system.strip():
-        raise ValueError(f"tools.catalog.tools returned non-app tool {mcp_name!r}")
     return ToolEntry(
+        id=tool_id,
         mcp_name=mcp_name,
+        ref=ref,
         title=str(tool.title or "").strip(),
         description=str(tool.description or "").strip(),
-        ref=ref,
         tags=_string_list(tool.tags),
         search_text=str(tool.search_text or "").strip(),
         input_schema=_schema_from_json(str(tool.input_schema or "")),
