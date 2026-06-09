@@ -9,6 +9,7 @@ GITHUB_REPOSITORY_RESOURCE_TYPE = "app/github/repository"
 GITHUB_REPOSITORY_ACTION_BOT = "bot"
 
 GITHUB_EVENT_OPERATION = "events.handle"
+GITHUB_EVENT_DELIVER_OPERATION = "events.deliverQueued"
 IDENTITY_LINK_SELF_OPERATION = "identity.linkSelf"
 BOT_GET_REPOSITORY_OPERATION = "bot.getRepository"
 BOT_SEARCH_CODE_OPERATION = "bot.searchCode"

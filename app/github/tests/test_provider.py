@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import io
 import json
 import pathlib
@@ -169,6 +170,31 @@ def github_agent_request(
         id=agent_subject_id,
     )
     return request
+
+
+def pull_request_webhook_payload() -> dict[str, Any]:
+    return {
+        "headers": {
+            "X-GitHub-Event": "pull_request",
+            "X-GitHub-Delivery": "delivery-123",
+        },
+        "action": "opened",
+        "installation": {"id": 99.0},
+        "repository": {
+            "full_name": "acme/widgets",
+            "name": "widgets",
+            "owner": {"login": "acme"},
+        },
+        "pull_request": {
+            "number": 7,
+            "title": "Add feature",
+            "state": "open",
+            "html_url": "https://github.example/acme/widgets/pull/7",
+            "head": {"ref": "feature", "sha": "head-sha"},
+            "base": {"ref": "main", "sha": "base-sha"},
+        },
+        "sender": {"login": "octocat"},
+    }
 
 
 class GitHubAuthorizedRequest:
@@ -380,7 +406,9 @@ class GitHubProviderTests(unittest.TestCase):
 
         spec = manifest["spec"]
         webhook = spec["http"]["event"]
+        delivery = spec["http"]["event_delivery"]
         security = spec["securitySchemes"]["github_app"]
+        delivery_security = spec["securitySchemes"]["queued_github_event"]
         default_connection = spec["connections"]["default"]
 
         self.assertEqual(spec["defaultConnection"], "default")
@@ -400,12 +428,25 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(webhook["credentialMode"], "none")
         self.assertEqual(webhook["security"], "github_app")
         self.assertEqual(webhook["target"], provider_module.GITHUB_EVENT_OPERATION)
-        self.assertNotIn("ack", webhook)
+        self.assertEqual(delivery["path"], "/event/deliver")
+        self.assertEqual(delivery["method"], "POST")
+        self.assertEqual(delivery["credentialMode"], "none")
+        self.assertEqual(delivery["security"], "queued_github_event")
+        self.assertEqual(
+            delivery["target"], provider_module.GITHUB_EVENT_DELIVER_OPERATION
+        )
         self.assertEqual(security["type"], "hmac")
         self.assertEqual(security["secret"]["env"], "GITHUB_WEBHOOK_SECRET")
         self.assertEqual(security["signatureHeader"], "X-Hub-Signature-256")
         self.assertEqual(security["signaturePrefix"], "sha256=")
         self.assertEqual(security["payloadTemplate"], "{raw_body}")
+        self.assertEqual(delivery_security["type"], "hmac")
+        self.assertEqual(delivery_security["secret"]["env"], "GITHUB_WEBHOOK_SECRET")
+        self.assertEqual(
+            delivery_security["signatureHeader"], "X-GitHub-Workflow-Event-Signature"
+        )
+        self.assertEqual(delivery_security["signaturePrefix"], "sha256=")
+        self.assertEqual(delivery_security["payloadTemplate"], "{raw_body}")
 
     def test_identity_link_self_links_current_subject_to_authenticated_github_user(
         self,
@@ -1009,38 +1050,64 @@ class GitHubProviderTests(unittest.TestCase):
         assert subject is not None
         self.assertEqual(subject.id, "service_account:github_webhook:99")
 
-    def test_webhook_handler_delivers_canonical_workflow_event(self) -> None:
+    def test_webhook_handler_queues_canonical_workflow_event(self) -> None:
         workflow_client = FakeWorkflowClient()
-        payload = {
-            "headers": {
-                "X-GitHub-Event": "pull_request",
-                "X-GitHub-Delivery": "delivery-123",
-            },
-            "action": "opened",
-            "installation": {"id": 99.0},
-            "repository": {
-                "full_name": "acme/widgets",
-                "name": "widgets",
-                "owner": {"login": "acme"},
-            },
-            "pull_request": {
-                "number": 7,
-                "title": "Add feature",
-                "state": "open",
-                "html_url": "https://github.example/acme/widgets/pull/7",
-                "head": {"ref": "feature", "sha": "head-sha"},
-                "base": {"ref": "main", "sha": "base-sha"},
-            },
-            "sender": {"login": "octocat"},
-        }
+        payload = pull_request_webhook_payload()
 
-        with mock.patch.object(
-            gestalt.Request,
-            "workflows",
-            return_value=workflow_client,
-            create=True,
+        request = gestalt.Request(
+            host=gestalt.Host(public_base_url="https://valon.tools")
+        )
+        with (
+            mock.patch.object(
+                provider_module,
+                "_enqueue_github_workflow_event",
+                return_value="tasks/github-delivery-123",
+            ) as enqueue,
+            mock.patch.object(
+                gestalt.Request,
+                "workflows",
+                return_value=workflow_client,
+                create=True,
+            ),
         ):
-            result = provider_module.github_events_handle(payload, gestalt.Request())
+            result = provider_module.github_events_handle(payload, request)
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, Any]], result)
+        self.assertEqual(response.status, HTTPStatus.ACCEPTED)
+        self.assertEqual(
+            response.body,
+            {
+                "ok": True,
+                "queued": True,
+                "task_name": "tasks/github-delivery-123",
+                "workflow_event_id": "github:delivery-123",
+                "workflow_provider": "local",
+            },
+        )
+        enqueue.assert_called_once_with(payload, request)
+        self.assertEqual(workflow_client.deliver_event_requests, [])
+
+    def test_webhook_delivery_handler_delivers_canonical_workflow_event(self) -> None:
+        workflow_client = FakeWorkflowClient()
+        payload = pull_request_webhook_payload()
+
+        with (
+            mock.patch.object(
+                provider_module,
+                "_queued_github_webhook_payload",
+                return_value=payload,
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflows",
+                return_value=workflow_client,
+                create=True,
+            ),
+        ):
+            result = provider_module.github_events_deliver_queued(
+                payload, gestalt.Request()
+            )
 
         self.assertEqual(
             operation_body(result),
@@ -1089,7 +1156,7 @@ class GitHubProviderTests(unittest.TestCase):
             },
         )
 
-    def test_webhook_handler_uses_digest_id_and_installation_subject_without_headers(
+    def test_webhook_delivery_uses_digest_id_and_installation_subject_without_headers(
         self,
     ) -> None:
         workflow_client = FakeWorkflowClient()
@@ -1106,13 +1173,22 @@ class GitHubProviderTests(unittest.TestCase):
             "sender": {"login": "octocat"},
         }
 
-        with mock.patch.object(
-            gestalt.Request,
-            "workflows",
-            return_value=workflow_client,
-            create=True,
+        with (
+            mock.patch.object(
+                provider_module,
+                "_queued_github_webhook_payload",
+                return_value=payload,
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflows",
+                return_value=workflow_client,
+                create=True,
+            ),
         ):
-            result = provider_module.github_events_handle(payload, gestalt.Request())
+            result = provider_module.github_events_deliver_queued(
+                payload, gestalt.Request()
+            )
 
         self.assertEqual(operation_body(result)["ok"], True)
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
@@ -1128,7 +1204,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertNotIn("event_header", data["github"])
         self.assertEqual(data["raw"], payload)
 
-    def test_webhook_handler_uses_base_event_type_when_action_is_absent(
+    def test_webhook_delivery_uses_base_event_type_when_action_is_absent(
         self,
     ) -> None:
         workflow_client = FakeWorkflowClient()
@@ -1143,13 +1219,22 @@ class GitHubProviderTests(unittest.TestCase):
             "sender": {"login": "octocat"},
         }
 
-        with mock.patch.object(
-            gestalt.Request,
-            "workflows",
-            return_value=workflow_client,
-            create=True,
+        with (
+            mock.patch.object(
+                provider_module,
+                "_queued_github_webhook_payload",
+                return_value=payload,
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflows",
+                return_value=workflow_client,
+                create=True,
+            ),
         ):
-            result = provider_module.github_events_handle(payload, gestalt.Request())
+            result = provider_module.github_events_deliver_queued(
+                payload, gestalt.Request()
+            )
 
         self.assertEqual(operation_body(result)["ok"], True)
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
@@ -1161,7 +1246,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(data["github"]["event_type"], "pull_request")
         self.assertNotIn("action", data["github"])
 
-    def test_webhook_handler_qualifies_inferred_repository_event_type(
+    def test_webhook_delivery_qualifies_inferred_repository_event_type(
         self,
     ) -> None:
         provider_module.configure(
@@ -1181,13 +1266,22 @@ class GitHubProviderTests(unittest.TestCase):
             "sender": {"login": "octocat"},
         }
 
-        with mock.patch.object(
-            gestalt.Request,
-            "workflows",
-            return_value=workflow_client,
-            create=True,
+        with (
+            mock.patch.object(
+                provider_module,
+                "_queued_github_webhook_payload",
+                return_value=payload,
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflows",
+                return_value=workflow_client,
+                create=True,
+            ),
         ):
-            result = provider_module.github_events_handle(payload, gestalt.Request())
+            result = provider_module.github_events_deliver_queued(
+                payload, gestalt.Request()
+            )
 
         self.assertEqual(operation_body(result)["ok"], True)
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
@@ -1199,27 +1293,195 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(data["github"]["event_type"], "repository")
         self.assertEqual(data["github"]["action"], "deleted")
 
-    def test_webhook_handler_delivery_failure_is_retryable_server_error(self) -> None:
-        workflow_client = FakeWorkflowClient(fail=True)
-        payload = {
-            "headers": {
-                "X-GitHub-Event": "pull_request",
-                "X-GitHub-Delivery": "delivery-123",
-            },
-            "action": "opened",
-            "installation": {"id": 99},
-            "repository": {"full_name": "acme/widgets"},
-            "pull_request": {"number": 7},
-            "sender": {"login": "octocat"},
-        }
+    def test_webhook_handler_enqueue_failure_is_retryable_server_error(self) -> None:
+        workflow_client = FakeWorkflowClient()
+        payload = pull_request_webhook_payload()
 
-        with mock.patch.object(
-            gestalt.Request,
-            "workflows",
-            return_value=workflow_client,
-            create=True,
+        with (
+            mock.patch.object(
+                provider_module,
+                "_enqueue_github_workflow_event",
+                side_effect=RuntimeError("cloud tasks unavailable"),
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflows",
+                return_value=workflow_client,
+                create=True,
+            ),
         ):
             result = provider_module.github_events_handle(payload, gestalt.Request())
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.INTERNAL_SERVER_ERROR)
+        self.assertEqual(
+            response.body,
+            {"error": "failed to enqueue workflow event: cloud tasks unavailable"},
+        )
+        self.assertEqual(workflow_client.deliver_event_requests, [])
+
+    def test_enqueue_github_workflow_event_creates_signed_cloud_task(self) -> None:
+        payload = pull_request_webhook_payload()
+        calls: list[urllib.request.Request] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            calls.append(request)
+            if request.full_url.endswith("/service-accounts/default/token"):
+                self.assertEqual(timeout, 2)
+                self.assertEqual(request.get_header("Metadata-flavor"), "Google")
+                return FakeHTTPResponse({"access_token": "metadata-token"})
+            self.assertEqual(timeout, 10)
+            self.assertEqual(request.get_method(), "POST")
+            self.assertEqual(auth_header(request), "Bearer metadata-token")
+            if request.full_url.startswith(
+                "https://storage.googleapis.com/upload/storage/v1/"
+            ):
+                self.assertEqual(
+                    request.full_url,
+                    "https://storage.googleapis.com/upload/storage/v1/b/"
+                    "gitlab-peach-street-valon-tools-github-webhook-events/o"
+                    "?uploadType=media&name=events%2Fdelivery-123.json",
+                )
+                return FakeHTTPResponse()
+            self.assertEqual(
+                request.full_url,
+                "https://cloudtasks.googleapis.com/v2/projects/gitlab-peach-street/locations/us-east4/queues/valon-tools-github-webhook-events/tasks",
+            )
+            return FakeHTTPResponse({"name": "tasks/github-delivery-123"})
+
+        with (
+            mock.patch.dict(
+                "os.environ",
+                {
+                    "GOOGLE_CLOUD_PROJECT": "gitlab-peach-street",
+                    "GITHUB_WEBHOOK_SECRET": "webhook-secret",
+                },
+            ),
+            mock.patch(
+                "provider.urllib.request.urlopen",
+                side_effect=fake_urlopen,
+            ),
+        ):
+            task_name = provider_module._enqueue_github_workflow_event(
+                payload,
+                gestalt.Request(
+                    host=gestalt.Host(public_base_url="https://valon.tools/")
+                ),
+            )
+            expected_signature = provider_module._github_webhook_task_signature(
+                base64.b64decode(
+                    request_json(calls[2])["task"]["httpRequest"]["body"]
+                )
+            )
+
+        self.assertEqual(task_name, "tasks/github-delivery-123")
+        self.assertEqual(len(calls), 3)
+        uploaded_payload = cast(bytes, calls[1].data)
+        self.assertEqual(
+            json.loads(uploaded_payload.decode("utf-8")),
+            payload,
+        )
+        task = request_json(calls[2])["task"]["httpRequest"]
+        encoded_body = task["body"]
+        body = cast(
+            dict[str, Any],
+            json.loads(base64.b64decode(encoded_body).decode("utf-8")),
+        )
+        self.assertEqual(
+            body,
+            {
+                "bucket": "gitlab-peach-street-valon-tools-github-webhook-events",
+                "object": "events/delivery-123.json",
+                "sha256": provider_module.hashlib.sha256(uploaded_payload).hexdigest(),
+            },
+        )
+        self.assertEqual(task["httpMethod"], "POST")
+        self.assertEqual(task["url"], "https://valon.tools/github/event/deliver")
+        self.assertEqual(
+            task["headers"]["X-GitHub-Workflow-Event-Signature"],
+            expected_signature,
+        )
+
+    def test_queued_github_webhook_payload_reads_pointer_and_verifies_digest(
+        self,
+    ) -> None:
+        payload = pull_request_webhook_payload()
+        body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+
+        with (
+            mock.patch.object(
+                provider_module,
+                "_google_cloud_access_token",
+                return_value="metadata-token",
+            ),
+            mock.patch.object(
+                provider_module,
+                "_read_github_webhook_payload_object",
+                return_value=body,
+            ) as read_payload,
+        ):
+            queued_payload = provider_module._queued_github_webhook_payload(
+                {
+                    "bucket": "gitlab-peach-street-valon-tools-github-webhook-events",
+                    "object": "events/delivery-123.json",
+                    "sha256": provider_module.hashlib.sha256(body).hexdigest(),
+                }
+            )
+
+        self.assertEqual(queued_payload, payload)
+        read_payload.assert_called_once_with(
+            "gitlab-peach-street-valon-tools-github-webhook-events",
+            "events/delivery-123.json",
+            "metadata-token",
+        )
+
+    def test_queued_github_webhook_payload_rejects_digest_mismatch(self) -> None:
+        with (
+            mock.patch.object(
+                provider_module,
+                "_google_cloud_access_token",
+                return_value="metadata-token",
+            ),
+            mock.patch.object(
+                provider_module,
+                "_read_github_webhook_payload_object",
+                return_value=b'{"ok":true}',
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "digest mismatch"):
+                provider_module._queued_github_webhook_payload(
+                    {
+                        "bucket": "gitlab-peach-street-valon-tools-github-webhook-events",
+                        "object": "events/delivery-123.json",
+                        "sha256": "deadbeef",
+                    }
+                )
+
+    def test_webhook_delivery_failure_is_retryable_server_error(self) -> None:
+        workflow_client = FakeWorkflowClient(fail=True)
+        payload = pull_request_webhook_payload()
+
+        with (
+            mock.patch.object(
+                provider_module,
+                "_queued_github_webhook_payload",
+                return_value=payload,
+            ),
+            mock.patch.object(
+                gestalt.Request,
+                "workflows",
+                return_value=workflow_client,
+                create=True,
+            ),
+        ):
+            result = provider_module.github_events_deliver_queued(
+                payload, gestalt.Request()
+            )
 
         self.assertIsInstance(result, gestalt.Response)
         response = cast(gestalt.Response[dict[str, str]], result)

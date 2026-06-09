@@ -2,8 +2,12 @@ name: github
 operations:
 - id: events.handle
   method: POST
-  description: Handle GitHub App webhook callbacks by delivering canonical workflow
+  description: Handle GitHub App webhook callbacks by queueing canonical workflow
     events
+  visible: false
+- id: events.deliverQueued
+  method: POST
+  description: Deliver a queued GitHub webhook event into workflow activation matching
   visible: false
 - id: identity.linkSelf
   method: POST

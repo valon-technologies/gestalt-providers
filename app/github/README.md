@@ -51,7 +51,9 @@ Supported config fields:
 
 ## Webhook Events
 
-`events.handle` validates generic webhook conditions and then calls
+`events.handle` validates generic webhook conditions, creates a Cloud Tasks task
+for accepted deliveries, and returns `202` after Cloud Tasks durably accepts the
+task. The task posts the original payload to `events.deliverQueued`, which calls
 `req.workflows().deliver_event(...)` once per accepted delivery.
 
 Ignored deliveries return `{"ok": true, "ignored": "<reason>"}` for:
@@ -93,12 +95,14 @@ When the payload does not include `action`, the event type falls back to
 `github.<event>`.
 When a repository is absent, the subject is `installation:<id>`.
 
-If delivery fails, `events.handle` returns an internal server error so GitHub
-can retry delivery.
+If task creation fails, `events.handle` returns an internal server error so
+GitHub can retry delivery. If workflow delivery fails, `events.deliverQueued`
+returns an internal server error so Cloud Tasks retries delivery.
 
 ## Operations
 
 - `events.handle`
+- `events.deliverQueued`
 - `identity.linkSelf`
 - `bot.getRepository`
 - `bot.searchCode`

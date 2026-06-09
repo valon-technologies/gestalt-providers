@@ -28,6 +28,7 @@ vulture-ignore-names = [
   "configure",
   "resolve_http_subject",
   "github_events_handle",
+  "github_events_deliver_queued",
   "bot_get_repository",
   "bot_search_code",
   "bot_get_content",

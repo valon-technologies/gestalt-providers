@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import json
 import logging
+import os
 from http import HTTPStatus
 from typing import Any, TypeAlias, cast
+import urllib.parse
+import urllib.request
 
 import gestalt
 
@@ -39,6 +46,7 @@ from internals.constants import (
     BOT_SEARCH_CODE_OPERATION,
     BOT_UPDATE_CHECK_RUN_OPERATION,
     GITHUB_EVENT_OPERATION,
+    GITHUB_EVENT_DELIVER_OPERATION,
     GITHUB_USER_LINKED_ACTION,
     GITHUB_USER_RESOURCE_TYPE,
     IDENTITY_LINK_SELF_OPERATION,
@@ -131,6 +139,14 @@ app = gestalt.App("github")
 logger = logging.getLogger(__name__)
 
 OperationResult: TypeAlias = dict[str, Any] | gestalt.Response[dict[str, Any]]
+
+GITHUB_WEBHOOK_TASK_QUEUE = "valon-tools-github-webhook-events"
+GITHUB_WEBHOOK_TASK_LOCATION = "us-east4"
+GITHUB_WEBHOOK_PAYLOAD_BUCKET_SUFFIX = "valon-tools-github-webhook-events"
+GITHUB_WEBHOOK_TASK_SIGNATURE_HEADER = "X-GitHub-Workflow-Event-Signature"
+GITHUB_WEBHOOK_DELIVERY_PATH = "/github/event/deliver"
+GITHUB_WEBHOOK_SECRET_ENV = "GITHUB_WEBHOOK_SECRET"
+GOOGLE_METADATA_ROOT = "http://metadata.google.internal/computeMetadata/v1"
 
 
 class FileChangeInput(gestalt.Model):
@@ -711,24 +727,110 @@ def resolve_http_subject(request: gestalt.HTTPSubjectRequest) -> gestalt.Subject
 @app.operation(
     id=GITHUB_EVENT_OPERATION,
     method="POST",
-    description="Handle GitHub App webhook callbacks by delivering canonical workflow events",
+    description="Handle GitHub App webhook callbacks by queueing canonical workflow events",
     visible=False,
 )
 def github_events_handle(
     input: dict[str, Any], req: gestalt.Request
 ) -> OperationResult:
-    event_type = _github_workflow_event_name(input)
+    try:
+        workflow_request, summary = _workflow_request_for_webhook(input)
+    except IgnoredWebhookDelivery as ignored:
+        return {"ok": True, "ignored": ignored.reason}
+
+    try:
+        task_name = _enqueue_github_workflow_event(input, req)
+    except Exception as err:
+        logger.exception(
+            "failed to enqueue GitHub workflow event",
+            extra={
+                "github_event": summary.get("event_type", ""),
+                "github_action": summary.get("action", ""),
+                "github_delivery_id": summary.get("delivery_id", ""),
+                "github_repository": summary.get("repository", ""),
+                "workflow_provider": workflow_request.provider_name,
+            },
+        )
+        return _server_error(f"failed to enqueue workflow event: {err}")
+
+    logger.info(
+        "queued GitHub workflow event",
+        extra={
+            "github_event": summary.get("event_type", ""),
+            "github_action": summary.get("action", ""),
+            "github_delivery_id": summary.get("delivery_id", ""),
+            "github_repository": summary.get("repository", ""),
+            "workflow_event_id": workflow_request.event.id
+            if workflow_request.event is not None
+            else "",
+            "workflow_provider": workflow_request.provider_name,
+            "cloud_tasks_task_name": task_name,
+        },
+    )
+
+    return gestalt.Response(
+        status=HTTPStatus.ACCEPTED,
+        body={
+            "ok": True,
+            "queued": True,
+            "task_name": task_name,
+            "workflow_event_id": workflow_request.event.id
+            if workflow_request.event is not None
+            else "",
+            "workflow_provider": workflow_request.provider_name,
+        },
+    )
+
+
+@app.operation(
+    id=GITHUB_EVENT_DELIVER_OPERATION,
+    method="POST",
+    description="Deliver a queued GitHub webhook event into workflow activation matching",
+    visible=False,
+)
+def github_events_deliver_queued(
+    input: dict[str, Any], req: gestalt.Request
+) -> OperationResult:
+    try:
+        payload = _queued_github_webhook_payload(input)
+    except Exception as err:
+        logger.exception("failed to load queued GitHub workflow event")
+        return _server_error(f"failed to load queued workflow event: {err}")
+    try:
+        workflow_request, summary = _workflow_request_for_webhook(payload)
+    except IgnoredWebhookDelivery as ignored:
+        return {"ok": True, "ignored": ignored.reason}
+
+    return _deliver_github_workflow_event(workflow_request, summary, req)
+
+
+class IgnoredWebhookDelivery(Exception):
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _workflow_request_for_webhook(
+    payload: dict[str, Any],
+) -> tuple[gestalt.WorkflowDeliverEvent, dict[str, Any]]:
+    event_type = _github_workflow_event_name(payload)
     ignored_reason = webhook_ignored_reason(
-        input,
+        payload,
         event_type=event_type,
         enforce_event_allowlist=True,
     )
     if ignored_reason:
-        return {"ok": True, "ignored": ignored_reason}
+        raise IgnoredWebhookDelivery(ignored_reason)
+    installation_id = installation_id_from_payload(payload)
+    summary = event_summary(payload, installation_id, event_type=event_type)
+    return _build_workflow_deliver_event_request(payload, summary), summary
 
-    installation_id = installation_id_from_payload(input)
-    summary = event_summary(input, installation_id, event_type=event_type)
-    workflow_request = _build_workflow_deliver_event_request(input, summary)
+
+def _deliver_github_workflow_event(
+    workflow_request: gestalt.WorkflowDeliverEvent,
+    summary: dict[str, Any],
+    req: gestalt.Request,
+) -> OperationResult:
     try:
         logger.info(
             "delivering GitHub workflow event",
@@ -750,6 +852,7 @@ def github_events_handle(
                 "github_action": summary.get("action", ""),
                 "github_delivery_id": summary.get("delivery_id", ""),
                 "github_repository": summary.get("repository", ""),
+                "workflow_provider": workflow_request.provider_name,
             },
         )
         return _server_error(f"failed to deliver workflow event: {err}")
@@ -776,6 +879,161 @@ def github_events_handle(
         else "",
         "workflow_provider": workflow_request.provider_name,
     }
+
+
+def _enqueue_github_workflow_event(payload: dict[str, Any], req: gestalt.Request) -> str:
+    public_base_url = req.host.public_base_url.strip().rstrip("/")
+    if not public_base_url:
+        raise RuntimeError("host public_base_url is required")
+    project_id = _google_cloud_project_id()
+    token = _google_cloud_access_token()
+    payload_body = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), default=str
+    ).encode("utf-8")
+    bucket = _github_webhook_payload_bucket(project_id)
+    object_name = _github_webhook_payload_object_name(payload)
+    _write_github_webhook_payload_object(bucket, object_name, payload_body, token)
+    task_payload = {
+        "bucket": bucket,
+        "object": object_name,
+        "sha256": hashlib.sha256(payload_body).hexdigest(),
+    }
+    task_body = json.dumps(
+        task_payload, sort_keys=True, separators=(",", ":"), default=str
+    ).encode(
+        "utf-8"
+    )
+    target_url = public_base_url + GITHUB_WEBHOOK_DELIVERY_PATH
+    task_request = {
+        "task": {
+            "httpRequest": {
+                "httpMethod": "POST",
+                "url": target_url,
+                "headers": {
+                    "Content-Type": "application/json",
+                    GITHUB_WEBHOOK_TASK_SIGNATURE_HEADER: _github_webhook_task_signature(
+                        task_body
+                    ),
+                },
+                "body": base64.b64encode(task_body).decode("ascii"),
+            }
+        }
+    }
+    create_url = (
+        "https://cloudtasks.googleapis.com/v2/projects/"
+        f"{project_id}/locations/{GITHUB_WEBHOOK_TASK_LOCATION}/queues/"
+        f"{GITHUB_WEBHOOK_TASK_QUEUE}/tasks"
+    )
+    request = urllib.request.Request(
+        create_url,
+        data=json.dumps(task_request, separators=(",", ":")).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        response_body = response.read()
+    if not response_body:
+        return ""
+    decoded = json.loads(response_body.decode("utf-8"))
+    return str(decoded.get("name", ""))
+
+
+def _queued_github_webhook_payload(pointer: dict[str, Any]) -> dict[str, Any]:
+    bucket = str(pointer.get("bucket", "")).strip()
+    object_name = str(pointer.get("object", "")).strip()
+    expected_sha256 = str(pointer.get("sha256", "")).strip()
+    if not bucket or not object_name or not expected_sha256:
+        raise RuntimeError("queued webhook payload pointer is incomplete")
+    body = _read_github_webhook_payload_object(
+        bucket, object_name, _google_cloud_access_token()
+    )
+    actual_sha256 = hashlib.sha256(body).hexdigest()
+    if not hmac.compare_digest(expected_sha256, actual_sha256):
+        raise RuntimeError("queued webhook payload digest mismatch")
+    decoded = json.loads(body.decode("utf-8"))
+    if not isinstance(decoded, dict):
+        raise RuntimeError("queued webhook payload must be a JSON object")
+    return cast(dict[str, Any], decoded)
+
+
+def _github_webhook_payload_bucket(project_id: str) -> str:
+    return f"{project_id}-{GITHUB_WEBHOOK_PAYLOAD_BUCKET_SUFFIX}"
+
+
+def _github_webhook_payload_object_name(payload: dict[str, Any]) -> str:
+    delivery_id = github_delivery_id(payload)
+    object_id = delivery_id if delivery_id else payload_digest(payload)
+    return f"events/{object_id}.json"
+
+
+def _write_github_webhook_payload_object(
+    bucket: str, object_name: str, body: bytes, token: str
+) -> None:
+    request = urllib.request.Request(
+        "https://storage.googleapis.com/upload/storage/v1/b/"
+        f"{urllib.parse.quote(bucket, safe='')}/o"
+        "?uploadType=media&name="
+        f"{urllib.parse.quote(object_name, safe='')}",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        _ = response.read()
+
+
+def _read_github_webhook_payload_object(
+    bucket: str, object_name: str, token: str
+) -> bytes:
+    request = urllib.request.Request(
+        "https://storage.googleapis.com/storage/v1/b/"
+        f"{urllib.parse.quote(bucket, safe='')}/o/"
+        f"{urllib.parse.quote(object_name, safe='')}?alt=media",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return response.read()
+
+
+def _github_webhook_task_signature(body: bytes) -> str:
+    secret = os.environ.get(GITHUB_WEBHOOK_SECRET_ENV, "").strip()
+    if not secret:
+        raise RuntimeError(f"{GITHUB_WEBHOOK_SECRET_ENV} is required")
+    digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+    return f"sha256={digest}"
+
+
+def _google_cloud_project_id() -> str:
+    for key in ("GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT", "GCP_PROJECT"):
+        value = os.environ.get(key, "").strip()
+        if value:
+            return value
+    return _google_metadata_value("project/project-id")
+
+
+def _google_cloud_access_token() -> str:
+    token_response = json.loads(
+        _google_metadata_value("instance/service-accounts/default/token")
+    )
+    token = str(token_response.get("access_token", "")).strip()
+    if not token:
+        raise RuntimeError("metadata server did not return an access token")
+    return token
+
+
+def _google_metadata_value(path: str) -> str:
+    request = urllib.request.Request(
+        f"{GOOGLE_METADATA_ROOT}/{path}",
+        headers={"Metadata-Flavor": "Google"},
+    )
+    with urllib.request.urlopen(request, timeout=2) as response:
+        return response.read().decode("utf-8").strip()
 
 
 def _build_workflow_deliver_event_request(
