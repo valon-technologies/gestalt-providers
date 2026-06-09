@@ -15,7 +15,6 @@ from claude_agent_sdk.types import (
     PermissionResultDeny,
     ToolPermissionContext,
 )
-from gestalt._agent import _execute_agent_tool
 from mcp.server import Server
 from mcp.types import (
     CallToolResult,
@@ -47,6 +46,7 @@ _GESTALT_MCP_TOOL_PREFIX = f"mcp__{MCP_SERVER_NAME}__"
 class ToolEntry:
     id: str
     mcp_name: str
+    ref: gestalt.AgentToolRef
     title: str
     description: str
     tags: tuple[str, ...]
@@ -59,13 +59,11 @@ class GestaltMCPBridge:
     def __init__(
         self,
         *,
-        session_id: str,
         turn_id: str,
         request_context: Any,
         listed_tools: list[gestalt.ListedAgentTool],
         timeout_seconds: float = 0.0,
     ) -> None:
-        self._session_id = session_id
         self._turn_id = turn_id
         self._request_context = request_context
         self._listed_tools = list(listed_tools)
@@ -120,22 +118,21 @@ class GestaltMCPBridge:
     async def _execute_entry(self, entry: ToolEntry, arguments: dict[str, Any]) -> CallToolResult:
         async with self._execute_lock:
             self._sequence += 1
-            tool_call_id = f"sdk-{self._sequence}"
-            idempotency_key = f"agent/claude-sdk:{self._turn_id}:{tool_call_id}:{entry.mcp_name}"
+            idempotency_key = f"agent/claude-sdk:{self._turn_id}:{self._sequence}:{entry.mcp_name}"
 
             def execute() -> gestalt.Response[str]:
-                return _execute_agent_tool(
-                    self._request_context,
-                    {
-                        "session_id": self._session_id,
-                        "turn_id": self._turn_id,
-                        "tool_call_id": tool_call_id,
-                        "tool_id": entry.id,
-                        "arguments": arguments or {},
-                        "idempotency_key": idempotency_key,
-                    },
-                    timeout_seconds=self._timeout_seconds,
-                )
+                with gestalt.Request(context=self._request_context).app() as app:
+                    response = app.invoke_raw(
+                        entry.ref.app,
+                        entry.ref.operation,
+                        arguments or {},
+                        connection=entry.ref.connection,
+                        instance=entry.ref.instance,
+                        credential_mode=entry.ref.credential_mode,
+                        idempotency_key=idempotency_key,
+                        timeout_seconds=self._timeout_seconds,
+                    )
+                return gestalt.Response[str](status=response.status, body=operation_body_text(response.body))
 
             try:
                 response = await asyncio.to_thread(execute)
@@ -203,7 +200,6 @@ class GestaltMCPBridge:
 
 def create_gestalt_sdk_mcp_server(
     *,
-    session_id: str,
     turn_id: str,
     request_context: Any,
     listed_tools: list[gestalt.ListedAgentTool],
@@ -211,7 +207,6 @@ def create_gestalt_sdk_mcp_server(
 ) -> McpSdkServerConfig:
     install_sdk_mcp_pagination_patch()
     bridge = GestaltMCPBridge(
-        session_id=session_id,
         turn_id=turn_id,
         request_context=request_context,
         listed_tools=listed_tools,
@@ -329,6 +324,7 @@ def _tool_error_entry(exc: Exception) -> ToolEntry:
     return ToolEntry(
         id="",
         mcp_name=TOOL_ERROR_NAME,
+        ref=gestalt.AgentToolRef(),
         title="Gestalt tools unavailable",
         description=(
             "Gestalt tool discovery failed. Use this diagnostic tool, then tell the user the "
@@ -366,6 +362,9 @@ def _tool_entry(tool: gestalt.ListedAgentTool) -> ToolEntry:
     tool_id = str(tool.id or "").strip()
     if not tool_id:
         raise ValueError("tools.catalog.tools returned a tool without id")
+    ref = tool.ref
+    if ref is None or not ref.app.strip() or not ref.operation.strip():
+        raise ValueError(f"tools.catalog.tools returned tool {tool_id!r} without an app operation ref")
     mcp_name = tool.mcp_name.strip()
     if not mcp_name:
         raise ValueError("tools.catalog.tools returned a tool without mcp_name")
@@ -374,6 +373,7 @@ def _tool_entry(tool: gestalt.ListedAgentTool) -> ToolEntry:
     return ToolEntry(
         id=tool_id,
         mcp_name=mcp_name,
+        ref=ref,
         title=str(tool.title or "").strip(),
         description=str(tool.description or "").strip(),
         tags=_string_list(tool.tags),

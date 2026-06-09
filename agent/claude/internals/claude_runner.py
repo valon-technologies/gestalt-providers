@@ -252,7 +252,6 @@ class ClaudeSDKRunner:
             allowed_tools=allowed_gestalt_mcp_tools() + claude_code_options.allowed_tools,
             mcp_servers={
                 MCP_SERVER_NAME: create_gestalt_sdk_mcp_server(
-                    session_id=session.session_id,
                     turn_id=turn_id,
                     request_context=request_context,
                     listed_tools=list(session.listed_tools),

@@ -27,6 +27,7 @@ from gestalt import ENV_HOST_SERVICE_SOCKET, ENV_HOST_SERVICE_TOKEN, ProviderKin
 from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt._gen.v1 import app_pb2 as _app_pb2
+from gestalt._gen.v1 import app_pb2_grpc as _app_pb2_grpc
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 import internals.claude_runner as claude_runner_module
@@ -38,6 +39,7 @@ agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
 empty_pb2: Any = _empty_pb2
 app_pb2: Any = cast(Any, _app_pb2)
+app_pb2_grpc: Any = _app_pb2_grpc
 runtime_pb2: Any = _runtime_pb2
 runtime_pb2_grpc: Any = _runtime_pb2_grpc
 struct_pb2: Any = _struct_pb2
@@ -49,37 +51,34 @@ _runtime_server: grpc.Server | None = None
 _host_server: grpc.Server | None = None
 _runtime_socket = ""
 _host_socket = ""
-_host_servicer: "_FakeAgentToolProvider | None" = None
+_host_servicer: "_FakeHostApp | None" = None
 _indexeddb_servicer: "FakeIndexedDB | None" = None
 _previous_host_service_socket: str | None = None
 _previous_host_service_token: str | None = None
 _claude_client_patch: Any = None
 
 
-class _FakeAgentToolProvider(agent_pb2_grpc.AgentProviderServicer):
+class _FakeHostApp(app_pb2_grpc.AppServicer):
     def __init__(self) -> None:
-        self.execute_requests: list[dict[str, Any]] = []
+        self.invoke_requests: list[dict[str, Any]] = []
         self.execute_error = ""
 
     def reset(self) -> None:
-        self.execute_requests.clear()
+        self.invoke_requests.clear()
         self.execute_error = ""
 
-    def ExecuteTool(self, request: Any, context: grpc.ServicerContext) -> Any:
-        arguments = (
-            json_format.MessageToDict(request.arguments, preserving_proto_field_name=True)
-            if request.HasField("arguments")
-            else {}
-        )
-        self.execute_requests.append(
+    def Invoke(self, request: Any, context: grpc.ServicerContext) -> Any:
+        params = json_format.MessageToDict(request.params, preserving_proto_field_name=True) if request.HasField("params") else {}
+        self.invoke_requests.append(
             {
-                "tool_id": request.tool_id,
-                "arguments": arguments,
+                "app": request.app,
+                "operation": request.operation,
+                "params": params,
             }
         )
         if self.execute_error:
             context.abort(grpc.StatusCode.UNKNOWN, self.execute_error)
-        return agent_pb2.ExecuteAgentToolResponse(status=200, body='{"ok":true}')
+        return app_pb2.OperationResult(status=200, body=b'{"ok":true}')
 
 
 class _FakeClaudeSDKClient:
@@ -628,8 +627,9 @@ class ClaudeProviderTests(unittest.TestCase):
             "Do not infer tool availability from Claude Code built-in tools only", fake_client.options.system_prompt
         )
 
-        self.assertEqual(host.execute_requests[0]["tool_id"], "tool-linear-issues")
-        self.assertEqual(host.execute_requests[0]["arguments"], {"query": "AIT"})
+        self.assertEqual(host.invoke_requests[0]["app"], "linear")
+        self.assertEqual(host.invoke_requests[0]["operation"], "searchIssues")
+        self.assertEqual(host.invoke_requests[0]["params"], {"query": "AIT"})
         tool_result = cast(Any, fake_client.tool_result)
         self.assertEqual(tool_result.content[0].text, '{"ok":true}')
         self.assertFalse(tool_result.isError)
@@ -720,7 +720,7 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(fake_client.options.output_format["schema"]["type"], "object")
         host = _host_servicer
         assert host is not None
-        self.assertEqual(host.execute_requests, [])
+        self.assertEqual(host.invoke_requests, [])
 
     def test_slack_sessions_are_company_readable_and_owner_writable(self) -> None:
         _, provider_client = _configure_provider()
@@ -1419,8 +1419,9 @@ class ClaudeProviderTests(unittest.TestCase):
         execute_result = asyncio.run(_call_sdk_tool(options, name="github__operation_0", arguments={"query": "mine"}))
 
         self.assertEqual(execute_result.content[0].text, '{"ok":true}')
-        self.assertEqual(host.execute_requests[-1]["tool_id"], "tool-github-0")
-        self.assertEqual(host.execute_requests[-1]["arguments"], {"query": "mine"})
+        self.assertEqual(host.invoke_requests[-1]["app"], "github")
+        self.assertEqual(host.invoke_requests[-1]["operation"], "operation0")
+        self.assertEqual(host.invoke_requests[-1]["params"], {"query": "mine"})
 
     def test_sdk_mcp_bridge_returns_tool_result_for_host_execution_error(self) -> None:
         host = _host_servicer
@@ -1436,7 +1437,7 @@ class ClaudeProviderTests(unittest.TestCase):
 
         self.assertTrue(tool_result.isError)
         self.assertIn("integration reconnect required", tool_result.content[0].text)
-        self.assertEqual(host.execute_requests[0]["tool_id"], "tool-linear-issues")
+        self.assertEqual(host.invoke_requests[0]["app"], "linear")
 
     def test_sdk_mcp_bridge_exposes_tool_discovery_error_as_diagnostic_tool(self) -> None:
         _configure_provider()
@@ -1465,7 +1466,6 @@ class ClaudeProviderTests(unittest.TestCase):
         host = _host_servicer
         assert host is not None
         bridge = GestaltMCPBridge(
-            session_id="session-claude",
             turn_id="turn-claude",
             request_context=_request_context("user-123"),
             listed_tools=list(_catalog_tool_config().catalog.tools),
@@ -1475,7 +1475,7 @@ class ClaudeProviderTests(unittest.TestCase):
 
         self.assertTrue(tool_result.isError)
         self.assertIn("not available in the current tool scope", cast(Any, tool_result.content[0]).text)
-        self.assertEqual(host.execute_requests, [])
+        self.assertEqual(host.invoke_requests, [])
 
     def test_create_turn_rejects_unsupported_tool_contract_inputs(self) -> None:
         _, provider_client = _configure_provider()
@@ -1615,10 +1615,10 @@ def setUpModule() -> None:
     _claude_client_patch = mock.patch.object(claude_runner_module, "ClaudeSDKClient", _FakeClaudeSDKClient)
     _claude_client_patch.start()
 
-    _host_servicer = _FakeAgentToolProvider()
+    _host_servicer = _FakeHostApp()
     _indexeddb_servicer = FakeIndexedDB()
     _host_server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-    agent_pb2_grpc.add_AgentProviderServicer_to_server(_host_servicer, _host_server)
+    app_pb2_grpc.add_AppServicer_to_server(_host_servicer, _host_server)
     datastore_pb2_grpc.add_IndexedDBServicer_to_server(_indexeddb_servicer, _host_server)
     _host_server.add_insecure_port(f"unix:{_host_socket}")
     _host_server.start()
@@ -1826,14 +1826,6 @@ def _large_catalog_tool_config() -> Any:
     return config
 
 
-def _single_ref_catalog_config() -> Any:
-    config = agent_pb2.AgentToolConfig()
-    ref = config.catalog.refs.add()
-    ref.app = "linear"
-    ref.operation = "searchIssues"
-    return config
-
-
 def _create_owned_session(provider_client: Any, session_id: str, **kwargs: Any) -> Any:
     return provider_client.CreateSession(_owned_session_request(session_id, **kwargs))
 
@@ -1949,17 +1941,6 @@ def _assert_invalid(provider_client: Any, request: Any, message: str) -> None:
         error = cast(Any, exc)
     else:
         raise AssertionError("CreateTurn unexpectedly succeeded")
-    assert error.code() == grpc.StatusCode.INVALID_ARGUMENT
-    assert message in error.details(), error.details()
-
-
-def _assert_create_session_invalid(provider_client: Any, request: Any, message: str) -> None:
-    try:
-        provider_client.CreateSession(request)
-    except grpc.RpcError as exc:
-        error = cast(Any, exc)
-    else:
-        raise AssertionError("CreateSession unexpectedly succeeded")
     assert error.code() == grpc.StatusCode.INVALID_ARGUMENT
     assert message in error.details(), error.details()
 

@@ -205,7 +205,6 @@ class CodexMCPRunner:
 
             bridge = BridgeHTTPServer(
                 BridgeContext(
-                    session_id=session.session_id,
                     turn_id=turn_id,
                     request_context=request_context,
                     listed_tools=session.listed_tools,

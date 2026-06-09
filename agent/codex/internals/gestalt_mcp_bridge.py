@@ -13,7 +13,6 @@ from .tool_bridge import list_tools, mcp_tool, mcp_tool_result
 
 @dataclass(frozen=True, slots=True)
 class BridgeContext:
-    session_id: str
     turn_id: str
     request_context: Any
     listed_tools: list[Any]
@@ -24,7 +23,6 @@ def create_server(context: BridgeContext) -> Server[Any, Any]:
     server: Server[Any, Any] = Server("gestalt")
     entries_by_name: dict[str, ToolEntry] = {}
     executor = ToolExecutor(
-        session_id=context.session_id,
         turn_id=context.turn_id,
         request_context=context.request_context,
         timeout_seconds=context.timeout_seconds,

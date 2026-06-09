@@ -23,6 +23,7 @@ from gestalt import ENV_HOST_SERVICE_SOCKET, ENV_HOST_SERVICE_TOKEN, ProviderKin
 from gestalt._gen.v1 import agent_pb2 as _agent_pb2
 from gestalt._gen.v1 import agent_pb2_grpc as _agent_pb2_grpc
 from gestalt._gen.v1 import app_pb2 as _app_pb2
+from gestalt._gen.v1 import app_pb2_grpc as _app_pb2_grpc
 from gestalt._gen.v1 import runtime_pb2 as _runtime_pb2
 from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 from internals.codex_runner import normalize_codex_result
@@ -34,6 +35,7 @@ agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
 empty_pb2: Any = _empty_pb2
 app_pb2: Any = cast(Any, _app_pb2)
+app_pb2_grpc: Any = _app_pb2_grpc
 runtime_pb2: Any = _runtime_pb2
 runtime_pb2_grpc: Any = _runtime_pb2_grpc
 struct_pb2: Any = _struct_pb2
@@ -42,35 +44,32 @@ _runtime_server: grpc.Server | None = None
 _host_server: grpc.Server | None = None
 _runtime_socket = ""
 _host_socket = ""
-_host_servicer: "_FakeAgentToolProvider | None" = None
+_host_servicer: "_FakeHostApp | None" = None
 _previous_host_service_socket: str | None = None
 _previous_host_service_token: str | None = None
 
 
-class _FakeAgentToolProvider(agent_pb2_grpc.AgentProviderServicer):
+class _FakeHostApp(app_pb2_grpc.AppServicer):
     def __init__(self) -> None:
-        self.execute_requests: list[dict[str, Any]] = []
+        self.invoke_requests: list[dict[str, Any]] = []
         self.execute_error = ""
 
     def reset(self) -> None:
-        self.execute_requests.clear()
+        self.invoke_requests.clear()
         self.execute_error = ""
 
-    def ExecuteTool(self, request: Any, context: grpc.ServicerContext) -> Any:
-        arguments = (
-            json_format.MessageToDict(request.arguments, preserving_proto_field_name=True)
-            if request.HasField("arguments")
-            else {}
-        )
-        self.execute_requests.append(
+    def Invoke(self, request: Any, context: grpc.ServicerContext) -> Any:
+        params = json_format.MessageToDict(request.params, preserving_proto_field_name=True) if request.HasField("params") else {}
+        self.invoke_requests.append(
             {
-                "tool_id": request.tool_id,
-                "arguments": arguments,
+                "app": request.app,
+                "operation": request.operation,
+                "params": params,
             }
         )
         if self.execute_error:
             context.abort(grpc.StatusCode.UNKNOWN, self.execute_error)
-        return agent_pb2.ExecuteAgentToolResponse(status=200, body='{"ok":true}')
+        return app_pb2.OperationResult(status=200, body=b'{"ok":true}')
 
 
 class _FakeCodexMCPServer:
@@ -254,7 +253,7 @@ class CodexProviderTests(unittest.TestCase):
         self.assertEqual(fake_server.params["env"]["OPENAI_API_KEY"], "test-openai-key")
         self.assertNotIn("test-openai-key", repr(fake_server.called_arguments))
 
-        self.assertEqual(host.execute_requests, [])
+        self.assertEqual(host.invoke_requests, [])
 
     def test_slack_sessions_are_company_readable_and_owner_writable(self) -> None:
         _, provider_client = _configure_provider()
@@ -535,6 +534,9 @@ class CodexProviderTests(unittest.TestCase):
         self.assertEqual(canceled.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
         fetched = _wait_for_turn(provider_client, "turn-cancel", agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
         self.assertEqual(fetched.status_message, "test cancellation")
+        deadline = time.time() + 5
+        while fake_server.cleanup_count < 1 and time.time() < deadline:
+            time.sleep(0.01)
         self.assertGreaterEqual(fake_server.cleanup_count, 1)
 
         time.sleep(0.1)
@@ -573,9 +575,10 @@ class CodexProviderTests(unittest.TestCase):
         host.reset()
         result = asyncio.run(_exercise_bridge_http_server())
 
-        self.assertEqual(len(host.execute_requests), 1)
-        self.assertEqual(host.execute_requests[0]["tool_id"], "tool-linear")
-        self.assertEqual(host.execute_requests[0]["arguments"], {"query": "AIT"})
+        self.assertEqual(len(host.invoke_requests), 1)
+        self.assertEqual(host.invoke_requests[0]["app"], "linear")
+        self.assertEqual(host.invoke_requests[0]["operation"], "searchIssues")
+        self.assertEqual(host.invoke_requests[0]["params"], {"query": "AIT"})
         self.assertEqual(result.content[0].text, '{"ok":true}')
         self.assertFalse(result.isError)
 
@@ -608,9 +611,9 @@ def setUpModule() -> None:
     os.environ[ENV_HOST_SERVICE_SOCKET] = _host_socket
     os.environ[ENV_HOST_SERVICE_TOKEN] = "relay-token"
 
-    _host_servicer = _FakeAgentToolProvider()
+    _host_servicer = _FakeHostApp()
     _host_server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
-    agent_pb2_grpc.add_AgentProviderServicer_to_server(_host_servicer, _host_server)
+    app_pb2_grpc.add_AppServicer_to_server(_host_servicer, _host_server)
     _host_server.add_insecure_port(f"unix:{_host_socket}")
     _host_server.start()
 
@@ -713,14 +716,6 @@ def _catalog_tool_config() -> Any:
     return config
 
 
-def _single_ref_catalog_config() -> Any:
-    config = agent_pb2.AgentToolConfig()
-    ref = config.catalog.refs.add()
-    ref.app = "linear"
-    ref.operation = "searchIssues"
-    return config
-
-
 def _create_owned_session(provider_client: Any, session_id: str, **kwargs: Any) -> Any:
     return provider_client.CreateSession(_owned_session_request(session_id, **kwargs))
 
@@ -748,7 +743,6 @@ def _slack_session_metadata() -> dict[str, Any]:
 async def _exercise_bridge_http_server() -> Any:
     bridge_server = BridgeHTTPServer(
         BridgeContext(
-            session_id="session-bridge",
             turn_id="turn-bridge",
             request_context=_request_context("user-123"),
             listed_tools=list(_catalog_tool_config().catalog.tools),
@@ -810,17 +804,6 @@ def _assert_invalid(provider_client: Any, request: Any, message: str) -> None:
         raise AssertionError("CreateTurn unexpectedly succeeded")
     assert error.code() == grpc.StatusCode.INVALID_ARGUMENT
     assert message in error.details()
-
-
-def _assert_create_session_invalid(provider_client: Any, request: Any, message: str) -> None:
-    try:
-        provider_client.CreateSession(request)
-    except grpc.RpcError as exc:
-        error = cast(Any, exc)
-    else:
-        raise AssertionError("CreateSession unexpectedly succeeded")
-    assert error.code() == grpc.StatusCode.INVALID_ARGUMENT
-    assert message in error.details(), error.details()
 
 
 def _wait_for_turn(provider_client: Any, turn_id: str, status: int) -> Any:
