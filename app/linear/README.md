@@ -43,6 +43,9 @@ Connections and authentication:
 
 - `OAuth` uses OAuth 2.0; mode `subject`.
   - Requested scopes: `read`, `write`.
+- `ApiKey` uses manual credentials; mode `subject`.
+  - Credential fields: `api_key`.
+  - `api_key`: Create one under [Security & access](https://linear.app/settings/account/security) in Linear settings
 
 Operation surfaces: GraphQL, MCP.
 
@@ -54,7 +57,7 @@ Representative operations include:
 - `viewer`
 - `issueCreate`
 
-- GraphQL and hosted MCP surfaces both use the Linear OAuth connection with `read` and `write` scopes.
+- GraphQL and hosted MCP surfaces both default to the Linear OAuth connection with `read` and `write` scopes. The `ApiKey` connection instead sends a personal API key directly in the `Authorization` header, for subjects that prefer a manually issued credential over the OAuth flow.
 
 ## Usage Examples
 

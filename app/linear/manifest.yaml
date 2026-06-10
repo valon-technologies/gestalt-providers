@@ -24,6 +24,21 @@ spec:
         scopes:
         - read
         - write
+    ApiKey:
+      displayName: API key
+      mode: subject
+      auth:
+        type: manual
+        credentials:
+        - name: api_key
+          label: Personal API key
+          description: Create one under [Security & access](https://linear.app/settings/account/security) in Linear settings
+        authMapping:
+          headers:
+            Authorization:
+              valueFrom:
+                credentialFieldRef:
+                  name: api_key
   allowedOperations:
     issue:
       graphql:
