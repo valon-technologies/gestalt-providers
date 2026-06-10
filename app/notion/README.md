@@ -23,8 +23,8 @@ Declarative provider with both an OpenAPI surface and an
 Notion REST API operations, while the MCP surface connects to the official
 Notion MCP server for tool-based interactions.
 
-REST operations authenticate with Notion OAuth. MCP tools authenticate with
-Notion MCP OAuth.
+REST operations authenticate with Notion OAuth, or with a manually supplied
+internal integration secret. MCP tools authenticate with Notion MCP OAuth.
 
 ## Configuration Reference
 
@@ -42,6 +42,9 @@ This provider does not define provider-level config fields in its config schema.
 Connections and authentication:
 
 - `OAuth` uses OAuth 2.0; mode `subject`.
+- `ApiKey` uses manual credentials; mode `subject`.
+  - Credential fields: `token`.
+  - `token`: Create an internal integration at [notion.so/profile/integrations](https://www.notion.so/profile/integrations) and copy its secret, then share the relevant pages or databases with the integration
 - `MCP` uses MCP OAuth; mode `subject`.
 
 Managed request headers:
@@ -61,7 +64,7 @@ Representative operations include:
 - `pages.updateMarkdown`
 - `blocks.retrieve`
 
-- REST operations use the Notion REST OAuth connection and managed `Notion-Version` header; MCP tools use the separate MCP OAuth connection.
+- REST operations default to the Notion REST OAuth connection and managed `Notion-Version` header; the `ApiKey` connection accepts an internal integration secret as a bearer token instead. MCP tools use the separate MCP OAuth connection, which has no API key alternative.
 
 ## Usage Examples
 
