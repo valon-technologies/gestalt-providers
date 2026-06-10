@@ -11,11 +11,13 @@ import (
 	"github.com/google/uuid"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	gestaltworkflow "github.com/valon-technologies/gestalt/sdk/go/workflow"
+	commonpb "go.temporal.io/api/common/v1"
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	workflowpb "go.temporal.io/api/workflow/v1"
 	workflowservicepb "go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/worker"
 	sdkworkflow "go.temporal.io/sdk/workflow"
 	"google.golang.org/grpc/codes"
@@ -23,8 +25,7 @@ import (
 )
 
 const (
-	runListHydrationConcurrency = 8
-	runListHydrationTimeout     = 10 * time.Second
+	memoKeyOwnerKey = "gestaltOwnerKey"
 )
 
 type temporalWorker interface {
@@ -247,17 +248,65 @@ func (b *temporalBackend) ListRuns(ctx context.Context, req *gestalt.ListWorkflo
 	if err != nil {
 		return nil, mapTemporalWorkflowCallError("list temporal workflows", err)
 	}
-	runs, err := b.hydrateListedRuns(ctx, resp.GetExecutions())
-	if err != nil {
-		return nil, err
-	}
-	inputs := make([]gestalt.WorkflowRun, 0, len(runs))
-	for _, run := range runs {
+	inputs := make([]gestalt.WorkflowRun, 0, len(resp.GetExecutions()))
+	for _, info := range resp.GetExecutions() {
+		run := listedRunFromExecutionInfo(info)
 		if run != nil {
 			inputs = append(inputs, *run)
 		}
 	}
 	return &gestalt.ListWorkflowProviderRunsResponse{Runs: inputs, NextPageToken: encodeTemporalListPageToken(resp.GetNextPageToken())}, nil
+}
+
+// listedRunFromExecutionInfo builds a run summary from visibility data alone,
+// so listing never depends on per-run worker round-trips. Runs that cannot be
+// summarized (no owner-key memo) are skipped rather than failing the page.
+func listedRunFromExecutionInfo(info *workflowpb.WorkflowExecutionInfo) *gestalt.WorkflowRun {
+	if info == nil || info.GetExecution() == nil || strings.TrimSpace(info.GetExecution().GetWorkflowId()) == "" {
+		return nil
+	}
+	ownerKey := payloadString(info.GetMemo().GetFields()[memoKeyOwnerKey])
+	if ownerKey == "" {
+		return nil
+	}
+	attrs := info.GetSearchAttributes().GetIndexedFields()
+	run := &gestalt.WorkflowRun{
+		ID: encodeTemporalRunHandle(temporalRunHandle{
+			RunWorkflowID:    strings.TrimSpace(info.GetExecution().GetWorkflowId()),
+			RunTemporalRunID: strings.TrimSpace(info.GetExecution().GetRunId()),
+			OwnerKey:         ownerKey,
+		}),
+		Status:       workflowRunStatusValues[payloadString(attrs[searchAttrRunStatus.GetName()])],
+		ProviderName: payloadString(attrs[searchAttrProviderName.GetName()]),
+		DefinitionID: payloadString(attrs[searchAttrDefinitionID.GetName()]),
+	}
+	if start := info.GetStartTime(); start != nil {
+		run.CreatedAt = start.AsTime()
+	}
+	if closed := info.GetCloseTime(); closed != nil {
+		completed := closed.AsTime()
+		run.CompletedAt = &completed
+	}
+	return run
+}
+
+var workflowRunStatusValues = map[string]gestalt.WorkflowRunStatus{
+	"pending":   gestalt.WorkflowRunStatusValuePending,
+	"running":   gestalt.WorkflowRunStatusValueRunning,
+	"succeeded": gestalt.WorkflowRunStatusValueSucceeded,
+	"failed":    gestalt.WorkflowRunStatusValueFailed,
+	"canceled":  gestalt.WorkflowRunStatusValueCanceled,
+}
+
+func payloadString(payload *commonpb.Payload) string {
+	if payload == nil {
+		return ""
+	}
+	var value string
+	if err := converter.GetDefaultDataConverter().FromPayload(payload, &value); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(value)
 }
 
 func (b *temporalBackend) runVisibilityQuery(req *gestalt.ListWorkflowProviderRunsRequest) string {
@@ -277,79 +326,6 @@ func (b *temporalBackend) runVisibilityQuery(req *gestalt.ListWorkflowProviderRu
 		}
 	}
 	return strings.Join(parts, " AND ")
-}
-
-func (b *temporalBackend) hydrateListedRuns(ctx context.Context, executions []*workflowpb.WorkflowExecutionInfo) ([]*gestalt.WorkflowRun, error) {
-	type result struct {
-		index int
-		run   *gestalt.WorkflowRun
-		err   error
-	}
-	if len(executions) == 0 {
-		return nil, nil
-	}
-	limit := runListHydrationConcurrency
-	if limit <= 0 || limit > len(executions) {
-		limit = len(executions)
-	}
-	sem := make(chan struct{}, limit)
-	results := make(chan result, len(executions))
-	var wg sync.WaitGroup
-	for index, info := range executions {
-		if info == nil || info.GetExecution() == nil {
-			continue
-		}
-		wg.Add(1)
-		sem <- struct{}{}
-		go func(index int, info *workflowpb.WorkflowExecutionInfo) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			runCtx, cancel := context.WithTimeout(ctx, runListHydrationTimeout)
-			defer cancel()
-			run, err := b.getRunFromTemporalInfo(runCtx, info)
-			if err != nil && isNotFoundLike(err) {
-				err = nil
-			}
-			results <- result{index: index, run: run, err: err}
-		}(index, info)
-	}
-	wg.Wait()
-	close(results)
-	ordered := make([]*gestalt.WorkflowRun, len(executions))
-	for res := range results {
-		if res.err != nil {
-			return nil, res.err
-		}
-		ordered[res.index] = res.run
-	}
-	runs := make([]*gestalt.WorkflowRun, 0, len(executions))
-	for _, run := range ordered {
-		if run != nil {
-			runs = append(runs, run)
-		}
-	}
-	return runs, nil
-}
-
-func (b *temporalBackend) getRunFromTemporalInfo(ctx context.Context, info *workflowpb.WorkflowExecutionInfo) (*gestalt.WorkflowRun, error) {
-	if info == nil || info.GetExecution() == nil {
-		return nil, nil
-	}
-	handle := &temporalRunHandle{
-		RunWorkflowID:    strings.TrimSpace(info.GetExecution().GetWorkflowId()),
-		RunTemporalRunID: strings.TrimSpace(info.GetExecution().GetRunId()),
-	}
-	if handle.RunWorkflowID == "" {
-		return nil, nil
-	}
-	switch info.GetStatus() {
-	case enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
-		enumspb.WORKFLOW_EXECUTION_STATUS_PAUSED,
-		enumspb.WORKFLOW_EXECUTION_STATUS_UNSPECIFIED:
-		return b.queryRunFromTemporal(ctx, handle)
-	default:
-		return b.resultRunFromTemporal(ctx, handle)
-	}
 }
 
 func (b *temporalBackend) GetRunEvents(ctx context.Context, req *gestalt.GetWorkflowProviderRunEventsRequest) (*gestalt.GetWorkflowProviderRunEventsResponse, error) {
@@ -829,6 +805,9 @@ func (b *temporalBackend) upsertDefinitionSchedule(ctx context.Context, definiti
 		WorkflowRunTimeout:    b.cfg.WorkflowRunTimeout,
 		WorkflowTaskTimeout:   defaultWorkflowTaskTimeout,
 		TypedSearchAttributes: workflowRunSearchAttributesFromInput(actionInput, gestalt.WorkflowRunStatusValuePending),
+	}
+	if ownerKey := strings.TrimSpace(actionInput.OwnerKey); ownerKey != "" {
+		action.Memo = map[string]any{memoKeyOwnerKey: ownerKey}
 	}
 	temporalID := b.temporalScheduleID(definition.ID, activation.ID)
 	spec := client.ScheduleSpec{
