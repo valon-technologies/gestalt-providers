@@ -33,6 +33,11 @@ export async function listGestaltTools(input: {
   const seenNames = new Set<string>();
 
   for (const listed of input.listedTools) {
+    if (!isAppOperationTool(listed)) {
+      // The bridge can only execute app operations; other targets (e.g.
+      // workflow system tools) are not exposed to the model.
+      continue;
+    }
     const entry = toolEntry(listed);
     if (seenNames.has(entry.mcpName)) {
       throw new CursorExecutionError(
@@ -54,6 +59,11 @@ export async function listGestaltTools(input: {
     );
   }
   return tools;
+}
+
+export function isAppOperationTool(tool: ListedAgentTool): boolean {
+  const ref = tool.ref;
+  return Boolean(ref && ref.app?.trim() && ref.operation?.trim() && !ref.system?.trim());
 }
 
 export function toolEntry(tool: ListedAgentTool): ToolEntry {

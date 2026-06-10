@@ -572,11 +572,6 @@ function validateCreateTurnRequest(
   if (request.context === undefined) {
     throw invalidArgument("request context is required");
   }
-  if (request.tools.length > 0) {
-    throw invalidArgument(
-      "resolved tools are not supported; use tool_refs with catalog",
-    );
-  }
   const schema = schemaFromOutput(request.output);
   if (schema) {
     try {

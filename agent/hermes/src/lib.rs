@@ -932,11 +932,6 @@ fn validate_turn_request(req: &gestalt::CreateAgentProviderTurnRequest) -> gesta
             "messages must contain at least one entry",
         ));
     }
-    if !req.tools.is_empty() {
-        return Err(gestalt::Error::bad_request(
-            "resolved tools are not supported by agent/hermes; use tool_source=CATALOG",
-        ));
-    }
     if let gestalt::AgentOutput::Structured(output) = &req.output {
         validate_schema(&output.schema).map_err(gestalt::Error::bad_request)?;
     }
@@ -990,9 +985,9 @@ fn validate_catalog_tool_refs(refs: &[gestalt::AgentToolRef]) -> gestalt::Result
             )));
         }
         if !system.is_empty() {
-            return Err(gestalt::Error::bad_request(format!(
-                "tool_refs[{index}].system refs are not supported"
-            )));
+            // System refs (e.g. workflow tools) are allowed in the session
+            // scope but are not exposed by the bridge.
+            continue;
         }
         if app.is_empty() {
             return Err(gestalt::Error::bad_request(format!(
@@ -1036,18 +1031,16 @@ fn validate_listed_tools(tools: &[gestalt::ListedAgentTool]) -> gestalt::Result<
                 tool.mcp_name
             )));
         }
+        // Non-app targets (e.g. workflow system tools) are allowed in the
+        // session scope but are not exposed by the bridge.
         let Some(tool_ref) = tool.r#ref.as_ref() else {
-            return Err(gestalt::Error::bad_request(format!(
-                "tools.catalog.tools[{index}] must target an app operation"
-            )));
+            continue;
         };
         if tool_ref.app.trim().is_empty()
             || tool_ref.operation.trim().is_empty()
             || !tool_ref.system.trim().is_empty()
         {
-            return Err(gestalt::Error::bad_request(format!(
-                "tools.catalog.tools[{index}] must target an app operation"
-            )));
+            continue;
         }
         if [
             tool_ref.app.trim(),
@@ -1082,10 +1075,11 @@ fn validate_listed_tools_covered_by_refs(
 ) -> gestalt::Result<()> {
     for (index, tool) in listed_tools.iter().enumerate() {
         let Some(tool_ref) = tool.r#ref.as_ref() else {
-            return Err(gestalt::Error::bad_request(format!(
-                "tools.catalog.tools[{index}] must target an app operation"
-            )));
+            continue;
         };
+        if !tool_ref.system.trim().is_empty() {
+            continue;
+        }
         if !tool_refs
             .iter()
             .any(|selector| tool_ref_covers_listed_ref(selector, tool_ref))

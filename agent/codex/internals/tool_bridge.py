@@ -70,6 +70,10 @@ def list_tools(*, listed_tools: list[gestalt.ListedAgentTool]) -> list[ToolEntry
     tools: list[ToolEntry] = []
     seen_names: set[str] = set()
     for listed in listed_tools:
+        if not _is_app_operation_tool(listed):
+            # The bridge can only execute app operations; other targets (e.g.
+            # workflow system tools) are not exposed to the model.
+            continue
         entry = tool_entry(listed)
         if entry.mcp_name in seen_names:
             raise ToolBridgeError(f"tools.catalog.tools returned duplicate mcp_name {entry.mcp_name!r}")
@@ -80,6 +84,11 @@ def list_tools(*, listed_tools: list[gestalt.ListedAgentTool]) -> list[ToolEntry
     if not tools:
         raise ToolBridgeError("tools.catalog.tools is empty for the requested tool scope")
     return tools
+
+
+def _is_app_operation_tool(tool: gestalt.ListedAgentTool) -> bool:
+    ref = tool.ref
+    return ref is not None and bool(ref.app.strip()) and bool(ref.operation.strip())
 
 
 def tool_entry(tool: gestalt.ListedAgentTool) -> ToolEntry:

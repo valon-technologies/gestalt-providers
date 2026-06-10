@@ -116,8 +116,6 @@ def validate_turn_contract(
         raise ValueError("agent/claude requires toolSource none or catalog")
     if tool_source == tool_source_modes.catalog and getattr(request, "context", None) is None:
         raise ValueError("request context is required")
-    if list(request.tools):
-        raise ValueError("resolved tools are not supported by agent/claude")
     if tool_source == tool_source_modes.none and tool_refs:
         raise ValueError("tool_refs are not supported with toolSource none")
     schema = _schema_from_output(request.output)

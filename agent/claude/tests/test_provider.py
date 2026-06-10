@@ -1528,10 +1528,6 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         _assert_invalid(provider_client, bad_options, "model_options are not supported")
 
-        resolved_tools = _turn_request(turn_id="turn-resolved-tools", session_id="session-validation")
-        resolved_tools.tools.add(id="resolved-tool", name="legacy", description="legacy")
-        _assert_invalid(provider_client, resolved_tools, "resolved tools are not supported")
-
         none_without_schema = _turn_request(
             turn_id="turn-none-without-schema", session_id="session-validation-no-tools"
         )

@@ -484,8 +484,6 @@ def _validate_create_turn_request(
         raise gestalt.Error(400, "agent/codex requires toolSource catalog")
     if getattr(request, "context", None) is None:
         raise gestalt.Error(400, "request context is required")
-    if len(list(request.tools)) > 0:
-        raise gestalt.Error(400, "resolved tools are not supported; use tool_refs with catalog")
     try:
         schema = _schema_from_output(request.output)
         if schema is not None:
