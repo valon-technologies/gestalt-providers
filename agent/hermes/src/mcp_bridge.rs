@@ -117,6 +117,18 @@ pub async fn start_bridge(
     tools: Vec<ListedAgentTool>,
     request_context: GestaltRequestContext,
 ) -> Result<McpBridgeHandle, String> {
+    // The bridge can only execute app operations; other targets (e.g.
+    // workflow system tools) are not exposed to the model.
+    let tools: Vec<ListedAgentTool> = tools
+        .into_iter()
+        .filter(|tool| {
+            tool.r#ref.as_ref().is_some_and(|tool_ref| {
+                !tool_ref.app.trim().is_empty()
+                    && !tool_ref.operation.trim().is_empty()
+                    && tool_ref.system.trim().is_empty()
+            })
+        })
+        .collect();
     let bridge = GestaltMcpBridge {
         turn_id: turn_id.clone(),
         request_context,

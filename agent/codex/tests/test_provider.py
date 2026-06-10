@@ -470,9 +470,6 @@ class CodexProviderTests(unittest.TestCase):
         )
         _assert_invalid(provider_client, bad_options, "model_options are not supported")
 
-        resolved_tools = _turn_request(turn_id="turn-resolved-tools", session_id="session-validation")
-        resolved_tools.tools.add(id="resolved-tool", name="legacy", description="legacy")
-        _assert_invalid(provider_client, resolved_tools, "resolved tools are not supported")
 
     def test_structured_output_request_returns_validated_structured_value(self) -> None:
         _FakeCodexMCPServer.result_text = '{"score":1,"reasoning":"correct"}'

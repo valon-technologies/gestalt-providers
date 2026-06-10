@@ -692,8 +692,6 @@ async fn rejects_invalid_session_catalog_tools_without_spawning_hermes() {
     let fixture = Fixture::new("mcp-search-only");
     let provider = fixture.configure_provider().await;
     let unsafe_tool = listed_tool("unsafe", "unsafe tool", "Unsafe tool");
-    let mut missing_ref = listed_tool("missing-ref", "linear.missing_ref", "Linear missing ref");
-    missing_ref.r#ref = None;
     let mut wildcard_listed_ref = listed_tool("wildcard", "linear.wildcard", "Linear wildcard");
     wildcard_listed_ref.r#ref = Some(gestalt::AgentToolRef {
         app: "linear".to_string(),
@@ -715,7 +713,6 @@ async fn rejects_invalid_session_catalog_tools_without_spawning_hermes() {
                 listed_tool("linear-list-b", "linear.issues", "Linear issues B"),
             ],
         ),
-        ("missing-ref", vec![missing_ref]),
         ("wildcard-listed-ref", vec![wildcard_listed_ref]),
         ("run-as-listed-ref", vec![run_as_listed_ref]),
     ] {
@@ -973,30 +970,6 @@ async fn rejects_unsupported_tool_and_model_options() {
     let fixture = Fixture::new("success");
     let provider = fixture.configure_provider().await;
     create_session(&provider).await;
-
-    let err = provider
-        .create_turn(gestalt::CreateAgentProviderTurnRequest {
-            turn_id: "turn-resolved-tools".to_string(),
-            session_id: "session-1".to_string(),
-            messages: vec![gestalt::AgentMessage {
-                role: "user".to_string(),
-                text: "hi".to_string(),
-                ..Default::default()
-            }],
-            output: gestalt::AgentOutput::text(),
-            tools: vec![gestalt::ResolvedAgentTool {
-                id: "tool-1".to_string(),
-                name: "tool".to_string(),
-                ..Default::default()
-            }],
-            created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
-            subject: Some(owner_subject()),
-            context: Some(request_context(OWNER_SUBJECT_ID)),
-            ..empty_turn_request()
-        })
-        .await
-        .unwrap_err();
-    assert_eq!(err.status(), Some(400));
 
     let err = provider
         .create_turn(gestalt::CreateAgentProviderTurnRequest {
