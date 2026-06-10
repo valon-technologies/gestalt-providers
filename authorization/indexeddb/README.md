@@ -6,7 +6,7 @@ interface.
 The proposed provider shape is:
 
 ```proto
-service AuthorizationProvider {
+service Authorization {
   rpc CheckAccess(CheckAccessRequest) returns (CheckAccessResponse);
   rpc CheckAccessMany(CheckAccessManyRequest) returns (CheckAccessManyResponse);
 

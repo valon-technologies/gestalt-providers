@@ -137,6 +137,7 @@ jobs:
           packages_by_root = {}
           for app in all_apps:
               packages_by_root.setdefault(app["root"], set()).add(app["dir"])
+          shared_paths = {".github/gestalt-ref"}
           shared_prefixes = (".github/scripts/",)
 
           event_name = os.environ["EVENT_NAME"]
@@ -154,7 +155,7 @@ jobs:
               for path in changed_files:
                   if not path:
                       continue
-                  if path.startswith(shared_prefixes):
+                  if path in shared_paths or path.startswith(shared_prefixes):
                       run_all = True
                       break
                   parts = Path(path).parts

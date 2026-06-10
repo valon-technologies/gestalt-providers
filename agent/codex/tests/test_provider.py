@@ -644,7 +644,7 @@ def _configure_provider(
 ) -> tuple[Any, Any]:
     channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
     lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
-    provider_client = agent_pb2_grpc.AgentProviderStub(channel)
+    provider_client = agent_pb2_grpc.AgentStub(channel)
     request = runtime_pb2.ConfigureProviderRequest(name="codex", protocol_version=_runtime.CURRENT_PROTOCOL_VERSION)
     request.config.update(
         {

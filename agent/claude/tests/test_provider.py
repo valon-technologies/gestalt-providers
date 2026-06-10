@@ -1652,7 +1652,7 @@ def tearDownModule() -> None:
 def _configure_provider(config: dict[str, Any] | None = None) -> tuple[Any, Any]:
     channel = grpc.insecure_channel(f"unix:{_runtime_socket}")
     lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
-    provider_client = agent_pb2_grpc.AgentProviderStub(channel)
+    provider_client = agent_pb2_grpc.AgentStub(channel)
     _configure_lifecycle(lifecycle, provider_module.provider, config)
     return lifecycle, provider_client
 
@@ -1685,7 +1685,7 @@ def _start_provider_runtime(provider_obj: Any) -> tuple[Any, str, Any, Any, Any]
     server.start()
     channel = grpc.insecure_channel(f"unix:{runtime_socket}")
     lifecycle = runtime_pb2_grpc.ProviderLifecycleStub(channel)
-    provider_client = agent_pb2_grpc.AgentProviderStub(channel)
+    provider_client = agent_pb2_grpc.AgentStub(channel)
     return server, runtime_socket, channel, lifecycle, provider_client
 
 
