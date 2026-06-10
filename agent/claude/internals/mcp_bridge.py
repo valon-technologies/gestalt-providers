@@ -66,7 +66,7 @@ class GestaltMCPBridge:
     ) -> None:
         self._turn_id = turn_id
         self._request_context = request_context
-        self._listed_tools = list(listed_tools)
+        self._listed_tools = [tool for tool in listed_tools if _is_app_operation_tool(tool)]
         self._timeout_seconds = timeout_seconds if timeout_seconds > 0 else None
         self._entries: dict[str, ToolEntry] = {}
         self._all_entries: list[ToolEntry] | None = None
@@ -356,6 +356,13 @@ def operation_body_text(body: object) -> str:
     if isinstance(body, bytes | bytearray | memoryview):
         return bytes(body).decode("utf-8", errors="replace")
     return str(body)
+
+
+def _is_app_operation_tool(tool: gestalt.ListedAgentTool) -> bool:
+    # The bridge can only execute app operations; catalog entries for other
+    # targets (e.g. workflow system tools) are not exposed to the model.
+    ref = tool.ref
+    return ref is not None and bool(ref.app.strip()) and bool(ref.operation.strip())
 
 
 def _tool_entry(tool: gestalt.ListedAgentTool) -> ToolEntry:
