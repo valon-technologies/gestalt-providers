@@ -1393,6 +1393,26 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         self.assertNotIn("nextCursor", listed["result"])
 
+    def test_sdk_mcp_bridge_skips_non_app_catalog_tools(self) -> None:
+        _configure_provider()
+        runner = provider_module.provider._runner
+        assert runner is not None
+        config = _catalog_tool_config()
+        system_tool = config.catalog.tools.add()
+        system_tool.id = "tool-workflow-definitions-list"
+        system_tool.mcp_name = "workflow__definitions_list"
+        system_tool.title = "List workflow definitions"
+        setattr(system_tool.ref, "system", "workflow")
+        setattr(system_tool.ref, "operation", "definitions.list")
+        options = _catalog_options(runner, listed_tools=list(config.catalog.tools))
+
+        listed = asyncio.run(_list_tools_json_through_sdk_bridge(options))
+
+        self.assertEqual(
+            [tool["name"] for tool in listed["result"]["tools"]],
+            ["ashby__candidate_list", "linear__issues", "github__pulls_list"],
+        )
+
     def test_sdk_mcp_bridge_exposes_direct_tools_for_large_scopes(self) -> None:
         host = _host_servicer
         assert host is not None
