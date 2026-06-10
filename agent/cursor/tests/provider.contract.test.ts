@@ -40,7 +40,7 @@ import {
   type ListedAgentTool,
 } from "@valon-technologies/gestalt";
 import {
-  AgentProvider as VendoredAgentProviderService,
+  Agent as VendoredAgentProviderService,
   CancelAgentProviderTurnRequestSchema,
   CreateAgentProviderSessionRequestSchema,
   GetAgentProviderCapabilitiesRequestSchema,
