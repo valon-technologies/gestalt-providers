@@ -10,17 +10,17 @@ from google.protobuf import json_format
 from google.protobuf import struct_pb2 as _struct_pb2
 from google.protobuf import timestamp_pb2 as _timestamp_pb2
 
-from gestalt._gen.v1 import datastore_pb2 as _datastore_pb2
-from gestalt._gen.v1 import datastore_pb2_grpc as _datastore_pb2_grpc
+from gestalt._gen.v1 import indexeddb_pb2 as _indexeddb_pb2
+from gestalt._gen.v1 import indexeddb_pb2_grpc as _indexeddb_pb2_grpc
 
-datastore_pb2: Any = cast(Any, _datastore_pb2)
-datastore_pb2_grpc: Any = _datastore_pb2_grpc
+indexeddb_pb2: Any = cast(Any, _indexeddb_pb2)
+indexeddb_pb2_grpc: Any = _indexeddb_pb2_grpc
 empty_pb2: Any = _empty_pb2
 struct_pb2: Any = _struct_pb2
 timestamp_pb2: Any = _timestamp_pb2
 
 
-class FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
+class FakeIndexedDB(indexeddb_pb2_grpc.IndexedDBServicer):
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._stores: dict[str, dict[str, Any]] = {}
@@ -89,7 +89,7 @@ class FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
             record = self._stores.get(request.store, {}).get(request.id)
             if record is None:
                 context.abort(grpc.StatusCode.NOT_FOUND, "record not found")
-            return datastore_pb2.RecordResponse(record=_copy_record(record))
+            return indexeddb_pb2.RecordResponse(record=_copy_record(record))
 
     def Add(self, request: Any, context: grpc.ServicerContext) -> Any:
         record_id = _record_id(request.record)
@@ -128,7 +128,7 @@ class FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
         del context
         with self._lock:
             self._record_operation(store=request.store, operation="get_all")
-            return datastore_pb2.RecordsResponse(
+            return indexeddb_pb2.RecordsResponse(
                 records=[
                     _copy_record(record)
                     for record in _records_for_request_range(self._stores.get(request.store, {}), request)
@@ -147,7 +147,7 @@ class FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
             self._record_operation(store=open_req.store, operation="open_cursor")
             records = _records_for_request_range(self._stores.get(open_req.store, {}), open_req)
         command_log = self._start_cursor_commands(store=open_req.store)
-        yield datastore_pb2.CursorResponse(done=False)
+        yield indexeddb_pb2.CursorResponse(done=False)
 
         cursor_index = -1
         for message in request_iterator:
@@ -171,13 +171,13 @@ class FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
                 context.abort(grpc.StatusCode.INVALID_ARGUMENT, "unsupported cursor command")
 
             if cursor_index >= len(records):
-                yield datastore_pb2.CursorResponse(done=True)
+                yield indexeddb_pb2.CursorResponse(done=True)
                 continue
             record = records[cursor_index]
             record_id = _record_id(record)
-            yield datastore_pb2.CursorResponse(
-                entry=datastore_pb2.CursorEntry(
-                    key=[datastore_pb2.KeyValue(scalar=datastore_pb2.TypedValue(string_value=record_id))],
+            yield indexeddb_pb2.CursorResponse(
+                entry=indexeddb_pb2.CursorEntry(
+                    key=[indexeddb_pb2.KeyValue(scalar=indexeddb_pb2.TypedValue(string_value=record_id))],
                     primary_key=record_id,
                     record=_copy_record(record),
                 )
@@ -194,7 +194,7 @@ class FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
         scoped_stores = set(first.begin.stores)
         with self._lock:
             working = _copy_stores(self._stores)
-            yield datastore_pb2.TransactionServerMessage(begin=datastore_pb2.TransactionBeginResponse())
+            yield indexeddb_pb2.TransactionServerMessage(begin=indexeddb_pb2.TransactionBeginResponse())
             for message in request_iterator:
                 kind = message.WhichOneof("msg")
                 if kind == "operation":
@@ -202,22 +202,22 @@ class FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
                         stores=working,
                         operation=message.operation,
                         scoped_stores=scoped_stores,
-                        readwrite=mode == datastore_pb2.TRANSACTION_READWRITE,
+                        readwrite=mode == indexeddb_pb2.TRANSACTION_READWRITE,
                     )
-                    yield datastore_pb2.TransactionServerMessage(operation=response)
+                    yield indexeddb_pb2.TransactionServerMessage(operation=response)
                     if response.HasField("error") and response.error.code:
                         return
                     continue
                 if kind == "commit":
                     self._stores = working
-                    yield datastore_pb2.TransactionServerMessage(commit=datastore_pb2.TransactionCommitResponse())
+                    yield indexeddb_pb2.TransactionServerMessage(commit=indexeddb_pb2.TransactionCommitResponse())
                     return
                 if kind == "abort":
-                    yield datastore_pb2.TransactionServerMessage(abort=datastore_pb2.TransactionAbortResponse())
+                    yield indexeddb_pb2.TransactionServerMessage(abort=indexeddb_pb2.TransactionAbortResponse())
                     return
-                response = datastore_pb2.TransactionAbortResponse()
+                response = indexeddb_pb2.TransactionAbortResponse()
                 _set_status(response.error, grpc.StatusCode.INVALID_ARGUMENT, "unknown transaction message")
-                yield datastore_pb2.TransactionServerMessage(abort=response)
+                yield indexeddb_pb2.TransactionServerMessage(abort=response)
                 return
 
     def _apply_transaction_operation(
@@ -242,8 +242,8 @@ class FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
             record = store.get(request.id)
             if record is None:
                 return _transaction_error(request_id, grpc.StatusCode.NOT_FOUND, "record not found")
-            return datastore_pb2.TransactionOperationResponse(
-                request_id=request_id, record=datastore_pb2.RecordResponse(record=_copy_record(record))
+            return indexeddb_pb2.TransactionOperationResponse(
+                request_id=request_id, record=indexeddb_pb2.RecordResponse(record=_copy_record(record))
             )
         if kind == "add":
             record_id = _record_id(request.record)
@@ -267,9 +267,9 @@ class FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
             store.clear()
             return _transaction_empty(request_id)
         if kind == "get_all":
-            return datastore_pb2.TransactionOperationResponse(
+            return indexeddb_pb2.TransactionOperationResponse(
                 request_id=request_id,
-                records=datastore_pb2.RecordsResponse(
+                records=indexeddb_pb2.RecordsResponse(
                     records=[_copy_record(record) for record in _records_for_request_range(store, request)]
                 ),
             )
@@ -279,20 +279,20 @@ class FakeIndexedDB(datastore_pb2_grpc.IndexedDBServicer):
 
 
 def _copy_record(record: Any) -> Any:
-    copied = datastore_pb2.Record()
+    copied = indexeddb_pb2.Record()
     copied.CopyFrom(record)
     return copied
 
 
 def _record_from_dict(record: dict[str, Any]) -> Any:
-    out = datastore_pb2.Record()
+    out = indexeddb_pb2.Record()
     for key, value in record.items():
         out.fields[str(key)].CopyFrom(_typed_value_from_python(value))
     return out
 
 
 def _typed_value_from_python(value: Any) -> Any:
-    typed = datastore_pb2.TypedValue()
+    typed = indexeddb_pb2.TypedValue()
     if value is None:
         setattr(typed, "null_value", 0)
     elif isinstance(value, bool):
@@ -367,13 +367,13 @@ def _typed_value_to_python(value: Any) -> Any:
 
 
 def _transaction_error(request_id: int, code: Any, message: str) -> Any:
-    response = datastore_pb2.TransactionOperationResponse(request_id=request_id)
+    response = indexeddb_pb2.TransactionOperationResponse(request_id=request_id)
     _set_status(response.error, code, message)
     return response
 
 
 def _transaction_empty(request_id: int) -> Any:
-    return datastore_pb2.TransactionOperationResponse(request_id=request_id, empty=empty_pb2.Empty())
+    return indexeddb_pb2.TransactionOperationResponse(request_id=request_id, empty=empty_pb2.Empty())
 
 
 def _set_status(status: Any, code: Any, message: str) -> None:

@@ -33,7 +33,7 @@ from gestalt._gen.v1 import runtime_pb2_grpc as _runtime_pb2_grpc
 import internals.claude_runner as claude_runner_module
 from internals.mcp_bridge import GestaltMCPBridge, _schema_from_json
 from internals.session_start import ADDITIONAL_CONTEXT_KEY, prepend_session_start_context, run_session_start_hooks
-from tests.fake_indexeddb import FakeIndexedDB, datastore_pb2_grpc
+from tests.fake_indexeddb import FakeIndexedDB, indexeddb_pb2_grpc
 
 agent_pb2: Any = cast(Any, _agent_pb2)
 agent_pb2_grpc: Any = _agent_pb2_grpc
@@ -1635,7 +1635,7 @@ def setUpModule() -> None:
     _indexeddb_servicer = FakeIndexedDB()
     _host_server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
     app_pb2_grpc.add_AppServicer_to_server(_host_servicer, _host_server)
-    datastore_pb2_grpc.add_IndexedDBServicer_to_server(_indexeddb_servicer, _host_server)
+    indexeddb_pb2_grpc.add_IndexedDBServicer_to_server(_indexeddb_servicer, _host_server)
     _host_server.add_insecure_port(f"unix:{_host_socket}")
     _host_server.start()
 

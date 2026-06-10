@@ -32,13 +32,13 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 	var cfg config
 	data, err := json.Marshal(raw)
 	if err != nil {
-		return fmt.Errorf("mongodb datastore: marshal config: %w", err)
+		return fmt.Errorf("mongodb indexeddb: marshal config: %w", err)
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return fmt.Errorf("mongodb datastore: decode config: %w", err)
+		return fmt.Errorf("mongodb indexeddb: decode config: %w", err)
 	}
 	if cfg.URI == "" {
-		return fmt.Errorf("mongodb datastore: uri is required")
+		return fmt.Errorf("mongodb indexeddb: uri is required")
 	}
 	if cfg.Database == "" {
 		cfg.Database = defaultDatabase
@@ -47,16 +47,16 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 	clientOpts := options.Client().ApplyURI(cfg.URI)
 	client, err := mongo.Connect(clientOpts)
 	if err != nil {
-		return fmt.Errorf("mongodb datastore: connect: %w", err)
+		return fmt.Errorf("mongodb indexeddb: connect: %w", err)
 	}
 	if err := client.Ping(ctx, nil); err != nil {
-		return fmt.Errorf("mongodb datastore: ping: %w", err)
+		return fmt.Errorf("mongodb indexeddb: ping: %w", err)
 	}
 
 	store := NewStore(client, client.Database(cfg.Database))
 	if err := store.loadSchemas(ctx); err != nil {
 		_ = store.Close()
-		return fmt.Errorf("mongodb datastore: load schemas: %w", err)
+		return fmt.Errorf("mongodb indexeddb: load schemas: %w", err)
 	}
 
 	if p.store != nil {
@@ -68,7 +68,7 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 
 func (p *Provider) HealthCheck(ctx context.Context) error {
 	if p.store == nil {
-		return fmt.Errorf("mongodb datastore: not configured")
+		return fmt.Errorf("mongodb indexeddb: not configured")
 	}
 	return p.store.client.Ping(ctx, nil)
 }
@@ -86,7 +86,7 @@ func (p *Provider) configured() (*Store, error) {
 
 func (p *providerCore) configured() (*Store, error) {
 	if p.store == nil {
-		return nil, fmt.Errorf("mongodb datastore: not configured")
+		return nil, fmt.Errorf("mongodb indexeddb: not configured")
 	}
 	return p.store, nil
 }
