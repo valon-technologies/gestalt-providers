@@ -498,30 +498,41 @@ func TestBackendGetRunReadsCompletedWorkflowResult(t *testing.T) {
 	}
 }
 
-func TestBackendListRunsUsesTemporalVisibilityAndHydratesRuns(t *testing.T) {
+func TestBackendListRunsUsesTemporalVisibility(t *testing.T) {
 	ctx, state := newTestWorkflowStateStore(t)
-	runID := encodeTemporalRunHandle(temporalRunHandle{
-		RunWorkflowID:    "workflow-1",
-		RunTemporalRunID: "run-1",
-		OwnerKey:         "slack",
-	})
+	dc := converter.GetDefaultDataConverter()
+	ownerPayload, err := dc.ToPayload("slack")
+	if err != nil {
+		t.Fatalf("owner payload: %v", err)
+	}
+	statusPayload, err := dc.ToPayload("running")
+	if err != nil {
+		t.Fatalf("status payload: %v", err)
+	}
+	definitionPayload, err := dc.ToPayload("definition-1")
+	if err != nil {
+		t.Fatalf("definition payload: %v", err)
+	}
 	nextToken := []byte("next-page")
 	tc := &recordingTemporalClient{
 		listResp: &workflowservicepb.ListWorkflowExecutionsResponse{
-			Executions: []*workflowpb.WorkflowExecutionInfo{{
-				Execution: &commonpb.WorkflowExecution{WorkflowId: "workflow-1", RunId: "run-1"},
-				Status:    enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
-			}},
+			Executions: []*workflowpb.WorkflowExecutionInfo{
+				{
+					Execution: &commonpb.WorkflowExecution{WorkflowId: "workflow-1", RunId: "run-1"},
+					Status:    enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+					Memo:      &commonpb.Memo{Fields: map[string]*commonpb.Payload{memoKeyOwnerKey: ownerPayload}},
+					SearchAttributes: &commonpb.SearchAttributes{IndexedFields: map[string]*commonpb.Payload{
+						searchAttrRunStatus.GetName():    statusPayload,
+						searchAttrDefinitionID.GetName(): definitionPayload,
+					}},
+				},
+				{
+					// No owner-key memo: skipped instead of failing the page.
+					Execution: &commonpb.WorkflowExecution{WorkflowId: "workflow-2", RunId: "run-2"},
+					Status:    enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
+				},
+			},
 			NextPageToken: nextToken,
-		},
-		queryRun: &gestalt.WorkflowRun{
-			ID:                   runID,
-			Status:               gestalt.WorkflowRunStatusValueRunning,
-			Target:               nativeAppTargetInput("slack", "postMessage"),
-			CreatedBySubjectID:   actor("user-1"),
-			ProviderName:         "temporal",
-			DefinitionID:         "definition-1",
-			DefinitionGeneration: 7,
 		},
 	}
 	backend := newRecordingTemporalBackend(tc, state)
@@ -534,8 +545,12 @@ func TestBackendListRunsUsesTemporalVisibilityAndHydratesRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
-	if len(resp.GetRuns()) != 1 || resp.GetRuns()[0].ID != runID || resp.GetRuns()[0].DefinitionID != "definition-1" {
-		t.Fatalf("runs = %#v", resp.GetRuns())
+	wantID := encodeTemporalRunHandle(temporalRunHandle{RunWorkflowID: "workflow-1", RunTemporalRunID: "run-1", OwnerKey: "slack"})
+	if len(resp.GetRuns()) != 1 || resp.GetRuns()[0].ID != wantID || resp.GetRuns()[0].DefinitionID != "definition-1" || resp.GetRuns()[0].Status != gestalt.WorkflowRunStatusValueRunning {
+		t.Fatalf("runs = %#v, want one visibility-built summary", resp.GetRuns())
+	}
+	if len(tc.queryCalls) != 0 || len(tc.getWorkflowCalls) != 0 {
+		t.Fatalf("per-run calls = %#v %#v, want none", tc.queryCalls, tc.getWorkflowCalls)
 	}
 	if resp.NextPageToken != encodeTemporalListPageToken(nextToken) {
 		t.Fatalf("next page token = %q", resp.NextPageToken)
@@ -557,9 +572,6 @@ func TestBackendListRunsUsesTemporalVisibilityAndHydratesRuns(t *testing.T) {
 		if !strings.Contains(listReq.GetQuery(), want) {
 			t.Fatalf("query = %q, missing %q", listReq.GetQuery(), want)
 		}
-	}
-	if len(tc.queryCalls) != 1 || tc.queryCalls[0].WorkflowID != "workflow-1" || tc.queryCalls[0].RunID != "run-1" {
-		t.Fatalf("query calls = %#v", tc.queryCalls)
 	}
 }
 
