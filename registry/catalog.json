@@ -2338,7 +2338,7 @@
         "entryKind": "indexeddb",
         "section": "providers.indexeddb"
       },
-      "description": "Amazon DynamoDB datastore provider.",
+      "description": "Amazon DynamoDB IndexedDB provider.",
       "displayName": "DynamoDB",
       "docs": [
         {
@@ -2381,7 +2381,7 @@
         "entryKind": "indexeddb",
         "section": "providers.indexeddb"
       },
-      "description": "MongoDB datastore provider.",
+      "description": "MongoDB IndexedDB provider.",
       "displayName": "MongoDB",
       "docs": [
         {

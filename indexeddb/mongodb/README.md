@@ -1,6 +1,6 @@
 # MongoDB
 
-MongoDB datastore provider.
+MongoDB IndexedDB provider.
 
 ## Configuration
 

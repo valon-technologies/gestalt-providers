@@ -622,7 +622,7 @@ packages:
           - "linux/arm"
   github.com/valon-technologies/gestalt-providers/indexeddb/dynamodb:
     displayName: "DynamoDB"
-    description: "Amazon DynamoDB datastore provider."
+    description: "Amazon DynamoDB IndexedDB provider."
     versions:
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/dynamodb/v0.0.1-alpha.1/provider-release.yaml"
@@ -636,7 +636,7 @@ packages:
           - "linux/arm"
   github.com/valon-technologies/gestalt-providers/indexeddb/mongodb:
     displayName: "MongoDB"
-    description: "MongoDB datastore provider."
+    description: "MongoDB IndexedDB provider."
     versions:
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/mongodb/v0.0.1-alpha.1/provider-release.yaml"

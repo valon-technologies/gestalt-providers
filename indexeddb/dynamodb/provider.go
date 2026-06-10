@@ -70,7 +70,7 @@ func (p *Provider) Metadata() gestalt.ProviderMetadata {
 		Kind:        gestalt.ProviderKindIndexedDB,
 		Name:        "dynamodb",
 		DisplayName: "DynamoDB",
-		Description: "Amazon DynamoDB datastore provider.",
+		Description: "Amazon DynamoDB IndexedDB provider.",
 		Version:     providerVersion,
 	}
 }

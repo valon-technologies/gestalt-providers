@@ -1,6 +1,6 @@
 # DynamoDB
 
-Amazon DynamoDB datastore provider.
+Amazon DynamoDB IndexedDB provider.
 
 ## Configuration
 
