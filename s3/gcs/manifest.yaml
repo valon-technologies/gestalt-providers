@@ -2,5 +2,6 @@ source: github.com/valon-technologies/gestalt-providers/s3/gcs
 version: 0.0.1-alpha.1
 displayName: Google Cloud Storage
 description: S3 provider backed by Google Cloud Storage with generation-aware object versions.
+iconFile: assets/icon.svg
 kind: s3
 spec: {}

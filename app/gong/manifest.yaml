@@ -2,6 +2,7 @@ source: github.com/valon-technologies/gestalt-providers/app/gong
 version: 0.0.1-alpha.1
 displayName: Gong
 description: Access the Gong public API v2 for calls, users, stats, settings, CRM, library, coaching, and data privacy workflows.
+iconFile: assets/icon.svg
 kind: app
 spec:
   defaultConnection: default

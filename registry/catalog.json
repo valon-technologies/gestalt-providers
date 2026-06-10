@@ -17,7 +17,7 @@
           "title": "Claude Agent SDK Provider"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/agent/claude/assets/icon.svg",
       "kind": "agent",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/agent/claude/manifest.yaml",
@@ -59,7 +59,7 @@
           "title": "Codex MCP Agent Provider"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/agent/codex/assets/icon.svg",
       "kind": "agent",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/agent/codex/manifest.yaml",
@@ -102,7 +102,7 @@
           "title": "Cursor Agent SDK Provider"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/agent/cursor/assets/icon.svg",
       "kind": "agent",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/agent/cursor/manifest.yaml",
@@ -142,7 +142,7 @@
           "title": "Hermes ACP Agent Provider"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/agent/hermes/assets/icon.svg",
       "kind": "agent",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/agent/hermes/manifest.yaml",
@@ -534,7 +534,7 @@
           "title": "Excalidraw+"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/excalidraw/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": null,
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/excalidraw/manifest.yaml",
@@ -641,7 +641,7 @@
           "title": "GCP Batch"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/gcp_batch/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": null,
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gcp_batch/manifest.yaml",
@@ -670,7 +670,7 @@
           "title": "Google Cloud Storage"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/gcs/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": null,
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gcs/manifest.yaml",
@@ -826,7 +826,7 @@
           "title": "Gong"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/gong/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gong/manifest.yaml",
@@ -1260,7 +1260,7 @@
           "title": "HTTPBin"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/httpbin/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/httpbin/manifest.yaml",
@@ -1689,7 +1689,7 @@
           "title": "PlanetScale Plugin"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/planetscale/assets/icon.svg",
       "kind": "app",
       "latestInstallableVersion": null,
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/planetscale/manifest.yaml",
@@ -2164,7 +2164,7 @@
           "title": "OIDC"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/auth/oidc/assets/icon.svg",
       "kind": "authentication",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/auth/oidc/manifest.yaml",
@@ -2207,7 +2207,7 @@
           "title": "IndexedDB Authorization"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/authorization/indexeddb/assets/icon.svg",
       "kind": "authorization",
       "latestInstallableVersion": "0.0.1-alpha.2",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/authorization/indexeddb/manifest.yaml",
@@ -2263,7 +2263,7 @@
           "title": "Valkey Cache Provider"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/cache/valkey/assets/icon.svg",
       "kind": "cache",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/cache/valkey/manifest.yaml",
@@ -2306,7 +2306,7 @@
           "title": "Default External Credentials"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/externalcredentials/default/assets/icon.svg",
       "kind": "externalcredentials",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/externalcredentials/default/manifest.yaml",
@@ -2349,7 +2349,7 @@
           "title": "DynamoDB"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/indexeddb/dynamodb/assets/icon.svg",
       "kind": "indexeddb",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/indexeddb/dynamodb/manifest.yaml",
@@ -2392,7 +2392,7 @@
           "title": "MongoDB"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/indexeddb/mongodb/assets/icon.svg",
       "kind": "indexeddb",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/indexeddb/mongodb/manifest.yaml",
@@ -2435,7 +2435,7 @@
           "title": "RelationalDB"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/indexeddb/relationaldb/assets/icon.svg",
       "kind": "indexeddb",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/indexeddb/relationaldb/manifest.yaml",
@@ -2478,7 +2478,7 @@
           "title": "GKE Agent Sandbox Runtime Provider"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/runtime/gkeagentsandbox/assets/icon.svg",
       "kind": "runtime",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/runtime/gkeagentsandbox/manifest.yaml",
@@ -2521,7 +2521,7 @@
           "title": "Kubernetes Runtime Provider"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/runtime/kubernetes/assets/icon.svg",
       "kind": "runtime",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/runtime/kubernetes/manifest.yaml",
@@ -2564,7 +2564,7 @@
           "title": "Google Cloud Storage S3 Provider"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/s3/gcs/assets/icon.svg",
       "kind": "s3",
       "latestInstallableVersion": null,
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/s3/gcs/manifest.yaml",
@@ -2593,7 +2593,7 @@
           "title": "S3 Provider"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/s3/s3/assets/icon.svg",
       "kind": "s3",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/s3/s3/manifest.yaml",
@@ -2636,7 +2636,7 @@
           "title": "AWS Secrets Manager"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/secrets/aws/assets/icon.svg",
       "kind": "secrets",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/secrets/aws/manifest.yaml",
@@ -2679,7 +2679,7 @@
           "title": "Azure Key Vault"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/secrets/azure/assets/icon.svg",
       "kind": "secrets",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/secrets/azure/manifest.yaml",
@@ -2722,7 +2722,7 @@
           "title": "Google Secret Manager"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/secrets/google/assets/icon.svg",
       "kind": "secrets",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/secrets/google/manifest.yaml",
@@ -2765,7 +2765,7 @@
           "title": "Keeper Secrets Manager"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/secrets/keeper/assets/icon.svg",
       "kind": "secrets",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/secrets/keeper/manifest.yaml",
@@ -2808,7 +2808,7 @@
           "title": "1Password"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/secrets/onepassword/assets/icon.svg",
       "kind": "secrets",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/secrets/onepassword/manifest.yaml",
@@ -2851,7 +2851,7 @@
           "title": "HashiCorp Vault"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/secrets/vault/assets/icon.svg",
       "kind": "secrets",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/secrets/vault/manifest.yaml",
@@ -2897,7 +2897,7 @@
           "title": "Default UI"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/ui/default/assets/icon.svg",
       "kind": "ui",
       "latestInstallableVersion": "0.0.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/ui/default/manifest.yaml",
@@ -2957,7 +2957,7 @@
           "title": "GitHub UI"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/ui/github/assets/icon.svg",
       "kind": "ui",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/ui/github/manifest.yaml",
@@ -2996,7 +2996,7 @@
           "title": "IndexedDB Workflow Provider"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/workflow/indexeddb/assets/icon.svg",
       "kind": "workflow",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/workflow/indexeddb/manifest.yaml",
@@ -3039,7 +3039,7 @@
           "title": "Temporal Workflow Provider"
         }
       ],
-      "iconUrl": null,
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/workflow/temporal/assets/icon.svg",
       "kind": "workflow",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/workflow/temporal/manifest.yaml",

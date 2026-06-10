@@ -2,6 +2,7 @@ source: github.com/valon-technologies/gestalt-providers/ui/default
 version: 0.0.2-alpha.2
 displayName: Default UI
 description: Default Gestalt UI bundle served at /.
+iconFile: assets/icon.svg
 kind: ui
 build:
   command:
