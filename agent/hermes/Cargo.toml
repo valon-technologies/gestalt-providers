@@ -16,7 +16,7 @@ path = "tests/fixtures/fake_acp.rs"
 agent-client-protocol = "=0.11.1"
 agent-client-protocol-tokio = "=0.11.1"
 axum = "0.8"
-gestalt = { package = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git", rev = "592268ce2dfa48580e8d05fdb42ffecdc5a12cc9" }
+gestalt = { package = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git", rev = "016272890481b8aba6331ec65309b2c5374cb1be" }
 getrandom = "0.4"
 jsonschema = { version = "0.46.5", default-features = false }
 rmcp = { version = "1.6", features = ["transport-streamable-http-server"] }
@@ -26,6 +26,7 @@ thiserror = "2"
 tokio = { version = "1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
 tokio-util = "0.7"
 tonic = { version = "0.14", features = ["tls-native-roots", "tls-ring"] }
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 prost-types = "0.14"

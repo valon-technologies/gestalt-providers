@@ -68,9 +68,6 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
 
     def create_session(self, request: gestalt.CreateAgentProviderSessionRequest) -> gestalt.AgentSession:
         _, store, config = self._require_runtime()
-        session_id = request.session_id.strip()
-        if not session_id:
-            raise gestalt.Error(400, "session_id is required")
         try:
             model = config.resolve_model(request.model.strip())
         except ValueError as exc:
@@ -89,10 +86,11 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
         except ValueError as exc:
             raise gestalt.Error(400, str(exc)) from exc
         idempotency_key = request.idempotency_key.strip()
+        created_by_subject_id = request.created_by_subject_id.strip()
         request_subject_id = request.subject.id.strip() if request.subject is not None else ""
         if request.session_start is not None and len(list(request.session_start.hooks)) > 0:
             with self._session_start_lock:
-                existing = _existing_session_for_create(store, session_id, idempotency_key)
+                existing = _existing_session_for_create(store, created_by_subject_id, idempotency_key)
                 if existing is not None:
                     _require_session_readable(existing, request_subject_id)
                     return _agent_session(existing)
@@ -101,7 +99,6 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                 except Exception as exc:
                     raise gestalt.Error(412, str(exc)) from exc
                 session, _ = store.create_session(
-                    session_id=session_id,
                     idempotency_key=idempotency_key,
                     provider_name=self._name,
                     model=model,
@@ -111,11 +108,10 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
                     tool_source=tool_source,
                     tool_refs=tool_refs,
                     listed_tools=listed_tools,
-                    created_by_subject_id=request.created_by_subject_id.strip(),
+                    created_by_subject_id=created_by_subject_id,
                 )
                 return _agent_session(session)
         session, created = store.create_session(
-            session_id=session_id,
             idempotency_key=idempotency_key,
             provider_name=self._name,
             model=model,
@@ -125,7 +121,7 @@ class CodexMCPAgentProvider(gestalt.AgentProvider, gestalt.MetadataProvider, ges
             tool_source=tool_source,
             tool_refs=tool_refs,
             listed_tools=listed_tools,
-            created_by_subject_id=request.created_by_subject_id.strip(),
+            created_by_subject_id=created_by_subject_id,
         )
         if not created:
             _require_session_readable(session, request_subject_id)
@@ -521,14 +517,13 @@ def _schema_from_output(output: gestalt.AgentOutput | None) -> dict[str, Any] | 
 
 
 def _existing_session_for_create(
-    store: InMemoryRunStore, session_id: str, idempotency_key: str
+    store: InMemoryRunStore, created_by_subject_id: str, idempotency_key: str
 ) -> StoredSession | None:
-    existing = store.get_session(session_id)
-    if existing is not None:
-        return existing
     if not idempotency_key:
         return None
-    return store.get_session_by_idempotency_key(idempotency_key)
+    return store.get_session_by_idempotency_key(
+        created_by_subject_id=created_by_subject_id, idempotency_key=idempotency_key
+    )
 
 
 provider = CodexMCPAgentProvider()

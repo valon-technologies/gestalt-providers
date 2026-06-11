@@ -343,13 +343,13 @@ class ClaudeProviderTests(unittest.TestCase):
 
         session = provider_module.provider.create_session(
             gestalt.CreateAgentProviderSessionRequest(
-                session_id="session-start-provider",
                 idempotency_key="session-start-idem",
                 session_start=session_start,
                 created_by_subject_id="user-123",
                 subject=_sdk_subject("user-123"),
             )
         )
+        self.assertTrue(session.id)
         metadata = session.metadata or {}
         self.assertEqual(
             metadata["__gestalt.lifecycle.sessionStart.results.load-memory"]["stdout"],
@@ -366,19 +366,18 @@ class ClaudeProviderTests(unittest.TestCase):
 
         replay = provider_module.provider.create_session(
             gestalt.CreateAgentProviderSessionRequest(
-                session_id="session-start-provider-replay",
                 idempotency_key="session-start-idem",
                 session_start=replay_session_start,
                 created_by_subject_id="user-123",
                 subject=_sdk_subject("user-123"),
             )
         )
-        self.assertEqual(replay.id, "session-start-provider")
+        self.assertEqual(replay.id, session.id)
 
         provider_client.CreateTurn(
             _turn_request(
                 turn_id="turn-session-start-context",
-                session_id="session-start-provider",
+                session_id=session.id,
                 messages=[agent_pb2.AgentMessage(role="user", text="hello")],
             )
         )
@@ -398,11 +397,11 @@ class ClaudeProviderTests(unittest.TestCase):
                     "allowedTools": ["Skill", "Read", "Bash(git status:*)"],
                 }
             )
-            _create_owned_session(provider_client, "session-plugins", tools=_catalog_tool_config())
+            session = _create_owned_session(provider_client, tools=_catalog_tool_config())
             provider_client.CreateTurn(
                 _turn_request(
                     turn_id="turn-plugins",
-                    session_id="session-plugins",
+                    session_id=session.id,
                     messages=[agent_pb2.AgentMessage(role="user", text="hello")],
                 )
             )
@@ -452,8 +451,8 @@ class ClaudeProviderTests(unittest.TestCase):
 
     def test_skill_discovery_all_without_allowed_tool_does_not_enable_skill_tool(self) -> None:
         _, provider_client = _configure_provider({"skillDiscovery": "all"})
-        _create_owned_session(provider_client, "session-skill-denied", tools=_catalog_tool_config())
-        provider_client.CreateTurn(_turn_request(turn_id="turn-skill-denied", session_id="session-skill-denied"))
+        session = _create_owned_session(provider_client, tools=_catalog_tool_config())
+        provider_client.CreateTurn(_turn_request(turn_id="turn-skill-denied", session_id=session.id))
         _wait_for_turn(provider_client, "turn-skill-denied", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
         options = _FakeClaudeSDKClient.instances[-1].options
@@ -467,8 +466,8 @@ class ClaudeProviderTests(unittest.TestCase):
 
     def test_allowed_tools_can_enable_skill_without_plugins(self) -> None:
         _, provider_client = _configure_provider({"skillDiscovery": "all", "allowedTools": ["Skill"]})
-        _create_owned_session(provider_client, "session-skill-allowed", tools=_catalog_tool_config())
-        provider_client.CreateTurn(_turn_request(turn_id="turn-skill-allowed", session_id="session-skill-allowed"))
+        session = _create_owned_session(provider_client, tools=_catalog_tool_config())
+        provider_client.CreateTurn(_turn_request(turn_id="turn-skill-allowed", session_id=session.id))
         _wait_for_turn(provider_client, "turn-skill-allowed", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
         options = _FakeClaudeSDKClient.instances[-1].options
@@ -485,13 +484,13 @@ class ClaudeProviderTests(unittest.TestCase):
         metadata.update({ADDITIONAL_CONTEXT_KEY: "spoofed"})
 
         with self.assertRaises(grpc.RpcError) as create_error:
-            provider_client.CreateSession(_owned_session_request("reserved-session-start-create", metadata=metadata))
+            provider_client.CreateSession(_owned_session_request(metadata=metadata))
         self.assertEqual(cast(Any, create_error.exception).code(), grpc.StatusCode.INVALID_ARGUMENT)
 
-        _create_owned_session(provider_client, "reserved-session-start")
+        session = _create_owned_session(provider_client)
         with self.assertRaises(grpc.RpcError) as update_error:
             provider_client.UpdateSession(
-                agent_pb2.UpdateAgentProviderSessionRequest(session_id="reserved-session-start", metadata=metadata)
+                agent_pb2.UpdateAgentProviderSessionRequest(session_id=session.id, metadata=metadata)
             )
         self.assertEqual(cast(Any, update_error.exception).code(), grpc.StatusCode.INVALID_ARGUMENT)
 
@@ -568,18 +567,15 @@ class ClaudeProviderTests(unittest.TestCase):
             self.assertTrue(capabilities.supports_prepared_workspace)
         self.assertEqual(lifecycle.GetProviderIdentity(empty_pb2.Empty()).name, "claude")
 
-        provider_client.CreateSession(
+        created = provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-claude",
-                model="sonnet-session",
-                created_by_subject_id="user-123",
-                tools=_catalog_tool_config(),
+                model="sonnet-session", created_by_subject_id="user-123", tools=_catalog_tool_config()
             )
         )
         started = provider_client.CreateTurn(
             _turn_request(
                 turn_id="turn-claude",
-                session_id="session-claude",
+                session_id=created.id,
                 messages=[agent_pb2.AgentMessage(role="user", text="List my Linear issues")],
                 execution_ref="exec-claude",
             )
@@ -602,7 +598,7 @@ class ClaudeProviderTests(unittest.TestCase):
         fake_client = _FakeClaudeSDKClient.instances[0]
         self.assertTrue(fake_client.connected)
         self.assertTrue(fake_client.disconnected)
-        self.assertEqual(fake_client.session_id, "session-claude")
+        self.assertEqual(fake_client.session_id, created.id)
         self.assertIn("List my Linear issues", fake_client.prompt)
         self.assertIn('<message 1 role="user">', fake_client.prompt)
         self.assertEqual(fake_client.options.model, "sonnet-session")
@@ -638,15 +634,12 @@ class ClaudeProviderTests(unittest.TestCase):
         _FakeClaudeSDKClient.mode = "structured_success"
         _, provider_client = _configure_provider()
         session_req = agent_pb2.CreateAgentProviderSessionRequest(
-            session_id="session-structured",
-            model="sonnet-session",
-            created_by_subject_id="user-123",
-            subject=_subject_context("user-123"),
+            model="sonnet-session", created_by_subject_id="user-123", subject=_subject_context("user-123")
         )
         if hasattr(session_req, "prepared_workspace"):
             session_req.prepared_workspace.root = "/sandbox/runtime/workspaces/session-structured"
             session_req.prepared_workspace.cwd = "/sandbox/runtime/workspaces/session-structured/repo"
-        provider_client.CreateSession(session_req)
+        created = provider_client.CreateSession(session_req)
         schema = struct_pb2.Struct()
         schema.update(
             {
@@ -658,7 +651,7 @@ class ClaudeProviderTests(unittest.TestCase):
         started = provider_client.CreateTurn(
             _turn_request(
                 turn_id="turn-structured",
-                session_id="session-structured",
+                session_id=created.id,
                 messages=[agent_pb2.AgentMessage(role="user", text="Grade the answer")],
                 output_schema=schema,
             )
@@ -671,7 +664,7 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(fetched.structured.value.fields["reasoning"].string_value, "correct")
         summary = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
-                session_id="session-structured",
+                session_id=created.id,
                 turn_ids=["turn-structured"],
                 subject=_subject_context("user-123"),
                 summary_only=True,
@@ -704,19 +697,19 @@ class ClaudeProviderTests(unittest.TestCase):
     def test_provider_allows_catalog_tools_with_schema(self) -> None:
         _FakeClaudeSDKClient.mode = "catalog_structured_success"
         _, provider_client = _configure_provider()
-        _create_owned_session(provider_client, "session-catalog-schema", tools=_catalog_tool_config())
+        session = _create_owned_session(provider_client, tools=_catalog_tool_config())
         schema = struct_pb2.Struct()
         schema.update({"type": "object", "properties": {"answer": {"type": "string"}}})
 
         provider_client.CreateTurn(
-            _turn_request(turn_id="turn-catalog-schema", session_id="session-catalog-schema", output_schema=schema)
+            _turn_request(turn_id="turn-catalog-schema", session_id=session.id, output_schema=schema)
         )
 
         fetched = _wait_for_turn(provider_client, "turn-catalog-schema", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
         self.assertEqual(fetched.structured.text, "catalog structured")
         self.assertEqual(fetched.structured.value.fields["answer"].string_value, "done")
         fake_client = _FakeClaudeSDKClient.instances[-1]
-        self.assertEqual(fake_client.session_id, "session-catalog-schema")
+        self.assertEqual(fake_client.session_id, session.id)
         self.assertEqual(fake_client.options.output_format["schema"]["type"], "object")
         host = _host_servicer
         assert host is not None
@@ -725,45 +718,43 @@ class ClaudeProviderTests(unittest.TestCase):
     def test_slack_sessions_are_company_readable_and_owner_writable(self) -> None:
         _, provider_client = _configure_provider()
         private = provider_client.CreateSession(
-            agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-private", created_by_subject_id="user-owner"
-            )
+            agent_pb2.CreateAgentProviderSessionRequest(created_by_subject_id="user-owner")
         )
-        self.assertEqual(private.id, "session-private")
+        self.assertTrue(private.id)
         slack_metadata = struct_pb2.Struct()
         slack_metadata.update(_slack_session_metadata())
         shared = provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-slack", metadata=slack_metadata, created_by_subject_id="service_account:slack-bot"
+                metadata=slack_metadata, created_by_subject_id="service_account:slack-bot"
             )
         )
-        self.assertEqual(shared.id, "session-slack")
+        self.assertTrue(shared.id)
 
         reader_subject = _subject_context("user-reader")
         visible = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(subject=reader_subject, limit=10, summary_only=True)
         )
-        self.assertEqual([session.id for session in visible.sessions], ["session-slack"])
+        self.assertEqual([session.id for session in visible.sessions], [shared.id])
         fetched = provider_client.GetSession(
-            agent_pb2.GetAgentProviderSessionRequest(session_id="session-slack", subject=reader_subject)
+            agent_pb2.GetAgentProviderSessionRequest(session_id=shared.id, subject=reader_subject)
         )
-        self.assertEqual(fetched.id, "session-slack")
+        self.assertEqual(fetched.id, shared.id)
         with self.assertRaises(grpc.RpcError) as private_read:
             provider_client.GetSession(
-                agent_pb2.GetAgentProviderSessionRequest(session_id="session-private", subject=reader_subject)
+                agent_pb2.GetAgentProviderSessionRequest(session_id=private.id, subject=reader_subject)
             )
         self.assertEqual(cast(Any, private_read.exception).code(), grpc.StatusCode.NOT_FOUND)
 
         with self.assertRaises(grpc.RpcError) as denied_update:
             provider_client.UpdateSession(
                 agent_pb2.UpdateAgentProviderSessionRequest(
-                    session_id="session-slack", subject=reader_subject, state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED
+                    session_id=shared.id, subject=reader_subject, state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED
                 )
             )
         self.assertEqual(cast(Any, denied_update.exception).code(), grpc.StatusCode.PERMISSION_DENIED)
         owner_update = provider_client.UpdateSession(
             agent_pb2.UpdateAgentProviderSessionRequest(
-                session_id="session-slack",
+                session_id=shared.id,
                 subject=_subject_context("service_account:slack-bot"),
                 state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED,
             )
@@ -774,16 +765,14 @@ class ClaudeProviderTests(unittest.TestCase):
         _, provider_client = _configure_provider()
         slack_metadata = struct_pb2.Struct()
         slack_metadata.update(_slack_session_metadata())
-        provider_client.CreateSession(
+        shared = provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-slack-turn",
-                metadata=slack_metadata,
-                created_by_subject_id="service_account:slack-bot",
+                metadata=slack_metadata, created_by_subject_id="service_account:slack-bot"
             )
         )
         turn_request = _turn_request(
             turn_id="turn-slack",
-            session_id="session-slack-turn",
+            session_id=shared.id,
             messages=[agent_pb2.AgentMessage(role="user", text="Company-visible turn")],
         )
         turn_request.subject.id = "service_account:slack-bot"
@@ -798,7 +787,7 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(fetched.id, "turn-slack")
         listed = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
-                session_id="session-slack-turn", subject=reader_subject, limit=10, summary_only=True
+                session_id=shared.id, subject=reader_subject, limit=10, summary_only=True
             )
         )
         self.assertEqual([turn.id for turn in listed.turns], ["turn-slack"])
@@ -806,7 +795,7 @@ class ClaudeProviderTests(unittest.TestCase):
             agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-slack", subject=reader_subject)
         )
         self.assertGreaterEqual(len(events.events), 1)
-        denied_turn = _turn_request(turn_id="turn-denied", session_id="session-slack-turn")
+        denied_turn = _turn_request(turn_id="turn-denied", session_id=shared.id)
         denied_turn.subject.id = "user-reader"
         denied_turn.created_by_subject_id = "user-reader"
         with self.assertRaises(grpc.RpcError) as denied_create:
@@ -821,11 +810,11 @@ class ClaudeProviderTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 _FakeClaudeSDKClient.mode = mode
                 _, provider_client = _configure_provider()
-                _create_owned_session(provider_client, f"session-{mode}")
+                session = _create_owned_session(provider_client)
                 schema = struct_pb2.Struct()
                 schema.update({"type": "object"})
                 provider_client.CreateTurn(
-                    _turn_request(turn_id=f"turn-{mode}", session_id=f"session-{mode}", output_schema=schema)
+                    _turn_request(turn_id=f"turn-{mode}", session_id=session.id, output_schema=schema)
                 )
                 failed = _wait_for_turn(provider_client, f"turn-{mode}", agent_pb2.AGENT_EXECUTION_STATUS_FAILED)
                 self.assertIn(message, failed.status_message)
@@ -862,7 +851,7 @@ class ClaudeProviderTests(unittest.TestCase):
             self.skipTest("installed Gestalt SDK does not expose CreateAgentProviderTurnRequest.timeout_seconds")
         _FakeClaudeSDKClient.mode = "structured_success"
         _, provider_client = _configure_provider()
-        _create_owned_session(provider_client, "session-request-timeout")
+        session = _create_owned_session(provider_client)
         captured_timeouts: list[float | None] = []
         schema = struct_pb2.Struct()
         schema.update({"type": "object"})
@@ -874,10 +863,7 @@ class ClaudeProviderTests(unittest.TestCase):
         with mock.patch("internals.claude_runner.asyncio.wait_for", side_effect=fake_wait_for):
             provider_client.CreateTurn(
                 _turn_request(
-                    turn_id="turn-request-timeout",
-                    session_id="session-request-timeout",
-                    output_schema=schema,
-                    timeout_seconds=2,
+                    turn_id="turn-request-timeout", session_id=session.id, output_schema=schema, timeout_seconds=2
                 )
             )
 
@@ -889,14 +875,14 @@ class ClaudeProviderTests(unittest.TestCase):
         if not hasattr(agent_pb2.CreateAgentProviderSessionRequest(), "prepared_workspace"):
             self.skipTest("installed gestalt-sdk does not expose prepared workspaces yet")
         _, provider_client = _configure_provider()
-        request = _owned_session_request("session-claude-workspace")
+        request = _owned_session_request()
         request.prepared_workspace.root = "/sandbox/runtime/workspaces/session-claude-workspace"
         request.prepared_workspace.cwd = "/sandbox/runtime/workspaces/session-claude-workspace/repo"
-        provider_client.CreateSession(request)
+        created = provider_client.CreateSession(request)
         provider_client.CreateTurn(
             _turn_request(
                 turn_id="turn-claude-workspace",
-                session_id="session-claude-workspace",
+                session_id=created.id,
                 messages=[agent_pb2.AgentMessage(role="user", text="inspect repo")],
             )
         )
@@ -911,7 +897,7 @@ class ClaudeProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(gestalt.Error, "root and cwd are required"):
             provider_module.provider.create_session(
                 gestalt.CreateAgentProviderSessionRequest(
-                    session_id="bad-workspace", prepared_workspace=gestalt.AgentPreparedWorkspace(root="/workspace")
+                    prepared_workspace=gestalt.AgentPreparedWorkspace(root="/workspace")
                 )
             )
 
@@ -921,10 +907,8 @@ class ClaudeProviderTests(unittest.TestCase):
         self.addCleanup(_stop_runtime, provider_a, server_a, socket_a, channel_a)
         _configure_lifecycle(lifecycle_a, provider_a)
 
-        client_a.CreateSession(
-            agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-durable", model="sonnet-session", created_by_subject_id="user-123"
-            )
+        created = client_a.CreateSession(
+            agent_pb2.CreateAgentProviderSessionRequest(model="sonnet-session", created_by_subject_id="user-123")
         )
         _stop_runtime(provider_a, server_a, socket_a, channel_a)
 
@@ -934,17 +918,17 @@ class ClaudeProviderTests(unittest.TestCase):
         _configure_lifecycle(lifecycle_b, provider_b)
 
         fetched_session = client_b.GetSession(
-            agent_pb2.GetAgentProviderSessionRequest(session_id="session-durable", subject=_subject_context("user-123"))
+            agent_pb2.GetAgentProviderSessionRequest(session_id=created.id, subject=_subject_context("user-123"))
         )
-        self.assertEqual(fetched_session.id, "session-durable")
+        self.assertEqual(fetched_session.id, created.id)
         started = client_b.CreateTurn(
             _turn_request(
                 turn_id="turn-durable",
-                session_id="session-durable",
+                session_id=created.id,
                 messages=[agent_pb2.AgentMessage(role="user", text="Continue after restart")],
             )
         )
-        self.assertEqual(started.session_id, "session-durable")
+        self.assertEqual(started.session_id, created.id)
 
         fetched_turn = client_b.GetTurn(
             agent_pb2.GetAgentProviderTurnRequest(turn_id="turn-durable", subject=_subject_context("user-123"))
@@ -1065,23 +1049,21 @@ class ClaudeProviderTests(unittest.TestCase):
         store = provider_module.provider._store
         assert store is not None
 
+        session_ids: dict[str, str] = {}
         for suffix in ("a", "b"):
             metadata = struct_pb2.Struct()
             metadata.update({"large": "x" * 1024, "suffix": suffix})
             session_req = agent_pb2.CreateAgentProviderSessionRequest(
-                session_id=f"session-stream-{suffix}",
-                idempotency_key=f"session-idem-stream-{suffix}",
-                metadata=metadata,
-                created_by_subject_id="user-123",
+                idempotency_key=f"session-idem-stream-{suffix}", metadata=metadata, created_by_subject_id="user-123"
             )
             if hasattr(session_req, "prepared_workspace"):
                 session_req.prepared_workspace.root = f"/workspaces/session-stream-{suffix}"
                 session_req.prepared_workspace.cwd = f"/workspaces/session-stream-{suffix}/repo"
-            provider_client.CreateSession(session_req)
+            session_ids[suffix] = provider_client.CreateSession(session_req).id
             provider_client.CreateTurn(
                 _turn_request(
                     turn_id=f"turn-stream-{suffix}",
-                    session_id=f"session-stream-{suffix}",
+                    session_id=session_ids[suffix],
                     messages=[agent_pb2.AgentMessage(role="user", text=f"stream {suffix}")],
                 )
             )
@@ -1116,17 +1098,17 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         summary_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
-                session_id="session-stream-a", subject=_subject_context("user-123"), limit=1, summary_only=True
+                session_id=session_ids["a"], subject=_subject_context("user-123"), limit=1, summary_only=True
             )
         )
         full_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
-                session_id="session-stream-a", subject=_subject_context("user-123"), limit=1
+                session_id=session_ids["a"], subject=_subject_context("user-123"), limit=1
             )
         )
         running_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
-                session_id="session-stream-a",
+                session_id=session_ids["a"],
                 subject=_subject_context("user-123"),
                 status=agent_pb2.AGENT_EXECUTION_STATUS_RUNNING,
                 limit=10,
@@ -1135,7 +1117,7 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         succeeded_turns = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
-                session_id="session-stream-a",
+                session_id=session_ids["a"],
                 subject=_subject_context("user-123"),
                 status=agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED,
                 limit=10,
@@ -1143,11 +1125,11 @@ class ClaudeProviderTests(unittest.TestCase):
             )
         )
         exact_session_without_subject = provider_client.ListSessions(
-            agent_pb2.ListAgentProviderSessionsRequest(session_ids=["session-stream-b"], limit=10, summary_only=True)
+            agent_pb2.ListAgentProviderSessionsRequest(session_ids=[session_ids["b"]], limit=10, summary_only=True)
         )
         subject_mismatch_exact_session = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=_subject_context("user-456"), session_ids=["session-stream-b"], limit=10, summary_only=True
+                subject=_subject_context("user-456"), session_ids=[session_ids["b"]], limit=10, summary_only=True
             )
         )
         exact_turn_without_subject = provider_client.ListTurns(
@@ -1163,7 +1145,7 @@ class ClaudeProviderTests(unittest.TestCase):
         )
         provider_client.UpdateSession(
             agent_pb2.UpdateAgentProviderSessionRequest(
-                session_id="session-stream-b",
+                session_id=session_ids["b"],
                 state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED,
                 subject=_subject_context("user-123"),
             )
@@ -1185,9 +1167,9 @@ class ClaudeProviderTests(unittest.TestCase):
             )
         )
 
-        self.assertEqual([session.id for session in summary_sessions.sessions], ["session-stream-b"])
+        self.assertEqual([session.id for session in summary_sessions.sessions], [session_ids["b"]])
         self.assertFalse(summary_sessions.sessions[0].HasField("metadata"))
-        self.assertEqual([session.id for session in full_sessions.sessions], ["session-stream-b"])
+        self.assertEqual([session.id for session in full_sessions.sessions], [session_ids["b"]])
         self.assertEqual(full_sessions.sessions[0].metadata.fields["suffix"].string_value, "b")
         self.assertEqual([turn.id for turn in summary_turns.turns], ["turn-stream-a"])
         self.assertEqual(len(summary_turns.turns[0].messages), 0)
@@ -1200,8 +1182,8 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(list(exact_session_without_subject.sessions), [])
         self.assertEqual(list(subject_mismatch_exact_session.sessions), [])
         self.assertEqual(list(exact_turn_without_subject.turns), [])
-        self.assertEqual([session.id for session in active_sessions.sessions], ["session-stream-a"])
-        self.assertEqual([session.id for session in archived_sessions.sessions], ["session-stream-b"])
+        self.assertEqual([session.id for session in active_sessions.sessions], [session_ids["a"]])
+        self.assertEqual([session.id for session in archived_sessions.sessions], [session_ids["b"]])
         self.assertEqual(bounded_source_session_get_all, 0)
         self.assertEqual(bounded_source_turn_get_all, 0)
         self.assertGreater(
@@ -1236,7 +1218,7 @@ class ClaudeProviderTests(unittest.TestCase):
             self.assertEqual(identity.name, "claude")
 
             with self.assertRaises(grpc.RpcError) as raised:
-                provider_client.CreateSession(_owned_session_request("session-missing-indexeddb"))
+                provider_client.CreateSession(_owned_session_request())
         finally:
             if previous_socket is None:
                 os.environ.pop(ENV_HOST_SERVICE_SOCKET, None)
@@ -1251,17 +1233,17 @@ class ClaudeProviderTests(unittest.TestCase):
 
     def test_turn_idempotency_key_is_scoped_to_session(self) -> None:
         _, provider_client = _configure_provider()
-        _create_owned_session(provider_client, "session-idem-a")
-        _create_owned_session(provider_client, "session-idem-b")
+        session_a = _create_owned_session(provider_client, idempotency_key="idem-a")
+        session_b = _create_owned_session(provider_client, idempotency_key="idem-b")
 
         first = provider_client.CreateTurn(
-            _turn_request(turn_id="turn-idem-a", session_id="session-idem-a", idempotency_key="repeatable")
+            _turn_request(turn_id="turn-idem-a", session_id=session_a.id, idempotency_key="repeatable")
         )
         replay = provider_client.CreateTurn(
-            _turn_request(turn_id="turn-idem-a-replay", session_id="session-idem-a", idempotency_key="repeatable")
+            _turn_request(turn_id="turn-idem-a-replay", session_id=session_a.id, idempotency_key="repeatable")
         )
         second_session = provider_client.CreateTurn(
-            _turn_request(turn_id="turn-idem-b", session_id="session-idem-b", idempotency_key="repeatable")
+            _turn_request(turn_id="turn-idem-b", session_id=session_b.id, idempotency_key="repeatable")
         )
 
         self.assertEqual(first.id, "turn-idem-a")
@@ -1269,6 +1251,48 @@ class ClaudeProviderTests(unittest.TestCase):
         self.assertEqual(second_session.id, "turn-idem-b")
         _wait_for_turn(provider_client, "turn-idem-a", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
         _wait_for_turn(provider_client, "turn-idem-b", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+
+    def test_create_session_mints_unique_gettable_ids(self) -> None:
+        _, provider_client = _configure_provider()
+        first = _create_owned_session(provider_client)
+        second = _create_owned_session(provider_client)
+        self.assertTrue(first.id)
+        self.assertTrue(second.id)
+        self.assertNotEqual(first.id, second.id)
+        fetched = provider_client.GetSession(
+            agent_pb2.GetAgentProviderSessionRequest(session_id=first.id, subject=_subject_context("user-123"))
+        )
+        self.assertEqual(fetched.id, first.id)
+
+    def test_create_session_replays_same_subject_and_key(self) -> None:
+        _, provider_client = _configure_provider()
+        first = _create_owned_session(provider_client, idempotency_key="obligation-key")
+        replay = _create_owned_session(provider_client, idempotency_key="obligation-key")
+        self.assertEqual(replay.id, first.id)
+
+    def test_create_session_distinct_keys_create_distinct_sessions(self) -> None:
+        _, provider_client = _configure_provider()
+        first = _create_owned_session(provider_client, idempotency_key="key-one")
+        second = _create_owned_session(provider_client, idempotency_key="key-two")
+        self.assertNotEqual(first.id, second.id)
+
+    def test_create_session_empty_key_always_creates(self) -> None:
+        _, provider_client = _configure_provider()
+        first = _create_owned_session(provider_client)
+        second = _create_owned_session(provider_client)
+        self.assertNotEqual(first.id, second.id)
+
+    def test_create_session_same_key_different_subject_creates_distinct_sessions(self) -> None:
+        _, provider_client = _configure_provider()
+        first = _create_owned_session(provider_client, idempotency_key="shared-key")
+        other = provider_client.CreateSession(
+            agent_pb2.CreateAgentProviderSessionRequest(
+                idempotency_key="shared-key",
+                created_by_subject_id="user-456",
+                subject=_subject_context("user-456"),
+            )
+        )
+        self.assertNotEqual(other.id, first.id)
 
     def test_session_idempotency_replays_after_indexeddb_add_conflict(self) -> None:
         indexeddb = _indexeddb_servicer
@@ -1304,7 +1328,7 @@ class ClaudeProviderTests(unittest.TestCase):
             db.put_record(
                 store._session_idempotency_store_name,
                 {
-                    "id": "session-race",
+                    "id": "user-123\x1fsession-race",
                     "session_id": "session-race-winner",
                     "provider_name": "claude",
                     "created_at": now,
@@ -1315,7 +1339,6 @@ class ClaudeProviderTests(unittest.TestCase):
         indexeddb.inject_before_transaction_add(seed_conflict)
         replayed = provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
-                session_id="session-race-loser",
                 idempotency_key="session-race",
                 created_by_subject_id="user-123",
                 subject=_subject_context("user-123"),
@@ -1330,7 +1353,8 @@ class ClaudeProviderTests(unittest.TestCase):
         _, provider_client = _configure_provider()
         store = provider_module.provider._store
         assert store is not None
-        _create_owned_session(provider_client, "session-turn-race")
+        race_session = _create_owned_session(provider_client)
+        race_session_id = race_session.id
 
         def seed_conflict(
             db: FakeIndexedDB, transaction_stores: dict[str, dict[str, Any]], store_name: str, request: Any
@@ -1343,7 +1367,7 @@ class ClaudeProviderTests(unittest.TestCase):
                 store._run_store_name,
                 {
                     "id": "turn-race-winner",
-                    "session_id": "session-turn-race",
+                    "session_id": race_session_id,
                     "idempotency_key": "turn-race",
                     "provider_name": "claude",
                     "model": "sonnet-config",
@@ -1362,8 +1386,8 @@ class ClaudeProviderTests(unittest.TestCase):
             db.put_record(
                 store._turn_idempotency_store_name,
                 {
-                    "id": "session-turn-race\x1fturn-race",
-                    "session_id": "session-turn-race",
+                    "id": f"{race_session_id}\x1fturn-race",
+                    "session_id": race_session_id,
                     "idempotency_key": "turn-race",
                     "turn_id": "turn-race-winner",
                     "provider_name": "claude",
@@ -1374,7 +1398,7 @@ class ClaudeProviderTests(unittest.TestCase):
 
         indexeddb.inject_before_transaction_add(seed_conflict)
         replayed = provider_client.CreateTurn(
-            _turn_request(turn_id="turn-race-loser", session_id="session-turn-race", idempotency_key="turn-race")
+            _turn_request(turn_id="turn-race-loser", session_id=race_session_id, idempotency_key="turn-race")
         )
 
         self.assertEqual(replayed.id, "turn-race-winner")
@@ -1499,17 +1523,17 @@ class ClaudeProviderTests(unittest.TestCase):
 
     def test_create_turn_rejects_unsupported_tool_contract_inputs(self) -> None:
         _, provider_client = _configure_provider()
-        _create_owned_session(provider_client, "session-validation", tools=_catalog_tool_config())
-        _create_owned_session(provider_client, "session-validation-no-tools")
+        session_with_tools = _create_owned_session(provider_client, tools=_catalog_tool_config())
+        session_no_tools = _create_owned_session(provider_client)
 
         missing_context = _turn_request(
-            turn_id="turn-missing-context", session_id="session-validation", include_context=False
+            turn_id="turn-missing-context", session_id=session_with_tools.id, include_context=False
         )
         _assert_invalid(provider_client, missing_context, "request context is required")
 
         empty_schema = _turn_request(
             turn_id="turn-empty-response-schema",
-            session_id="session-validation-no-tools",
+            session_id=session_no_tools.id,
             output_schema=struct_pb2.Struct(),
         )
         _assert_invalid(provider_client, empty_schema, "output.structured.schema")
@@ -1517,19 +1541,19 @@ class ClaudeProviderTests(unittest.TestCase):
         scalar_schema = struct_pb2.Struct()
         scalar_schema.update({"type": "array"})
         bad_schema = _turn_request(
-            turn_id="turn-response-schema", session_id="session-validation-no-tools", output_schema=scalar_schema
+            turn_id="turn-response-schema", session_id=session_no_tools.id, output_schema=scalar_schema
         )
         _assert_invalid(provider_client, bad_schema, "output.structured.schema.type must be")
 
         model_options = struct_pb2.Struct()
         model_options.update({"temperature": 0.2})
         bad_options = _turn_request(
-            turn_id="turn-provider-options", session_id="session-validation", model_options=model_options
+            turn_id="turn-provider-options", session_id=session_with_tools.id, model_options=model_options
         )
         _assert_invalid(provider_client, bad_options, "model_options are not supported")
 
         none_without_schema = _turn_request(
-            turn_id="turn-none-without-schema", session_id="session-validation-no-tools"
+            turn_id="turn-none-without-schema", session_id=session_no_tools.id
         )
         _FakeClaudeSDKClient.mode = "text_fallback"
         self.assertEqual(
@@ -1543,8 +1567,8 @@ class ClaudeProviderTests(unittest.TestCase):
     def test_cancel_turn_interrupts_sdk_client_and_terminal_status_wins(self) -> None:
         _FakeClaudeSDKClient.mode = "cancel"
         _, provider_client = _configure_provider()
-        _create_owned_session(provider_client, "session-cancel")
-        provider_client.CreateTurn(_turn_request(turn_id="turn-cancel", session_id="session-cancel"))
+        created = _create_owned_session(provider_client)
+        provider_client.CreateTurn(_turn_request(turn_id="turn-cancel", session_id=created.id))
         _wait_for_fake_client()
 
         canceled = provider_client.CancelTurn(
@@ -1566,8 +1590,8 @@ class ClaudeProviderTests(unittest.TestCase):
     def test_sdk_failure_marks_turn_failed(self) -> None:
         _FakeClaudeSDKClient.mode = "failure"
         _, provider_client = _configure_provider()
-        _create_owned_session(provider_client, "session-failure")
-        provider_client.CreateTurn(_turn_request(turn_id="turn-failure", session_id="session-failure"))
+        created = _create_owned_session(provider_client)
+        provider_client.CreateTurn(_turn_request(turn_id="turn-failure", session_id=created.id))
 
         failed = _wait_for_turn(provider_client, "turn-failure", agent_pb2.AGENT_EXECUTION_STATUS_FAILED)
         self.assertIn("boom", failed.status_message)
@@ -1575,8 +1599,8 @@ class ClaudeProviderTests(unittest.TestCase):
     def test_sdk_empty_result_falls_back_to_assistant_text(self) -> None:
         _FakeClaudeSDKClient.mode = "text_fallback"
         _, provider_client = _configure_provider()
-        _create_owned_session(provider_client, "session-text-fallback")
-        provider_client.CreateTurn(_turn_request(turn_id="turn-text-fallback", session_id="session-text-fallback"))
+        created = _create_owned_session(provider_client)
+        provider_client.CreateTurn(_turn_request(turn_id="turn-text-fallback", session_id=created.id))
 
         turn = _wait_for_turn(provider_client, "turn-text-fallback", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
         self.assertEqual(turn.text.text, "fallback assistant text")
@@ -1584,8 +1608,8 @@ class ClaudeProviderTests(unittest.TestCase):
     def test_sdk_empty_result_falls_back_to_tool_json(self) -> None:
         _FakeClaudeSDKClient.mode = "tool_fallback"
         _, provider_client = _configure_provider()
-        _create_owned_session(provider_client, "session-tool-fallback")
-        provider_client.CreateTurn(_turn_request(turn_id="turn-tool-fallback", session_id="session-tool-fallback"))
+        created = _create_owned_session(provider_client)
+        provider_client.CreateTurn(_turn_request(turn_id="turn-tool-fallback", session_id=created.id))
 
         turn = _wait_for_turn(provider_client, "turn-tool-fallback", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
         use_line, result_line = turn.text.text.splitlines()
@@ -1599,8 +1623,8 @@ class ClaudeProviderTests(unittest.TestCase):
     def test_sdk_response_without_result_marks_turn_failed(self) -> None:
         _FakeClaudeSDKClient.mode = "no_result"
         _, provider_client = _configure_provider()
-        _create_owned_session(provider_client, "session-no-result")
-        provider_client.CreateTurn(_turn_request(turn_id="turn-no-result", session_id="session-no-result"))
+        created = _create_owned_session(provider_client)
+        provider_client.CreateTurn(_turn_request(turn_id="turn-no-result", session_id=created.id))
 
         failed = _wait_for_turn(provider_client, "turn-no-result", agent_pb2.AGENT_EXECUTION_STATUS_FAILED)
         self.assertIn("ended without a result", failed.status_message)
@@ -1608,9 +1632,9 @@ class ClaudeProviderTests(unittest.TestCase):
     def test_sdk_cancelled_result_marks_turn_canceled(self) -> None:
         _FakeClaudeSDKClient.mode = "cancelled_result"
         _, provider_client = _configure_provider()
-        provider_client.CreateSession(_owned_session_request("session-cancelled-result"))
+        created = provider_client.CreateSession(_owned_session_request())
         provider_client.CreateTurn(
-            _turn_request(turn_id="turn-cancelled-result", session_id="session-cancelled-result")
+            _turn_request(turn_id="turn-cancelled-result", session_id=created.id)
         )
 
         canceled = _wait_for_turn(provider_client, "turn-cancelled-result", agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
@@ -1770,9 +1794,9 @@ def _turn_request(
     return request
 
 
-def _owned_session_request(session_id: str, **kwargs: Any) -> Any:
+def _owned_session_request(**kwargs: Any) -> Any:
     return agent_pb2.CreateAgentProviderSessionRequest(
-        session_id=session_id, created_by_subject_id="user-123", subject=_subject_context("user-123"), **kwargs
+        created_by_subject_id="user-123", subject=_subject_context("user-123"), **kwargs
     )
 
 
@@ -1842,8 +1866,8 @@ def _large_catalog_tool_config() -> Any:
     return config
 
 
-def _create_owned_session(provider_client: Any, session_id: str, **kwargs: Any) -> Any:
-    return provider_client.CreateSession(_owned_session_request(session_id, **kwargs))
+def _create_owned_session(provider_client: Any, **kwargs: Any) -> Any:
+    return provider_client.CreateSession(_owned_session_request(**kwargs))
 
 
 def _add_tool(

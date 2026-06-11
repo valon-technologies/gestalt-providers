@@ -39,9 +39,10 @@ async fn completes_turn_and_refreshes_adc_token_per_turn() {
         vec![gestalt::AgentToolSourceMode::Catalog]
     );
 
-    create_session(&provider).await;
-    create_session(&provider).await;
-    create_turn(&provider, "turn-1").await;
+    let session = create_session(&provider).await;
+    let replayed = create_session(&provider).await;
+    assert_eq!(replayed.id, session.id);
+    create_turn_in_session(&provider, &session.id, "turn-1").await;
     let turn = wait_for_turn(
         &provider,
         "turn-1",
@@ -49,9 +50,9 @@ async fn completes_turn_and_refreshes_adc_token_per_turn() {
     )
     .await;
     assert_eq!(turn_text(&turn), "Hermes says hi");
-    create_turn(&provider, "turn-1").await;
+    create_turn_in_session(&provider, &session.id, "turn-1").await;
 
-    create_turn(&provider, "turn-2").await;
+    create_turn_in_session(&provider, &session.id, "turn-2").await;
     wait_for_turn(
         &provider,
         "turn-2",
@@ -109,8 +110,8 @@ async fn auto_approves_acp_permission_requests() {
     let fixture = Fixture::new("permission");
     let provider = fixture.configure_provider().await;
 
-    create_session(&provider).await;
-    create_turn(&provider, "turn-permission").await;
+    let session = create_session(&provider).await;
+    create_turn_in_session(&provider, &session.id, "turn-permission").await;
     wait_for_turn(
         &provider,
         "turn-permission",
@@ -140,7 +141,7 @@ async fn fixed_profile_mode_skips_acp_model_switching() {
 
     let session = create_session(&provider).await;
     assert_eq!(session.model, "kimi-k2.6");
-    create_turn(&provider, "turn-fixed-profile").await;
+    create_turn_in_session(&provider, &session.id, "turn-fixed-profile").await;
     let turn = wait_for_turn(
         &provider,
         "turn-fixed-profile",
@@ -170,8 +171,8 @@ async fn catalog_turn_bridges_gestalt_tools_to_hermes() {
     let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_mcp_session(&provider).await;
-    create_mcp_turn(&provider, "turn-mcp").await;
+    let session = create_mcp_session(&provider).await;
+    create_mcp_turn(&provider, &session.id, "turn-mcp").await;
     let turn = wait_for_turn(
         &provider,
         "turn-mcp",
@@ -210,7 +211,7 @@ async fn catalog_turn_bridges_gestalt_tools_to_hermes() {
             agent.session_id.as_str(),
             agent.turn_id.as_str()
         )),
-        Some(("hermes", "session-1", "turn-mcp"))
+        Some(("hermes", session.id.as_str(), "turn-mcp"))
     );
     assert!(context.tool_refs_set);
     assert_eq!(context.tool_refs.len(), 1);
@@ -300,9 +301,8 @@ async fn catalog_turn_inherits_session_tool_scope() {
     let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_session_with_tools(
+    let session = create_session_with_tools(
         &provider,
-        "session-1",
         catalog_tool_config(vec![gestalt::AgentToolRef {
             app: "*".to_string(),
             credential_mode: "subject".to_string(),
@@ -313,7 +313,7 @@ async fn catalog_turn_inherits_session_tool_scope() {
     provider
         .create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: "turn-session-tools".to_string(),
-            session_id: "session-1".to_string(),
+            session_id: session.id.clone(),
             messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "show me my linear tickets".to_string(),
@@ -324,7 +324,7 @@ async fn catalog_turn_inherits_session_tool_scope() {
             subject: Some(owner_subject()),
             context: Some(request_context_for_turn(
                 OWNER_SUBJECT_ID,
-                "session-1",
+                &session.id,
                 "turn-session-tools",
             )),
             ..empty_turn_request()
@@ -360,8 +360,8 @@ async fn catalog_turn_does_not_invoke_apps_for_mcp_tool_listing() {
     let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_mcp_session(&provider).await;
-    create_mcp_turn(&provider, "turn-mcp-no-prefetch").await;
+    let session = create_mcp_session(&provider).await;
+    create_mcp_turn(&provider, &session.id, "turn-mcp-no-prefetch").await;
     let turn = wait_for_turn(
         &provider,
         "turn-mcp-no-prefetch",
@@ -417,8 +417,8 @@ async fn catalog_turn_marks_target_app_error_status_as_tool_error() {
     let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_mcp_session(&provider).await;
-    create_mcp_turn(&provider, "turn-mcp-sentinel").await;
+    let session = create_mcp_session(&provider).await;
+    create_mcp_turn(&provider, &session.id, "turn-mcp-sentinel").await;
     let turn = wait_for_turn(
         &provider,
         "turn-mcp-sentinel",
@@ -467,8 +467,8 @@ async fn catalog_proxy_gets_schema_by_returned_mcp_name() {
     let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_mcp_session(&provider).await;
-    create_mcp_turn(&provider, "turn-mcp-schema").await;
+    let session = create_mcp_session(&provider).await;
+    create_mcp_turn(&provider, &session.id, "turn-mcp-schema").await;
     wait_for_turn(
         &provider,
         "turn-mcp-schema",
@@ -509,7 +509,7 @@ async fn catalog_proxy_rejects_ambiguous_ref_selectors() {
     let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_mcp_session_with_tools(
+    let session = create_mcp_session_with_tools(
         &provider,
         vec![
             listed_tool("linear-list-a", "linear.issues", "Linear issues A"),
@@ -521,7 +521,7 @@ async fn catalog_proxy_rejects_ambiguous_ref_selectors() {
         ],
     )
     .await;
-    create_mcp_turn(&provider, "turn-mcp-ambiguous").await;
+    create_mcp_turn(&provider, &session.id, "turn-mcp-ambiguous").await;
     wait_for_turn(
         &provider,
         "turn-mcp-ambiguous",
@@ -558,8 +558,8 @@ async fn catalog_proxy_rejects_invalid_selectors_before_lookup() {
     let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_mcp_session(&provider).await;
-    create_mcp_turn(&provider, "turn-mcp-invalid-selector").await;
+    let session = create_mcp_session(&provider).await;
+    create_mcp_turn(&provider, &session.id, "turn-mcp-invalid-selector").await;
     wait_for_turn(
         &provider,
         "turn-mcp-invalid-selector",
@@ -589,7 +589,7 @@ async fn catalog_proxy_searches_only_catalog_metadata() {
     let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_mcp_session_with_tools(
+    let session = create_mcp_session_with_tools(
         &provider,
         vec![gestalt::ListedAgentTool {
             id: "schema-only".to_string(),
@@ -608,7 +608,7 @@ async fn catalog_proxy_searches_only_catalog_metadata() {
         }],
     )
     .await;
-    create_mcp_turn(&provider, "turn-mcp-schema-only").await;
+    create_mcp_turn(&provider, &session.id, "turn-mcp-schema-only").await;
     wait_for_turn(
         &provider,
         "turn-mcp-schema-only",
@@ -661,8 +661,8 @@ async fn catalog_proxy_ranks_matches_across_catalog_tools() {
         "linear.issues.best",
         "Linear issues",
     ));
-    create_mcp_session_with_tools(&provider, tools).await;
-    create_mcp_turn(&provider, "turn-mcp-ranked-pages").await;
+    let session = create_mcp_session_with_tools(&provider, tools).await;
+    create_mcp_turn(&provider, &session.id, "turn-mcp-ranked-pages").await;
     wait_for_turn(
         &provider,
         "turn-mcp-ranked-pages",
@@ -718,7 +718,6 @@ async fn rejects_invalid_session_catalog_tools_without_spawning_hermes() {
     ] {
         let err = provider
             .create_session(gestalt::CreateAgentProviderSessionRequest {
-                session_id: format!("session-{name}"),
                 model: "kimi-k2.6".to_string(),
                 tools: Some(catalog_tool_config_with_tools(
                     vec![gestalt::AgentToolRef {
@@ -753,8 +752,8 @@ async fn catalog_proxy_reports_input_cap_errors_without_invoking_apps() {
     let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_mcp_session(&provider).await;
-    create_mcp_turn(&provider, "turn-mcp-input-caps").await;
+    let session = create_mcp_session(&provider).await;
+    create_mcp_turn(&provider, &session.id, "turn-mcp-input-caps").await;
     wait_for_turn(
         &provider,
         "turn-mcp-input-caps",
@@ -793,8 +792,8 @@ async fn catalog_proxy_reports_app_invoke_errors_as_tool_errors() {
     let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_mcp_session(&provider).await;
-    create_mcp_turn(&provider, "turn-mcp-execute-error").await;
+    let session = create_mcp_session(&provider).await;
+    create_mcp_turn(&provider, &session.id, "turn-mcp-execute-error").await;
     wait_for_turn(
         &provider,
         "turn-mcp-execute-error",
@@ -831,8 +830,8 @@ async fn catalog_does_not_require_advertised_acp_http_mcp_support() {
     let app_task = serve_app_host(socket_path, app.clone()).await;
     let provider = fixture.configure_provider().await;
 
-    create_mcp_session(&provider).await;
-    create_mcp_turn(&provider, "turn-no-cap").await;
+    let session = create_mcp_session(&provider).await;
+    create_mcp_turn(&provider, &session.id, "turn-no-cap").await;
     let turn = wait_for_turn(
         &provider,
         "turn-no-cap",
@@ -852,11 +851,11 @@ async fn structured_output_turn_returns_validated_value() {
     let fixture = Fixture::new("structured-json");
     let provider = fixture.configure_provider().await;
 
-    create_session(&provider).await;
+    let session = create_session(&provider).await;
     provider
         .create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: "turn-structured".to_string(),
-            session_id: "session-1".to_string(),
+            session_id: session.id.clone(),
             messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "grade".to_string(),
@@ -874,7 +873,7 @@ async fn structured_output_turn_returns_validated_value() {
             }),
             created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
-            context: Some(request_context(OWNER_SUBJECT_ID)),
+            context: Some(request_context(OWNER_SUBJECT_ID, &session.id)),
             ..empty_turn_request()
         })
         .await
@@ -901,11 +900,11 @@ async fn structured_output_turn_fails_invalid_json() {
     let fixture = Fixture::new("structured-invalid");
     let provider = fixture.configure_provider().await;
 
-    create_session(&provider).await;
+    let session = create_session(&provider).await;
     provider
         .create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: "turn-structured-invalid".to_string(),
-            session_id: "session-1".to_string(),
+            session_id: session.id.clone(),
             messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "grade".to_string(),
@@ -920,7 +919,7 @@ async fn structured_output_turn_fails_invalid_json() {
             }),
             created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
-            context: Some(request_context(OWNER_SUBJECT_ID)),
+            context: Some(request_context(OWNER_SUBJECT_ID, &session.id)),
             ..empty_turn_request()
         })
         .await
@@ -943,8 +942,8 @@ async fn terminal_hermes_stderr_marks_turn_failed() {
     let fixture = Fixture::new("stderr-fail");
     let provider = fixture.configure_provider().await;
 
-    create_session(&provider).await;
-    create_turn(&provider, "turn-stderr-fail").await;
+    let session = create_session(&provider).await;
+    create_turn_in_session(&provider, &session.id, "turn-stderr-fail").await;
     let turn = wait_for_turn(
         &provider,
         "turn-stderr-fail",
@@ -969,12 +968,12 @@ async fn terminal_hermes_stderr_marks_turn_failed() {
 async fn rejects_unsupported_tool_and_model_options() {
     let fixture = Fixture::new("success");
     let provider = fixture.configure_provider().await;
-    create_session(&provider).await;
+    let session = create_session(&provider).await;
 
     let err = provider
         .create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: "turn-schema".to_string(),
-            session_id: "session-1".to_string(),
+            session_id: session.id.clone(),
             messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "hi".to_string(),
@@ -985,7 +984,7 @@ async fn rejects_unsupported_tool_and_model_options() {
             }),
             created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
-            context: Some(request_context(OWNER_SUBJECT_ID)),
+            context: Some(request_context(OWNER_SUBJECT_ID, &session.id)),
             ..empty_turn_request()
         })
         .await
@@ -995,7 +994,7 @@ async fn rejects_unsupported_tool_and_model_options() {
     let err = provider
         .create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: "turn-model-options".to_string(),
-            session_id: "session-1".to_string(),
+            session_id: session.id.clone(),
             messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "hi".to_string(),
@@ -1005,7 +1004,7 @@ async fn rejects_unsupported_tool_and_model_options() {
             model_options: Some(json!({ "type": "object" })),
             created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
             subject: Some(owner_subject()),
-            context: Some(request_context(OWNER_SUBJECT_ID)),
+            context: Some(request_context(OWNER_SUBJECT_ID, &session.id)),
             ..empty_turn_request()
         })
         .await
@@ -1014,30 +1013,10 @@ async fn rejects_unsupported_tool_and_model_options() {
 }
 
 #[tokio::test]
-async fn rejects_empty_session_id_without_spawning_hermes() {
-    let fixture = Fixture::new("success");
-    let provider = fixture.configure_provider().await;
-
-    let err = provider
-        .create_session(gestalt::CreateAgentProviderSessionRequest {
-            session_id: "   ".to_string(),
-            model: "kimi-k2.6".to_string(),
-            ..Default::default()
-        })
-        .await
-        .unwrap_err();
-    assert_eq!(err.status(), Some(400));
-    assert!(
-        fixture.log_events().is_empty(),
-        "Hermes should not start for invalid session ids"
-    );
-}
-
-#[tokio::test]
 async fn owner_can_read_and_mutate_private_session() {
     let fixture = Fixture::new("success");
     let provider = fixture.configure_provider().await;
-    create_session_with(
+    let created = create_session_with(
         &provider,
         "session-owner-private",
         OWNER_SUBJECT_ID,
@@ -1049,16 +1028,16 @@ async fn owner_can_read_and_mutate_private_session() {
     let session = provider
         .get_session(gestalt::GetAgentProviderSessionRequest {
             provider_name: "hermes".to_string(),
-            session_id: "session-owner-private".to_string(),
+            session_id: created.id.clone(),
             subject: Some(owner_subject()),
         })
         .await
         .unwrap();
-    assert_eq!(session.id, "session-owner-private");
+    assert_eq!(session.id, created.id);
 
     let updated = provider
         .update_session(gestalt::UpdateAgentProviderSessionRequest {
-            session_id: "session-owner-private".to_string(),
+            session_id: created.id.clone(),
             client_ref: "owner-ref".to_string(),
             subject: Some(owner_subject()),
             ..Default::default()
@@ -1067,7 +1046,7 @@ async fn owner_can_read_and_mutate_private_session() {
         .unwrap();
     assert_eq!(updated.client_ref, "owner-ref");
 
-    create_turn_in_session(&provider, "session-owner-private", "turn-owner-private").await;
+    create_turn_in_session(&provider, &created.id, "turn-owner-private").await;
     wait_for_turn(
         &provider,
         "turn-owner-private",
@@ -1076,7 +1055,7 @@ async fn owner_can_read_and_mutate_private_session() {
     .await;
     let turns = provider
         .list_turns(gestalt::ListAgentProviderTurnsRequest {
-            session_id: "session-owner-private".to_string(),
+            session_id: created.id.clone(),
             subject: Some(owner_subject()),
             ..Default::default()
         })
@@ -1091,7 +1070,7 @@ async fn owner_can_read_and_mutate_private_session() {
 async fn slack_metadata_makes_session_company_visible_at_create_only() {
     let fixture = Fixture::new("success");
     let provider = fixture.configure_provider().await;
-    create_session_with(
+    let company = create_session_with(
         &provider,
         "session-company",
         SLACK_SUBJECT_ID,
@@ -1119,12 +1098,12 @@ async fn slack_metadata_makes_session_company_visible_at_create_only() {
     let session = provider
         .get_session(gestalt::GetAgentProviderSessionRequest {
             provider_name: "hermes".to_string(),
-            session_id: "session-company".to_string(),
+            session_id: company.id.clone(),
             subject: Some(other_subject()),
         })
         .await
         .unwrap();
-    assert_eq!(session.id, "session-company");
+    assert_eq!(session.id, company.id);
 
     let sessions = provider
         .list_sessions(gestalt::ListAgentProviderSessionsRequest {
@@ -1135,11 +1114,11 @@ async fn slack_metadata_makes_session_company_visible_at_create_only() {
         .unwrap()
         .sessions;
     assert_eq!(sessions.len(), 1);
-    assert_eq!(sessions[0].id, "session-company");
+    assert_eq!(sessions[0].id, company.id);
 
     let missing_subject_err = provider
         .get_session(gestalt::GetAgentProviderSessionRequest {
-            session_id: "session-company".to_string(),
+            session_id: company.id.clone(),
             ..Default::default()
         })
         .await
@@ -1148,7 +1127,7 @@ async fn slack_metadata_makes_session_company_visible_at_create_only() {
 
     provider
         .update_session(gestalt::UpdateAgentProviderSessionRequest {
-            session_id: "session-company".to_string(),
+            session_id: company.id.clone(),
             metadata: Some(json!({ "note": "slack metadata removed" })),
             subject: Some(slack_subject()),
             ..Default::default()
@@ -1158,7 +1137,7 @@ async fn slack_metadata_makes_session_company_visible_at_create_only() {
     provider
         .get_session(gestalt::GetAgentProviderSessionRequest {
             provider_name: "hermes".to_string(),
-            session_id: "session-company".to_string(),
+            session_id: company.id.clone(),
             subject: Some(other_subject()),
         })
         .await
@@ -1166,7 +1145,7 @@ async fn slack_metadata_makes_session_company_visible_at_create_only() {
 
     create_turn_in_session_as(
         &provider,
-        "session-company",
+        &company.id,
         "turn-company",
         SLACK_SUBJECT_ID,
         slack_subject(),
@@ -1188,7 +1167,7 @@ async fn slack_metadata_makes_session_company_visible_at_create_only() {
         .unwrap();
     let turns = provider
         .list_turns(gestalt::ListAgentProviderTurnsRequest {
-            session_id: "session-company".to_string(),
+            session_id: company.id.clone(),
             subject: Some(other_subject()),
             ..Default::default()
         })
@@ -1224,7 +1203,7 @@ async fn slack_metadata_makes_session_company_visible_at_create_only() {
 async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
     let fixture = Fixture::new("success");
     let provider = fixture.configure_provider().await;
-    create_session_with(
+    let hidden = create_session_with(
         &provider,
         "session-private-hidden",
         OWNER_SUBJECT_ID,
@@ -1232,7 +1211,7 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
         None,
     )
     .await;
-    create_turn_in_session(&provider, "session-private-hidden", "turn-private-hidden").await;
+    create_turn_in_session(&provider, &hidden.id, "turn-private-hidden").await;
     wait_for_turn(
         &provider,
         "turn-private-hidden",
@@ -1243,7 +1222,7 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
     let err = provider
         .get_session(gestalt::GetAgentProviderSessionRequest {
             provider_name: "hermes".to_string(),
-            session_id: "session-private-hidden".to_string(),
+            session_id: hidden.id.clone(),
             subject: Some(other_subject()),
         })
         .await
@@ -1251,7 +1230,7 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
     assert_eq!(err.status(), Some(404));
     let err = provider
         .get_session(gestalt::GetAgentProviderSessionRequest {
-            session_id: "session-private-hidden".to_string(),
+            session_id: hidden.id.clone(),
             ..Default::default()
         })
         .await
@@ -1285,7 +1264,7 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
     assert_eq!(err.status(), Some(404));
     let turns = provider
         .list_turns(gestalt::ListAgentProviderTurnsRequest {
-            session_id: "session-private-hidden".to_string(),
+            session_id: hidden.id.clone(),
             subject: Some(other_subject()),
             ..Default::default()
         })
@@ -1306,7 +1285,7 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
 
     provider
         .update_session(gestalt::UpdateAgentProviderSessionRequest {
-            session_id: "session-private-hidden".to_string(),
+            session_id: hidden.id.clone(),
             metadata: Some(json!({
                 "slack": {
                     "team_id": "T1",
@@ -1322,14 +1301,14 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
     let err = provider
         .get_session(gestalt::GetAgentProviderSessionRequest {
             provider_name: "hermes".to_string(),
-            session_id: "session-private-hidden".to_string(),
+            session_id: hidden.id.clone(),
             subject: Some(other_subject()),
         })
         .await
         .unwrap_err();
     assert_eq!(err.status(), Some(404));
 
-    create_session_with(
+    let incomplete = create_session_with(
         &provider,
         "session-incomplete-slack",
         SLACK_SUBJECT_ID,
@@ -1340,7 +1319,7 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
     let err = provider
         .get_session(gestalt::GetAgentProviderSessionRequest {
             provider_name: "hermes".to_string(),
-            session_id: "session-incomplete-slack".to_string(),
+            session_id: incomplete.id.clone(),
             subject: Some(other_subject()),
         })
         .await
@@ -1352,7 +1331,7 @@ async fn private_sessions_hide_non_owner_reads_lists_turns_and_events() {
 async fn non_owner_cannot_mutate_company_visible_session_or_turn() {
     let fixture = Fixture::new("success");
     let provider = fixture.configure_provider().await;
-    create_session_with(
+    let company = create_session_with(
         &provider,
         "session-company-write",
         SLACK_SUBJECT_ID,
@@ -1370,7 +1349,7 @@ async fn non_owner_cannot_mutate_company_visible_session_or_turn() {
 
     let err = provider
         .update_session(gestalt::UpdateAgentProviderSessionRequest {
-            session_id: "session-company-write".to_string(),
+            session_id: company.id.clone(),
             client_ref: "other-ref".to_string(),
             subject: Some(other_subject()),
             ..Default::default()
@@ -1382,7 +1361,7 @@ async fn non_owner_cannot_mutate_company_visible_session_or_turn() {
     let err = provider
         .create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: "turn-other-write".to_string(),
-            session_id: "session-company-write".to_string(),
+            session_id: company.id.clone(),
             messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "hi".to_string(),
@@ -1399,7 +1378,7 @@ async fn non_owner_cannot_mutate_company_visible_session_or_turn() {
 
     create_turn_in_session_as(
         &provider,
-        "session-company-write",
+        &company.id,
         "turn-company-write-owner",
         SLACK_SUBJECT_ID,
         slack_subject(),
@@ -1427,8 +1406,8 @@ async fn non_owner_cannot_mutate_company_visible_session_or_turn() {
 async fn cancel_turn_sends_acp_cancel_and_marks_turn_canceled() {
     let fixture = Fixture::new("hang");
     let provider = fixture.configure_provider().await;
-    create_session(&provider).await;
-    create_turn(&provider, "turn-cancel").await;
+    let session = create_session(&provider).await;
+    create_turn_in_session(&provider, &session.id, "turn-cancel").await;
 
     wait_for_log_event(&fixture.log_path, "prompt").await;
     let canceled = provider
@@ -1449,8 +1428,8 @@ async fn cancel_turn_sends_acp_cancel_and_marks_turn_canceled() {
 async fn cancel_before_acp_spawn_prevents_prompt() {
     let fixture = Fixture::new_with_delayed_turn_token("success");
     let provider = fixture.configure_provider().await;
-    create_session(&provider).await;
-    create_turn(&provider, "turn-early-cancel").await;
+    let session = create_session(&provider).await;
+    create_turn_in_session(&provider, &session.id, "turn-early-cancel").await;
 
     let canceled = provider
         .cancel_turn(gestalt::CancelAgentProviderTurnRequest {
@@ -1756,12 +1735,10 @@ async fn create_session(provider: &HermesAgentProvider) -> gestalt::AgentSession
 
 async fn create_session_with_tools(
     provider: &HermesAgentProvider,
-    session_id: &str,
     tools: gestalt::AgentToolConfig,
 ) -> gestalt::AgentSession {
     provider
         .create_session(gestalt::CreateAgentProviderSessionRequest {
-            session_id: session_id.to_string(),
             model: "kimi-k2.6".to_string(),
             tools: Some(tools),
             created_by_subject_id: Some(OWNER_SUBJECT_ID.to_string()),
@@ -1796,14 +1773,14 @@ fn listed_tool_refs(tools: &[gestalt::ListedAgentTool]) -> Vec<gestalt::AgentToo
 
 async fn create_session_with(
     provider: &HermesAgentProvider,
-    session_id: &str,
+    idempotency_key: &str,
     owner_subject_id: &str,
     subject: Option<gestalt::Subject>,
     metadata: Option<JsonValue>,
 ) -> gestalt::AgentSession {
     provider
         .create_session(gestalt::CreateAgentProviderSessionRequest {
-            session_id: session_id.to_string(),
+            idempotency_key: idempotency_key.to_string(),
             model: "kimi-k2.6".to_string(),
             metadata,
             tools: Some(catalog_tool_config(vec![gestalt::AgentToolRef {
@@ -1817,10 +1794,6 @@ async fn create_session_with(
         })
         .await
         .unwrap()
-}
-
-async fn create_turn(provider: &HermesAgentProvider, turn_id: &str) -> gestalt::AgentTurn {
-    create_turn_in_session(provider, "session-1", turn_id).await
 }
 
 async fn create_turn_in_session(
@@ -1882,17 +1855,20 @@ async fn create_mcp_session_with_tools(
 ) -> gestalt::AgentSession {
     create_session_with_tools(
         provider,
-        "session-1",
         catalog_tool_config_with_tools(listed_tool_refs(&tools), tools),
     )
     .await
 }
 
-async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> gestalt::AgentTurn {
+async fn create_mcp_turn(
+    provider: &HermesAgentProvider,
+    session_id: &str,
+    turn_id: &str,
+) -> gestalt::AgentTurn {
     provider
         .create_turn(gestalt::CreateAgentProviderTurnRequest {
             turn_id: turn_id.to_string(),
-            session_id: "session-1".to_string(),
+            session_id: session_id.to_string(),
             messages: vec![gestalt::AgentMessage {
                 role: "user".to_string(),
                 text: "show me my linear tickets".to_string(),
@@ -1903,7 +1879,7 @@ async fn create_mcp_turn(provider: &HermesAgentProvider, turn_id: &str) -> gesta
             subject: Some(owner_subject()),
             context: Some(request_context_for_turn(
                 OWNER_SUBJECT_ID,
-                "session-1",
+                session_id,
                 turn_id,
             )),
             ..empty_turn_request()
@@ -1940,7 +1916,6 @@ fn empty_turn_request() -> gestalt::CreateAgentProviderTurnRequest {
         idempotency_key: String::new(),
         model: String::new(),
         messages: Vec::new(),
-        tools: Vec::new(),
         output: gestalt::AgentOutput::text(),
         metadata: None,
         created_by_subject_id: None,
@@ -1960,8 +1935,8 @@ fn subject_context(subject_id: &str) -> gestalt::Subject {
     }
 }
 
-fn request_context(subject_id: &str) -> proto::RequestContext {
-    request_context_for_turn(subject_id, "session-1", "")
+fn request_context(subject_id: &str, session_id: &str) -> proto::RequestContext {
+    request_context_for_turn(subject_id, session_id, "")
 }
 
 fn request_context_for_turn(
@@ -2116,4 +2091,65 @@ fn write_token_script(path: &Path, counter_path: &Path, delay_after_first: bool)
         fs::set_permissions(path, permissions)?;
     }
     Ok(())
+}
+
+#[tokio::test]
+async fn create_session_mints_unique_gettable_ids() {
+    let fixture = Fixture::new("success");
+    let provider = fixture.configure_provider().await;
+    let first = create_session_with(&provider, "", OWNER_SUBJECT_ID, Some(owner_subject()), None).await;
+    let second = create_session_with(&provider, "", OWNER_SUBJECT_ID, Some(owner_subject()), None).await;
+    assert!(!first.id.is_empty());
+    assert!(!second.id.is_empty());
+    assert_ne!(first.id, second.id);
+    let fetched = provider
+        .get_session(gestalt::GetAgentProviderSessionRequest {
+            provider_name: "hermes".to_string(),
+            session_id: first.id.clone(),
+            subject: Some(owner_subject()),
+        })
+        .await
+        .unwrap();
+    assert_eq!(fetched.id, first.id);
+}
+
+#[tokio::test]
+async fn create_session_replays_same_subject_and_key() {
+    let fixture = Fixture::new("success");
+    let provider = fixture.configure_provider().await;
+    let first =
+        create_session_with(&provider, "obligation-key", OWNER_SUBJECT_ID, Some(owner_subject()), None).await;
+    let replay =
+        create_session_with(&provider, "obligation-key", OWNER_SUBJECT_ID, Some(owner_subject()), None).await;
+    assert_eq!(replay.id, first.id);
+}
+
+#[tokio::test]
+async fn create_session_distinct_keys_create_distinct_sessions() {
+    let fixture = Fixture::new("success");
+    let provider = fixture.configure_provider().await;
+    let first = create_session_with(&provider, "key-one", OWNER_SUBJECT_ID, Some(owner_subject()), None).await;
+    let second = create_session_with(&provider, "key-two", OWNER_SUBJECT_ID, Some(owner_subject()), None).await;
+    assert_ne!(first.id, second.id);
+}
+
+#[tokio::test]
+async fn create_session_same_key_different_subject_creates_distinct_sessions() {
+    let fixture = Fixture::new("success");
+    let provider = fixture.configure_provider().await;
+    let first = create_session_with(&provider, "shared-key", OWNER_SUBJECT_ID, Some(owner_subject()), None).await;
+    let second =
+        create_session_with(&provider, "shared-key", OTHER_SUBJECT_ID, Some(other_subject()), None).await;
+    assert_ne!(first.id, second.id);
+}
+
+#[tokio::test]
+async fn racing_same_key_creates_converge_on_one_session() {
+    let fixture = Fixture::new("success");
+    let provider = fixture.configure_provider().await;
+    let (first, second) = tokio::join!(
+        create_session_with(&provider, "race-key", OWNER_SUBJECT_ID, Some(owner_subject()), None),
+        create_session_with(&provider, "race-key", OWNER_SUBJECT_ID, Some(owner_subject()), None),
+    );
+    assert_eq!(first.id, second.id);
 }

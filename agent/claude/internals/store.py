@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import os
 import threading
+import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -38,7 +39,7 @@ from .store_records import (
 )
 from .store_retry import StoreUnavailableError, _call_with_busy_retry, _indexeddb_unavailable_message
 
-TURN_IDEMPOTENCY_SEP = "\x1f"
+IDEMPOTENCY_SEP = "\x1f"
 RANGE_SUFFIX = "\U0010ffff"
 
 
@@ -102,7 +103,6 @@ class IndexedDBRunStore:
     def create_session(
         self,
         *,
-        session_id: str,
         idempotency_key: str,
         provider_name: str,
         model: str,
@@ -114,26 +114,24 @@ class IndexedDBRunStore:
         listed_tools: list[gestalt.ListedAgentTool],
         created_by_subject_id: str,
     ) -> tuple[StoredSession, bool]:
-        session_id = session_id.strip()
-        if not session_id:
-            raise ValueError("session_id is required")
-
         def create(stores: dict[str, Any]) -> tuple[StoredSession, bool]:
             sessions = stores[self._session_store_name]
             idempotency = stores[self._session_idempotency_store_name]
             session_projections = stores[self._session_projection_store_name]
 
-            existing = _record_to_session(_get_optional_record(sessions, session_id))
-            if existing is not None:
-                _replace_session_projections(session_projections, None, existing)
-                return existing, False
-
             if idempotency_key:
-                existing = _session_for_idempotency_key_from_stores(idempotency, sessions, idempotency_key)
+                existing = _session_for_idempotency_key_from_stores(
+                    idempotency,
+                    sessions,
+                    _session_idempotency_record_id(
+                        created_by_subject_id=created_by_subject_id, idempotency_key=idempotency_key
+                    ),
+                )
                 if existing is not None:
                     _replace_session_projections(session_projections, None, existing)
                     return existing, False
 
+            session_id = str(uuid.uuid4())
             now = _utcnow()
             session = StoredSession(
                 session_id=session_id,
@@ -154,7 +152,14 @@ class IndexedDBRunStore:
             )
             if idempotency_key:
                 idempotency.add(
-                    {"id": idempotency_key, "session_id": session_id, "provider_name": provider_name, "created_at": now}
+                    {
+                        "id": _session_idempotency_record_id(
+                            created_by_subject_id=created_by_subject_id, idempotency_key=idempotency_key
+                        ),
+                        "session_id": session_id,
+                        "provider_name": provider_name,
+                        "created_at": now,
+                    }
                 )
             sessions.add(_session_to_record(session))
             _replace_session_projections(session_projections, None, session)
@@ -171,7 +176,9 @@ class IndexedDBRunStore:
                     create,
                 )
             except gestalt.AlreadyExistsError:
-                existing = self._session_after_create_conflict(session_id=session_id, idempotency_key=idempotency_key)
+                existing = self._session_after_create_conflict(
+                    created_by_subject_id=created_by_subject_id, idempotency_key=idempotency_key
+                )
                 if existing is None:
                     raise
                 session, created = existing, False
@@ -181,11 +188,17 @@ class IndexedDBRunStore:
     def get_session(self, session_id: str) -> StoredSession | None:
         return _record_to_session(_get_optional_record(self._sessions, session_id.strip()))
 
-    def get_session_by_idempotency_key(self, idempotency_key: str) -> StoredSession | None:
+    def get_session_by_idempotency_key(
+        self, *, created_by_subject_id: str, idempotency_key: str
+    ) -> StoredSession | None:
         idempotency_key = idempotency_key.strip()
         if not idempotency_key:
             return None
-        return _session_for_idempotency_key_from_stores(self._session_idempotency, self._sessions, idempotency_key)
+        return _session_for_idempotency_key_from_stores(
+            self._session_idempotency,
+            self._sessions,
+            _session_idempotency_record_id(created_by_subject_id=created_by_subject_id, idempotency_key=idempotency_key),
+        )
 
     def list_sessions(
         self,
@@ -586,13 +599,18 @@ class IndexedDBRunStore:
         events = [_record_to_turn_event(record) for record in self._events.iter_records(_turn_event_key_range(turn_id))]
         return [event for event in events if event is not None and event.turn_id == turn_id]
 
-    def _session_after_create_conflict(self, *, session_id: str, idempotency_key: str) -> StoredSession | None:
-        existing = self.get_session(session_id)
-        if existing is not None:
-            return existing
+    def _session_after_create_conflict(
+        self, *, created_by_subject_id: str, idempotency_key: str
+    ) -> StoredSession | None:
+        # With provider-minted session ids the losing create's id never exists,
+        # so the subject-scoped idempotency key lookup is the resolving path.
         if not idempotency_key:
             return None
-        return _session_for_idempotency_key_from_stores(self._session_idempotency, self._sessions, idempotency_key)
+        return _session_for_idempotency_key_from_stores(
+            self._session_idempotency,
+            self._sessions,
+            _session_idempotency_record_id(created_by_subject_id=created_by_subject_id, idempotency_key=idempotency_key),
+        )
 
     def _turn_after_begin_conflict(self, *, turn_id: str, session_id: str, idempotency_key: str) -> StoredTurn | None:
         existing = self.get_turn(turn_id)
@@ -741,9 +759,9 @@ def _get_optional_record(store: Any, record_id: str) -> dict[str, Any] | None:
 
 
 def _session_for_idempotency_key_from_stores(
-    idempotency_store: Any, session_store: Any, idempotency_key: str
+    idempotency_store: Any, session_store: Any, record_id: str
 ) -> StoredSession | None:
-    record = _get_optional_record(idempotency_store, idempotency_key)
+    record = _get_optional_record(idempotency_store, record_id)
     if record is None:
         return None
     session_id = str(record.get("session_id") or "").strip()
@@ -877,8 +895,16 @@ def _turn_event_key_range(turn_id: str) -> Any:
     return gestalt.KeyRange(lower=prefix, upper=f"{prefix}{RANGE_SUFFIX}")
 
 
+def _session_idempotency_record_id(*, created_by_subject_id: str, idempotency_key: str) -> str:
+    # Idempotency records persisted before session ids were provider-minted used
+    # the raw idempotency key as the record id and never match these composed
+    # ids, so the first replay after the upgrade creates a new session
+    # (acceptable at alpha).
+    return f"{created_by_subject_id.strip()}{IDEMPOTENCY_SEP}{idempotency_key.strip()}"
+
+
 def _turn_idempotency_record_id(*, session_id: str, idempotency_key: str) -> str:
-    return f"{session_id}{TURN_IDEMPOTENCY_SEP}{idempotency_key}"
+    return f"{session_id}{IDEMPOTENCY_SEP}{idempotency_key}"
 
 
 def _normalized_unique_ids(raw_ids: list[str] | None) -> list[str]:

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   AgentExecutionStatus,
   AgentSessionState,
@@ -99,7 +101,6 @@ export class InMemoryRunStore {
   }
 
   createSession(input: {
-    sessionId: string;
     idempotencyKey: string;
     providerName: string;
     model: string;
@@ -112,16 +113,9 @@ export class InMemoryRunStore {
     listedTools: readonly ListedAgentTool[];
     createdBySubjectId: string;
   }): { session: StoredSession; created: boolean } {
-    const sessionId = input.sessionId.trim();
-    if (!sessionId) {
-      throw new Error("session_id is required");
-    }
-    const existing = this.sessions.get(sessionId);
-    if (existing) {
-      return { session: cloneSession(existing), created: false };
-    }
-    if (input.idempotencyKey) {
-      const existingId = this.sessionIdempotency.get(input.idempotencyKey);
+    const dedupKey = sessionDedupKey(input.createdBySubjectId, input.idempotencyKey);
+    if (input.idempotencyKey.trim()) {
+      const existingId = this.sessionIdempotency.get(dedupKey);
       if (existingId) {
         const idempotent = this.sessions.get(existingId);
         if (idempotent) {
@@ -129,6 +123,7 @@ export class InMemoryRunStore {
         }
       }
     }
+    const sessionId = randomUUID();
     const now = new Date();
     const session: StoredSession = {
       sessionId,
@@ -149,8 +144,8 @@ export class InMemoryRunStore {
       lastTurnAt: undefined,
     };
     this.sessions.set(sessionId, session);
-    if (input.idempotencyKey) {
-      this.sessionIdempotency.set(input.idempotencyKey, sessionId);
+    if (input.idempotencyKey.trim()) {
+      this.sessionIdempotency.set(dedupKey, sessionId);
     }
     return { session: cloneSession(session), created: true };
   }
@@ -160,8 +155,13 @@ export class InMemoryRunStore {
     return session ? cloneSession(session) : undefined;
   }
 
-  getSessionByIdempotencyKey(idempotencyKey: string): StoredSession | undefined {
-    const sessionId = this.sessionIdempotency.get(idempotencyKey.trim());
+  getSessionByIdempotencyKey(
+    createdBySubjectId: string,
+    idempotencyKey: string,
+  ): StoredSession | undefined {
+    const sessionId = this.sessionIdempotency.get(
+      sessionDedupKey(createdBySubjectId, idempotencyKey),
+    );
     if (!sessionId) {
       return undefined;
     }
@@ -487,6 +487,10 @@ export function turnEventToAgentTurnEvent(event: StoredTurnEvent): AgentTurnEven
     data: event.data,
     createdAt: new Date(event.createdAt),
   };
+}
+
+function sessionDedupKey(createdBySubjectId: string, idempotencyKey: string): string {
+  return `${createdBySubjectId.trim()}${idempotencyKey.trim()}`;
 }
 
 export function cloneRecord(value: Record<string, unknown>): Record<string, unknown> {

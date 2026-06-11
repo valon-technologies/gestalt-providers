@@ -651,12 +651,13 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "tonic",
+ "uuid",
 ]
 
 [[package]]
 name = "gestalt-sdk"
 version = "0.0.1-alpha.2"
-source = "git+https://github.com/valon-technologies/gestalt.git?rev=592268ce2dfa48580e8d05fdb42ffecdc5a12cc9#592268ce2dfa48580e8d05fdb42ffecdc5a12cc9"
+source = "git+https://github.com/valon-technologies/gestalt.git?rev=016272890481b8aba6331ec65309b2c5374cb1be#016272890481b8aba6331ec65309b2c5374cb1be"
 dependencies = [
  "hyper-util",
  "libc",

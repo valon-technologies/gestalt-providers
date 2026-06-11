@@ -125,10 +125,11 @@ export class CursorAgentProvider extends SDKAgentProvider {
       const { toolSource, toolRefs, listedTools } = sessionToolScopeFromConfig(
         request.tools,
       );
+      const createdBySubjectId = (request.createdBySubjectId ?? "").trim();
       if (hasSessionStartHooks(request.sessionStart)) {
         return await this.withSessionStartLock(async () => {
           const existing = this.existingSessionForCreate(
-            request.sessionId,
+            createdBySubjectId,
             request.idempotencyKey,
           );
           if (existing) {
@@ -137,7 +138,6 @@ export class CursorAgentProvider extends SDKAgentProvider {
           }
           metadata = await runSessionStartHooks(request.sessionStart, metadata);
           const { session } = this.store.createSession({
-            sessionId: request.sessionId,
             idempotencyKey: request.idempotencyKey,
             providerName: this.name,
             model,
@@ -145,19 +145,18 @@ export class CursorAgentProvider extends SDKAgentProvider {
             metadata,
             visibility: sessionVisibilityForCreateMetadata(
               metadata,
-              (request.createdBySubjectId ?? "").trim(),
+              createdBySubjectId,
             ),
             preparedWorkspace,
             toolSource,
             toolRefs,
             listedTools,
-            createdBySubjectId: (request.createdBySubjectId ?? "").trim(),
+            createdBySubjectId,
           });
           return sessionToAgentSession(session);
         });
       }
       const { session, created } = this.store.createSession({
-        sessionId: request.sessionId,
         idempotencyKey: request.idempotencyKey,
         providerName: this.name,
         model,
@@ -165,13 +164,13 @@ export class CursorAgentProvider extends SDKAgentProvider {
         metadata,
         visibility: sessionVisibilityForCreateMetadata(
           metadata,
-          (request.createdBySubjectId ?? "").trim(),
+          createdBySubjectId,
         ),
         preparedWorkspace,
         toolSource,
         toolRefs,
         listedTools,
-        createdBySubjectId: (request.createdBySubjectId ?? "").trim(),
+        createdBySubjectId,
       });
       if (!created) {
         this.requireReadableSession(session, request.subject);
@@ -516,15 +515,12 @@ export class CursorAgentProvider extends SDKAgentProvider {
   }
 
   private existingSessionForCreate(
-    sessionId: string,
+    createdBySubjectId: string,
     idempotencyKey: string,
-  ): ReturnType<InMemoryRunStore["getSession"]> {
-    return (
-      this.store.getSession(sessionId) ??
-      (idempotencyKey
-        ? this.store.getSessionByIdempotencyKey(idempotencyKey)
-        : undefined)
-    );
+  ): StoredSession | undefined {
+    return idempotencyKey.trim()
+      ? this.store.getSessionByIdempotencyKey(createdBySubjectId, idempotencyKey)
+      : undefined;
   }
 
   private async withSessionStartLock<T>(callback: () => Promise<T>): Promise<T> {
