@@ -351,7 +351,7 @@ def validate_mutations(
     gestaltd: str, config_path: pathlib.Path, packages: dict[str, Any]
 ) -> None:
     plugin = require_package(packages, "app/httpbin")
-    indexeddb = require_package(packages, "indexeddb/mongodb")
+    indexeddb = require_package(packages, "indexeddb/relationaldb")
     ui = require_package(packages, "ui/default")
     run(
         [

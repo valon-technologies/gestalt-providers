@@ -5,29 +5,11 @@ updates:
       - "/auth"
       - "/cache"
       - "/s3/s3"
-      - "/indexeddb/dynamodb"
-      - "/indexeddb/mongodb"
       - "/indexeddb/relationaldb"
       - "/secrets"
+      - "/s3/gcs"
     groups:
       go-dependencies:
-        patterns:
-          - "*"
-        group-by: "dependency-name"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
-      timezone: "America/New_York"
-
-  - package-ecosystem: "cargo"
-    directories:
-      - "/indexeddb/internal/rust_sqlstore"
-      - "/indexeddb/mysql"
-      - "/indexeddb/postgres"
-      - "/indexeddb/sqlite"
-    groups:
-      rust-dependencies:
         patterns:
           - "*"
         group-by: "dependency-name"

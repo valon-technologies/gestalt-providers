@@ -39,41 +39,6 @@ packages:
         platforms:
           - "linux/amd64"
           - "linux/arm64"
-  github.com/valon-technologies/gestalt-providers/agent/hermes:
-    displayName: "Hermes ACP Agent"
-    description: "Agent provider that runs Hermes through the Agent Client Protocol."
-    versions:
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/hermes/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "agent"
-        runtime: "executable"
-        platforms:
-          - "linux/amd64"
-          - "linux/arm64"
-  github.com/valon-technologies/gestalt-providers/agent/simple:
-    displayName: "Simple Agent"
-    description: "Simple multi-model agent provider for Gestalt with tool calling over the OpenAI and Anthropic SDKs."
-    versions:
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/simple/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "agent"
-        runtime: "executable"
-        platforms:
-          - "darwin/amd64"
-          - "darwin/arm64"
-          - "linux/amd64"
-          - "linux/arm64"
-          - "linux/arm"
-  github.com/valon-technologies/gestalt-providers/app/asana:
-    displayName: "Asana"
-    description: "Manage tasks, projects, and workspaces."
-    versions:
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/asana/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "app"
-        runtime: "declarative"
-        platforms:
-          - "generic"
   github.com/valon-technologies/gestalt-providers/app/ashby:
     displayName: "Ashby"
     description: "Candidates, applications, jobs, offers, interviews, departments, locations, users, and reports."
@@ -98,16 +63,6 @@ packages:
           - "linux/amd64"
           - "linux/arm64"
           - "linux/arm"
-          - "generic"
-  github.com/valon-technologies/gestalt-providers/app/carta:
-    displayName: "Carta"
-    description: "Access Carta Launch, Investor, Issuer, Portfolio, corporation, compensation, open cap table, file upload, and user APIs."
-    versions:
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/carta/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "app"
-        runtime: "declarative"
-        platforms:
           - "generic"
   github.com/valon-technologies/gestalt-providers/app/clickhouse:
     displayName: "ClickHouse"
@@ -149,6 +104,16 @@ packages:
         runtime: "declarative"
         platforms:
           - "generic"
+  github.com/valon-technologies/gestalt-providers/app/excalidraw:
+    displayName: "Excalidraw+"
+    description: "Read, search, and edit Excalidraw+ scenes via the official hosted MCP server."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/excalidraw/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "app"
+        runtime: "declarative"
+        platforms:
+          - "generic"
   github.com/valon-technologies/gestalt-providers/app/extend:
     displayName: "Extend"
     description: "Document processing and extraction with Extend."
@@ -165,6 +130,26 @@ packages:
     versions:
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/figma/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "app"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/app/gcp_batch:
+    displayName: "GCP Batch"
+    description: "Google Cloud Batch job management"
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/gcp_batch/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "app"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/app/gcs:
+    displayName: "Google Cloud Storage"
+    description: "Google Cloud Storage object management"
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/gcs/v0.0.1-alpha.1/provider-release.yaml"
         kind: "app"
         runtime: "declarative"
         platforms:
@@ -434,12 +419,12 @@ packages:
         runtime: "declarative"
         platforms:
           - "generic"
-  github.com/valon-technologies/gestalt-providers/app/quickbooks:
-    displayName: "QuickBooks Online"
-    description: "Manage customers, invoices, bills, payments, accounts, and reports in QuickBooks Online."
+  github.com/valon-technologies/gestalt-providers/app/planetscale:
+    displayName: "PlanetScale"
+    description: "Use the official PlanetScale insights-only MCP server for organizations, databases, branches, schema, Insights, documentation search, and schema recommendations."
     versions:
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/quickbooks/v0.0.1-alpha.1/provider-release.yaml"
+      "0.0.1-alpha.0":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/planetscale/v0.0.1-alpha.0/provider-release.yaml"
         kind: "app"
         runtime: "declarative"
         platforms:
@@ -505,16 +490,6 @@ packages:
     versions:
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/trunk/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "app"
-        runtime: "declarative"
-        platforms:
-          - "generic"
-  github.com/valon-technologies/gestalt-providers/app/twilio:
-    displayName: "Twilio"
-    description: "Send and receive SMS, voice calls, and messaging operations."
-    versions:
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/twilio/v0.0.1-alpha.1/provider-release.yaml"
         kind: "app"
         runtime: "declarative"
         platforms:
@@ -620,34 +595,6 @@ packages:
           - "linux/amd64"
           - "linux/arm64"
           - "linux/arm"
-  github.com/valon-technologies/gestalt-providers/indexeddb/dynamodb:
-    displayName: "DynamoDB"
-    description: "Amazon DynamoDB IndexedDB provider."
-    versions:
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/dynamodb/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "indexeddb"
-        runtime: "executable"
-        platforms:
-          - "darwin/amd64"
-          - "darwin/arm64"
-          - "linux/amd64"
-          - "linux/arm64"
-          - "linux/arm"
-  github.com/valon-technologies/gestalt-providers/indexeddb/mongodb:
-    displayName: "MongoDB"
-    description: "MongoDB IndexedDB provider."
-    versions:
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/mongodb/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "indexeddb"
-        runtime: "executable"
-        platforms:
-          - "darwin/amd64"
-          - "darwin/arm64"
-          - "linux/amd64"
-          - "linux/arm64"
-          - "linux/arm"
   github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb:
     displayName: "RelationalDB"
     description: "IndexedDB provider supporting PostgreSQL, MySQL, SQLite, and SQL Server."
@@ -676,13 +623,13 @@ packages:
           - "linux/amd64"
           - "linux/arm64"
           - "linux/arm"
-  github.com/valon-technologies/gestalt-providers/runtime/kubernetes:
-    displayName: "Kubernetes Runtime"
-    description: "Hosted executable-plugin runtime backed by Kubernetes."
+  github.com/valon-technologies/gestalt-providers/s3/gcs:
+    displayName: "Google Cloud Storage"
+    description: "S3 provider backed by Google Cloud Storage with generation-aware object versions."
     versions:
       "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/kubernetes/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "runtime"
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/s3/gcs/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "s3"
         runtime: "executable"
         platforms:
           - "darwin/amd64"
@@ -704,82 +651,12 @@ packages:
           - "linux/amd64"
           - "linux/arm64"
           - "linux/arm"
-  github.com/valon-technologies/gestalt-providers/secrets/aws:
-    displayName: "AWS Secrets Manager"
-    description: "Resolves secrets from AWS Secrets Manager."
-    versions:
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/aws/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "secrets"
-        runtime: "executable"
-        platforms:
-          - "darwin/amd64"
-          - "darwin/arm64"
-          - "linux/amd64"
-          - "linux/arm64"
-          - "linux/arm"
-  github.com/valon-technologies/gestalt-providers/secrets/azure:
-    displayName: "Azure Key Vault"
-    description: "Resolves secrets from Azure Key Vault."
-    versions:
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/azure/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "secrets"
-        runtime: "executable"
-        platforms:
-          - "darwin/amd64"
-          - "darwin/arm64"
-          - "linux/amd64"
-          - "linux/arm64"
-          - "linux/arm"
   github.com/valon-technologies/gestalt-providers/secrets/google:
     displayName: "Google Secret Manager"
     description: "Resolves secrets from Google Cloud Secret Manager."
     versions:
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/google/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "secrets"
-        runtime: "executable"
-        platforms:
-          - "darwin/amd64"
-          - "darwin/arm64"
-          - "linux/amd64"
-          - "linux/arm64"
-          - "linux/arm"
-  github.com/valon-technologies/gestalt-providers/secrets/keeper:
-    displayName: "Keeper Secrets Manager"
-    description: "Resolves secrets from Keeper Secrets Manager."
-    versions:
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/keeper/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "secrets"
-        runtime: "executable"
-        platforms:
-          - "darwin/amd64"
-          - "darwin/arm64"
-          - "linux/amd64"
-          - "linux/arm64"
-          - "linux/arm"
-  github.com/valon-technologies/gestalt-providers/secrets/onepassword:
-    displayName: "1Password"
-    description: "Resolves secrets from 1Password Connect."
-    versions:
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/onepassword/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "secrets"
-        runtime: "executable"
-        platforms:
-          - "darwin/amd64"
-          - "darwin/arm64"
-          - "linux/amd64"
-          - "linux/arm64"
-          - "linux/arm"
-  github.com/valon-technologies/gestalt-providers/secrets/vault:
-    displayName: "HashiCorp Vault"
-    description: "Resolves secrets from HashiCorp Vault KV v2."
-    versions:
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/vault/v0.0.1-alpha.1/provider-release.yaml"
         kind: "secrets"
         runtime: "executable"
         platforms:
