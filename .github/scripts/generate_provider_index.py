@@ -947,14 +947,11 @@ def main() -> int:
             args.release_tag,
         )
     apply_current_manifest_metadata(packages, manifests)
-    for source, manifest in manifests.items():
-        if source not in packages:
-            packages[source] = {
-                "displayName": manifest.display_name,
-                "description": manifest.description,
-                "versions": {},
-            }
-    packages = {source: package for source, package in packages.items() if source in manifests}
+    packages = {
+        source: package
+        for source, package in packages.items()
+        if source in manifests and package.get("versions")
+    }
 
     ok = compare_or_write(output, render_index(packages), args.check)
     ok = compare_or_write(catalog_output, render_catalog(repo_root, manifests, packages), args.check) and ok
