@@ -27,6 +27,7 @@ EXECUTABLE_PLUGIN_ROOT_ENTRIES = frozenset(
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 _SHELL_META_CHARS = re.compile(r"[;&|`$<>\n\r]")
+_SKILL_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+(?::[A-Za-z0-9._-]+)?$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,17 +111,16 @@ class ClaudeCodeTurnOptions:
     setting_sources: tuple[SettingSource, ...]
     disable_auto_memory: bool
     skill_discovery: SkillDiscovery
+    skills: tuple[str, ...]
     tool_permissions: ClaudeCodeToolPermissions | None
 
     @property
     def sdk_skills(self) -> Literal["all"] | list[str]:
-        if (
-            self.skill_discovery == "all"
-            and self.tool_permissions is not None
-            and self.tool_permissions.includes_base_tool("Skill")
-        ):
+        if self.tool_permissions is None or not self.tool_permissions.includes_base_tool("Skill"):
+            return []
+        if self.skill_discovery == "all":
             return "all"
-        return []
+        return list(self.skills)
 
     @property
     def sdk_plugins(self) -> list[SdkPluginConfig]:
@@ -148,6 +148,7 @@ class ClaudeCodeConfig:
     setting_sources: tuple[SettingSource, ...] = ()
     disable_auto_memory: bool = True
     skill_discovery: SkillDiscovery = "none"
+    skills: tuple[str, ...] = ()
     plugins: tuple[LocalClaudeCodePlugin, ...] = ()
     tool_permissions: ClaudeCodeToolPermissions = ClaudeCodeToolPermissions(specs=())
 
@@ -160,18 +161,23 @@ class ClaudeCodeConfig:
         legacy_fields = sorted(set(raw_value) & UNSUPPORTED_LEGACY_FIELDS)
         if legacy_fields:
             raise ValueError(f"unsupported Claude Code config fields: {', '.join(legacy_fields)}")
+        if raw_value.get("skills") is not None and raw_value.get("skillDiscovery") is not None:
+            raise ValueError("skills and skillDiscovery cannot both be set")
 
         setting_sources = _parse_setting_sources(raw_value.get("settingSources"))
         disable_auto_memory = _parse_bool(
             raw_value.get("disableAutoMemory"), default=True, field_name="disableAutoMemory"
         )
         skill_discovery = _parse_skill_discovery(raw_value.get("skillDiscovery"))
+        skills = _parse_skills(raw_value.get("skills"))
         plugins = _parse_plugins(raw_value.get("plugins"))
+        _validate_skill_plugin_prefixes(skills, plugins)
         tool_permissions = _parse_allowed_tools(raw_value.get("allowedTools"))
         return cls(
             setting_sources=setting_sources,
             disable_auto_memory=disable_auto_memory,
             skill_discovery=skill_discovery,
+            skills=skills,
             plugins=plugins,
             tool_permissions=tool_permissions,
         )
@@ -187,6 +193,7 @@ class ClaudeCodeConfig:
             setting_sources=self.setting_sources,
             disable_auto_memory=self.disable_auto_memory,
             skill_discovery=self.skill_discovery,
+            skills=self.skills,
             tool_permissions=active_permissions,
         )
 
@@ -212,6 +219,33 @@ def _parse_skill_discovery(raw_value: Any) -> SkillDiscovery:
     if value not in SUPPORTED_SKILL_DISCOVERY:
         raise ValueError("skillDiscovery must be one of all, none")
     return cast(SkillDiscovery, value)
+
+
+def _parse_skills(raw_value: Any) -> tuple[str, ...]:
+    if raw_value is None:
+        return ()
+    if not isinstance(raw_value, list):
+        raise ValueError("skills must be a list of skill names")
+    skills: list[str] = []
+    for index, raw_item in enumerate(raw_value):
+        if not isinstance(raw_item, str) or not raw_item.strip():
+            raise ValueError(f"skills[{index}] must be a non-empty string")
+        item = raw_item.strip()
+        if not _SKILL_NAME_RE.match(item):
+            raise ValueError(f"skills[{index}] must be a skill name or plugin:skill qualified name")
+        if item in skills:
+            raise ValueError(f"skills[{index}] duplicates skills[{skills.index(item)}]")
+        skills.append(item)
+    return tuple(skills)
+
+
+def _validate_skill_plugin_prefixes(skills: tuple[str, ...], plugins: tuple[LocalClaudeCodePlugin, ...]) -> None:
+    plugin_names = {plugin.manifest_name for plugin in plugins}
+    for index, skill in enumerate(skills):
+        plugin_name, separator, _ = skill.partition(":")
+        if separator and plugin_name not in plugin_names:
+            known = ", ".join(sorted(plugin_names)) or "none"
+            raise ValueError(f"skills[{index}] references unknown plugin {plugin_name!r}; configured plugins: {known}")
 
 
 def _parse_plugins(raw_value: Any) -> tuple[LocalClaudeCodePlugin, ...]:

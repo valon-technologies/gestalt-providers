@@ -131,6 +131,16 @@ the provider only passes `skills: "all"` to the SDK when the resolved turn also
 has an active `Skill` permission. Setting `skillDiscovery: all` alone does not
 grant the `Skill` tool.
 
+`skills` enables only the listed skills instead of discovering everything.
+Entries are bare skill names or `plugin:skill` qualified names; qualified
+entries must reference the manifest name of a configured plugin. The list is
+passed to the SDK `skills` option, which hides unlisted skills from the model
+and makes the `Skill` tool reject them. It is mutually exclusive with
+`skillDiscovery`, and like discovery it only takes effect when the resolved
+turn has an active `Skill` permission. The filter controls skill visibility,
+not file access: skill files from loaded plugins remain readable by any file
+tools the turn allows.
+
 `plugins` is the ordered list of trusted local Claude Code plugin directories to
 load on every turn. Each entry must be an absolute path to an existing local
 plugin directory containing `.claude-plugin/plugin.json`. Only local skill
