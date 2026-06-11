@@ -106,9 +106,6 @@ impl gestalt::AgentProvider for HermesAgentProvider {
         &self,
         req: gestalt::CreateAgentProviderSessionRequest,
     ) -> gestalt::Result<gestalt::AgentSession> {
-        if req.session_id.trim().is_empty() {
-            return Err(gestalt::Error::bad_request("session_id is required"));
-        }
         validate_session_tool_config(&req)?;
         let config = self.require_config().await?;
         let provider_name = self.provider_name().await;
@@ -124,7 +121,7 @@ impl gestalt::AgentProvider for HermesAgentProvider {
             if !session_readable_by(&existing, &subject_id) {
                 return Err(gestalt::Error::not_found(format!(
                     "agent session {:?} was not found",
-                    req.session_id
+                    existing.id
                 )));
             }
             return Ok(agent_session(existing, false));
@@ -159,20 +156,19 @@ impl gestalt::AgentProvider for HermesAgentProvider {
 
         let mut store = self.inner.store.lock().await;
         let session = match store.create_session(&req, &provider_name, model, acp_session_id) {
-            Ok(CreateSessionResult::Created(session)) => session,
-            Ok(CreateSessionResult::Existing(session)) => {
+            CreateSessionResult::Created(session) => session,
+            CreateSessionResult::Existing(session) => {
                 if store
                     .get_session_if_readable(&session.id, &subject_id)
                     .is_none()
                 {
                     return Err(gestalt::Error::not_found(format!(
                         "agent session {:?} was not found",
-                        req.session_id
+                        session.id
                     )));
                 }
                 session
             }
-            Err(err) => return Err(gestalt::Error::bad_request(err)),
         };
         Ok(agent_session(session, false))
     }

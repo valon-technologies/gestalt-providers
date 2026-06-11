@@ -90,7 +90,9 @@ class ClaudeCodeAgentProvider(
             with self._session_start_lock:
                 existing = self._store_call(
                     lambda: existing_session_for_create(
-                        store, session_id=create_request.session_id, idempotency_key=create_request.idempotency_key
+                        store,
+                        created_by_subject_id=create_request.created_by_subject_id,
+                        idempotency_key=create_request.idempotency_key,
                     )
                 )
                 if existing is not None:
@@ -111,7 +113,6 @@ class ClaudeCodeAgentProvider(
     ) -> gestalt.AgentSession:
         session, created = self._store_call(
             lambda: store.create_session(
-                session_id=request.session_id,
                 idempotency_key=request.idempotency_key,
                 provider_name=self._name,
                 model=request.model,

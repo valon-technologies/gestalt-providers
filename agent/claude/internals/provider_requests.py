@@ -21,7 +21,6 @@ class ToolSourceModes:
 
 @dataclass(frozen=True, slots=True)
 class SessionCreateRequest:
-    session_id: str
     idempotency_key: str
     model: str
     client_ref: str
@@ -56,9 +55,6 @@ class TurnCreateRequest:
 def session_create_request_from_provider_request(
     request: gestalt.CreateAgentProviderSessionRequest, *, config: ClaudeAgentConfig, tool_source_modes: ToolSourceModes
 ) -> SessionCreateRequest:
-    session_id = request.session_id.strip()
-    if not session_id:
-        raise ValueError("session_id is required")
     model = config.resolve_model(request.model.strip())
     metadata = dict(request.metadata or {})
     validate_session_start_user_metadata(metadata)
@@ -67,7 +63,6 @@ def session_create_request_from_provider_request(
         request.tools, tool_source_modes=tool_source_modes
     )
     return SessionCreateRequest(
-        session_id=session_id,
         idempotency_key=request.idempotency_key.strip(),
         model=model,
         client_ref=request.client_ref.strip(),
@@ -138,14 +133,13 @@ def session_tool_scope_from_config(
 
 
 def existing_session_for_create(
-    store: IndexedDBRunStore, *, session_id: str, idempotency_key: str
+    store: IndexedDBRunStore, *, created_by_subject_id: str, idempotency_key: str
 ) -> StoredSession | None:
-    existing = store.get_session(session_id)
-    if existing is not None:
-        return existing
     if not idempotency_key:
         return None
-    return store.get_session_by_idempotency_key(idempotency_key)
+    return store.get_session_by_idempotency_key(
+        created_by_subject_id=created_by_subject_id, idempotency_key=idempotency_key
+    )
 
 
 def _prepared_workspace_from_request(request: gestalt.CreateAgentProviderSessionRequest) -> dict[str, str] | None:

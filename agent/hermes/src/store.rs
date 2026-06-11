@@ -100,27 +100,15 @@ impl Store {
         provider_name: &str,
         model: String,
         acp_session_id: String,
-    ) -> Result<CreateSessionResult, String> {
-        let session_id = req.session_id.trim();
-        if session_id.is_empty() {
-            return Err("session_id is required".to_string());
-        }
-        if let Some(existing) = self.sessions.get(session_id) {
-            return Ok(CreateSessionResult::Existing(existing.clone()));
-        }
-        let idempotency_key = req.idempotency_key.trim();
-        if !idempotency_key.is_empty() {
-            if let Some(existing_id) = self.session_idempotency.get(idempotency_key) {
-                if let Some(existing) = self.sessions.get(existing_id) {
-                    return Ok(CreateSessionResult::Existing(existing.clone()));
-                }
-            }
+    ) -> CreateSessionResult {
+        if let Some(existing) = self.existing_session_for_create(req) {
+            return CreateSessionResult::Existing(existing);
         }
 
         let now = SystemTime::now();
         let listed_tools = session_tools(req);
         let session = StoredSession {
-            id: session_id.to_string(),
+            id: uuid::Uuid::new_v4().to_string(),
             provider_name: provider_name.to_string(),
             acp_session_id,
             model,
@@ -139,28 +127,19 @@ impl Store {
             active_turn_id: None,
         };
         self.sessions.insert(session.id.clone(), session.clone());
-        if !idempotency_key.is_empty() {
-            self.session_idempotency
-                .insert(idempotency_key.to_string(), session.id.clone());
+        if let Some(key) = session_dedup_key(req) {
+            self.session_idempotency.insert(key, session.id.clone());
         }
-        Ok(CreateSessionResult::Created(session))
+        CreateSessionResult::Created(session)
     }
 
     pub fn existing_session_for_create(
         &self,
         req: &CreateAgentProviderSessionRequest,
     ) -> Option<StoredSession> {
-        let session_id = req.session_id.trim();
-        if let Some(existing) = self.sessions.get(session_id) {
-            return Some(existing.clone());
-        }
-        let idempotency_key = req.idempotency_key.trim();
-        if !idempotency_key.is_empty() {
-            if let Some(existing_id) = self.session_idempotency.get(idempotency_key) {
-                return self.sessions.get(existing_id).cloned();
-            }
-        }
-        None
+        let key = session_dedup_key(req)?;
+        let existing_id = self.session_idempotency.get(&key)?;
+        self.sessions.get(existing_id).cloned()
     }
 
     pub fn get_session(&self, id: &str) -> Option<StoredSession> {
@@ -573,6 +552,18 @@ fn session_visibility(
     } else {
         SessionVisibility::Private
     }
+}
+
+/// Session idempotency keys are scoped per subject: replays only match when
+/// both the idempotency key and created_by_subject_id match. Empty keys never
+/// dedup.
+fn session_dedup_key(req: &CreateAgentProviderSessionRequest) -> Option<String> {
+    let key = req.idempotency_key.trim();
+    if key.is_empty() {
+        return None;
+    }
+    let subject = req.created_by_subject_id.as_deref().unwrap_or_default();
+    Some(format!("{}\u{1f}{}", subject.trim(), key))
 }
 
 fn session_tools(req: &CreateAgentProviderSessionRequest) -> Vec<ListedAgentTool> {

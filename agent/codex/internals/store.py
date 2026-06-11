@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import threading
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -94,7 +95,6 @@ class InMemoryRunStore:
     def create_session(
         self,
         *,
-        session_id: str,
         idempotency_key: str,
         provider_name: str,
         model: str,
@@ -106,14 +106,12 @@ class InMemoryRunStore:
         listed_tools: list[gestalt.ListedAgentTool],
         created_by_subject_id: str,
     ) -> tuple[StoredSession, bool]:
-        session_id = session_id.strip()
-        if not session_id:
-            raise ValueError("session_id is required")
+        idempotency_key = idempotency_key.strip()
+        dedup_key = _session_dedup_key(created_by_subject_id, idempotency_key) if idempotency_key else ""
         with self._lock:
-            if session_id in self._sessions:
-                return copy.deepcopy(self._sessions[session_id]), False
-            if idempotency_key and idempotency_key in self._session_idempotency:
-                return copy.deepcopy(self._sessions[self._session_idempotency[idempotency_key]]), False
+            if dedup_key and dedup_key in self._session_idempotency:
+                return copy.deepcopy(self._sessions[self._session_idempotency[dedup_key]]), False
+            session_id = str(uuid.uuid4())
             now = _utcnow()
             session = StoredSession(
                 session_id=session_id,
@@ -133,8 +131,8 @@ class InMemoryRunStore:
                 updated_at=now,
             )
             self._sessions[session_id] = session
-            if idempotency_key:
-                self._session_idempotency[idempotency_key] = session_id
+            if dedup_key:
+                self._session_idempotency[dedup_key] = session_id
             return copy.deepcopy(session), True
 
     def get_session(self, session_id: str) -> StoredSession | None:
@@ -142,12 +140,14 @@ class InMemoryRunStore:
             session = self._sessions.get(session_id.strip())
             return copy.deepcopy(session) if session is not None else None
 
-    def get_session_by_idempotency_key(self, idempotency_key: str) -> StoredSession | None:
+    def get_session_by_idempotency_key(
+        self, *, created_by_subject_id: str, idempotency_key: str
+    ) -> StoredSession | None:
         idempotency_key = idempotency_key.strip()
         if not idempotency_key:
             return None
         with self._lock:
-            session_id = self._session_idempotency.get(idempotency_key)
+            session_id = self._session_idempotency.get(_session_dedup_key(created_by_subject_id, idempotency_key))
             if not session_id:
                 return None
             session = self._sessions.get(session_id)
@@ -353,6 +353,10 @@ class InMemoryRunStore:
 
 def _utcnow() -> datetime:
     return datetime.now(tz=UTC)
+
+
+def _session_dedup_key(created_by_subject_id: str, idempotency_key: str) -> str:
+    return f"{created_by_subject_id.strip()}\x1f{idempotency_key.strip()}"
 
 
 def _assistant_message_event_data(output: gestalt.AgentTurnOutput) -> dict[str, Any]:

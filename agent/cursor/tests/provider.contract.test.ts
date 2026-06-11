@@ -157,7 +157,6 @@ function turnRequest(
     idempotencyKey: input.idempotencyKey ?? "",
     model: input.model ?? "",
     messages: input.messages,
-    tools: input.tools ?? [],
     output: input.output ?? { text: {} },
     metadata: input.metadata,
     createdBySubjectId: input.createdBySubjectId ?? OWNER_SUBJECT.id,
@@ -324,7 +323,6 @@ describe("Cursor agent provider contract", () => {
 
     const created = await provider.createSession(
       create(CreateAgentProviderSessionRequestSchema, {
-        sessionId: "session-start",
         idempotencyKey: "session-start-idem",
         sessionStart: {
           hooks: [
@@ -349,7 +347,6 @@ describe("Cursor agent provider contract", () => {
 
     const replay = await provider.createSession(
       create(CreateAgentProviderSessionRequestSchema, {
-        sessionId: "session-start-replay",
         idempotencyKey: "session-start-idem",
         sessionStart: {
           hooks: [
@@ -363,12 +360,12 @@ describe("Cursor agent provider contract", () => {
         },
       }),
     );
-    expect(replay.id).toBe("session-start");
+    expect(replay.id).toBe(created.id);
 
     await provider.createTurn(
       turnRequest({
         turnId: "session-start-turn",
-        sessionId: "session-start",
+        sessionId: requireId(created),
         messages: [{ role: "user", text: "hi" }],
       }),
     );
@@ -387,7 +384,6 @@ describe("Cursor agent provider contract", () => {
     await expect(
       provider.createSession(
         create(CreateAgentProviderSessionRequestSchema, {
-          sessionId: "reserved-create",
           metadata: {
             "__gestalt.lifecycle.sessionStart.additionalContext": "spoofed",
           },
@@ -395,14 +391,12 @@ describe("Cursor agent provider contract", () => {
       ),
     ).rejects.toThrow(ConnectError);
 
-    await provider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, {
-        sessionId: "reserved-update",
-      }),
+    const session = await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {}),
     );
     await expect(
       provider.updateSession({
-        sessionId: "reserved-update",
+        sessionId: requireId(session),
         metadata: {
           "__gestalt.lifecycle.sessionStart.additionalContext": "spoofed",
         },
@@ -410,24 +404,68 @@ describe("Cursor agent provider contract", () => {
     ).rejects.toThrow(ConnectError);
   });
 
+  test("createSession mints session ids and dedupes idempotency keys per subject", async () => {
+    const provider = await configuredProvider();
+
+    const first = await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {
+        idempotencyKey: "dedup-key",
+      }),
+    );
+    expect(requireId(first).length).toBeGreaterThan(0);
+    const fetched = await provider.getSession(
+      create(GetAgentProviderSessionRequestSchema, { sessionId: first.id }),
+    );
+    expect(fetched.id).toBe(first.id);
+
+    const replay = await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {
+        idempotencyKey: "dedup-key",
+      }),
+    );
+    expect(replay.id).toBe(first.id);
+
+    const otherSubject = await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {
+        idempotencyKey: "dedup-key",
+        createdBySubjectId: OTHER_SUBJECT.id,
+        subject: OTHER_SUBJECT,
+      }),
+    );
+    expect(otherSubject.id).not.toBe(first.id);
+  });
+
+  test("racing createSession calls with the same key converge on one session", async () => {
+    const provider = await configuredProvider();
+    const sessions = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        provider.createSession(
+          create(CreateAgentProviderSessionRequestSchema, {
+            idempotencyKey: "race-key",
+          }),
+        ),
+      ),
+    );
+    const ids = new Set(sessions.map((session) => session.id));
+    expect(ids.size).toBe(1);
+  });
+
   test("owner can read and mutate a private session", async () => {
     const provider = await configuredProvider();
-    await provider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, {
-        sessionId: "access-owner-private",
-      }),
+    const created = await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {}),
     );
 
     const session = await provider.getSession(
       create(GetAgentProviderSessionRequestSchema, {
-        sessionId: "access-owner-private",
+        sessionId: requireId(created),
       }),
     );
-    expect(session.id).toBe("access-owner-private");
+    expect(session.id).toBe(created.id);
 
     const updated = await provider.updateSession(
       create(UpdateAgentProviderSessionRequestSchema, {
-        sessionId: "access-owner-private",
+        sessionId: requireId(created),
         clientRef: "owner-ref",
       }),
     );
@@ -445,9 +483,8 @@ describe("Cursor agent provider contract", () => {
           agentFactory: new FakeCursorAgentFactory(),
         }),
     });
-    await provider.createSession(
+    const session = await provider.createSession(
       create(CreateAgentProviderSessionRequestSchema, {
-        sessionId: "access-company",
         createdBySubjectId: SLACK_SUBJECT.id,
         subject: SLACK_SUBJECT,
         metadata: slackSessionMetadata(),
@@ -456,7 +493,7 @@ describe("Cursor agent provider contract", () => {
     await provider.createTurn(
       turnRequest({
         turnId: "access-company-turn",
-        sessionId: "access-company",
+        sessionId: requireId(session),
         messages: [{ role: "user", text: "hi" }],
         createdBySubjectId: SLACK_SUBJECT.id,
         subject: SLACK_SUBJECT,
@@ -465,13 +502,13 @@ describe("Cursor agent provider contract", () => {
 
     const otherSession = await provider.getSession(
       create(GetAgentProviderSessionRequestSchema, {
-        sessionId: "access-company",
+        sessionId: requireId(session),
         subject: OTHER_SUBJECT,
       }),
     );
-    expect(otherSession.id).toBe("access-company");
+    expect(otherSession.id).toBe(session.id);
     await expectConnectCode(
-      provider.getSession({ sessionId: "access-company" } as never),
+      provider.getSession({ sessionId: session.id } as never),
       Code.NotFound,
     );
     const otherSessions = await provider.listSessions(
@@ -479,13 +516,11 @@ describe("Cursor agent provider contract", () => {
         subject: OTHER_SUBJECT,
       }),
     );
-    expect(otherSessions.map((session) => session.id)).toContain(
-      "access-company",
-    );
+    expect(otherSessions.map((listed) => listed.id)).toContain(session.id);
 
     const otherTurns = await provider.listTurns(
       create(ListAgentProviderTurnsRequestSchema, {
-        sessionId: "access-company",
+        sessionId: requireId(session),
         subject: OTHER_SUBJECT,
       }),
     );
@@ -503,14 +538,12 @@ describe("Cursor agent provider contract", () => {
 
   test("private sessions are hidden from non-owners and metadata updates do not change visibility", async () => {
     const provider = await configuredProvider();
-    await provider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, {
-        sessionId: "access-private",
-      }),
+    const privateSession = await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {}),
     );
     await provider.updateSession(
       create(UpdateAgentProviderSessionRequestSchema, {
-        sessionId: "access-private",
+        sessionId: privateSession.id,
         metadata: slackSessionMetadata(),
       }),
     );
@@ -518,14 +551,14 @@ describe("Cursor agent provider contract", () => {
     await expectConnectCode(
       provider.getSession(
         create(GetAgentProviderSessionRequestSchema, {
-          sessionId: "access-private",
+          sessionId: privateSession.id,
           subject: OTHER_SUBJECT,
         }),
       ),
       Code.NotFound,
     );
     await expectConnectCode(
-      provider.getSession({ sessionId: "access-private" } as never),
+      provider.getSession({ sessionId: privateSession.id } as never),
       Code.NotFound,
     );
     const otherSessions = await provider.listSessions(
@@ -534,7 +567,7 @@ describe("Cursor agent provider contract", () => {
       }),
     );
     expect(otherSessions.map((session) => session.id)).not.toContain(
-      "access-private",
+      privateSession.id,
     );
     const missingSubjectSessions = await provider.listSessions(
       create(ListAgentProviderSessionsRequestSchema, {
@@ -543,9 +576,8 @@ describe("Cursor agent provider contract", () => {
     );
     expect(missingSubjectSessions).toEqual([]);
 
-    await provider.createSession(
+    const incompleteSlackSession = await provider.createSession(
       create(CreateAgentProviderSessionRequestSchema, {
-        sessionId: "access-incomplete-slack",
         createdBySubjectId: SLACK_SUBJECT.id,
         subject: SLACK_SUBJECT,
         metadata: { slack: { team_id: "T123", channel_id: "C456" } },
@@ -554,7 +586,7 @@ describe("Cursor agent provider contract", () => {
     await expectConnectCode(
       provider.getSession(
         create(GetAgentProviderSessionRequestSchema, {
-          sessionId: "access-incomplete-slack",
+          sessionId: incompleteSlackSession.id,
           subject: OTHER_SUBJECT,
         }),
       ),
@@ -573,15 +605,13 @@ describe("Cursor agent provider contract", () => {
           agentFactory: new FakeCursorAgentFactory(),
         }),
     });
-    await provider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, {
-        sessionId: "access-private-turns",
-      }),
+    const session = await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {}),
     );
     await provider.createTurn(
       turnRequest({
         turnId: "access-private-turn",
-        sessionId: "access-private-turns",
+        sessionId: requireId(session),
         messages: [{ role: "user", text: "hi" }],
       }),
     );
@@ -589,7 +619,7 @@ describe("Cursor agent provider contract", () => {
     await expectConnectCode(
       provider.updateSession(
         create(UpdateAgentProviderSessionRequestSchema, {
-          sessionId: "access-private-turns",
+          sessionId: requireId(session),
           subject: OTHER_SUBJECT,
           clientRef: "not-owner",
         }),
@@ -600,7 +630,7 @@ describe("Cursor agent provider contract", () => {
       provider.createTurn(
         turnRequest({
           turnId: "access-private-turn-other",
-          sessionId: "access-private-turns",
+          sessionId: requireId(session),
           subject: OTHER_SUBJECT,
           messages: [{ role: "user", text: "nope" }],
         }),
@@ -630,7 +660,7 @@ describe("Cursor agent provider contract", () => {
     expect(
       await provider.listTurns(
         create(ListAgentProviderTurnsRequestSchema, {
-          sessionId: "access-private-turns",
+          sessionId: requireId(session),
           subject: OTHER_SUBJECT,
         }),
       ),
@@ -709,7 +739,6 @@ describe("Cursor agent provider contract", () => {
     });
     const session = await provider.createSession(
       create(CreateAgentProviderSessionRequestSchema, {
-        sessionId: "session-1",
         idempotencyKey: "session-key",
         tools: {
           catalog: {
@@ -735,7 +764,7 @@ describe("Cursor agent provider contract", () => {
     await provider.createTurn(
       turnRequest({
         turnId: "turn-1",
-        sessionId: "session-1",
+        sessionId: requireId(session),
         idempotencyKey: "turn-key",
         messages: [{ role: "user", text: "weather?" }],
       }),
@@ -782,16 +811,14 @@ describe("Cursor agent provider contract", () => {
       runnerFactory: (config) =>
         new CursorSDKRunner(config, { agentFactory: cursor }),
     });
-    await provider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, {
-        sessionId: "structured-session",
-      }),
+    const session = await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {}),
     );
 
     await provider.createTurn(
       turnRequest({
         turnId: "structured-turn",
-        sessionId: "structured-session",
+        sessionId: requireId(session),
         messages: [{ role: "user", text: "grade" }],
         output: {
           structured: {
@@ -840,16 +867,14 @@ describe("Cursor agent provider contract", () => {
       runnerFactory: (config) =>
         new CursorSDKRunner(config, { agentFactory: cursor }),
     });
-    await provider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, {
-        sessionId: "structured-invalid-session",
-      }),
+    const session = await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {}),
     );
 
     await provider.createTurn(
       turnRequest({
         turnId: "structured-invalid-turn",
-        sessionId: "structured-invalid-session",
+        sessionId: requireId(session),
         messages: [{ role: "user", text: "grade" }],
         output: {
           structured: {
@@ -896,8 +921,7 @@ describe("Cursor agent provider contract", () => {
       runnerFactory: (config) =>
         new CursorSDKRunner(config, { agentFactory: cursor }),
     });
-    await provider.createSession({
-      sessionId: "session-workspace",
+    const session = await provider.createSession({
       idempotencyKey: "",
       model: "",
       clientRef: "",
@@ -908,7 +932,7 @@ describe("Cursor agent provider contract", () => {
     await provider.createTurn(
       turnRequest({
         turnId: "turn-workspace",
-        sessionId: "session-workspace",
+        sessionId: requireId(session),
         messages: [{ role: "user", text: "inspect repo" }],
       }),
     );
@@ -923,7 +947,6 @@ describe("Cursor agent provider contract", () => {
     const provider = await configuredProvider();
     await expect(
       provider.createSession({
-        sessionId: "session-bad-workspace",
         idempotencyKey: "",
         model: "",
         clientRef: "",
@@ -957,13 +980,13 @@ describe("Cursor agent provider contract", () => {
       runnerFactory: (config) =>
         new CursorSDKRunner(config, { agentFactory: cursor }),
     });
-    await provider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, { sessionId: "s" }),
+    const session = await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {}),
     );
     await provider.createTurn(
       turnRequest({
         turnId: "t",
-        sessionId: "s",
+        sessionId: requireId(session),
         messages: [{ role: "user", text: "hi" }],
       }),
     );
@@ -972,10 +995,8 @@ describe("Cursor agent provider contract", () => {
 
   test("invalid reconfiguration preserves the active runtime state", async () => {
     const provider = await configuredProvider();
-    await provider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, {
-        sessionId: "keep-session",
-      }),
+    const created = await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {}),
     );
 
     await expect(
@@ -987,10 +1008,10 @@ describe("Cursor agent provider contract", () => {
 
     const session = await provider.getSession(
       create(GetAgentProviderSessionRequestSchema, {
-        sessionId: "keep-session",
+        sessionId: requireId(created),
       }),
     );
-    expect(session.id).toBe("keep-session");
+    expect(session.id).toBe(created.id);
     expect((await provider.warnings())[0]).toContain("CURSOR_API_KEY");
   });
 
@@ -1046,21 +1067,18 @@ describe("Cursor agent provider contract", () => {
     for (const [name, tools, message] of invalidSessionCases) {
       await expect(
         provider.createSession(
-          create(CreateAgentProviderSessionRequestSchema, {
-            sessionId: `bad-session-${name.replaceAll(" ", "-")}`,
-            tools,
-          }),
+          create(CreateAgentProviderSessionRequestSchema, { tools }),
         ),
         name,
       ).rejects.toThrow(message);
     }
 
-    await provider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, { sessionId: "s" }),
+    const session = await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {}),
     );
     const base = {
       turnId: "turn",
-      sessionId: "s",
+      sessionId: requireId(session),
       messages: [{ role: "user", text: "hi" }],
     };
     const invalidCases: Array<[string, Record<string, unknown>, string]> = [
@@ -1100,13 +1118,13 @@ describe("Cursor agent provider contract", () => {
       runnerFactory: (config) =>
         new CursorSDKRunner(config, { agentFactory: failingCursor }),
     });
-    await failureProvider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, { sessionId: "failure" }),
+    const failureSession = await failureProvider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {}),
     );
     await failureProvider.createTurn(
       turnRequest({
         turnId: "failure-turn",
-        sessionId: "failure",
+        sessionId: requireId(failureSession),
         messages: [{ role: "user", text: "fail" }],
       }),
     );
@@ -1136,13 +1154,13 @@ describe("Cursor agent provider contract", () => {
       runnerFactory: (config) =>
         new CursorSDKRunner(config, { agentFactory: timeoutCursor }),
     });
-    await timeoutProvider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, { sessionId: "timeout" }),
+    const timeoutSession = await timeoutProvider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {}),
     );
     await timeoutProvider.createTurn(
       turnRequest({
         turnId: "timeout-turn",
-        sessionId: "timeout",
+        sessionId: requireId(timeoutSession),
         messages: [{ role: "user", text: "timeout" }],
       }),
     );
@@ -1162,15 +1180,13 @@ describe("Cursor agent provider contract", () => {
       runnerFactory: (config) =>
         new CursorSDKRunner(config, { agentFactory: preRunCursor }),
     });
-    await preRunProvider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, {
-        sessionId: "pre-run-cancel",
-      }),
+    const preRunSession = await preRunProvider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {}),
     );
     await preRunProvider.createTurn(
       turnRequest({
         turnId: "pre-run-turn",
-        sessionId: "pre-run-cancel",
+        sessionId: requireId(preRunSession),
         messages: [{ role: "user", text: "cancel" }],
       }),
     );
@@ -1201,15 +1217,13 @@ describe("Cursor agent provider contract", () => {
       runnerFactory: (config) =>
         new CursorSDKRunner(config, { agentFactory: pendingSendCursor }),
     });
-    await pendingSendProvider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, {
-        sessionId: "send-cancel",
-      }),
+    const pendingSendSession = await pendingSendProvider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {}),
     );
     await pendingSendProvider.createTurn(
       turnRequest({
         turnId: "send-turn",
-        sessionId: "send-cancel",
+        sessionId: requireId(pendingSendSession),
         messages: [{ role: "user", text: "cancel while sending" }],
       }),
     );
@@ -1259,15 +1273,13 @@ describe("Cursor agent provider contract", () => {
       runnerFactory: (config) =>
         new CursorSDKRunner(config, { agentFactory: liveCursor }),
     });
-    await liveProvider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, {
-        sessionId: "live-cancel",
-      }),
+    const liveSession = await liveProvider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {}),
     );
     await liveProvider.createTurn(
       turnRequest({
         turnId: "live-turn",
-        sessionId: "live-cancel",
+        sessionId: requireId(liveSession),
         messages: [{ role: "user", text: "cancel" }],
       }),
     );
@@ -1311,13 +1323,13 @@ describe("Cursor agent provider contract", () => {
       runnerFactory: (config) =>
         new CursorSDKRunner(config, { agentFactory: cursor }),
     });
-    await provider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, { sessionId: "close" }),
+    const session = await provider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {}),
     );
     await provider.createTurn(
       turnRequest({
         turnId: "close-turn",
-        sessionId: "close",
+        sessionId: requireId(session),
         messages: [{ role: "user", text: "close" }],
       }),
     );
@@ -1427,7 +1439,8 @@ describe("Cursor agent provider contract", () => {
     ];
     for (const [name, tools, message] of cases) {
       await expect(
-        provider.createSession(create(CreateAgentProviderSessionRequestSchema, { sessionId: name, tools })),
+        provider.createSession(create(CreateAgentProviderSessionRequestSchema, { tools })),
+        name,
       ).rejects.toThrow(message);
     }
   });
@@ -1485,7 +1498,7 @@ describe("Cursor agent provider contract", () => {
     ).rejects.toThrow("was not found");
 
     await provider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, { sessionId: "events" }),
+      create(CreateAgentProviderSessionRequestSchema, {}),
     );
     const host = await FakeAppHost.start({
     });
@@ -1506,13 +1519,13 @@ describe("Cursor agent provider contract", () => {
       runnerFactory: (config) =>
         new CursorSDKRunner(config, { agentFactory: cursor }),
     });
-    await eventProvider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, { sessionId: "events" }),
+    const eventSession = await eventProvider.createSession(
+      create(CreateAgentProviderSessionRequestSchema, {}),
     );
     await eventProvider.createTurn(
       turnRequest({
         turnId: "events-turn",
-        sessionId: "events",
+        sessionId: requireId(eventSession),
         messages: [{ role: "user", text: "hi" }],
       }),
     );
@@ -1529,6 +1542,13 @@ describe("Cursor agent provider contract", () => {
     expect((events as readonly { type?: string }[]).map((event) => event.type)).toContain("turn.completed");
   });
 });
+
+function requireId(entity: { id?: string | undefined }): string {
+  if (!entity.id) {
+    throw new Error("expected a minted id");
+  }
+  return entity.id;
+}
 
 async function configuredProvider(
   input: {
