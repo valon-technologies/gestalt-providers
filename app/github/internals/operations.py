@@ -8,7 +8,7 @@ import urllib.parse
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import Any
+from typing import Any, Protocol
 
 import gestalt
 
@@ -36,6 +36,16 @@ from .helpers import (
     require_text,
     str_field,
 )
+
+
+class AuthorizationClient(Protocol):
+    """Structural view of the generated Authorization client, so tests can
+    inject fakes; the handwritten SDK authorization protocol was removed
+    with the SDK client facades."""
+
+    def check_access(
+        self, request: gestalt.CheckAccessRequest
+    ) -> gestalt.CheckAccessResponse: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -477,7 +487,7 @@ def commit_files(
     *,
     subject: gestalt.Subject,
     pull_request_permissions: bool,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> CommitResult:
     github = github_client(client)
@@ -659,7 +669,7 @@ def open_pull_request(
     request: GitHubOpenPullRequestRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -700,7 +710,7 @@ def close_pull_request(
     request: GitHubPullRequestRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -731,7 +741,7 @@ def create_pull_request_with_files(
     request: GitHubCreatePullRequestRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> CreatePullRequestResult:
     github = github_client(client)
@@ -812,7 +822,7 @@ def create_issue_comment(
     request: GitHubCreateIssueCommentRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -843,7 +853,7 @@ def add_reaction(
     request: GitHubAddReactionRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -889,7 +899,7 @@ def add_labels(
     request: GitHubAddLabelsRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> list[JsonObject]:
     github = github_client(client)
@@ -924,7 +934,7 @@ def remove_labels(
     request: GitHubRemoveLabelsRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> tuple[tuple[str, ...], list[JsonObject]]:
     github = github_client(client)
@@ -961,7 +971,7 @@ def request_reviewers(
     request: GitHubRequestReviewersRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1001,7 +1011,7 @@ def create_pull_request_conversation_comment(
     request: GitHubCreatePullRequestConversationCommentRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1032,7 +1042,7 @@ def create_pull_request_review(
     request: GitHubCreatePullRequestReviewRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1071,7 +1081,7 @@ def list_pull_request_reviews(
     request: GitHubListPullRequestReviewsRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> list[JsonObject]:
     github = github_client(client)
@@ -1106,7 +1116,7 @@ def list_pull_request_review_threads(
     request: GitHubListPullRequestReviewThreadsRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1173,7 +1183,7 @@ def resolve_pull_request_review_thread(
     request: GitHubResolvePullRequestReviewThreadRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1229,7 +1239,7 @@ def get_pull_request(
     request: GitHubPullRequestRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1257,7 +1267,7 @@ def list_pull_request_files(
     request: GitHubListPullRequestFilesRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> list[JsonObject]:
     github = github_client(client)
@@ -1292,7 +1302,7 @@ def get_repository(
     request: GitHubRepositoryRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1315,7 +1325,7 @@ def search_code(
     request: GitHubCodeSearchRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1345,7 +1355,7 @@ def get_file_text_at_ref(
     request: GitHubFileContentRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> str:
     github = github_client(client)
@@ -1414,7 +1424,7 @@ def create_check_run(
     request: GitHubCreateCheckRunRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1453,7 +1463,7 @@ def update_check_run(
     request: GitHubUpdateCheckRunRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1491,7 +1501,7 @@ def get_check_run(
     request: GitHubCheckRunRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1519,7 +1529,7 @@ def list_check_suite_check_runs(
     request: GitHubListCheckSuiteCheckRunsRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1574,7 +1584,7 @@ def list_check_run_annotations(
     request: GitHubListCheckRunAnnotationsRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> list[JsonObject]:
     github = github_client(client)
@@ -1610,7 +1620,7 @@ def get_workflow_run(
     request: GitHubWorkflowRunRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1638,7 +1648,7 @@ def list_workflow_run_jobs(
     request: GitHubListWorkflowRunJobsRequest,
     *,
     subject: gestalt.Subject,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
     github = github_client(client)
@@ -1902,7 +1912,7 @@ def scoped_installation_id(
     *,
     owner: str,
     repo: str,
-    authorization: gestalt.AuthorizationProtocol | None = None,
+    authorization: AuthorizationClient | None = None,
     client: GitHubAPIClient | None = None,
 ) -> int:
     require_repository_authorization(
@@ -1922,7 +1932,7 @@ def scoped_installation_id(
 
 
 def require_repository_authorization(
-    authorization: gestalt.AuthorizationProtocol | None,
+    authorization: AuthorizationClient | None,
     *,
     subject: gestalt.Subject,
     owner: str,
@@ -1934,7 +1944,7 @@ def require_repository_authorization(
             "GitHub bot operations require an authenticated subject"
         )
     try:
-        decision = (authorization or gestalt.Authorization()).check_access(
+        decision = (authorization or gestalt.Authorization.connect()).check_access(
             gestalt.CheckAccessRequest(
                 subject=gestalt.AuthorizationSubject(type="subject", id=subject_id),
                 action=gestalt.AuthorizationAction(name=GITHUB_REPOSITORY_ACTION_BOT),

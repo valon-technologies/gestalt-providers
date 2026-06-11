@@ -4,6 +4,7 @@ from http import HTTPStatus
 from typing import Any, TypeAlias, cast
 
 import gestalt
+from gestalt.authorization import RelationshipTargetSubject
 
 import internals.agent as _agent
 from internals.agent import (
@@ -905,8 +906,10 @@ def slack_identity_link_self(
                 relationship=gestalt.Relationship(
                     tuple=gestalt.RelationshipTuple(
                         target=gestalt.RelationshipTarget(
-                            subject=gestalt.AuthorizationSubject(
-                                type="subject", id=subject_id
+                            kind=RelationshipTargetSubject(
+                                value=gestalt.AuthorizationSubject(
+                                    type="subject", id=subject_id
+                                )
                             )
                         ),
                         relation=_agent.SLACK_USER_LINKED_ACTION,
@@ -915,7 +918,7 @@ def slack_identity_link_self(
                             id=resource_id,
                         ),
                     ),
-                    source_layer=gestalt.SOURCE_LAYER_RUNTIME,
+                    source_layer=gestalt.SourceLayerValues.SOURCE_LAYER_RUNTIME,
                 )
             )
         )
@@ -1208,8 +1211,10 @@ def _linked_slack_user_id_from_request(req: gestalt.Request) -> str:
             gestalt.ListRelationshipsRequest(
                 filter=gestalt.RelationshipFilter(
                     target=gestalt.RelationshipTarget(
-                        subject=gestalt.AuthorizationSubject(
-                            type="subject", id=subject_id
+                        kind=RelationshipTargetSubject(
+                            value=gestalt.AuthorizationSubject(
+                                type="subject", id=subject_id
+                            )
                         )
                     ),
                     relation=_agent.SLACK_USER_LINKED_ACTION,

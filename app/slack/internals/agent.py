@@ -6,9 +6,10 @@ import logging
 import urllib.parse
 import uuid
 from http import HTTPStatus
-from typing import Any, Iterable, TypeAlias, cast
+from typing import Any, Iterable, Protocol, TypeAlias, cast
 
 import gestalt
+from gestalt.authorization import RelationshipTargetSubject
 
 from .agent_links import agent_session_url
 from .client import SlackAPIError, SlackClientError
@@ -2030,8 +2031,28 @@ def _slack_reply_thread_ts(
     return ""
 
 
+class AuthorizationClient(Protocol):
+    """Structural view of the generated Authorization client, so tests can
+    inject fakes; the handwritten SDK authorization protocol was removed
+    with the SDK client facades."""
+
+    def list_relationships(
+        self, request: gestalt.ListRelationshipsRequest
+    ) -> gestalt.ListRelationshipsResponse: ...
+
+
+def _relationship_target_subject(
+    relationship: gestalt.Relationship,
+) -> gestalt.AuthorizationSubject | None:
+    target = relationship.tuple.target if relationship.tuple is not None else None
+    kind = target.kind if target is not None else None
+    if isinstance(kind, RelationshipTargetSubject):
+        return kind.value
+    return None
+
+
 def _resolve_slack_subject(
-    authorization: gestalt.AuthorizationProtocol,
+    authorization: AuthorizationClient,
     *,
     team_id: str,
     user_id: str,
@@ -2045,17 +2066,15 @@ def _resolve_slack_subject(
                     id=resource_id,
                 ),
                 relation=SLACK_USER_LINKED_ACTION,
-                target_type=gestalt.RELATIONSHIP_TARGET_TYPE_SUBJECT,
+                target_type=gestalt.RelationshipTargetTypeValues.RELATIONSHIP_TARGET_TYPE_SUBJECT,
             ),
             page_size=10,
         )
     )
     subjects = _dedupe_resolved_subjects(
-        relationship.tuple.target.subject
+        subject
         for relationship in response.relationships
-        if relationship.tuple is not None
-        and relationship.tuple.target is not None
-        and relationship.tuple.target.subject is not None
+        if (subject := _relationship_target_subject(relationship)) is not None
     )
     if len(subjects) > 1:
         raise gestalt.http_subject_error(

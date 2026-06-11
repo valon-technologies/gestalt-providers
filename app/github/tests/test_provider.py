@@ -16,6 +16,7 @@ from unittest import mock
 
 import gestalt
 import yaml
+from gestalt.authorization import RelationshipTargetSubject
 
 import internals.client as client_module
 import internals.operations as operations_module
@@ -445,9 +446,11 @@ class GitHubProviderTests(unittest.TestCase):
         assert relationship_tuple is not None
         self.assertIsNotNone(relationship_tuple.target)
         assert relationship_tuple.target is not None
-        self.assertIsNotNone(relationship_tuple.target.subject)
+        self.assertIsInstance(relationship_tuple.target.kind, RelationshipTargetSubject)
         self.assertIsNotNone(relationship_tuple.resource)
-        subject = cast(gestalt.AuthorizationSubject, relationship_tuple.target.subject)
+        subject = cast(
+            RelationshipTargetSubject, relationship_tuple.target.kind
+        ).value
         resource = cast(gestalt.AuthorizationResource, relationship_tuple.resource)
         self.assertEqual(subject.type, "subject")
         self.assertEqual(subject.id, "user:gestalt-123")
@@ -460,7 +463,9 @@ class GitHubProviderTests(unittest.TestCase):
             resource.properties,
             {"login": "ghopper", "name": "Grace Hopper"},
         )
-        self.assertEqual(relationship.source_layer, gestalt.SOURCE_LAYER_RUNTIME)
+        self.assertEqual(
+            relationship.source_layer, gestalt.SourceLayerValues.SOURCE_LAYER_RUNTIME
+        )
 
     def test_catalog_and_schema_expose_events_and_generic_bot_operations(
         self,
@@ -858,9 +863,10 @@ class GitHubProviderTests(unittest.TestCase):
         assert request.filter is not None
         self.assertIsNotNone(request.filter.target)
         assert request.filter.target is not None
-        self.assertIsNotNone(request.filter.target.subject)
-        assert request.filter.target.subject is not None
-        self.assertEqual(request.filter.target.subject.id, "user:gestalt-123")
+        target_kind = request.filter.target.kind
+        self.assertIsInstance(target_kind, RelationshipTargetSubject)
+        assert isinstance(target_kind, RelationshipTargetSubject)
+        self.assertEqual(target_kind.value.id, "user:gestalt-123")
 
     def test_commit_files_uses_typed_github_client_interface(self) -> None:
         recording_client = RecordingGitHubClient()

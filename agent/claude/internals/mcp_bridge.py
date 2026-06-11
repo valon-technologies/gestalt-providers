@@ -121,21 +121,26 @@ class GestaltMCPBridge:
             idempotency_key = f"agent/claude-sdk:{self._turn_id}:{self._sequence}:{entry.mcp_name}"
 
             def execute() -> gestalt.Response[str]:
-                with gestalt.Request(context=self._request_context).app() as app:
-                    response = app.invoke_raw(
-                        entry.ref.app,
-                        entry.ref.operation,
-                        arguments or {},
-                        connection=entry.ref.connection,
-                        instance=entry.ref.instance,
-                        credential_mode=entry.ref.credential_mode,
-                        idempotency_key=idempotency_key,
-                        timeout_seconds=self._timeout_seconds,
-                    )
+                app = gestalt.Request(context=self._request_context).app()
+                response = app.invoke(
+                    app=entry.ref.app,
+                    operation=entry.ref.operation,
+                    params=arguments or {},
+                    connection=entry.ref.connection,
+                    instance=entry.ref.instance,
+                    credential_mode=entry.ref.credential_mode,
+                    idempotency_key=idempotency_key,
+                )
                 return gestalt.Response[str](status=response.status, body=operation_body_text(response.body))
 
             try:
-                response = await asyncio.to_thread(execute)
+                # The generated client does not take a per-call deadline, so the
+                # tool-call timeout is enforced around the worker thread instead.
+                response = await asyncio.wait_for(asyncio.to_thread(execute), timeout=self._timeout_seconds)
+            except TimeoutError:
+                return _tool_error_result(
+                    TimeoutError(f"Gestalt tool call timed out after {self._timeout_seconds:g}s")
+                )
             except Exception as exc:
                 return _tool_error_result(exc)
         body = operation_body_text(response.body)

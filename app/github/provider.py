@@ -5,6 +5,7 @@ from http import HTTPStatus
 from typing import Any, TypeAlias, cast
 
 import gestalt
+from gestalt.authorization import RelationshipTargetSubject
 
 from internals.client import DEFAULT_GITHUB_CLIENT
 from internals.config import (
@@ -46,6 +47,7 @@ from internals.constants import (
 from internals.errors import GitHubAPIError, GitHubAuthorizationError, GitHubConfigError
 from internals.helpers import int_field, str_field
 from internals.operations import (
+    AuthorizationClient,
     GitHubAddLabelsRequest,
     GitHubAddReactionRequest,
     GitHubCodeSearchRequest,
@@ -862,8 +864,10 @@ def github_identity_link_self(
                 relationship=gestalt.Relationship(
                     tuple=gestalt.RelationshipTuple(
                         target=gestalt.RelationshipTarget(
-                            subject=gestalt.AuthorizationSubject(
-                                type="subject", id=subject_id
+                            kind=RelationshipTargetSubject(
+                                value=gestalt.AuthorizationSubject(
+                                    type="subject", id=subject_id
+                                )
                             )
                         ),
                         relation=GITHUB_USER_LINKED_ACTION,
@@ -876,7 +880,7 @@ def github_identity_link_self(
                             },
                         ),
                     ),
-                    source_layer=gestalt.SOURCE_LAYER_RUNTIME,
+                    source_layer=gestalt.SourceLayerValues.SOURCE_LAYER_RUNTIME,
                 )
             )
         )
@@ -1817,8 +1821,10 @@ def _linked_github_user_id(req: gestalt.Request) -> str:
             gestalt.ListRelationshipsRequest(
                 filter=gestalt.RelationshipFilter(
                     target=gestalt.RelationshipTarget(
-                        subject=gestalt.AuthorizationSubject(
-                            type="subject", id=subject_id
+                        kind=RelationshipTargetSubject(
+                            value=gestalt.AuthorizationSubject(
+                                type="subject", id=subject_id
+                            )
                         )
                     ),
                     relation=GITHUB_USER_LINKED_ACTION,
@@ -1845,7 +1851,7 @@ def _linked_github_user_id(req: gestalt.Request) -> str:
     return user_id
 
 
-def _request_authorization(req: gestalt.Request) -> gestalt.AuthorizationProtocol:
+def _request_authorization(req: gestalt.Request) -> AuthorizationClient:
     try:
         return cast(Any, req).authorization()
     except Exception as err:

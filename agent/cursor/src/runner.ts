@@ -7,13 +7,13 @@ import Ajv2020 from "ajv/dist/2020.js";
 import type { AgentOptions, Run, SDKAgent, SDKMessage } from "@cursor/sdk";
 import {
   App,
-  request as gestaltRequest,
-  type AppInvokeOptions,
   type AgentMessage,
   type AgentTurnOutput,
   type CreateAgentProviderTurnRequest,
+  type JsonObject,
   type ListedAgentTool,
 } from "@valon-technologies/gestalt";
+import { fromWireRequestContext } from "../node_modules/@valon-technologies/gestalt/src/internal/codec/app.ts";
 
 import type { CursorAgentConfig } from "./config.ts";
 import { createCursorPlatformOptions } from "./cursor_platform.ts";
@@ -132,42 +132,23 @@ export class CursorSDKRunner {
       active.bridge = await startMcpBridge({
         tools,
         executeTool: async (entry, toolCallId, args) => {
-          const request = gestaltRequest(
-            "",
-            {},
-            {},
-            {},
-            {},
-            {},
-            "",
-            {},
-            {},
-            [],
-            false,
-            input.requestContext,
+          const context = input.requestContext === undefined
+            ? undefined
+            : fromWireRequestContext(input.requestContext);
+          const app = App.connect(
+            undefined,
+            context === undefined ? undefined : { context },
           );
-          const options: AppInvokeOptions = {
-            idempotencyKey: `agent/cursor-sdk:${input.turnId}:${toolCallId}:${entry.mcpName}`,
-          };
-          const connection = entry.ref.connection?.trim();
-          if (connection) {
-            options.connection = connection;
-          }
-          const instance = entry.ref.instance?.trim();
-          if (instance) {
-            options.instance = instance;
-          }
-          const credentialMode = appCredentialMode(entry.ref.credentialMode);
-          if (credentialMode !== undefined) {
-            options.credentialMode = credentialMode;
-          }
-          const response = await new App(request).invokeRaw(
+          const response = await app.invoke(
             entry.ref.app ?? "",
             entry.ref.operation ?? "",
-            args,
-            options,
+            entry.ref.connection?.trim() ?? "",
+            entry.ref.instance?.trim() ?? "",
+            `agent/cursor-sdk:${input.turnId}:${toolCallId}:${entry.mcpName}`,
+            appCredentialMode(entry.ref.credentialMode) ?? "",
+            args as JsonObject,
           );
-          return { status: response.status, body: response.text() };
+          return { status: response.status, body: response.body };
         },
       });
       active.stateRoot = await mkdtemp(join(tmpdir(), "gestalt-cursor-sdk-"));
@@ -459,7 +440,9 @@ function messagesToPrompt(
   return sections.join("\n\n");
 }
 
-function appCredentialMode(value: string | undefined): AppInvokeOptions["credentialMode"] {
+function appCredentialMode(
+  value: string | undefined,
+): "none" | "subject" | "unspecified" | undefined {
   const mode = value?.trim();
   if (!mode) {
     return undefined;

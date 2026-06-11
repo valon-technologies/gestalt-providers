@@ -36,11 +36,9 @@ class ToolExecutor:
         *,
         turn_id: str,
         request_context: Any,
-        timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS,
     ) -> None:
         self._turn_id = turn_id
         self._request_context = request_context
-        self._timeout_seconds = timeout_seconds
         self._lock = threading.Lock()
         self._sequence = 0
 
@@ -50,17 +48,16 @@ class ToolExecutor:
             sequence = self._sequence
         idempotency_key = f"agent/codex-mcp:{self._turn_id}:{sequence}:{entry.mcp_name}"
         try:
-            with gestalt.Request(context=self._request_context).app() as app:
-                response = app.invoke_raw(
-                    entry.ref.app,
-                    entry.ref.operation,
-                    arguments or {},
-                    connection=entry.ref.connection,
-                    instance=entry.ref.instance,
-                    credential_mode=entry.ref.credential_mode,
-                    idempotency_key=idempotency_key,
-                    timeout_seconds=self._timeout_seconds,
-                )
+            app = gestalt.Request(context=self._request_context).app()
+            response = app.invoke(
+                app=entry.ref.app,
+                operation=entry.ref.operation,
+                params=arguments or {},
+                connection=entry.ref.connection,
+                instance=entry.ref.instance,
+                credential_mode=entry.ref.credential_mode,
+                idempotency_key=idempotency_key,
+            )
             return gestalt.Response[str](status=response.status, body=operation_body_text(response.body))
         except Exception as exc:
             raise ToolBridgeError(str(exc) or exc.__class__.__name__) from exc
