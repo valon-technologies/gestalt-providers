@@ -120,9 +120,9 @@ class GestaltMCPBridge:
             self._sequence += 1
             idempotency_key = f"agent/claude-sdk:{self._turn_id}:{self._sequence}:{entry.mcp_name}"
 
-            def execute() -> gestalt.Response[str]:
+            def execute() -> Any:
                 app = gestalt.Request(context=self._request_context).app()
-                response = app.invoke(
+                return app.invoke(
                     app=entry.ref.app,
                     operation=entry.ref.operation,
                     params=arguments or {},
@@ -131,23 +131,19 @@ class GestaltMCPBridge:
                     credential_mode=entry.ref.credential_mode,
                     idempotency_key=idempotency_key,
                 )
-                return gestalt.Response[str](status=response.status, body=operation_body_text(response.body))
 
             try:
                 # The generated client does not take a per-call deadline, so the
                 # tool-call timeout is enforced around the worker thread instead.
-                response = await asyncio.wait_for(asyncio.to_thread(execute), timeout=self._timeout_seconds)
+                result = await asyncio.wait_for(asyncio.to_thread(execute), timeout=self._timeout_seconds)
             except TimeoutError:
                 return _tool_error_result(
                     TimeoutError(f"Gestalt tool call timed out after {self._timeout_seconds:g}s")
                 )
             except Exception as exc:
                 return _tool_error_result(exc)
-        body = operation_body_text(response.body)
-        status = int(response.status or 0)
-        if not body:
-            body = "{}"
-        return CallToolResult(content=[TextContent(type="text", text=body)], isError=status >= 400)
+        body = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+        return CallToolResult(content=[TextContent(type="text", text=body)], isError=False)
 
     def _remember_entry(self, entry: ToolEntry) -> None:
         self._entries[entry.mcp_name] = entry
@@ -353,14 +349,6 @@ def _tool_error_message(exc: Exception) -> str:
     if len(message) > TOOL_ERROR_MAX_CHARS:
         return message[: TOOL_ERROR_MAX_CHARS - 3].rstrip() + "..."
     return message
-
-
-def operation_body_text(body: object) -> str:
-    if body is None:
-        return ""
-    if isinstance(body, bytes | bytearray | memoryview):
-        return bytes(body).decode("utf-8", errors="replace")
-    return str(body)
 
 
 def _is_app_operation_tool(tool: gestalt.ListedAgentTool) -> bool:

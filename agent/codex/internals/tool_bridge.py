@@ -42,14 +42,14 @@ class ToolExecutor:
         self._lock = threading.Lock()
         self._sequence = 0
 
-    def execute(self, *, entry: ToolEntry, arguments: dict[str, Any]) -> gestalt.Response[str]:
+    def execute(self, *, entry: ToolEntry, arguments: dict[str, Any]) -> Any:
         with self._lock:
             self._sequence += 1
             sequence = self._sequence
         idempotency_key = f"agent/codex-mcp:{self._turn_id}:{sequence}:{entry.mcp_name}"
         try:
             app = gestalt.Request(context=self._request_context).app()
-            response = app.invoke(
+            return app.invoke(
                 app=entry.ref.app,
                 operation=entry.ref.operation,
                 params=arguments or {},
@@ -58,7 +58,6 @@ class ToolExecutor:
                 credential_mode=entry.ref.credential_mode,
                 idempotency_key=idempotency_key,
             )
-            return gestalt.Response[str](status=response.status, body=operation_body_text(response.body))
         except Exception as exc:
             raise ToolBridgeError(str(exc) or exc.__class__.__name__) from exc
 
@@ -119,20 +118,9 @@ def mcp_tool(entry: ToolEntry) -> mcp_types.Tool:
     )
 
 
-def mcp_tool_result(response: gestalt.Response[Any]) -> mcp_types.CallToolResult:
-    body = operation_body_text(response.body)
-    status = int(response.status or 0)
-    if not body:
-        body = "{}"
-    return mcp_types.CallToolResult(content=[mcp_types.TextContent(type="text", text=body)], isError=status >= 400)
-
-
-def operation_body_text(body: object) -> str:
-    if body is None:
-        return ""
-    if isinstance(body, bytes | bytearray | memoryview):
-        return bytes(body).decode("utf-8", errors="replace")
-    return str(body)
+def mcp_tool_result(result: Any) -> mcp_types.CallToolResult:
+    body = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+    return mcp_types.CallToolResult(content=[mcp_types.TextContent(type="text", text=body)], isError=False)
 
 
 def schema_from_json(value: str) -> dict[str, Any]:

@@ -139,15 +139,15 @@ export class CursorSDKRunner {
             undefined,
             context === undefined ? undefined : { context },
           );
-          const response = await app.invoke(
-            entry.ref.app ?? "",
-            entry.ref.operation ?? "",
-            entry.ref.connection?.trim() ?? "",
-            entry.ref.instance?.trim() ?? "",
-            `agent/cursor-sdk:${input.turnId}:${toolCallId}:${entry.mcpName}`,
-            appCredentialMode(entry.ref.credentialMode) ?? "",
-            args as JsonObject,
-          );
+          const response = await app.invokeRaw({
+            app: entry.ref.app ?? "",
+            operation: entry.ref.operation ?? "",
+            connection: entry.ref.connection?.trim() ?? "",
+            instance: entry.ref.instance?.trim() ?? "",
+            idempotencyKey: `agent/cursor-sdk:${input.turnId}:${toolCallId}:${entry.mcpName}`,
+            credentialMode: appCredentialMode(entry.ref.credentialMode) ?? "",
+            params: args as JsonObject,
+          });
           return { status: response.status, body: response.body };
         },
       });
