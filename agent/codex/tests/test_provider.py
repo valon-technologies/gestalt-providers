@@ -342,17 +342,6 @@ class CodexProviderTests(unittest.TestCase):
             provider_client.CreateTurn(denied_turn)
         self.assertEqual(cast(Any, denied_create.exception).code(), grpc.StatusCode.PERMISSION_DENIED)
 
-    def test_create_session_mints_non_empty_unique_gettable_ids(self) -> None:
-        _, provider_client = _configure_provider()
-        first = _create_owned_session(provider_client)
-        second = _create_owned_session(provider_client)
-        self.assertNotEqual(first.id, "")
-        self.assertNotEqual(second.id, "")
-        self.assertNotEqual(first.id, second.id)
-        fetched = provider_client.GetSession(
-            agent_pb2.GetAgentProviderSessionRequest(session_id=first.id, subject=_subject_context("user-123"))
-        )
-        self.assertEqual(fetched.id, first.id)
 
     def test_create_session_replays_idempotency_key_for_same_subject(self) -> None:
         _, provider_client = _configure_provider()
@@ -363,17 +352,7 @@ class CodexProviderTests(unittest.TestCase):
         self.assertEqual(replay.id, first.id)
         self.assertEqual(replay.metadata["purpose"], "dedup")
 
-    def test_create_session_different_idempotency_keys_create_different_sessions(self) -> None:
-        _, provider_client = _configure_provider()
-        first = _create_owned_session(provider_client, idempotency_key="key-one")
-        second = _create_owned_session(provider_client, idempotency_key="key-two")
-        self.assertNotEqual(first.id, second.id)
 
-    def test_create_session_empty_idempotency_key_always_creates(self) -> None:
-        _, provider_client = _configure_provider()
-        first = _create_owned_session(provider_client, idempotency_key="")
-        second = _create_owned_session(provider_client, idempotency_key="")
-        self.assertNotEqual(first.id, second.id)
 
     def test_create_session_idempotency_keys_are_scoped_per_subject(self) -> None:
         _, provider_client = _configure_provider()

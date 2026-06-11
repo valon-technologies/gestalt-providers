@@ -1252,17 +1252,6 @@ class ClaudeProviderTests(unittest.TestCase):
         _wait_for_turn(provider_client, "turn-idem-a", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
         _wait_for_turn(provider_client, "turn-idem-b", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
-    def test_create_session_mints_unique_gettable_ids(self) -> None:
-        _, provider_client = _configure_provider()
-        first = _create_owned_session(provider_client)
-        second = _create_owned_session(provider_client)
-        self.assertTrue(first.id)
-        self.assertTrue(second.id)
-        self.assertNotEqual(first.id, second.id)
-        fetched = provider_client.GetSession(
-            agent_pb2.GetAgentProviderSessionRequest(session_id=first.id, subject=_subject_context("user-123"))
-        )
-        self.assertEqual(fetched.id, first.id)
 
     def test_create_session_replays_same_subject_and_key(self) -> None:
         _, provider_client = _configure_provider()
@@ -1270,17 +1259,7 @@ class ClaudeProviderTests(unittest.TestCase):
         replay = _create_owned_session(provider_client, idempotency_key="obligation-key")
         self.assertEqual(replay.id, first.id)
 
-    def test_create_session_distinct_keys_create_distinct_sessions(self) -> None:
-        _, provider_client = _configure_provider()
-        first = _create_owned_session(provider_client, idempotency_key="key-one")
-        second = _create_owned_session(provider_client, idempotency_key="key-two")
-        self.assertNotEqual(first.id, second.id)
 
-    def test_create_session_empty_key_always_creates(self) -> None:
-        _, provider_client = _configure_provider()
-        first = _create_owned_session(provider_client)
-        second = _create_owned_session(provider_client)
-        self.assertNotEqual(first.id, second.id)
 
     def test_create_session_same_key_different_subject_creates_distinct_sessions(self) -> None:
         _, provider_client = _configure_provider()

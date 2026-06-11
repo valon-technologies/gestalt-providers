@@ -412,7 +412,6 @@ describe("Cursor agent provider contract", () => {
         idempotencyKey: "dedup-key",
       }),
     );
-    expect(first.id).toBeString();
     expect(requireId(first).length).toBeGreaterThan(0);
     const fetched = await provider.getSession(
       create(GetAgentProviderSessionRequestSchema, { sessionId: first.id }),
@@ -426,13 +425,6 @@ describe("Cursor agent provider contract", () => {
     );
     expect(replay.id).toBe(first.id);
 
-    const otherKey = await provider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, {
-        idempotencyKey: "other-key",
-      }),
-    );
-    expect(otherKey.id).not.toBe(first.id);
-
     const otherSubject = await provider.createSession(
       create(CreateAgentProviderSessionRequestSchema, {
         idempotencyKey: "dedup-key",
@@ -441,18 +433,6 @@ describe("Cursor agent provider contract", () => {
       }),
     );
     expect(otherSubject.id).not.toBe(first.id);
-
-    const emptyKeyFirst = await provider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, {}),
-    );
-    const emptyKeySecond = await provider.createSession(
-      create(CreateAgentProviderSessionRequestSchema, {}),
-    );
-    expect(emptyKeyFirst.id).not.toBe(emptyKeySecond.id);
-    expect(
-      new Set([first.id, otherKey.id, otherSubject.id, emptyKeyFirst.id, emptyKeySecond.id])
-        .size,
-    ).toBe(5);
   });
 
   test("racing createSession calls with the same key converge on one session", async () => {

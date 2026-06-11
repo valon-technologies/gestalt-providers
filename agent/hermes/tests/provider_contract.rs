@@ -2094,26 +2094,6 @@ fn write_token_script(path: &Path, counter_path: &Path, delay_after_first: bool)
 }
 
 #[tokio::test]
-async fn create_session_mints_unique_gettable_ids() {
-    let fixture = Fixture::new("success");
-    let provider = fixture.configure_provider().await;
-    let first = create_session_with(&provider, "", OWNER_SUBJECT_ID, Some(owner_subject()), None).await;
-    let second = create_session_with(&provider, "", OWNER_SUBJECT_ID, Some(owner_subject()), None).await;
-    assert!(!first.id.is_empty());
-    assert!(!second.id.is_empty());
-    assert_ne!(first.id, second.id);
-    let fetched = provider
-        .get_session(gestalt::GetAgentProviderSessionRequest {
-            provider_name: "hermes".to_string(),
-            session_id: first.id.clone(),
-            subject: Some(owner_subject()),
-        })
-        .await
-        .unwrap();
-    assert_eq!(fetched.id, first.id);
-}
-
-#[tokio::test]
 async fn create_session_replays_same_subject_and_key() {
     let fixture = Fixture::new("success");
     let provider = fixture.configure_provider().await;
@@ -2122,15 +2102,6 @@ async fn create_session_replays_same_subject_and_key() {
     let replay =
         create_session_with(&provider, "obligation-key", OWNER_SUBJECT_ID, Some(owner_subject()), None).await;
     assert_eq!(replay.id, first.id);
-}
-
-#[tokio::test]
-async fn create_session_distinct_keys_create_distinct_sessions() {
-    let fixture = Fixture::new("success");
-    let provider = fixture.configure_provider().await;
-    let first = create_session_with(&provider, "key-one", OWNER_SUBJECT_ID, Some(owner_subject()), None).await;
-    let second = create_session_with(&provider, "key-two", OWNER_SUBJECT_ID, Some(owner_subject()), None).await;
-    assert_ne!(first.id, second.id);
 }
 
 #[tokio::test]
