@@ -1,0 +1,12 @@
+type: object
+properties:
+  clientId:
+    type: string
+    description: Google OAuth client ID for Google Forms.
+  clientSecret:
+    type: string
+    description: Google OAuth client secret for Google Forms.
+required:
+  - clientId
+  - clientSecret
+additionalProperties: false

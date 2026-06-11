@@ -701,6 +701,84 @@
         "entryKind": "app",
         "section": "app"
       },
+      "description": "Transfer data between Google Workspace users using the Admin SDK Data Transfer API.",
+      "displayName": "Google Admin Data Transfer",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_admin_datatransfer/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_admin_datatransfer/README.md",
+          "sourcePath": "app/google_admin_datatransfer/README.md",
+          "title": "Google Admin Data Transfer"
+        }
+      ],
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_admin_datatransfer/assets/icon.svg",
+      "kind": "app",
+      "latestInstallableVersion": "0.0.1-alpha.1",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_admin_datatransfer/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "google_admin_datatransfer",
+      "package": "github.com/valon-technologies/gestalt-providers/app/google_admin_datatransfer",
+      "packagePath": "app/google_admin_datatransfer",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_admin_datatransfer/README.md",
+      "registryPath": "/providers/app/google_admin_datatransfer/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/google_admin_datatransfer",
+      "versions": [
+        {
+          "kind": "app",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_admin_datatransfer/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "generic"
+          ],
+          "runtime": "declarative",
+          "version": "0.0.1-alpha.1"
+        }
+      ]
+    },
+    {
+      "configTarget": {
+        "entryKind": "app",
+        "section": "app"
+      },
+      "description": "Manage Google Workspace users, groups, organizational units, devices, roles, domains, and schemas via the Admin SDK Directory API.",
+      "displayName": "Google Admin Directory",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_admin_directory/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_admin_directory/README.md",
+          "sourcePath": "app/google_admin_directory/README.md",
+          "title": "Google Admin Directory"
+        }
+      ],
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_admin_directory/assets/icon.svg",
+      "kind": "app",
+      "latestInstallableVersion": "0.0.1-alpha.1",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_admin_directory/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "google_admin_directory",
+      "package": "github.com/valon-technologies/gestalt-providers/app/google_admin_directory",
+      "packagePath": "app/google_admin_directory",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_admin_directory/README.md",
+      "registryPath": "/providers/app/google_admin_directory/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/google_admin_directory",
+      "versions": [
+        {
+          "kind": "app",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_admin_directory/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "generic"
+          ],
+          "runtime": "declarative",
+          "version": "0.0.1-alpha.1"
+        }
+      ]
+    },
+    {
+      "configTarget": {
+        "entryKind": "app",
+        "section": "app"
+      },
       "description": "Read and manage Google calendars and events.",
       "displayName": "Google Calendar",
       "docs": [
@@ -805,6 +883,45 @@
         {
           "kind": "app",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_drive/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "generic"
+          ],
+          "runtime": "declarative",
+          "version": "0.0.1-alpha.1"
+        }
+      ]
+    },
+    {
+      "configTarget": {
+        "entryKind": "app",
+        "section": "app"
+      },
+      "description": "Read and manage Google Forms and responses.",
+      "displayName": "Google Forms",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_forms/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_forms/README.md",
+          "sourcePath": "app/google_forms/README.md",
+          "title": "Google Forms"
+        }
+      ],
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_forms/assets/icon.svg",
+      "kind": "app",
+      "latestInstallableVersion": "0.0.1-alpha.1",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_forms/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "google_forms",
+      "package": "github.com/valon-technologies/gestalt-providers/app/google_forms",
+      "packagePath": "app/google_forms",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_forms/README.md",
+      "registryPath": "/providers/app/google_forms/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/google_forms",
+      "versions": [
+        {
+          "kind": "app",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_forms/v0.0.1-alpha.1/provider-release.yaml",
           "platforms": [
             "generic"
           ],
@@ -970,6 +1087,45 @@
             "generic"
           ],
           "runtime": "executable",
+          "version": "0.0.1-alpha.1"
+        }
+      ]
+    },
+    {
+      "configTarget": {
+        "entryKind": "app",
+        "section": "app"
+      },
+      "description": "Development/testing-only HTTP request and response service. Do not use with production or sensitive data.",
+      "displayName": "HTTPBin",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/httpbin/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/httpbin/README.md",
+          "sourcePath": "app/httpbin/README.md",
+          "title": "HTTPBin"
+        }
+      ],
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/httpbin/assets/icon.svg",
+      "kind": "app",
+      "latestInstallableVersion": "0.0.1-alpha.1",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/httpbin/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "httpbin",
+      "package": "github.com/valon-technologies/gestalt-providers/app/httpbin",
+      "packagePath": "app/httpbin",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/httpbin/README.md",
+      "registryPath": "/providers/app/httpbin/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/httpbin",
+      "versions": [
+        {
+          "kind": "app",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/httpbin/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "generic"
+          ],
+          "runtime": "declarative",
           "version": "0.0.1-alpha.1"
         }
       ]
@@ -1862,6 +2018,49 @@
     },
     {
       "configTarget": {
+        "entryKind": "cache",
+        "section": "providers.cache"
+      },
+      "description": "Valkey-backed cache provider.",
+      "displayName": "Valkey",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/cache/valkey/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/cache/valkey/README.md",
+          "sourcePath": "cache/valkey/README.md",
+          "title": "Valkey Cache Provider"
+        }
+      ],
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/cache/valkey/assets/icon.svg",
+      "kind": "cache",
+      "latestInstallableVersion": "0.0.1-alpha.1",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/cache/valkey/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "valkey",
+      "package": "github.com/valon-technologies/gestalt-providers/cache/valkey",
+      "packagePath": "cache/valkey",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/cache/valkey/README.md",
+      "registryPath": "/providers/cache/valkey/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/cache/valkey",
+      "versions": [
+        {
+          "kind": "cache",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/cache/valkey/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.1"
+        }
+      ]
+    },
+    {
+      "configTarget": {
         "entryKind": "externalcredentials",
         "section": "providers.externalCredentials"
       },
@@ -2017,6 +2216,49 @@
       "registryPath": "/providers/s3/gcs/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/s3/gcs",
       "versions": []
+    },
+    {
+      "configTarget": {
+        "entryKind": "s3",
+        "section": "providers.s3"
+      },
+      "description": "S3 provider for AWS S3, GCS XML interoperability, MinIO, and similar backends.",
+      "displayName": "S3",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/s3/s3/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/s3/s3/README.md",
+          "sourcePath": "s3/s3/README.md",
+          "title": "S3 Provider"
+        }
+      ],
+      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/s3/s3/assets/icon.svg",
+      "kind": "s3",
+      "latestInstallableVersion": "0.0.1-alpha.1",
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/s3/s3/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "s3",
+      "package": "github.com/valon-technologies/gestalt-providers/s3/s3",
+      "packagePath": "s3/s3",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/s3/s3/README.md",
+      "registryPath": "/providers/s3/s3/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/s3/s3",
+      "versions": [
+        {
+          "kind": "s3",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/s3/s3/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.1"
+        }
+      ]
     },
     {
       "configTarget": {

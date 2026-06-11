@@ -104,6 +104,10 @@ packages:
         runtime: "declarative"
         platforms:
           - "generic"
+  github.com/valon-technologies/gestalt-providers/app/excalidraw:
+    displayName: "Excalidraw+"
+    description: "Read, search, and edit Excalidraw+ scenes via the official hosted MCP server."
+    versions:
   github.com/valon-technologies/gestalt-providers/app/extend:
     displayName: "Extend"
     description: "Document processing and extraction with Extend."
@@ -124,6 +128,14 @@ packages:
         runtime: "declarative"
         platforms:
           - "generic"
+  github.com/valon-technologies/gestalt-providers/app/gcp_batch:
+    displayName: "GCP Batch"
+    description: "Google Cloud Batch job management"
+    versions:
+  github.com/valon-technologies/gestalt-providers/app/gcs:
+    displayName: "Google Cloud Storage"
+    description: "Google Cloud Storage object management"
+    versions:
   github.com/valon-technologies/gestalt-providers/app/github:
     displayName: "GitHub"
     description: "Repository, issue, pull request, workflow, and code search operations."
@@ -174,6 +186,26 @@ packages:
         runtime: "declarative"
         platforms:
           - "generic"
+  github.com/valon-technologies/gestalt-providers/app/google_admin_datatransfer:
+    displayName: "Google Admin Data Transfer"
+    description: "Transfer data between Google Workspace users using the Admin SDK Data Transfer API."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_admin_datatransfer/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "app"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/app/google_admin_directory:
+    displayName: "Google Admin Directory"
+    description: "Manage Google Workspace users, groups, organizational units, devices, roles, domains, and schemas via the Admin SDK Directory API."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_admin_directory/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "app"
+        runtime: "declarative"
+        platforms:
+          - "generic"
   github.com/valon-technologies/gestalt-providers/app/google_calendar:
     displayName: "Google Calendar"
     description: "Read and manage Google calendars and events."
@@ -200,6 +232,16 @@ packages:
     versions:
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_drive/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "app"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/app/google_forms:
+    displayName: "Google Forms"
+    description: "Read and manage Google Forms and responses."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_forms/v0.0.1-alpha.1/provider-release.yaml"
         kind: "app"
         runtime: "declarative"
         platforms:
@@ -248,6 +290,16 @@ packages:
           - "linux/amd64"
           - "linux/arm64"
           - "linux/arm"
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/app/httpbin:
+    displayName: "HTTPBin"
+    description: "Development/testing-only HTTP request and response service. Do not use with production or sensitive data."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/httpbin/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "app"
+        runtime: "declarative"
+        platforms:
           - "generic"
   github.com/valon-technologies/gestalt-providers/app/incident_io:
     displayName: "incident.io"
@@ -349,6 +401,10 @@ packages:
         runtime: "declarative"
         platforms:
           - "generic"
+  github.com/valon-technologies/gestalt-providers/app/planetscale:
+    displayName: "PlanetScale"
+    description: "Use the official PlanetScale insights-only MCP server for organizations, databases, branches, schema, Insights, documentation search, and schema recommendations."
+    versions:
   github.com/valon-technologies/gestalt-providers/app/ramp:
     displayName: "Ramp"
     description: "Manage corporate cards, transactions, and reimbursements."
@@ -487,6 +543,20 @@ packages:
           - "linux/amd64"
           - "linux/arm64"
           - "linux/arm"
+  github.com/valon-technologies/gestalt-providers/cache/valkey:
+    displayName: "Valkey"
+    description: "Valkey-backed cache provider."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/cache/valkey/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "cache"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
   github.com/valon-technologies/gestalt-providers/externalcredentials/default:
     displayName: "Default External Credentials"
     description: "External credentials provider backed by the host IndexedDB service."
@@ -522,6 +592,24 @@ packages:
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.1/provider-release.yaml"
         kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+  github.com/valon-technologies/gestalt-providers/s3/gcs:
+    displayName: "Google Cloud Storage"
+    description: "S3 provider backed by Google Cloud Storage with generation-aware object versions."
+    versions:
+  github.com/valon-technologies/gestalt-providers/s3/s3:
+    displayName: "S3"
+    description: "S3 provider for AWS S3, GCS XML interoperability, MinIO, and similar backends."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/s3/s3/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "s3"
         runtime: "executable"
         platforms:
           - "darwin/amd64"

@@ -3,6 +3,8 @@ updates:
   - package-ecosystem: "gomod"
     directories:
       - "/auth"
+      - "/cache"
+      - "/s3/s3"
       - "/indexeddb/relationaldb"
       - "/secrets"
       - "/s3/gcs"
