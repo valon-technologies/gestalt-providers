@@ -16,7 +16,7 @@ path = "tests/fixtures/fake_acp.rs"
 agent-client-protocol = "=0.11.1"
 agent-client-protocol-tokio = "=0.11.1"
 axum = "0.8"
-gestalt = { package = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git", rev = "016272890481b8aba6331ec65309b2c5374cb1be" }
+gestalt = { package = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git", rev = "a9411a9dc6e05f9e42ffbed44da71a24da5ddecb" }
 getrandom = "0.4"
 jsonschema = { version = "0.46.5", default-features = false }
 rmcp = { version = "1.6", features = ["transport-streamable-http-server"] }
