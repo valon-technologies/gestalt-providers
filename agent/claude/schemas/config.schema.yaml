@@ -42,6 +42,11 @@ properties:
     enum:
       - none
       - all
+  skills:
+    type: array
+    description: Skill names to enable, as bare names or plugin:skill qualified names. Cannot be combined with skillDiscovery's all value.
+    items:
+      type: string
   plugins:
     type: array
     items:
