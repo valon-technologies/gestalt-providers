@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from http import HTTPStatus
-from typing import Any, TypeAlias, cast
+from typing import Any, TypeAlias
 
 import gestalt
 from gestalt.authorization import RelationshipTargetSubject
@@ -858,7 +858,7 @@ def github_identity_link_self(
             return _server_error("GitHub /user response did not include id and login")
         name = str_field(profile, "name")
         email = str_field(profile, "email")
-        cast(Any, req).authorization().add_relationship(
+        req.authorization().add_relationship(
             gestalt.AddRelationshipRequest(
                 relationship=gestalt.Relationship(
                     tuple=gestalt.RelationshipTuple(
@@ -879,7 +879,7 @@ def github_identity_link_self(
                             },
                         ),
                     ),
-                    source_layer=gestalt.SourceLayerValues.SOURCE_LAYER_RUNTIME,
+                    source_layer=gestalt.SourceLayerValues.RUNTIME,
                 )
             )
         )
@@ -1816,7 +1816,7 @@ def _linked_github_user_id(req: gestalt.Request) -> str:
     if not subject_id:
         return ""
     try:
-        response = cast(Any, req).authorization().list_relationships(
+        response = req.authorization().list_relationships(
             gestalt.ListRelationshipsRequest(
                 filter=gestalt.RelationshipFilter(
                     target=gestalt.RelationshipTarget(
@@ -1852,7 +1852,7 @@ def _linked_github_user_id(req: gestalt.Request) -> str:
 
 def _request_authorization(req: gestalt.Request) -> gestalt.Authorization:
     try:
-        return cast(Any, req).authorization()
+        return req.authorization()
     except Exception as err:
         raise GitHubAuthorizationError(
             "GitHub bot repository authorization is unavailable"

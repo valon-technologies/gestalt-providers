@@ -13,7 +13,7 @@ import {
   type JsonObject,
   type ListedAgentTool,
 } from "@valon-technologies/gestalt";
-import { fromWireRequestContext } from "../node_modules/@valon-technologies/gestalt/src/internal/codec/app.ts";
+import { nativeRequestContext } from "@valon-technologies/gestalt/runtime";
 
 import type { CursorAgentConfig } from "./config.ts";
 import { createCursorPlatformOptions } from "./cursor_platform.ts";
@@ -132,20 +132,11 @@ export class CursorSDKRunner {
       active.bridge = await startMcpBridge({
         tools,
         executeTool: async (entry, toolCallId, args) => {
-          const context = input.requestContext === undefined
-            ? undefined
-            : fromWireRequestContext(input.requestContext);
-          const app = App.connect(
-            undefined,
-            context === undefined ? undefined : { context },
-          );
+          const context = nativeRequestContext(input.requestContext);
+          const app = App.connect({ context });
           const response = await app.invokeRaw({
-            app: entry.ref.app ?? "",
-            operation: entry.ref.operation ?? "",
-            connection: entry.ref.connection?.trim() ?? "",
-            instance: entry.ref.instance?.trim() ?? "",
+            ...entry.ref,
             idempotencyKey: `agent/cursor-sdk:${input.turnId}:${toolCallId}:${entry.mcpName}`,
-            credentialMode: appCredentialMode(entry.ref.credentialMode) ?? "",
             params: args as JsonObject,
           });
           return { status: response.status, body: response.body };
@@ -438,21 +429,6 @@ function messagesToPrompt(
     }),
   );
   return sections.join("\n\n");
-}
-
-function appCredentialMode(
-  value: string | undefined,
-): "none" | "subject" | "unspecified" | undefined {
-  const mode = value?.trim();
-  if (!mode) {
-    return undefined;
-  }
-  if (mode === "none" || mode === "subject" || mode === "unspecified") {
-    return mode;
-  }
-  throw new CursorExecutionError(
-    `tools.catalog.tools returned invalid credential_mode ${JSON.stringify(mode)}`,
-  );
 }
 
 function escapeAttribute(value: string): string {

@@ -25,10 +25,8 @@ def create_server(context: BridgeContext) -> Server[Any, Any]:
     executor = ToolExecutor(
         turn_id=context.turn_id,
         request_context=context.request_context,
+        timeout_seconds=context.timeout_seconds,
     )
-    # The generated client does not take a per-call deadline, so the tool-call
-    # timeout is enforced around the worker thread instead.
-    timeout_seconds = context.timeout_seconds if context.timeout_seconds > 0 else None
 
     @server.list_tools()
     async def handle_list_tools() -> list[mcp_types.Tool]:
@@ -53,12 +51,7 @@ def create_server(context: BridgeContext) -> Server[Any, Any]:
         if entry is None:
             return _error_result(f"unknown tool {name!r}")
         try:
-            result = await asyncio.wait_for(
-                asyncio.to_thread(executor.execute, entry=entry, arguments=arguments),
-                timeout=timeout_seconds,
-            )
-        except TimeoutError:
-            return _error_result(f"Gestalt tool call timed out after {context.timeout_seconds:g}s")
+            result = await asyncio.to_thread(executor.execute, entry=entry, arguments=arguments)
         except ToolBridgeError as exc:
             return _error_result(str(exc))
         return mcp_tool_result(result)

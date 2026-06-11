@@ -1,5 +1,5 @@
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
-import type { AgentToolRef, ListedAgentTool } from "@valon-technologies/gestalt";
+import type { ListedAgentTool } from "@valon-technologies/gestalt";
 
 import { CursorExecutionError } from "./errors.ts";
 
@@ -17,11 +17,19 @@ export type ObjectJsonSchema = {
   [key: string]: unknown;
 };
 
+export type AppOperationRef = {
+  app: string;
+  operation: string;
+  connection: string;
+  instance: string;
+  credentialMode: string;
+};
+
 export type ToolEntry = {
   mcpName: string;
   title: string;
   description: string;
-  ref: AgentToolRef;
+  ref: AppOperationRef;
   inputSchema: ObjectJsonSchema;
   annotations?: ToolAnnotations;
 };
@@ -85,7 +93,13 @@ export function toolEntry(tool: ListedAgentTool): ToolEntry {
     mcpName,
     title: (tool.title ?? "").trim(),
     description: (tool.description ?? "").trim(),
-    ref,
+    ref: {
+      app: ref.app,
+      operation: ref.operation,
+      connection: ref.connection?.trim() ?? "",
+      instance: ref.instance?.trim() ?? "",
+      credentialMode: ref.credentialMode?.trim() ?? "",
+    },
     inputSchema: schemaFromJson(tool.inputSchema ?? ""),
     ...(annotations ? { annotations } : {}),
   };

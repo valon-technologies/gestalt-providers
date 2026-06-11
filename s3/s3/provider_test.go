@@ -12,7 +12,7 @@ import (
 
 	s3provider "github.com/valon-technologies/gestalt-providers/s3/s3"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	gestalts3 "github.com/valon-technologies/gestalt/sdk/go/s3"
+	"github.com/valon-technologies/gestalt/sdk/go/s3"
 )
 
 func TestS3Provider_WriteReadAndStat(t *testing.T) {
@@ -251,7 +251,7 @@ func TestS3Provider_ListCopyDeletePresignAndExists(t *testing.T) {
 
 	presigned, err := provider.PresignObject(ctx, gestalt.PresignRequest{
 		Ref:                destRef,
-		Method:             gestalts3.PresignMethodPut,
+		Method:             s3.PresignMethodPut,
 		Expires:            15 * time.Minute,
 		ContentType:        "text/plain",
 		ContentDisposition: `attachment; filename="dest.txt"`,
@@ -260,7 +260,7 @@ func TestS3Provider_ListCopyDeletePresignAndExists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PresignObject(PUT): %v", err)
 	}
-	if presigned.Method != gestalts3.PresignMethodPut {
+	if presigned.Method != s3.PresignMethodPut {
 		t.Fatalf("Presign method = %q, want PUT", presigned.Method)
 	}
 	if !strings.Contains(presigned.URL, "X-Amz-Signature=") {
@@ -280,14 +280,14 @@ func TestS3Provider_ListCopyDeletePresignAndExists(t *testing.T) {
 	}
 	if _, err := provider.PresignObject(ctx, gestalt.PresignRequest{
 		Ref:     destRef,
-		Method:  gestalts3.PresignMethodPut,
+		Method:  s3.PresignMethodPut,
 		Expires: -time.Second,
 	}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
 		t.Fatalf("PresignObject(negative expiry) error = %v, want invalid_argument", err)
 	}
 	getPresigned, err := provider.PresignObject(ctx, gestalt.PresignRequest{
 		Ref:                destRef,
-		Method:             gestalts3.PresignMethodGet,
+		Method:             s3.PresignMethodGet,
 		ContentType:        "application/octet-stream",
 		ContentDisposition: `attachment; filename="download.txt"`,
 	})
@@ -310,7 +310,7 @@ func TestS3Provider_ListCopyDeletePresignAndExists(t *testing.T) {
 
 	versioned, err := provider.PresignObject(ctx, gestalt.PresignRequest{
 		Ref:    gestalt.ObjectRef{Key: destRef.Key, VersionID: "version id/1"},
-		Method: gestalts3.PresignMethodHead,
+		Method: s3.PresignMethodHead,
 	})
 	if err != nil {
 		t.Fatalf("PresignObject(versioned): %v", err)
@@ -360,7 +360,7 @@ func TestS3Provider_KeyPrefixIsTransparent(t *testing.T) {
 		t.Fatalf("ReadObject(dest) = %q, want prefixed", destText)
 	}
 
-	presigned, err := provider.PresignObject(ctx, gestalt.PresignRequest{Ref: destRef, Method: gestalts3.PresignMethodGet})
+	presigned, err := provider.PresignObject(ctx, gestalt.PresignRequest{Ref: destRef, Method: s3.PresignMethodGet})
 	if err != nil {
 		t.Fatalf("PresignObject(GET): %v", err)
 	}

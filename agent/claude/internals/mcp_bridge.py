@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 import gestalt
+from gestalt.app import App
+from gestalt.rpc_support import GestaltError, GestaltErrorCode
 from claude_agent_sdk.types import (
     McpSdkServerConfig,
     PermissionResultAllow,
@@ -121,7 +123,12 @@ class GestaltMCPBridge:
             idempotency_key = f"agent/claude-sdk:{self._turn_id}:{self._sequence}:{entry.mcp_name}"
 
             def execute() -> Any:
-                app = gestalt.Request(context=self._request_context).app()
+                # Request.app() does not expose the client timeout, so connect
+                # directly with the request's native context.
+                app = App.connect(
+                    context=gestalt.native_request_context(self._request_context),
+                    timeout=self._timeout_seconds,
+                )
                 return app.invoke(
                     app=entry.ref.app,
                     operation=entry.ref.operation,
@@ -133,13 +140,13 @@ class GestaltMCPBridge:
                 )
 
             try:
-                # The generated client does not take a per-call deadline, so the
-                # tool-call timeout is enforced around the worker thread instead.
-                result = await asyncio.wait_for(asyncio.to_thread(execute), timeout=self._timeout_seconds)
-            except TimeoutError:
-                return _tool_error_result(
-                    TimeoutError(f"Gestalt tool call timed out after {self._timeout_seconds:g}s")
-                )
+                result = await asyncio.to_thread(execute)
+            except GestaltError as exc:
+                if exc.code == GestaltErrorCode.DEADLINE_EXCEEDED and self._timeout_seconds is not None:
+                    return _tool_error_result(
+                        TimeoutError(f"Gestalt tool call timed out after {self._timeout_seconds:g}s")
+                    )
+                return _tool_error_result(exc)
             except Exception as exc:
                 return _tool_error_result(exc)
         body = json.dumps(result, ensure_ascii=False, separators=(",", ":"))

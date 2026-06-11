@@ -555,7 +555,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(resource.type, provider_module._agent.SLACK_USER_RESOURCE_TYPE)
         self.assertEqual(resource.id, "T123/U456")
         self.assertEqual(
-            relationship.source_layer, gestalt.SourceLayerValues.SOURCE_LAYER_RUNTIME
+            relationship.source_layer, gestalt.SourceLayerValues.RUNTIME
         )
 
     def test_agent_routes_reject_duplicate_ids(self) -> None:
@@ -1543,7 +1543,7 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(
             request.filter.target_type,
-            gestalt.RelationshipTargetTypeValues.RELATIONSHIP_TARGET_TYPE_SUBJECT,
+            gestalt.RelationshipTargetTypeValues.SUBJECT,
         )
 
     def test_http_subject_dedupes_equivalent_linked_slack_user_subjects(

@@ -2036,9 +2036,7 @@ def _relationship_target_subject(
 ) -> gestalt.AuthorizationSubject | None:
     target = relationship.tuple.target if relationship.tuple is not None else None
     kind = target.kind if target is not None else None
-    if isinstance(kind, RelationshipTargetSubject):
-        return kind.value
-    return None
+    return kind.value if isinstance(kind, RelationshipTargetSubject) else None
 
 
 def _resolve_slack_subject(
@@ -2056,7 +2054,7 @@ def _resolve_slack_subject(
                     id=resource_id,
                 ),
                 relation=SLACK_USER_LINKED_ACTION,
-                target_type=gestalt.RelationshipTargetTypeValues.RELATIONSHIP_TARGET_TYPE_SUBJECT,
+                target_type=gestalt.RelationshipTargetTypeValues.SUBJECT,
             ),
             page_size=10,
         )

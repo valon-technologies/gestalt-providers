@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import gestalt
+from gestalt.app import App
+from gestalt.rpc_support import GestaltError, GestaltErrorCode
 from mcp import types as mcp_types
 
 
@@ -36,9 +38,11 @@ class ToolExecutor:
         *,
         turn_id: str,
         request_context: Any,
+        timeout_seconds: float = DEFAULT_HOST_RPC_TIMEOUT_SECONDS,
     ) -> None:
         self._turn_id = turn_id
         self._request_context = request_context
+        self._timeout_seconds = timeout_seconds if timeout_seconds > 0 else None
         self._lock = threading.Lock()
         self._sequence = 0
 
@@ -48,7 +52,12 @@ class ToolExecutor:
             sequence = self._sequence
         idempotency_key = f"agent/codex-mcp:{self._turn_id}:{sequence}:{entry.mcp_name}"
         try:
-            app = gestalt.Request(context=self._request_context).app()
+            # Request.app() does not expose the client timeout, so connect
+            # directly with the request's native context.
+            app = App.connect(
+                context=gestalt.native_request_context(self._request_context),
+                timeout=self._timeout_seconds,
+            )
             return app.invoke(
                 app=entry.ref.app,
                 operation=entry.ref.operation,
@@ -58,6 +67,12 @@ class ToolExecutor:
                 credential_mode=entry.ref.credential_mode,
                 idempotency_key=idempotency_key,
             )
+        except GestaltError as exc:
+            if exc.code == GestaltErrorCode.DEADLINE_EXCEEDED and self._timeout_seconds is not None:
+                raise ToolBridgeError(
+                    f"Gestalt tool call timed out after {self._timeout_seconds:g}s"
+                ) from exc
+            raise ToolBridgeError(str(exc) or exc.__class__.__name__) from exc
         except Exception as exc:
             raise ToolBridgeError(str(exc) or exc.__class__.__name__) from exc
 

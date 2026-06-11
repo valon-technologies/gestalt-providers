@@ -464,7 +464,7 @@ class GitHubProviderTests(unittest.TestCase):
             {"login": "ghopper", "name": "Grace Hopper"},
         )
         self.assertEqual(
-            relationship.source_layer, gestalt.SourceLayerValues.SOURCE_LAYER_RUNTIME
+            relationship.source_layer, gestalt.SourceLayerValues.RUNTIME
         )
 
     def test_catalog_and_schema_expose_events_and_generic_bot_operations(

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from http import HTTPStatus
-from typing import Any, TypeAlias, cast
+from typing import Any, TypeAlias
 
 import gestalt
 from gestalt.authorization import RelationshipTargetSubject
@@ -901,7 +901,7 @@ def slack_identity_link_self(
                 "Slack auth.test response did not include team_id and user_id"
             )
         resource_id = slack_user_resource_id(team_id, user_id)
-        cast(Any, req).authorization().add_relationship(
+        req.authorization().add_relationship(
             gestalt.AddRelationshipRequest(
                 relationship=gestalt.Relationship(
                     tuple=gestalt.RelationshipTuple(
@@ -918,7 +918,7 @@ def slack_identity_link_self(
                             id=resource_id,
                         ),
                     ),
-                    source_layer=gestalt.SourceLayerValues.SOURCE_LAYER_RUNTIME,
+                    source_layer=gestalt.SourceLayerValues.RUNTIME,
                 )
             )
         )
@@ -1207,7 +1207,7 @@ def _linked_slack_user_id_from_request(req: gestalt.Request) -> str:
     if not subject_id:
         return ""
     try:
-        response = cast(Any, req).authorization().list_relationships(
+        response = req.authorization().list_relationships(
             gestalt.ListRelationshipsRequest(
                 filter=gestalt.RelationshipFilter(
                     target=gestalt.RelationshipTarget(

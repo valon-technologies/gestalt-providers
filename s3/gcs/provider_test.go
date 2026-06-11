@@ -15,7 +15,7 @@ import (
 
 	"cloud.google.com/go/storage"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	gestalts3 "github.com/valon-technologies/gestalt/sdk/go/s3"
+	"github.com/valon-technologies/gestalt/sdk/go/s3"
 	"google.golang.org/api/option"
 )
 
@@ -190,7 +190,7 @@ func TestProvider_PresignObjectUsesGCSV4GenerationControls(t *testing.T) {
 
 	if _, err := provider.PresignObject(ctx, gestalt.PresignRequest{
 		Ref:     gestalt.ObjectRef{Key: "docs/file.txt"},
-		Method:  gestalts3.PresignMethodGet,
+		Method:  s3.PresignMethodGet,
 		Expires: maxPresignTTL + time.Second,
 	}); !hasStatusCode(err, gestalt.CodeInvalidArgument) {
 		t.Fatalf("PresignObject(long expiry) error = %v, want invalid_argument", err)
@@ -198,7 +198,7 @@ func TestProvider_PresignObjectUsesGCSV4GenerationControls(t *testing.T) {
 
 	getResult, err := provider.PresignObject(ctx, gestalt.PresignRequest{
 		Ref:                gestalt.ObjectRef{Key: "docs/file.txt", VersionID: "123"},
-		Method:             gestalts3.PresignMethodGet,
+		Method:             s3.PresignMethodGet,
 		ContentType:        "application/pdf",
 		ContentDisposition: `attachment; filename="file.pdf"`,
 		Headers:            map[string]string{"Host": "ignore.example"},
@@ -228,7 +228,7 @@ func TestProvider_PresignObjectUsesGCSV4GenerationControls(t *testing.T) {
 
 	putResult, err := provider.PresignObject(ctx, gestalt.PresignRequest{
 		Ref:                gestalt.ObjectRef{Key: "docs/file.txt", VersionID: "456"},
-		Method:             gestalts3.PresignMethodPut,
+		Method:             s3.PresignMethodPut,
 		ContentType:        "text/plain",
 		ContentDisposition: "inline",
 		Headers:            map[string]string{"x-goog-meta-source": "unit", "Host": "ignore.example"},

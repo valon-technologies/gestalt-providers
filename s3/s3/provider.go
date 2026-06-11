@@ -23,7 +23,7 @@ import (
 	smithymiddleware "github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
-	gestalts3 "github.com/valon-technologies/gestalt/sdk/go/s3"
+	"github.com/valon-technologies/gestalt/sdk/go/s3"
 	"gopkg.in/yaml.v3"
 )
 
@@ -383,7 +383,7 @@ func (p *Provider) PresignObject(ctx context.Context, req gestalt.PresignRequest
 		return gestalt.PresignResult{}, toStatusError(err)
 	}
 
-	method := gestalts3.PresignMethodGet
+	method := s3.PresignMethodGet
 	var expires time.Duration
 	var contentType, contentDisposition string
 	var headers map[string]string
@@ -393,7 +393,7 @@ func (p *Provider) PresignObject(ctx context.Context, req gestalt.PresignRequest
 	contentDisposition = req.ContentDisposition
 	headers = clonePresignHeaders(req.Headers)
 	if method == "" {
-		method = gestalts3.PresignMethodGet
+		method = s3.PresignMethodGet
 	}
 	if expires < 0 {
 		return gestalt.PresignResult{}, gestalt.InvalidArgument("expires must be >= 0")
@@ -402,7 +402,7 @@ func (p *Provider) PresignObject(ctx context.Context, req gestalt.PresignRequest
 	key := backendKey(cfg.keyPrefix, ref.Key)
 	var presigned *v4.PresignedHTTPRequest
 	switch method {
-	case gestalts3.PresignMethodPut:
+	case s3.PresignMethodPut:
 		input := &s3sdk.PutObjectInput{
 			Bucket: aws.String(cfg.bucket),
 			Key:    aws.String(key),
@@ -418,13 +418,13 @@ func (p *Provider) PresignObject(ctx context.Context, req gestalt.PresignRequest
 			headers = setPresignHeader(headers, "Content-Type", contentType)
 		}
 		presigned, err = cfg.presigner.PresignPutObject(ctx, input, presignOptions(expires, headers))
-	case gestalts3.PresignMethodDelete:
+	case s3.PresignMethodDelete:
 		presigned, err = cfg.presigner.PresignDeleteObject(ctx, &s3sdk.DeleteObjectInput{
 			Bucket:    aws.String(cfg.bucket),
 			Key:       aws.String(key),
 			VersionId: awsStringIfPresent(ref.VersionID),
 		}, presignOptions(expires, headers))
-	case gestalts3.PresignMethodHead:
+	case s3.PresignMethodHead:
 		presigned, err = cfg.presigner.PresignHeadObject(ctx, &s3sdk.HeadObjectInput{
 			Bucket:    aws.String(cfg.bucket),
 			Key:       aws.String(key),
@@ -936,13 +936,13 @@ func toStatusError(err error) error {
 		return gestalt.Unimplemented(err.Error())
 	case errors.Is(err, errNotConfigured):
 		return gestalt.FailedPrecondition(err.Error())
-	case errors.Is(err, gestalts3.ErrNotFound), isNotFound(err):
+	case errors.Is(err, s3.ErrNotFound), isNotFound(err):
 		return gestalt.NotFound(err.Error())
 	case isNotModified(err):
 		return gestalt.FailedPrecondition(err.Error())
-	case errors.Is(err, gestalts3.ErrPreconditionFailed), isPreconditionFailed(err):
+	case errors.Is(err, s3.ErrPreconditionFailed), isPreconditionFailed(err):
 		return gestalt.FailedPrecondition(err.Error())
-	case errors.Is(err, gestalts3.ErrInvalidRange), isInvalidRange(err):
+	case errors.Is(err, s3.ErrInvalidRange), isInvalidRange(err):
 		return gestalt.OutOfRange(err.Error())
 	case isPermissionDenied(err):
 		return gestalt.PermissionDenied(err.Error())
