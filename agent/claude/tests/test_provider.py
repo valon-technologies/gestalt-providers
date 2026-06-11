@@ -484,10 +484,8 @@ class ClaudeProviderTests(unittest.TestCase):
             _, provider_client = _configure_provider(
                 {"skills": ["docs:search", "standalone-skill"], "plugins": [docs], "allowedTools": ["Skill"]}
             )
-            _create_owned_session(provider_client, "session-skills-list", tools=_catalog_tool_config())
-            provider_client.CreateTurn(
-                _turn_request(turn_id="turn-skills-list", session_id="session-skills-list")
-            )
+            session = _create_owned_session(provider_client, tools=_catalog_tool_config())
+            provider_client.CreateTurn(_turn_request(turn_id="turn-skills-list", session_id=session.id))
             _wait_for_turn(provider_client, "turn-skills-list", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
             options = _FakeClaudeSDKClient.instances[-1].options
@@ -495,20 +493,24 @@ class ClaudeProviderTests(unittest.TestCase):
             self.assertEqual(options.plugins, [{"type": "local", "path": os.path.realpath(docs)}])
             self.assertEqual(options.tools, ["mcp__gestalt__*", "Skill"])
 
-    def test_skills_list_without_allowed_tool_does_not_enable_skill_tool(self) -> None:
+    def test_skills_list_filtered_by_scoped_skill_permission(self) -> None:
         with tempfile.TemporaryDirectory() as root:
             docs = _make_claude_plugin(root, "docs")
-            _, provider_client = _configure_provider({"skills": ["docs:search"], "plugins": [docs]})
-            _create_owned_session(provider_client, "session-skills-denied", tools=_catalog_tool_config())
-            provider_client.CreateTurn(
-                _turn_request(turn_id="turn-skills-denied", session_id="session-skills-denied")
+            _, provider_client = _configure_provider(
+                {
+                    "skills": ["docs:search", "docs:other"],
+                    "plugins": [docs],
+                    "allowedTools": ["Skill(docs:search)"],
+                }
             )
-            _wait_for_turn(provider_client, "turn-skills-denied", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+            session = _create_owned_session(provider_client, tools=_catalog_tool_config())
+            provider_client.CreateTurn(_turn_request(turn_id="turn-skills-scoped", session_id=session.id))
+            _wait_for_turn(provider_client, "turn-skills-scoped", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
             options = _FakeClaudeSDKClient.instances[-1].options
-            self.assertEqual(options.skills, [])
+            self.assertEqual(options.skills, ["docs:search"])
             self.assertEqual(
-                getattr(asyncio.run(options.can_use_tool("Skill(docs:search)", {}, None)), "behavior", ""), "deny"
+                getattr(asyncio.run(options.can_use_tool("Skill(docs:other)", {}, None)), "behavior", ""), "deny"
             )
 
     def test_provider_rejects_reserved_session_start_metadata(self) -> None:
@@ -563,12 +565,15 @@ class ClaudeProviderTests(unittest.TestCase):
                 ({"plugins": [root_executable_component]}, "unsupported root components"),
                 ({"settingSources": ["workspace"]}, "settingSources entries must be one of"),
                 ({"skillDiscovery": "named"}, "skillDiscovery must be one of"),
-                ({"skills": ["docs:search"], "skillDiscovery": "all"}, "skills and skillDiscovery cannot both be set"),
+                (
+                    {"skills": ["docs:search"], "skillDiscovery": "all"},
+                    "skills and skillDiscovery: all cannot both be set",
+                ),
                 ({"skills": "docs:search"}, "skills must be a list"),
-                ({"skills": [""]}, r"skills\[0\] must be a non-empty string"),
-                ({"skills": ["docs:search:extra"]}, r"skills\[0\] must be a skill name or plugin:skill"),
-                ({"skills": ["bad name"]}, r"skills\[0\] must be a skill name or plugin:skill"),
-                ({"skills": ["docs:search", "docs:search"]}, r"skills\[1\] duplicates skills\[0\]"),
+                ({"skills": [""]}, r"skills\[1\] must be a skill name or plugin:skill"),
+                ({"skills": ["docs:search:extra"]}, r"skills\[1\] must be a skill name or plugin:skill"),
+                ({"skills": ["bad name"]}, r"skills\[1\] must be a skill name or plugin:skill"),
+                ({"skills": ["docs:search", "docs:search"]}, r"skills\[2\] and skills\[1\] are duplicates"),
                 ({"skills": ["workflows:deploy"], "plugins": [valid]}, "references unknown plugin 'workflows'"),
                 ({"allowedTools": ["WebFetch"]}, "unsupported Claude Code tool specifier"),
                 ({"allowedTools": "Read"}, "allowedTools must be a list"),
@@ -592,6 +597,9 @@ class ClaudeProviderTests(unittest.TestCase):
                         provider_module.ClaudeCodeAgentProvider().configure("claude", _base_config(config))
             provider_module.ClaudeCodeAgentProvider().configure(
                 "claude", _base_config({"plugins": [metadata_manifest, default_skills_dir_manifest]})
+            )
+            provider_module.ClaudeCodeAgentProvider().configure(
+                "claude", _base_config({"skillDiscovery": "none", "skills": ["docs:search"], "plugins": [valid]})
             )
 
     def test_provider_completes_turn_through_agent_sdk_with_catalog_tools(self) -> None:

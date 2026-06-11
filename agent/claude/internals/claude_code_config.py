@@ -110,17 +110,19 @@ class ClaudeCodeTurnOptions:
     plugins: tuple[LocalClaudeCodePlugin, ...]
     setting_sources: tuple[SettingSource, ...]
     disable_auto_memory: bool
-    skill_discovery: SkillDiscovery
-    skills: tuple[str, ...]
+    skills: Literal["all"] | tuple[str, ...]
     tool_permissions: ClaudeCodeToolPermissions | None
 
     @property
     def sdk_skills(self) -> Literal["all"] | list[str]:
         if self.tool_permissions is None or not self.tool_permissions.includes_base_tool("Skill"):
             return []
-        if self.skill_discovery == "all":
+        if self.skills == "all":
             return "all"
-        return list(self.skills)
+        # The SDK turns each listed skill into a CLI allow rule that bypasses
+        # the per-turn permission callback, so never send a skill the
+        # provider's own permissions would deny.
+        return [skill for skill in self.skills if self.tool_permissions.allows(f"Skill({skill})", {})]
 
     @property
     def sdk_plugins(self) -> list[SdkPluginConfig]:
@@ -147,8 +149,7 @@ class ClaudeCodeTurnOptions:
 class ClaudeCodeConfig:
     setting_sources: tuple[SettingSource, ...] = ()
     disable_auto_memory: bool = True
-    skill_discovery: SkillDiscovery = "none"
-    skills: tuple[str, ...] = ()
+    skills: Literal["all"] | tuple[str, ...] = ()
     plugins: tuple[LocalClaudeCodePlugin, ...] = ()
     tool_permissions: ClaudeCodeToolPermissions = ClaudeCodeToolPermissions(specs=())
 
@@ -161,22 +162,22 @@ class ClaudeCodeConfig:
         legacy_fields = sorted(set(raw_value) & UNSUPPORTED_LEGACY_FIELDS)
         if legacy_fields:
             raise ValueError(f"unsupported Claude Code config fields: {', '.join(legacy_fields)}")
-        if raw_value.get("skills") is not None and raw_value.get("skillDiscovery") is not None:
-            raise ValueError("skills and skillDiscovery cannot both be set")
 
         setting_sources = _parse_setting_sources(raw_value.get("settingSources"))
         disable_auto_memory = _parse_bool(
             raw_value.get("disableAutoMemory"), default=True, field_name="disableAutoMemory"
         )
         skill_discovery = _parse_skill_discovery(raw_value.get("skillDiscovery"))
-        skills = _parse_skills(raw_value.get("skills"))
+        skill_names = _parse_skills(raw_value.get("skills"))
+        if skill_discovery == "all" and skill_names:
+            raise ValueError("skills and skillDiscovery: all cannot both be set")
         plugins = _parse_plugins(raw_value.get("plugins"))
-        _validate_skill_plugin_prefixes(skills, plugins)
+        _validate_skill_plugin_prefixes(skill_names, plugins)
         tool_permissions = _parse_allowed_tools(raw_value.get("allowedTools"))
+        skills: Literal["all"] | tuple[str, ...] = "all" if skill_discovery == "all" else skill_names
         return cls(
             setting_sources=setting_sources,
             disable_auto_memory=disable_auto_memory,
-            skill_discovery=skill_discovery,
             skills=skills,
             plugins=plugins,
             tool_permissions=tool_permissions,
@@ -192,7 +193,6 @@ class ClaudeCodeConfig:
             plugins=self.plugins,
             setting_sources=self.setting_sources,
             disable_auto_memory=self.disable_auto_memory,
-            skill_discovery=self.skill_discovery,
             skills=self.skills,
             tool_permissions=active_permissions,
         )
@@ -227,21 +227,21 @@ def _parse_skills(raw_value: Any) -> tuple[str, ...]:
     if not isinstance(raw_value, list):
         raise ValueError("skills must be a list of skill names")
     skills: list[str] = []
-    for index, raw_item in enumerate(raw_value):
-        if not isinstance(raw_item, str) or not raw_item.strip():
-            raise ValueError(f"skills[{index}] must be a non-empty string")
-        item = raw_item.strip()
-        if not _SKILL_NAME_RE.match(item):
+    seen: dict[str, int] = {}
+    for index, raw_item in enumerate(raw_value, start=1):
+        skill = raw_item.strip() if isinstance(raw_item, str) else ""
+        if not _SKILL_NAME_RE.match(skill):
             raise ValueError(f"skills[{index}] must be a skill name or plugin:skill qualified name")
-        if item in skills:
-            raise ValueError(f"skills[{index}] duplicates skills[{skills.index(item)}]")
-        skills.append(item)
+        if skill in seen:
+            raise ValueError(f"skills[{index}] and skills[{seen[skill]}] are duplicates")
+        seen[skill] = index
+        skills.append(skill)
     return tuple(skills)
 
 
 def _validate_skill_plugin_prefixes(skills: tuple[str, ...], plugins: tuple[LocalClaudeCodePlugin, ...]) -> None:
     plugin_names = {plugin.manifest_name for plugin in plugins}
-    for index, skill in enumerate(skills):
+    for index, skill in enumerate(skills, start=1):
         plugin_name, separator, _ = skill.partition(":")
         if separator and plugin_name not in plugin_names:
             known = ", ".join(sorted(plugin_names)) or "none"
