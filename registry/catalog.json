@@ -383,7 +383,7 @@
       ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/excalidraw/assets/icon.svg",
       "kind": "app",
-      "latestInstallableVersion": null,
+      "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/excalidraw/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "excalidraw",
@@ -392,7 +392,17 @@
       "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/excalidraw/README.md",
       "registryPath": "/providers/app/excalidraw/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/excalidraw",
-      "versions": []
+      "versions": [
+        {
+          "kind": "app",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/excalidraw/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "generic"
+          ],
+          "runtime": "declarative",
+          "version": "0.0.1-alpha.1"
+        }
+      ]
     },
     {
       "configTarget": {
@@ -490,7 +500,7 @@
       ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/gcp_batch/assets/icon.svg",
       "kind": "app",
-      "latestInstallableVersion": null,
+      "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gcp_batch/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "gcp_batch",
@@ -499,7 +509,17 @@
       "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gcp_batch/README.md",
       "registryPath": "/providers/app/gcp_batch/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/gcp_batch",
-      "versions": []
+      "versions": [
+        {
+          "kind": "app",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/gcp_batch/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "generic"
+          ],
+          "runtime": "declarative",
+          "version": "0.0.1-alpha.1"
+        }
+      ]
     },
     {
       "configTarget": {
@@ -519,7 +539,7 @@
       ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/gcs/assets/icon.svg",
       "kind": "app",
-      "latestInstallableVersion": null,
+      "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gcs/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "gcs",
@@ -528,7 +548,17 @@
       "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/gcs/README.md",
       "registryPath": "/providers/app/gcs/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/gcs",
-      "versions": []
+      "versions": [
+        {
+          "kind": "app",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/gcs/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "generic"
+          ],
+          "runtime": "declarative",
+          "version": "0.0.1-alpha.1"
+        }
+      ]
     },
     {
       "configTarget": {
@@ -1538,7 +1568,7 @@
       ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/planetscale/assets/icon.svg",
       "kind": "app",
-      "latestInstallableVersion": null,
+      "latestInstallableVersion": "0.0.1-alpha.0",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/planetscale/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.0",
       "name": "planetscale",
@@ -1547,7 +1577,17 @@
       "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/planetscale/README.md",
       "registryPath": "/providers/app/planetscale/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/planetscale",
-      "versions": []
+      "versions": [
+        {
+          "kind": "app",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/planetscale/v0.0.1-alpha.0/provider-release.yaml",
+          "platforms": [
+            "generic"
+          ],
+          "runtime": "declarative",
+          "version": "0.0.1-alpha.0"
+        }
+      ]
     },
     {
       "configTarget": {
@@ -2206,7 +2246,7 @@
       ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/s3/gcs/assets/icon.svg",
       "kind": "s3",
-      "latestInstallableVersion": null,
+      "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/s3/gcs/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "gcs",
@@ -2215,7 +2255,21 @@
       "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/s3/gcs/README.md",
       "registryPath": "/providers/s3/gcs/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/s3/gcs",
-      "versions": []
+      "versions": [
+        {
+          "kind": "s3",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/s3/gcs/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.1"
+        }
+      ]
     },
     {
       "configTarget": {

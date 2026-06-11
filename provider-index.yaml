@@ -104,6 +104,16 @@ packages:
         runtime: "declarative"
         platforms:
           - "generic"
+  github.com/valon-technologies/gestalt-providers/app/excalidraw:
+    displayName: "Excalidraw+"
+    description: "Read, search, and edit Excalidraw+ scenes via the official hosted MCP server."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/excalidraw/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "app"
+        runtime: "declarative"
+        platforms:
+          - "generic"
   github.com/valon-technologies/gestalt-providers/app/extend:
     displayName: "Extend"
     description: "Document processing and extraction with Extend."
@@ -120,6 +130,26 @@ packages:
     versions:
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/figma/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "app"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/app/gcp_batch:
+    displayName: "GCP Batch"
+    description: "Google Cloud Batch job management"
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/gcp_batch/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "app"
+        runtime: "declarative"
+        platforms:
+          - "generic"
+  github.com/valon-technologies/gestalt-providers/app/gcs:
+    displayName: "Google Cloud Storage"
+    description: "Google Cloud Storage object management"
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/gcs/v0.0.1-alpha.1/provider-release.yaml"
         kind: "app"
         runtime: "declarative"
         platforms:
@@ -389,6 +419,16 @@ packages:
         runtime: "declarative"
         platforms:
           - "generic"
+  github.com/valon-technologies/gestalt-providers/app/planetscale:
+    displayName: "PlanetScale"
+    description: "Use the official PlanetScale insights-only MCP server for organizations, databases, branches, schema, Insights, documentation search, and schema recommendations."
+    versions:
+      "0.0.1-alpha.0":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/planetscale/v0.0.1-alpha.0/provider-release.yaml"
+        kind: "app"
+        runtime: "declarative"
+        platforms:
+          - "generic"
   github.com/valon-technologies/gestalt-providers/app/ramp:
     displayName: "Ramp"
     description: "Manage corporate cards, transactions, and reimbursements."
@@ -576,6 +616,20 @@ packages:
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/gkeagentsandbox/v0.0.1-alpha.1/provider-release.yaml"
         kind: "runtime"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+  github.com/valon-technologies/gestalt-providers/s3/gcs:
+    displayName: "Google Cloud Storage"
+    description: "S3 provider backed by Google Cloud Storage with generation-aware object versions."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/s3/gcs/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "s3"
         runtime: "executable"
         platforms:
           - "darwin/amd64"
