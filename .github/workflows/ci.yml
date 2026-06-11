@@ -16,7 +16,6 @@ on:
       - 's3/**'
       - 'indexeddb/**'
       - 'workflow/**'
-      - 'cache/**'
       - 'secrets/**'
       - 'ui/**'
       - 'provider-index.yaml'
@@ -38,7 +37,6 @@ on:
       - 's3/**'
       - 'indexeddb/**'
       - 'workflow/**'
-      - 'cache/**'
       - 'secrets/**'
       - 'ui/**'
       - 'provider-index.yaml'
@@ -105,7 +103,7 @@ jobs:
           from pathlib import Path
 
           repo = Path(".")
-          package_roots = ("agent", "runtime", "app", "auth", "authorization", "externalcredentials", "s3", "indexeddb", "workflow", "cache", "secrets")
+          package_roots = ("agent", "runtime", "app", "auth", "authorization", "externalcredentials", "s3", "indexeddb", "workflow", "secrets")
           all_apps = []
           for root_name in package_roots:
               root = repo / root_name
@@ -169,13 +167,6 @@ jobs:
                           continue
                       if parts[1] == "relationaldb":
                           selected.update(packages_by_root.get("externalcredentials", set()))
-                  if len(parts) >= 2 and parts[0] == "cache":
-                      if parts[1] == "internal":
-                          selected.update(packages_by_root.get("cache", set()))
-                          continue
-                      if len(parts) == 2:
-                          selected.update(packages_by_root.get("cache", set()))
-                          continue
                   if len(parts) >= 3 and parts[0] in package_roots:
                       package_dir = Path(parts[0]) / parts[1]
                       if (repo / package_dir / "manifest.yaml").is_file():

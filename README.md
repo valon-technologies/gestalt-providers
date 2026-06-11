@@ -76,8 +76,8 @@ git push origin app/slack/v0.0.1-alpha.1
 Runtime providers use the same release flow:
 
 ```sh
-git tag runtime/kubernetes/v0.0.1-alpha.2
-git push origin runtime/kubernetes/v0.0.1-alpha.2
+git tag runtime/gkeagentsandbox/v0.0.1-alpha.2
+git push origin runtime/gkeagentsandbox/v0.0.1-alpha.2
 ```
 
 The release workflow packages the provider for all supported platforms and

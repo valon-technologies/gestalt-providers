@@ -1,8 +1,0 @@
-source: github.com/valon-technologies/gestalt-providers/runtime/kubernetes
-version: 0.0.1-alpha.1
-displayName: Kubernetes Runtime
-description: Hosted executable-plugin runtime backed by Kubernetes.
-iconFile: assets/icon.svg
-kind: runtime
-spec:
-  configSchemaPath: schemas/config.schema.yaml

@@ -8,7 +8,5 @@ interface from the core Gestalt SDK.
 
 Current packages:
 
-- `s3`: S3 provider for AWS S3, GCS XML interoperability, MinIO, and similar
-  backends.
 - `gcs`: Native Google Cloud Storage provider that maps `ObjectRef.versionId`
   to GCS generations and supports GCS generation preconditions.

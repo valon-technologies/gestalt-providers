@@ -947,6 +947,7 @@ def main() -> int:
             args.release_tag,
         )
     apply_current_manifest_metadata(packages, manifests)
+    packages = {source: package for source, package in packages.items() if source in manifests}
 
     ok = compare_or_write(output, render_index(packages), args.check)
     ok = compare_or_write(catalog_output, render_catalog(repo_root, manifests, packages), args.check) and ok
