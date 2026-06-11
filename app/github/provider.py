@@ -47,7 +47,6 @@ from internals.constants import (
 from internals.errors import GitHubAPIError, GitHubAuthorizationError, GitHubConfigError
 from internals.helpers import int_field, str_field
 from internals.operations import (
-    AuthorizationClient,
     GitHubAddLabelsRequest,
     GitHubAddReactionRequest,
     GitHubCodeSearchRequest,
@@ -1851,7 +1850,7 @@ def _linked_github_user_id(req: gestalt.Request) -> str:
     return user_id
 
 
-def _request_authorization(req: gestalt.Request) -> AuthorizationClient:
+def _request_authorization(req: gestalt.Request) -> gestalt.Authorization:
     try:
         return cast(Any, req).authorization()
     except Exception as err:

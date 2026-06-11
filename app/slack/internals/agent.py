@@ -6,7 +6,7 @@ import logging
 import urllib.parse
 import uuid
 from http import HTTPStatus
-from typing import Any, Iterable, Protocol, TypeAlias, cast
+from typing import Any, Iterable, TypeAlias, cast
 
 import gestalt
 from gestalt.authorization import RelationshipTargetSubject
@@ -2031,16 +2031,6 @@ def _slack_reply_thread_ts(
     return ""
 
 
-class AuthorizationClient(Protocol):
-    """Structural view of the generated Authorization client, so tests can
-    inject fakes; the handwritten SDK authorization protocol was removed
-    with the SDK client facades."""
-
-    def list_relationships(
-        self, request: gestalt.ListRelationshipsRequest
-    ) -> gestalt.ListRelationshipsResponse: ...
-
-
 def _relationship_target_subject(
     relationship: gestalt.Relationship,
 ) -> gestalt.AuthorizationSubject | None:
@@ -2052,7 +2042,7 @@ def _relationship_target_subject(
 
 
 def _resolve_slack_subject(
-    authorization: AuthorizationClient,
+    authorization: gestalt.Authorization,
     *,
     team_id: str,
     user_id: str,
