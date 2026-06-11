@@ -617,12 +617,82 @@ packages:
           - "linux/amd64"
           - "linux/arm64"
           - "linux/arm"
+  github.com/valon-technologies/gestalt-providers/secrets/aws:
+    displayName: "AWS Secrets Manager"
+    description: "Resolves secrets from AWS Secrets Manager."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/aws/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "secrets"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+  github.com/valon-technologies/gestalt-providers/secrets/azure:
+    displayName: "Azure Key Vault"
+    description: "Resolves secrets from Azure Key Vault."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/azure/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "secrets"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
   github.com/valon-technologies/gestalt-providers/secrets/google:
     displayName: "Google Secret Manager"
     description: "Resolves secrets from Google Cloud Secret Manager."
     versions:
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/google/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "secrets"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+  github.com/valon-technologies/gestalt-providers/secrets/keeper:
+    displayName: "Keeper Secrets Manager"
+    description: "Resolves secrets from Keeper Secrets Manager."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/keeper/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "secrets"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+  github.com/valon-technologies/gestalt-providers/secrets/onepassword:
+    displayName: "1Password"
+    description: "Resolves secrets from 1Password Connect."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/onepassword/v0.0.1-alpha.1/provider-release.yaml"
+        kind: "secrets"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+  github.com/valon-technologies/gestalt-providers/secrets/vault:
+    displayName: "HashiCorp Vault"
+    description: "Resolves secrets from HashiCorp Vault KV v2."
+    versions:
+      "0.0.1-alpha.1":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/vault/v0.0.1-alpha.1/provider-release.yaml"
         kind: "secrets"
         runtime: "executable"
         platforms:
