@@ -323,6 +323,11 @@ def write_base_config(config_path: pathlib.Path, index_path: pathlib.Path) -> No
     )
 
 
+def package_is_yanked_only(package: dict[str, Any]) -> bool:
+    versions = package.get("versions") or {}
+    return bool(versions) and all(bool(entry.get("yanked")) for entry in versions.values())
+
+
 def validate_cli(
     gestaltd: str, config_path: pathlib.Path, packages: dict[str, Any]
 ) -> None:
@@ -332,6 +337,8 @@ def validate_cli(
         raise SystemExit("provider search output did not include app/slack")
     for source in package_names:
         run([gestaltd, "provider", "info", "--repo", "local", "--config", str(config_path), source])
+        if package_is_yanked_only(packages[source]):
+            continue
         run(
             [
                 gestaltd,

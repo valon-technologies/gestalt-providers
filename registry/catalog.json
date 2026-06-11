@@ -128,6 +128,71 @@
     },
     {
       "configTarget": {
+        "entryKind": "agent",
+        "section": "providers.agent"
+      },
+      "description": "Agent provider that runs Hermes through the Agent Client Protocol.",
+      "displayName": "Hermes ACP Agent",
+      "docs": [],
+      "iconUrl": null,
+      "kind": "agent",
+      "latestInstallableVersion": null,
+      "manifestUrl": null,
+      "manifestVersion": null,
+      "name": "hermes",
+      "package": "github.com/valon-technologies/gestalt-providers/agent/hermes",
+      "packagePath": "agent/hermes",
+      "readmeUrl": null,
+      "registryPath": "/providers/agent/hermes/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/agent/hermes",
+      "versions": [
+        {
+          "kind": "agent",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/agent/hermes/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "linux/amd64",
+            "linux/arm64"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.1",
+          "yanked": true
+        }
+      ]
+    },
+    {
+      "configTarget": {
+        "entryKind": "app",
+        "section": "app"
+      },
+      "description": "Manage tasks, projects, and workspaces.",
+      "displayName": "Asana",
+      "docs": [],
+      "iconUrl": null,
+      "kind": "app",
+      "latestInstallableVersion": null,
+      "manifestUrl": null,
+      "manifestVersion": null,
+      "name": "asana",
+      "package": "github.com/valon-technologies/gestalt-providers/app/asana",
+      "packagePath": "app/asana",
+      "readmeUrl": null,
+      "registryPath": "/providers/app/asana/",
+      "sourceUrl": null,
+      "versions": [
+        {
+          "kind": "app",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/asana/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "generic"
+          ],
+          "runtime": "declarative",
+          "version": "0.0.1-alpha.1",
+          "yanked": true
+        }
+      ]
+    },
+    {
+      "configTarget": {
         "entryKind": "app",
         "section": "app"
       },
@@ -206,6 +271,38 @@
           ],
           "runtime": "executable",
           "version": "0.0.1-alpha.1"
+        }
+      ]
+    },
+    {
+      "configTarget": {
+        "entryKind": "app",
+        "section": "app"
+      },
+      "description": "Access Carta Launch, Investor, Issuer, Portfolio, corporation, compensation, open cap table, file upload, and user APIs.",
+      "displayName": "Carta",
+      "docs": [],
+      "iconUrl": null,
+      "kind": "app",
+      "latestInstallableVersion": null,
+      "manifestUrl": null,
+      "manifestVersion": null,
+      "name": "carta",
+      "package": "github.com/valon-technologies/gestalt-providers/app/carta",
+      "packagePath": "app/carta",
+      "readmeUrl": null,
+      "registryPath": "/providers/app/carta/",
+      "sourceUrl": null,
+      "versions": [
+        {
+          "kind": "app",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/carta/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "generic"
+          ],
+          "runtime": "declarative",
+          "version": "0.0.1-alpha.1",
+          "yanked": true
         }
       ]
     },
@@ -1594,6 +1691,38 @@
         "entryKind": "app",
         "section": "app"
       },
+      "description": "Manage customers, invoices, bills, payments, accounts, and reports in QuickBooks Online.",
+      "displayName": "QuickBooks Online",
+      "docs": [],
+      "iconUrl": null,
+      "kind": "app",
+      "latestInstallableVersion": null,
+      "manifestUrl": null,
+      "manifestVersion": null,
+      "name": "quickbooks",
+      "package": "github.com/valon-technologies/gestalt-providers/app/quickbooks",
+      "packagePath": "app/quickbooks",
+      "readmeUrl": null,
+      "registryPath": "/providers/app/quickbooks/",
+      "sourceUrl": null,
+      "versions": [
+        {
+          "kind": "app",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/quickbooks/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "generic"
+          ],
+          "runtime": "declarative",
+          "version": "0.0.1-alpha.1",
+          "yanked": true
+        }
+      ]
+    },
+    {
+      "configTarget": {
+        "entryKind": "app",
+        "section": "app"
+      },
       "description": "Manage corporate cards, transactions, and reimbursements.",
       "displayName": "Ramp",
       "docs": [
@@ -1832,6 +1961,38 @@
           ],
           "runtime": "declarative",
           "version": "0.0.1-alpha.1"
+        }
+      ]
+    },
+    {
+      "configTarget": {
+        "entryKind": "app",
+        "section": "app"
+      },
+      "description": "Send and receive SMS, voice calls, and messaging operations.",
+      "displayName": "Twilio",
+      "docs": [],
+      "iconUrl": null,
+      "kind": "app",
+      "latestInstallableVersion": null,
+      "manifestUrl": null,
+      "manifestVersion": null,
+      "name": "twilio",
+      "package": "github.com/valon-technologies/gestalt-providers/app/twilio",
+      "packagePath": "app/twilio",
+      "readmeUrl": null,
+      "registryPath": "/providers/app/twilio/",
+      "sourceUrl": null,
+      "versions": [
+        {
+          "kind": "app",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/twilio/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "generic"
+          ],
+          "runtime": "declarative",
+          "version": "0.0.1-alpha.1",
+          "yanked": true
         }
       ]
     },
@@ -2147,6 +2308,78 @@
         "entryKind": "indexeddb",
         "section": "providers.indexeddb"
       },
+      "description": "Amazon DynamoDB IndexedDB provider.",
+      "displayName": "DynamoDB",
+      "docs": [],
+      "iconUrl": null,
+      "kind": "indexeddb",
+      "latestInstallableVersion": null,
+      "manifestUrl": null,
+      "manifestVersion": null,
+      "name": "dynamodb",
+      "package": "github.com/valon-technologies/gestalt-providers/indexeddb/dynamodb",
+      "packagePath": "indexeddb/dynamodb",
+      "readmeUrl": null,
+      "registryPath": "/providers/indexeddb/dynamodb/",
+      "sourceUrl": null,
+      "versions": [
+        {
+          "kind": "indexeddb",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/dynamodb/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.1",
+          "yanked": true
+        }
+      ]
+    },
+    {
+      "configTarget": {
+        "entryKind": "indexeddb",
+        "section": "providers.indexeddb"
+      },
+      "description": "MongoDB IndexedDB provider.",
+      "displayName": "MongoDB",
+      "docs": [],
+      "iconUrl": null,
+      "kind": "indexeddb",
+      "latestInstallableVersion": null,
+      "manifestUrl": null,
+      "manifestVersion": null,
+      "name": "mongodb",
+      "package": "github.com/valon-technologies/gestalt-providers/indexeddb/mongodb",
+      "packagePath": "indexeddb/mongodb",
+      "readmeUrl": null,
+      "registryPath": "/providers/indexeddb/mongodb/",
+      "sourceUrl": null,
+      "versions": [
+        {
+          "kind": "indexeddb",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/mongodb/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.1",
+          "yanked": true
+        }
+      ]
+    },
+    {
+      "configTarget": {
+        "entryKind": "indexeddb",
+        "section": "providers.indexeddb"
+      },
       "description": "IndexedDB provider supporting PostgreSQL, MySQL, SQLite, and SQL Server.",
       "displayName": "RelationalDB",
       "docs": [
@@ -2225,6 +2458,42 @@
           ],
           "runtime": "executable",
           "version": "0.0.1-alpha.1"
+        }
+      ]
+    },
+    {
+      "configTarget": {
+        "entryKind": "runtime",
+        "section": "runtime.providers"
+      },
+      "description": "Hosted executable-plugin runtime backed by Kubernetes.",
+      "displayName": "Kubernetes Runtime",
+      "docs": [],
+      "iconUrl": null,
+      "kind": "runtime",
+      "latestInstallableVersion": null,
+      "manifestUrl": null,
+      "manifestVersion": null,
+      "name": "kubernetes",
+      "package": "github.com/valon-technologies/gestalt-providers/runtime/kubernetes",
+      "packagePath": "runtime/kubernetes",
+      "readmeUrl": null,
+      "registryPath": "/providers/runtime/kubernetes/",
+      "sourceUrl": null,
+      "versions": [
+        {
+          "kind": "runtime",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/runtime/kubernetes/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.1",
+          "yanked": true
         }
       ]
     },
@@ -2319,6 +2588,78 @@
         "entryKind": "secrets",
         "section": "providers.secrets"
       },
+      "description": "Resolves secrets from AWS Secrets Manager.",
+      "displayName": "AWS Secrets Manager",
+      "docs": [],
+      "iconUrl": null,
+      "kind": "secrets",
+      "latestInstallableVersion": null,
+      "manifestUrl": null,
+      "manifestVersion": null,
+      "name": "aws",
+      "package": "github.com/valon-technologies/gestalt-providers/secrets/aws",
+      "packagePath": "secrets/aws",
+      "readmeUrl": null,
+      "registryPath": "/providers/secrets/aws/",
+      "sourceUrl": null,
+      "versions": [
+        {
+          "kind": "secrets",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/aws/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.1",
+          "yanked": true
+        }
+      ]
+    },
+    {
+      "configTarget": {
+        "entryKind": "secrets",
+        "section": "providers.secrets"
+      },
+      "description": "Resolves secrets from Azure Key Vault.",
+      "displayName": "Azure Key Vault",
+      "docs": [],
+      "iconUrl": null,
+      "kind": "secrets",
+      "latestInstallableVersion": null,
+      "manifestUrl": null,
+      "manifestVersion": null,
+      "name": "azure",
+      "package": "github.com/valon-technologies/gestalt-providers/secrets/azure",
+      "packagePath": "secrets/azure",
+      "readmeUrl": null,
+      "registryPath": "/providers/secrets/azure/",
+      "sourceUrl": null,
+      "versions": [
+        {
+          "kind": "secrets",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/azure/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.1",
+          "yanked": true
+        }
+      ]
+    },
+    {
+      "configTarget": {
+        "entryKind": "secrets",
+        "section": "providers.secrets"
+      },
       "description": "Resolves secrets from Google Cloud Secret Manager.",
       "displayName": "Google Secret Manager",
       "docs": [
@@ -2354,6 +2695,114 @@
           ],
           "runtime": "executable",
           "version": "0.0.1-alpha.1"
+        }
+      ]
+    },
+    {
+      "configTarget": {
+        "entryKind": "secrets",
+        "section": "providers.secrets"
+      },
+      "description": "Resolves secrets from Keeper Secrets Manager.",
+      "displayName": "Keeper Secrets Manager",
+      "docs": [],
+      "iconUrl": null,
+      "kind": "secrets",
+      "latestInstallableVersion": null,
+      "manifestUrl": null,
+      "manifestVersion": null,
+      "name": "keeper",
+      "package": "github.com/valon-technologies/gestalt-providers/secrets/keeper",
+      "packagePath": "secrets/keeper",
+      "readmeUrl": null,
+      "registryPath": "/providers/secrets/keeper/",
+      "sourceUrl": null,
+      "versions": [
+        {
+          "kind": "secrets",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/keeper/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.1",
+          "yanked": true
+        }
+      ]
+    },
+    {
+      "configTarget": {
+        "entryKind": "secrets",
+        "section": "providers.secrets"
+      },
+      "description": "Resolves secrets from 1Password Connect.",
+      "displayName": "1Password",
+      "docs": [],
+      "iconUrl": null,
+      "kind": "secrets",
+      "latestInstallableVersion": null,
+      "manifestUrl": null,
+      "manifestVersion": null,
+      "name": "onepassword",
+      "package": "github.com/valon-technologies/gestalt-providers/secrets/onepassword",
+      "packagePath": "secrets/onepassword",
+      "readmeUrl": null,
+      "registryPath": "/providers/secrets/onepassword/",
+      "sourceUrl": null,
+      "versions": [
+        {
+          "kind": "secrets",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/onepassword/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.1",
+          "yanked": true
+        }
+      ]
+    },
+    {
+      "configTarget": {
+        "entryKind": "secrets",
+        "section": "providers.secrets"
+      },
+      "description": "Resolves secrets from HashiCorp Vault KV v2.",
+      "displayName": "HashiCorp Vault",
+      "docs": [],
+      "iconUrl": null,
+      "kind": "secrets",
+      "latestInstallableVersion": null,
+      "manifestUrl": null,
+      "manifestVersion": null,
+      "name": "vault",
+      "package": "github.com/valon-technologies/gestalt-providers/secrets/vault",
+      "packagePath": "secrets/vault",
+      "readmeUrl": null,
+      "registryPath": "/providers/secrets/vault/",
+      "sourceUrl": null,
+      "versions": [
+        {
+          "kind": "secrets",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/secrets/vault/v0.0.1-alpha.1/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.1",
+          "yanked": true
         }
       ]
     },

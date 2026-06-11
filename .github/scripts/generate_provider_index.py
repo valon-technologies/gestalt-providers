@@ -437,6 +437,11 @@ def upsert_release(
     versions[release.version] = entry
 
 
+def package_is_yanked_only(package: dict[str, Any]) -> bool:
+    versions = package.get("versions") or {}
+    return bool(versions) and all(bool(entry.get("yanked")) for entry in versions.values())
+
+
 def apply_current_manifest_metadata(
     packages: dict[str, dict[str, Any]], manifests: dict[str, Manifest]
 ) -> None:
@@ -950,7 +955,8 @@ def main() -> int:
     packages = {
         source: package
         for source, package in packages.items()
-        if source in manifests and package.get("versions")
+        if package.get("versions")
+        and (source in manifests or package_is_yanked_only(package))
     }
 
     ok = compare_or_write(output, render_index(packages), args.check)
