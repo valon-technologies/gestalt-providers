@@ -23,8 +23,8 @@ dark).
 | `--brand`, `--brand-soft`, `--danger`, `--success` | brand accent pair / status colors | gold pair / red / green |
 | `--radius` | base corner radius; Tailwind derives `rounded-sm` (−2px), `rounded`/`rounded-md` (as is), `rounded-lg` (+4px) | `0.5rem` (→ 6/8/12px) |
 | `--content-max-width` | shared max width of the nav and every contained page *(ships with the Container PR)* | `80rem` |
-| `--heading-weight` | default `h1`–`h6` weight (applied by a `globals.css` base rule) | `500` |
-| `--font-display`, `--font-body`, `--font-mono` | type stacks (see the font seam below) | Season Serif / KMR Melange Grotesk / Geist Mono |
+| `--heading-weight` | default `h1`–`h6` weight (applied by a `globals.css` base rule) | `400` (Newsreader ships one cut) |
+| `--font-display`, `--font-body`, `--font-mono` | type stacks (see the font seam below) | Newsreader (opsz 72) / Instrument Sans / Geist Mono — all OFL |
 
 The bundled defaults are wrapped in `:where(:root)` / `:where(.dark)` — zero
 specificity — so any tenant declaration (`:root { … }`, `.dark { … }`)
@@ -167,9 +167,11 @@ empty stub, and tenant themes arrive at serve time via `/theme.css`.
 - The `.dark dialog::backdrop` scrim keeps its own constant (the dark
   `--alpha-dark` triplet is a text scale, not a scrim color); light
   backdrop, shadows, radii, and brand/status colors are token-driven now.
-- The bundled display/body faces are licensed fonts; a fully generic default
-  should fall back to system stacks, with tenant themes adding `@font-face`
-  for licensed cuts.
+- ~~Licensed fonts in the bundle~~ — resolved: bundled faces are OFL only
+  (Newsreader / Instrument Sans / Geist Mono, licenses in
+  `public/fonts/OFL-*.txt`; same branding as gestalt/docs). Commercially
+  licensed fonts may not live in this public repo — tenant themes deliver
+  them via `@font-face` against `/theme/fonts/…` (`theme.assetsDir`).
 - The admin shell (`src/admin-static-assets.ts` → `out/admin/`) embeds its
   own copy of `theme.css` and its own font pipeline; it must be re-themed
   separately.
