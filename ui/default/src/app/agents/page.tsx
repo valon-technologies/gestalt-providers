@@ -46,6 +46,7 @@ import {
   type TranscriptState,
 } from "@/lib/agentTranscript";
 import AuthGuard from "@/components/AuthGuard";
+import Container from "@/components/Container";
 import Nav from "@/components/Nav";
 
 type InteractionDrafts = Record<string, string>;
@@ -586,7 +587,11 @@ export default function AgentsPage() {
     <AuthGuard>
       <div className="min-h-screen bg-background">
         <Nav />
-        <main className="flex h-[calc(100vh-5rem)] flex-col overflow-hidden">
+        <Container
+          as="main"
+          width="full"
+          className="flex h-[calc(100vh-5rem)] flex-col overflow-hidden"
+        >
           <h1 className="sr-only">Agent Sessions</h1>
           <div className="flex items-center justify-between border-b border-alpha px-5 py-2.5">
             <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.22em] text-muted">
@@ -747,7 +752,7 @@ export default function AgentsPage() {
               <span>esc cancel</span>
             </div>
           </div>
-        </main>
+        </Container>
       </div>
     </AuthGuard>
   );
