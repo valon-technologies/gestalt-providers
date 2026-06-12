@@ -195,7 +195,7 @@ export default function WorkflowsPage() {
                   value={runsQuery}
                   onChange={(event) => setRunsQuery(event.target.value)}
                   placeholder="Run ID, provider, app, step, definition, event"
-                  className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-sky-500"
+                  className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-primary outline-hidden transition-colors duration-150 placeholder:text-faint focus:border-sky-500"
                 />
               </label>
               <label className="block">
@@ -203,7 +203,7 @@ export default function WorkflowsPage() {
                 <select
                   value={runStatus}
                   onChange={(event) => setRunStatus(event.target.value)}
-                  className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-sky-500"
+                  className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-primary outline-hidden transition-colors duration-150 focus:border-sky-500"
                 >
                   {RUN_STATUSES.map((status) => (
                     <option key={status} value={status}>

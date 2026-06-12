@@ -85,7 +85,7 @@ export default function Nav() {
   }
 
   return (
-    <nav className="border-b border-alpha py-3 bg-background/80 backdrop-blur-sm sticky top-0 z-50">
+    <nav className="border-b border-alpha py-3 bg-background/80 backdrop-blur-xs sticky top-0 z-50">
       <Container className="flex items-center justify-between">
         <div className="flex items-center gap-8">
           <Link href="/" className="text-lg font-heading font-bold text-primary">

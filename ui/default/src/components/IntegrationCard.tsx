@@ -472,7 +472,7 @@ export default function IntegrationCard({
       data-testid={`integration-card-${integration.name}`}
       className={`rounded-lg border border-alpha bg-base-white p-6 transition-all duration-150 dark:bg-surface ${
         cardNavigationEnabled
-          ? "cursor-pointer hover:border-alpha-strong hover:shadow-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-400 focus-visible:ring-offset-2 focus-visible:ring-offset-base-white dark:focus-visible:ring-offset-surface"
+          ? "cursor-pointer hover:border-alpha-strong hover:shadow-card focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold-400 focus-visible:ring-offset-2 focus-visible:ring-offset-base-white dark:focus-visible:ring-offset-surface"
           : "hover:border-alpha-strong hover:shadow-card"
       }`}
       onClick={handleCardClick}
