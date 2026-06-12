@@ -70,7 +70,7 @@
   /* Code-block shell shared by the Shiki output and its plain <pre>
    * fallback, so layout is identical before and after highlighting. */
   .doc-code pre {
-    @apply overflow-x-auto rounded-xl border border-alpha bg-base-100 px-4 py-4 pr-12 font-mono text-sm leading-6 text-primary dark:bg-surface;
+    @apply overflow-x-auto rounded-xl border border-alpha bg-surface px-4 py-4 pr-12 font-mono text-sm leading-6 text-primary;
   }
 }
 

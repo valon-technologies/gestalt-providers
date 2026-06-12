@@ -81,7 +81,7 @@ export default function RootLayout({
         {/* eslint-disable-next-line @next/next/no-css-tags */}
         <link rel="stylesheet" href="/theme.css" />
       </head>
-      <body className={`${newsreader.variable} ${instrumentSans.variable} ${geistMono.variable} font-sans antialiased gradient-warm`}>
+      <body className={`${newsreader.variable} ${instrumentSans.variable} ${geistMono.variable} font-sans antialiased`}>
         {children}
       </body>
     </html>

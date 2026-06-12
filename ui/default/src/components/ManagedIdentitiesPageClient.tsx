@@ -124,7 +124,7 @@ export default function ManagedIdentitiesPageClient() {
             <div className="mx-auto max-w-3xl">
               <div className="animate-fade-in-up">
                 <span className="label-text">Workspace</span>
-                <h1 className="mt-2 text-2xl font-heading font-bold text-primary">
+                <h1 className="mt-2 text-2xl font-heading text-primary">
                   Agent Identities
                 </h1>
                 <p className="mt-4 text-sm text-muted">
@@ -145,7 +145,7 @@ export default function ManagedIdentitiesPageClient() {
           <Container as="main" className="py-12">
             <div className="animate-fade-in-up">
               <span className="label-text">Workspace</span>
-              <h1 className="mt-2 text-2xl font-heading font-bold text-primary">
+              <h1 className="mt-2 text-2xl font-heading text-primary">
                 Agent Identities
               </h1>
               <p className="mt-2 text-sm text-muted">
@@ -182,7 +182,7 @@ export default function ManagedIdentitiesPageClient() {
                 <label htmlFor="identity-id" className="label-text block">
                   Identity ID
                 </label>
-                <div className="mt-2 flex rounded-md border border-alpha bg-base-white transition-all duration-150 focus-within:border-alpha-strong focus-within:ring-2 focus-within:ring-alpha-5 dark:bg-surface">
+                <div className="mt-2 flex rounded-md border border-alpha bg-base-white transition-all duration-150 focus-within:border-alpha-strong focus-within:ring-2 focus-within:ring-foreground/10 dark:bg-surface">
                   <span className="flex items-center border-r border-alpha px-3 font-mono text-sm text-faint">
                     service_account:
                   </span>

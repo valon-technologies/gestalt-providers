@@ -46,7 +46,7 @@ export default function AuthorizationPageClient() {
         <Container as="main" className="py-12">
           <div className="animate-fade-in-up">
             <span className="label-text">Security</span>
-            <h1 className="mt-2 text-2xl font-heading font-bold text-primary">
+            <h1 className="mt-2 text-2xl font-heading text-primary">
               Authorization
             </h1>
             <p className="mt-3 max-w-3xl text-sm text-muted">
@@ -113,7 +113,7 @@ function AuthorizationSectionIntro({
   return (
     <div>
       <span className="label-text">{eyebrow}</span>
-      <h2 className="mt-2 text-xl font-heading font-bold text-primary">{title}</h2>
+      <h2 className="mt-2 text-xl font-heading text-primary">{title}</h2>
       <p className="mt-2 max-w-3xl text-sm text-muted">{description}</p>
     </div>
   );

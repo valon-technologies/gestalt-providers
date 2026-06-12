@@ -13,6 +13,7 @@ import {
 import Nav from "@/components/Nav";
 import AuthGuard from "@/components/AuthGuard";
 import Container from "@/components/Container";
+import { AGENT_SESSION_ROUTE } from "@/lib/agentLinks";
 
 export default function DashboardPage() {
   const [data, setData] = useState<{
@@ -112,7 +113,7 @@ export default function DashboardPage() {
         <Container as="main" className="py-12">
           <div className="animate-fade-in-up">
             <span className="label-text">Overview</span>
-            <h1 className="mt-2 text-2xl font-heading font-bold text-primary">
+            <h1 className="mt-2 text-2xl font-heading text-primary">
               Dashboard
             </h1>
             <p className="mt-2 text-sm text-muted">
@@ -172,7 +173,7 @@ export default function DashboardPage() {
             </Link>
             {data.agentAvailable && (
               <Link
-                href="/agents"
+                href={AGENT_SESSION_ROUTE}
                 className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
               >
                 <span className="label-text">Agents</span>
