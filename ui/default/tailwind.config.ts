@@ -52,6 +52,12 @@ const config: Config = {
         "surface-raised": "hsl(var(--surface-raised) / <alpha-value>)",
         foreground: "hsl(var(--foreground) / <alpha-value>)",
         border: "hsl(var(--border) / <alpha-value>)",
+        // Raw hex tokens (no <alpha-value> seam), so Tailwind alpha
+        // modifiers (e.g. text-danger/50) do not apply to these four.
+        brand: "var(--brand)",
+        "brand-soft": "var(--brand-soft)",
+        danger: "var(--danger)",
+        success: "var(--success)",
       },
       textColor: {
         primary: "rgba(var(--alpha-dark), 1)",
@@ -74,14 +80,16 @@ const config: Config = {
         mono: ["var(--font-mono)", "monospace"],
       },
       boxShadow: {
-        dropdown: "0 4px 12px rgba(35, 24, 16, 0.1)",
-        card: "0 1px 3px rgba(35, 24, 16, 0.04)",
+        dropdown: "0 4px 12px rgba(var(--shadow-ink), 0.1)",
+        card: "0 1px 3px rgba(var(--shadow-ink), 0.04)",
       },
+      // Derived from --radius (0.5rem in the generic theme), keeping the
+      // rendered 6/8/12px scale.
       borderRadius: {
-        DEFAULT: "8px",
-        lg: "12px",
-        md: "8px",
-        sm: "6px",
+        DEFAULT: "var(--radius)",
+        lg: "calc(var(--radius) + 4px)",
+        md: "var(--radius)",
+        sm: "calc(var(--radius) - 2px)",
       },
       keyframes: {
         "fade-in-up": {

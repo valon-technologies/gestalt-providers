@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "./dev.sh",
     "dev:next": "next dev",
+    "dev:theme": "node --env-file-if-exists=.env.local scripts/dev-theme-watch.mjs",
     "build": "next build && npm run build:admin-static",
     "start": "next start",
     "lint": "eslint .",
