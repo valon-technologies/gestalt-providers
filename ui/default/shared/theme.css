@@ -1,19 +1,32 @@
-:root {
+/* Token defaults are wrapped in :where() so they carry zero specificity:
+ * any tenant declaration served at /theme.css (e.g. `:root { --brand: … }`,
+ * specificity 0,1,0) outranks them by cascade contract, not by stylesheet
+ * order. The armor inverts under !important, which tenant themes therefore
+ * must not use. */
+:where(:root) {
   color-scheme: light;
   --background: 36 28% 99%;
   --surface: 36 33% 97%;
   --surface-raised: 33 22% 93%;
   --border: 30 18% 87%;
   --foreground: 24 30% 11%;
-  --radius: 0.75rem;
+  /* Tailwind derives the radius scale from this: sm = -2px, md/DEFAULT = as
+   * is, lg = +4px. 0.5rem keeps the rendered 6/8/12px scale. */
+  --radius: 0.5rem;
   --alpha-dark: 35, 24, 16;
+  /* Shadow ink is its own token, deliberately identical in light and dark:
+   * shadows stay ink-dark, while --alpha-dark flips to a light triplet in
+   * dark mode and would turn them into glows. */
+  --shadow-ink: 35, 24, 16;
   --brand: #7a4f10;
   --brand-soft: #eac59f;
   --danger: #c75050;
   --success: #3d6b3d;
+  /* Typography knobs, overridable per tenant theme. */
+  --heading-weight: 500;
 }
 
-.dark {
+:where(.dark) {
   color-scheme: dark;
   --background: 24 18% 8%;
   --surface: 24 14% 11%;
@@ -21,6 +34,7 @@
   --border: 24 10% 20%;
   --foreground: 33 20% 90%;
   --alpha-dark: 232, 222, 212;
+  --shadow-ink: 35, 24, 16;
   --brand: #f5ca78;
   --brand-soft: #5c3c0c;
   --danger: #f0a3a3;

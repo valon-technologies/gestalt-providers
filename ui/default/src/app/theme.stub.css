@@ -1,0 +1,6 @@
+/*
+ * Empty placeholder for the @theme.css import in layout.tsx. During
+ * local development, setting GESTALT_THEME_FILE re-points that import at a
+ * live tenant stylesheet so theme edits hot-reload (see THEMING.md);
+ * production builds always bundle this stub.
+ */
