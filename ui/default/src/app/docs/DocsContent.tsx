@@ -556,7 +556,7 @@ function DocsPageHeader({
       <p className="text-xs font-medium uppercase tracking-[0.16em] text-faint">
         {eyebrow}
       </p>
-      <h1 className="mt-5 font-heading text-4xl font-bold tracking-[-0.03em] text-primary sm:text-5xl">
+      <h1 className="mt-5 font-heading text-4xl tracking-[-0.03em] text-primary sm:text-5xl">
         {title}
       </h1>
       <div className="mt-6 max-w-3xl text-base leading-7 text-secondary">
@@ -1212,7 +1212,7 @@ function Subheading({ id, title }: { id?: string; title: string }) {
   return (
     <h2
       id={id}
-      className="scroll-mt-24 pt-2 text-lg font-semibold tracking-[-0.01em] text-primary"
+      className="scroll-mt-24 pt-2 text-lg tracking-[-0.01em] text-primary"
     >
       {title}
     </h2>

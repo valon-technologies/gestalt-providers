@@ -154,7 +154,7 @@ export default function WorkflowsPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <span className="label-text">Workflows</span>
-              <h1 className="mt-2 text-2xl font-heading font-bold text-primary">
+              <h1 className="mt-2 text-2xl font-heading text-primary">
                 Workflows
               </h1>
               <p className="mt-2 max-w-2xl text-sm text-muted">
