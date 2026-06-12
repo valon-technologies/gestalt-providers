@@ -829,13 +829,13 @@ function SessionSidebar({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="filter sessions…"
-              className="w-full bg-transparent text-primary outline-none placeholder:text-faint"
+              className="w-full bg-transparent text-primary outline-hidden placeholder:text-faint"
             />
           </div>
           <select
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value)}
-            className="w-full border border-alpha bg-background/50 px-2 py-1.5 font-mono text-xs uppercase tracking-[0.16em] text-muted outline-none transition-colors duration-150 focus:border-alpha-strong"
+            className="w-full border border-alpha bg-background/50 px-2 py-1.5 font-mono text-xs uppercase tracking-[0.16em] text-muted outline-hidden transition-colors duration-150 focus:border-alpha-strong"
           >
             <option value="all">all states</option>
             <option value="active">active</option>
@@ -1339,7 +1339,7 @@ function InteractionPanel({
                       [interaction.id]: event.target.value,
                     }))
                   }
-                  className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+                  className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-hidden transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
                 />
                 <button
                   type="submit"
@@ -1381,7 +1381,7 @@ function InteractionPanel({
                   }))
                 }
                 rows={4}
-                className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 font-mono text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+                className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 font-mono text-sm text-primary outline-hidden transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
               />
               <button
                 type="submit"
@@ -1476,7 +1476,7 @@ function AgentComposer({
               rows={3}
               required
               placeholder="Message agent..."
-              className="min-h-24 w-full resize-y border-0 bg-transparent p-0 font-mono text-sm leading-6 text-primary outline-none placeholder:text-faint"
+              className="min-h-24 w-full resize-y border-0 bg-transparent p-0 font-mono text-sm leading-6 text-primary outline-hidden placeholder:text-faint"
             />
           </label>
 
@@ -1528,7 +1528,7 @@ function AgentComposer({
             rows={4}
             required
             placeholder="Message agent…"
-            className="min-h-28 w-full resize-y border-0 bg-transparent p-0 font-mono text-sm leading-6 text-primary outline-none placeholder:text-faint"
+            className="min-h-28 w-full resize-y border-0 bg-transparent p-0 font-mono text-sm leading-6 text-primary outline-hidden placeholder:text-faint"
           />
         </label>
         <div className="mt-3 flex items-center justify-between border-t border-alpha pt-3 font-mono text-[11px] text-faint">
@@ -1567,7 +1567,7 @@ function ProviderField({
         value={value || providers.find((p) => p.default)?.name || providers[0]?.name || ""}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
-        className="border border-alpha bg-background/50 px-2 py-1 text-xs uppercase tracking-[0.16em] text-primary outline-none transition-colors duration-150 focus:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60"
+        className="border border-alpha bg-background/50 px-2 py-1 text-xs uppercase tracking-[0.16em] text-primary outline-hidden transition-colors duration-150 focus:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60"
       >
         {providers.map((provider) => (
           <option key={provider.name} value={provider.name}>
@@ -1759,7 +1759,7 @@ function JsonTextarea({
         onChange={(event) => onChange(event.target.value)}
         rows={3}
         spellCheck={false}
-        className="w-full resize-y rounded-md border border-alpha bg-base-100 px-3 py-2 font-mono text-sm text-primary outline-none transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+        className="w-full resize-y rounded-md border border-alpha bg-base-100 px-3 py-2 font-mono text-sm text-primary outline-hidden transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
       />
     </label>
   );

@@ -1,8 +1,153 @@
 @import "../../shared/theme.css";
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Scan src/ only — the v3 config's content globs. The default heuristic would
+ * also crawl public/ (e.g. admin/echarts.min.js) for class candidates. */
+@import "tailwindcss" source("..");
+
+/* v3 `darkMode: ["class"]` — dark: variants match descendants of `.dark`. */
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  /* Static warm palettes (hardcoded by design — see THEMING.md known gaps). */
+  --color-base-white: oklch(100% 0 0);
+  --color-base-50: oklch(99.1% 0.0041 91.45);
+  --color-base-100: oklch(97.384% 0.0045 78.3);
+  --color-base-200: oklch(92.323% 0.0129 63.91);
+  --color-base-300: oklch(86.851% 0.0197 72.55);
+  --color-base-400: oklch(71.063% 0.035 74.65);
+  --color-base-500: oklch(55.538% 0.0431 75.75);
+  --color-base-600: oklch(44.69% 0.0382 91.81);
+  --color-base-700: oklch(37.609% 0.0346 84.27);
+  --color-base-800: oklch(27.043% 0.0259 51.02);
+  --color-base-900: oklch(21.867% 0.0213 76.13);
+  --color-base-950: oklch(22.039% 0.0231 57.22);
+
+  --color-gold-50: oklch(99.474% 0.0045 78.3);
+  --color-gold-100: oklch(97.858% 0.0203 81.78);
+  --color-gold-200: oklch(93.565% 0.0534 81.79);
+  --color-gold-300: oklch(85.935% 0.1118 82.45);
+  --color-gold-400: oklch(79.263% 0.1438 80.29);
+  --color-gold-500: oklch(73.06% 0.1519 72.63);
+  --color-gold-600: oklch(64.374% 0.1336 72.56);
+  --color-gold-700: oklch(54.881% 0.1131 70.82);
+  --color-gold-800: oklch(46.522% 0.0933 70.48);
+  --color-gold-900: oklch(38.46% 0.075 71.86);
+  --color-gold-950: oklch(29.579% 0.0548 73.6);
+
+  --color-grove-50: oklch(97.289% 0.0152 145.46);
+  --color-grove-100: oklch(93.286% 0.0323 145.31);
+  --color-grove-200: oklch(86.526% 0.0672 144.97);
+  --color-grove-500: oklch(53.731% 0.0937 144.13);
+  --color-grove-600: oklch(48.204% 0.0881 144.06);
+  --color-grove-700: oklch(42.447% 0.0842 143.91);
+
+  --color-ember-50: oklch(97.053% 0.0129 17.38);
+  --color-ember-500: oklch(58.766% 0.1526 23);
+  --color-ember-600: oklch(53.407% 0.1613 24.42);
+  --color-ember-700: oklch(46.502% 0.147 24.94);
+
+  /* Stock shades used in src/, pinned to the v3 hex palette — v4 recalibrated
+   * its default palette to oklch, which renders slightly differently. */
+  --color-amber-100: oklch(96.19% 0.058 95.62);
+  --color-amber-200: oklch(92.428% 0.1151 95.75);
+  --color-amber-500: oklch(76.859% 0.1647 70.08);
+  --color-amber-600: oklch(66.584% 0.1574 58.32);
+  --color-amber-700: oklch(55.528% 0.1455 49);
+  --color-sky-100: oklch(95.142% 0.025 236.82);
+  --color-sky-200: oklch(90.138% 0.0555 230.9);
+  --color-sky-500: oklch(68.469% 0.1479 237.32);
+  --color-sky-600: oklch(58.762% 0.1389 241.97);
+  --color-sky-700: oklch(49.998% 0.1193 242.75);
+
+  /* v3's default ring color (blue-500/50) — v4 defaults to currentColor.
+   * Bare-width rings (`ring-2` without a ring color) rendered blue in v3. */
+  --default-ring-color: oklch(62.308% 0.188 259.81 / 0.5);
+
+  --animate-fade-in-up: fade-in-up 0.5s cubic-bezier(0.19, 1, 0.22, 1) both;
+
+  @keyframes fade-in-up {
+    0% {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* Tokens backed by the tenant-theme contract (shared/theme.css). `inline` is
+ * required: utilities embed these var() chains verbatim, so they stay live
+ * for the serve-time /theme.css overrides. `reference` keeps Tailwind from
+ * re-emitting the names on :root — --font-display, --font-mono, and --radius
+ * are *also* the runtime contract variables, and an emitted
+ * `--font-display: var(--font-display), …` would be a self-reference. */
+@theme inline reference {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-foreground: var(--foreground);
+  --color-border: var(--border);
+  /* Whole-color tokens; alpha modifiers work via color-mix on all of them. */
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+
+  --container-content: var(--content-max-width);
+
+  --font-sans: var(--font-body), system-ui, sans-serif;
+  --font-heading: var(--font-display), Georgia, serif;
+  --font-display: var(--font-display), Georgia, serif;
+  --font-mono: var(--font-mono), monospace;
+
+  /* Derived from --radius (0.5rem in the generic theme), keeping the
+   * rendered 6/8/12px scale. The bare --radius key preserves v3's
+   * `rounded` = var(--radius). */
+  --radius: var(--radius);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+
+  --shadow-dropdown: 0 4px 12px color-mix(in oklab, var(--shadow-ink) 10%, transparent);
+  --shadow-card: 0 1px 3px color-mix(in oklab, var(--shadow-ink) 4%, transparent);
+}
+
+/* The v3 config's per-property color namespaces (textColor / borderColor /
+ * backgroundColor extensions) have no v4 theme equivalent — recreated as
+ * utilities with the exact same values. */
+@utility text-primary {
+  color: var(--alpha-dark);
+}
+@utility text-secondary {
+  color: color-mix(in oklab, var(--alpha-dark) 80%, transparent);
+}
+@utility text-muted {
+  color: color-mix(in oklab, var(--alpha-dark) 60%, transparent);
+}
+@utility text-faint {
+  color: color-mix(in oklab, var(--alpha-dark) 40%, transparent);
+}
+@utility border-alpha {
+  border-color: color-mix(in oklab, var(--alpha-dark) 10%, transparent);
+}
+@utility border-alpha-strong {
+  border-color: color-mix(in oklab, var(--alpha-dark) 20%, transparent);
+}
+@utility bg-alpha-10 {
+  background-color: color-mix(in oklab, var(--alpha-dark) 10%, transparent);
+}
+@utility bg-alpha-5 {
+  background-color: color-mix(in oklab, var(--alpha-dark) 5%, transparent);
+}
+/* v3 derived divide colors from borderColor; v4 does not. Targets the same
+ * children as v4's divide-x/y width utilities. */
+@utility divide-alpha {
+  :where(& > :not(:last-child)) {
+    border-color: color-mix(in oklab, var(--alpha-dark) 10%, transparent);
+  }
+}
 
 @layer base {
   /* Font seam: next/font declares the *-default variables via a hashed class
@@ -17,7 +162,33 @@
   }
 
   * {
-    border-color: hsl(var(--border));
+    border-color: var(--border);
+  }
+
+  /* v3-preflight parity (v4 changed these defaults):
+   * - code/pre: v4 routes the font through --default-mono-font-family, which
+   *   computes on :root — above the body-level font seam — and so falls back
+   *   to ui-monospace. Re-declare per element, like v3 did.
+   * - placeholders: v3 used gray-400; v4 uses currentColor at 50%.
+   * - cursors: v3 gave buttons pointer; v4 leaves the UA default. */
+  code,
+  kbd,
+  samp,
+  pre {
+    font-family: var(--font-mono), monospace;
+  }
+
+  ::placeholder {
+    color: oklch(71.366% 0.0192 261.32);
+  }
+
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+
+  :disabled {
+    cursor: default;
   }
 
   body {
@@ -38,14 +209,13 @@
   }
 
   dialog::backdrop {
-    /* Same computed value as before (light --alpha-dark is 35, 24, 16);
-     * the .dark override below keeps its own constant — the dark triplet
-     * is a text/border scale, not a scrim color. */
-    background-color: rgba(var(--alpha-dark), 0.5);
+    /* Scrim from the light ink; the .dark override keeps its own constant —
+     * the dark --alpha-dark is a text/border scale, not a scrim color. */
+    background-color: color-mix(in oklab, var(--alpha-dark) 50%, transparent);
   }
 
   .dark dialog::backdrop {
-    background-color: rgba(10, 8, 6, 0.7);
+    background-color: oklch(13.618% 0.0065 71.35 / 0.7);
   }
 }
 

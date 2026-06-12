@@ -17,11 +17,11 @@ dark).
 
 | Token | Purpose | Generic default |
 | --- | --- | --- |
-| `--background` / `--surface` / `--surface-raised` | page + card surfaces | warm near-whites |
+| `--background` / `--surface` / `--surface-raised` | page + card surfaces | white / warm near-white |
 | `--border`, `--foreground`, `--alpha-dark` | lines, text, alpha text/border scale | warm neutrals |
 | `--shadow-ink` | shadow color (RGB triplet) — identical in light and dark by default, so shadows never become glows | `35, 24, 16` |
 | `--brand`, `--brand-soft`, `--danger`, `--success` | brand accent pair / status colors | gold pair / red / green |
-| `--radius` | base corner radius; Tailwind derives `rounded-sm` (−2px), `rounded`/`rounded-md` (as is), `rounded-lg` (+4px) | `0.5rem` (→ 6/8/12px) |
+| `--radius` | base corner radius; the CSS theme (`@theme` in `src/app/globals.css`) derives `rounded-sm` (−2px), `rounded`/`rounded-md` (as is), `rounded-lg` (+4px) | `0.5rem` (→ 6/8/12px) |
 | `--content-max-width` | shared max width of the nav and every contained page (see `src/components/Container.tsx`) | `80rem` |
 | `--heading-weight` | default `h1`–`h6` weight (applied by a `globals.css` base rule) | `400` (Newsreader ships one cut) |
 | `--font-display`, `--font-body`, `--font-mono` | type stacks (see the font seam below) | Newsreader (opsz 72) / Instrument Sans / Geist Mono — all OFL |
@@ -33,9 +33,9 @@ outranks them by cascade contract, not by observed stylesheet order.
 A tenant theme is one stylesheet that re-declares any subset of these tokens
 (plus optional `@font-face` rules). Conventions and rules:
 
-- Keep raw values (hex/HSL literals) on **brand palette constants** at the
-  top of the theme file; system tokens map to palette names, never to raw
-  values — the file reads palette first, mapping second.
+- Keep raw values (`oklch()` literals) on **brand palette constants** at
+  the top of the theme file; system tokens map to palette names, never to
+  raw values — the file reads palette first, mapping second.
 - Color tokens overridden for light must also be overridden for dark
   (`.dark { … }`), or dark mode renders a half-themed mix.
 - **Never use `!important`** — it inverts the `:where()` armor.
@@ -71,13 +71,17 @@ body { --font-body: TenantSans; }
 Font files travel as theme assets under `/theme/` (see below), referenced by
 absolute URLs.
 
-### Caveat: alpha modifiers on brand/status utilities
+### Color format and alpha
 
-`brand`, `brand-soft`, `danger`, and `success` map to raw hex custom
-properties, so Tailwind alpha modifiers (`text-danger/50`, `bg-brand/10`)
-do **not** apply to them — only opaque uses. The HSL-triplet tokens
-(`background`, `surface`, `foreground`, `border`) keep full
-`<alpha-value>` support.
+Every color token is a whole `oklch()` color (no triplet formats). Alpha
+modifiers on token-backed utilities (`text-danger/50`, `bg-brand/10`,
+`ring-foreground/10`, …) compile to `color-mix()` under Tailwind v4 and
+work on every color token. The fixed ink utilities (`text-primary` /
+`-secondary` / `-muted` / `-faint`, `border-alpha`, `bg-alpha-*`) are
+pre-mixed from `--alpha-dark` at set percentages — override the token,
+not the percentages. Any valid CSS color works in a tenant theme;
+`oklch()` is the house format (matches gestalt/docs and Tailwind v4's
+own palette).
 
 ## Where tenant config lives
 
@@ -159,11 +163,12 @@ empty stub, and tenant themes arrive at serve time via `/theme.css`.
 
 ## Known gaps (follow-ups before the generic theme is truly generic)
 
-- The static Tailwind palettes (`base`, `gold`, `grove`, `ember`) are still
-  hardcoded warm hexes used throughout components — they bypass the token
-  seam and won't respond to a tenant stylesheet (ISS-20260610-008). Note the
-  generic `--brand` (#7a4f10) is gold-800, not the gold-500 accent — the
-  palette→token migration is a usage sweep, not a rename.
+- The static Tailwind palettes (`base`, `gold`, `grove`, `ember` — now
+  `--color-*` entries in the `@theme` block of `src/app/globals.css`) are
+  still hardcoded warm hexes used throughout components — they bypass the
+  token seam and won't respond to a tenant stylesheet (ISS-20260610-008).
+  Note the generic `--brand` (#7a4f10) is gold-800, not the gold-500
+  accent — the palette→token migration is a usage sweep, not a rename.
 - The `.dark dialog::backdrop` scrim keeps its own constant (the dark
   `--alpha-dark` triplet is a text scale, not a scrim color); light
   backdrop, shadows, radii, and brand/status colors are token-driven now.
