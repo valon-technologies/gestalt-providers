@@ -5,16 +5,43 @@
 @tailwind utilities;
 
 @layer base {
+  /* Font seam: next/font declares the *-default variables via a hashed class
+   * on <body> (specificity 0,1,0), which the consumed --font-* tokens would
+   * lose to. This zero-specificity re-mapping lets a tenant theme's
+   * `body { --font-display: … }` (0,0,1) win. Consumers always read
+   * --font-display/--font-body/--font-mono, never the *-default names. */
+  :where(body) {
+    --font-display: var(--font-display-default);
+    --font-body: var(--font-body-default);
+    --font-mono: var(--font-mono-default);
+  }
+
   * {
     border-color: hsl(var(--border));
   }
 
   body {
     @apply bg-background text-foreground;
+    /* Same body weight as gestalt/docs: Instrument Sans is a variable cut,
+     * so 435 renders true; static tenant faces (e.g. KMR 400/700) resolve
+     * to 400 per CSS font matching. */
+    font-weight: 435;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-weight: var(--heading-weight);
   }
 
   dialog::backdrop {
-    background-color: rgba(35, 24, 16, 0.5);
+    /* Same computed value as before (light --alpha-dark is 35, 24, 16);
+     * the .dark override below keeps its own constant — the dark triplet
+     * is a text/border scale, not a scrim color. */
+    background-color: rgba(var(--alpha-dark), 0.5);
   }
 
   .dark dialog::backdrop {

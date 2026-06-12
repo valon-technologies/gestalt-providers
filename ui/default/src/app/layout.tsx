@@ -1,31 +1,42 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
+// Theme slot: resolves to the empty stub unless GESTALT_THEME_FILE points it
+// at a live tenant theme during development. Imported after globals.css so
+// theme declarations win equal-specificity ties, like the serve-time
+// /theme.css link below.
+import "@theme.css";
 
-const seasonSerif = localFont({
+// Bundled faces are OFL (licenses in public/fonts/OFL-*.txt) — the only kind
+// that may live in this public repo; commercially licensed fonts arrive via
+// the tenant theme's @font-face (see THEMING.md). Same faces as gestalt/docs:
+// Newsreader pinned at optical size 72 — the serif only renders display text,
+// and the 72 cut carries the sharp serifs and contrast the role calls for.
+const newsreader = localFont({
   src: [
-    { path: "../../public/fonts/SeasonSerif_Regular.woff", weight: "400", style: "normal" },
-    { path: "../../public/fonts/SeasonSerif_RegularItalic.woff", weight: "400", style: "italic" },
+    { path: "../../public/fonts/newsreader-opsz72-latin-400-normal.woff2", weight: "400", style: "normal" },
+    { path: "../../public/fonts/newsreader-opsz72-latin-400-italic.woff2", weight: "400", style: "italic" },
   ],
-  variable: "--font-display",
+  // The *-default variables are the next/font side of the font seam: they are
+  // set via a hashed class on <body> (specificity 0,1,0), so the consumed
+  // --font-* tokens are re-declared from them at zero specificity in
+  // globals.css, where a tenant `body { --font-* }` override can win.
+  variable: "--font-display-default",
 });
 
-const melangeGrotesk = localFont({
+const instrumentSans = localFont({
   src: [
-    { path: "../../public/fonts/KMRMelangeGrotesk_Regular.woff", weight: "400", style: "normal" },
-    { path: "../../public/fonts/KMRMelangeGrotesk_Bold.woff", weight: "700", style: "normal" },
-    { path: "../../public/fonts/KMRMelangeGrotesk_Italic.woff", weight: "400", style: "italic" },
-    { path: "../../public/fonts/KMRMelangeGrotesk_BoldItalic.woff", weight: "700", style: "italic" },
+    { path: "../../public/fonts/instrument-sans-latin-wght-normal.woff2", weight: "400 700", style: "normal" },
+    { path: "../../public/fonts/instrument-sans-latin-wght-italic.woff2", weight: "400 700", style: "italic" },
   ],
-  variable: "--font-body",
-  adjustFontFallback: false,
+  variable: "--font-body-default",
 });
 
 const geistMono = localFont({
   src: [
     { path: "../../public/fonts/GeistMono_Regular.woff2", weight: "400", style: "normal" },
   ],
-  variable: "--font-mono",
+  variable: "--font-mono-default",
 });
 
 export const metadata: Metadata = {
@@ -63,8 +74,14 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        {/* Serve-time tenant theme: gestaltd serves the deployment-configured
+            stylesheet here (empty 200 when unconfigured). Plain link, no
+            React `precedence`, so it stays after the bundled CSS in document
+            order. See THEMING.md. */}
+        {/* eslint-disable-next-line @next/next/no-css-tags */}
+        <link rel="stylesheet" href="/theme.css" />
       </head>
-      <body className={`${seasonSerif.variable} ${melangeGrotesk.variable} ${geistMono.variable} font-sans antialiased gradient-warm`}>
+      <body className={`${newsreader.variable} ${instrumentSans.variable} ${geistMono.variable} font-sans antialiased gradient-warm`}>
         {children}
       </body>
     </html>
