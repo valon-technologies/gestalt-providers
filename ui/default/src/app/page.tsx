@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import Nav from "@/components/Nav";
 import AuthGuard from "@/components/AuthGuard";
+import Container from "@/components/Container";
 
 export default function DashboardPage() {
   const [data, setData] = useState<{
@@ -108,7 +109,7 @@ export default function DashboardPage() {
     <AuthGuard>
       <div className="min-h-screen">
         <Nav />
-        <main className="mx-auto max-w-5xl px-6 py-12">
+        <Container as="main" className="py-12">
           <div className="animate-fade-in-up">
             <span className="label-text">Overview</span>
             <h1 className="mt-2 text-2xl font-heading font-bold text-primary">
@@ -187,7 +188,7 @@ export default function DashboardPage() {
               </Link>
             )}
           </div>
-        </main>
+        </Container>
       </div>
     </AuthGuard>
   );

@@ -5,6 +5,7 @@ import { getIntegrations, Integration } from "@/lib/api";
 import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "@/lib/constants";
 import { filterIntegrations } from "@/lib/integrationSearch";
 import Nav from "@/components/Nav";
+import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import PluginSearchBar from "@/components/PluginSearchBar";
 import AuthGuard from "@/components/AuthGuard";
@@ -75,7 +76,7 @@ export default function AppsCatalogPageClient() {
     <AuthGuard>
       <div className="min-h-screen">
         <Nav />
-        <main className="mx-auto max-w-5xl px-6 py-12">
+        <Container as="main" className="py-12">
           {toast && (
             <div className="mb-8 flex items-center justify-between rounded-lg border border-grove-200 bg-grove-50 px-5 py-3.5 text-sm text-grove-700 dark:border-grove-600 dark:bg-grove-700/20 dark:text-grove-200">
               <span>{toast}</span>
@@ -143,7 +144,7 @@ export default function AppsCatalogPageClient() {
               ))}
             </div>
           )}
-        </main>
+        </Container>
       </div>
     </AuthGuard>
   );
