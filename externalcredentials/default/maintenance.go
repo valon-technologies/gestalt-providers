@@ -42,7 +42,7 @@ func (p *Provider) runCredentialRefreshOnceWith(ctx context.Context, st *store, 
 		return stats
 	}
 
-	credentials, err := st.listCredentialsForConnectionIDs(ctx, targetConnectionIDs)
+	credentials, err := st.listCredentialsForAudiences(ctx, targetConnectionIDs)
 	if err != nil {
 		stats.Errors++
 		return stats
@@ -53,8 +53,8 @@ func (p *Provider) runCredentialRefreshOnceWith(ctx context.Context, st *store, 
 			stats.Errors++
 			return stats
 		}
-		target, ok := targetByConnectionID[credential.GetConnectionId()]
-		if !ok {
+		target, ok := targetByConnectionID[credential.GetAudience()]
+		if !ok || credential.Grant == nil {
 			stats.Skipped++
 			continue
 		}
@@ -68,8 +68,8 @@ func (p *Provider) runCredentialRefreshOnceWith(ctx context.Context, st *store, 
 			Connection:          target.Connection,
 			ConnectionID:        target.ConnectionID,
 			Mode:                "subject",
-			CredentialSubjectID: credential.GetSubjectId(),
-			Instance:            credential.GetInstance(),
+			CredentialSubjectID: credential.GetSubject(),
+			Instance:            credential.GetQualifier(),
 			Auth:                target.Auth,
 			ConnectionParams:    cloneStringMap(target.ConnectionParams),
 		}
@@ -78,7 +78,7 @@ func (p *Provider) runCredentialRefreshOnceWith(ctx context.Context, st *store, 
 		case err == nil:
 			stats.Refreshed++
 		case status.Code(err) == codes.Unauthenticated:
-			if _, getErr := st.getCredential(ctx, credential.GetSubjectId(), credential.GetConnectionId(), credential.GetInstance()); errors.Is(getErr, gestalt.ErrExternalCredentialNotFound) {
+			if _, getErr := st.getCredential(ctx, credential.GetSubject(), credential.GetAudience(), credential.GetQualifier()); errors.Is(getErr, gestalt.ErrExternalCredentialNotFound) {
 				stats.Deleted++
 			} else {
 				stats.Errors++

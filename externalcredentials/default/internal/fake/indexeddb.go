@@ -17,6 +17,7 @@ type IndexedDB struct {
 
 // ObjectStore holds in-memory records for one object store.
 type ObjectStore struct {
+	mu      sync.Mutex
 	records map[string]gestalt.Record
 	schema  gestalt.ObjectStoreOptions
 }
@@ -65,6 +66,8 @@ func (db *IndexedDB) storeLocked(name string) *ObjectStore {
 }
 
 func (s *ObjectStore) Get(_ context.Context, id string) (gestalt.Record, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	record, ok := s.records[id]
 	if !ok {
 		return nil, gestalt.ErrNotFound
@@ -73,6 +76,8 @@ func (s *ObjectStore) Get(_ context.Context, id string) (gestalt.Record, error) 
 }
 
 func (s *ObjectStore) GetKey(_ context.Context, id string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if _, ok := s.records[id]; !ok {
 		return "", gestalt.ErrNotFound
 	}
@@ -80,20 +85,57 @@ func (s *ObjectStore) GetKey(_ context.Context, id string) (string, error) {
 }
 
 func (s *ObjectStore) Put(_ context.Context, record gestalt.Record) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if conflict := s.uniqueIndexConflictLocked(record); conflict {
+		return gestalt.ErrAlreadyExists
+	}
 	s.records[recordID(record)] = cloneRecord(record)
 	return nil
 }
 
 func (s *ObjectStore) Add(_ context.Context, record gestalt.Record) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	id := recordID(record)
 	if _, ok := s.records[id]; ok {
+		return gestalt.ErrAlreadyExists
+	}
+	if conflict := s.uniqueIndexConflictLocked(record); conflict {
 		return gestalt.ErrAlreadyExists
 	}
 	s.records[id] = cloneRecord(record)
 	return nil
 }
 
+// uniqueIndexConflictLocked reports whether another record already claims one
+// of the schema's unique index keys, mirroring the relational provider's
+// transactional unique-index enforcement.
+func (s *ObjectStore) uniqueIndexConflictLocked(record gestalt.Record) bool {
+	id := recordID(record)
+	for _, index := range s.schema.Indexes {
+		if !index.Unique {
+			continue
+		}
+		values := make([]any, 0, len(index.KeyPath))
+		for _, field := range index.KeyPath {
+			values = append(values, record[field])
+		}
+		for existingID, existing := range s.records {
+			if existingID == id {
+				continue
+			}
+			if matchesIndex(existing, s.schema, index.Name, values) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (s *ObjectStore) Delete(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if _, ok := s.records[id]; !ok {
 		return gestalt.ErrNotFound
 	}
@@ -102,15 +144,21 @@ func (s *ObjectStore) Delete(_ context.Context, id string) error {
 }
 
 func (s *ObjectStore) Clear(_ context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.records = make(map[string]gestalt.Record)
 	return nil
 }
 
 func (s *ObjectStore) GetAll(_ context.Context, _ *gestalt.KeyRange) ([]gestalt.Record, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return cloneRecords(s.records), nil
 }
 
 func (s *ObjectStore) GetAllKeys(_ context.Context, _ *gestalt.KeyRange) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	keys := make([]string, 0, len(s.records))
 	for id := range s.records {
 		keys = append(keys, id)
@@ -119,6 +167,8 @@ func (s *ObjectStore) GetAllKeys(_ context.Context, _ *gestalt.KeyRange) ([]stri
 }
 
 func (s *ObjectStore) Count(_ context.Context, _ *gestalt.KeyRange) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return int64(len(s.records)), nil
 }
 
@@ -143,8 +193,15 @@ type Index struct {
 	name  string
 }
 
-func (idx Index) Get(_ context.Context, _ ...any) (gestalt.Record, error) {
-	return nil, indexeddb.ErrUnsupported
+func (idx Index) Get(_ context.Context, values ...any) (gestalt.Record, error) {
+	idx.store.mu.Lock()
+	defer idx.store.mu.Unlock()
+	for _, record := range idx.store.records {
+		if matchesIndex(record, idx.store.schema, idx.name, values) {
+			return cloneRecord(record), nil
+		}
+	}
+	return nil, gestalt.ErrNotFound
 }
 
 func (idx Index) GetKey(_ context.Context, _ ...any) (string, error) {
@@ -152,6 +209,8 @@ func (idx Index) GetKey(_ context.Context, _ ...any) (string, error) {
 }
 
 func (idx Index) GetAll(_ context.Context, _ *gestalt.KeyRange, values ...any) ([]gestalt.Record, error) {
+	idx.store.mu.Lock()
+	defer idx.store.mu.Unlock()
 	records := make([]gestalt.Record, 0, len(idx.store.records))
 	for _, record := range idx.store.records {
 		if matchesIndex(record, idx.store.schema, idx.name, values) {
