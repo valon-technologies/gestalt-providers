@@ -105,25 +105,93 @@ func (p *Provider) ResolveCredential(ctx context.Context, req *gestalt.ResolveEx
 	if err != nil {
 		return nil, credentialLookupError(err)
 	}
-	if shouldRefreshCredential(credential, req.GetAuth(), p.now()) {
-		credential, err = p.refreshStoredCredentialOnce(ctx, st, req, credential)
+
+	switch {
+	case credential.Client != nil:
+		return nil, status.Error(codes.InvalidArgument, "client_info credentials are not resolvable; use GetCredential")
+	case credential.Opaque != nil:
+		return p.resolveOpaqueCredential(ctx, req, credential)
+	case credential.Grant != nil:
+		if shouldRefreshCredential(credential, req.GetAuth(), p.now()) {
+			credential, err = p.refreshStoredCredentialOnce(ctx, st, req, credential)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return &gestalt.ResolveExternalCredentialResponse{
+			Token:        credential.Grant.GetAccessToken(),
+			ExpiresAt:    credential.Grant.GetExpiresAt(),
+			MetadataJSON: credential.GetMetadataJson(),
+			Params:       resolveParams(credential, req),
+			Credential:   credential,
+		}, nil
+	default:
+		return nil, status.Error(codes.Internal, "stored credential has no payload")
+	}
+}
+
+// resolveOpaqueCredential returns the stored fields, minting a short-lived
+// token from them when the connection configures a token endpoint. Minted
+// tokens are never persisted.
+func (p *Provider) resolveOpaqueCredential(ctx context.Context, req *gestalt.ResolveExternalCredentialRequest, credential *gestalt.ExternalCredential) (*gestalt.ResolveExternalCredentialResponse, error) {
+	fields, err := json.Marshal(credential.Opaque.GetFields())
+	if err != nil {
+		return nil, status.Error(codes.Internal, "encode opaque fields")
+	}
+	resp := &gestalt.ResolveExternalCredentialResponse{
+		Token:        string(fields),
+		MetadataJSON: credential.GetMetadataJson(),
+		Params:       resolveParams(credential, req),
+		Credential:   credential,
+	}
+
+	auth := req.GetAuth()
+	if auth == nil || strings.TrimSpace(auth.GetTokenUrl()) == "" {
+		return resp, nil
+	}
+
+	minted, err := p.mintOpaqueToken(ctx, req, credential, string(fields))
+	if err != nil {
+		return nil, status.Error(codes.Unavailable, sanitizeTokenError(err))
+	}
+	resp.Token = minted.AccessToken
+	resp.ExpiresAt = utcTimePtr(expiresAtFromExpiresIn(minted.mintedAt, minted.ExpiresIn))
+	return resp, nil
+}
+
+type mintedToken struct {
+	AccessToken string
+	ExpiresIn   int
+	mintedAt    time.Time
+}
+
+func (p *Provider) mintOpaqueToken(ctx context.Context, req *gestalt.ResolveExternalCredentialRequest, credential *gestalt.ExternalCredential, fieldsJSON string) (*mintedToken, error) {
+	v, err, _ := resolverState.group.Do(credentialRefreshKey(credential), func() (any, error) {
+		params := mergeParams(metadataParams(credential.GetMetadataJson()), req.GetConnectionParams())
+		resp, err := exchangeManualCredentials(ctx, req.GetAuth(), fieldsJSON, params)
 		if err != nil {
 			return nil, err
 		}
+		return &mintedToken{AccessToken: resp.AccessToken, ExpiresIn: resp.ExpiresIn, mintedAt: p.now().UTC()}, nil
+	})
+	if err != nil {
+		return nil, err
 	}
+	minted, ok := v.(*mintedToken)
+	if !ok || minted == nil {
+		return nil, fmt.Errorf("mint returned no token")
+	}
+	return minted, nil
+}
+
+func resolveParams(credential *gestalt.ExternalCredential, req *gestalt.ResolveExternalCredentialRequest) map[string]string {
 	params := metadataParams(credential.GetMetadataJson())
 	for k, v := range req.GetConnectionParams() {
 		if _, ok := params[k]; !ok {
 			params[k] = v
 		}
 	}
-	return &gestalt.ResolveExternalCredentialResponse{
-		Token:        credential.GetAccessToken(),
-		ExpiresAt:    credential.GetExpiresAt(),
-		MetadataJSON: credential.GetMetadataJson(),
-		Params:       params,
-		Credential:   credential,
-	}, nil
+	return params
 }
 
 func (p *Provider) ExchangeCredential(ctx context.Context, req *gestalt.ExchangeExternalCredentialRequest) (*gestalt.ExchangeExternalCredentialResponse, error) {
@@ -158,7 +226,7 @@ func resolveStoredCredential(ctx context.Context, st *store, req *gestalt.Resolv
 	if instance != "" {
 		return st.getCredential(ctx, subjectID, connectionID, instance)
 	}
-	credentials, err := st.listCredentials(ctx, subjectID, connectionID, "")
+	credentials, err := st.listCredentials(ctx, subjectID, connectionID)
 	if err != nil {
 		return nil, err
 	}
@@ -191,19 +259,18 @@ func credentialRefreshKey(credential *gestalt.ExternalCredential) string {
 	if credential == nil {
 		return ""
 	}
-	return credential.GetSubjectId() + ":" + credential.GetConnectionId() + ":" + credential.GetInstance()
+	return credential.GetSubject() + ":" + credential.GetAudience() + ":" + credential.GetQualifier()
 }
 
 func (p *Provider) refreshStoredCredential(ctx context.Context, st *store, req *gestalt.ResolveExternalCredentialRequest, credential *gestalt.ExternalCredential) (*gestalt.ExternalCredential, error) {
-	resp, err := refreshCredential(ctx, req.GetAuth(), credential.GetRefreshToken(), mergeParams(metadataParams(credential.GetMetadataJson()), req.GetConnectionParams()))
+	resp, err := refreshCredential(ctx, req.GetAuth(), credential.Grant.GetRefreshToken(), mergeParams(metadataParams(credential.GetMetadataJson()), req.GetConnectionParams()))
 	now := p.now().UTC()
 	if err != nil {
-		credential.RefreshErrorCount++
-		credential.UpdatedAt = utcTimePtr(&now)
+		credential.Grant.RefreshErrorCount++
 		if isTerminalRefreshError(err) {
 			expiredAt := now.Add(-1 * time.Hour)
-			credential.ExpiresAt = utcTimePtr(&expiredAt)
-			marked, markErr := st.upsertCredential(ctx, credential, false, now)
+			credential.Grant.ExpiresAt = utcTimePtr(&expiredAt)
+			marked, markErr := st.upsertCredential(ctx, credential, now)
 			if markErr != nil {
 				return nil, status.Error(codes.Unauthenticated, "token expired or was revoked; reconnect it")
 			}
@@ -212,23 +279,20 @@ func (p *Provider) refreshStoredCredential(ctx context.Context, st *store, req *
 			}
 			return nil, status.Error(codes.Unauthenticated, "token expired or was revoked; reconnect it")
 		}
-		_, _ = st.upsertCredential(ctx, credential, false, now)
-		if credential.GetExpiresAt() != nil && now.Before(*credential.GetExpiresAt()) {
+		_, _ = st.upsertCredential(ctx, credential, now)
+		if credential.Grant.GetExpiresAt() != nil && now.Before(*credential.Grant.GetExpiresAt()) {
 			return credential, nil
 		}
 		return nil, status.Error(codes.Unauthenticated, "token expired and refresh failed")
 	}
-	credential.AccessToken = resp.AccessToken
-	if resp.RefreshSource != "" {
-		credential.RefreshToken = resp.RefreshSource
-	} else if resp.RefreshToken != "" {
-		credential.RefreshToken = resp.RefreshToken
+	credential.Grant.AccessToken = resp.AccessToken
+	if resp.RefreshToken != "" {
+		credential.Grant.RefreshToken = resp.RefreshToken
 	}
-	credential.ExpiresAt = utcTimePtr(expiresAtFromExpiresIn(now, resp.ExpiresIn))
-	credential.LastRefreshedAt = utcTimePtr(&now)
-	credential.RefreshErrorCount = 0
-	credential.UpdatedAt = utcTimePtr(&now)
-	return st.upsertCredential(ctx, credential, false, now)
+	credential.Grant.ExpiresAt = utcTimePtr(expiresAtFromExpiresIn(now, resp.ExpiresIn))
+	credential.Grant.LastRefreshedAt = utcTimePtr(&now)
+	credential.Grant.RefreshErrorCount = 0
+	return st.upsertCredential(ctx, credential, now)
 }
 
 func shouldRefreshCredential(credential *gestalt.ExternalCredential, auth *gestalt.ExternalCredentialAuthConfig, now time.Time) bool {
@@ -236,7 +300,7 @@ func shouldRefreshCredential(credential *gestalt.ExternalCredential, auth *gesta
 }
 
 func shouldRefreshCredentialWithin(credential *gestalt.ExternalCredential, auth *gestalt.ExternalCredentialAuthConfig, now time.Time, threshold time.Duration) bool {
-	if credential == nil || credential.GetRefreshToken() == "" || credential.GetExpiresAt() == nil {
+	if credential == nil || credential.Grant == nil || credential.Grant.GetRefreshToken() == "" || credential.Grant.GetExpiresAt() == nil {
 		return false
 	}
 	if auth == nil || strings.TrimSpace(auth.GetTokenUrl()) == "" {
@@ -245,7 +309,7 @@ func shouldRefreshCredentialWithin(credential *gestalt.ExternalCredential, auth 
 	if threshold <= 0 {
 		return false
 	}
-	return credential.GetExpiresAt().Sub(now) <= threshold
+	return credential.Grant.GetExpiresAt().Sub(now) <= threshold
 }
 
 func refreshCredential(ctx context.Context, auth *gestalt.ExternalCredentialAuthConfig, refreshToken string, params map[string]string) (*tokenResponse, error) {
@@ -253,12 +317,6 @@ func refreshCredential(ctx context.Context, auth *gestalt.ExternalCredentialAuth
 		return nil, fmt.Errorf("no token refresher configured")
 	}
 	switch auth.GetType() {
-	case "manual":
-		resp, err := exchangeManualCredentials(ctx, auth, refreshToken, params)
-		if resp != nil {
-			resp.RefreshSource = refreshToken
-		}
-		return resp, err
 	case "oauth2", "":
 		return refreshOAuthToken(ctx, auth, refreshToken, params)
 	default:

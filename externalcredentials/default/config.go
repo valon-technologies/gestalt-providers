@@ -164,20 +164,18 @@ func credentialRefreshTargetFromResolvedConnection(index int, conn resolvedConne
 		return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].auth: %w", index, err)
 	}
 	switch auth.GetType() {
-	case "oauth2", "manual":
+	case "oauth2":
 	default:
-		return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].credentialRefresh supports auth.type oauth2 or manual, got %q", index, auth.GetType())
+		return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].credentialRefresh supports auth.type oauth2, got %q", index, auth.GetType())
 	}
 	if strings.TrimSpace(auth.GetTokenUrl()) == "" {
 		return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].auth.tokenUrl is required for credentialRefresh", index)
 	}
-	if auth.GetType() == "oauth2" {
-		if strings.TrimSpace(auth.GetClientId()) == "" {
-			return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].auth.clientId is required for credentialRefresh", index)
-		}
-		if strings.TrimSpace(auth.GetClientSecret()) == "" {
-			return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].auth.clientSecret is required for credentialRefresh", index)
-		}
+	if strings.TrimSpace(auth.GetClientId()) == "" {
+		return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].auth.clientId is required for credentialRefresh", index)
+	}
+	if strings.TrimSpace(auth.GetClientSecret()) == "" {
+		return credentialRefreshTarget{}, fmt.Errorf("resolvedConnections[%d].auth.clientSecret is required for credentialRefresh", index)
 	}
 	return credentialRefreshTarget{
 		Provider:                    conn.Provider,

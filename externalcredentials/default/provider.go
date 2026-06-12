@@ -2,6 +2,7 @@ package externalcredentials
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -13,7 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const providerVersion = "0.0.1-alpha.1"
+const providerVersion = "0.0.1-alpha.2"
 
 type Provider struct {
 	mu            sync.RWMutex
@@ -166,6 +167,25 @@ func minCredentialRefreshInterval(targets []credentialRefreshTarget) time.Durati
 	return min
 }
 
+func (p *Provider) CreateCredential(ctx context.Context, req *gestalt.CreateExternalCredentialRequest) (*gestalt.ExternalCredential, error) {
+	if req == nil || req.GetCredential() == nil {
+		return nil, status.Error(codes.InvalidArgument, "credential is required")
+	}
+
+	st, err := p.configuredStore()
+	if err != nil {
+		return nil, err
+	}
+	credential, err := st.createCredential(ctx, req.GetCredential(), p.now().UTC())
+	if errors.Is(err, gestalt.ErrAlreadyExists) {
+		return nil, status.Error(codes.AlreadyExists, "credential already exists for (subject, audience, qualifier)")
+	}
+	if err != nil {
+		return nil, err
+	}
+	return credential, nil
+}
+
 func (p *Provider) UpsertCredential(ctx context.Context, req *gestalt.UpsertExternalCredentialRequest) (*gestalt.ExternalCredential, error) {
 	if req == nil || req.GetCredential() == nil {
 		return nil, status.Error(codes.InvalidArgument, "credential is required")
@@ -175,12 +195,12 @@ func (p *Provider) UpsertCredential(ctx context.Context, req *gestalt.UpsertExte
 	if err != nil {
 		return nil, err
 	}
-	return st.upsertCredential(ctx, req.GetCredential(), req.GetPreserveTimestamps(), p.now().UTC())
+	return st.upsertCredential(ctx, req.GetCredential(), p.now().UTC())
 }
 
 func (p *Provider) GetCredential(ctx context.Context, req *gestalt.GetExternalCredentialRequest) (*gestalt.ExternalCredential, error) {
-	if req == nil || req.GetLookup() == nil {
-		return nil, status.Error(codes.InvalidArgument, "lookup is required")
+	if req == nil || strings.TrimSpace(req.GetSubject()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "subject is required")
 	}
 
 	st, err := p.configuredStore()
@@ -188,12 +208,11 @@ func (p *Provider) GetCredential(ctx context.Context, req *gestalt.GetExternalCr
 		return nil, err
 	}
 
-	lookup := req.GetLookup()
 	credential, err := st.getCredential(
 		ctx,
-		strings.TrimSpace(lookup.GetSubjectId()),
-		strings.TrimSpace(lookup.GetConnectionId()),
-		strings.TrimSpace(lookup.GetInstance()),
+		strings.TrimSpace(req.GetSubject()),
+		strings.TrimSpace(req.GetAudience()),
+		strings.TrimSpace(req.GetQualifier()),
 	)
 	if err != nil {
 		return nil, credentialLookupError(err)
@@ -206,9 +225,9 @@ func (p *Provider) ListCredentials(ctx context.Context, req *gestalt.ListExterna
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
 
-	subjectID := strings.TrimSpace(req.GetSubjectId())
-	if subjectID == "" {
-		return nil, status.Error(codes.InvalidArgument, "subject_id is required")
+	subject := strings.TrimSpace(req.GetSubject())
+	if subject == "" {
+		return nil, status.Error(codes.InvalidArgument, "subject is required")
 	}
 
 	st, err := p.configuredStore()
@@ -216,12 +235,7 @@ func (p *Provider) ListCredentials(ctx context.Context, req *gestalt.ListExterna
 		return nil, err
 	}
 
-	credentials, err := st.listCredentials(
-		ctx,
-		subjectID,
-		strings.TrimSpace(req.GetConnectionId()),
-		strings.TrimSpace(req.GetInstance()),
-	)
+	credentials, err := st.listCredentials(ctx, subject, strings.TrimSpace(req.GetAudience()))
 	if err != nil {
 		return nil, err
 	}

@@ -2,9 +2,9 @@ package externalcredentials
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -14,10 +14,14 @@ import (
 )
 
 const (
-	storeName                = "external_credentials"
-	indexBySubject           = "by_subject"
-	indexBySubjectConnection = "by_subject_connection"
-	indexByLookup            = "by_lookup"
+	storeName              = "external_credentials"
+	indexBySubject         = "by_subject"
+	indexBySubjectAudience = "by_subject_audience"
+	indexByKey             = "by_key"
+
+	kindGrant      = "grant"
+	kindClientInfo = "client_info"
+	kindOpaque     = "opaque"
 )
 
 type store struct {
@@ -60,21 +64,26 @@ func ensureExternalCredentialStore(ctx context.Context, client indexeddb.Databas
 func externalCredentialSchema() gestalt.ObjectStoreOptions {
 	return gestalt.ObjectStoreOptions{
 		Indexes: []gestalt.IndexSchema{
-			{Name: indexBySubject, KeyPath: []string{"subject_id"}},
-			{Name: indexBySubjectConnection, KeyPath: []string{"subject_id", "connection_id"}},
-			{Name: indexByLookup, KeyPath: []string{"subject_id", "connection_id", "instance"}, Unique: true},
+			{Name: indexBySubject, KeyPath: []string{"subject"}},
+			{Name: indexBySubjectAudience, KeyPath: []string{"subject", "audience"}},
+			{Name: indexByKey, KeyPath: []string{"subject", "audience", "qualifier"}, Unique: true},
 		},
 		Columns: []gestalt.ColumnDef{
 			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
-			{Name: "subject_id", Type: gestalt.TypeString, NotNull: true},
-			{Name: "connection_id", Type: gestalt.TypeString, NotNull: true},
-			{Name: "instance", Type: gestalt.TypeString},
+			{Name: "subject", Type: gestalt.TypeString, NotNull: true},
+			{Name: "audience", Type: gestalt.TypeString, NotNull: true},
+			{Name: "qualifier", Type: gestalt.TypeString},
+			{Name: "kind", Type: gestalt.TypeString, NotNull: true},
 			{Name: "access_token_encrypted", Type: gestalt.TypeString},
 			{Name: "refresh_token_encrypted", Type: gestalt.TypeString},
-			{Name: "scopes", Type: gestalt.TypeString},
+			{Name: "scope", Type: gestalt.TypeString},
 			{Name: "expires_at", Type: gestalt.TypeTime},
 			{Name: "last_refreshed_at", Type: gestalt.TypeTime},
 			{Name: "refresh_error_count", Type: gestalt.TypeInt},
+			{Name: "client_id", Type: gestalt.TypeString},
+			{Name: "client_secret_encrypted", Type: gestalt.TypeString},
+			{Name: "client_secret_expires_at", Type: gestalt.TypeTime},
+			{Name: "fields_encrypted", Type: gestalt.TypeString},
 			{Name: "metadata_json", Type: gestalt.TypeString},
 			{Name: "created_at", Type: gestalt.TypeTime},
 			{Name: "updated_at", Type: gestalt.TypeTime},
@@ -89,55 +98,61 @@ func (s *store) Close() error {
 	return s.client.Close()
 }
 
-func (s *store) upsertCredential(ctx context.Context, credential *gestalt.ExternalCredential, preserveTimestamps bool, now time.Time) (*gestalt.ExternalCredential, error) {
-	if credential == nil {
-		return nil, fmt.Errorf("credential is required")
-	}
-
-	normalized := normalizeCredential(credential)
-	accessEnc, refreshEnc, err := s.encryptor.EncryptTokenPair(normalized.GetAccessToken(), normalized.GetRefreshToken())
+func (s *store) createCredential(ctx context.Context, credential *gestalt.ExternalCredential, now time.Time) (*gestalt.ExternalCredential, error) {
+	normalized, err := normalizeCredential(credential)
 	if err != nil {
-		return nil, fmt.Errorf("encrypt credential pair: %w", err)
+		return nil, err
 	}
 	if normalized.GetId() == "" {
 		normalized.ID = uuid.NewString()
 	}
 
-	createdAt := credentialCreatedAt(normalized, now)
-	updatedAt := credentialUpdatedAt(normalized, now, preserveTimestamps)
-	record := gestalt.Record{
-		"subject_id":              normalized.GetSubjectId(),
-		"connection_id":           normalized.GetConnectionId(),
-		"instance":                normalized.GetInstance(),
-		"access_token_encrypted":  accessEnc,
-		"refresh_token_encrypted": refreshEnc,
-		"scopes":                  normalized.GetScopes(),
-		"expires_at":              utcTimePtr(normalized.GetExpiresAt()),
-		"last_refreshed_at":       utcTimePtr(normalized.GetLastRefreshedAt()),
-		"refresh_error_count":     normalized.GetRefreshErrorCount(),
-		"metadata_json":           normalized.GetMetadataJson(),
-		"updated_at":              updatedAt,
+	record, err := s.credentialToRecord(normalized)
+	if err != nil {
+		return nil, err
+	}
+	record["created_at"] = now.UTC()
+	record["updated_at"] = now.UTC()
+
+	if err := s.credentials.Add(ctx, record); err != nil {
+		if errors.Is(err, gestalt.ErrAlreadyExists) {
+			return nil, gestalt.ErrAlreadyExists
+		}
+		return nil, fmt.Errorf("create external credential: %w", err)
+	}
+	return s.getCredential(ctx, normalized.GetSubject(), normalized.GetAudience(), normalized.GetQualifier())
+}
+
+func (s *store) upsertCredential(ctx context.Context, credential *gestalt.ExternalCredential, now time.Time) (*gestalt.ExternalCredential, error) {
+	normalized, err := normalizeCredential(credential)
+	if err != nil {
+		return nil, err
 	}
 
-	existing, err := s.credentialRecord(ctx, normalized.GetSubjectId(), normalized.GetConnectionId(), normalized.GetInstance())
+	record, err := s.credentialToRecord(normalized)
+	if err != nil {
+		return nil, err
+	}
+	record["updated_at"] = now.UTC()
+
+	existing, err := s.credentialRecord(ctx, normalized.GetSubject(), normalized.GetAudience(), normalized.GetQualifier())
 	switch {
 	case err == nil:
-		normalized.ID = recordString(existing, "id")
-		record["id"] = normalized.GetId()
-		existingCreatedAt := recordTime(existing, "created_at")
-		if preserveTimestamps && normalized.GetCreatedAt() != nil {
-			existingCreatedAt = normalized.GetCreatedAt().UTC()
+		record["id"] = recordString(existing, "id")
+		createdAt := recordTime(existing, "created_at")
+		if createdAt.IsZero() {
+			createdAt = now.UTC()
 		}
-		if existingCreatedAt.IsZero() {
-			existingCreatedAt = createdAt
-		}
-		record["created_at"] = existingCreatedAt
+		record["created_at"] = createdAt
 		if err := s.credentials.Put(ctx, record); err != nil {
 			return nil, fmt.Errorf("update external credential: %w", err)
 		}
 	case errors.Is(err, gestalt.ErrExternalCredentialNotFound):
-		record["id"] = normalized.GetId()
-		record["created_at"] = createdAt
+		if normalized.GetId() == "" {
+			normalized.ID = uuid.NewString()
+			record["id"] = normalized.GetId()
+		}
+		record["created_at"] = now.UTC()
 		if err := s.credentials.Add(ctx, record); err != nil {
 			return nil, fmt.Errorf("create external credential: %w", err)
 		}
@@ -145,30 +160,27 @@ func (s *store) upsertCredential(ctx context.Context, credential *gestalt.Extern
 		return nil, fmt.Errorf("check existing external credential: %w", err)
 	}
 
-	if err := s.deleteDuplicateLookupRecords(ctx, normalized.GetId(), normalized.GetSubjectId(), normalized.GetConnectionId(), normalized.GetInstance()); err != nil {
-		return nil, err
-	}
-	return s.getCredential(ctx, normalized.GetSubjectId(), normalized.GetConnectionId(), normalized.GetInstance())
+	return s.getCredential(ctx, normalized.GetSubject(), normalized.GetAudience(), normalized.GetQualifier())
 }
 
-func (s *store) getCredential(ctx context.Context, subjectID, connectionID, instance string) (*gestalt.ExternalCredential, error) {
-	record, err := s.credentialRecord(ctx, subjectID, connectionID, instance)
+func (s *store) getCredential(ctx context.Context, subject, audience, qualifier string) (*gestalt.ExternalCredential, error) {
+	record, err := s.credentialRecord(ctx, subject, audience, qualifier)
 	if err != nil {
 		return nil, err
 	}
 	return s.recordToCredential(record)
 }
 
-func (s *store) listCredentials(ctx context.Context, subjectID, connectionID, instance string) ([]*gestalt.ExternalCredential, error) {
+func (s *store) listCredentials(ctx context.Context, subject, audience string) ([]*gestalt.ExternalCredential, error) {
 	var (
 		records []gestalt.Record
 		err     error
 	)
 	switch {
-	case connectionID != "":
-		records, err = s.listCredentialRecords(ctx, indexBySubjectConnection, subjectID, connectionID)
+	case audience != "":
+		records, err = s.listCredentialRecords(ctx, indexBySubjectAudience, subject, audience)
 	default:
-		records, err = s.listCredentialRecords(ctx, indexBySubject, subjectID)
+		records, err = s.listCredentialRecords(ctx, indexBySubject, subject)
 	}
 	if err != nil {
 		return nil, err
@@ -180,19 +192,13 @@ func (s *store) listCredentials(ctx context.Context, subjectID, connectionID, in
 		if err != nil {
 			return nil, err
 		}
-		if connectionID != "" && credential.GetConnectionId() != connectionID {
-			continue
-		}
-		if instance != "" && credential.GetInstance() != instance {
-			continue
-		}
 		credentials = append(credentials, credential)
 	}
 	return credentials, nil
 }
 
-func (s *store) listCredentialsForConnectionIDs(ctx context.Context, connectionIDs map[string]struct{}) ([]*gestalt.ExternalCredential, error) {
-	if len(connectionIDs) == 0 {
+func (s *store) listCredentialsForAudiences(ctx context.Context, audiences map[string]struct{}) ([]*gestalt.ExternalCredential, error) {
+	if len(audiences) == 0 {
 		return nil, nil
 	}
 	records, err := s.credentials.GetAll(ctx, nil)
@@ -202,10 +208,9 @@ func (s *store) listCredentialsForConnectionIDs(ctx context.Context, connectionI
 	if err != nil {
 		return nil, err
 	}
-	records = dedupeCredentialRecords(records)
 	credentials := make([]*gestalt.ExternalCredential, 0, len(records))
 	for _, record := range records {
-		if _, ok := connectionIDs[recordString(record, "connection_id")]; !ok {
+		if _, ok := audiences[recordString(record, "audience")]; !ok {
 			continue
 		}
 		credential, err := s.recordToCredential(record)
@@ -218,44 +223,21 @@ func (s *store) listCredentialsForConnectionIDs(ctx context.Context, connectionI
 }
 
 func (s *store) deleteCredential(ctx context.Context, id string) error {
-	record, err := s.credentials.Get(ctx, id)
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("get external credential by id: %w", err)
-	}
-
-	records, err := s.credentials.Index(indexByLookup).GetAll(ctx, nil,
-		credentialRecordSubjectID(record),
-		recordString(record, "connection_id"),
-		recordString(record, "instance"),
-	)
-	if err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-		return fmt.Errorf("list external credentials for delete: %w", err)
-	}
-
-	for _, duplicate := range records {
-		duplicateID := recordString(duplicate, "id")
-		if duplicateID == "" {
-			continue
-		}
-		if err := s.credentials.Delete(ctx, duplicateID); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-			return fmt.Errorf("delete external credential %q: %w", duplicateID, err)
-		}
+	if err := s.credentials.Delete(ctx, id); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
+		return fmt.Errorf("delete external credential %q: %w", id, err)
 	}
 	return nil
 }
 
-func (s *store) credentialRecord(ctx context.Context, subjectID, connectionID, instance string) (gestalt.Record, error) {
-	records, err := s.listCredentialRecords(ctx, indexByLookup, subjectID, connectionID, instance)
+func (s *store) credentialRecord(ctx context.Context, subject, audience, qualifier string) (gestalt.Record, error) {
+	record, err := s.credentials.Index(indexByKey).Get(ctx, subject, audience, qualifier)
+	if errors.Is(err, gestalt.ErrNotFound) {
+		return nil, gestalt.ErrExternalCredentialNotFound
+	}
 	if err != nil {
 		return nil, fmt.Errorf("get external credential: %w", err)
 	}
-	if len(records) == 0 {
-		return nil, gestalt.ErrExternalCredentialNotFound
-	}
-	return records[0], nil
+	return record, nil
 }
 
 func (s *store) listCredentialRecords(ctx context.Context, indexName string, keys ...any) ([]gestalt.Record, error) {
@@ -266,130 +248,134 @@ func (s *store) listCredentialRecords(ctx context.Context, indexName string, key
 	if err != nil {
 		return nil, err
 	}
-	return dedupeCredentialRecords(records), nil
+	return records, nil
 }
 
-func (s *store) deleteDuplicateLookupRecords(ctx context.Context, keepID, subjectID, connectionID, instance string) error {
-	records, err := s.credentials.Index(indexByLookup).GetAll(ctx, nil, subjectID, connectionID, instance)
-	if errors.Is(err, gestalt.ErrNotFound) {
-		return nil
+func (s *store) credentialToRecord(credential *gestalt.ExternalCredential) (gestalt.Record, error) {
+	record := gestalt.Record{
+		"id":            credential.GetId(),
+		"subject":       credential.GetSubject(),
+		"audience":      credential.GetAudience(),
+		"qualifier":     credential.GetQualifier(),
+		"metadata_json": credential.GetMetadataJson(),
 	}
-	if err != nil {
-		return fmt.Errorf("list duplicate external credentials: %w", err)
-	}
-	for _, record := range records {
-		id := recordString(record, "id")
-		if id == "" || id == keepID {
-			continue
+	switch {
+	case credential.Grant != nil:
+		accessEnc, refreshEnc, err := s.encryptor.EncryptTokenPair(credential.Grant.GetAccessToken(), credential.Grant.GetRefreshToken())
+		if err != nil {
+			return nil, fmt.Errorf("encrypt grant tokens: %w", err)
 		}
-		if err := s.credentials.Delete(ctx, id); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
-			return fmt.Errorf("delete duplicate external credential %q: %w", id, err)
+		record["kind"] = kindGrant
+		record["access_token_encrypted"] = accessEnc
+		record["refresh_token_encrypted"] = refreshEnc
+		record["scope"] = credential.Grant.GetScope()
+		record["expires_at"] = utcTimePtr(credential.Grant.GetExpiresAt())
+		record["last_refreshed_at"] = utcTimePtr(credential.Grant.GetLastRefreshedAt())
+		record["refresh_error_count"] = credential.Grant.GetRefreshErrorCount()
+	case credential.Client != nil:
+		secretEnc, err := s.encryptor.Encrypt(credential.Client.GetClientSecret())
+		if err != nil {
+			return nil, fmt.Errorf("encrypt client secret: %w", err)
 		}
+		record["kind"] = kindClientInfo
+		record["client_id"] = credential.Client.GetClientId()
+		record["client_secret_encrypted"] = secretEnc
+		record["client_secret_expires_at"] = utcTimePtr(credential.Client.GetClientSecretExpiresAt())
+	case credential.Opaque != nil:
+		fields, err := json.Marshal(credential.Opaque.GetFields())
+		if err != nil {
+			return nil, fmt.Errorf("encode opaque fields: %w", err)
+		}
+		fieldsEnc, err := s.encryptor.Encrypt(string(fields))
+		if err != nil {
+			return nil, fmt.Errorf("encrypt opaque fields: %w", err)
+		}
+		record["kind"] = kindOpaque
+		record["fields_encrypted"] = fieldsEnc
 	}
-	return nil
+	return record, nil
 }
 
 func (s *store) recordToCredential(record gestalt.Record) (*gestalt.ExternalCredential, error) {
-	accessToken, refreshToken, err := s.encryptor.DecryptTokenPair(
-		recordString(record, "access_token_encrypted"),
-		recordString(record, "refresh_token_encrypted"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("decrypt credential pair: %w", err)
-	}
-
 	credential := &gestalt.ExternalCredential{
-		ID:                recordString(record, "id"),
-		SubjectID:         credentialRecordSubjectID(record),
-		ConnectionID:      recordString(record, "connection_id"),
-		Instance:          recordString(record, "instance"),
-		AccessToken:       accessToken,
-		RefreshToken:      refreshToken,
-		Scopes:            recordString(record, "scopes"),
-		RefreshErrorCount: int32(recordInt(record, "refresh_error_count")),
-		MetadataJSON:      recordString(record, "metadata_json"),
-		ExpiresAt:         utcTimePtr(recordTimePtr(record, "expires_at")),
-		LastRefreshedAt:   utcTimePtr(recordTimePtr(record, "last_refreshed_at")),
-		CreatedAt:         utcTimePtr(recordTimePtr(record, "created_at")),
-		UpdatedAt:         utcTimePtr(recordTimePtr(record, "updated_at")),
+		ID:           recordString(record, "id"),
+		Subject:      strings.TrimSpace(recordString(record, "subject")),
+		Audience:     recordString(record, "audience"),
+		Qualifier:    recordString(record, "qualifier"),
+		MetadataJSON: recordString(record, "metadata_json"),
+		CreatedAt:    utcTimePtr(recordTimePtr(record, "created_at")),
+		UpdatedAt:    utcTimePtr(recordTimePtr(record, "updated_at")),
+	}
+	switch kind := recordString(record, "kind"); kind {
+	case kindGrant:
+		accessToken, refreshToken, err := s.encryptor.DecryptTokenPair(
+			recordString(record, "access_token_encrypted"),
+			recordString(record, "refresh_token_encrypted"),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt grant tokens: %w", err)
+		}
+		credential.Grant = &gestalt.ExternalCredentialGrant{
+			AccessToken:       accessToken,
+			RefreshToken:      refreshToken,
+			Scope:             recordString(record, "scope"),
+			ExpiresAt:         utcTimePtr(recordTimePtr(record, "expires_at")),
+			LastRefreshedAt:   utcTimePtr(recordTimePtr(record, "last_refreshed_at")),
+			RefreshErrorCount: int32(recordInt(record, "refresh_error_count")),
+		}
+	case kindClientInfo:
+		secret, err := s.encryptor.Decrypt(recordString(record, "client_secret_encrypted"))
+		if err != nil {
+			return nil, fmt.Errorf("decrypt client secret: %w", err)
+		}
+		credential.Client = &gestalt.ExternalCredentialClientInfo{
+			ClientID:              recordString(record, "client_id"),
+			ClientSecret:          secret,
+			ClientSecretExpiresAt: utcTimePtr(recordTimePtr(record, "client_secret_expires_at")),
+		}
+	case kindOpaque:
+		raw, err := s.encryptor.Decrypt(recordString(record, "fields_encrypted"))
+		if err != nil {
+			return nil, fmt.Errorf("decrypt opaque fields: %w", err)
+		}
+		fields := map[string]string{}
+		if raw != "" {
+			if err := json.Unmarshal([]byte(raw), &fields); err != nil {
+				return nil, fmt.Errorf("decode opaque fields: %w", err)
+			}
+		}
+		credential.Opaque = &gestalt.ExternalCredentialOpaque{Fields: fields}
+	default:
+		return nil, fmt.Errorf("external credential %q has unknown kind %q", credential.GetId(), kind)
 	}
 	return credential, nil
 }
 
-func normalizeCredential(credential *gestalt.ExternalCredential) *gestalt.ExternalCredential {
+func normalizeCredential(credential *gestalt.ExternalCredential) (*gestalt.ExternalCredential, error) {
 	if credential == nil {
-		return nil
+		return nil, fmt.Errorf("credential is required")
 	}
 	clone := *credential
 	clone.ID = strings.TrimSpace(clone.GetId())
-	clone.SubjectID = strings.TrimSpace(clone.GetSubjectId())
-	clone.ConnectionID = strings.TrimSpace(clone.GetConnectionId())
-	clone.Instance = strings.TrimSpace(clone.GetInstance())
-	return &clone
-}
-
-func credentialCreatedAt(credential *gestalt.ExternalCredential, fallback time.Time) time.Time {
-	if credential != nil && credential.GetCreatedAt() != nil {
-		return credential.GetCreatedAt().UTC()
+	clone.Subject = strings.TrimSpace(clone.GetSubject())
+	clone.Audience = strings.TrimSpace(clone.GetAudience())
+	clone.Qualifier = strings.TrimSpace(clone.GetQualifier())
+	if clone.Subject == "" {
+		return nil, fmt.Errorf("credential subject is required")
 	}
-	return fallback.UTC()
-}
-
-func credentialUpdatedAt(credential *gestalt.ExternalCredential, fallback time.Time, preserve bool) time.Time {
-	if preserve && credential != nil && credential.GetUpdatedAt() != nil {
-		return credential.GetUpdatedAt().UTC()
+	if clone.Audience == "" {
+		return nil, fmt.Errorf("credential audience is required")
 	}
-	return fallback.UTC()
-}
-
-func credentialRecordSubjectID(record gestalt.Record) string {
-	return strings.TrimSpace(recordString(record, "subject_id"))
-}
-
-func dedupeCredentialRecords(records []gestalt.Record) []gestalt.Record {
-	if len(records) <= 1 {
-		return records
-	}
-
-	bestByLookup := make(map[string]gestalt.Record, len(records))
-	for _, record := range records {
-		key := credentialLookupKey(record)
-		best, ok := bestByLookup[key]
-		if !ok || credentialRecordLess(record, best) {
-			bestByLookup[key] = record
+	set := 0
+	for _, present := range []bool{clone.Grant != nil, clone.Client != nil, clone.Opaque != nil} {
+		if present {
+			set++
 		}
 	}
-
-	out := make([]gestalt.Record, 0, len(bestByLookup))
-	for _, record := range bestByLookup {
-		out = append(out, record)
+	if set != 1 {
+		return nil, fmt.Errorf("credential requires exactly one of grant, client, opaque")
 	}
-	sort.Slice(out, func(i, j int) bool {
-		return credentialRecordLess(out[i], out[j])
-	})
-	return out
-}
-
-func credentialLookupKey(record gestalt.Record) string {
-	return credentialRecordSubjectID(record) + "\x00" +
-		recordString(record, "connection_id") + "\x00" +
-		recordString(record, "instance")
-}
-
-func credentialRecordLess(left, right gestalt.Record) bool {
-	leftUpdated := recordTime(left, "updated_at")
-	rightUpdated := recordTime(right, "updated_at")
-	if !leftUpdated.Equal(rightUpdated) {
-		return leftUpdated.After(rightUpdated)
-	}
-
-	leftCreated := recordTime(left, "created_at")
-	rightCreated := recordTime(right, "created_at")
-	if !leftCreated.Equal(rightCreated) {
-		return leftCreated.After(rightCreated)
-	}
-
-	return recordString(left, "id") < recordString(right, "id")
+	return &clone, nil
 }
 
 func recordString(record gestalt.Record, key string) string {
