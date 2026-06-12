@@ -90,7 +90,7 @@ func (b *temporalBackend) Start(ctx context.Context) error {
 	}
 	w := b.newWorker(b.client, b.cfg.TaskQueue, b.workerOptions())
 	w.RegisterWorkflow(TemporalRun)
-	w.RegisterActivity(&workflowActivities{executor: b.stepExecutor})
+	w.RegisterActivity(&workflowActivities{executor: b.stepExecutor, backend: b})
 	if err := w.Start(); err != nil {
 		return fmt.Errorf("start temporal worker: %w", err)
 	}
@@ -724,6 +724,21 @@ func workflowTelemetryTargetKindInput(target *gestalt.BoundWorkflowTarget) strin
 		return gestalt.WorkflowTargetKindSteps
 	}
 	return gestalt.WorkflowTargetKindUnknown
+}
+
+func workflowTriggerKindInput(trigger *gestalt.WorkflowRunTrigger) string {
+	switch {
+	case trigger == nil:
+		return gestalt.WorkflowTriggerKindNone
+	case trigger.Event != nil:
+		return gestalt.WorkflowTriggerKindEvent
+	case trigger.Schedule != nil:
+		return gestalt.WorkflowTriggerKindSchedule
+	case trigger.Manual:
+		return gestalt.WorkflowTriggerKindManual
+	default:
+		return gestalt.WorkflowTriggerKindUnknown
+	}
 }
 
 func workflowTelemetryRunStatus(run *gestalt.WorkflowRun) string {

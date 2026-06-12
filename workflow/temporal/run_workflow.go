@@ -277,8 +277,22 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 	}
 	upsertVisibility(ctx)
 	_ = workflow.Await(ctx, func() bool { return workflow.AllHandlersFinished(ctx) })
+	if workflowRunTerminal(state.Status) {
+		// Emit from an activity, not workflow code: workflow code replays and
+		// would double-count. Best effort; telemetry must never fail the run.
+		recordCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: runCompletionRecordTimeout,
+			RetryPolicy:         &sdktemporal.RetryPolicy{MaximumAttempts: runCompletionRecordAttempts},
+		})
+		_ = workflow.ExecuteActivity(recordCtx, (*workflowActivities).RecordRunCompleted, cloneRunInput(state)).Get(recordCtx, nil)
+	}
 	return cloneRunInput(state), nil
 }
+
+const (
+	runCompletionRecordTimeout  = 30 * time.Second
+	runCompletionRecordAttempts = 3
+)
 
 func (input runWorkflowInput) targetInput() *gestalt.BoundWorkflowTarget {
 	return input.Target
