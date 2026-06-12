@@ -7,13 +7,13 @@ import Ajv2020 from "ajv/dist/2020.js";
 import type { AgentOptions, Run, SDKAgent, SDKMessage } from "@cursor/sdk";
 import {
   App,
-  request as gestaltRequest,
-  type AppInvokeOptions,
   type AgentMessage,
   type AgentTurnOutput,
   type CreateAgentProviderTurnRequest,
+  type JsonObject,
   type ListedAgentTool,
 } from "@valon-technologies/gestalt";
+import { nativeRequestContext } from "@valon-technologies/gestalt/runtime";
 
 import type { CursorAgentConfig } from "./config.ts";
 import { createCursorPlatformOptions } from "./cursor_platform.ts";
@@ -132,42 +132,14 @@ export class CursorSDKRunner {
       active.bridge = await startMcpBridge({
         tools,
         executeTool: async (entry, toolCallId, args) => {
-          const request = gestaltRequest(
-            "",
-            {},
-            {},
-            {},
-            {},
-            {},
-            "",
-            {},
-            {},
-            [],
-            false,
-            input.requestContext,
-          );
-          const options: AppInvokeOptions = {
+          const context = nativeRequestContext(input.requestContext);
+          const app = App.connect({ context });
+          const response = await app.invokeRaw({
+            ...entry.ref,
             idempotencyKey: `agent/cursor-sdk:${input.turnId}:${toolCallId}:${entry.mcpName}`,
-          };
-          const connection = entry.ref.connection?.trim();
-          if (connection) {
-            options.connection = connection;
-          }
-          const instance = entry.ref.instance?.trim();
-          if (instance) {
-            options.instance = instance;
-          }
-          const credentialMode = appCredentialMode(entry.ref.credentialMode);
-          if (credentialMode !== undefined) {
-            options.credentialMode = credentialMode;
-          }
-          const response = await new App(request).invokeRaw(
-            entry.ref.app ?? "",
-            entry.ref.operation ?? "",
-            args,
-            options,
-          );
-          return { status: response.status, body: response.text() };
+            params: args as JsonObject,
+          });
+          return { status: response.status, body: response.body };
         },
       });
       active.stateRoot = await mkdtemp(join(tmpdir(), "gestalt-cursor-sdk-"));
@@ -457,19 +429,6 @@ function messagesToPrompt(
     }),
   );
   return sections.join("\n\n");
-}
-
-function appCredentialMode(value: string | undefined): AppInvokeOptions["credentialMode"] {
-  const mode = value?.trim();
-  if (!mode) {
-    return undefined;
-  }
-  if (mode === "none" || mode === "subject" || mode === "unspecified") {
-    return mode;
-  }
-  throw new CursorExecutionError(
-    `tools.catalog.tools returned invalid credential_mode ${JSON.stringify(mode)}`,
-  );
 }
 
 function escapeAttribute(value: string): string {

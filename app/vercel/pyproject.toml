@@ -15,7 +15,7 @@ dev = [
 package = false
 
 [tool.uv.sources]
-gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", rev = "a1614b84ee7194d06ff8599a6c4a73d9a7e2b8da", subdirectory = "sdk/python" }
+gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", rev = "0f5f23ed77c7c2785ae5dba10dbda27c3373bfb1", subdirectory = "sdk/python" }
 
 [tool.gestalt]
 provider = "provider:app"

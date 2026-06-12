@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 import gestalt
+from gestalt.app import App
+from gestalt.rpc_support import GestaltError, GestaltErrorCode
 from claude_agent_sdk.types import (
     McpSdkServerConfig,
     PermissionResultAllow,
@@ -120,29 +122,35 @@ class GestaltMCPBridge:
             self._sequence += 1
             idempotency_key = f"agent/claude-sdk:{self._turn_id}:{self._sequence}:{entry.mcp_name}"
 
-            def execute() -> gestalt.Response[str]:
-                with gestalt.Request(context=self._request_context).app() as app:
-                    response = app.invoke_raw(
-                        entry.ref.app,
-                        entry.ref.operation,
-                        arguments or {},
-                        connection=entry.ref.connection,
-                        instance=entry.ref.instance,
-                        credential_mode=entry.ref.credential_mode,
-                        idempotency_key=idempotency_key,
-                        timeout_seconds=self._timeout_seconds,
-                    )
-                return gestalt.Response[str](status=response.status, body=operation_body_text(response.body))
+            def execute() -> Any:
+                # Request.app() does not expose the client timeout, so connect
+                # directly with the request's native context.
+                app = App.connect(
+                    context=gestalt.native_request_context(self._request_context),
+                    timeout=self._timeout_seconds,
+                )
+                return app.invoke(
+                    app=entry.ref.app,
+                    operation=entry.ref.operation,
+                    params=arguments or {},
+                    connection=entry.ref.connection,
+                    instance=entry.ref.instance,
+                    credential_mode=entry.ref.credential_mode,
+                    idempotency_key=idempotency_key,
+                )
 
             try:
-                response = await asyncio.to_thread(execute)
+                result = await asyncio.to_thread(execute)
+            except GestaltError as exc:
+                if exc.code == GestaltErrorCode.DEADLINE_EXCEEDED and self._timeout_seconds is not None:
+                    return _tool_error_result(
+                        TimeoutError(f"Gestalt tool call timed out after {self._timeout_seconds:g}s")
+                    )
+                return _tool_error_result(exc)
             except Exception as exc:
                 return _tool_error_result(exc)
-        body = operation_body_text(response.body)
-        status = int(response.status or 0)
-        if not body:
-            body = "{}"
-        return CallToolResult(content=[TextContent(type="text", text=body)], isError=status >= 400)
+        body = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+        return CallToolResult(content=[TextContent(type="text", text=body)], isError=False)
 
     def _remember_entry(self, entry: ToolEntry) -> None:
         self._entries[entry.mcp_name] = entry
@@ -348,14 +356,6 @@ def _tool_error_message(exc: Exception) -> str:
     if len(message) > TOOL_ERROR_MAX_CHARS:
         return message[: TOOL_ERROR_MAX_CHARS - 3].rstrip() + "..."
     return message
-
-
-def operation_body_text(body: object) -> str:
-    if body is None:
-        return ""
-    if isinstance(body, bytes | bytearray | memoryview):
-        return bytes(body).decode("utf-8", errors="replace")
-    return str(body)
 
 
 def _is_app_operation_tool(tool: gestalt.ListedAgentTool) -> bool:

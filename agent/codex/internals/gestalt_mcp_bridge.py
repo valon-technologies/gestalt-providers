@@ -51,10 +51,10 @@ def create_server(context: BridgeContext) -> Server[Any, Any]:
         if entry is None:
             return _error_result(f"unknown tool {name!r}")
         try:
-            response = await asyncio.to_thread(executor.execute, entry=entry, arguments=arguments)
+            result = await asyncio.to_thread(executor.execute, entry=entry, arguments=arguments)
         except ToolBridgeError as exc:
             return _error_result(str(exc))
-        return mcp_tool_result(response)
+        return mcp_tool_result(result)
 
     return server
 

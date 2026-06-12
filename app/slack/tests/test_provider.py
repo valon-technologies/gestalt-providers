@@ -19,6 +19,7 @@ from unittest import mock
 
 import gestalt
 import yaml
+from gestalt.authorization import RelationshipTargetSubject
 
 import internals.client as client_module
 from internals.agent_links import agent_session_url
@@ -270,7 +271,9 @@ class FakeAuthorization:
             relationships.append(
                 gestalt.Relationship(
                     tuple=gestalt.RelationshipTuple(
-                        target=gestalt.RelationshipTarget(subject=subject),
+                        target=gestalt.RelationshipTarget(
+                            kind=RelationshipTargetSubject(value=subject)
+                        ),
                         relation=relation,
                         resource=resource,
                     )
@@ -537,9 +540,11 @@ class SlackProviderTests(unittest.TestCase):
         assert relationship_tuple is not None
         self.assertIsNotNone(relationship_tuple.target)
         assert relationship_tuple.target is not None
-        self.assertIsNotNone(relationship_tuple.target.subject)
+        self.assertIsInstance(relationship_tuple.target.kind, RelationshipTargetSubject)
         self.assertIsNotNone(relationship_tuple.resource)
-        subject = cast(gestalt.AuthorizationSubject, relationship_tuple.target.subject)
+        subject = cast(
+            RelationshipTargetSubject, relationship_tuple.target.kind
+        ).value
         resource = cast(gestalt.AuthorizationResource, relationship_tuple.resource)
         self.assertEqual(subject.type, "subject")
         self.assertEqual(subject.id, "user:gestalt-123")
@@ -549,7 +554,9 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(resource.type, provider_module._agent.SLACK_USER_RESOURCE_TYPE)
         self.assertEqual(resource.id, "T123/U456")
-        self.assertEqual(relationship.source_layer, gestalt.SOURCE_LAYER_RUNTIME)
+        self.assertEqual(
+            relationship.source_layer, gestalt.SourceLayerValues.RUNTIME
+        )
 
     def test_agent_routes_reject_duplicate_ids(self) -> None:
         with self.assertRaisesRegex(ValueError, "duplicates another agent route"):
@@ -1536,7 +1543,7 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(
             request.filter.target_type,
-            gestalt.RELATIONSHIP_TARGET_TYPE_SUBJECT,
+            gestalt.RelationshipTargetTypeValues.SUBJECT,
         )
 
     def test_http_subject_dedupes_equivalent_linked_slack_user_subjects(

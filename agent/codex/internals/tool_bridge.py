@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import gestalt
+from gestalt.app import App
+from gestalt.rpc_support import GestaltError, GestaltErrorCode
 from mcp import types as mcp_types
 
 
@@ -40,28 +42,37 @@ class ToolExecutor:
     ) -> None:
         self._turn_id = turn_id
         self._request_context = request_context
-        self._timeout_seconds = timeout_seconds
+        self._timeout_seconds = timeout_seconds if timeout_seconds > 0 else None
         self._lock = threading.Lock()
         self._sequence = 0
 
-    def execute(self, *, entry: ToolEntry, arguments: dict[str, Any]) -> gestalt.Response[str]:
+    def execute(self, *, entry: ToolEntry, arguments: dict[str, Any]) -> Any:
         with self._lock:
             self._sequence += 1
             sequence = self._sequence
         idempotency_key = f"agent/codex-mcp:{self._turn_id}:{sequence}:{entry.mcp_name}"
         try:
-            with gestalt.Request(context=self._request_context).app() as app:
-                response = app.invoke_raw(
-                    entry.ref.app,
-                    entry.ref.operation,
-                    arguments or {},
-                    connection=entry.ref.connection,
-                    instance=entry.ref.instance,
-                    credential_mode=entry.ref.credential_mode,
-                    idempotency_key=idempotency_key,
-                    timeout_seconds=self._timeout_seconds,
-                )
-            return gestalt.Response[str](status=response.status, body=operation_body_text(response.body))
+            # Request.app() does not expose the client timeout, so connect
+            # directly with the request's native context.
+            app = App.connect(
+                context=gestalt.native_request_context(self._request_context),
+                timeout=self._timeout_seconds,
+            )
+            return app.invoke(
+                app=entry.ref.app,
+                operation=entry.ref.operation,
+                params=arguments or {},
+                connection=entry.ref.connection,
+                instance=entry.ref.instance,
+                credential_mode=entry.ref.credential_mode,
+                idempotency_key=idempotency_key,
+            )
+        except GestaltError as exc:
+            if exc.code == GestaltErrorCode.DEADLINE_EXCEEDED and self._timeout_seconds is not None:
+                raise ToolBridgeError(
+                    f"Gestalt tool call timed out after {self._timeout_seconds:g}s"
+                ) from exc
+            raise ToolBridgeError(str(exc) or exc.__class__.__name__) from exc
         except Exception as exc:
             raise ToolBridgeError(str(exc) or exc.__class__.__name__) from exc
 
@@ -122,20 +133,9 @@ def mcp_tool(entry: ToolEntry) -> mcp_types.Tool:
     )
 
 
-def mcp_tool_result(response: gestalt.Response[Any]) -> mcp_types.CallToolResult:
-    body = operation_body_text(response.body)
-    status = int(response.status or 0)
-    if not body:
-        body = "{}"
-    return mcp_types.CallToolResult(content=[mcp_types.TextContent(type="text", text=body)], isError=status >= 400)
-
-
-def operation_body_text(body: object) -> str:
-    if body is None:
-        return ""
-    if isinstance(body, bytes | bytearray | memoryview):
-        return bytes(body).decode("utf-8", errors="replace")
-    return str(body)
+def mcp_tool_result(result: Any) -> mcp_types.CallToolResult:
+    body = json.dumps(result, ensure_ascii=False, separators=(",", ":"))
+    return mcp_types.CallToolResult(content=[mcp_types.TextContent(type="text", text=body)], isError=False)
 
 
 def schema_from_json(value: str) -> dict[str, Any]:

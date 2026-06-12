@@ -144,7 +144,7 @@
       "packagePath": "agent/hermes",
       "readmeUrl": null,
       "registryPath": "/providers/agent/hermes/",
-      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/agent/hermes",
+      "sourceUrl": null,
       "versions": [
         {
           "kind": "agent",

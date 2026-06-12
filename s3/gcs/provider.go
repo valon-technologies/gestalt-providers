@@ -14,6 +14,7 @@ import (
 
 	"cloud.google.com/go/storage"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/s3"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/grpc/codes"
@@ -335,7 +336,7 @@ func (p *Provider) PresignObject(ctx context.Context, req gestalt.PresignRequest
 	if err != nil {
 		return gestalt.PresignResult{}, toStatusError(err)
 	}
-	method := gestalt.PresignMethodGet
+	method := s3.PresignMethodGet
 	expires := defaultPresignTTL
 	contentType := ""
 	contentDisposition := ""
@@ -364,7 +365,7 @@ func (p *Provider) PresignObject(ctx context.Context, req gestalt.PresignRequest
 		return gestalt.PresignResult{}, gestalt.InvalidArgument("gcs: expires must be <= 7 days for V4 signed URLs")
 	}
 	switch method {
-	case gestalt.PresignMethodGet, gestalt.PresignMethodHead, gestalt.PresignMethodDelete:
+	case s3.PresignMethodGet, s3.PresignMethodHead, s3.PresignMethodDelete:
 		if ref.VersionID != "" {
 			if _, err := parseGeneration(ref.VersionID, "ref.versionId"); err != nil {
 				return gestalt.PresignResult{}, err
@@ -377,7 +378,7 @@ func (p *Provider) PresignObject(ctx context.Context, req gestalt.PresignRequest
 		if contentDisposition != "" {
 			signedOpts.QueryParameters.Set("response-content-disposition", contentDisposition)
 		}
-	case gestalt.PresignMethodPut:
+	case s3.PresignMethodPut:
 		if contentType != "" {
 			signedOpts.ContentType = contentType
 			headers = setHeader(headers, "Content-Type", contentType)
