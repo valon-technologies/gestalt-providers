@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import Container from "@/components/Container";
 import Nav from "@/components/Nav";
 import { docsNavItems, getActiveDocsNavItem } from "./docs-data";
 
@@ -16,7 +17,7 @@ export default function DocsShell({
   return (
     <div className="min-h-screen">
       <Nav />
-      <main className="mx-auto max-w-[1400px] px-6 py-16">
+      <Container as="main" className="py-16">
         <div className="grid gap-10 xl:grid-cols-[220px_minmax(0,1fr)_240px]">
           <aside className="hidden xl:block">
             <div className="sticky top-24">
@@ -66,7 +67,7 @@ export default function DocsShell({
             </div>
           </aside>
         </div>
-      </main>
+      </Container>
     </div>
   );
 }

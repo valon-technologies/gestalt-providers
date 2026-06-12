@@ -11,6 +11,8 @@
   --brand-soft: #eac59f;
   --danger: #c75050;
   --success: #3d6b3d;
+  /* Layout and typography knobs, overridable per tenant theme. */
+  --content-max-width: 80rem;
 }
 
 .dark {

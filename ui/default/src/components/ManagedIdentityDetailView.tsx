@@ -38,6 +38,7 @@ import {
 } from "@/lib/constants";
 import { filterIntegrations, getIntegrationLabel } from "@/lib/integrationSearch";
 import Button from "./Button";
+import Container from "./Container";
 import IntegrationCard from "./IntegrationCard";
 import IdentityTokenCreateForm from "./IdentityTokenCreateForm";
 import IdentityTokenTable from "./IdentityTokenTable";
@@ -331,7 +332,7 @@ export default function ManagedIdentityDetailView({
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-12">
+    <Container as="main" className="py-12">
       <div className="animate-fade-in-up">
         <Link href="/identities" className="text-sm text-muted hover:text-primary transition-colors duration-150">
           &larr; Back to identities
@@ -709,6 +710,6 @@ export default function ManagedIdentityDetailView({
           </section>
         </div>
       ) : null}
-    </main>
+    </Container>
   );
 }
