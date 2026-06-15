@@ -71,15 +71,7 @@ Representative operations include:
 
 ## Usage Examples
 
-Grant another provider or workflow permission to invoke this plugin before calling it:
-
-```yaml
-apps:
-  example_consumer:
-    invokes:
-      - plugin: sharepoint
-        operation: list_site_drives
-```
+Hosted apps call this provider with `app.invoke`. Pass `runAs` or `credentialMode` in the invoke options when an operation needs a service-account identity or managed credentials instead of the caller's OAuth token.
 
 Example `list_site_drives` call:
 

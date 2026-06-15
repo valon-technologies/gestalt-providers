@@ -63,4 +63,18 @@
     @apply text-primary underline decoration-base-300 underline-offset-4 transition-colors duration-150 hover:text-gold-600 dark:decoration-base-600;
   }
 
+  /* Code-block shell shared by the Shiki output and its plain <pre>
+   * fallback, so layout is identical before and after highlighting. */
+  .doc-code pre {
+    @apply overflow-x-auto rounded-xl border border-alpha bg-base-100 px-4 py-4 pr-12 font-mono text-sm leading-6 text-primary dark:bg-surface;
+  }
+}
+
+/* Shiki dual-theme output (defaultColor: false → per-token CSS vars). */
+pre.shiki span {
+  color: var(--shiki-light);
+}
+
+.dark pre.shiki span {
+  color: var(--shiki-dark);
 }

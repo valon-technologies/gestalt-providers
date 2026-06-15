@@ -1,0 +1,116 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { HighlighterCore } from "shiki/core";
+
+// Vitesse Light/Dark, matching the gestalt docs and registry renderers.
+// Backgrounds are left to the page surface and the comment colors are lifted
+// to AA-passing values (vitesse's #a0ada0 is 2.3:1 on our light surface,
+// #758575dd is 3.6:1 on our dark one).
+const themes = { light: "vitesse-light", dark: "vitesse-dark" } as const;
+const colorReplacements = {
+  "vitesse-light": { "#a0ada0": "#76705f" },
+  "vitesse-dark": { "#758575dd": "#7f8f7f" },
+} as const;
+
+// A curated core bundle instead of `import("shiki")`: the full bundle
+// code-splits every one of its ~300 grammars into the static export. These
+// are the languages the docs actually use; anything else renders as plain
+// text via highlight().
+let highlighterPromise: Promise<HighlighterCore> | null = null;
+
+function getHighlighter() {
+  highlighterPromise ??= Promise.all([
+    import("shiki/core"),
+    import("shiki/engine/javascript"),
+  ]).then(([core, engine]) =>
+    core.createHighlighterCore({
+      themes: [
+        import("@shikijs/themes/vitesse-light"),
+        import("@shikijs/themes/vitesse-dark"),
+      ],
+      langs: [
+        import("@shikijs/langs/shellscript"),
+        import("@shikijs/langs/yaml"),
+        import("@shikijs/langs/json"),
+        import("@shikijs/langs/typescript"),
+        import("@shikijs/langs/javascript"),
+      ],
+      engine: engine.createJavaScriptRegexEngine({ forgiving: true }),
+    }),
+  );
+  // A failed init (e.g. a transient chunk-load error) must not poison
+  // every later attempt: drop the rejected promise so the next call
+  // retries, and rethrow for the per-snippet catch below.
+  highlighterPromise = highlighterPromise.catch((error) => {
+    highlighterPromise = null;
+    throw error;
+  });
+  return highlighterPromise;
+}
+
+const htmlCache = new Map<string, Promise<string | null>>();
+
+function highlight(language: string, text: string) {
+  const key = `${language}${text}`;
+  const cached = htmlCache.get(key);
+  if (cached) {
+    return cached;
+  }
+  const promise = getHighlighter()
+    .then((highlighter) => {
+      const lang =
+        language && highlighter.getLoadedLanguages().includes(language)
+          ? language
+          : "text";
+      return highlighter.codeToHtml(text, {
+        lang,
+        themes,
+        defaultColor: false,
+        colorReplacements,
+      });
+    })
+    .catch(() => {
+      // Do not cache failures — the same block retries on its next render.
+      htmlCache.delete(key);
+      return null;
+    });
+  htmlCache.set(key, promise);
+  return promise;
+}
+
+export default function ShikiCode({
+  language,
+  text,
+}: {
+  language: string;
+  text: string;
+}) {
+  const [html, setHtml] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Reset before highlighting: when language/text change on a mounted
+    // instance, the previous block's markup must not linger while (or if)
+    // the new highlight resolves.
+    setHtml(null);
+    void highlight(language, text).then((result) => {
+      if (!cancelled) {
+        setHtml(result);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [language, text]);
+
+  if (!html) {
+    return (
+      <pre>
+        <code data-language={language || undefined}>{text}</code>
+      </pre>
+    );
+  }
+  // Shiki escapes all code content; this is its own generated markup.
+  return <div dangerouslySetInnerHTML={{ __html: html }} />;
+}

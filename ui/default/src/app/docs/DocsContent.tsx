@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
 import { CheckIcon, CopyIcon } from "@/components/icons";
+import ShikiCode from "@/components/ShikiCode";
 
 const FALLBACK_ORIGIN = "https://your-gestalt-host";
 
@@ -50,7 +51,7 @@ export function GettingStartedDocsPage() {
           <>
             This guide covers the user-facing workflows for the Gestalt
             workspace you are currently using: install{" "}
-            <code className="font-mono text-sm text-primary">gestalt</code>,
+            <InlineCode>gestalt</InlineCode>,
             point it at this workspace, sign in when required, connect
             apps, grant authorization, invoke operations, mint API tokens,
             and attach an MCP-aware client. No command-line experience is
@@ -68,7 +69,7 @@ export function GettingStartedDocsPage() {
         <Subheading id="install" title="Install" />
         <p className="doc-copy">
           End users only need the{" "}
-          <code className="font-mono text-sm text-primary">gestalt</code> CLI.
+          <InlineCode>gestalt</InlineCode> CLI.
         </p>
         <p className="doc-copy">
           The recommended way to install is the Gestalt installer script.
@@ -93,7 +94,7 @@ brew install valon-technologies/gestalt/gestalt`}
         />
         <p className="doc-copy">
           Then verify the CLI is on your{" "}
-          <code className="font-mono text-sm text-primary">PATH</code>.
+          <InlineCode>PATH</InlineCode>.
         </p>
         <CodeBlock code="gestalt --version" />
 
@@ -129,9 +130,7 @@ brew install valon-technologies/gestalt/gestalt`}
         />
         <p className="doc-copy">
           The optional{" "}
-          <code className="font-mono text-sm text-primary">
-            .gestalt/config.json
-          </code>{" "}
+          <InlineCode>.gestalt/config.json</InlineCode>{" "}
           file stores only the base URL. The CLI searches the current directory
           and then parent directories until it finds the nearest project
           config.
@@ -140,24 +139,18 @@ brew install valon-technologies/gestalt/gestalt`}
           <p>Resolution order:</p>
           <ol className="list-decimal space-y-1 pl-6">
             <li>
-              <code className="font-mono text-sm text-primary">--url</code>
+              <InlineCode>--url</InlineCode>
             </li>
             <li>
-              <code className="font-mono text-sm text-primary">
-                GESTALT_URL
-              </code>
+              <InlineCode>GESTALT_URL</InlineCode>
             </li>
             <li>
               project-local{" "}
-              <code className="font-mono text-sm text-primary">
-                .gestalt/config.json
-              </code>
+              <InlineCode>.gestalt/config.json</InlineCode>
             </li>
             <li>
               user-local CLI config file, for example{" "}
-              <code className="font-mono text-sm text-primary">
-                ~/.config/gestalt/config.json
-              </code>
+              <InlineCode>~/.config/gestalt/config.json</InlineCode>
             </li>
           </ol>
         </div>
@@ -226,7 +219,7 @@ gestalt authorization subjects grants set service_account:release-bot <app> \\
         <Subheading id="workflows" title="Inspect workflows" />
         <p className="doc-copy">
           After your workspace URL and auth are set, use{" "}
-          <code className="font-mono text-sm text-primary">gestalt workflows</code>{" "}
+          <InlineCode>gestalt workflows</InlineCode>{" "}
           to inspect recent workflow runs from the CLI.
         </p>
         <CodeBlock
@@ -338,24 +331,18 @@ export function AuthorizationDocsPage() {
           members for apps they administer. Built-in Gestalt admins can
           manage every app and the global admin set. If your deployment
           splits public and management listeners, pass{" "}
-          <code className="font-mono text-sm text-primary">
-            --url &lt;management-url&gt;
-          </code>{" "}
+          <InlineCode>--url &lt;management-url&gt;</InlineCode>{" "}
           to admin authorization commands.
         </p>
 
         <Subheading id="authz-plugin-access" title="Grant app access" />
         <p className="doc-copy">
           Grant a user or service account an app role with{" "}
-          <code className="font-mono text-sm text-primary">
-            viewer
-          </code>
+          <InlineCode>viewer</InlineCode>
           ,{" "}
-          <code className="font-mono text-sm text-primary">
-            editor
-          </code>
+          <InlineCode>editor</InlineCode>
           , or{" "}
-          <code className="font-mono text-sm text-primary">admin</code>.
+          <InlineCode>admin</InlineCode>.
         </p>
         <CodeBlock
           code={`gestalt authorization apps list
@@ -436,7 +423,7 @@ export function WorkflowsDocsPage() {
         <p className="doc-copy">
           Start by checking the commands exposed by the CLI installed on your machine.
           Different builds may expose different workflow subcommands, so{" "}
-          <code className="font-mono text-sm text-primary">--help</code> is the
+          <InlineCode>--help</InlineCode> is the
           fastest source of truth.
         </p>
 
@@ -524,13 +511,9 @@ export function TroubleshootingDocsPage() {
         />
         <p className="doc-copy">
           Run{" "}
-          <code className="font-mono text-sm text-primary">
-            gestalt auth login
-          </code>
+          <InlineCode>gestalt auth login</InlineCode>
           , or set{" "}
-          <code className="font-mono text-sm text-primary">
-            GESTALT_API_KEY
-          </code>{" "}
+          <InlineCode>GESTALT_API_KEY</InlineCode>{" "}
           if you are using a token directly.
         </p>
 
@@ -540,9 +523,9 @@ export function TroubleshootingDocsPage() {
         />
         <p className="doc-copy">
           Pass{" "}
-          <code className="font-mono text-sm text-primary">--connection</code>{" "}
+          <InlineCode>--connection</InlineCode>{" "}
           or{" "}
-          <code className="font-mono text-sm text-primary">--instance</code> so
+          <InlineCode>--instance</InlineCode> so
           Gestalt can resolve the correct credentials.
         </p>
 
@@ -801,9 +784,7 @@ gestalt apps invoke <app> <operation> --input-file payload.json --select data.it
         />
         <p className="doc-copy">
           If you omit the operation,{" "}
-          <code className="font-mono text-sm text-primary">
-            gestalt apps invoke &lt;app&gt;
-          </code>{" "}
+          <InlineCode>gestalt apps invoke &lt;app&gt;</InlineCode>{" "}
           lists available operations instead of running one.
         </p>
       </section>
@@ -946,24 +927,21 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
           </a>
           , configure the workspace URL as an environment variable, and add the
           API token as a Cursor secret. Put the install command in{" "}
-          <code className="font-mono text-sm text-primary">
-            .cursor/environment.json
-          </code>
+          <InlineCode>.cursor/environment.json</InlineCode>
           .
         </p>
         <CodeBlock
+          language="json"
           code={`{
   "install": "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh"
 }`}
         />
         <p className="doc-copy">
           Set{" "}
-          <code className="font-mono text-sm text-primary">GESTALT_URL</code>{" "}
+          <InlineCode>GESTALT_URL</InlineCode>{" "}
           to{" "}
-          <code className="font-mono text-sm text-primary">{origin}</code> and{" "}
-          <code className="font-mono text-sm text-primary">
-            GESTALT_API_KEY
-          </code>{" "}
+          <InlineCode>{origin}</InlineCode> and{" "}
+          <InlineCode>GESTALT_API_KEY</InlineCode>{" "}
           as a Cursor Cloud Agent secret containing a Gestalt API token. Cursor
           provides the secret to the agent environment at runtime under that
           variable name.
@@ -1015,7 +993,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         />
         <p className="doc-copy">
           Add environment variables in the cloud environment editor. Values use{" "}
-          <code className="font-mono text-sm text-primary">.env</code> format.
+          <InlineCode>.env</InlineCode> format.
         </p>
         <CodeBlock code={cloudEnvironmentVariables(origin)} />
         <p className="doc-copy">
@@ -1085,12 +1063,13 @@ function McpClientTabs({ origin }: { origin: string }) {
       >
         <p className="doc-copy">
           Use{" "}
-          <code className="font-mono text-sm text-primary">.mcp.json</code>{" "}
+          <InlineCode>.mcp.json</InlineCode>{" "}
           for a project-scoped workspace shared in version control, or{" "}
-          <code className="font-mono text-sm text-primary">~/.claude.json</code>{" "}
+          <InlineCode>~/.claude.json</InlineCode>{" "}
           for a private local or user-scoped config.
         </p>
         <CodeBlock
+          language="json"
           code={`{
   "mcpServers": {
     "gestalt": {
@@ -1130,9 +1109,7 @@ function McpClientTabs({ origin }: { origin: string }) {
         />
         <p className="doc-copy">
           If authentication is disabled, omit{" "}
-          <code className="font-mono text-sm text-primary">
-            --bearer-token-env-var GESTALT_API_KEY
-          </code>{" "}
+          <InlineCode>--bearer-token-env-var GESTALT_API_KEY</InlineCode>{" "}
           from the command.
         </p>
       </section>
@@ -1150,12 +1127,13 @@ function McpClientTabs({ origin }: { origin: string }) {
       >
         <p className="doc-copy">
           Config file:{" "}
-          <code className="font-mono text-sm text-primary">.cursor/mcp.json</code>{" "}
+          <InlineCode>.cursor/mcp.json</InlineCode>{" "}
           in your project root, or{" "}
-          <code className="font-mono text-sm text-primary">~/.cursor/mcp.json</code>{" "}
+          <InlineCode>~/.cursor/mcp.json</InlineCode>{" "}
           globally.
         </p>
         <CodeBlock
+          language="json"
           code={`{
   "mcpServers": {
     "gestalt": {
@@ -1195,6 +1173,7 @@ function McpClientTabs({ origin }: { origin: string }) {
           ]}
         />
         <CodeBlock
+          language="json"
           code={`{
   "mcpServers": {
     "gestalt": {
@@ -1221,6 +1200,14 @@ function useDeploymentOrigin() {
   return origin;
 }
 
+function InlineCode({ children }: { children: React.ReactNode }) {
+  return (
+    <code className="rounded-sm border border-alpha bg-surface px-[0.3em] py-[0.1em] font-mono text-[0.875em] text-primary">
+      {children}
+    </code>
+  );
+}
+
 function Subheading({ id, title }: { id?: string; title: string }) {
   return (
     <h2
@@ -1232,7 +1219,13 @@ function Subheading({ id, title }: { id?: string; title: string }) {
   );
 }
 
-function CodeBlock({ code }: { code: string }) {
+function CodeBlock({
+  code,
+  language = "shellscript",
+}: {
+  code: string;
+  language?: string;
+}) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -1245,9 +1238,9 @@ function CodeBlock({ code }: { code: string }) {
 
   return (
     <div className="group relative">
-      <pre className="overflow-x-auto rounded-xl border border-alpha bg-base-100 px-4 py-4 pr-12 font-mono text-sm leading-6 text-primary dark:bg-surface">
-        <code>{code}</code>
-      </pre>
+      <div className="doc-code">
+        <ShikiCode language={language} text={code} />
+      </div>
       <button
         onClick={handleCopy}
         className="absolute right-3 top-3 rounded-md p-1.5 text-muted opacity-0 transition-all duration-150 hover:bg-alpha-5 hover:text-primary group-hover:opacity-100"

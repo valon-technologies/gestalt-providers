@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import { DOCS_PATH, LOGIN_PATH } from "@/lib/constants";
 import { useTheme } from "@/hooks/use-theme";
+import Container from "./Container";
 import { MoonIcon, SunIcon, SunMoonIcon } from "./icons";
 
 const links = [
@@ -84,8 +85,8 @@ export default function Nav() {
   }
 
   return (
-    <nav className="border-b border-alpha px-6 py-3 bg-background/80 backdrop-blur-sm sticky top-0 z-50">
-      <div className="mx-auto max-w-5xl flex items-center justify-between">
+    <nav className="border-b border-alpha py-3 bg-background/80 backdrop-blur-sm sticky top-0 z-50">
+      <Container className="flex items-center justify-between">
         <div className="flex items-center gap-8">
           <Link href="/" className="text-lg font-heading font-bold text-primary">
             Gestalt
@@ -136,7 +137,7 @@ export default function Nav() {
             </>
           )}
         </div>
-      </div>
+      </Container>
     </nav>
   );
 }

@@ -73,6 +73,9 @@ const config: Config = {
         "alpha-10": "rgba(var(--alpha-dark), 0.1)",
         "alpha-5": "rgba(var(--alpha-dark), 0.05)",
       },
+      maxWidth: {
+        content: "var(--content-max-width)",
+      },
       fontFamily: {
         sans: ["var(--font-body)", "system-ui", "sans-serif"],
         heading: ["var(--font-display)", "Georgia", "serif"],

@@ -46,6 +46,7 @@ import {
   type TranscriptState,
 } from "@/lib/agentTranscript";
 import AuthGuard from "@/components/AuthGuard";
+import Container from "@/components/Container";
 import Nav from "@/components/Nav";
 
 type InteractionDrafts = Record<string, string>;
@@ -78,7 +79,8 @@ export default function AgentsPage() {
   const [querySelection, setQuerySelection] = useState<{
     session: string | null;
     turn: string | null;
-  }>({ session: null, turn: null });
+    provider: string | null;
+  }>({ session: null, turn: null, provider: null });
   const [selectedSession, setSelectedSession] = useState<AgentSession | null>(
     null,
   );
@@ -122,6 +124,7 @@ export default function AgentsPage() {
       setQuerySelection({
         session: params.get("session"),
         turn: params.get("turn"),
+        provider: params.get("provider"),
       });
     }
     readQuerySelection();
@@ -190,12 +193,32 @@ export default function AgentsPage() {
     });
   }, [querySelection.session, sessions]);
 
+  // Session ids are provider-minted, so every session/turn-scoped request must
+  // carry the provider the client already knows: the loaded session object,
+  // the sessions list, or the deep-link query param.
+  const selectedSessionProvider = useMemo(() => {
+    if (!selectedSessionID) return null;
+    if (selectedSession?.id === selectedSessionID && selectedSession.provider) {
+      return selectedSession.provider;
+    }
+    const listed = sessions.find((session) => session.id === selectedSessionID);
+    if (listed?.provider) return listed.provider;
+    if (querySelection.session === selectedSessionID && querySelection.provider) {
+      return querySelection.provider;
+    }
+    return null;
+  }, [querySelection, selectedSession, selectedSessionID, sessions]);
+
   const loadSelectedSession = useCallback(
-    async (sessionID: string, requestedTurnID?: string | null) => {
+    async (
+      sessionID: string,
+      provider: string,
+      requestedTurnID?: string | null,
+    ) => {
       setDetailError(null);
       const [session, nextTurns] = await Promise.all([
-        getAgentSession(sessionID),
-        getTurnsIncludingTurn(sessionID, requestedTurnID),
+        getAgentSession(sessionID, provider),
+        getTurnsIncludingTurn(sessionID, provider, requestedTurnID),
       ]);
       setSelectedSession(session);
       setTurns(nextTurns);
@@ -217,9 +240,26 @@ export default function AgentsPage() {
       return;
     }
 
+    if (!selectedSessionProvider) {
+      // Provider is unresolved while the sessions list is loading; if it stays
+      // unknown afterwards the session cannot be fetched at all.
+      if (!loading) {
+        setDetailError(
+          "Could not determine the agent provider for this session.",
+        );
+        setTurns([]);
+        setTranscriptReady(true);
+      }
+      return;
+    }
+
     let active = true;
     setTranscriptReady(false);
-    loadSelectedSession(selectedSessionID, querySelection.turn).catch((err) => {
+    loadSelectedSession(
+      selectedSessionID,
+      selectedSessionProvider,
+      querySelection.turn,
+    ).catch((err) => {
       if (!active) return;
       setDetailError(errorMessage(err, "Failed to load agent session"));
       setTurns([]);
@@ -228,16 +268,25 @@ export default function AgentsPage() {
     return () => {
       active = false;
     };
-  }, [loadSelectedSession, querySelection.turn, selectedSessionID, refreshNonce]);
+  }, [
+    loadSelectedSession,
+    loading,
+    querySelection.turn,
+    selectedSessionID,
+    selectedSessionProvider,
+    refreshNonce,
+  ]);
 
   useEffect(() => {
     let active = true;
 
-    async function replayTurns() {
+    async function replayTurns(provider: string) {
       let state = createTranscriptState();
       const sortedTurns = sortTurnsAscending(turns);
       const eventResults = await Promise.all(
-        sortedTurns.map((turn) => getAllAgentTurnEvents(turn.id, { limit: 100 })),
+        sortedTurns.map((turn) =>
+          getAllAgentTurnEvents(turn.id, provider, { limit: 100 }),
+        ),
       );
       if (!active) return;
       for (let index = 0; index < sortedTurns.length; index += 1) {
@@ -255,7 +304,7 @@ export default function AgentsPage() {
       setTranscriptReady(true);
     }
 
-    if (!selectedSessionID) {
+    if (!selectedSessionID || !selectedSessionProvider) {
       setTranscriptReady(true);
       return () => {
         active = false;
@@ -263,7 +312,7 @@ export default function AgentsPage() {
     }
 
     setTranscriptReady(false);
-    replayTurns().catch((err) => {
+    replayTurns(selectedSessionProvider).catch((err) => {
       if (!active) return;
       setDetailError(errorMessage(err, "Failed to load agent transcript"));
       setTranscript(createTranscriptState());
@@ -272,15 +321,15 @@ export default function AgentsPage() {
     return () => {
       active = false;
     };
-  }, [selectedSessionID, turns]);
+  }, [selectedSessionID, selectedSessionProvider, turns]);
 
   const selectedTurn = useMemo(
     () => turns.find((turn) => turn.id === selectedTurnID) ?? null,
     [selectedTurnID, turns],
   );
 
-  const loadInteractions = useCallback(async (turnID: string) => {
-    const values = await getAgentInteractions(turnID);
+  const loadInteractions = useCallback(async (turnID: string, provider: string) => {
+    const values = await getAgentInteractions(turnID, provider);
     const pending = values.filter((interaction) => interaction.state === "pending");
     setInteractions(pending);
     setInteractionDrafts((current) => {
@@ -302,21 +351,31 @@ export default function AgentsPage() {
   }, []);
 
   useEffect(() => {
-    if (!selectedTurn || selectedTurn.status !== "waiting_for_input") {
+    if (
+      !selectedTurn ||
+      selectedTurn.status !== "waiting_for_input" ||
+      !selectedSessionProvider
+    ) {
       setInteractions([]);
       return;
     }
-    loadInteractions(selectedTurn.id).catch((err) => {
+    loadInteractions(selectedTurn.id, selectedSessionProvider).catch((err) => {
       setActionError(errorMessage(err, "Failed to load interactions"));
     });
-  }, [loadInteractions, selectedTurn]);
+  }, [loadInteractions, selectedSessionProvider, selectedTurn]);
 
   useEffect(() => {
     const previousStream = streamRef.current;
     streamRef.current = null;
     previousStream?.close();
 
-    if (!selectedTurn || !transcriptReady || !isTurnLive(selectedTurn.status)) {
+    const provider = selectedSessionProvider;
+    if (
+      !selectedTurn ||
+      !provider ||
+      !transcriptReady ||
+      !isTurnLive(selectedTurn.status)
+    ) {
       return;
     }
     if (
@@ -328,7 +387,7 @@ export default function AgentsPage() {
 
     const turnID = selectedTurn.id;
     let stream: AgentTurnEventStream;
-    stream = openAgentTurnEventStream(turnID, {
+    stream = openAgentTurnEventStream(turnID, provider, {
       after: lastSeqRef.current[turnID] ?? 0,
       until: "blocked_or_terminal",
       onEvent(event) {
@@ -347,13 +406,13 @@ export default function AgentsPage() {
         if (streamRef.current !== stream) {
           return;
         }
-        getTurnsIncludingTurn(selectedTurn.sessionId, turnID)
+        getTurnsIncludingTurn(selectedTurn.sessionId, provider, turnID)
           .then((nextTurns) => {
             setTurns(nextTurns);
             const latest = nextTurns.find((turn) => turn.id === turnID);
             if (latest?.status === "waiting_for_input") {
               blockedTurnRef.current = turnID;
-              return loadInteractions(turnID);
+              return loadInteractions(turnID, provider);
             }
             setInteractions([]);
             return undefined;
@@ -371,17 +430,24 @@ export default function AgentsPage() {
       }
       stream.close();
     };
-  }, [loadInteractions, selectedTurn, streamNonce, transcriptReady]);
+  }, [
+    loadInteractions,
+    selectedSessionProvider,
+    selectedTurn,
+    streamNonce,
+    transcriptReady,
+  ]);
 
   useEffect(() => {
     const next = agentSessionHref({
       sessionID: selectedSessionID,
       turnID: selectedTurnID,
+      provider: selectedSessionProvider,
     });
     if (window.location.pathname + window.location.search !== next) {
       window.history.replaceState(null, "", next);
     }
-  }, [selectedSessionID, selectedTurnID]);
+  }, [selectedSessionID, selectedSessionProvider, selectedTurnID]);
 
   const filteredSessions = useMemo(
     () => filterSessions(sessions, deferredQuery, statusFilter),
@@ -439,7 +505,7 @@ export default function AgentsPage() {
         setSelectedSessionID(session.id);
       }
 
-      const created = await createAgentTurn(session.id, turnBody);
+      const created = await createAgentTurn(session.id, session.provider, turnBody);
       setTurns((current) => [created, ...current]);
       setSelectedTurnID(created.id);
       setComposer((current) => ({ ...defaultComposer(), provider: current.provider }));
@@ -453,11 +519,15 @@ export default function AgentsPage() {
   }
 
   async function handleCancelTurn(turn: AgentTurn) {
-    if (!isTurnLive(turn.status)) return;
+    if (!isTurnLive(turn.status) || !selectedSessionProvider) return;
     setCancelingTurnID(turn.id);
     setActionError(null);
     try {
-      const updated = await cancelAgentTurn(turn.id, "Turn canceled.");
+      const updated = await cancelAgentTurn(
+        turn.id,
+        selectedSessionProvider,
+        "Turn canceled.",
+      );
       blockedTurnRef.current = null;
       setTurns((current) =>
         current.map((item) => (item.id === updated.id ? updated : item)),
@@ -475,17 +545,23 @@ export default function AgentsPage() {
     interaction: AgentInteraction,
     resolution: Record<string, unknown>,
   ) {
-    if (!selectedTurn) return;
+    if (!selectedTurn || !selectedSessionProvider) return;
     setResolvingInteractionID(interaction.id);
     setActionError(null);
     try {
-      await resolveAgentInteraction(selectedTurn.id, interaction.id, resolution);
+      await resolveAgentInteraction(
+        selectedTurn.id,
+        selectedSessionProvider,
+        interaction.id,
+        resolution,
+      );
       blockedTurnRef.current = null;
       setInteractions((current) =>
         current.filter((item) => item.id !== interaction.id),
       );
       const nextTurns = await getTurnsIncludingTurn(
         selectedTurn.sessionId,
+        selectedSessionProvider,
         selectedTurn.id,
       );
       setTurns(nextTurns);
@@ -511,7 +587,11 @@ export default function AgentsPage() {
     <AuthGuard>
       <div className="min-h-screen bg-background">
         <Nav />
-        <main className="flex h-[calc(100vh-5rem)] flex-col overflow-hidden">
+        <Container
+          as="main"
+          width="full"
+          className="flex h-[calc(100vh-5rem)] flex-col overflow-hidden"
+        >
           <h1 className="sr-only">Agent Sessions</h1>
           <div className="flex items-center justify-between border-b border-alpha px-5 py-2.5">
             <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.22em] text-muted">
@@ -672,7 +752,7 @@ export default function AgentsPage() {
               <span>esc cancel</span>
             </div>
           </div>
-        </main>
+        </Container>
       </div>
     </AuthGuard>
   );
@@ -1793,15 +1873,16 @@ function sortTurnsAscending(turns: AgentTurn[]): AgentTurn[] {
 
 async function getTurnsIncludingTurn(
   sessionID: string,
+  provider: string,
   pinnedTurnID?: string | null,
 ): Promise<AgentTurn[]> {
-  const turns = await getAgentTurns(sessionID, { limit: 20 });
+  const turns = await getAgentTurns(sessionID, provider, { limit: 20 });
   if (!pinnedTurnID || turns.some((turn) => turn.id === pinnedTurnID)) {
     return turns;
   }
 
   try {
-    const pinnedTurn = await getAgentTurn(pinnedTurnID);
+    const pinnedTurn = await getAgentTurn(pinnedTurnID, provider);
     if (pinnedTurn.sessionId === sessionID) {
       return [pinnedTurn, ...turns];
     }
