@@ -1234,8 +1234,8 @@ class SlackProviderTests(unittest.TestCase):
         self.assertIn("users:read.email", connections["default"]["auth"]["scopes"])
         self.assertIn("files:write", connections["default"]["auth"]["scopes"])
         docs = (PLUGIN_DIR / "docs" / "index.mdx").read_text()
-        self.assertIn("operation: files.upload", docs)
-        self.assertIn("operation: events.uploadFile", docs)
+        self.assertIn('app.invoke("slack", "files.upload"', docs)
+        self.assertIn('app.invoke("slack", "events.uploadFile"', docs)
         self.assertIn("content_base64", docs)
         self.assertIn("reconnect or reauthorize", docs)
         self.assertEqual(

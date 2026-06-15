@@ -74,51 +74,15 @@ and multi-person direct messages. That matches the provider's current
 conversation history, thread, search, and message URL lookup behavior.
 
 The provider also exposes a Slack Events API ingress. For the common case where
-one Slack app has one default bot behavior, configure the agent once:
+one Slack app has one default bot behavior, configure the Slack app once.
+Workflow steps call hidden event helper operations with `credentialMode: "none"`
+per invoke:
 
 ```yaml
 apps:
   slack:
     source: https://github.com/valon-technologies/gestalt-providers/releases/download/app/slack/v0.0.1-alpha.N/provider-release.yaml
     authorizationPolicy: platform
-    invokes:
-      - app: slack
-        operation: events.reply
-        credentialMode: none
-      - app: slack
-        operation: events.replySessionStarted
-        credentialMode: none
-      - app: slack
-        operation: events.setStatus
-        credentialMode: none
-      - app: slack
-        operation: events.deleteStatus
-        credentialMode: none
-      - app: slack
-        operation: events.addReaction
-        credentialMode: none
-      - app: slack
-        operation: events.removeReaction
-        credentialMode: none
-      - app: slack
-        operation: events.setAssistantStatus
-        credentialMode: none
-      - app: slack
-        operation: events.clearAssistantStatus
-        credentialMode: none
-      - app: slack
-        operation: events.setThreadTitle
-        credentialMode: none
-      - app: slack
-        operation: events.setSuggestedPrompts
-        credentialMode: none
-      - app: slack
-        operation: interactions.request
-        credentialMode: none
-      - app: slack
-        operation: conversations.getThreadContext
-      - app: slack
-        operation: files.get
     config:
       bot:
         token:
@@ -372,49 +336,6 @@ apps:
   slack:
     source: https://github.com/valon-technologies/gestalt-providers/releases/download/app/slack/v0.0.1-alpha.N/provider-release.yaml
     authorizationPolicy: platform
-    invokes:
-      - app: slack
-        operation: events.reply
-        credentialMode: none
-      - app: slack
-        operation: events.replySessionStarted
-        credentialMode: none
-      - app: slack
-        operation: events.setStatus
-        credentialMode: none
-      - app: slack
-        operation: events.deleteStatus
-        credentialMode: none
-      - app: slack
-        operation: events.addReaction
-        credentialMode: none
-      - app: slack
-        operation: events.removeReaction
-        credentialMode: none
-      - app: slack
-        operation: events.setAssistantStatus
-        credentialMode: none
-      - app: slack
-        operation: events.clearAssistantStatus
-        credentialMode: none
-      - app: slack
-        operation: events.setThreadTitle
-        credentialMode: none
-      - app: slack
-        operation: events.setSuggestedPrompts
-        credentialMode: none
-      - app: slack
-        operation: conversations.getThreadContext
-      - app: slack
-        operation: files.get
-      - app: slack
-        operation: files.upload
-      - app: slack
-        operation: events.uploadFile
-        credentialMode: none
-      - app: slack
-        operation: interactions.request
-        credentialMode: none
     config:
       bot:
         userId: U0123456789
@@ -593,20 +514,7 @@ Representative operations include:
 
 ## Usage Examples
 
-Grant another app or workflow permission to invoke this app before calling it:
-
-```yaml
-apps:
-  example_consumer:
-    invokes:
-      - app: slack
-        operation: conversations.getThreadContext
-      - app: slack
-        operation: files.upload
-      - app: slack
-        operation: events.uploadFile
-        credentialMode: none
-```
+Hosted apps call this provider with `app.invoke`. Pass `runAs` or `credentialMode` in the invoke options when an operation needs a service-account identity or managed credentials instead of the caller's OAuth token.
 
 Example `conversations.getThreadContext` call:
 
