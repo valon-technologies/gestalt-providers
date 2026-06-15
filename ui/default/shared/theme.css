@@ -24,7 +24,9 @@
   --success: #3d6b3d;
   /* Layout and typography knobs, overridable per tenant theme. */
   --content-max-width: 80rem;
-  --heading-weight: 500;
+  /* Newsreader (the bundled display face) ships a 400 cut only; tenant
+   * themes that bring a real medium cut override this (Valon: 500). */
+  --heading-weight: 400;
 }
 
 :where(.dark) {

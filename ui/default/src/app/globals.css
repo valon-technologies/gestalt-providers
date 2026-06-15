@@ -22,6 +22,19 @@
 
   body {
     @apply bg-background text-foreground;
+    /* Same body weight as gestalt/docs: Instrument Sans is a variable cut,
+     * so 435 renders true; static tenant faces (e.g. KMR 400/700) resolve
+     * to 400 per CSS font matching. */
+    font-weight: 435;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-weight: var(--heading-weight);
   }
 
   h1,
