@@ -198,7 +198,7 @@ export default function ManagedIdentitiesPageClient() {
                       setIdentityIDEdited(true);
                       setIdentityLocalID(event.target.value);
                     }}
-                    className="min-w-0 flex-1 bg-transparent px-4 py-3 text-primary placeholder:text-faint focus:outline-none"
+                    className="min-w-0 flex-1 bg-transparent px-4 py-3 text-primary placeholder:text-faint focus:outline-hidden"
                   />
                 </div>
                 <p className="mt-2 text-xs text-faint">

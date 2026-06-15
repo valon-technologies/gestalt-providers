@@ -19,7 +19,6 @@ build:
     - shared
     - source-assets
     - src
-    - tailwind.config.ts
     - tsconfig.json
 spec:
   assetRoot: out
