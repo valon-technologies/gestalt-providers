@@ -29,6 +29,7 @@ providers:
         pkce: true
         displayName: Example SSO
         allowInsecureHttp: false
+        indexeddb: default
 ```
 
 See [Getting Started](https://gestaltd.ai/getting-started) and
@@ -66,8 +67,12 @@ type config struct {
     AllowInsecureHTTP   bool          `yaml:"allowInsecureHttp"`
     PKCEVerifierTTL     time.Duration `yaml:"pkceVerifierTtl"`
     PKCEVerifierMaxItems int          `yaml:"pkceVerifierMaxItems"`
+    IndexedDB           string        `yaml:"indexeddb"`
 }
 ```
+
+`indexeddb` is required. It names the host IndexedDB provider binding used for
+`authentication_grants` and `authentication_token_hashes` object stores.
 
 `pkceVerifierTtl` and `pkceVerifierMaxItems` are optional. When set, they must
 both be greater than zero.
@@ -99,6 +104,7 @@ providers:
         pkce: true
         displayName: Example SSO
         allowInsecureHttp: false
+        indexeddb: default
 ```
 
 Tune the PKCE cache for a slower MFA flow or higher login concurrency:

@@ -3,6 +3,7 @@ module github.com/valon-technologies/gestalt-providers/auth
 go 1.26
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/valon-technologies/gestalt/sdk/go v0.0.0-00010101000000-000000000000
 	golang.org/x/oauth2 v0.36.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -13,7 +14,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.28.0 // indirect
 	github.com/valon-technologies/gestalt/server/rpc v0.0.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
