@@ -40,14 +40,6 @@ The OpenAPI surface authenticates with Vercel OAuth 2.0. The executable
 
 Example Blob write:
 
-```yaml
-apps:
-  roadmapPublisher:
-    invokes:
-      - plugin: vercel
-        operation: blob.put
-```
-
 ```ts
 await app.invoke("vercel", "blob.put", {
   pathname: "roadmaps/newrez.json",
@@ -99,15 +91,7 @@ Representative operations include:
 
 ## Usage Examples
 
-Grant another provider or workflow permission to invoke this plugin before calling it:
-
-```yaml
-apps:
-  example_consumer:
-    invokes:
-      - plugin: vercel
-        operation: blob.put
-```
+Hosted apps call this provider with `app.invoke`. Pass `runAs` or `credentialMode` in the invoke options when an operation needs a service-account identity or managed credentials instead of the caller's OAuth token.
 
 Example `blob.put` call:
 
