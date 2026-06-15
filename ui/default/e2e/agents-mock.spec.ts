@@ -59,7 +59,13 @@ test.describe("Agents", () => {
       },
     });
 
-    const sharedHref = agentSessionHref("agent_session_shared", "agent_turn_shared");
+    // Session ids are provider-minted, so a deep link to a session outside the
+    // list must carry the provider for the console to resolve it.
+    const sharedHref = agentSessionHref({
+      sessionID: "agent_session_shared",
+      turnID: "agent_turn_shared",
+      provider: "simple",
+    });
     await page.goto(sharedHref);
 
     await expect(page.getByRole("heading", { name: "shared-session" })).toBeVisible();
