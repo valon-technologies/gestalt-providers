@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,6 +58,14 @@ func Run(t *testing.T, harness Harness) {
 
 	t.Run("TypedIndexRangeFidelity", func(t *testing.T) {
 		runTypedIndexRangeFidelity(t, harness)
+	})
+
+	t.Run("CompoundIndexPrefixRange", func(t *testing.T) {
+		runCompoundIndexPrefixRange(t, harness)
+	})
+
+	t.Run("CompoundIndexIncompletePrefixRangeRejected", func(t *testing.T) {
+		runCompoundIndexIncompletePrefixRangeRejected(t, harness)
 	})
 
 	t.Run("KeyOnlyCursorSkipsUnreadableValues", func(t *testing.T) {
@@ -256,6 +265,179 @@ func runTypedIndexRangeFidelity(t *testing.T, harness Harness) {
 		cursorScalarKey(t, entries[1]),
 	}
 	assertValueSliceEqual(t, gotKeys, []any{int64(9007199254740993), int64(9007199254741001)})
+}
+
+func runCompoundIndexPrefixRange(t *testing.T, harness Harness) {
+	t.Helper()
+
+	t.Run("ClosedRange", func(t *testing.T) {
+		sess := newSession(t, harness)
+		t.Cleanup(sess.Close)
+
+		store := "compound_vendor_date_closed"
+		mustSeedCompoundVendorDateItems(t, sess.client, store)
+
+		rangeReq := &gestalt.KeyRange{
+			Lower: "2026-04-01",
+			Upper: "2026-04-30",
+		}
+		values := []any{"claude_code"}
+		want := []string{"claude-apr-09", "claude-apr-30"}
+
+		assertCompoundVendorDateIndexQuery(t, sess.client, store, "by_vendor_date", rangeReq, values, want, [][]any{
+			{"claude_code", "2026-04-09"},
+			{"claude_code", "2026-04-30"},
+		})
+	})
+
+	t.Run("LowerOnly", func(t *testing.T) {
+		sess := newSession(t, harness)
+		t.Cleanup(sess.Close)
+
+		store := "compound_vendor_date_lower"
+		mustSeedCompoundVendorDateItems(t, sess.client, store)
+
+		rangeReq := &gestalt.KeyRange{Lower: "2026-04-15"}
+		values := []any{"claude_code"}
+		want := []string{"claude-apr-30", "claude-may-01"}
+
+		assertCompoundVendorDateIndexQuery(t, sess.client, store, "by_vendor_date", rangeReq, values, want, nil)
+	})
+
+	t.Run("UpperOnly", func(t *testing.T) {
+		sess := newSession(t, harness)
+		t.Cleanup(sess.Close)
+
+		store := "compound_vendor_date_upper"
+		mustSeedCompoundVendorDateItems(t, sess.client, store)
+
+		rangeReq := &gestalt.KeyRange{Upper: "2026-04-15"}
+		values := []any{"claude_code"}
+		want := []string{"claude-apr-09"}
+
+		assertCompoundVendorDateIndexQuery(t, sess.client, store, "by_vendor_date", rangeReq, values, want, nil)
+	})
+
+	t.Run("DeleteRange", func(t *testing.T) {
+		sess := newSession(t, harness)
+		t.Cleanup(sess.Close)
+
+		store := "compound_vendor_date_delete"
+		mustSeedCompoundVendorDateItems(t, sess.client, store)
+
+		rangeReq := &gestalt.KeyRange{
+			Lower: "2026-04-01",
+			Upper: "2026-04-30",
+		}
+		values := []any{"claude_code"}
+
+		deleted := mustIndexDeleteWithRange(t, sess.client, store, "by_vendor_date", rangeReq, values...)
+		if deleted != 2 {
+			t.Fatalf("IndexDelete range deleted = %d, want 2", deleted)
+		}
+		remaining := sortedStrings(recordPrimaryKeys(t, mustGetAll(t, sess.client, store, nil)))
+		if !stringSlicesEqual(remaining, []string{"beta-apr-01", "claude-may-01", "codex-apr-09", "cursor-apr-10"}) {
+			t.Fatalf("remaining ids after IndexDelete(range) = %#v, want %#v", remaining, []string{"beta-apr-01", "claude-may-01", "codex-apr-09", "cursor-apr-10"})
+		}
+	})
+}
+
+func assertCompoundVendorDateIndexQuery(
+	t *testing.T,
+	client indexeddb.Database,
+	store, index string,
+	rangeReq *gestalt.KeyRange,
+	values []any,
+	want []string,
+	wantCursorKeys [][]any,
+) {
+	t.Helper()
+
+	records := mustIndexGetAllWithRange(t, client, store, index, rangeReq, values...)
+	if got := recordPrimaryKeys(t, records); !stringSlicesEqual(got, want) {
+		t.Fatalf("IndexGetAll %s ids = %#v, want %#v", index, got, want)
+	}
+	keys := mustIndexGetAllKeysWithRange(t, client, store, index, rangeReq, values...)
+	if !stringSlicesEqual(keys, want) {
+		t.Fatalf("IndexGetAllKeys %s ids = %#v, want %#v", index, keys, want)
+	}
+	count := mustIndexCountWithRange(t, client, store, index, rangeReq, values...)
+	if count != int64(len(want)) {
+		t.Fatalf("IndexCount %s = %d, want %d", index, count, len(want))
+	}
+	if wantCursorKeys == nil {
+		return
+	}
+	entries := collectCursorEntries(t, client, &cursorRequest{
+		Store:     store,
+		Index:     index,
+		Direction: gestalt.CursorNext,
+		Range:     rangeReq,
+		Values:    values,
+	})
+	if got := cursorPrimaryKeys(entries); !stringSlicesEqual(got, want) {
+		t.Fatalf("index cursor ids = %#v, want %#v", got, want)
+	}
+	for i, entry := range entries {
+		assertValueSliceEqual(t, cursorKeyValues(t, entry), wantCursorKeys[i])
+	}
+}
+
+func runCompoundIndexIncompletePrefixRangeRejected(t *testing.T, harness Harness) {
+	t.Helper()
+
+	sess := newSession(t, harness)
+	t.Cleanup(sess.Close)
+
+	store := "compound_vendor_date_model"
+	mustCreateObjectStore(t, sess.client, store, gestalt.ObjectStoreOptions{
+		Indexes: []gestalt.IndexSchema{
+			{Name: "by_vendor_date_model", KeyPath: []string{"vendor", "date", "model"}},
+		},
+	})
+	mustAddRecord(t, sess.client, store, gestalt.Record{
+		"id": "claude-apr-09-gpt", "vendor": "claude_code", "date": "2026-04-09", "model": "gpt-4",
+	})
+
+	rangeReq := &gestalt.KeyRange{Lower: "2026-04-01", Upper: "2026-04-30"}
+	values := []any{"claude_code"}
+	index := sess.client.ObjectStore(store).Index("by_vendor_date_model")
+
+	assertIncompletePrefixRangeRejected(t, "GetAll", func() error {
+		_, err := index.GetAll(context.Background(), rangeReq, values...)
+		return err
+	})
+	assertIncompletePrefixRangeRejected(t, "GetAllKeys", func() error {
+		_, err := index.GetAllKeys(context.Background(), rangeReq, values...)
+		return err
+	})
+	assertIncompletePrefixRangeRejected(t, "Count", func() error {
+		_, err := index.Count(context.Background(), rangeReq, values...)
+		return err
+	})
+	assertIncompletePrefixRangeRejected(t, "DeleteRange", func() error {
+		_, err := index.DeleteRange(context.Background(), rangeReq, values...)
+		return err
+	})
+	assertIncompletePrefixRangeRejected(t, "OpenCursor", func() error {
+		_, err := index.OpenCursor(context.Background(), rangeReq, gestalt.CursorNext, values...)
+		return err
+	})
+	assertIncompletePrefixRangeRejected(t, "OpenKeyCursor", func() error {
+		_, err := index.OpenKeyCursor(context.Background(), rangeReq, gestalt.CursorNext, values...)
+		return err
+	})
+}
+
+func assertIncompletePrefixRangeRejected(t *testing.T, surface string, call func() error) {
+	t.Helper()
+	err := call()
+	if err == nil {
+		t.Fatalf("%s with incomplete prefix + scalar range: want error, got nil", surface)
+	}
+	if got := err.Error(); !strings.Contains(got, "unpinned") {
+		t.Fatalf("%s error = %q, want message about unpinned index key components", surface, got)
+	}
 }
 
 func runKeyOnlyCursorSkipsUnreadableValues(t *testing.T, harness Harness) {
@@ -916,6 +1098,26 @@ func typedPrimaryKeySchema(columnType gestalt.ColumnType) gestalt.ObjectStoreOpt
 			{Name: "id", Type: columnType, PrimaryKey: true, NotNull: true},
 			{Name: "name", Type: typeString},
 		},
+	}
+}
+
+func mustSeedCompoundVendorDateItems(t *testing.T, client indexeddb.Database, store string) {
+	t.Helper()
+
+	mustCreateObjectStore(t, client, store, gestalt.ObjectStoreOptions{
+		Indexes: []gestalt.IndexSchema{
+			{Name: "by_vendor_date", KeyPath: []string{"vendor", "date"}},
+		},
+	})
+	for _, record := range []gestalt.Record{
+		{"id": "beta-apr-01", "vendor": "beta", "date": "2026-04-01"},
+		{"id": "claude-apr-09", "vendor": "claude_code", "date": "2026-04-09"},
+		{"id": "claude-apr-30", "vendor": "claude_code", "date": "2026-04-30"},
+		{"id": "claude-may-01", "vendor": "claude_code", "date": "2026-05-01"},
+		{"id": "codex-apr-09", "vendor": "codex", "date": "2026-04-09"},
+		{"id": "cursor-apr-10", "vendor": "cursor", "date": "2026-04-10"},
+	} {
+		mustAddRecord(t, client, store, record)
 	}
 }
 

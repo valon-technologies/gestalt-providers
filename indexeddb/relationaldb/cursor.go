@@ -18,6 +18,7 @@ type relationalCursor struct {
 	meta             *storeMeta
 	index            *gestalt.IndexSchema
 	req              gestalt.IndexedDBOpenCursorRequest
+	indexQueryPin    []any
 	page             []cursorutil.Entry
 	sourceKey        any
 	sourcePrimaryKey any
@@ -53,6 +54,12 @@ func (s *Store) openCursor(ctx context.Context, req gestalt.IndexedDBOpenCursorR
 		if cursor.index == nil {
 			return nil, status.Errorf(codes.NotFound, "index not found: %s", req.Index)
 		}
+		pin, effectiveRange, err := normalizeIndexQuery(cursor.index, req.Values, req.Range)
+		if err != nil {
+			return nil, err
+		}
+		cursor.indexQueryPin = pin
+		cursor.LazyCursor.Range = effectiveRange
 	}
 	return cursor, nil
 }
@@ -246,10 +253,6 @@ func (c *relationalCursor) indexCandidate(row genericIndexRow) (relationalCursor
 		PrimaryKey:      fmt.Sprint(primaryKeyValue),
 		PrimaryKeyValue: primaryKeyValue,
 	}
-	filtered, err := filterEntriesByPrefix([]cursorutil.Entry{entry}, c.req.Values)
-	if err != nil || len(filtered) == 0 {
-		return relationalCursorCandidate{}, false, err
-	}
 	if ok, err := c.entryEligible(entry); err != nil || !ok {
 		return relationalCursorCandidate{}, false, err
 	}
@@ -263,6 +266,12 @@ func (c *relationalCursor) indexCandidate(row genericIndexRow) (relationalCursor
 func (c *relationalCursor) entryEligible(entry cursorutil.Entry) (bool, error) {
 	if c.sourceStarted && !c.entryAfterSource(entry) {
 		return false, nil
+	}
+	if c.IndexCursor {
+		if len(c.indexQueryPin) == 0 {
+			return true, nil
+		}
+		return entryMatchesPin(entry, c.indexQueryPin), nil
 	}
 	filtered, err := c.ApplyRange([]cursorutil.Entry{entry}, c.req.Range)
 	if err != nil {

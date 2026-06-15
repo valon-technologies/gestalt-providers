@@ -741,9 +741,12 @@ func (s *Store) genericObjectStoreEntries(ctx context.Context, store string, m *
 }
 
 func (s *Store) genericIndexEntries(ctx context.Context, store string, m *storeMeta, idx *gestalt.IndexSchema, values []any, keyRange *gestalt.KeyRange, keysOnly bool) ([]cursorutil.Entry, error) {
+	pin, effectiveRange, err := normalizeIndexQuery(idx, values, keyRange)
+	if err != nil {
+		return nil, err
+	}
 	var nonUniqueRows []genericIndexRow
 	var uniqueRows []genericIndexRow
-	var err error
 	if len(values) == len(idx.KeyPath) && len(values) > 0 {
 		var lookupValue any = values
 		if len(values) == 1 {
@@ -834,11 +837,7 @@ func (s *Store) genericIndexEntries(ctx context.Context, store string, m *storeM
 		entries = append(entries, entry)
 	}
 
-	entries, err = filterEntriesByPrefix(entries, values)
-	if err != nil {
-		return nil, err
-	}
-	entries, err = applyKeyRangeToEntries(entries, keyRange, true)
+	entries, err = filterEntriesByIndexQuery(entries, pin, effectiveRange)
 	if err != nil {
 		return nil, err
 	}
