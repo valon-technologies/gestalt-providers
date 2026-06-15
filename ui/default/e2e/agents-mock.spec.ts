@@ -59,8 +59,8 @@ test.describe("Agents", () => {
       },
     });
 
-    // Session ids are provider-minted, so a deep link to a session outside the
-    // list must carry the provider for the console to resolve it.
+    // Session ids are provider-minted, so shared links must carry the
+    // provider for the console to load a session outside the user's list.
     const sharedHref = agentSessionHref({
       sessionID: "agent_session_shared",
       turnID: "agent_turn_shared",
@@ -204,15 +204,14 @@ test.describe("Agents", () => {
     ).toBeVisible();
     await expect(page.getByText("Summarize open incidents.").first()).toBeVisible();
     await expect(page.getByText("Two incidents").first()).toBeVisible();
+    // Inline tool calls render as collapsible ai-elements Tool cards: a
+    // header button (name + status badge) that expands to Input/Output.
     await expect(inlineStartedTool.getByText("linear-list").first()).toBeVisible();
-    await expect(inlineStartedTool.getByText("#2 started").first()).toBeVisible();
-    await inlineStartedTool.locator("summary").filter({ hasText: "Input" }).click();
+    await expect(inlineStartedTool.getByText("Running").first()).toBeVisible();
+    await inlineStartedTool.getByRole("button", { name: /linear-list/ }).click();
     await expect(inlineStartedTool.getByText('"query": "Ada"').first()).toBeVisible();
     await expect(inlineCompletedTool.getByText("GitHub").first()).toBeVisible();
-    await inlineCompletedTool
-      .locator("summary")
-      .filter({ hasText: "Output" })
-      .click();
+    await inlineCompletedTool.getByRole("button", { name: /GitHub/ }).click();
     await expect(inlineCompletedTool.getByText('"count": 2').first()).toBeVisible();
     await expect(startedTool.getByText("linear-list").first()).toBeVisible();
     await expect(startedTool.getByText("started").first()).toBeVisible();
@@ -485,7 +484,11 @@ test.describe("Agents", () => {
     );
 
     await page.goto(agentSessionHref("agent_session_waiting", "agent_turn_waiting"));
-    await expect(page.getByText("Waiting For Input")).toBeVisible();
+    // The interaction renders twice — a transcript marker row and the
+    // actionable confirmation panel; assert on the panel.
+    const interactionPanel = page.getByLabel("Waiting for input");
+    await expect(interactionPanel.getByText("Approve deployment")).toBeVisible();
+    await expect(interactionPanel.getByText("Deploy to production?")).toBeVisible();
     await page.getByRole("button", { name: "Approve" }).click();
 
     await expect(page.getByText("Interaction resolved.")).toBeVisible();

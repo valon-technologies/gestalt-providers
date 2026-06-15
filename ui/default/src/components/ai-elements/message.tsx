@@ -1,0 +1,45 @@
+"use client";
+
+// Adapted from Vercel AI Elements `message.tsx` —
+// https://github.com/vercel/ai-elements, Apache-2.0; see ./LICENSE.
+// Divergences: local role type instead of `ai`'s UIMessage, gestalt tokens
+// (surface-raised user bubble), no branch selector / action toolbar.
+import { cn } from "@/lib/utils";
+import type { HTMLAttributes } from "react";
+
+export type MessageRole = "user" | "assistant" | "system";
+
+export type MessageProps = HTMLAttributes<HTMLDivElement> & {
+  from: MessageRole;
+};
+
+export const Message = ({ className, from, ...props }: MessageProps) => (
+  <div
+    className={cn(
+      "group flex w-full max-w-[95%] flex-col gap-2",
+      from === "user" ? "is-user ml-auto justify-end" : "is-assistant",
+      className,
+    )}
+    {...props}
+  />
+);
+
+export type MessageContentProps = HTMLAttributes<HTMLDivElement>;
+
+export const MessageContent = ({
+  children,
+  className,
+  ...props
+}: MessageContentProps) => (
+  <div
+    className={cn(
+      "flex w-fit min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm",
+      "group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-surface-raised group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground",
+      "group-[.is-assistant]:text-foreground",
+      className,
+    )}
+    {...props}
+  >
+    {children}
+  </div>
+);

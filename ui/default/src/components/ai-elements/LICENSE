@@ -1,0 +1,11 @@
+The components in this directory are adapted from Vercel AI Elements
+(https://github.com/vercel/ai-elements), Copyright Vercel, Inc., licensed
+under the Apache License, Version 2.0:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+They were vendored and modified for this project (gestalt token styling,
+local primitives instead of shadcn/ui + Radix, local message/tool types
+instead of the Vercel AI SDK's, ShikiCode rendering instead of
+@streamdown/code). Each file's header notes its upstream source and
+divergences. Modifications are licensed under the repository's license.
