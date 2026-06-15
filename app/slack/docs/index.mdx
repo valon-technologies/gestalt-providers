@@ -145,23 +145,7 @@ Representative public operations include:
 
 ## Usage Examples
 
-Grant another provider or workflow permission to invoke Slack operations before
-calling them:
-
-```yaml
-apps:
-  example_consumer:
-    invokes:
-      - plugin: slack
-        operation: conversations.getThreadContext
-      - plugin: slack
-        operation: files.get
-      - plugin: slack
-        operation: files.upload
-      - plugin: slack
-        operation: events.uploadFile
-        credentialMode: none
-```
+Hosted apps call this provider with `app.invoke`. Pass `runAs` or `credentialMode` in the invoke options when an operation needs a service-account identity or managed credentials instead of the caller's OAuth token.
 
 Fetch a thread by permalink:
 
