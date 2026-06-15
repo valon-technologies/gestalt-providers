@@ -4,6 +4,10 @@
  * also crawl public/ (e.g. admin/echarts.min.js) for class candidates. */
 @import "tailwindcss" source("..");
 
+/* Streamdown (the agents chat's streaming-markdown renderer) carries its own
+ * utility classes; they live in node_modules, outside the source root. */
+@source "../../node_modules/streamdown/dist/*.js";
+
 /* v3 `darkMode: ["class"]` — dark: variants match descendants of `.dark`. */
 @custom-variant dark (&:is(.dark *));
 
@@ -75,6 +79,19 @@
       transform: translateY(0);
     }
   }
+
+  /* Moving highlight for the chat "Thinking…" label (ai-elements Shimmer);
+   * paints a gradient through background-clip:text. */
+  --animate-shimmer: shimmer 2s linear infinite;
+
+  @keyframes shimmer {
+    0% {
+      background-position: 150% center;
+    }
+    100% {
+      background-position: -50% center;
+    }
+  }
 }
 
 /* Tokens backed by the tenant-theme contract (shared/theme.css). `inline` is
@@ -94,6 +111,15 @@
   --color-brand-soft: var(--brand-soft);
   --color-danger: var(--danger);
   --color-success: var(--success);
+
+  /* Private derivation for Streamdown's internal markup
+   * (text-muted-foreground). A pure var() chain so tenant overrides
+   * propagate; NOT part of the tenant contract (theme-tokens.json).
+   * --color-primary and --color-muted are deliberately absent: a --color-*
+   * entry generates utilities across every color property, so either would
+   * spawn a text-primary/text-muted that contests the @utility emphasis
+   * scale below (bg-muted is covered by a name-scoped @utility instead). */
+  --color-muted-foreground: color-mix(in oklab, var(--alpha-dark) 60%, transparent);
 
   --container-content: var(--content-max-width);
 
@@ -140,6 +166,13 @@
 }
 @utility bg-alpha-5 {
   background-color: color-mix(in oklab, var(--alpha-dark) 5%, transparent);
+}
+/* Streamdown's auxiliary chrome (copy buttons, export menus, link-warning
+ * boxes) uses shadcn's bg-muted. Name-scoped on purpose — see the
+ * --color-muted note in the theme block. Its rare opacity-modified forms
+ * (bg-muted/80) stay unstyled by design. */
+@utility bg-muted {
+  background-color: var(--surface-raised);
 }
 /* v3 derived divide colors from borderColor; v4 does not. Targets the same
  * children as v4's divide-x/y width utilities. */

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  type ReactNode,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -48,6 +49,43 @@ import {
 import AuthGuard from "@/components/AuthGuard";
 import Container from "@/components/Container";
 import Nav from "@/components/Nav";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationEmptyState,
+  ConversationInitialScroll,
+  ConversationScrollButton,
+} from "@/components/ai-elements/conversation";
+import { Message, MessageContent } from "@/components/ai-elements/message";
+import { Response } from "@/components/ai-elements/response";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningTrigger,
+} from "@/components/ai-elements/reasoning";
+import {
+  Tool,
+  ToolContent,
+  ToolHeader,
+  ToolInput,
+  ToolOutput,
+  type ToolState,
+} from "@/components/ai-elements/tool";
+import {
+  Confirmation,
+  ConfirmationAction,
+  ConfirmationActions,
+  ConfirmationTitle,
+} from "@/components/ai-elements/confirmation";
+import {
+  PromptInput,
+  PromptInputSubmit,
+  PromptInputTextarea,
+  PromptInputToolbar,
+  PromptInputTools,
+} from "@/components/ai-elements/prompt-input";
+import { Button, Shimmer } from "@/components/ai-elements/primitives";
+import { MessageSquareIcon } from "lucide-react";
 
 type InteractionDrafts = Record<string, string>;
 
@@ -677,20 +715,18 @@ export default function AgentsPage() {
                   </div>
                 ) : null}
 
-                <div className="min-h-0 flex-1 overflow-y-auto border-t border-alpha px-5 py-5">
-                  <TranscriptView
-                    loading={!transcriptReady}
-                    items={transcript.items}
-                    turnLive={Boolean(
-                      selectedTurn && isTurnLive(selectedTurn.status),
-                    )}
-                    emptyMessage={
-                      selectedSession
-                        ? "No transcript events captured yet."
-                        : "Create a session or select one from the list."
-                    }
-                  />
-
+                <TranscriptView
+                  loading={!transcriptReady}
+                  items={transcript.items}
+                  turnLive={Boolean(
+                    selectedTurn && isTurnLive(selectedTurn.status),
+                  )}
+                  emptyMessage={
+                    selectedSession
+                      ? "No transcript events captured yet."
+                      : "Create a session or select one from the list."
+                  }
+                >
                   <InteractionPanel
                     interactions={interactions}
                     drafts={interactionDrafts}
@@ -698,19 +734,21 @@ export default function AgentsPage() {
                     setDrafts={setInteractionDrafts}
                     onResolve={handleResolveInteraction}
                   />
-                </div>
+                </TranscriptView>
 
-                <div className="max-h-[45vh] overflow-y-auto border-t border-alpha bg-background/40 px-5 py-4 dark:bg-background/30">
-                  <AgentComposer
-                    composer={composer}
-                    selectedSession={selectedSession}
-                    providers={providers}
-                    providersError={providersError}
-                    formError={composerError}
-                    submitting={submitting}
-                    setComposer={setComposer}
-                    onSubmit={handleSubmit}
-                  />
+                <div className="border-t border-alpha bg-background/40 px-5 py-4 dark:bg-background/30">
+                  <div className="mx-auto w-full max-w-3xl">
+                    <AgentComposer
+                      composer={composer}
+                      selectedSession={selectedSession}
+                      providers={providers}
+                      providersError={providersError}
+                      formError={composerError}
+                      submitting={submitting}
+                      setComposer={setComposer}
+                      onSubmit={handleSubmit}
+                    />
+                  </div>
                 </div>
               </section>
 
@@ -1005,53 +1043,40 @@ function TranscriptView({
   items,
   emptyMessage,
   turnLive,
+  children,
 }: {
   loading: boolean;
   items: TranscriptItem[];
   emptyMessage: string;
   turnLive: boolean;
+  children?: ReactNode;
 }) {
-  const bottomRef = useRef<HTMLDivElement | null>(null);
   const showThinking = turnLive && !hasInFlightActivity(items);
-  const itemKey = useMemo(
-    () =>
-      items
-        .map((item) => `${item.id}:${item.text.length}:${item.streaming}`)
-        .join("|") + `|${showThinking ? "thinking" : ""}`,
-    [items, showThinking],
-  );
-
-  useEffect(() => {
-    if (!loading) {
-      bottomRef.current?.scrollIntoView({ block: "end" });
-    }
-  }, [itemKey, loading]);
-
-  if (loading) {
-    return (
-      <p className="font-mono text-xs text-faint">
-        <span className="tui-glyph mr-2 text-sky-500">●</span>
-        loading transcript…
-      </p>
-    );
-  }
-  if (items.length === 0 && !showThinking) {
-    return (
-      <div className="border border-dashed border-alpha bg-background/40 px-5 py-6 font-mono text-xs text-faint">
-        <span className="tui-glyph mr-2">·</span>
-        {emptyMessage}
-      </div>
-    );
-  }
 
   return (
-    <div className="space-y-3">
-      {items.map((item) => (
-        <TranscriptBubble key={item.id} item={item} />
-      ))}
-      {showThinking ? <ThinkingRow /> : null}
-      <div ref={bottomRef} />
-    </div>
+    <Conversation className="min-h-0 border-t border-alpha">
+      <ConversationContent className="mx-auto w-full max-w-3xl px-5 py-5">
+        {loading ? (
+          <p className="font-mono text-xs text-faint">
+            <span className="tui-glyph mr-2 text-sky-500">●</span>
+            loading transcript…
+          </p>
+        ) : items.length === 0 && !showThinking ? (
+          <ConversationEmptyState
+            className="min-h-48"
+            icon={<MessageSquareIcon className="size-6" />}
+            title="No messages yet"
+            description={emptyMessage}
+          />
+        ) : (
+          items.map((item) => <TranscriptItemView key={item.id} item={item} />)
+        )}
+        {showThinking ? <ThinkingRow /> : null}
+        {children}
+      </ConversationContent>
+      <ConversationInitialScroll ready={!loading} />
+      <ConversationScrollButton />
+    </Conversation>
   );
 }
 
@@ -1069,152 +1094,140 @@ function hasInFlightActivity(items: TranscriptItem[]): boolean {
 
 function ThinkingRow() {
   return (
-    <article className="flex gap-3 px-1 py-1" aria-live="polite">
-      <span className="tui-glyph mt-1 text-sky-500 tui-pulse">●</span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="tui-section-label">thinking</span>
-        </div>
-        <p className="mt-1 tui-thinking-dots font-mono text-sm text-muted">
-          <span>●</span>
-          <span>●</span>
-          <span>●</span>
-        </p>
-      </div>
-    </article>
+    <div className="flex w-full items-center py-1 text-sm" aria-live="polite">
+      <Shimmer>Thinking…</Shimmer>
+    </div>
   );
 }
 
-function TranscriptBubble({ item }: { item: TranscriptItem }) {
-  if (item.kind === "tool") {
-    return <ToolTranscriptCard item={item} />;
-  }
-
-  if (item.kind === "user") {
-    return (
-      <div className="tui-user-bar border-l-2 border-l-grove-500 px-3 py-2 dark:border-l-grove-200">
-        <div className="flex items-center gap-2 text-[11px]">
-          <span className="tui-user-bar-prompt text-grove-700 dark:text-grove-200">›</span>
-          <span className="tui-section-label">{item.title}</span>
-          {item.streaming ? (
-            <span className="ml-auto tui-status-line text-sky-500">streaming</span>
-          ) : null}
+function TranscriptItemView({ item }: { item: TranscriptItem }) {
+  switch (item.kind) {
+    case "tool":
+      return <ToolTranscriptCard item={item} />;
+    case "user":
+      return (
+        <Message from="user">
+          <MessageContent>
+            <p className="whitespace-pre-wrap break-words leading-6">
+              {item.text}
+            </p>
+          </MessageContent>
+        </Message>
+      );
+    case "assistant":
+      return (
+        <Message from="assistant">
+          <MessageContent>
+            <Response>{item.text}</Response>
+          </MessageContent>
+        </Message>
+      );
+    case "reasoning":
+      return (
+        <Reasoning className="w-full" isStreaming={Boolean(item.streaming)}>
+          <ReasoningTrigger />
+          <ReasoningContent>{item.text}</ReasoningContent>
+        </Reasoning>
+      );
+    case "error":
+      return (
+        <div className="w-full rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger">
+          <p className="font-medium">{item.title}</p>
+          <p className="mt-1 whitespace-pre-wrap break-words">{item.text}</p>
         </div>
-        <pre className="mt-1.5 whitespace-pre-wrap break-words font-mono text-sm leading-6 text-primary">
-          {item.text}
-        </pre>
-      </div>
+      );
+    default:
+      return <SystemRow item={item} />;
+  }
+}
+
+// Low-emphasis single line for system/event/interaction markers, expandable
+// when the item carries a payload (raw event JSON or multi-line text).
+function SystemRow({ item }: { item: TranscriptItem }) {
+  const block = item.event
+    ? JSON.stringify(item.event, null, 2)
+    : item.text.includes("\n")
+      ? item.text
+      : null;
+  const inline = block === item.text ? null : item.text;
+
+  if (!block) {
+    return (
+      <p className="flex w-full items-baseline gap-2 py-0.5 font-mono text-[11px] text-faint">
+        <span className="shrink-0 uppercase tracking-[0.16em]">{item.title}</span>
+        {inline ? <span className="truncate text-muted">{inline}</span> : null}
+      </p>
     );
   }
-
-  const glyph =
-    item.kind === "assistant"
-      ? "●"
-      : item.kind === "error"
-        ? "✗"
-        : item.kind === "interaction"
-          ? "◆"
-          : "·";
-  const glyphClass =
-    item.kind === "assistant"
-      ? "text-grove-600 dark:text-grove-200"
-      : item.kind === "error"
-        ? "text-ember-500"
-        : item.kind === "interaction"
-          ? "text-amber-500"
-          : "text-faint";
-  const textClass =
-    item.kind === "error"
-      ? "text-ember-500"
-      : item.kind === "system" || item.kind === "event"
-        ? "text-muted"
-        : "text-primary";
-
-  const isStreamingAssistant = item.kind === "assistant" && Boolean(item.streaming);
-
   return (
-    <article className="flex gap-3 px-1 py-1">
-      <span
-        className={`tui-glyph mt-1 ${glyphClass}${isStreamingAssistant ? " tui-pulse" : ""}`}
-      >
-        {glyph}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="tui-section-label">{item.title}</span>
-        </div>
-        <pre className={`mt-1 whitespace-pre-wrap break-words font-sans text-sm leading-6 ${textClass}`}>
-          {item.text}
-          {isStreamingAssistant ? (
-            <span className="tui-caret text-sky-500">▍</span>
-          ) : null}
-        </pre>
-      </div>
-    </article>
+    <details className="w-full py-0.5 font-mono text-[11px] text-faint">
+      <summary className="flex cursor-pointer list-none items-baseline gap-2 hover:text-muted">
+        <span className="shrink-0 uppercase tracking-[0.16em]">{item.title}</span>
+        {inline ? (
+          <span className="truncate text-muted">
+            {truncate(inline.replace(/\s+/g, " "), 96)}
+          </span>
+        ) : null}
+      </summary>
+      <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-alpha-5 p-2 text-[11px] leading-5 text-muted">
+        {block}
+      </pre>
+    </details>
   );
 }
 
 function ToolTranscriptCard({ item }: { item: TranscriptItem }) {
   const event = item.event;
   const phase = event ? eventPhase(event) : item.text;
-  const normalizedPhase = phase?.toLowerCase() ?? "";
-  const isRunning =
-    normalizedPhase.includes("started") || normalizedPhase.includes("running");
+  const state = toolStateFromPhase(phase);
   const input = event ? eventInput(event) : null;
   const detail = event ? eventDetail(event) : item.text;
   const raw = event ? JSON.stringify(event, null, 2) : null;
-  const showSummary = Boolean(item.text && item.text !== detail);
-  const phaseClass = toolPhaseDotColor(phase);
 
   return (
-    <article className="flex gap-3 px-1 py-1">
-      <span
-        className={`tui-glyph mt-1 ${phaseClass}${isRunning ? " tui-pulse" : ""}`}
-      >
-        ●
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-sm text-primary">{item.title}</span>
-          <span className="tui-status-line">
-            {event?.seq ? `#${event.seq} ` : ""}
-            {phase || "tool"}
-          </span>
-          <span className="ml-auto tui-status-line">
-            {event?.display?.kind || event?.source || "tool"}
-          </span>
-        </div>
-
-        {showSummary ? (
-          <pre className="mt-1 whitespace-pre-wrap break-words font-sans text-sm leading-6 text-muted">
-            {item.text}
-          </pre>
-        ) : null}
-
-        <div className="mt-1.5 tui-tree">
-          {input ? <TranscriptDetail glyph="├─" label="Input" value={input} /> : null}
-          {isRunning ? (
-            <p className="font-mono text-[11px] text-faint">
-              <span className="tui-glyph mr-1">└─</span>running…
-            </p>
-          ) : (
-            <>
-              {detail ? (
-                <TranscriptDetail
-                  glyph={raw ? "├─" : "└─"}
-                  label="Output"
-                  value={detail}
-                />
-              ) : null}
-              {raw ? (
-                <TranscriptDetail glyph="└─" label="Event JSON" value={raw} muted />
-              ) : null}
-            </>
-          )}
-        </div>
-      </div>
+    <article className="w-full">
+      <Tool defaultOpen={state === "output-error"}>
+        <ToolHeader title={item.title} state={state} />
+        <ToolContent>
+        {input ? <ToolInput input={input} /> : null}
+        {state === "input-available" ? (
+          <p className="font-mono text-[11px] text-faint">running…</p>
+        ) : (
+          <ToolOutput
+            output={state === "output-error" ? undefined : detail || undefined}
+            errorText={
+              state === "output-error" ? detail || phase || "failed" : undefined
+            }
+          />
+        )}
+          {raw ? (
+            <details className="font-mono text-[11px] text-faint">
+              <summary className="cursor-pointer list-none uppercase tracking-[0.14em] hover:text-muted">
+                Event JSON
+              </summary>
+              <pre className="mt-1 max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-md bg-alpha-5 p-2 leading-5 text-muted">
+                {raw}
+              </pre>
+            </details>
+          ) : null}
+        </ToolContent>
+      </Tool>
     </article>
   );
+}
+
+function toolStateFromPhase(phase?: string | null): ToolState {
+  const normalized = phase?.toLowerCase() ?? "";
+  if (normalized.includes("failed") || normalized.includes("error")) {
+    return "output-error";
+  }
+  if (normalized.includes("completed") || normalized.includes("succeeded")) {
+    return "output-available";
+  }
+  if (normalized.includes("started") || normalized.includes("running")) {
+    return "input-available";
+  }
+  return "input-streaming";
 }
 
 function toolPhaseDotColor(phase?: string | null): string {
@@ -1229,34 +1242,6 @@ function toolPhaseDotColor(phase?: string | null): string {
     return "text-sky-500";
   }
   return "text-faint";
-}
-
-function TranscriptDetail({
-  glyph = "└─",
-  label,
-  value,
-  muted,
-}: {
-  glyph?: string;
-  label: string;
-  value: string;
-  muted?: boolean;
-}) {
-  return (
-    <details className="block">
-      <summary className="cursor-pointer list-none font-mono text-[11px] uppercase tracking-[0.14em] text-faint hover:text-muted">
-        <span className="tui-glyph mr-1">{glyph}</span>
-        {label}
-      </summary>
-      <pre
-        className={`ml-4 mt-1 max-h-56 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 font-mono text-[11px] leading-5 ${
-          muted ? "text-muted" : "text-primary"
-        }`}
-      >
-        {value}
-      </pre>
-    </details>
-  );
 }
 
 function InteractionPanel({
@@ -1278,38 +1263,46 @@ function InteractionPanel({
   if (interactions.length === 0) return null;
 
   return (
-    <section className="mt-5 rounded-md border border-alpha bg-alpha-5 p-4">
-      <h3 className="text-sm font-medium text-primary">Waiting For Input</h3>
-      <div className="mt-4 space-y-4">
-        {interactions.map((interaction) => {
+    <section className="w-full space-y-3" aria-label="Waiting for input">
+      {interactions.map((interaction) => {
           const resolving = resolvingID === interaction.id;
           if (interaction.type === "approval") {
             return (
-              <div key={interaction.id} className="space-y-3">
-                <InteractionPrompt interaction={interaction} />
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={resolving}
-                    onClick={() =>
-                      void onResolve(interaction, { approved: true })
-                    }
-                    className="rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    type="button"
+              <Confirmation
+                key={interaction.id}
+                approval={{ id: interaction.id }}
+                state="approval-requested"
+              >
+                <ConfirmationTitle>
+                  <span className="font-medium text-primary">
+                    {interaction.title || "Approval required"}
+                  </span>
+                  {interaction.prompt ? (
+                    <span className="mt-1 block whitespace-pre-wrap text-muted">
+                      {interaction.prompt}
+                    </span>
+                  ) : null}
+                </ConfirmationTitle>
+                <ConfirmationActions>
+                  <ConfirmationAction
+                    variant="outline"
                     disabled={resolving}
                     onClick={() =>
                       void onResolve(interaction, { approved: false })
                     }
-                    className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-surface"
                   >
                     Reject
-                  </button>
-                </div>
-              </div>
+                  </ConfirmationAction>
+                  <ConfirmationAction
+                    disabled={resolving}
+                    onClick={() =>
+                      void onResolve(interaction, { approved: true })
+                    }
+                  >
+                    Approve
+                  </ConfirmationAction>
+                </ConfirmationActions>
+              </Confirmation>
             );
           }
 
@@ -1319,7 +1312,7 @@ function InteractionPanel({
             return (
               <form
                 key={interaction.id}
-                className="space-y-3"
+                className="space-y-3 rounded-lg border border-alpha bg-surface px-4 py-3"
                 onSubmit={(event) => {
                   event.preventDefault();
                   const response = drafts[interaction.id] || "";
@@ -1339,15 +1332,13 @@ function InteractionPanel({
                       [interaction.id]: event.target.value,
                     }))
                   }
-                  className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-hidden transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+                  className="w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-primary outline-hidden transition-colors duration-150 focus:border-alpha-strong"
                 />
-                <button
-                  type="submit"
-                  disabled={resolving}
-                  className="rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Submit
-                </button>
+                <div className="flex justify-end">
+                  <Button size="sm" type="submit" disabled={resolving}>
+                    Submit
+                  </Button>
+                </div>
               </form>
             );
           }
@@ -1355,7 +1346,7 @@ function InteractionPanel({
           return (
             <form
               key={interaction.id}
-              className="space-y-3"
+              className="space-y-3 rounded-lg border border-alpha bg-surface px-4 py-3"
               onSubmit={(event) => {
                 event.preventDefault();
                 let resolution: Record<string, unknown>;
@@ -1381,19 +1372,16 @@ function InteractionPanel({
                   }))
                 }
                 rows={4}
-                className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 font-mono text-sm text-primary outline-hidden transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+                className="w-full rounded-md border border-alpha bg-background px-3 py-2 font-mono text-sm text-primary outline-hidden transition-colors duration-150 focus:border-alpha-strong"
               />
-              <button
-                type="submit"
-                disabled={resolving}
-                className="rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Resolve
-              </button>
+              <div className="flex justify-end">
+                <Button size="sm" type="submit" disabled={resolving}>
+                  Resolve
+                </Button>
+              </div>
             </form>
           );
         })}
-      </div>
     </section>
   );
 }
@@ -1432,117 +1420,64 @@ function AgentComposer({
   setComposer: React.Dispatch<React.SetStateAction<AgentComposerState>>;
   onSubmit: (event: React.FormEvent<HTMLFormElement>) => void | Promise<void>;
 }) {
-  function handleUserPromptKeyDown(
-    event: React.KeyboardEvent<HTMLTextAreaElement>,
-  ) {
-    if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) {
-      return;
-    }
-    event.preventDefault();
-    if (!submitting) {
-      event.currentTarget.form?.requestSubmit();
-    }
-  }
-
   const errorBlock =
     formError || providersError ? (
       <div className="space-y-1 font-mono text-[11px]">
-        {formError ? <p className="text-ember-500">{formError}</p> : null}
+        {formError ? <p className="text-danger">{formError}</p> : null}
         {providersError ? (
-          <p className="text-ember-500">{providersError}</p>
+          <p className="text-danger">{providersError}</p>
         ) : null}
       </div>
     ) : null;
 
-  if (selectedSession) {
-    return (
-      <form className="space-y-3" onSubmit={onSubmit}>
-        {errorBlock}
-
-        <div className="border border-alpha bg-background/50 p-3">
-          <label className="block">
-            <span className="sr-only">User message</span>
-            <textarea
-              aria-label="User message"
-              aria-keyshortcuts="Meta+Enter Control+Enter"
-              value={composer.userPrompt}
-              onKeyDown={handleUserPromptKeyDown}
-              onChange={(event) =>
-                setComposer((current) => ({
-                  ...current,
-                  userPrompt: event.target.value,
-                }))
-              }
-              rows={3}
-              required
-              placeholder="Message agent..."
-              className="min-h-24 w-full resize-y border-0 bg-transparent p-0 font-mono text-sm leading-6 text-primary outline-hidden placeholder:text-faint"
-            />
-          </label>
-
-          <div className="mt-3 flex flex-col gap-3 border-t border-alpha pt-3 sm:flex-row sm:items-center sm:justify-end">
-            <button
-              type="submit"
-              disabled={submitting}
-              className="shrink-0 border border-alpha bg-transparent px-3 py-1 font-mono text-[11px] uppercase tracking-[0.18em] text-primary transition-colors duration-150 hover:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {submitting ? "↵ sending…" : "↵ send turn"}
-            </button>
-          </div>
-        </div>
-      </form>
-    );
-  }
-
   return (
-    <form className="space-y-3" onSubmit={onSubmit}>
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="tui-section-label">new session</span>
-        <span className="tui-glyph text-faint">›</span>
-        <ProviderField
-          providers={providers}
-          value={composer.provider}
-          disabled={Boolean(selectedSession)}
-          onChange={(value) =>
-            setComposer((current) => ({ ...current, provider: value }))
+    <div className="space-y-2">
+      {errorBlock}
+      <PromptInput onSubmit={onSubmit}>
+        <PromptInputTextarea
+          aria-label="User message"
+          value={composer.userPrompt}
+          required
+          disabled={submitting}
+          placeholder="Message agent…"
+          onChange={(event) =>
+            setComposer((current) => ({
+              ...current,
+              userPrompt: event.target.value,
+            }))
           }
         />
-      </div>
-
-      {errorBlock}
-
-      <div className="border border-alpha bg-background/50 p-3">
-        <label className="block">
-          <span className="sr-only">User message</span>
-          <textarea
-            aria-label="User message"
-            aria-keyshortcuts="Meta+Enter Control+Enter"
-            value={composer.userPrompt}
-            onKeyDown={handleUserPromptKeyDown}
-            onChange={(event) =>
-              setComposer((current) => ({
-                ...current,
-                userPrompt: event.target.value,
-              }))
-            }
-            rows={4}
-            required
-            placeholder="Message agent…"
-            className="min-h-28 w-full resize-y border-0 bg-transparent p-0 font-mono text-sm leading-6 text-primary outline-hidden placeholder:text-faint"
-          />
-        </label>
-        <div className="mt-3 flex items-center justify-between border-t border-alpha pt-3 font-mono text-[11px] text-faint">
-          <span>The first message creates a cloud agent session.</span>
-          <button
-            type="submit"
+        <PromptInputToolbar>
+          <PromptInputTools>
+            {selectedSession ? (
+              <span className="truncate px-2 font-mono text-[11px] text-faint">
+                {selectedSession.provider || "default"} ·{" "}
+                {selectedSession.model || "—"}
+              </span>
+            ) : (
+              <>
+                <ProviderField
+                  providers={providers}
+                  value={composer.provider}
+                  disabled={false}
+                  onChange={(value) =>
+                    setComposer((current) => ({ ...current, provider: value }))
+                  }
+                />
+                <span className="hidden truncate font-mono text-[11px] text-faint sm:inline">
+                  The first message creates a cloud agent session.
+                </span>
+              </>
+            )}
+          </PromptInputTools>
+          <PromptInputSubmit
+            aria-label={selectedSession ? "Send turn" : "Create session"}
+            status={submitting ? "submitted" : "ready"}
             disabled={submitting}
-            className="shrink-0 border border-alpha bg-transparent px-3 py-1 uppercase tracking-[0.18em] text-primary transition-colors duration-150 hover:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {submitting ? "↵ creating…" : "↵ create session"}
-          </button>
-        </div>
-      </div>
-    </form>
+          />
+        </PromptInputToolbar>
+      </PromptInput>
+    </div>
   );
 }
 
