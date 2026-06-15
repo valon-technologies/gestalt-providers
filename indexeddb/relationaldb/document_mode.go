@@ -84,57 +84,126 @@ func indexKeyFromRecord(record gestalt.Record, idx *gestalt.IndexSchema) (any, b
 	return parts, true, nil
 }
 
-func filterEntriesByPrefix(entries []cursorutil.Entry, values []any) ([]cursorutil.Entry, error) {
-	if len(values) == 0 {
-		return entries, nil
+// normalizeIndexQuery lowers Gestalt prefix+scalar-range queries to W3C compound
+// array-key ranges and separates prefix-only pins from range bounds.
+func normalizeIndexQuery(idx *gestalt.IndexSchema, values []any, keyRange *gestalt.KeyRange) (pin []any, effectiveRange *gestalt.KeyRange, err error) {
+	if idx == nil {
+		return nil, nil, status.Error(codes.InvalidArgument, "index is required")
+	}
+	if len(values) > len(idx.KeyPath) {
+		return nil, nil, status.Errorf(codes.InvalidArgument,
+			"index query has %d values for %d-part index %q",
+			len(values), len(idx.KeyPath), idx.Name)
+	}
+	if keyRange != nil {
+		if len(values) >= len(idx.KeyPath) {
+			return nil, nil, status.Errorf(codes.InvalidArgument,
+				"range cannot be combined with a complete index key for index %q",
+				idx.Name)
+		}
+		if len(values) > 0 && len(values)+1 < len(idx.KeyPath) {
+			return nil, nil, status.Errorf(codes.InvalidArgument,
+				"range with %d pinned values leaves unpinned index key components for %d-part index %q; use a full compound array range with no values",
+				len(values), len(idx.KeyPath), idx.Name)
+		}
+	}
+	if keyRange != nil && len(values) > 0 && len(values)+1 == len(idx.KeyPath) {
+		return values, compoundKeyRange(values, keyRange), nil
+	}
+	if len(values) > 0 && keyRange == nil {
+		return values, nil, nil
+	}
+	return nil, keyRange, nil
+}
+
+func compoundKeyRange(prefix []any, keyRange *gestalt.KeyRange) *gestalt.KeyRange {
+	if keyRange == nil {
+		return nil
+	}
+	out := &gestalt.KeyRange{
+		LowerOpen: keyRange.LowerOpen,
+		UpperOpen: keyRange.UpperOpen,
+	}
+	if keyRange.Lower != nil {
+		out.Lower = append(append([]any(nil), prefix...), keyRange.Lower)
+	}
+	if keyRange.Upper != nil {
+		out.Upper = append(append([]any(nil), prefix...), keyRange.Upper)
+	}
+	return out
+}
+
+func keyInRange(key any, keyRange *gestalt.KeyRange, indexCursor bool) (bool, error) {
+	if keyRange == nil {
+		return true, nil
+	}
+	lower, upper, err := cursorutil.RangeBounds(keyRange, indexCursor)
+	if err != nil {
+		return false, err
+	}
+	entryKey := key
+	if indexCursor {
+		entryKey = normalizeDocumentBound(key)
+	}
+	if lower != nil {
+		cmp := cursorutil.CompareValues(entryKey, lower)
+		if cmp < 0 || (cmp == 0 && keyRange.LowerOpen) {
+			return false, nil
+		}
+	}
+	if upper != nil {
+		cmp := cursorutil.CompareValues(entryKey, upper)
+		if cmp > 0 || (cmp == 0 && keyRange.UpperOpen) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func entryMatchesPin(entry cursorutil.Entry, pin []any) bool {
+	if len(pin) == 0 {
+		return true
+	}
+	parts := normalizeDocumentBound(entry.Key)
+	for i, want := range pin {
+		if i >= len(parts) || cursorutil.CompareValues(parts[i], want) != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func filterEntriesByPin(entries []cursorutil.Entry, pin []any) []cursorutil.Entry {
+	if len(pin) == 0 {
+		return entries
 	}
 	filtered := make([]cursorutil.Entry, 0, len(entries))
 	for _, entry := range entries {
-		entryParts := normalizeDocumentBound(entry.Key)
-		if len(entryParts) < len(values) {
-			continue
-		}
-		match := true
-		for i, want := range values {
-			if cursorutil.CompareValues(entryParts[i], want) != 0 {
-				match = false
-				break
-			}
-		}
-		if match {
+		if entryMatchesPin(entry, pin) {
 			filtered = append(filtered, entry)
 		}
 	}
-	return filtered, nil
+	return filtered
+}
+
+func filterEntriesByIndexQuery(entries []cursorutil.Entry, pin []any, keyRange *gestalt.KeyRange) ([]cursorutil.Entry, error) {
+	entries = filterEntriesByPin(entries, pin)
+	return applyKeyRangeToEntries(entries, keyRange, true)
 }
 
 func applyKeyRangeToEntries(entries []cursorutil.Entry, keyRange *gestalt.KeyRange, indexCursor bool) ([]cursorutil.Entry, error) {
 	if keyRange == nil {
 		return entries, nil
 	}
-	lower, upper, err := cursorutil.RangeBounds(keyRange, indexCursor)
-	if err != nil {
-		return nil, err
-	}
 	filtered := make([]cursorutil.Entry, 0, len(entries))
 	for _, entry := range entries {
-		entryKey := entry.Key
-		if indexCursor {
-			entryKey = normalizeDocumentBound(entry.Key)
+		ok, err := keyInRange(entry.Key, keyRange, indexCursor)
+		if err != nil {
+			return nil, err
 		}
-		if lower != nil {
-			cmp := cursorutil.CompareValues(entryKey, lower)
-			if cmp < 0 || (cmp == 0 && keyRange.LowerOpen) {
-				continue
-			}
+		if ok {
+			filtered = append(filtered, entry)
 		}
-		if upper != nil {
-			cmp := cursorutil.CompareValues(entryKey, upper)
-			if cmp > 0 || (cmp == 0 && keyRange.UpperOpen) {
-				continue
-			}
-		}
-		filtered = append(filtered, entry)
 	}
 	return filtered, nil
 }
