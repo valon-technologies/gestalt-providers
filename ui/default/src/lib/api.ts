@@ -929,9 +929,12 @@ export async function getAgentSessions(opts?: {
   );
 }
 
-export async function getAgentSession(id: string): Promise<AgentSession> {
+export async function getAgentSession(
+  id: string,
+  provider: string,
+): Promise<AgentSession> {
   return fetchAPI<AgentSession>(
-    `/api/v1/agent/sessions/${encodeURIComponent(id)}`,
+    `/api/v1/agent/sessions/${encodeURIComponent(id)}?${new URLSearchParams({ provider })}`,
   );
 }
 
@@ -946,10 +949,11 @@ export async function createAgentSession(
 
 export async function updateAgentSession(
   id: string,
+  provider: string,
   body: AgentSessionUpdate,
 ): Promise<AgentSession> {
   return fetchAPI<AgentSession>(
-    `/api/v1/agent/sessions/${encodeURIComponent(id)}`,
+    `/api/v1/agent/sessions/${encodeURIComponent(id)}?${new URLSearchParams({ provider })}`,
     {
       method: "PATCH",
       body: JSON.stringify(body),
@@ -959,35 +963,39 @@ export async function updateAgentSession(
 
 export async function getAgentTurns(
   sessionID: string,
+  provider: string,
   opts?: {
     status?: string;
     limit?: number;
     view?: "full" | "summary";
   },
 ): Promise<AgentTurn[]> {
-  const query = new URLSearchParams();
+  const query = new URLSearchParams({ provider });
   if (opts?.status && opts.status !== "all") query.set("status", opts.status);
   if (opts?.limit) query.set("limit", String(opts.limit));
   if (opts?.view) query.set("view", opts.view);
-  const params = query.toString();
   return fetchAPI<AgentTurn[]>(
-    `/api/v1/agent/sessions/${encodeURIComponent(sessionID)}/turns${
-      params ? `?${params}` : ""
-    }`,
+    `/api/v1/agent/sessions/${encodeURIComponent(sessionID)}/turns?${query}`,
   );
 }
 
-export async function getAgentTurn(id: string): Promise<AgentTurn> {
-  return fetchAPI<AgentTurn>(`/api/v1/agent/turns/${encodeURIComponent(id)}`);
+export async function getAgentTurn(
+  id: string,
+  provider: string,
+): Promise<AgentTurn> {
+  return fetchAPI<AgentTurn>(
+    `/api/v1/agent/turns/${encodeURIComponent(id)}?${new URLSearchParams({ provider })}`,
+  );
 }
 
 export async function createAgentTurn(
   sessionID: string,
+  provider: string,
   body: AgentTurnCreate,
 ): Promise<AgentTurn> {
   const output = body.output ?? { text: {} };
   return fetchAPI<AgentTurn>(
-    `/api/v1/agent/sessions/${encodeURIComponent(sessionID)}/turns`,
+    `/api/v1/agent/sessions/${encodeURIComponent(sessionID)}/turns?${new URLSearchParams({ provider })}`,
     {
       method: "POST",
       body: JSON.stringify({
@@ -1004,10 +1012,11 @@ export async function createAgentTurn(
 
 export async function cancelAgentTurn(
   id: string,
+  provider: string,
   reason?: string,
 ): Promise<AgentTurn> {
   return fetchAPI<AgentTurn>(
-    `/api/v1/agent/turns/${encodeURIComponent(id)}/cancel`,
+    `/api/v1/agent/turns/${encodeURIComponent(id)}/cancel?${new URLSearchParams({ provider })}`,
     {
       method: "POST",
       body: JSON.stringify(reason ? { reason } : {}),
@@ -1017,21 +1026,20 @@ export async function cancelAgentTurn(
 
 export async function getAgentTurnEvents(
   turnID: string,
+  provider: string,
   opts?: { after?: number; limit?: number },
 ): Promise<AgentTurnEvent[]> {
-  const query = new URLSearchParams();
+  const query = new URLSearchParams({ provider });
   if (typeof opts?.after === "number") query.set("after", String(opts.after));
   if (typeof opts?.limit === "number") query.set("limit", String(opts.limit));
-  const params = query.toString();
   return fetchAPI<AgentTurnEvent[]>(
-    `/api/v1/agent/turns/${encodeURIComponent(turnID)}/events${
-      params ? `?${params}` : ""
-    }`,
+    `/api/v1/agent/turns/${encodeURIComponent(turnID)}/events?${query}`,
   );
 }
 
 export async function getAllAgentTurnEvents(
   turnID: string,
+  provider: string,
   opts?: { after?: number; limit?: number },
 ): Promise<{ events: AgentTurnEvent[]; lastSeq: number }> {
   const limit = opts?.limit ?? 100;
@@ -1039,7 +1047,7 @@ export async function getAllAgentTurnEvents(
   const events: AgentTurnEvent[] = [];
 
   for (;;) {
-    const page = await getAgentTurnEvents(turnID, { after, limit });
+    const page = await getAgentTurnEvents(turnID, provider, { after, limit });
     if (page.length === 0) {
       break;
     }
@@ -1064,21 +1072,23 @@ export async function getAllAgentTurnEvents(
 
 export async function getAgentInteractions(
   turnID: string,
+  provider: string,
 ): Promise<AgentInteraction[]> {
   return fetchAPI<AgentInteraction[]>(
-    `/api/v1/agent/turns/${encodeURIComponent(turnID)}/interactions`,
+    `/api/v1/agent/turns/${encodeURIComponent(turnID)}/interactions?${new URLSearchParams({ provider })}`,
   );
 }
 
 export async function resolveAgentInteraction(
   turnID: string,
+  provider: string,
   interactionID: string,
   resolution: Record<string, unknown>,
 ): Promise<AgentInteraction> {
   return fetchAPI<AgentInteraction>(
     `/api/v1/agent/turns/${encodeURIComponent(
       turnID,
-    )}/interactions/${encodeURIComponent(interactionID)}/resolve`,
+    )}/interactions/${encodeURIComponent(interactionID)}/resolve?${new URLSearchParams({ provider })}`,
     {
       method: "POST",
       body: JSON.stringify({ resolution } satisfies AgentInteractionResolve),
@@ -1088,9 +1098,11 @@ export async function resolveAgentInteraction(
 
 export function openAgentTurnEventStream(
   turnID: string,
+  provider: string,
   opts: AgentTurnEventStreamOptions,
 ): AgentTurnEventStream {
   const query = new URLSearchParams({
+    provider,
     after: String(opts.after ?? 0),
     limit: String(opts.limit ?? 100),
     until: opts.until ?? "blocked_or_terminal",
@@ -1169,7 +1181,7 @@ export async function getAgentRuns(opts?: {
 
   const turnLists = await Promise.all(
     sessions.map(async (session) => {
-      const turns = await getAgentTurns(session.id, {
+      const turns = await getAgentTurns(session.id, session.provider, {
         status: opts?.status,
         limit: 20,
       });
@@ -1180,8 +1192,11 @@ export async function getAgentRuns(opts?: {
   return turnLists.flat().sort(compareAgentRunsDesc);
 }
 
-export async function getAgentRun(id: string): Promise<AgentRun> {
-  const turn = await getAgentTurn(id);
+export async function getAgentRun(
+  id: string,
+  provider: string,
+): Promise<AgentRun> {
+  const turn = await getAgentTurn(id, provider);
   return normalizeAgentRun(turn);
 }
 
@@ -1201,7 +1216,9 @@ export async function createAgentRun(body: AgentRunCreate): Promise<AgentRun> {
   });
 
   const turn = await fetchAPI<AgentTurnWire>(
-    `/api/v1/agent/sessions/${encodeURIComponent(session.id)}/turns`,
+    `/api/v1/agent/sessions/${encodeURIComponent(session.id)}/turns?${new URLSearchParams(
+      { provider: session.provider },
+    )}`,
     {
       method: "POST",
       body: JSON.stringify({
@@ -1219,9 +1236,10 @@ export async function createAgentRun(body: AgentRunCreate): Promise<AgentRun> {
 
 export async function cancelAgentRun(
   id: string,
+  provider: string,
   reason?: string,
 ): Promise<AgentRun> {
-  const turn = await cancelAgentTurn(id, reason);
+  const turn = await cancelAgentTurn(id, provider, reason);
   return normalizeAgentRun(turn);
 }
 

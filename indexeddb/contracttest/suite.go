@@ -77,6 +77,10 @@ func Run(t *testing.T, harness Harness) {
 		runBulkConsistency(t, harness)
 	})
 
+	t.Run("EmptyStoreCursors", func(t *testing.T) {
+		runEmptyStoreCursors(t, harness)
+	})
+
 	t.Run("ExplicitTransactionSDKContract", func(t *testing.T) {
 		runExplicitTransactionSDKContract(t, harness)
 	})
@@ -393,6 +397,28 @@ func runCursorMutationWithTypedKeys(t *testing.T, harness Harness) {
 				t.Fatalf("persisted name = %#v, want %q", got, "after")
 			}
 		})
+	}
+}
+
+func runEmptyStoreCursors(t *testing.T, harness Harness) {
+	t.Helper()
+
+	sess := newSession(t, harness)
+	t.Cleanup(sess.Close)
+
+	store := "empty_store_cursors"
+	mustCreateObjectStore(t, sess.client, store, bulkItemsSchema())
+
+	for _, req := range []cursorRequest{
+		{Store: store, Direction: gestalt.CursorNext},
+		{Store: store, Direction: gestalt.CursorNext, KeysOnly: true},
+		{Store: store, Index: "by_status", Direction: gestalt.CursorNext},
+		{Store: store, Index: "by_status", Direction: gestalt.CursorNext, KeysOnly: true},
+	} {
+		entries := collectCursorEntries(t, sess.client, &req)
+		if len(entries) != 0 {
+			t.Fatalf("cursor on empty store returned %d entries, want 0", len(entries))
+		}
 	}
 }
 
