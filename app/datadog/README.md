@@ -121,15 +121,7 @@ Representative operations include:
 
 ## Usage Examples
 
-Grant another provider or workflow permission to invoke this app before calling it:
-
-```yaml
-apps:
-  example_consumer:
-    invokes:
-      - app: datadog
-        operation: list_monitors
-```
+Hosted apps call this provider with `app.invoke`. Pass `runAs` or `credentialMode` in the invoke options when an operation needs a service-account identity or managed credentials instead of the caller's OAuth token.
 
 Example `list_monitors` call:
 
