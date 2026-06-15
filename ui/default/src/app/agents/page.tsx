@@ -1294,7 +1294,7 @@ function InteractionPanel({
                     onClick={() =>
                       void onResolve(interaction, { approved: true })
                     }
-                    className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-background transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Approve
                   </button>
@@ -1344,7 +1344,7 @@ function InteractionPanel({
                 <button
                   type="submit"
                   disabled={resolving}
-                  className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-background transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Submit
                 </button>
@@ -1386,7 +1386,7 @@ function InteractionPanel({
               <button
                 type="submit"
                 disabled={resolving}
-                className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-background transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Resolve
               </button>

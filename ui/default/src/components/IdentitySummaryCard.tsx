@@ -16,7 +16,7 @@ export default function IdentitySummaryCard({
       <div className="flex items-start justify-between gap-4">
         <div>
           <span className="label-text">Managed Identity</span>
-          <h2 className="mt-2 text-lg font-heading font-bold text-primary">
+          <h2 className="mt-2 text-lg font-heading text-primary">
             {identity.displayName}
           </h2>
           <p className="mt-2 font-mono text-xs text-muted">{identity.subjectId}</p>

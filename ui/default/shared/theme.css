@@ -60,24 +60,6 @@ html {
   color: rgba(var(--alpha-dark), 0.42);
 }
 
-.gradient-warm {
-  background: radial-gradient(
-    140% 90% at 50% 100%,
-    #eaccb8 0%,
-    #fdfcf9 50%,
-    #f8f6f3 80%
-  );
-}
-
-.dark .gradient-warm {
-  background: radial-gradient(
-    140% 90% at 50% 100%,
-    #3d2808 0%,
-    #1a1410 50%,
-    #161110 80%
-  );
-}
-
 /* Terminal-IDE surface tokens. Used by /agents to mirror the TUI grammar
  * (tui.rs status colors, ●/›/├─ glyphs) inside a Claude Code-style shell. */
 .tui-section-label {

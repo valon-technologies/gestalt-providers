@@ -93,7 +93,7 @@ export default function AppsCatalogPageClient() {
           <div className="animate-fade-in-up flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
             <div>
               <span className="label-text">Catalog</span>
-              <h1 className="mt-2 text-2xl font-heading font-bold text-primary">
+              <h1 className="mt-2 text-2xl font-heading text-primary">
                 Apps
               </h1>
               <p className="mt-2 text-sm text-muted">

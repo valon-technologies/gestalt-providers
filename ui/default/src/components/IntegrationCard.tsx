@@ -505,7 +505,7 @@ export default function IntegrationCard({
             {iconNode ?? <DefaultIcon />}
           </div>
           <div>
-            <h3 className="text-base font-heading font-semibold text-primary">
+            <h3 className="text-base font-heading text-primary">
               {integration.displayName || integration.name}
             </h3>
             {integration.description && (

@@ -22,7 +22,7 @@ dark).
 | `--shadow-ink` | shadow color (RGB triplet) — identical in light and dark by default, so shadows never become glows | `35, 24, 16` |
 | `--brand`, `--brand-soft`, `--danger`, `--success` | brand accent pair / status colors | gold pair / red / green |
 | `--radius` | base corner radius; Tailwind derives `rounded-sm` (−2px), `rounded`/`rounded-md` (as is), `rounded-lg` (+4px) | `0.5rem` (→ 6/8/12px) |
-| `--content-max-width` | shared max width of the nav and every contained page *(ships with the Container PR)* | `80rem` |
+| `--content-max-width` | shared max width of the nav and every contained page (see `src/components/Container.tsx`) | `80rem` |
 | `--heading-weight` | default `h1`–`h6` weight (applied by a `globals.css` base rule) | `400` (Newsreader ships one cut) |
 | `--font-display`, `--font-body`, `--font-mono` | type stacks (see the font seam below) | Newsreader (opsz 72) / Instrument Sans / Geist Mono — all OFL |
 
@@ -173,5 +173,5 @@ empty stub, and tenant themes arrive at serve time via `/theme.css`.
   licensed fonts may not live in this public repo — tenant themes deliver
   them via `@font-face` against `/theme/fonts/…` (`theme.assetsDir`).
 - The admin shell (`src/admin-static-assets.ts` → `out/admin/`) embeds its
-  own copy of `theme.css` and its own font pipeline; it must be re-themed
-  separately.
+  own copy of `theme.css` (still including the removed warm gradient) and
+  its own font pipeline; it must be re-themed separately.

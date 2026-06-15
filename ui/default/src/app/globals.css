@@ -37,15 +37,6 @@
     font-weight: var(--heading-weight);
   }
 
-  h1,
-  h2,
-  h3,
-  h4,
-  h5,
-  h6 {
-    font-weight: var(--heading-weight);
-  }
-
   dialog::backdrop {
     /* Same computed value as before (light --alpha-dark is 35, 24, 16);
      * the .dark override below keeps its own constant — the dark triplet
@@ -79,7 +70,7 @@
   /* Code-block shell shared by the Shiki output and its plain <pre>
    * fallback, so layout is identical before and after highlighting. */
   .doc-code pre {
-    @apply overflow-x-auto rounded-xl border border-alpha bg-base-100 px-4 py-4 pr-12 font-mono text-sm leading-6 text-primary dark:bg-surface;
+    @apply overflow-x-auto rounded-xl border border-alpha bg-surface px-4 py-4 pr-12 font-mono text-sm leading-6 text-primary;
   }
 }
 

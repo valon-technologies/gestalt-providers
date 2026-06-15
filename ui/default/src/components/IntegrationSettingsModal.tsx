@@ -465,7 +465,7 @@ export default function IntegrationSettingsModal({
           <>
             <h2
               id={headingId}
-              className="text-lg font-heading font-semibold text-primary"
+              className="text-lg font-heading text-primary"
             >
               Disconnect {displayName}?
             </h2>
@@ -499,7 +499,7 @@ export default function IntegrationSettingsModal({
           <form onSubmit={handleInstanceSubmit}>
             <h2
               id={headingId}
-              className="text-lg font-heading font-semibold text-primary"
+              className="text-lg font-heading text-primary"
             >
               Add Connection
             </h2>
@@ -552,7 +552,7 @@ export default function IntegrationSettingsModal({
               <div>
                 <h2
                   id={headingId}
-                  className="text-lg font-heading font-semibold text-primary"
+                  className="text-lg font-heading text-primary"
                 >
                   {displayName}
                 </h2>
@@ -620,7 +620,7 @@ function TokenForm({
     <form onSubmit={onSubmit}>
       <h2
         id={headingId}
-        className="text-lg font-heading font-semibold text-primary"
+        className="text-lg font-heading text-primary"
       >
         {heading}
       </h2>
