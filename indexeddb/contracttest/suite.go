@@ -106,10 +106,6 @@ func Run(t *testing.T, harness Harness) {
 		}
 		runNestedIndexPaths(t, harness)
 	})
-
-	t.Run("EmptyCursorExhaustion", func(t *testing.T) {
-		runEmptyCursorContract(t, harness)
-	})
 }
 
 func runTypedPrimaryKeyFidelity(t *testing.T, harness Harness) {
@@ -402,6 +398,25 @@ func runCursorMutationWithTypedKeys(t *testing.T, harness Harness) {
 
 func runBulkConsistency(t *testing.T, harness Harness) {
 	t.Helper()
+
+	t.Run("EmptyStoreCursors", func(t *testing.T) {
+		sess := newSession(t, harness)
+		t.Cleanup(sess.Close)
+
+		store := "bulk_empty_store_cursors"
+		mustCreateObjectStore(t, sess.client, store, bulkItemsSchema())
+
+		for _, req := range []cursorRequest{
+			{Store: store, Direction: gestalt.CursorNext},
+			{Store: store, Direction: gestalt.CursorNext, KeysOnly: true},
+			{Store: store, Index: "by_status", Direction: gestalt.CursorNext},
+		} {
+			entries := collectCursorEntries(t, sess.client, &req)
+			if len(entries) != 0 {
+				t.Fatalf("cursor on empty store returned %d entries, want 0", len(entries))
+			}
+		}
+	})
 
 	t.Run("ObjectStoreRange", func(t *testing.T) {
 		sess := newSession(t, harness)
@@ -802,54 +817,6 @@ func runNestedIndexPaths(t *testing.T, harness Harness) {
 	}
 	if got := cursorKeyValues(t, entries[0]); len(got) != 1 || got[0] != "Alice" {
 		t.Fatalf("nested index key = %#v, want [\"Alice\"]", got)
-	}
-}
-
-func runEmptyCursorContract(t *testing.T, harness Harness) {
-	t.Helper()
-
-	sess := newSession(t, harness)
-	t.Cleanup(sess.Close)
-
-	store := "empty_cursor_contract"
-	mustCreateObjectStore(t, sess.client, store, bulkItemsSchema())
-
-	valueCursor := mustOpenCursor(t, sess.client, &cursorRequest{
-		Store:     store,
-		Direction: gestalt.CursorNext,
-	})
-	t.Cleanup(func() { _ = valueCursor.Close() })
-	if valueCursor.Continue() {
-		t.Fatal("value cursor Continue returned true on empty store")
-	}
-	if err := valueCursor.Err(); err != nil {
-		t.Fatalf("value cursor Err() = %v, want nil", err)
-	}
-
-	keyCursor := mustOpenCursor(t, sess.client, &cursorRequest{
-		Store:     store,
-		Direction: gestalt.CursorNext,
-		KeysOnly:  true,
-	})
-	t.Cleanup(func() { _ = keyCursor.Close() })
-	if keyCursor.Continue() {
-		t.Fatal("key cursor Continue returned true on empty store")
-	}
-	if err := keyCursor.Err(); err != nil {
-		t.Fatalf("key cursor Err() = %v, want nil", err)
-	}
-
-	indexCursor := mustOpenCursor(t, sess.client, &cursorRequest{
-		Store:     store,
-		Index:     "by_status",
-		Direction: gestalt.CursorNext,
-	})
-	t.Cleanup(func() { _ = indexCursor.Close() })
-	if indexCursor.Continue() {
-		t.Fatal("index cursor Continue returned true on empty store")
-	}
-	if err := indexCursor.Err(); err != nil {
-		t.Fatalf("index cursor Err() = %v, want nil", err)
 	}
 }
 
