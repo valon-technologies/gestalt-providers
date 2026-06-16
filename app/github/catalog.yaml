@@ -77,6 +77,68 @@ operations:
     type: integer
     description: Maximum UTF-8 bytes to return
     default: 80000
+- id: bot.listCommits
+  method: GET
+  description: List commits on a repository using a GitHub App installation token
+  tags: [repo, code, history]
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: sha
+    type: string
+    description: SHA or branch to start listing commits from.
+    default: ''
+  - name: path
+    type: string
+    description: Only commits containing this file path.
+    default: ''
+  - name: author
+    type: string
+    description: GitHub username or email to filter by author.
+    default: ''
+  - name: since
+    type: string
+    description: ISO 8601 timestamp; only commits after this date.
+    default: ''
+  - name: until
+    type: string
+    description: ISO 8601 timestamp; only commits before this date.
+    default: ''
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 30
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+- id: bot.compareRefs
+  method: GET
+  description: Compare two refs using a GitHub App installation token
+  tags: [repo, code, history]
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: base
+    type: string
+    description: Base ref, branch, or SHA
+    required: true
+  - name: head
+    type: string
+    description: Head ref, branch, or SHA
+    required: true
 - id: bot.commitFiles
   method: POST
   description: Create a Git commit on a branch using a GitHub App installation token
