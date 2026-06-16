@@ -40,21 +40,21 @@ def main() -> int:
         sync_cmd.extend(["--group", "dev"])
         run_cmd.extend(["--group", "dev"])
 
-    run(sync_cmd, cwd=app_dir)
+    run(sync_cmd, cwd=app_dir, step="install dependencies")
     install_local_gestalt_sdk(app_dir, package_names)
 
     if "ruff" in package_names:
-        run([*run_cmd, "ruff", "check", "."], cwd=app_dir)
+        run([*run_cmd, "ruff", "check", "."], cwd=app_dir, step="ruff lint")
 
     if "ty" in package_names:
-        run([*run_cmd, "ty", "check", "."], cwd=app_dir)
+        run([*run_cmd, "ty", "check", "."], cwd=app_dir, step="ty type check")
 
     source_paths = python_source_paths(app_dir)
     if "vulture" in package_names and source_paths:
         cmd = [*run_cmd, "vulture", *source_paths]
         if vulture_ignore_names:
             cmd.extend(["--ignore-names", ",".join(vulture_ignore_names)])
-        run(cmd, cwd=app_dir)
+        run(cmd, cwd=app_dir, step="vulture unused-code check")
 
     run_tests(app_dir, package_names, run_cmd)
     return 0
@@ -74,19 +74,20 @@ def run_tests(app_dir: Path, package_names: set[str], run_cmd: list[str]) -> Non
             test_targets.append("tests")
         test_targets.extend(top_level_tests)
         if test_targets:
-            run([*run_cmd, "pytest", *test_targets], cwd=app_dir)
+            run([*run_cmd, "pytest", *test_targets], cwd=app_dir, step="pytest")
         return
 
     if tests_dir.is_dir():
         run(
             [*run_cmd, "python", "-m", "unittest", "discover", "-s", "tests", "-p", "test*.py"],
             cwd=app_dir,
+            step="unittest discovery",
         )
         return
 
     for test_file in top_level_tests:
         module_name = Path(test_file).stem
-        run([*run_cmd, "python", "-m", "unittest", module_name], cwd=app_dir)
+        run([*run_cmd, "python", "-m", "unittest", module_name], cwd=app_dir, step="unittest")
 
 
 def python_source_paths(app_dir: Path) -> list[str]:
@@ -134,7 +135,11 @@ def install_local_gestalt_sdk(app_dir: Path, package_names: set[str]) -> None:
         raise SystemExit(f"expected local Gestalt Python SDK at {sdk_dir}")
 
     python_bin = app_dir / ".venv" / "bin" / "python"
-    run(["uv", "pip", "install", "--python", str(python_bin), "--reinstall", str(sdk_dir)], cwd=app_dir)
+    run(
+        ["uv", "pip", "install", "--python", str(python_bin), "--reinstall", str(sdk_dir)],
+        cwd=app_dir,
+        step="install local Gestalt Python SDK",
+    )
 
 
 def dependency_name(dep: object) -> str | None:
@@ -146,9 +151,20 @@ def dependency_name(dep: object) -> str | None:
     return match.group(1).lower().replace("_", "-")
 
 
-def run(cmd: list[str], *, cwd: Path) -> None:
-    print(f"+ {shlex.join(cmd)}")
-    subprocess.run(cmd, cwd=cwd, check=True)
+def run(cmd: list[str], *, cwd: Path, step: str) -> None:
+    print(f"+ {shlex.join(cmd)}", flush=True)
+    try:
+        subprocess.run(cmd, cwd=cwd, check=True)
+    except subprocess.CalledProcessError as exc:
+        command = shlex.join(cmd)
+        print(
+            f"\nValidation step failed: {step}\n"
+            f"Working directory: {cwd}\n"
+            f"Exit code: {exc.returncode}\n"
+            f"To reproduce locally: cd {shlex.quote(str(cwd))} && {command}",
+            file=sys.stderr,
+        )
+        raise SystemExit(exc.returncode) from None
 
 
 if __name__ == "__main__":
