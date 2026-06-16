@@ -8,7 +8,7 @@ app = gestalt.App("slack_v2")
 
 
 @app.operation(
-    id="HandleSlackEvent",
+    id="handle_slack_event",
     method="POST",
     description="Handle a Slack event.",
 )
