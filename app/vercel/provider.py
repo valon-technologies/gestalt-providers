@@ -158,6 +158,64 @@ class TeamMembersInviteInput(gestalt.Model):
     )
 
 
+class CommentsListInput(gestalt.Model):
+    url: str = gestalt.field(
+        description="Optional Vercel comment link to parse for team slug and comment id",
+        default="",
+        required=False,
+    )
+    teamId: str = gestalt.field(
+        description="Optional Vercel team ID",
+        default="",
+        required=False,
+    )
+    slug: str = gestalt.field(
+        description="Optional Vercel team slug",
+        default="",
+        required=False,
+    )
+    projectId: str = gestalt.field(
+        description="Optional Vercel project ID filter",
+        default="",
+        required=False,
+    )
+    deploymentId: str = gestalt.field(
+        description="Optional Vercel deployment ID filter",
+        default="",
+        required=False,
+    )
+    threadId: str = gestalt.field(
+        description="Optional Toolbar comment thread ID filter",
+        default="",
+        required=False,
+    )
+    commentId: str = gestalt.field(
+        description="Optional Toolbar comment ID filter",
+        default="",
+        required=False,
+    )
+    cursor: str = gestalt.field(
+        description="Optional pagination cursor",
+        default="",
+        required=False,
+    )
+    limit: int | None = gestalt.field(
+        description="Optional page size",
+        default=None,
+        required=False,
+    )
+    resolved: bool | None = gestalt.field(
+        description="Optional resolved-state filter",
+        default=None,
+        required=False,
+    )
+    extra_query: dict[str, Any] = gestalt.field(
+        description="Additional query parameters to pass through to Vercel",
+        default_factory=dict,
+        required=False,
+    )
+
+
 @app.configure
 def configure(_name: str, config: dict[str, Any]) -> None:
     global _blob_config
@@ -357,10 +415,12 @@ def team_members_invite(
 
     params = {"slug": input.slug.strip()} if input.slug.strip() else {}
     query = f"?{urllib.parse.urlencode(params)}" if params else ""
-    url = f"https://api.vercel.com/v2/teams/{urllib.parse.quote(team_id)}/members{query}"
-    body = json.dumps([{"email": email, "role": input.role.strip() or "MEMBER"}]).encode(
-        "utf-8"
+    url = (
+        f"https://api.vercel.com/v2/teams/{urllib.parse.quote(team_id)}/members{query}"
     )
+    body = json.dumps(
+        [{"email": email, "role": input.role.strip() or "MEMBER"}]
+    ).encode("utf-8")
     request = urllib.request.Request(
         url,
         data=body,
@@ -378,12 +438,111 @@ def team_members_invite(
             return {"data": json.loads(raw) if raw else {}}
     except urllib.error.HTTPError as err:
         raw = err.read().decode("utf-8", errors="replace")
+        err.close()
         message = _error_message_from_json(raw) or err.reason
         return gestalt.Response(status=err.code, body={"error": message})
     except urllib.error.URLError as err:
         return _server_error(str(err.reason))
     except json.JSONDecodeError as err:
         return _server_error(f"Vercel returned invalid JSON: {err}")
+
+
+@app.operation(
+    id="comments.list",
+    method="GET",
+    description="List Vercel Toolbar comments from the dashboard comments endpoint",
+)
+def comments_list(input: CommentsListInput, req: gestalt.Request) -> OperationResult:
+    token = req.token.strip()
+    if not token:
+        return gestalt.Response(
+            status=HTTPStatus.UNAUTHORIZED, body={"error": "token is required"}
+        )
+    if input.limit is not None and input.limit <= 0:
+        return _bad_request("limit must be positive when provided")
+
+    query = _comments_query(input)
+    request_url = "https://vercel.com/api/dash/toolbar/comments"
+    if query:
+        request_url = f"{request_url}?{urllib.parse.urlencode(query, doseq=True)}"
+
+    request = urllib.request.Request(
+        request_url,
+        method="GET",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Cookie": f"authorization={token}",
+            "Accept": "application/json",
+        },
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            raw = response.read().decode("utf-8")
+            return {"data": json.loads(raw) if raw else {}}
+    except urllib.error.HTTPError as err:
+        raw = err.read().decode("utf-8", errors="replace")
+        err.close()
+        message = _error_message_from_json(raw) or err.reason
+        return gestalt.Response(status=err.code, body={"error": message})
+    except urllib.error.URLError as err:
+        return _server_error(str(err.reason))
+    except json.JSONDecodeError as err:
+        return _server_error(f"Vercel returned invalid JSON: {err}")
+
+
+def _comments_query(input: CommentsListInput) -> dict[str, Any]:
+    query: dict[str, Any] = {
+        key: value
+        for key, value in input.extra_query.items()
+        if value is not None and str(value).strip()
+    }
+
+    parsed_link = _parse_comment_link(input.url)
+    for key, value in parsed_link.items():
+        query.setdefault(key, value)
+
+    for key, value in (
+        ("teamId", input.teamId),
+        ("slug", input.slug),
+        ("projectId", input.projectId),
+        ("deploymentId", input.deploymentId),
+        ("threadId", input.threadId),
+        ("commentId", input.commentId),
+        ("cursor", input.cursor),
+    ):
+        trimmed = value.strip()
+        if trimmed:
+            query[key] = trimmed
+
+    if input.limit is not None:
+        query["limit"] = input.limit
+    if input.resolved is not None:
+        query["resolved"] = "true" if input.resolved else "false"
+    return query
+
+
+def _parse_comment_link(url: str) -> dict[str, str]:
+    trimmed = url.strip()
+    if not trimmed:
+        return {}
+    parsed = urllib.parse.urlsplit(trimmed)
+    if not parsed.netloc and parsed.path.startswith("/"):
+        parsed = urllib.parse.urlsplit(f"https://vercel.com{trimmed}")
+    if parsed.netloc and parsed.netloc != "vercel.com":
+        return {}
+
+    query = {
+        key: value[-1]
+        for key, value in urllib.parse.parse_qs(parsed.query).items()
+        if value
+    }
+    parts = [urllib.parse.unquote(part) for part in parsed.path.split("/") if part]
+    if len(parts) >= 4 and parts[1] == "museum" and parts[2] == "c":
+        query.setdefault("slug", parts[0])
+        query.setdefault("commentId", parts[3])
+        query.setdefault("threadId", parts[3])
+    return query
 
 
 def _normalize_access(value: str) -> VercelBlobAccess | ErrorResponse:

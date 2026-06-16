@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import email.message
+import io
 import pathlib
 import sys
 import unittest
+import urllib.error
 import urllib.parse
 import urllib.request
 from http import HTTPStatus
@@ -36,6 +39,9 @@ class FakeHTTPResponse:
 
     def read(self) -> bytes:
         return self._body
+
+    def close(self) -> None:
+        return None
 
 
 class FakeRequest:
@@ -324,6 +330,105 @@ class VercelProviderTests(unittest.TestCase):
         response = cast(gestalt.Response[dict[str, str]], result)
         self.assertEqual(response.status, HTTPStatus.UNAUTHORIZED)
         self.assertEqual(response.body, {"error": "token is required"})
+
+    def test_comments_list_gets_dashboard_comments_with_oauth_and_link_filters(
+        self,
+    ) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30.0
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            self.assertEqual(request.get_method(), "GET")
+            parsed = urllib.parse.urlsplit(request.full_url)
+            self.assertEqual(
+                f"{parsed.scheme}://{parsed.netloc}{parsed.path}",
+                "https://vercel.com/api/dash/toolbar/comments",
+            )
+            self.assertEqual(
+                urllib.parse.parse_qs(parsed.query),
+                {
+                    "commentId": ["tMTribucI_RT"],
+                    "deploymentId": ["dpl_123"],
+                    "limit": ["50"],
+                    "resolved": ["false"],
+                    "s": ["1"],
+                    "slug": ["valon"],
+                    "status": ["open"],
+                    "threadId": ["tMTribucI_RT"],
+                },
+            )
+            self.assertEqual(authorization_header(request), "Bearer vercel-oauth-token")
+            self.assertEqual(
+                header(request, "cookie"), "authorization=vercel-oauth-token"
+            )
+            return FakeHTTPResponse('{"comments":[{"id":"comment_123"}]}')
+
+        with mock.patch.object(
+            provider_module.urllib.request, "urlopen", side_effect=fake_urlopen
+        ):
+            result = provider_module.comments_list(
+                provider_module.CommentsListInput(
+                    url="https://vercel.com/valon/museum/c/tMTribucI_RT?s=1",
+                    deploymentId="dpl_123",
+                    limit=50,
+                    resolved=False,
+                    extra_query={"status": "open"},
+                ),
+                FakeRequest(),  # type: ignore[arg-type]
+            )
+
+        self.assertEqual(result, {"data": {"comments": [{"id": "comment_123"}]}})
+
+    def test_comments_list_prefers_explicit_input_over_link_parts(self) -> None:
+        query = provider_module._comments_query(
+            provider_module.CommentsListInput(
+                url="https://vercel.com/valon/museum/c/tMTribucI_RT?s=1",
+                slug="other-team",
+                commentId="comment_override",
+                threadId="thread_override",
+            )
+        )
+
+        self.assertEqual(query["slug"], "other-team")
+        self.assertEqual(query["commentId"], "comment_override")
+        self.assertEqual(query["threadId"], "thread_override")
+        self.assertEqual(query["s"], "1")
+
+    def test_comments_list_requires_connected_token(self) -> None:
+        result = provider_module.comments_list(
+            provider_module.CommentsListInput(slug="valon"),
+            FakeRequest(token=""),  # type: ignore[arg-type]
+        )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.UNAUTHORIZED)
+        self.assertEqual(response.body, {"error": "token is required"})
+
+    def test_comments_list_maps_vercel_error_response(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30.0
+        ) -> FakeHTTPResponse:
+            raise urllib.error.HTTPError(
+                request.full_url,
+                403,
+                "Forbidden",
+                email.message.Message(),
+                io.BytesIO(b'{"error":{"message":"Not authorized."}}'),
+            )
+
+        with mock.patch.object(
+            provider_module.urllib.request, "urlopen", side_effect=fake_urlopen
+        ):
+            result = provider_module.comments_list(
+                provider_module.CommentsListInput(slug="valon"),
+                FakeRequest(),  # type: ignore[arg-type]
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+        self.assertEqual(response.body, {"error": "Not authorized."})
 
     def test_put_blob_uses_vercel_blob_put_contract(self) -> None:
         def fake_urlopen(

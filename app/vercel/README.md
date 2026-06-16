@@ -26,6 +26,7 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 Hybrid provider:
 - OpenAPI-backed operations for the Vercel platform API
 - Executable `blob.*` operations that mirror the Vercel Blob SDK methods
+- Executable `comments.list` operation for Vercel Toolbar comment data exposed through the dashboard comments endpoint
 
 Blob operations currently include:
 - `blob.put`
@@ -86,8 +87,9 @@ Representative operations include:
 - `blob.list`
 - `blob.delete`
 - `blob.copy`
+- `comments.list`
 
-- `blob.*` operations require `blobReadWriteToken`; platform API operations use Vercel OAuth.
+- `blob.*` operations require `blobReadWriteToken`; platform API and comments operations use Vercel OAuth.
 
 ## Usage Examples
 
@@ -109,6 +111,14 @@ Example `teamMembers.invite` call:
 
 ```ts
 await app.invoke("vercel", "teamMembers.invite", { team_id: "team_123", email: "teammate@example.com", role: "MEMBER" });
+```
+
+Example `comments.list` call for a Vercel comment link:
+
+```ts
+await app.invoke("vercel", "comments.list", {
+  url: "https://vercel.com/acme/museum/c/comment_id?s=1",
+});
 ```
 
 ## Documentation

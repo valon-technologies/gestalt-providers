@@ -30,4 +30,5 @@ vulture-ignore-names = [
   "blob_delete",
   "blob_copy",
   "team_members_invite",
+  "comments_list",
 ]

@@ -148,3 +148,51 @@ operations:
     type: string
     description: Optional Vercel team slug
     default: ''
+- id: comments.list
+  method: GET
+  description: List Vercel Toolbar comments from the dashboard comments endpoint
+  parameters:
+  - name: url
+    type: string
+    description: Optional Vercel comment link to parse for team slug and comment id
+    default: ''
+  - name: teamId
+    type: string
+    description: Optional Vercel team ID
+    default: ''
+  - name: slug
+    type: string
+    description: Optional Vercel team slug
+    default: ''
+  - name: projectId
+    type: string
+    description: Optional Vercel project ID filter
+    default: ''
+  - name: deploymentId
+    type: string
+    description: Optional Vercel deployment ID filter
+    default: ''
+  - name: threadId
+    type: string
+    description: Optional Toolbar comment thread ID filter
+    default: ''
+  - name: commentId
+    type: string
+    description: Optional Toolbar comment ID filter
+    default: ''
+  - name: cursor
+    type: string
+    description: Optional pagination cursor
+    default: ''
+  - name: limit
+    type: integer
+    description: Optional page size
+    default: null
+  - name: resolved
+    type: boolean
+    description: Optional resolved-state filter
+    default: null
+  - name: extra_query
+    type: object
+    description: Additional query parameters to pass through to Vercel
+    default: {}
