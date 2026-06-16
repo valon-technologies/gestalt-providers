@@ -91,10 +91,14 @@ func (s *fakeObjectStore) Clear(context.Context) error {
 	return nil
 }
 
-func (s *fakeObjectStore) GetAll(_ context.Context, r *indexeddb.KeyRange) ([]indexeddb.Record, error) {
+func (s *fakeObjectStore) GetAll(_ context.Context, query any, _ ...uint32) ([]indexeddb.Record, error) {
 	ids := make([]string, 0, len(s.records))
 	for id := range s.records {
-		if r == nil || r.Includes(id) {
+		ok, err := indexeddb.MatchQuery(id, indexeddb.ToQuery(query))
+		if err != nil {
+			return nil, err
+		}
+		if ok {
 			ids = append(ids, id)
 		}
 	}
@@ -106,15 +110,15 @@ func (s *fakeObjectStore) GetAll(_ context.Context, r *indexeddb.KeyRange) ([]in
 	return records, nil
 }
 
-func (s *fakeObjectStore) GetAllKeys(context.Context, *indexeddb.KeyRange) ([]string, error) {
+func (s *fakeObjectStore) GetAllKeys(context.Context, any, ...uint32) ([]string, error) {
 	return nil, indexeddb.ErrUnsupported
 }
 
-func (s *fakeObjectStore) Count(context.Context, *indexeddb.KeyRange) (int64, error) {
+func (s *fakeObjectStore) Count(context.Context, any) (int64, error) {
 	return 0, indexeddb.ErrUnsupported
 }
 
-func (s *fakeObjectStore) DeleteRange(context.Context, indexeddb.KeyRange) (int64, error) {
+func (s *fakeObjectStore) DeleteRange(context.Context, any) (int64, error) {
 	return 0, indexeddb.ErrUnsupported
 }
 
@@ -122,11 +126,11 @@ func (s *fakeObjectStore) Index(string) indexeddb.Index {
 	return nil
 }
 
-func (s *fakeObjectStore) OpenCursor(context.Context, *indexeddb.KeyRange, indexeddb.CursorDirection) (indexeddb.Cursor, error) {
+func (s *fakeObjectStore) OpenCursor(context.Context, any, indexeddb.CursorDirection) (indexeddb.Cursor, error) {
 	return nil, indexeddb.ErrUnsupported
 }
 
-func (s *fakeObjectStore) OpenKeyCursor(context.Context, *indexeddb.KeyRange, indexeddb.CursorDirection) (indexeddb.Cursor, error) {
+func (s *fakeObjectStore) OpenKeyCursor(context.Context, any, indexeddb.CursorDirection) (indexeddb.Cursor, error) {
 	return nil, indexeddb.ErrUnsupported
 }
 
@@ -198,19 +202,19 @@ func (s fakeTransactionObjectStore) Clear(ctx context.Context) error {
 	return s.store.Clear(ctx)
 }
 
-func (fakeTransactionObjectStore) GetAll(context.Context, *indexeddb.KeyRange) ([]indexeddb.Record, error) {
+func (fakeTransactionObjectStore) GetAll(context.Context, any, ...uint32) ([]indexeddb.Record, error) {
 	return nil, indexeddb.ErrUnsupported
 }
 
-func (fakeTransactionObjectStore) GetAllKeys(context.Context, *indexeddb.KeyRange) ([]string, error) {
+func (fakeTransactionObjectStore) GetAllKeys(context.Context, any, ...uint32) ([]string, error) {
 	return nil, indexeddb.ErrUnsupported
 }
 
-func (fakeTransactionObjectStore) Count(context.Context, *indexeddb.KeyRange) (int64, error) {
+func (fakeTransactionObjectStore) Count(context.Context, any) (int64, error) {
 	return 0, indexeddb.ErrUnsupported
 }
 
-func (fakeTransactionObjectStore) DeleteRange(context.Context, indexeddb.KeyRange) (int64, error) {
+func (fakeTransactionObjectStore) DeleteRange(context.Context, any) (int64, error) {
 	return 0, indexeddb.ErrUnsupported
 }
 

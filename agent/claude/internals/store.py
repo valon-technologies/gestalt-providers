@@ -751,7 +751,7 @@ def _get_optional_record(store: Any, record_id: str) -> dict[str, Any] | None:
             return None
     # Transaction-scoped get() closes the transaction stream on NOT_FOUND, so use
     # a bounded exact-key range where missing records are expected.
-    records = store.get_all(gestalt.KeyRange(lower=record_id, upper=record_id))
+    records = store.get_all(gestalt.only(record_id))
     for record in records:
         if str(record.get("id") or "") == record_id:
             return record
@@ -892,7 +892,7 @@ def _persisted_turn_events_from_store(store: Any, turn_id: str) -> list[StoredTu
 
 def _turn_event_key_range(turn_id: str) -> Any:
     prefix = f"{turn_id}:"
-    return gestalt.KeyRange(lower=prefix, upper=f"{prefix}{RANGE_SUFFIX}")
+    return gestalt.bound(prefix, f"{prefix}{RANGE_SUFFIX}", False, False)
 
 
 def _session_idempotency_record_id(*, created_by_subject_id: str, idempotency_key: str) -> str:

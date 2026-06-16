@@ -150,29 +150,50 @@ func (s *ObjectStore) Clear(_ context.Context) error {
 	return nil
 }
 
-func (s *ObjectStore) GetAll(_ context.Context, _ *gestalt.KeyRange) ([]gestalt.Record, error) {
+func (s *ObjectStore) GetAll(_ context.Context, query any, _ ...uint32) ([]gestalt.Record, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return cloneRecords(s.records), nil
+	if query == nil {
+		return cloneRecords(s.records), nil
+	}
+	records := make([]gestalt.Record, 0, len(s.records))
+	for id, record := range s.records {
+		ok, err := indexeddb.MatchQuery(id, indexeddb.ToQuery(query))
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			records = append(records, cloneRecord(record))
+		}
+	}
+	return records, nil
 }
 
-func (s *ObjectStore) GetAllKeys(_ context.Context, _ *gestalt.KeyRange) ([]string, error) {
+func (s *ObjectStore) GetAllKeys(_ context.Context, query any, _ ...uint32) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	keys := make([]string, 0, len(s.records))
 	for id := range s.records {
-		keys = append(keys, id)
+		ok, err := indexeddb.MatchQuery(id, indexeddb.ToQuery(query))
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			keys = append(keys, id)
+		}
 	}
 	return keys, nil
 }
 
-func (s *ObjectStore) Count(_ context.Context, _ *gestalt.KeyRange) (int64, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return int64(len(s.records)), nil
+func (s *ObjectStore) Count(_ context.Context, query any) (int64, error) {
+	records, err := s.GetAll(context.Background(), query)
+	if err != nil {
+		return 0, err
+	}
+	return int64(len(records)), nil
 }
 
-func (s *ObjectStore) DeleteRange(_ context.Context, _ gestalt.KeyRange) (int64, error) {
+func (s *ObjectStore) DeleteRange(_ context.Context, _ any) (int64, error) {
 	return 0, indexeddb.ErrUnsupported
 }
 
@@ -180,11 +201,11 @@ func (s *ObjectStore) Index(name string) indexeddb.Index {
 	return Index{store: s, name: name}
 }
 
-func (s *ObjectStore) OpenCursor(_ context.Context, _ *gestalt.KeyRange, _ gestalt.CursorDirection) (indexeddb.Cursor, error) {
+func (s *ObjectStore) OpenCursor(_ context.Context, _ any, _ gestalt.CursorDirection) (indexeddb.Cursor, error) {
 	return nil, indexeddb.ErrUnsupported
 }
 
-func (s *ObjectStore) OpenKeyCursor(_ context.Context, _ *gestalt.KeyRange, _ gestalt.CursorDirection) (indexeddb.Cursor, error) {
+func (s *ObjectStore) OpenKeyCursor(_ context.Context, _ any, _ gestalt.CursorDirection) (indexeddb.Cursor, error) {
 	return nil, indexeddb.ErrUnsupported
 }
 
@@ -193,55 +214,88 @@ type Index struct {
 	name  string
 }
 
-func (idx Index) Get(_ context.Context, values ...any) (gestalt.Record, error) {
+func (idx Index) Get(_ context.Context, query any) (gestalt.Record, error) {
 	idx.store.mu.Lock()
 	defer idx.store.mu.Unlock()
 	for _, record := range idx.store.records {
-		if matchesIndex(record, idx.store.schema, idx.name, values) {
+		if recordMatchesIndexQuery(record, idx.store.schema, idx.name, query) {
 			return cloneRecord(record), nil
 		}
 	}
 	return nil, gestalt.ErrNotFound
 }
 
-func (idx Index) GetKey(_ context.Context, _ ...any) (string, error) {
+func (idx Index) GetKey(_ context.Context, _ any) (string, error) {
 	return "", indexeddb.ErrUnsupported
 }
 
-func (idx Index) GetAll(_ context.Context, _ *gestalt.KeyRange, values ...any) ([]gestalt.Record, error) {
+func (idx Index) GetAll(_ context.Context, query any, _ ...uint32) ([]gestalt.Record, error) {
 	idx.store.mu.Lock()
 	defer idx.store.mu.Unlock()
 	records := make([]gestalt.Record, 0, len(idx.store.records))
 	for _, record := range idx.store.records {
-		if matchesIndex(record, idx.store.schema, idx.name, values) {
+		if recordMatchesIndexQuery(record, idx.store.schema, idx.name, query) {
 			records = append(records, cloneRecord(record))
 		}
 	}
 	return records, nil
 }
 
-func (idx Index) GetAllKeys(_ context.Context, _ *gestalt.KeyRange, _ ...any) ([]string, error) {
+func (idx Index) GetAllKeys(_ context.Context, _ any, _ ...uint32) ([]string, error) {
 	return nil, indexeddb.ErrUnsupported
 }
 
-func (idx Index) Count(_ context.Context, _ *gestalt.KeyRange, _ ...any) (int64, error) {
+func (idx Index) Count(_ context.Context, _ any) (int64, error) {
 	return 0, indexeddb.ErrUnsupported
 }
 
-func (idx Index) Delete(_ context.Context, _ ...any) (int64, error) {
+func (idx Index) Delete(_ context.Context, _ any) (int64, error) {
 	return 0, indexeddb.ErrUnsupported
 }
 
-func (idx Index) DeleteRange(_ context.Context, _ *gestalt.KeyRange, _ ...any) (int64, error) {
+func (idx Index) DeleteRange(_ context.Context, _ any) (int64, error) {
 	return 0, indexeddb.ErrUnsupported
 }
 
-func (idx Index) OpenCursor(_ context.Context, _ *gestalt.KeyRange, _ gestalt.CursorDirection, _ ...any) (indexeddb.Cursor, error) {
+func (idx Index) OpenCursor(_ context.Context, _ any, _ gestalt.CursorDirection) (indexeddb.Cursor, error) {
 	return nil, indexeddb.ErrUnsupported
 }
 
-func (idx Index) OpenKeyCursor(_ context.Context, _ *gestalt.KeyRange, _ gestalt.CursorDirection, _ ...any) (indexeddb.Cursor, error) {
+func (idx Index) OpenKeyCursor(_ context.Context, _ any, _ gestalt.CursorDirection) (indexeddb.Cursor, error) {
 	return nil, indexeddb.ErrUnsupported
+}
+
+func recordMatchesIndexQuery(record gestalt.Record, schema gestalt.ObjectStoreOptions, indexName string, query any) bool {
+	key, ok := indexKeyFromRecord(record, schema, indexName)
+	if !ok {
+		return false
+	}
+	match, err := indexeddb.MatchQuery(key, indexeddb.ToQuery(query))
+	if err != nil {
+		return false
+	}
+	return match
+}
+
+func indexKeyFromRecord(record gestalt.Record, schema gestalt.ObjectStoreOptions, indexName string) (any, bool) {
+	for _, index := range schema.Indexes {
+		if index.Name != indexName {
+			continue
+		}
+		parts := make([]any, 0, len(index.KeyPath))
+		for _, field := range index.KeyPath {
+			value, ok := record[field]
+			if !ok {
+				return nil, false
+			}
+			parts = append(parts, value)
+		}
+		if len(parts) == 1 {
+			return parts[0], true
+		}
+		return parts, true
+	}
+	return nil, false
 }
 
 func matchesIndex(record gestalt.Record, schema gestalt.ObjectStoreOptions, indexName string, values []any) bool {

@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -631,15 +630,11 @@ func (s *Store) GetAll(ctx context.Context, req gestalt.IndexedDBObjectStoreRang
 	if err != nil {
 		return nil, err
 	}
-	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Range, false)
+	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Query, false)
 	if err != nil {
 		return nil, err
 	}
-	records := make([]gestalt.Record, 0, len(entries))
-	for _, entry := range entries {
-		records = append(records, entry.Record)
-	}
-	return records, nil
+	return limitRecords(recordsFrom(entries), req.Count), nil
 }
 
 func (s *Store) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) ([]string, error) {
@@ -647,10 +642,11 @@ func (s *Store) GetAllKeys(ctx context.Context, req gestalt.IndexedDBObjectStore
 	if err != nil {
 		return nil, err
 	}
-	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Range, true)
+	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Query, true)
 	if err != nil {
 		return nil, err
 	}
+	entries = limitRecords(entries, req.Count)
 	keys := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		keys = append(keys, entry.PrimaryKey)
@@ -663,14 +659,14 @@ func (s *Store) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRange
 	if err != nil {
 		return 0, err
 	}
-	if req.Range == nil {
+	if req.Query == nil {
 		count, err := s.countGenericRecords(ctx, req.Store)
 		if err != nil {
 			return 0, err
 		}
 		return count, nil
 	}
-	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Range, true)
+	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Query, true)
 	if err != nil {
 		return 0, err
 	}
@@ -678,11 +674,14 @@ func (s *Store) Count(ctx context.Context, req gestalt.IndexedDBObjectStoreRange
 }
 
 func (s *Store) DeleteRange(ctx context.Context, req gestalt.IndexedDBObjectStoreRangeRequest) (int64, error) {
+	if req.Query == nil {
+		return 0, status.Error(codes.InvalidArgument, "delete range requires a query")
+	}
 	m, err := s.getMetaForContext(ctx, req.Store)
 	if err != nil {
 		return 0, err
 	}
-	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Range, true)
+	entries, err := s.genericObjectStoreEntries(ctx, req.Store, m, req.Query, true)
 	if err != nil {
 		return 0, err
 	}
@@ -718,11 +717,7 @@ func (s *Store) IndexGetAll(ctx context.Context, req gestalt.IndexedDBIndexQuery
 	if err != nil {
 		return nil, err
 	}
-	records := make([]gestalt.Record, 0, len(entries))
-	for _, entry := range entries {
-		records = append(records, entry.Record)
-	}
-	return records, nil
+	return limitRecords(recordsFrom(entries), req.Count), nil
 }
 
 func (s *Store) IndexGetAllKeys(ctx context.Context, req gestalt.IndexedDBIndexQueryRequest) ([]string, error) {
@@ -730,6 +725,7 @@ func (s *Store) IndexGetAllKeys(ctx context.Context, req gestalt.IndexedDBIndexQ
 	if err != nil {
 		return nil, err
 	}
+	entries = limitRecords(entries, req.Count)
 	keys := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		keys = append(keys, entry.PrimaryKey)
@@ -764,20 +760,11 @@ func (s *Store) queryIndexEntries(ctx context.Context, req gestalt.IndexedDBInde
 	if idx == nil {
 		return nil, nil, status.Errorf(codes.NotFound, "index not found: %s", req.Index)
 	}
-	entries, err := s.genericIndexEntries(ctx, req.Store, m, idx, req.Values, req.Range, keyOnly)
+	entries, err := s.genericIndexEntries(ctx, req.Store, m, idx, req.Query, keyOnly)
 	if err != nil {
 		return nil, nil, err
 	}
 	return m, entries, nil
-}
-
-func sortCursorEntries(entries []cursorutil.Entry) {
-	sort.Slice(entries, func(i, j int) bool {
-		if cmp := cursorutil.CompareValues(entries[i].Key, entries[j].Key); cmp != 0 {
-			return cmp < 0
-		}
-		return cursorutil.CompareValues(entries[i].PrimaryKeyValue, entries[j].PrimaryKeyValue) < 0
-	})
 }
 
 func findIndex(m *storeMeta, name string) *gestalt.IndexSchema {

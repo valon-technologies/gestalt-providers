@@ -9,6 +9,8 @@ import (
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/client"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -34,7 +36,7 @@ type encodedKey struct {
 }
 
 func encodeKeyValue(value any) (encodedKey, error) {
-	raw, err := gestalt.EncodeIndexedDBKey(value)
+	raw, err := indexeddb.EncodeIndexedDBKey(value)
 	if err != nil {
 		return encodedKey{}, status.Errorf(codes.InvalidArgument, "encode key: %v", err)
 	}
@@ -47,7 +49,7 @@ func encodeKeyValue(value any) (encodedKey, error) {
 }
 
 func decodeKeyValue(raw []byte) (any, error) {
-	value, err := gestalt.DecodeIndexedDBKey(raw)
+	value, err := indexeddb.DecodeIndexedDBKey(raw)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "decode key value: %v", err)
 	}
@@ -706,7 +708,7 @@ func (s *Store) genericGet(ctx context.Context, store string, m *storeMeta, rawK
 	return unmarshalRecordBlob(row.recordBlob)
 }
 
-func (s *Store) genericObjectStoreEntries(ctx context.Context, store string, m *storeMeta, keyRange *gestalt.KeyRange, keysOnly bool) ([]cursorutil.Entry, error) {
+func (s *Store) genericObjectStoreEntries(ctx context.Context, store string, m *storeMeta, query *client.IndexedDBQuery, keysOnly bool) ([]cursorutil.Entry, error) {
 	rows, err := s.loadAllGenericRecords(ctx, store)
 	if err != nil {
 		return nil, err
@@ -732,88 +734,76 @@ func (s *Store) genericObjectStoreEntries(ctx context.Context, store string, m *
 			Record:          record,
 		})
 	}
-	entries, err = applyKeyRangeToEntries(entries, keyRange, false)
+	entries, err = filterEntriesByQuery(entries, query)
 	if err != nil {
 		return nil, err
 	}
-	sortCursorEntries(entries)
+	sortObjectStoreEntries(entries)
 	return entries, nil
 }
 
-func (s *Store) genericIndexEntries(ctx context.Context, store string, m *storeMeta, idx *gestalt.IndexSchema, values []any, keyRange *gestalt.KeyRange, keysOnly bool) ([]cursorutil.Entry, error) {
-	pin, effectiveRange, err := normalizeIndexQuery(idx, values, keyRange)
+func (s *Store) genericIndexEntries(ctx context.Context, store string, m *storeMeta, idx *gestalt.IndexSchema, query *client.IndexedDBQuery, keysOnly bool) ([]cursorutil.Entry, error) {
+	if exactKey, ok := queryExactKey(query); ok {
+		encoded, err := encodeKeyValue(exactKey)
+		if err != nil {
+			return nil, err
+		}
+		nonUniqueRows, err := s.loadGenericIndexRowsByKey(ctx, s.genericIndexTable(), store, idx.Name, encoded.hash, encoded.raw)
+		if err != nil {
+			return nil, err
+		}
+		uniqueRows, err := s.loadGenericIndexRowsByKey(ctx, s.genericUniqueIndexTable(), store, idx.Name, encoded.hash, encoded.raw)
+		if err != nil {
+			return nil, err
+		}
+		entries, err := s.indexEntriesFromRows(ctx, store, append(nonUniqueRows, uniqueRows...), keysOnly)
+		if err != nil {
+			return nil, err
+		}
+		sortIndexEntries(entries)
+		return entries, nil
+	}
+
+	nonUniqueRows, err := s.loadGenericIndexRows(ctx, s.genericIndexTable(), store, idx.Name)
 	if err != nil {
 		return nil, err
 	}
-	var nonUniqueRows []genericIndexRow
-	var uniqueRows []genericIndexRow
-	if len(values) == len(idx.KeyPath) && len(values) > 0 {
-		var lookupValue any = values
-		if len(values) == 1 {
-			lookupValue = values[0]
-		}
-		encoded, err := encodeKeyValue(lookupValue)
-		if err != nil {
-			return nil, err
-		}
-		nonUniqueRows, err = s.loadGenericIndexRowsByKey(ctx, s.genericIndexTable(), store, idx.Name, encoded.hash, encoded.raw)
-		if err != nil {
-			return nil, err
-		}
-		uniqueRows, err = s.loadGenericIndexRowsByKey(ctx, s.genericUniqueIndexTable(), store, idx.Name, encoded.hash, encoded.raw)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		nonUniqueRows, err = s.loadGenericIndexRows(ctx, s.genericIndexTable(), store, idx.Name)
-		if err != nil {
-			return nil, err
-		}
-		uniqueRows, err = s.loadGenericIndexRows(ctx, s.genericUniqueIndexTable(), store, idx.Name)
-		if err != nil {
-			return nil, err
-		}
+	uniqueRows, err := s.loadGenericIndexRows(ctx, s.genericUniqueIndexTable(), store, idx.Name)
+	if err != nil {
+		return nil, err
 	}
 	allRows := append(nonUniqueRows, uniqueRows...)
 
+	entries, err := s.indexEntriesFromRows(ctx, store, allRows, keysOnly)
+	if err != nil {
+		return nil, err
+	}
+	entries, err = filterEntriesByQuery(entries, query)
+	if err != nil {
+		return nil, err
+	}
+	sortIndexEntries(entries)
+	return entries, nil
+}
+
+func (s *Store) indexEntriesFromRows(ctx context.Context, store string, rows []genericIndexRow, keysOnly bool) ([]cursorutil.Entry, error) {
 	recordByPrimary := map[string]gestalt.Record{}
 	if !keysOnly {
-		if len(values) == len(idx.KeyPath) && len(values) > 0 {
-			for _, row := range allRows {
-				key := genericRecordLookupKey(row.pkHash, row.pkBytes)
-				if _, ok := recordByPrimary[key]; ok {
-					continue
-				}
-				recordRow, err := s.loadGenericRecordByPrimaryDirect(ctx, store, row.pkHash, row.pkBytes)
-				if err != nil {
-					return nil, err
-				}
-				if recordRow == nil {
-					continue
-				}
-				record, err := unmarshalRecordBlob(recordRow.recordBlob)
-				if err != nil {
-					return nil, err
-				}
-				recordByPrimary[key] = record
-			}
-		} else {
-			records, err := s.loadAllGenericRecords(ctx, store)
+		records, err := s.loadAllGenericRecords(ctx, store)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range records {
+			record, err := unmarshalRecordBlob(row.recordBlob)
 			if err != nil {
 				return nil, err
 			}
-			for _, row := range records {
-				record, err := unmarshalRecordBlob(row.recordBlob)
-				if err != nil {
-					return nil, err
-				}
-				recordByPrimary[genericRecordLookupKey(row.pkHash, row.pkBytes)] = record
-			}
+			recordByPrimary[genericRecordLookupKey(row.pkHash, row.pkBytes)] = record
 		}
 	}
 
-	entries := make([]cursorutil.Entry, 0, len(allRows))
-	for _, row := range allRows {
+	entries := make([]cursorutil.Entry, 0, len(rows))
+	for _, row := range rows {
 		indexKeyValue, err := decodeKeyValue(row.indexKeyBytes)
 		if err != nil {
 			return nil, err
@@ -823,7 +813,7 @@ func (s *Store) genericIndexEntries(ctx context.Context, store string, m *storeM
 			return nil, err
 		}
 		entry := cursorutil.Entry{
-			Key:             normalizeDocumentBound(indexKeyValue),
+			Key:             indexKeyValue,
 			PrimaryKey:      fmt.Sprint(primaryKeyValue),
 			PrimaryKeyValue: primaryKeyValue,
 		}
@@ -836,12 +826,6 @@ func (s *Store) genericIndexEntries(ctx context.Context, store string, m *storeM
 		}
 		entries = append(entries, entry)
 	}
-
-	entries, err = filterEntriesByIndexQuery(entries, pin, effectiveRange)
-	if err != nil {
-		return nil, err
-	}
-	sortCursorEntries(entries)
 	return entries, nil
 }
 

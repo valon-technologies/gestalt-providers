@@ -230,7 +230,7 @@ func (s *store) deleteCredential(ctx context.Context, id string) error {
 }
 
 func (s *store) credentialRecord(ctx context.Context, subject, audience, qualifier string) (gestalt.Record, error) {
-	record, err := s.credentials.Index(indexByKey).Get(ctx, subject, audience, qualifier)
+	record, err := s.credentials.Index(indexByKey).Get(ctx, []any{subject, audience, qualifier})
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, gestalt.ErrExternalCredentialNotFound
 	}
@@ -241,7 +241,13 @@ func (s *store) credentialRecord(ctx context.Context, subject, audience, qualifi
 }
 
 func (s *store) listCredentialRecords(ctx context.Context, indexName string, keys ...any) ([]gestalt.Record, error) {
-	records, err := s.credentials.Index(indexName).GetAll(ctx, nil, keys...)
+	var query any
+	if len(keys) == 1 {
+		query = keys[0]
+	} else if len(keys) > 1 {
+		query = keys
+	}
+	records, err := s.credentials.Index(indexName).GetAll(ctx, query)
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil, nil
 	}
