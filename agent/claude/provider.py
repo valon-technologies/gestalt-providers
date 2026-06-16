@@ -234,6 +234,7 @@ class ClaudeCodeAgentProvider(
                     "messages": list(turn.messages),
                     "request_context": getattr(request, "context", None),
                     "schema": schema,
+                    "permission_mode": create_request.permission_mode,
                     "timeout_seconds": create_request.timeout_seconds,
                 },
                 daemon=True,
@@ -397,6 +398,7 @@ class ClaudeCodeAgentProvider(
         messages: list[dict[str, Any]],
         request_context: Any | None,
         schema: dict[str, Any] | None,
+        permission_mode: str,
         timeout_seconds: float,
     ) -> None:
         try:
@@ -407,6 +409,7 @@ class ClaudeCodeAgentProvider(
                 messages=messages,
                 request_context=request_context,
                 schema=schema,
+                permission_mode=permission_mode,
                 timeout_seconds=timeout_seconds,
             )
         except ClaudeExecutionCanceled as exc:
