@@ -2198,7 +2198,7 @@ def commit_summary(commit: Mapping[str, Any]) -> dict[str, Any]:
     )
 
 
-def commit_list_summary(response: list[Mapping[str, Any]]) -> dict[str, Any]:
+def commit_list_summary(response: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     return {
         "commits": [
             commit_summary(item)
