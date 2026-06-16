@@ -133,8 +133,8 @@ func TestTokenPKCEUsesStoredVerifier(t *testing.T) {
 	if !introspectResp.Active {
 		t.Fatal("Introspect() expected active token")
 	}
-	if introspectResp.Subject != "user:user-123" {
-		t.Fatalf("Introspect() subject = %q, want %q", introspectResp.Subject, "user:user-123")
+	if introspectResp.Subject != "user:user@example.com" {
+		t.Fatalf("Introspect() subject = %q, want %q", introspectResp.Subject, "user:user@example.com")
 	}
 	if introspectResp.ClientID != defaultOAuthClientID {
 		t.Fatalf("Introspect() client_id = %q, want %q", introspectResp.ClientID, defaultOAuthClientID)
@@ -614,35 +614,101 @@ func TestGrantStorePersistsOnlyTokenHashes(t *testing.T) {
 	}
 }
 
-func TestTokenExchangeIssuesScopedGrant(t *testing.T) {
+func TestTokenExchangeAttenuatesScope(t *testing.T) {
 	p := New()
 	attachGrantStore(t, p)
 	ctx := context.Background()
 	subject := "user:owner@example.com"
-	issued, err := p.grants.issue(ctx, subject, "openid", defaultOAuthClientID, time.Hour)
-	if err != nil {
-		t.Fatalf("issue() error = %v", err)
-	}
-	sessionToken := issued.accessToken
 
-	tokenResp, err := p.Token(context.Background(), &gestalt.TokenRequest{
-		GrantType:        grantTypeTokenExchange,
-		SubjectToken:     sessionToken,
-		SubjectTokenType: subjectTokenTypeAccessToken,
-		Scope:            "deal-hub:read",
-	})
-	if err != nil {
-		t.Fatalf("Token() error = %v", err)
+	tests := []struct {
+		name          string
+		sourceScope   string
+		requested     string
+		wantScope     string
+		wantErrSubstr string
+	}{
+		{
+			name:        "same scope succeeds",
+			sourceScope: "openid",
+			requested:   "openid",
+			wantScope:   "openid",
+		},
+		{
+			name:          "broader requested scope fails",
+			sourceScope:   "deal-hub:read",
+			requested:     "deal-hub:write",
+			wantErrSubstr: "exceeds subject token scope",
+		},
+		{
+			name:        "narrower requested scope succeeds",
+			sourceScope: "deal-hub:read deal-hub:write",
+			requested:   "deal-hub:read",
+			wantScope:   "deal-hub:read",
+		},
+		{
+			name:        "empty requested inherits restricted source scope",
+			sourceScope: "deal-hub:read",
+			requested:   "",
+			wantScope:   "deal-hub:read",
+		},
+		{
+			name:        "unrestricted source accepts requested scope",
+			sourceScope: "",
+			requested:   "deal-hub:write",
+			wantScope:   "deal-hub:write",
+		},
+		{
+			name:        "unrestricted source with empty requested stays unrestricted",
+			sourceScope: "",
+			requested:   "",
+			wantScope:   "",
+		},
 	}
-	introspectResp, err := p.Introspect(context.Background(), &gestalt.IntrospectRequest{Token: tokenResp.AccessToken})
-	if err != nil {
-		t.Fatalf("Introspect() error = %v", err)
-	}
-	if !introspectResp.Active {
-		t.Fatal("Introspect() expected active exchanged token")
-	}
-	if introspectResp.Scope != "deal-hub:read" {
-		t.Fatalf("Introspect() scope = %q, want %q", introspectResp.Scope, "deal-hub:read")
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issued, err := p.grants.issue(ctx, subject, tt.sourceScope, defaultOAuthClientID, time.Hour)
+			if err != nil {
+				t.Fatalf("issue() error = %v", err)
+			}
+			beforeIDs := p.grants.listGrantIDs(ctx, subject)
+
+			tokenResp, err := p.Token(ctx, &gestalt.TokenRequest{
+				GrantType:        grantTypeTokenExchange,
+				SubjectToken:     issued.accessToken,
+				SubjectTokenType: subjectTokenTypeAccessToken,
+				Scope:            tt.requested,
+			})
+			if tt.wantErrSubstr != "" {
+				if err == nil {
+					t.Fatal("Token() error = nil, want scope attenuation failure")
+				}
+				if !strings.Contains(err.Error(), tt.wantErrSubstr) {
+					t.Fatalf("Token() error = %v, want substring %q", err, tt.wantErrSubstr)
+				}
+				afterIDs := p.grants.listGrantIDs(ctx, subject)
+				if len(afterIDs) != len(beforeIDs) {
+					t.Fatalf("grant count = %d, want %d after rejected exchange", len(afterIDs), len(beforeIDs))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Token() error = %v", err)
+			}
+			if tokenResp.Scope != tt.wantScope {
+				t.Fatalf("Token() scope = %q, want %q", tokenResp.Scope, tt.wantScope)
+			}
+			introspectResp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: tokenResp.AccessToken})
+			if err != nil {
+				t.Fatalf("Introspect() error = %v", err)
+			}
+			if !introspectResp.Active {
+				t.Fatal("Introspect() expected active exchanged token")
+			}
+			if introspectResp.Scope != tt.wantScope {
+				t.Fatalf("Introspect() scope = %q, want %q", introspectResp.Scope, tt.wantScope)
+			}
+		})
 	}
 }
 

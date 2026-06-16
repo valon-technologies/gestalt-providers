@@ -280,12 +280,12 @@ func hashToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func subjectForOIDCSub(sub string) string {
-	sub = strings.TrimSpace(sub)
-	if sub == "" {
+func subjectForVerifiedEmail(email string) string {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
 		return ""
 	}
-	return "user:" + sub
+	return "user:" + email
 }
 
 func recordString(record gestalt.Record, key string) string {

@@ -299,9 +299,9 @@ func (p *Provider) tokenAuthorizationCode(ctx context.Context, req *gestalt.Toke
 	if err != nil {
 		return nil, err
 	}
-	subject := subjectForOIDCSub(user.Sub)
+	subject := subjectForVerifiedEmail(user.Email)
 	if subject == "" {
-		return nil, fmt.Errorf("oidc auth: userinfo missing sub")
+		return nil, fmt.Errorf("oidc auth: userinfo missing verified email")
 	}
 	clientID := strings.TrimSpace(req.ClientID)
 	if clientID == "" {
@@ -343,8 +343,11 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 	if clientID == "" {
 		clientID = defaultOAuthClientID
 	}
-	scope := strings.TrimSpace(req.Scope)
-	issued, err := p.grants.issue(ctx, introspectResp.Subject, scope, clientID, p.SessionTTL())
+	issuedScope, err := attenuateScope(introspectResp.Scope, req.Scope)
+	if err != nil {
+		return nil, err
+	}
+	issued, err := p.grants.issue(ctx, introspectResp.Subject, issuedScope, clientID, p.SessionTTL())
 	if err != nil {
 		return nil, err
 	}
@@ -352,7 +355,7 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 		AccessToken: issued.accessToken,
 		TokenType:   "Bearer",
 		ExpiresIn:   issued.expiresIn,
-		Scope:       scope,
+		Scope:       issuedScope,
 		GrantID:     issued.grantID,
 	}, nil
 }
@@ -378,7 +381,7 @@ func (p *Provider) Introspect(ctx context.Context, req *gestalt.IntrospectReques
 	}
 	grants, err := p.grantStore()
 	if err != nil {
-		return &gestalt.IntrospectResponse{Active: false}, nil
+		return nil, err
 	}
 	resp := grants.introspect(ctx, strings.TrimSpace(req.Token))
 	return &resp, nil
