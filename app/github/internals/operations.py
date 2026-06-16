@@ -1368,7 +1368,7 @@ def list_commits(
     subject: gestalt.Subject,
     authorization: gestalt.Authorization | None = None,
     client: GitHubAPIClient | None = None,
-) -> JsonObject:
+) -> list[JsonObject]:
     github = github_client(client)
     owner = require_slug(request.owner, "owner")
     repo = require_slug(request.repo, "repo")
@@ -1393,11 +1393,12 @@ def list_commits(
     token = github.installation_token(
         installation_id, repositories=[repo], permissions={"contents": "read"}
     )
-    return github.github_json(
+    data = github.github_json_value(
         "GET",
         path_with_query(repo_path(owner, repo, "commits"), params),
         token,
     )
+    return require_json_object_list(data, "commits response")
 
 
 def compare_refs(
