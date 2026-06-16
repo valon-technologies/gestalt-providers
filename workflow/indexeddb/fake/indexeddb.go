@@ -298,7 +298,7 @@ func (c *ProviderCursor) Key() any {
 	if c.entry == nil {
 		return nil
 	}
-	return c.entry.PrimaryKey
+	return c.entry.Key
 }
 
 func (c *ProviderCursor) Delete() error { return indexeddb.ErrUnsupported }

@@ -266,8 +266,8 @@ func TestOpenCursorIndexRangeUsesIndexKeys(t *testing.T) {
 		t.Fatalf("active cursor count = %d, want 3", len(entries))
 	}
 	for _, entry := range entries {
-		if key := normalizeDocumentBound(entry.Key); len(key) != 1 || key[0] != "active" {
-			t.Fatalf("index key = %#v, want [\"active\"]", entry.Key)
+		if entry.Key != "active" {
+			t.Fatalf("index key = %#v, want %q", entry.Key, "active")
 		}
 	}
 }
@@ -430,8 +430,8 @@ func TestOpenCursorIndexUpdatePreservesSnapshotKeyOrder(t *testing.T) {
 	if got := first.PrimaryKey; got != "a" {
 		t.Fatalf("first primary key = %q, want %q", got, "a")
 	}
-	if key := normalizeDocumentBound(first.Key); len(key) != 1 || key[0] != "active" {
-		t.Fatalf("first key = %#v, want [\"active\"]", first.Key)
+	if first.Key != "active" {
+		t.Fatalf("first key = %#v, want %q", first.Key, "active")
 	}
 
 	updated, err := cursor.Update(context.Background(), gestalt.Record{
@@ -442,8 +442,8 @@ func TestOpenCursorIndexUpdatePreservesSnapshotKeyOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	if key := normalizeDocumentBound(updated.Key); len(key) != 1 || key[0] != "active" {
-		t.Fatalf("updated key = %#v, want snapshot key [\"active\"]", updated.Key)
+	if updated.Key != "active" {
+		t.Fatalf("updated key = %#v, want snapshot key %q", updated.Key, "active")
 	}
 	if got := updated.Record["status"]; got != "inactive" {
 		t.Fatalf("updated record status = %#v, want %q", got, "inactive")
@@ -456,8 +456,8 @@ func TestOpenCursorIndexUpdatePreservesSnapshotKeyOrder(t *testing.T) {
 	if got := second.PrimaryKey; got != "b" {
 		t.Fatalf("second primary key = %q, want %q", got, "b")
 	}
-	if key := normalizeDocumentBound(second.Key); len(key) != 1 || key[0] != "active" {
-		t.Fatalf("second key = %#v, want [\"active\"]", second.Key)
+	if second.Key != "active" {
+		t.Fatalf("second key = %#v, want %q", second.Key, "active")
 	}
 }
 
@@ -486,8 +486,8 @@ func TestOpenCursorIndexUpdateAllowsClearingIndexedField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	if key := normalizeDocumentBound(updated.Key); len(key) != 1 || key[0] != "active" {
-		t.Fatalf("updated key = %#v, want snapshot key [\"active\"]", updated.Key)
+	if updated.Key != "active" {
+		t.Fatalf("updated key = %#v, want snapshot key %q", updated.Key, "active")
 	}
 
 	stored, err := h.store.Get(context.Background(), gestalt.IndexedDBObjectStoreRequest{Store: "items", ID: "a"})

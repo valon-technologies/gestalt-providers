@@ -756,7 +756,12 @@ func (s *Store) genericIndexEntries(ctx context.Context, store string, m *storeM
 		if err != nil {
 			return nil, err
 		}
-		return s.indexEntriesFromRows(ctx, store, append(nonUniqueRows, uniqueRows...), keysOnly)
+		entries, err := s.indexEntriesFromRows(ctx, store, append(nonUniqueRows, uniqueRows...), keysOnly)
+		if err != nil {
+			return nil, err
+		}
+		sortIndexEntries(entries)
+		return entries, nil
 	}
 
 	nonUniqueRows, err := s.loadGenericIndexRows(ctx, s.genericIndexTable(), store, idx.Name)

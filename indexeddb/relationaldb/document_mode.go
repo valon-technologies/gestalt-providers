@@ -83,10 +83,3 @@ func indexKeyFromRecord(record gestalt.Record, idx *gestalt.IndexSchema) (any, b
 	}
 	return parts, true, nil
 }
-
-func normalizeDocumentBound(value any) []any {
-	if parts, ok := value.([]any); ok {
-		return parts
-	}
-	return []any{value}
-}
