@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from http import HTTPStatus
 from typing import Any
 
 import gestalt
+
+from internals.store import save_slack_event_registration
 
 app = gestalt.App("slack_v2")
 
@@ -23,8 +26,29 @@ class RegisterSlackEventInput(gestalt.Model):
     method="POST",
     description="Register a Slack event handler configuration.",
 )
-def register_slack_event(_input: RegisterSlackEventInput, _req: gestalt.Request) -> dict[str, Any]:
-    return {}
+def register_slack_event(
+    input: RegisterSlackEventInput, _req: gestalt.Request
+) -> dict[str, Any] | gestalt.Response[dict[str, str]]:
+    app_id = input.app_id.strip()
+    if not app_id:
+        return gestalt.Response(
+            status=HTTPStatus.BAD_REQUEST, body={"error": "app_id is required"}
+        )
+
+    save_slack_event_registration(
+        app_id=app_id,
+        client_id=input.client_id,
+        client_secret=input.client_secret,
+        signing_secret=input.signing_secret,
+        display_name=input.display_name,
+        workflow_definition_id=input.workflow_definition_id,
+    )
+    return {
+        "ok": True,
+        "app_id": app_id,
+        "display_name": input.display_name,
+        "workflow_definition_id": input.workflow_definition_id,
+    }
 
 
 @app.operation(

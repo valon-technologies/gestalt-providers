@@ -31,5 +31,5 @@ default policy is allow; the relation is not consulted in that case.
 
 ## Capabilities
 
-- `register_slack_event` — register Slack bot credentials and workflow routing (no-op for now).
+- `register_slack_event` — register Slack bot credentials and workflow routing in IndexedDB (keyed by `app_id`).
 - `handle_slack_event` — exposed to HTTP at `POST /api/v1/slack_v2/events`. Returns `hello world`.
