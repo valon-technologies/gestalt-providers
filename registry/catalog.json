@@ -1906,7 +1906,7 @@
       "kind": "app",
       "latestInstallableVersion": null,
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/slack_v2/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.1",
+      "manifestVersion": "0.0.1-alpha.3",
       "name": "slack_v2",
       "package": "github.com/valon-technologies/gestalt-providers/app/slack_v2",
       "packagePath": "app/slack_v2",
