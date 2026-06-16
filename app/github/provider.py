@@ -24,6 +24,8 @@ from internals.constants import (
     BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
     BOT_GET_CHECK_RUN_OPERATION,
     BOT_GET_CONTENT_OPERATION,
+    BOT_LIST_COMMITS_OPERATION,
+    BOT_COMPARE_REFS_OPERATION,
     BOT_GET_PULL_REQUEST_OPERATION,
     BOT_GET_REPOSITORY_OPERATION,
     BOT_GET_WORKFLOW_RUN_OPERATION,
@@ -60,6 +62,8 @@ from internals.operations import (
     GitHubCreatePullRequestRequest,
     GitHubCreatePullRequestReviewRequest,
     GitHubFileContentRequest,
+    GitHubListCommitsRequest,
+    GitHubCompareRefsRequest,
     GitHubFileChange,
     GitHubListCheckSuiteCheckRunsRequest,
     GitHubListCheckRunAnnotationsRequest,
@@ -91,6 +95,10 @@ from internals.operations import (
     create_pull_request_with_files,
     get_check_run,
     get_file_text_at_ref,
+    list_commits,
+    compare_refs,
+    commit_list_summary,
+    compare_refs_summary,
     get_pull_request,
     get_repository,
     get_workflow_run,
@@ -199,6 +207,53 @@ class GetContentInput(gestalt.Model):
         default=80000,
         required=False,
     )
+
+
+class ListCommitsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    sha: str = gestalt.field(
+        description="SHA or branch to start listing commits from.",
+        default="",
+        required=False,
+    )
+    path: str = gestalt.field(
+        description="Only commits containing this file path.",
+        default="",
+        required=False,
+    )
+    author: str = gestalt.field(
+        description="GitHub username or email to filter by author.",
+        default="",
+        required=False,
+    )
+    since: str = gestalt.field(
+        description="ISO 8601 timestamp; only commits after this date.",
+        default="",
+        required=False,
+    )
+    until: str = gestalt.field(
+        description="ISO 8601 timestamp; only commits before this date.",
+        default="",
+        required=False,
+    )
+    per_page: int = gestalt.field(
+        description="Results per page, from 1 through 100",
+        default=30,
+        required=False,
+    )
+    page: int = gestalt.field(
+        description="Page number, starting at 1",
+        default=0,
+        required=False,
+    )
+
+
+class CompareRefsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    base: str = gestalt.field(description="Base ref, branch, or SHA")
+    head: str = gestalt.field(description="Head ref, branch, or SHA")
 
 
 class CommitFilesInput(gestalt.Model):
@@ -986,6 +1041,72 @@ def bot_get_content(input: GetContentInput, req: gestalt.Request) -> OperationRe
     except GitHubAPIError as err:
         return _github_error(err)
     return {"data": {"path": input.path, "ref": input.ref, "content": content}}
+
+
+@app.operation(
+    id=BOT_LIST_COMMITS_OPERATION,
+    method="GET",
+    description="List commits on a repository using a GitHub App installation token",
+    tags=["repo", "code", "history"],
+)
+def bot_list_commits(input: ListCommitsInput, req: gestalt.Request) -> OperationResult:
+    try:
+        results = list_commits(
+            GitHubListCommitsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                sha=input.sha,
+                path=input.path,
+                author=input.author,
+                since=input.since,
+                until=input.until,
+                per_page=input.per_page,
+                page=input.page,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    if not isinstance(results, list):
+        return _server_error("GitHub commits response was not a list")
+    return {"data": commit_list_summary(results)}
+
+
+@app.operation(
+    id=BOT_COMPARE_REFS_OPERATION,
+    method="GET",
+    description="Compare two refs using a GitHub App installation token",
+    tags=["repo", "code", "history"],
+)
+def bot_compare_refs(input: CompareRefsInput, req: gestalt.Request) -> OperationResult:
+    try:
+        comparison = compare_refs(
+            GitHubCompareRefsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                base=input.base,
+                head=input.head,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": compare_refs_summary(comparison)}
+
 
 
 @app.operation(

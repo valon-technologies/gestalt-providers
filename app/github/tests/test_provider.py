@@ -2995,6 +2995,168 @@ class GitHubProviderTests(unittest.TestCase):
             [{"contents": "read"}, {"contents": "read"}, {"contents": "read"}],
         )
 
+    def test_bot_list_commits_succeeds_with_top_level_array_response(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["repositories"], ["widgets"])
+                self.assertEqual(body["permissions"], {"contents": "read"})
+                return FakeHTTPResponse({"token": "contents-read-token"})
+            if path == "/repos/acme/widgets/commits":
+                self.assertEqual(auth_header(request), "Bearer contents-read-token")
+                query = urllib.parse.parse_qs(
+                    urllib.parse.urlparse(request.full_url).query
+                )
+                self.assertEqual(query["sha"], ["main"])
+                self.assertEqual(query["path"], ["src/widget.py"])
+                self.assertEqual(query["per_page"], ["2"])
+                self.assertEqual(query["page"], ["3"])
+                return FakeHTTPResponse(
+                    [
+                        {
+                            "sha": "abc123",
+                            "html_url": "https://github.com/acme/widgets/commit/abc123",
+                            "commit": {
+                                "message": "Fix widget",
+                                "author": {
+                                    "name": "Ada",
+                                    "date": "2026-06-16T00:00:00Z",
+                                },
+                            },
+                        }
+                    ]
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_list_commits(
+                provider_module.ListCommitsInput(
+                    owner="acme",
+                    repo="widgets",
+                    sha="main",
+                    path="src/widget.py",
+                    per_page=2,
+                    page=3,
+                ),
+                github_authorized_request(),
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["commits"][0]["sha"], "abc123")
+        self.assertEqual(
+            [
+                call[2].get("permissions")
+                for call in calls
+                if call[1].endswith("access_tokens")
+            ],
+            [{"contents": "read"}],
+        )
+
+    def test_bot_list_commits_returns_bad_gateway_for_object_response(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            path = request_path(request)
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                return FakeHTTPResponse({"token": "contents-read-token"})
+            if path == "/repos/acme/widgets/commits":
+                return FakeHTTPResponse({"message": "not a list"})
+            self.fail(f"unexpected request {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_list_commits(
+                provider_module.ListCommitsInput(owner="acme", repo="widgets"),
+                github_authorized_request(),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.BAD_GATEWAY)
+        self.assertIn("not a list", response.body["error"])
+
+    def test_bot_compare_refs_succeeds_with_object_response(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["repositories"], ["widgets"])
+                self.assertEqual(body["permissions"], {"contents": "read"})
+                return FakeHTTPResponse({"token": "contents-read-token"})
+            if path == "/repos/acme/widgets/compare/main...feature":
+                self.assertEqual(auth_header(request), "Bearer contents-read-token")
+                return FakeHTTPResponse(
+                    {
+                        "status": "ahead",
+                        "ahead_by": 1,
+                        "behind_by": 0,
+                        "total_commits": 1,
+                        "html_url": "https://github.com/acme/widgets/compare/main...feature",
+                        "permalink_url": "https://github.com/acme/widgets/compare/acme:main...acme:feature",
+                        "commits": [],
+                        "files": [],
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_compare_refs(
+                provider_module.CompareRefsInput(
+                    owner="acme",
+                    repo="widgets",
+                    base="main",
+                    head="feature",
+                ),
+                github_authorized_request(),
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["status"], "ahead")
+        self.assertEqual(
+            [
+                call[2].get("permissions")
+                for call in calls
+                if call[1].endswith("access_tokens")
+            ],
+            [{"contents": "read"}],
+        )
+
     def test_list_pull_request_files_rejects_invalid_pagination_before_github_calls(
         self,
     ) -> None:

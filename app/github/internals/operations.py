@@ -82,6 +82,27 @@ class GitHubFileContentRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubListCommitsRequest:
+    owner: str
+    repo: str
+    sha: str = ""
+    path: str = ""
+    author: str = ""
+    since: str = ""
+    until: str = ""
+    per_page: int = 30
+    page: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubCompareRefsRequest:
+    owner: str
+    repo: str
+    base: str
+    head: str
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubRepositoryRequest:
     owner: str
     repo: str
@@ -1341,6 +1362,75 @@ def search_code(
     return github.github_json("GET", path_with_query("/search/code", params), token)
 
 
+def list_commits(
+    request: GitHubListCommitsRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> list[JsonObject]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    params = pagination_params(per_page=request.per_page, page=request.page)
+    if request.sha.strip():
+        params["sha"] = request.sha.strip()
+    if request.path.strip():
+        params["path"] = request.path.strip()
+    if request.author.strip():
+        params["author"] = request.author.strip()
+    if request.since.strip():
+        params["since"] = request.since.strip()
+    if request.until.strip():
+        params["until"] = request.until.strip()
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"contents": "read"}
+    )
+    data = github.github_json_value(
+        "GET",
+        path_with_query(repo_path(owner, repo, "commits"), params),
+        token,
+    )
+    return require_json_object_list(data, "commits response")
+
+
+def compare_refs(
+    request: GitHubCompareRefsRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    base = require_text(request.base, "base")
+    head = require_text(request.head, "head")
+    compare_segment = f"{base}...{head}"
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"contents": "read"}
+    )
+    return github.github_json(
+        "GET",
+        repo_path(owner, repo, "compare", compare_segment, safe_last="/.:"),
+        token,
+    )
+
+
 def get_file_text_at_ref(
     request: GitHubFileContentRequest,
     *,
@@ -2090,6 +2180,55 @@ def repository_summary(repo: Mapping[str, Any]) -> dict[str, Any]:
             "description": str_field(repo, "description"),
             "default_branch": str_field(repo, "default_branch"),
             "html_url": str_field(repo, "html_url"),
+        }
+    )
+
+
+def commit_summary(commit: Mapping[str, Any]) -> dict[str, Any]:
+    commit_obj = map_field(commit, "commit")
+    author = map_field(commit_obj, "author")
+    return _compact_dict(
+        {
+            "sha": str_field(commit, "sha"),
+            "html_url": str_field(commit, "html_url"),
+            "message": str_field(commit_obj, "message"),
+            "author_name": str_field(author, "name"),
+            "author_date": str_field(author, "date"),
+        }
+    )
+
+
+def commit_list_summary(response: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    return {
+        "commits": [
+            commit_summary(item)
+            for item in response
+            if isinstance(item, dict)
+        ],
+    }
+
+
+def compare_refs_summary(response: Mapping[str, Any]) -> dict[str, Any]:
+    files = response.get("files")
+    commits = response.get("commits")
+    return _compact_dict(
+        {
+            "status": str_field(response, "status"),
+            "ahead_by": int_field(response, "ahead_by"),
+            "behind_by": int_field(response, "behind_by"),
+            "total_commits": int_field(response, "total_commits"),
+            "html_url": str_field(response, "html_url"),
+            "permalink_url": str_field(response, "permalink_url"),
+            "commits": [
+                commit_summary(item)
+                for item in (commits if isinstance(commits, list) else [])
+                if isinstance(item, dict)
+            ],
+            "files": [
+                pull_request_file_summary(item)
+                for item in (files if isinstance(files, list) else [])
+                if isinstance(item, dict)
+            ],
         }
     )
 

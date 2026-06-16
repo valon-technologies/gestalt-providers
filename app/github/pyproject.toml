@@ -31,6 +31,8 @@ vulture-ignore-names = [
   "bot_get_repository",
   "bot_search_code",
   "bot_get_content",
+  "bot_list_commits",
+  "bot_compare_refs",
   "bot_commit_files",
   "bot_open_pull_request",
   "bot_close_pull_request",
