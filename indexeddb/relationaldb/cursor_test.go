@@ -9,6 +9,7 @@ import (
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 )
 
 type cursorHarness struct {
@@ -257,7 +258,7 @@ func TestOpenCursorIndexRangeUsesIndexKeys(t *testing.T) {
 		Store:     "items",
 		Index:     "by_status",
 		Direction: gestalt.CursorNext,
-		Range:     &gestalt.KeyRange{Lower: "active", Upper: "active"},
+		Query:     indexeddb.ToQuery(indexeddb.Only("active")),
 	})
 
 	entries := collectCursor(t, cursor)
@@ -297,7 +298,7 @@ func TestOpenCursorRangeUsesNativeNumericPrimaryKeys(t *testing.T) {
 	cursor := openTestCursor(t, h.store, gestalt.IndexedDBOpenCursorRequest{
 		Store:     "numbers",
 		Direction: gestalt.CursorNext,
-		Range:     &gestalt.KeyRange{Lower: int64(2), Upper: int64(10)},
+		Query:     indexeddb.ToQuery(indexeddb.Bound(int64(2), int64(10), false, false)),
 	})
 
 	entries := collectCursor(t, cursor)
@@ -501,9 +502,9 @@ func TestOpenCursorIndexUpdateAllowsClearingIndexedField(t *testing.T) {
 	}
 
 	active, err := h.store.IndexGetAll(context.Background(), gestalt.IndexedDBIndexQueryRequest{
-		Store:  "items",
-		Index:  "by_status",
-		Values: []any{"active"},
+		Store: "items",
+		Index: "by_status",
+		Query: indexeddb.ToQuery("active"),
 	})
 	if err != nil {
 		t.Fatalf("IndexGetAll(active): %v", err)
@@ -533,10 +534,7 @@ func TestRelationalCursorCompoundIndexRangeUsesDecodedArrayKey(t *testing.T) {
 		{PrimaryKey: "c", PrimaryKeyValue: "c", Key: []any{"inactive", int64(1)}, Record: makeCursorItem("c", "Carol", "inactive", "carol@test.com")},
 	}
 
-	filtered, err := cursor.ApplyRange(entries, &gestalt.KeyRange{
-		Lower: []any{"active", int64(2)},
-		Upper: []any{"active", int64(2)},
-	})
+	filtered, err := cursor.ApplyQuery(entries, indexeddb.ToQuery(indexeddb.Only([]any{"active", int64(2)})))
 	if err != nil {
 		t.Fatalf("applyRange: %v", err)
 	}

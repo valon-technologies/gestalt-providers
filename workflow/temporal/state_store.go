@@ -188,7 +188,7 @@ func (s *workflowStateStore) reserveRunIdempotencyOnce(ctx context.Context, owne
 		}
 	}()
 	store := tx.ObjectStore(storeTemporalRunIdempotency)
-	records, err := store.GetAll(ctx, &gestalt.KeyRange{Lower: id, Upper: id})
+	records, err := store.GetAll(ctx, indexeddb.Only(id))
 	if err != nil {
 		return nil, false, err
 	}
@@ -274,7 +274,7 @@ func (s *workflowStateStore) completeRunIdempotencyOnce(ctx context.Context, own
 	}()
 	store := tx.ObjectStore(storeTemporalRunIdempotency)
 	createdAt := now
-	records, err := store.GetAll(ctx, &gestalt.KeyRange{Lower: id, Upper: id})
+	records, err := store.GetAll(ctx, indexeddb.Only(id))
 	if err != nil {
 		return err
 	}
@@ -386,7 +386,7 @@ func (s *workflowStateStore) reserveSignalIdempotencyOnce(ctx context.Context, r
 		}
 	}()
 	store := tx.ObjectStore(storeTemporalSignalIdempotency)
-	records, err := store.GetAll(ctx, &gestalt.KeyRange{Lower: id, Upper: id})
+	records, err := store.GetAll(ctx, indexeddb.Only(id))
 	if err != nil {
 		return nil, false, err
 	}
@@ -476,7 +476,7 @@ func (s *workflowStateStore) completeSignalIdempotencyOnce(ctx context.Context, 
 	store := tx.ObjectStore(storeTemporalSignalIdempotency)
 	createdAt := now
 	var existing signalIdempotencyRecord
-	records, err := store.GetAll(ctx, &gestalt.KeyRange{Lower: id, Upper: id})
+	records, err := store.GetAll(ctx, indexeddb.Only(id))
 	if err != nil {
 		return err
 	}
@@ -747,7 +747,7 @@ func transactionGetRecord(ctx context.Context, store indexeddb.TransactionObject
 	if id == "" {
 		return nil, false, nil
 	}
-	records, err := store.GetAll(ctx, &gestalt.KeyRange{Lower: id, Upper: id})
+	records, err := store.GetAll(ctx, indexeddb.Only(id))
 	if err != nil {
 		return nil, false, err
 	}

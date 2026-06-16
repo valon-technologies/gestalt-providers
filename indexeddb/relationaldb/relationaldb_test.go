@@ -12,6 +12,7 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	mysqlcfg "github.com/go-sql-driver/mysql"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -425,7 +426,7 @@ func TestFullLifecycle(t *testing.T) {
 
 	// Index query.
 	idxResp, err := s.IndexGet(ctx, gestalt.IndexedDBIndexQueryRequest{
-		Store: "widgets", Index: "by_code", Values: []any{"W-001"},
+		Store: "widgets", Index: "by_code", Query: indexeddb.ToQuery("W-001"),
 	})
 	if err != nil {
 		t.Fatalf("IndexGet: %v", err)
@@ -647,7 +648,7 @@ func TestCreateObjectStoreRejectsSchemaChanges(t *testing.T) {
 		t.Fatalf("Count after rejected schema change = %d, want 1", got)
 	}
 	if _, err := s.IndexGet(ctx, gestalt.IndexedDBIndexQueryRequest{
-		Store: "widgets", Index: "by_code", Values: []any{"W-001"},
+		Store: "widgets", Index: "by_code", Query: indexeddb.ToQuery("W-001"),
 	}); status.Code(err) != codes.NotFound {
 		t.Fatalf("IndexGet after rejected schema change error = %v, want NotFound", err)
 	}
@@ -868,11 +869,7 @@ func TestGetAllWithRange(t *testing.T) {
 
 	resp, err := s.GetAll(ctx, gestalt.IndexedDBObjectStoreRangeRequest{
 		Store: "widgets",
-		Range: &gestalt.KeyRange{
-			Lower:     "a",
-			Upper:     "c",
-			UpperOpen: true,
-		},
+		Query: indexeddb.ToQuery(indexeddb.Bound("a", "c", false, true)),
 	})
 	if err != nil {
 		t.Fatalf("GetAll: %v", err)

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -125,7 +126,7 @@ func TestFactoryOpenVersionLifecycleAndCreateIndexBackfill(t *testing.T) {
 		t.Fatalf("upgraded.Version() = %d, want 2", upgraded.Version())
 	}
 	record, err := databaseStore(t, upgraded).IndexGet(ctx, gestalt.IndexedDBIndexQueryRequest{
-		Store: "users", Index: "by_email", Values: []any{"a@example.com"},
+		Store: "users", Index: "by_email", Query: indexeddb.ToQuery("a@example.com"),
 	})
 	if err != nil {
 		t.Fatalf("IndexGet backfilled index: %v", err)
@@ -1079,7 +1080,7 @@ func TestFactoryUpgradeRollbackOnCreateIndexConflict(t *testing.T) {
 		t.Fatalf("version after failed upgrade = %d, want 1", current.Version())
 	}
 	if _, err := databaseStore(t, current).IndexGet(ctx, gestalt.IndexedDBIndexQueryRequest{
-		Store: "users", Index: "by_name", Values: []any{"Duplicate"},
+		Store: "users", Index: "by_name", Query: indexeddb.ToQuery("Duplicate"),
 	}); status.Code(err) != codes.NotFound {
 		t.Fatalf("IndexGet after failed upgrade error = %v, want NotFound", err)
 	}
@@ -1108,7 +1109,7 @@ func TestFactoryCreateIndexAllowsOpaqueEmptyName(t *testing.T) {
 	if err := databaseStore(t, db).Add(ctx, gestalt.IndexedDBRecordRequest{Store: "users", Record: userRecord("u1", "a@example.com", "Alice")}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	record, err := databaseStore(t, db).IndexGet(ctx, gestalt.IndexedDBIndexQueryRequest{Store: "users", Index: "", Values: []any{"a@example.com"}})
+	record, err := databaseStore(t, db).IndexGet(ctx, gestalt.IndexedDBIndexQueryRequest{Store: "users", Index: "", Query: indexeddb.ToQuery("a@example.com")})
 	if err != nil {
 		t.Fatalf("IndexGet empty index name: %v", err)
 	}
@@ -1138,7 +1139,7 @@ func TestFactoryUpgradeDeleteIndexCleansRows(t *testing.T) {
 	if err := databaseStore(t, db).Add(ctx, gestalt.IndexedDBRecordRequest{Store: "users", Record: userRecord("u1", "a@example.com", "Alice")}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	if _, err := databaseStore(t, db).IndexGet(ctx, gestalt.IndexedDBIndexQueryRequest{Store: "users", Index: "by_email", Values: []any{"a@example.com"}}); err != nil {
+	if _, err := databaseStore(t, db).IndexGet(ctx, gestalt.IndexedDBIndexQueryRequest{Store: "users", Index: "by_email", Query: indexeddb.ToQuery("a@example.com")}); err != nil {
 		t.Fatalf("IndexGet before delete index: %v", err)
 	}
 	if err := db.Close(); err != nil {
@@ -1160,7 +1161,7 @@ func TestFactoryUpgradeDeleteIndexCleansRows(t *testing.T) {
 		t.Fatalf("Open v2: %v", err)
 	}
 	defer upgraded.Close()
-	if _, err := databaseStore(t, upgraded).IndexGet(ctx, gestalt.IndexedDBIndexQueryRequest{Store: "users", Index: "by_email", Values: []any{"a@example.com"}}); status.Code(err) != codes.NotFound {
+	if _, err := databaseStore(t, upgraded).IndexGet(ctx, gestalt.IndexedDBIndexQueryRequest{Store: "users", Index: "by_email", Query: indexeddb.ToQuery("a@example.com")}); status.Code(err) != codes.NotFound {
 		t.Fatalf("IndexGet after delete index error = %v, want NotFound", err)
 	}
 }
