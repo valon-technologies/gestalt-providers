@@ -5,9 +5,16 @@ from typing import Any
 
 import gestalt
 
-from internals.store import save_slack_event_registration
+from internals.store import (
+    get_workflow_definition_id_for_app as load_workflow_definition_id_for_app,
+    save_slack_event_registration,
+)
 
 app = gestalt.App("slack_v2")
+
+
+class GetWorkflowDefinitionIdForAppInput(gestalt.Model):
+    app_id: str = gestalt.field(description="Slack app ID.")
 
 
 class RegisterSlackEventInput(gestalt.Model):
@@ -48,6 +55,34 @@ def register_slack_event(
         "app_id": app_id,
         "display_name": input.display_name,
         "workflow_definition_id": input.workflow_definition_id,
+    }
+
+
+@app.operation(
+    id="get_workflow_definition_id_for_app",
+    method="POST",
+    description="Return the workflow definition ID registered for a Slack app.",
+)
+def get_workflow_definition_id_for_app(
+    input: GetWorkflowDefinitionIdForAppInput, _req: gestalt.Request
+) -> dict[str, str] | gestalt.Response[dict[str, str]]:
+    app_id = input.app_id.strip()
+    if not app_id:
+        return gestalt.Response(
+            status=HTTPStatus.BAD_REQUEST, body={"error": "app_id is required"}
+        )
+
+    try:
+        workflow_definition_id = load_workflow_definition_id_for_app(app_id=app_id)
+    except gestalt.NotFoundError:
+        return gestalt.Response(
+            status=HTTPStatus.NOT_FOUND,
+            body={"error": f"registration not found for app_id {app_id!r}"},
+        )
+
+    return {
+        "app_id": app_id,
+        "workflow_definition_id": workflow_definition_id,
     }
 
 

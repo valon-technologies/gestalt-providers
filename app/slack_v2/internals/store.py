@@ -12,6 +12,14 @@ _init_lock = threading.Lock()
 _initialized = False
 
 
+def get_workflow_definition_id_for_app(*, app_id: str) -> str:
+    record = _object_store().get(app_id)
+    workflow_definition_id = record.get("workflow_definition_id")
+    if not isinstance(workflow_definition_id, str) or not workflow_definition_id.strip():
+        raise gestalt.NotFoundError(f"workflow_definition_id not found for app_id {app_id!r}")
+    return workflow_definition_id.strip()
+
+
 def save_slack_event_registration(
     *,
     app_id: str,
