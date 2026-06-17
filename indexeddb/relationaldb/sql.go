@@ -245,9 +245,41 @@ func createGenericIndexRecordIndexSQL(d dialect, table string) string {
 	return createColumnsIndexSQL(d, table, indexName, []string{"store_name", "pk_hash"}, false)
 }
 
+// orderedKeyIndexPrefixLen bounds the index_key_ord prefix MySQL keys on. The
+// full column is still compared for exact range bounds; the prefix only narrows
+// the scan. 255 leaves ample headroom under InnoDB's 3072-byte key limit given
+// the leading utf8mb4 VARCHAR(255) store_name and index_name columns.
+const orderedKeyIndexPrefixLen = 255
+
 func createGenericIndexScanIndexSQL(d dialect, table string) string {
 	indexName := portableIndexName(table, "scan")
-	return createColumnsIndexSQL(d, table, indexName, []string{"store_name", "index_name", "index_key_ord"}, false)
+	switch d {
+	case dialectMySQL:
+		// index_key_ord is LONGBLOB; MySQL cannot index a BLOB column without a
+		// key prefix length. Callers still filter the full column for exact
+		// bounds, so the prefix only accelerates the range scan.
+		return createMySQLOrderedScanIndexSQL(table, indexName)
+	case dialectSQLServer:
+		// index_key_ord is VARBINARY(MAX), which SQL Server cannot use as an
+		// index key column at all. Index the leading equality columns only;
+		// range bounds are still applied through the WHERE clause.
+		return createColumnsIndexSQL(d, table, indexName, []string{"store_name", "index_name"}, false)
+	default:
+		// Postgres (BYTEA) and SQLite (BLOB) index the full column directly.
+		return createColumnsIndexSQL(d, table, indexName, []string{"store_name", "index_name", "index_key_ord"}, false)
+	}
+}
+
+func createMySQLOrderedScanIndexSQL(table, indexName string) string {
+	d := dialectMySQL
+	return fmt.Sprintf("CREATE INDEX %s ON %s (%s, %s, %s(%d))",
+		quoteIdent(d, indexName),
+		quoteTableName(d, table),
+		quoteIdent(d, "store_name"),
+		quoteIdent(d, "index_name"),
+		quoteIdent(d, "index_key_ord"),
+		orderedKeyIndexPrefixLen,
+	)
 }
 
 func portableIndexName(table, suffix string) string {
