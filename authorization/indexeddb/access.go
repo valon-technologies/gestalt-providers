@@ -76,6 +76,12 @@ func evaluateAccess(snapshot *authorizationSnapshot, req *CheckAccessRequest) (*
 	}
 
 	modelID := snapshot.model.Id
+	if scope := bearerScopeFromSubject(subject); scope != "" {
+		if !scopeAllowsAccess(scope, resource.Type, action.Name) {
+			return &CheckAccessResponse{Allowed: false, ModelId: modelID}, nil
+		}
+	}
+
 	resourceType := findModelResourceType(snapshot.model, resource.Type)
 	if resourceType == nil {
 		return &CheckAccessResponse{Allowed: false, ModelId: modelID}, nil

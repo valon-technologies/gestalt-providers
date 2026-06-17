@@ -9,21 +9,19 @@ import type { APIToken } from "../src/lib/api";
 const sampleTokens: APIToken[] = [
   {
     id: "tok-1",
-    name: "ci-pipeline",
-    scopes: "read",
+    scopes: ["my-app"],
     createdAt: "2026-01-15T10:00:00Z",
   },
   {
     id: "tok-2",
-    name: "deploy-key",
-    scopes: "",
+    scopes: ["other-app:read"],
     createdAt: "2026-02-20T14:30:00Z",
     expiresAt: "2027-02-20T14:30:00Z",
   },
 ];
 
 test.describe("Token Management", () => {
-  test("displays token list", async ({ authenticatedPage }) => {
+  test("displays token list by grant ID", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await mockTokens(page, sampleTokens);
     await mockIntegrations(page, []);
@@ -32,8 +30,10 @@ test.describe("Token Management", () => {
     await expect(
       page.getByRole("heading", { name: "Authorization" }),
     ).toBeVisible();
-    await expect(page.getByText("ci-pipeline")).toBeVisible();
-    await expect(page.getByText("deploy-key")).toBeVisible();
+    await expect(page.getByText("tok-1")).toBeVisible();
+    await expect(page.getByText("tok-2")).toBeVisible();
+    await expect(page.getByText("my-app")).toBeVisible();
+    await expect(page.getByText("other-app:read")).toBeVisible();
   });
 
   test("shows empty state when no tokens", async ({ authenticatedPage }) => {
@@ -45,45 +45,50 @@ test.describe("Token Management", () => {
     await expect(page.getByText("No API tokens yet.")).toBeVisible();
   });
 
-  test("creates a token and shows plaintext", async ({
+  test("creates a scoped token and shows plaintext once", async ({
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
-    // Start with empty tokens, then after creation return the new one.
     let tokens: APIToken[] = [];
-    await page.route("**/api/v1/tokens", (route, request) => {
+    await page.route("**/api/v1/tokens", async (route, request) => {
       if (request.method() === "GET") {
-        route.fulfill({ json: tokens });
-      } else if (request.method() === "POST") {
+        await route.fulfill({ json: tokens });
+        return;
+      }
+      if (request.method() === "POST") {
+        const body = request.postDataJSON() as { name?: string; scopes?: string };
+        expect(body).toEqual({ name: "audit-label", scopes: "my-app" });
         tokens = [
           {
             id: "tok-new",
-            name: "my-new-token",
-            scopes: "",
-            createdAt: new Date().toISOString(),
+            scopes: body.scopes ? [body.scopes] : [],
+            createdAt: "2026-03-01T12:00:00Z",
           },
         ];
-        route.fulfill({
+        await route.fulfill({
           status: 201,
-          json: { id: "tok-new", name: "my-new-token", token: "gestalt_abc123secret" },
+          json: {
+            id: "tok-new",
+            token: "gestalt_abc123secret",
+            scopes: ["my-app"],
+            expiresAt: "2027-03-01T12:00:00Z",
+          },
         });
-      } else {
-        route.continue();
+        return;
       }
+      await route.continue();
     });
     await mockIntegrations(page, []);
 
     await page.goto("/authorization");
-    await page.getByLabel("Token name").fill("my-new-token");
+    await page.getByLabel("Token name").fill("audit-label");
+    await page.getByLabel("Scopes").fill("my-app");
     await page.getByRole("button", { name: "Create Token" }).click();
 
-    await expect(
-      page.getByText("Copy this token now"),
-    ).toBeVisible();
+    await expect(page.getByText("Copy this token now")).toBeVisible();
     await expect(page.getByText("gestalt_abc123secret")).toBeVisible();
-    await expect(
-      page.locator("tr", { hasText: "my-new-token" }),
-    ).toBeVisible();
+    await expect(page.locator("tr", { hasText: "tok-new" })).toBeVisible();
+    await expect(page.getByText("my-app")).toBeVisible();
   });
 
   test("keeps the created token visible when stale list requests finish later", async ({
@@ -106,17 +111,22 @@ test.describe("Token Management", () => {
       }
 
       if (request.method() === "POST") {
+        const body = request.postDataJSON() as { name?: string; scopes?: string };
+        expect(body.scopes).toBe("other-app");
         tokens = [
           {
             id: "tok-race",
-            name: "race-token",
-            scopes: "",
-            createdAt: new Date().toISOString(),
+            scopes: body.scopes ? [body.scopes] : [],
+            createdAt: "2026-03-01T12:00:00Z",
           },
         ];
         await route.fulfill({
           status: 201,
-          json: { id: "tok-race", name: "race-token", token: "gestalt_race_secret" },
+          json: {
+            id: "tok-race",
+            token: "gestalt_race_secret",
+            scopes: ["other-app"],
+          },
         });
         return;
       }
@@ -127,14 +137,15 @@ test.describe("Token Management", () => {
 
     await page.goto("/authorization");
     await page.getByLabel("Token name").fill("race-token");
+    await page.getByLabel("Scopes").fill("other-app");
     await page.getByRole("button", { name: "Create Token" }).click();
 
     await expect(page.getByText("Copy this token now")).toBeVisible();
-    await expect(page.locator("tr", { hasText: "race-token" })).toBeVisible();
+    await expect(page.locator("tr", { hasText: "tok-race" })).toBeVisible();
     await expect(page.getByText("No API tokens yet.")).toBeHidden();
   });
 
-  test("revokes a token", async ({ authenticatedPage }) => {
+  test("revokes a token by grant ID", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     let tokens = [...sampleTokens];
     await page.route("**/api/v1/tokens", (route, request) => {
@@ -155,10 +166,10 @@ test.describe("Token Management", () => {
     await mockIntegrations(page, []);
 
     await page.goto("/authorization");
-    await expect(page.getByText("ci-pipeline")).toBeVisible();
+    await expect(page.getByText("tok-1")).toBeVisible();
 
-    // Click the first Revoke button.
     await page.getByRole("button", { name: "Revoke" }).first().click();
-    await expect(page.getByText("ci-pipeline")).toBeHidden();
+    await expect(page.getByText("tok-1")).toBeHidden();
+    await expect(page.getByText("tok-2")).toBeVisible();
   });
 });

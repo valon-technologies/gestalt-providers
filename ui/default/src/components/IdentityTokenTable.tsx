@@ -21,7 +21,9 @@ function formatPermissions(token: APIToken): string {
       })
       .join(" · ");
   }
-  return token.scopes || "All authorized access";
+  return token.scopes?.length
+    ? token.scopes.join(" ")
+    : "All authorized access";
 }
 
 export default function IdentityTokenTable({

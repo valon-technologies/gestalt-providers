@@ -103,8 +103,8 @@ export interface AccessPermission {
 
 export interface APIToken {
   id: string;
-  name: string;
-  scopes?: string;
+  name?: string;
+  scopes?: string[];
   permissions?: AccessPermission[];
   createdAt: string;
   expiresAt?: string;
@@ -112,7 +112,7 @@ export interface APIToken {
 
 export interface CreateTokenResponse {
   id: string;
-  name: string;
+  name?: string;
   token: string;
   permissions?: AccessPermission[];
   expiresAt?: string;
@@ -1243,10 +1243,13 @@ export async function cancelAgentRun(
   return normalizeAgentRun(turn);
 }
 
-export async function createToken(name: string): Promise<CreateTokenResponse> {
+export async function createToken(
+  name: string,
+  scopes: string,
+): Promise<CreateTokenResponse> {
   return fetchAPI("/api/v1/tokens", {
     method: "POST",
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, scopes }),
   });
 }
 
