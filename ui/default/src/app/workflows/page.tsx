@@ -21,6 +21,7 @@ import {
   workflowTargetApp,
 } from "@/lib/api";
 import AuthGuard from "@/components/AuthGuard";
+import Container from "@/components/Container";
 import Nav from "@/components/Nav";
 
 const RUN_STATUSES = ["all", "pending", "running", "succeeded", "failed", "canceled"];
@@ -149,11 +150,11 @@ export default function WorkflowsPage() {
     <AuthGuard>
       <div className="min-h-screen">
         <Nav />
-        <main className="mx-auto max-w-7xl px-6 py-10">
+        <Container as="main" className="py-10">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <span className="label-text">Workflows</span>
-              <h1 className="mt-2 text-2xl font-heading font-bold text-primary">
+              <h1 className="mt-2 text-2xl font-heading text-primary">
                 Workflows
               </h1>
               <p className="mt-2 max-w-2xl text-sm text-muted">
@@ -194,7 +195,7 @@ export default function WorkflowsPage() {
                   value={runsQuery}
                   onChange={(event) => setRunsQuery(event.target.value)}
                   placeholder="Run ID, provider, app, step, definition, event"
-                  className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 placeholder:text-faint focus:border-sky-500"
+                  className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-primary outline-hidden transition-colors duration-150 placeholder:text-faint focus:border-sky-500"
                 />
               </label>
               <label className="block">
@@ -202,7 +203,7 @@ export default function WorkflowsPage() {
                 <select
                   value={runStatus}
                   onChange={(event) => setRunStatus(event.target.value)}
-                  className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-primary outline-none transition-colors duration-150 focus:border-sky-500"
+                  className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-primary outline-hidden transition-colors duration-150 focus:border-sky-500"
                 >
                   {RUN_STATUSES.map((status) => (
                     <option key={status} value={status}>
@@ -230,7 +231,7 @@ export default function WorkflowsPage() {
               onCancelSelectedRun={handleCancelSelectedRun}
             />
           )}
-        </main>
+        </Container>
       </div>
     </AuthGuard>
   );

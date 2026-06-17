@@ -1697,6 +1697,314 @@ class GitHubProviderTests(unittest.TestCase):
             [{"issues": "write"}],
         )
 
+    def test_create_issue_uses_issue_write_permission(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["permissions"], {"issues": "write"})
+                return FakeHTTPResponse({"token": "issue-token"})
+            if path == "/repos/acme/widgets/issues":
+                self.assertEqual(method, "POST")
+                self.assertEqual(auth_header(request), "Bearer issue-token")
+                self.assertEqual(
+                    body,
+                    {
+                        "title": "Broken modal",
+                        "body": "The modal does not close.",
+                        "labels": ["bug"],
+                        "assignees": ["example-user"],
+                    },
+                )
+                return FakeHTTPResponse(
+                    {
+                        "number": 12,
+                        "title": "Broken modal",
+                        "body": "The modal does not close.",
+                        "state": "open",
+                        "html_url": "https://github.com/acme/widgets/issues/12",
+                        "url": "https://api.github.com/repos/acme/widgets/issues/12",
+                        "id": 1200,
+                        "node_id": "I_kw",
+                        "created_at": "2026-05-01T00:00:00Z",
+                        "updated_at": "2026-05-01T00:00:00Z",
+                        "closed_at": None,
+                        "labels": [{"id": 1, "node_id": "LA_kw", "name": "bug"}],
+                        "assignees": [{"login": "example-user"}],
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_create_issue(
+                provider_module.CreateIssueInput(
+                    owner="acme",
+                    repo="widgets",
+                    title="Broken modal",
+                    body="The modal does not close.",
+                    labels=["bug"],
+                    assignees=["example-user"],
+                ),
+                github_request(),
+            )
+
+        data = cast(dict[str, Any], result)["data"]["issue"]
+        self.assertEqual(data["number"], 12)
+        self.assertEqual(data["state"], "open")
+        self.assertEqual(data["html_url"], "https://github.com/acme/widgets/issues/12")
+        self.assertEqual(
+            [
+                call[2].get("permissions")
+                for call in calls
+                if call[1].endswith("access_tokens")
+            ],
+            [{"issues": "write"}],
+        )
+
+    def test_update_issue_uses_issue_write_permission(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["permissions"], {"issues": "write"})
+                return FakeHTTPResponse({"token": "issue-token"})
+            if path == "/repos/acme/widgets/issues/12":
+                self.assertEqual(method, "PATCH")
+                self.assertEqual(auth_header(request), "Bearer issue-token")
+                self.assertEqual(
+                    body,
+                    {
+                        "title": "Broken modal (fixed)",
+                        "body": "Updated description.",
+                        "state": "closed",
+                    },
+                )
+                return FakeHTTPResponse(
+                    {
+                        "number": 12,
+                        "title": "Broken modal (fixed)",
+                        "body": "Updated description.",
+                        "state": "closed",
+                        "html_url": "https://github.com/acme/widgets/issues/12",
+                        "url": "https://api.github.com/repos/acme/widgets/issues/12",
+                        "id": 1200,
+                        "node_id": "I_kw",
+                        "created_at": "2026-05-01T00:00:00Z",
+                        "updated_at": "2026-05-02T00:00:00Z",
+                        "closed_at": "2026-05-02T00:00:00Z",
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_update_issue(
+                provider_module.UpdateIssueInput(
+                    owner="acme",
+                    repo="widgets",
+                    issue_number=12,
+                    title="Broken modal (fixed)",
+                    body="Updated description.",
+                    state="closed",
+                ),
+                github_request(),
+            )
+
+        data = cast(dict[str, Any], result)["data"]["issue"]
+        self.assertEqual(data["number"], 12)
+        self.assertEqual(data["state"], "closed")
+        self.assertEqual(data["closed_at"], "2026-05-02T00:00:00Z")
+
+    def test_get_issue_uses_issue_read_permission(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["permissions"], {"issues": "read"})
+                return FakeHTTPResponse({"token": "issue-token"})
+            if path == "/repos/acme/widgets/issues/12":
+                self.assertEqual(method, "GET")
+                self.assertEqual(auth_header(request), "Bearer issue-token")
+                return FakeHTTPResponse(
+                    {
+                        "number": 12,
+                        "title": "Broken modal",
+                        "body": "The modal does not close.",
+                        "state": "open",
+                        "html_url": "https://github.com/acme/widgets/issues/12",
+                        "url": "https://api.github.com/repos/acme/widgets/issues/12",
+                        "id": 1200,
+                        "node_id": "I_kw",
+                        "created_at": "2026-05-01T00:00:00Z",
+                        "updated_at": "2026-05-01T00:00:00Z",
+                        "closed_at": None,
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_get_issue(
+                provider_module.GetIssueInput(
+                    owner="acme",
+                    repo="widgets",
+                    issue_number=12,
+                ),
+                github_request(),
+            )
+
+        data = cast(dict[str, Any], result)["data"]["issue"]
+        self.assertEqual(data["number"], 12)
+        self.assertEqual(data["title"], "Broken modal")
+        self.assertEqual(
+            [
+                call[2].get("permissions")
+                for call in calls
+                if call[1].endswith("access_tokens")
+            ],
+            [{"issues": "read"}],
+        )
+
+    def test_list_issues_uses_issue_read_permission(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            method = request.get_method()
+            path = request_path(request)
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["permissions"], {"issues": "read"})
+                return FakeHTTPResponse({"token": "issue-token"})
+            if path == "/repos/acme/widgets/issues":
+                self.assertEqual(method, "GET")
+                self.assertEqual(auth_header(request), "Bearer issue-token")
+                self.assertEqual(query["state"], ["all"])
+                self.assertEqual(query["sort"], ["created"])
+                self.assertEqual(query["direction"], ["desc"])
+                self.assertEqual(query["per_page"], ["100"])
+                return FakeHTTPResponse(
+                    [
+                        {
+                            "number": 12,
+                            "title": "Broken modal",
+                            "body": "The modal does not close.",
+                            "state": "open",
+                            "html_url": "https://github.com/acme/widgets/issues/12",
+                            "url": "https://api.github.com/repos/acme/widgets/issues/12",
+                            "id": 1200,
+                            "node_id": "I_kw",
+                            "created_at": "2026-05-01T00:00:00Z",
+                            "updated_at": "2026-05-01T00:00:00Z",
+                            "closed_at": None,
+                        }
+                    ]
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_list_issues(
+                provider_module.ListIssuesInput(
+                    owner="acme",
+                    repo="widgets",
+                    state="all",
+                    per_page=100,
+                ),
+                github_request(),
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["issues"][0]["number"], 12)
+        self.assertEqual(data["issues"][0]["title"], "Broken modal")
+        self.assertEqual(
+            [
+                call[2].get("permissions")
+                for call in calls
+                if call[1].endswith("access_tokens")
+            ],
+            [{"issues": "read"}],
+        )
+
+    def test_issue_summary_preserves_labels_and_assignees(self) -> None:
+        summary = operations_module.issue_summary(
+            {
+                "number": 12,
+                "title": "Broken modal",
+                "body": "The modal does not close.",
+                "state": "open",
+                "html_url": "https://github.com/acme/widgets/issues/12",
+                "url": "https://api.github.com/repos/acme/widgets/issues/12",
+                "id": 1200,
+                "node_id": "I_kw",
+                "created_at": "2026-05-01T00:00:00Z",
+                "updated_at": "2026-05-01T00:00:00Z",
+                "closed_at": None,
+                "labels": [
+                    {
+                        "id": 1,
+                        "node_id": "LA_kw",
+                        "name": "bug",
+                        "color": "f29513",
+                    }
+                ],
+                "assignees": [{"login": "example-user"}],
+            }
+        )
+        self.assertEqual(summary["labels"][0]["name"], "bug")
+        self.assertEqual(summary["assignees"][0]["login"], "example-user")
+
     def test_create_pull_request_conversation_comment_uses_pull_request_write_permission(
         self,
     ) -> None:
@@ -2993,6 +3301,168 @@ class GitHubProviderTests(unittest.TestCase):
                 if call[1].endswith("access_tokens")
             ],
             [{"contents": "read"}, {"contents": "read"}, {"contents": "read"}],
+        )
+
+    def test_bot_list_commits_succeeds_with_top_level_array_response(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            self.assertEqual(timeout, 30)
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["repositories"], ["widgets"])
+                self.assertEqual(body["permissions"], {"contents": "read"})
+                return FakeHTTPResponse({"token": "contents-read-token"})
+            if path == "/repos/acme/widgets/commits":
+                self.assertEqual(auth_header(request), "Bearer contents-read-token")
+                query = urllib.parse.parse_qs(
+                    urllib.parse.urlparse(request.full_url).query
+                )
+                self.assertEqual(query["sha"], ["main"])
+                self.assertEqual(query["path"], ["src/widget.py"])
+                self.assertEqual(query["per_page"], ["2"])
+                self.assertEqual(query["page"], ["3"])
+                return FakeHTTPResponse(
+                    [
+                        {
+                            "sha": "abc123",
+                            "html_url": "https://github.com/acme/widgets/commit/abc123",
+                            "commit": {
+                                "message": "Fix widget",
+                                "author": {
+                                    "name": "Ada",
+                                    "date": "2026-06-16T00:00:00Z",
+                                },
+                            },
+                        }
+                    ]
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_list_commits(
+                provider_module.ListCommitsInput(
+                    owner="acme",
+                    repo="widgets",
+                    sha="main",
+                    path="src/widget.py",
+                    per_page=2,
+                    page=3,
+                ),
+                github_authorized_request(),
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["commits"][0]["sha"], "abc123")
+        self.assertEqual(
+            [
+                call[2].get("permissions")
+                for call in calls
+                if call[1].endswith("access_tokens")
+            ],
+            [{"contents": "read"}],
+        )
+
+    def test_bot_list_commits_returns_bad_gateway_for_object_response(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            path = request_path(request)
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                return FakeHTTPResponse({"token": "contents-read-token"})
+            if path == "/repos/acme/widgets/commits":
+                return FakeHTTPResponse({"message": "not a list"})
+            self.fail(f"unexpected request {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_list_commits(
+                provider_module.ListCommitsInput(owner="acme", repo="widgets"),
+                github_authorized_request(),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.BAD_GATEWAY)
+        self.assertIn("not a list", response.body["error"])
+
+    def test_bot_compare_refs_succeeds_with_object_response(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["repositories"], ["widgets"])
+                self.assertEqual(body["permissions"], {"contents": "read"})
+                return FakeHTTPResponse({"token": "contents-read-token"})
+            if path == "/repos/acme/widgets/compare/main...feature":
+                self.assertEqual(auth_header(request), "Bearer contents-read-token")
+                return FakeHTTPResponse(
+                    {
+                        "status": "ahead",
+                        "ahead_by": 1,
+                        "behind_by": 0,
+                        "total_commits": 1,
+                        "html_url": "https://github.com/acme/widgets/compare/main...feature",
+                        "permalink_url": "https://github.com/acme/widgets/compare/acme:main...acme:feature",
+                        "commits": [],
+                        "files": [],
+                    }
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_compare_refs(
+                provider_module.CompareRefsInput(
+                    owner="acme",
+                    repo="widgets",
+                    base="main",
+                    head="feature",
+                ),
+                github_authorized_request(),
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["status"], "ahead")
+        self.assertEqual(
+            [
+                call[2].get("permissions")
+                for call in calls
+                if call[1].endswith("access_tokens")
+            ],
+            [{"contents": "read"}],
         )
 
     def test_list_pull_request_files_rejects_invalid_pagination_before_github_calls(

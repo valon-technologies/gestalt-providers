@@ -1,0 +1,26 @@
+source: github.com/valon-technologies/gestalt-providers/app/slack_v2
+version: 0.0.1-alpha.4
+displayName: Slack v2
+description: Minimal Slack webhook app.
+kind: app
+spec:
+  defaultConnection: default
+  mcp: true
+  connections:
+    default:
+      mode: none
+  securitySchemes:
+    unchecked:
+      type: none
+  http:
+    events:
+      path: /events
+      method: POST
+      credentialMode: none
+      security: unchecked
+      target: handle_slack_event
+      requestBody:
+        required: false
+        content:
+          application/json: {}
+          application/x-www-form-urlencoded: {}

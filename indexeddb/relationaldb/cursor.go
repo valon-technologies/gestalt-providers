@@ -7,6 +7,7 @@ import (
 
 	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -242,13 +243,9 @@ func (c *relationalCursor) indexCandidate(row genericIndexRow) (relationalCursor
 		return relationalCursorCandidate{}, false, err
 	}
 	entry := cursorutil.Entry{
-		Key:             normalizeDocumentBound(indexKeyValue),
+		Key:             indexKeyValue,
 		PrimaryKey:      fmt.Sprint(primaryKeyValue),
 		PrimaryKeyValue: primaryKeyValue,
-	}
-	filtered, err := filterEntriesByPrefix([]cursorutil.Entry{entry}, c.req.Values)
-	if err != nil || len(filtered) == 0 {
-		return relationalCursorCandidate{}, false, err
 	}
 	if ok, err := c.entryEligible(entry); err != nil || !ok {
 		return relationalCursorCandidate{}, false, err
@@ -264,11 +261,7 @@ func (c *relationalCursor) entryEligible(entry cursorutil.Entry) (bool, error) {
 	if c.sourceStarted && !c.entryAfterSource(entry) {
 		return false, nil
 	}
-	filtered, err := c.ApplyRange([]cursorutil.Entry{entry}, c.req.Range)
-	if err != nil {
-		return false, err
-	}
-	return len(filtered) != 0, nil
+	return indexeddb.MatchQuery(entry.Key, c.Query)
 }
 
 func (c *relationalCursor) entryAfterSource(entry cursorutil.Entry) bool {

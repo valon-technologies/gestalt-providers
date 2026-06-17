@@ -237,7 +237,7 @@ def _projection_prefix(*parts: str) -> str:
 
 
 def _prefix_key_range(prefix: str) -> Any:
-    return gestalt.KeyRange(lower=prefix, upper=f"{prefix}{PROJECTION_RANGE_SUFFIX}")
+    return gestalt.bound(prefix, f"{prefix}{PROJECTION_RANGE_SUFFIX}", False, False)
 
 
 def _projection_visibility(value: Any) -> str:

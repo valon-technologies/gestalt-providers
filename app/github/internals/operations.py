@@ -82,6 +82,27 @@ class GitHubFileContentRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubListCommitsRequest:
+    owner: str
+    repo: str
+    sha: str = ""
+    path: str = ""
+    author: str = ""
+    since: str = ""
+    until: str = ""
+    per_page: int = 30
+    page: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubCompareRefsRequest:
+    owner: str
+    repo: str
+    base: str
+    head: str
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubRepositoryRequest:
     owner: str
     repo: str
@@ -129,6 +150,44 @@ class GitHubCreatePullRequestRequest:
     force: bool = False
     draft: bool = False
     maintainer_can_modify: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubCreateIssueRequest:
+    owner: str
+    repo: str
+    title: str
+    body: str = ""
+    labels: tuple[str, ...] = ()
+    assignees: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubUpdateIssueRequest:
+    owner: str
+    repo: str
+    issue_number: int
+    title: str = ""
+    body: str | None = None
+    state: str = ""
+    labels: tuple[str, ...] | None = None
+    assignees: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubGetIssueRequest:
+    owner: str
+    repo: str
+    issue_number: int
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubListIssuesRequest:
+    owner: str
+    repo: str
+    state: str = "all"
+    per_page: int = 100
+    page: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -808,6 +867,145 @@ def create_pull_request_on_github(
     return github.github_json("POST", repo_path(owner, repo, "pulls"), token, payload)
 
 
+ISSUE_STATES = frozenset({"open", "closed"})
+
+
+def create_issue(
+    request: GitHubCreateIssueRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    title = require_text(request.title, "title")
+    body = request.body.strip()
+    labels = normalize_unique_strings(request.labels, "labels", required=False)
+    assignees = normalize_unique_strings(request.assignees, "assignees", required=False)
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"issues": "write"}
+    )
+    payload = _compact_dict(
+        {
+            "title": title,
+            "body": body or None,
+            "labels": list(labels) if labels else None,
+            "assignees": list(assignees) if assignees else None,
+        }
+    )
+    return github.github_json("POST", repo_path(owner, repo, "issues"), token, payload)
+
+
+def update_issue(
+    request: GitHubUpdateIssueRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    issue_number = require_positive_int(request.issue_number, "issue_number")
+    payload = issue_update_payload(
+        title=request.title,
+        body=request.body,
+        state=request.state,
+        labels=request.labels,
+        assignees=request.assignees,
+        require_any=True,
+    )
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"issues": "write"}
+    )
+    return github.github_json(
+        "PATCH",
+        repo_path(owner, repo, "issues", str(issue_number)),
+        token,
+        payload,
+    )
+
+
+def get_issue(
+    request: GitHubGetIssueRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    issue_number = require_positive_int(request.issue_number, "issue_number")
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"issues": "read"}
+    )
+    return github.github_json(
+        "GET",
+        repo_path(owner, repo, "issues", str(issue_number)),
+        token,
+        None,
+    )
+
+
+def list_issues(
+    request: GitHubListIssuesRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> list[JsonObject]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    state = request.state.strip().lower() or "all"
+    if state not in {"open", "closed", "all"}:
+        raise ValueError("state must be open, closed, or all")
+    params = pagination_params(per_page=request.per_page, page=request.page)
+    params["state"] = state
+    params["sort"] = "created"
+    params["direction"] = "desc"
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"issues": "read"}
+    )
+    data = github.github_json_value(
+        "GET",
+        path_with_query(repo_path(owner, repo, "issues"), params),
+        token,
+    )
+    return require_json_object_list(data, "GitHub issues response")
+
+
 def create_issue_comment(
     request: GitHubCreateIssueCommentRequest,
     *,
@@ -1339,6 +1537,75 @@ def search_code(
         installation_id, repositories=[repo], permissions={"contents": "read"}
     )
     return github.github_json("GET", path_with_query("/search/code", params), token)
+
+
+def list_commits(
+    request: GitHubListCommitsRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> list[JsonObject]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    params = pagination_params(per_page=request.per_page, page=request.page)
+    if request.sha.strip():
+        params["sha"] = request.sha.strip()
+    if request.path.strip():
+        params["path"] = request.path.strip()
+    if request.author.strip():
+        params["author"] = request.author.strip()
+    if request.since.strip():
+        params["since"] = request.since.strip()
+    if request.until.strip():
+        params["until"] = request.until.strip()
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"contents": "read"}
+    )
+    data = github.github_json_value(
+        "GET",
+        path_with_query(repo_path(owner, repo, "commits"), params),
+        token,
+    )
+    return require_json_object_list(data, "commits response")
+
+
+def compare_refs(
+    request: GitHubCompareRefsRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    base = require_text(request.base, "base")
+    head = require_text(request.head, "head")
+    compare_segment = f"{base}...{head}"
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"contents": "read"}
+    )
+    return github.github_json(
+        "GET",
+        repo_path(owner, repo, "compare", compare_segment, safe_last="/.:"),
+        token,
+    )
 
 
 def get_file_text_at_ref(
@@ -2094,6 +2361,55 @@ def repository_summary(repo: Mapping[str, Any]) -> dict[str, Any]:
     )
 
 
+def commit_summary(commit: Mapping[str, Any]) -> dict[str, Any]:
+    commit_obj = map_field(commit, "commit")
+    author = map_field(commit_obj, "author")
+    return _compact_dict(
+        {
+            "sha": str_field(commit, "sha"),
+            "html_url": str_field(commit, "html_url"),
+            "message": str_field(commit_obj, "message"),
+            "author_name": str_field(author, "name"),
+            "author_date": str_field(author, "date"),
+        }
+    )
+
+
+def commit_list_summary(response: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    return {
+        "commits": [
+            commit_summary(item)
+            for item in response
+            if isinstance(item, dict)
+        ],
+    }
+
+
+def compare_refs_summary(response: Mapping[str, Any]) -> dict[str, Any]:
+    files = response.get("files")
+    commits = response.get("commits")
+    return _compact_dict(
+        {
+            "status": str_field(response, "status"),
+            "ahead_by": int_field(response, "ahead_by"),
+            "behind_by": int_field(response, "behind_by"),
+            "total_commits": int_field(response, "total_commits"),
+            "html_url": str_field(response, "html_url"),
+            "permalink_url": str_field(response, "permalink_url"),
+            "commits": [
+                commit_summary(item)
+                for item in (commits if isinstance(commits, list) else [])
+                if isinstance(item, dict)
+            ],
+            "files": [
+                pull_request_file_summary(item)
+                for item in (files if isinstance(files, list) else [])
+                if isinstance(item, dict)
+            ],
+        }
+    )
+
+
 def code_search_summary(response: Mapping[str, Any]) -> dict[str, Any]:
     items = response.get("items")
     return {
@@ -2142,6 +2458,72 @@ def pull_request_file_summary(file: Mapping[str, Any]) -> dict[str, Any]:
         "patch_truncated": patch_truncated,
         "patch_limit": MAX_GITHUB_PATCH_CHARS,
     }
+
+
+def issue_update_payload(
+    *,
+    title: str = "",
+    body: str | None = None,
+    state: str = "",
+    labels: tuple[str, ...] | None = None,
+    assignees: tuple[str, ...] | None = None,
+    require_any: bool = False,
+) -> JsonObject:
+    payload: JsonObject = {}
+    if title.strip():
+        payload["title"] = require_text(title, "title")
+    if body is not None:
+        payload["body"] = body
+    if state.strip():
+        normalized_state = state.strip().lower()
+        if normalized_state not in ISSUE_STATES:
+            raise ValueError("state must be open or closed")
+        payload["state"] = normalized_state
+    if labels is not None:
+        normalized_labels = normalize_unique_strings(labels, "labels", required=False)
+        payload["labels"] = list(normalized_labels)
+    if assignees is not None:
+        normalized_assignees = normalize_unique_strings(
+            assignees, "assignees", required=False
+        )
+        payload["assignees"] = list(normalized_assignees)
+    if require_any and not payload:
+        raise ValueError("at least one issue field is required")
+    return payload
+
+
+def issue_summary(issue: Mapping[str, Any]) -> dict[str, Any]:
+    labels = issue.get("labels")
+    assignees = issue.get("assignees")
+    return _compact_dict(
+        {
+            "number": int_field(issue, "number"),
+            "title": str_field(issue, "title"),
+            "body": str_field(issue, "body"),
+            "state": str_field(issue, "state"),
+            "html_url": str_field(issue, "html_url"),
+            "url": str_field(issue, "url"),
+            "id": int_field(issue, "id"),
+            "node_id": str_field(issue, "node_id"),
+            "created_at": str_field(issue, "created_at"),
+            "updated_at": str_field(issue, "updated_at"),
+            "closed_at": str_field(issue, "closed_at"),
+            "labels": [
+                label_summary(label)
+                for label in labels
+                if isinstance(label, Mapping)
+            ]
+            if isinstance(labels, list)
+            else [],
+            "assignees": [
+                _compact_dict({"login": str_field(assignee, "login")})
+                for assignee in assignees
+                if isinstance(assignee, Mapping)
+            ]
+            if isinstance(assignees, list)
+            else [],
+        }
+    )
 
 
 def issue_comment_summary(comment: Mapping[str, Any]) -> dict[str, Any]:

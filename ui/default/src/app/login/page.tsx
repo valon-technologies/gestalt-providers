@@ -55,7 +55,7 @@ export default function LoginPage() {
       <div className="w-full max-w-sm animate-fade-in-up">
         <div className="rounded-lg border border-alpha bg-base-white p-10 shadow-dropdown dark:bg-surface">
           <div className="text-center">
-            <h1 className="text-2xl font-heading font-bold text-primary">
+            <h1 className="text-2xl font-heading text-primary">
               Gestalt
             </h1>
             <p className="mt-3 text-sm text-muted">

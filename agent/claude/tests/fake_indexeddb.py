@@ -177,7 +177,7 @@ class FakeIndexedDB(indexeddb_pb2_grpc.IndexedDBServicer):
             record_id = _record_id(record)
             yield indexeddb_pb2.CursorResponse(
                 entry=indexeddb_pb2.CursorEntry(
-                    key=[indexeddb_pb2.KeyValue(scalar=indexeddb_pb2.TypedValue(string_value=record_id))],
+                    key=indexeddb_pb2.KeyValue(scalar=indexeddb_pb2.TypedValue(string_value=record_id)),
                     primary_key=record_id,
                     record=_copy_record(record),
                 )
@@ -329,28 +329,34 @@ def _record_id(record: Any) -> str:
 
 def _records_for_request_range(store: dict[str, Any], request: Any) -> list[Any]:
     records = sorted(store.values(), key=_record_id)
-    if not _proto_message_has_field(request, "range") or not request.HasField("range"):
+    if not _proto_message_has_field(request, "query") or not request.HasField("query"):
         return records
-    key_range = request.range
-    return [record for record in records if _record_id_matches_range(_record_id(record), key_range)]
+    query = request.query
+    selector = query.WhichOneof("query")
+    if selector == "range":
+        return [record for record in records if _record_id_matches_range(_record_id(record), query.range)]
+    if selector == "key":
+        target = str(_typed_value_to_python(query.key.scalar) or "")
+        return [record for record in records if _record_id(record) == target]
+    return records
 
 
 def _record_id_matches_range(record_id: str, key_range: Any) -> bool:
     if key_range.HasField("lower"):
-        lower = str(_typed_value_to_python(key_range.lower) or "")
+        lower = str(_typed_value_to_python(key_range.lower.scalar) or "")
         if record_id < lower or (key_range.lower_open and record_id == lower):
             return False
     if key_range.HasField("upper"):
-        upper = str(_typed_value_to_python(key_range.upper) or "")
+        upper = str(_typed_value_to_python(key_range.upper.scalar) or "")
         if record_id > upper or (key_range.upper_open and record_id == upper):
             return False
     return True
 
 
-def _cursor_target_key(values: Any) -> str:
-    if not values:
+def _cursor_target_key(target: Any) -> str:
+    if not target.HasField("key"):
         return ""
-    return str(_typed_value_to_python(values[0].scalar) or "")
+    return str(_typed_value_to_python(target.key.scalar) or "")
 
 
 def _typed_value_to_python(value: Any) -> Any:

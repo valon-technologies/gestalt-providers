@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -7,7 +8,7 @@ import gestalt
 from jsonschema import exceptions as jsonschema_exceptions
 from jsonschema.validators import validator_for
 
-from .config import ClaudeAgentConfig
+from .config import SUPPORTED_PERMISSION_MODES, ClaudeAgentConfig
 from .session_start import validate_session_start_user_metadata
 from .store import IndexedDBRunStore
 from .store_records import StoredSession
@@ -40,6 +41,7 @@ class SessionCreateRequest:
         return replace(self, metadata=metadata)
 
 
+
 @dataclass(frozen=True, slots=True)
 class TurnCreateRequest:
     turn_id: str
@@ -49,7 +51,36 @@ class TurnCreateRequest:
     messages: list[dict[str, Any]]
     created_by_subject_id: str
     execution_ref: str
+    permission_mode: str
     timeout_seconds: float = 0.0
+
+
+def permission_mode_from_model_options(
+    raw: Mapping[str, Any] | None,
+    *,
+    config: ClaudeAgentConfig,
+) -> str:
+    options = dict(raw or {})
+    raw_mode = options.pop("permissionMode", None)
+
+    if options:
+        names = ", ".join(sorted(options))
+        raise ValueError(f"unsupported model_options for agent/claude: {names}")
+
+    if raw_mode is None or str(raw_mode).strip() == "":
+        return config.permission_mode
+
+    mode = str(raw_mode).strip()
+    if mode not in SUPPORTED_PERMISSION_MODES:
+        raise ValueError(
+            "model_options.permissionMode must be one of "
+            f"{', '.join(sorted(SUPPORTED_PERMISSION_MODES))}"
+        )
+
+    if mode == "bypassPermissions" and config.claude_code.has_tool_permissions:
+        raise ValueError("model_options.permissionMode bypassPermissions cannot be used with allowedTools")
+
+    return mode
 
 
 def session_create_request_from_provider_request(
@@ -90,6 +121,8 @@ def turn_create_request_from_provider_request(
     model = config.resolve_model(request.model.strip() or session.model)
     messages = gestalt.agent_messages_to_dicts(request_messages)
 
+    permission_mode = permission_mode_from_model_options(request.model_options, config=config)
+
     return TurnCreateRequest(
         turn_id=request.turn_id.strip(),
         session_id=request.session_id.strip(),
@@ -98,6 +131,7 @@ def turn_create_request_from_provider_request(
         messages=messages,
         created_by_subject_id=request.created_by_subject_id.strip(),
         execution_ref=request.execution_ref.strip(),
+        permission_mode=permission_mode,
         timeout_seconds=_timeout_seconds_from_request(request),
     )
 
@@ -115,8 +149,6 @@ def validate_turn_contract(
         raise ValueError("tool_refs are not supported with toolSource none")
     schema = _schema_from_output(request.output)
     _validate_schema(schema)
-    if dict(request.model_options or {}):
-        raise ValueError("model_options are not supported by agent/claude")
     return schema
 
 

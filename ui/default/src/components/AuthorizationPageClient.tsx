@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { getTokens, type APIToken } from "@/lib/api";
 import AuthGuard from "@/components/AuthGuard";
+import Container from "@/components/Container";
 import Nav from "@/components/Nav";
 import TokenCreateForm from "@/components/TokenCreateForm";
 import TokenTable from "@/components/TokenTable";
@@ -42,10 +43,10 @@ export default function AuthorizationPageClient() {
     <AuthGuard>
       <div className="min-h-screen">
         <Nav />
-        <main className="mx-auto max-w-5xl px-6 py-12">
+        <Container as="main" className="py-12">
           <div className="animate-fade-in-up">
             <span className="label-text">Security</span>
-            <h1 className="mt-2 text-2xl font-heading font-bold text-primary">
+            <h1 className="mt-2 text-2xl font-heading text-primary">
               Authorization
             </h1>
             <p className="mt-3 max-w-3xl text-sm text-muted">
@@ -94,7 +95,7 @@ export default function AuthorizationPageClient() {
               Manage identities
             </Link>
           </section>
-        </main>
+        </Container>
       </div>
     </AuthGuard>
   );
@@ -112,7 +113,7 @@ function AuthorizationSectionIntro({
   return (
     <div>
       <span className="label-text">{eyebrow}</span>
-      <h2 className="mt-2 text-xl font-heading font-bold text-primary">{title}</h2>
+      <h2 className="mt-2 text-xl font-heading text-primary">{title}</h2>
       <p className="mt-2 max-w-3xl text-sm text-muted">{description}</p>
     </div>
   );

@@ -1,30 +1,48 @@
-:root {
+/* Token defaults are wrapped in :where() so they carry zero specificity:
+ * any tenant declaration served at /theme.css (e.g. `:root { --brand: … }`,
+ * specificity 0,1,0) outranks them by cascade contract, not by stylesheet
+ * order. The armor inverts under !important, which tenant themes therefore
+ * must not use. Tokens are whole oklch() colors; alpha composition uses
+ * color-mix, so any token can carry opacity without a triplet format. */
+:where(:root) {
   color-scheme: light;
-  --background: 36 28% 99%;
-  --surface: 36 33% 97%;
-  --surface-raised: 33 22% 93%;
-  --border: 30 18% 87%;
-  --foreground: 24 30% 11%;
-  --radius: 0.75rem;
-  --alpha-dark: 35, 24, 16;
-  --brand: #7a4f10;
-  --brand-soft: #eac59f;
-  --danger: #c75050;
-  --success: #3d6b3d;
+  --background: oklch(100% 0 0);
+  --surface: oklch(97.983% 0.0045 78.3);
+  --surface-raised: oklch(95.005% 0.0074 80.72);
+  --border: oklch(90.365% 0.0105 67.69);
+  --foreground: oklch(22.81% 0.0195 52.41);
+  /* Tailwind derives the radius scale from this: sm = -2px, md/DEFAULT = as
+   * is, lg = +4px. 0.5rem keeps the rendered 6/8/12px scale. */
+  --radius: 0.5rem;
+  --alpha-dark: oklch(22.039% 0.0231 57.22);
+  /* Shadow ink is its own token, deliberately identical in light and dark:
+   * shadows stay ink-dark, while --alpha-dark flips to a light triplet in
+   * dark mode and would turn them into glows. */
+  --shadow-ink: oklch(22.039% 0.0231 57.22);
+  --brand: oklch(46.522% 0.0933 70.48);
+  --brand-soft: oklch(84.603% 0.0657 67.5);
+  --danger: oklch(58.766% 0.1526 23);
+  --success: oklch(48.204% 0.0881 144.06);
+  /* Layout and typography knobs, overridable per tenant theme. */
+  --content-max-width: 80rem;
+  /* Newsreader (the bundled display face) ships a 400 cut only; tenant
+   * themes that bring a real medium cut override this (Valon: 500). */
+  --heading-weight: 400;
 }
 
-.dark {
+:where(.dark) {
   color-scheme: dark;
-  --background: 24 18% 8%;
-  --surface: 24 14% 11%;
-  --surface-raised: 24 12% 15%;
-  --border: 24 10% 20%;
-  --foreground: 33 20% 90%;
-  --alpha-dark: 232, 222, 212;
-  --brand: #f5ca78;
-  --brand-soft: #5c3c0c;
-  --danger: #f0a3a3;
-  --success: #b8dfb8;
+  --background: oklch(19.494% 0.0088 59.1);
+  --surface: oklch(22.685% 0.0097 52.98);
+  --surface-raised: oklch(27.009% 0.0106 48.31);
+  --border: oklch(32.208% 0.0111 55.96);
+  --foreground: oklch(92.718% 0.0097 72.66);
+  --alpha-dark: oklch(90.579% 0.0174 67.61);
+  --shadow-ink: oklch(22.039% 0.0231 57.22);
+  --brand: oklch(85.935% 0.1118 82.45);
+  --brand-soft: oklch(38.46% 0.075 71.86);
+  --danger: oklch(79.039% 0.0918 19.31);
+  --success: oklch(86.526% 0.0672 144.97);
 }
 
 html {
@@ -40,25 +58,7 @@ html {
   font-weight: 500;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: rgba(var(--alpha-dark), 0.42);
-}
-
-.gradient-warm {
-  background: radial-gradient(
-    140% 90% at 50% 100%,
-    #eaccb8 0%,
-    #fdfcf9 50%,
-    #f8f6f3 80%
-  );
-}
-
-.dark .gradient-warm {
-  background: radial-gradient(
-    140% 90% at 50% 100%,
-    #3d2808 0%,
-    #1a1410 50%,
-    #161110 80%
-  );
+  color: color-mix(in oklab, var(--alpha-dark) 42%, transparent);
 }
 
 /* Terminal-IDE surface tokens. Used by /agents to mirror the TUI grammar
@@ -68,14 +68,14 @@ html {
   font-size: 10px;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: rgba(var(--alpha-dark), 0.42);
+  color: color-mix(in oklab, var(--alpha-dark) 42%, transparent);
 }
 
 .tui-status-line {
   font-family: var(--font-mono), monospace;
   font-size: 11px;
   letter-spacing: 0.04em;
-  color: rgba(var(--alpha-dark), 0.4);
+  color: color-mix(in oklab, var(--alpha-dark) 40%, transparent);
 }
 
 .tui-glyph {
@@ -90,22 +90,22 @@ html {
   font-family: var(--font-mono), monospace;
   font-size: 12px;
   white-space: pre;
-  color: rgba(var(--alpha-dark), 0.5);
+  color: color-mix(in oklab, var(--alpha-dark) 50%, transparent);
 }
 
 .tui-user-bar {
-  background: rgba(var(--alpha-dark), 0.08);
+  background: color-mix(in oklab, var(--alpha-dark) 8%, transparent);
   font-family: var(--font-mono), monospace;
   letter-spacing: 0.01em;
 }
 
 .tui-user-bar-prompt {
   font-family: var(--font-mono), monospace;
-  color: rgba(var(--alpha-dark), 0.55);
+  color: color-mix(in oklab, var(--alpha-dark) 55%, transparent);
 }
 
 .tui-divider {
-  border-top: 1px solid rgba(var(--alpha-dark), 0.08);
+  border-top: 1px solid color-mix(in oklab, var(--alpha-dark) 8%, transparent);
 }
 
 @keyframes tui-caret-blink {

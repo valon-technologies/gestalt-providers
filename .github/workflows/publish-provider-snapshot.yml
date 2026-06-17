@@ -106,8 +106,37 @@ jobs:
           print("darwin-providers=" + json.dumps(darwin_providers))
           PY
 
-  build-linux-amd64:
+  build-gestaltd:
     needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.provider-ref }}
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Build gestaltd
+        env:
+          GOBIN: ${{ runner.temp }}/bin
+        run: |
+          set -euo pipefail
+          mkdir -p "$GOBIN"
+          toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
+          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
+          test "$(git -C "$toolchain_dir" rev-parse HEAD)" = "${{ inputs.gestalt-ref }}"
+          (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gestaltd-linux-amd64
+          path: ${{ runner.temp }}/bin/gestaltd
+          if-no-files-found: error
+
+  build-linux-amd64:
+    needs:
+      - discover
+      - build-gestaltd
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
@@ -123,6 +152,7 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = "${{ inputs.provider-ref }}"
       - uses: actions/setup-go@v5
+        if: matrix.provider.has_go
         with:
           go-version: '1.26'
       - uses: actions/setup-node@v4
@@ -145,17 +175,21 @@ jobs:
       - name: Install Python
         if: matrix.provider.has_python
         run: uv python install "${{ matrix.provider.python_version }}"
-      - name: Install gestaltd
-        env:
-          GOBIN: ${{ runner.temp }}/bin
+      - name: Prepare sibling Gestalt checkout for local SDK packaging
+        if: matrix.provider.has_python
         run: |
           set -euo pipefail
-          mkdir -p "$GOBIN"
-          echo "$GOBIN" >> "$GITHUB_PATH"
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
           .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
           test "$(git -C "$toolchain_dir" rev-parse HEAD)" = "${{ inputs.gestalt-ref }}"
-          (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+      - uses: actions/download-artifact@v4
+        with:
+          name: gestaltd-linux-amd64
+          path: ${{ runner.temp }}/bin
+      - name: Add gestaltd to PATH
+        run: |
+          chmod +x "${RUNNER_TEMP}/bin/gestaltd"
+          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
       - name: Package linux/amd64 snapshot
         env:
           PROVIDER_DIR: ${{ matrix.provider.dir }}
@@ -255,9 +289,10 @@ jobs:
   publish:
     needs:
       - discover
+      - build-gestaltd
       - build-linux-amd64
       - build-darwin-arm64
-    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && needs.build-linux-amd64.result == 'success' && (needs.build-darwin-arm64.result == 'success' || needs.build-darwin-arm64.result == 'skipped') }}
+    if: ${{ always() && !cancelled() && needs.discover.result == 'success' && needs.build-gestaltd.result == 'success' && needs.build-linux-amd64.result == 'success' && (needs.build-darwin-arm64.result == 'success' || needs.build-darwin-arm64.result == 'skipped') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -272,20 +307,14 @@ jobs:
       - name: Verify provider ref
         run: |
           test "$(git rev-parse HEAD)" = "${{ inputs.provider-ref }}"
-      - uses: actions/setup-go@v5
+      - uses: actions/download-artifact@v4
         with:
-          go-version: '1.26'
-      - name: Install gestaltd
-        env:
-          GOBIN: ${{ runner.temp }}/bin
+          name: gestaltd-linux-amd64
+          path: ${{ runner.temp }}/bin
+      - name: Add gestaltd to PATH
         run: |
-          set -euo pipefail
-          mkdir -p "$GOBIN"
-          echo "$GOBIN" >> "$GITHUB_PATH"
-          toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
-          test "$(git -C "$toolchain_dir" rev-parse HEAD)" = "${{ inputs.gestalt-ref }}"
-          (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+          chmod +x "${RUNNER_TEMP}/bin/gestaltd"
+          echo "${RUNNER_TEMP}/bin" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@v4
         with:
           pattern: snapshot-dist-${{ matrix.provider.key }}-*

@@ -19,7 +19,7 @@ build:
     - shared
     - source-assets
     - src
-    - tailwind.config.ts
     - tsconfig.json
 spec:
   assetRoot: out
+  configSchemaPath: schemas/config.schema.yaml

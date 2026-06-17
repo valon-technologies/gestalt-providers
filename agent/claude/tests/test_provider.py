@@ -886,6 +886,7 @@ class ClaudeProviderTests(unittest.TestCase):
                 messages=[{"role": "user", "text": "hello"}],
                 request_context=None,
                 schema={"type": "object"},
+                permission_mode="dontAsk",
                 timeout_seconds=1.25,
             )
 
@@ -1577,7 +1578,7 @@ class ClaudeProviderTests(unittest.TestCase):
         bad_options = _turn_request(
             turn_id="turn-provider-options", session_id=session_with_tools.id, model_options=model_options
         )
-        _assert_invalid(provider_client, bad_options, "model_options are not supported")
+        _assert_invalid(provider_client, bad_options, "unsupported model_options for agent/claude")
 
         none_without_schema = _turn_request(
             turn_id="turn-none-without-schema", session_id=session_no_tools.id
@@ -1590,6 +1591,42 @@ class ClaudeProviderTests(unittest.TestCase):
             provider_client, "turn-none-without-schema", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED
         )
         self.assertEqual(fetched.text.text, "fallback assistant text")
+
+    def test_create_turn_uses_model_options_permission_mode_plan(self) -> None:
+        _FakeClaudeSDKClient.mode = "success"
+        _, provider_client = _configure_provider()
+        session = _create_owned_session(provider_client, tools=_catalog_tool_config())
+        model_options = struct_pb2.Struct()
+        model_options.update({"permissionMode": "plan"})
+        provider_client.CreateTurn(
+            _turn_request(
+                turn_id="turn-plan-mode",
+                session_id=session.id,
+                model_options=model_options,
+            )
+        )
+        _wait_for_turn(provider_client, "turn-plan-mode", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
+        self.assertEqual(_FakeClaudeSDKClient.instances[-1].options.permission_mode, "plan")
+
+    def test_create_turn_without_model_options_uses_config_permission_mode(self) -> None:
+        _FakeClaudeSDKClient.mode = "success"
+        _, provider_client = _configure_provider()
+        session = _create_owned_session(provider_client, tools=_catalog_tool_config())
+        provider_client.CreateTurn(_turn_request(turn_id="turn-default-permission-mode", session_id=session.id))
+        _wait_for_turn(
+            provider_client, "turn-default-permission-mode", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED
+        )
+        self.assertEqual(_FakeClaudeSDKClient.instances[-1].options.permission_mode, "dontAsk")
+
+    def test_create_turn_rejects_invalid_permission_mode(self) -> None:
+        _, provider_client = _configure_provider()
+        session = _create_owned_session(provider_client, tools=_catalog_tool_config())
+        model_options = struct_pb2.Struct()
+        model_options.update({"permissionMode": "invalid"})
+        bad_options = _turn_request(
+            turn_id="turn-invalid-permission-mode", session_id=session.id, model_options=model_options
+        )
+        _assert_invalid(provider_client, bad_options, "model_options.permissionMode must be one of")
 
     def test_cancel_turn_interrupts_sdk_client_and_terminal_status_wins(self) -> None:
         _FakeClaudeSDKClient.mode = "cancel"
@@ -1943,6 +1980,7 @@ def _catalog_options(runner: Any, *, listed_tools: list[Any] | None = None) -> A
         session=_test_session("session-claude", listed_tools=listed_tools),
         turn_id="turn-claude",
         request_context=_request_context("user-123"),
+        permission_mode="dontAsk",
     )
 
 

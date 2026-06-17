@@ -12,6 +12,7 @@ import {
 import { INPUT_CLASSES } from "@/lib/constants";
 import AuthGuard from "@/components/AuthGuard";
 import Button from "@/components/Button";
+import Container from "@/components/Container";
 import IdentitySummaryCard from "@/components/IdentitySummaryCard";
 import ManagedIdentityDetailView from "@/components/ManagedIdentityDetailView";
 import Nav from "@/components/Nav";
@@ -115,34 +116,36 @@ export default function ManagedIdentitiesPageClient() {
       <div className="min-h-screen">
         <Nav />
         {identitiesAvailable === null ? (
-          <main className="mx-auto max-w-5xl px-6 py-12">
+          <Container as="main" className="py-12">
             <p className="text-sm text-faint">Loading...</p>
-          </main>
+          </Container>
         ) : identitiesAvailable === false ? (
-          <main className="mx-auto max-w-3xl px-6 py-12">
-            <div className="animate-fade-in-up">
-              <span className="label-text">Workspace</span>
-              <h1 className="mt-2 text-2xl font-heading font-bold text-primary">
-                Agent Identities
-              </h1>
-              <p className="mt-4 text-sm text-muted">
-                Managed identities require platform auth and are unavailable when auth is disabled.
-              </p>
-              <Link
-                href="/"
-                className="mt-6 inline-flex text-sm text-muted transition-colors duration-150 hover:text-primary"
-              >
-                &larr; Back to dashboard
-              </Link>
+          <Container as="main" className="py-12">
+            <div className="mx-auto max-w-3xl">
+              <div className="animate-fade-in-up">
+                <span className="label-text">Workspace</span>
+                <h1 className="mt-2 text-2xl font-heading text-primary">
+                  Agent Identities
+                </h1>
+                <p className="mt-4 text-sm text-muted">
+                  Managed identities require platform auth and are unavailable when auth is disabled.
+                </p>
+                <Link
+                  href="/"
+                  className="mt-6 inline-flex text-sm text-muted transition-colors duration-150 hover:text-primary"
+                >
+                  &larr; Back to dashboard
+                </Link>
+              </div>
             </div>
-          </main>
+          </Container>
         ) : identityID ? (
           <ManagedIdentityDetailView identityID={identityID} />
         ) : (
-          <main className="mx-auto max-w-5xl px-6 py-12">
+          <Container as="main" className="py-12">
             <div className="animate-fade-in-up">
               <span className="label-text">Workspace</span>
-              <h1 className="mt-2 text-2xl font-heading font-bold text-primary">
+              <h1 className="mt-2 text-2xl font-heading text-primary">
                 Agent Identities
               </h1>
               <p className="mt-2 text-sm text-muted">
@@ -179,7 +182,7 @@ export default function ManagedIdentitiesPageClient() {
                 <label htmlFor="identity-id" className="label-text block">
                   Identity ID
                 </label>
-                <div className="mt-2 flex rounded-md border border-alpha bg-base-white transition-all duration-150 focus-within:border-alpha-strong focus-within:ring-2 focus-within:ring-alpha-5 dark:bg-surface">
+                <div className="mt-2 flex rounded-md border border-alpha bg-base-white transition-all duration-150 focus-within:border-alpha-strong focus-within:ring-2 focus-within:ring-foreground/10 dark:bg-surface">
                   <span className="flex items-center border-r border-alpha px-3 font-mono text-sm text-faint">
                     service_account:
                   </span>
@@ -195,7 +198,7 @@ export default function ManagedIdentitiesPageClient() {
                       setIdentityIDEdited(true);
                       setIdentityLocalID(event.target.value);
                     }}
-                    className="min-w-0 flex-1 bg-transparent px-4 py-3 text-primary placeholder:text-faint focus:outline-none"
+                    className="min-w-0 flex-1 bg-transparent px-4 py-3 text-primary placeholder:text-faint focus:outline-hidden"
                   />
                 </div>
                 <p className="mt-2 text-xs text-faint">
@@ -225,7 +228,7 @@ export default function ManagedIdentitiesPageClient() {
                 ))}
               </div>
             ) : null}
-          </main>
+          </Container>
         )}
       </div>
     </AuthGuard>

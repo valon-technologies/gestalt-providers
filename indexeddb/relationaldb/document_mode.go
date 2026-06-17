@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	cursorutil "github.com/valon-technologies/gestalt-providers/indexeddb/internal/cursorutil"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -26,7 +26,7 @@ func marshalRecordBlob(record gestalt.Record) ([]byte, error) {
 	if record == nil {
 		return nil, status.Error(codes.InvalidArgument, "record is required")
 	}
-	raw, err := gestalt.EncodeIndexedDBRecord(record)
+	raw, err := indexeddb.EncodeIndexedDBRecord(record)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "marshal record payload: %v", err)
 	}
@@ -37,7 +37,7 @@ func unmarshalRecordBlob(raw []byte) (gestalt.Record, error) {
 	if len(raw) == 0 {
 		return nil, status.Error(codes.Internal, "record payload is empty")
 	}
-	record, err := gestalt.DecodeIndexedDBRecord(raw)
+	record, err := indexeddb.DecodeIndexedDBRecord(raw)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "unmarshal record payload: %v", err)
 	}
@@ -76,72 +76,16 @@ func indexKeyFromRecord(record gestalt.Record, idx *gestalt.IndexSchema) (any, b
 		if err != nil {
 			return nil, false, nil
 		}
+		// A null/undefined key-path value yields no index entry, per the W3C
+		// IndexedDB index maintenance steps. Legacy rows that stored null keys
+		// predate this and are left in place by the migration.
+		if value == nil {
+			return nil, false, nil
+		}
 		parts = append(parts, value)
 	}
 	if len(parts) == 1 {
 		return parts[0], true, nil
 	}
 	return parts, true, nil
-}
-
-func filterEntriesByPrefix(entries []cursorutil.Entry, values []any) ([]cursorutil.Entry, error) {
-	if len(values) == 0 {
-		return entries, nil
-	}
-	filtered := make([]cursorutil.Entry, 0, len(entries))
-	for _, entry := range entries {
-		entryParts := normalizeDocumentBound(entry.Key)
-		if len(entryParts) < len(values) {
-			continue
-		}
-		match := true
-		for i, want := range values {
-			if cursorutil.CompareValues(entryParts[i], want) != 0 {
-				match = false
-				break
-			}
-		}
-		if match {
-			filtered = append(filtered, entry)
-		}
-	}
-	return filtered, nil
-}
-
-func applyKeyRangeToEntries(entries []cursorutil.Entry, keyRange *gestalt.KeyRange, indexCursor bool) ([]cursorutil.Entry, error) {
-	if keyRange == nil {
-		return entries, nil
-	}
-	lower, upper, err := cursorutil.RangeBounds(keyRange, indexCursor)
-	if err != nil {
-		return nil, err
-	}
-	filtered := make([]cursorutil.Entry, 0, len(entries))
-	for _, entry := range entries {
-		entryKey := entry.Key
-		if indexCursor {
-			entryKey = normalizeDocumentBound(entry.Key)
-		}
-		if lower != nil {
-			cmp := cursorutil.CompareValues(entryKey, lower)
-			if cmp < 0 || (cmp == 0 && keyRange.LowerOpen) {
-				continue
-			}
-		}
-		if upper != nil {
-			cmp := cursorutil.CompareValues(entryKey, upper)
-			if cmp > 0 || (cmp == 0 && keyRange.UpperOpen) {
-				continue
-			}
-		}
-		filtered = append(filtered, entry)
-	}
-	return filtered, nil
-}
-
-func normalizeDocumentBound(value any) []any {
-	if parts, ok := value.([]any); ok {
-		return parts
-	}
-	return []any{value}
 }
