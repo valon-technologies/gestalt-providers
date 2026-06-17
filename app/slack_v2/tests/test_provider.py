@@ -138,6 +138,28 @@ class SlackV2ProviderTests(unittest.TestCase):
             result.body, {"error": "registration not found for app_id 'A404'"}
         )
 
+    @mock.patch("provider.record_smoke_run")
+    def test_debug_record_smoke_run_records_metric(self, record_smoke_run: mock.Mock) -> None:
+        result = provider_module.debug_record_smoke_run(
+            provider_module.DebugRecordSmokeRunInput(app_id="A123"),
+            gestalt.Request(),
+        )
+
+        record_smoke_run.assert_called_once_with(app_id="A123")
+        self.assertEqual(result, {"ok": True, "recorded": True})
+
+    @mock.patch("provider.record_smoke_run")
+    def test_debug_record_smoke_run_allows_empty_app_id(
+        self, record_smoke_run: mock.Mock
+    ) -> None:
+        result = provider_module.debug_record_smoke_run(
+            provider_module.DebugRecordSmokeRunInput(),
+            gestalt.Request(),
+        )
+
+        record_smoke_run.assert_called_once_with(app_id="")
+        self.assertEqual(result, {"ok": True, "recorded": True})
+
     def test_handle_slack_event_requires_api_app_id(self) -> None:
         result = provider_module.handle_slack_event({}, gestalt.Request())
 

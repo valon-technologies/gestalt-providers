@@ -1,5 +1,5 @@
 source: github.com/valon-technologies/gestalt-providers/app/slack_v2
-version: 0.0.1-alpha.4
+version: 0.0.1-alpha.5
 displayName: Slack v2
 description: Minimal Slack webhook app.
 kind: app
@@ -24,3 +24,13 @@ spec:
         content:
           application/json: {}
           application/x-www-form-urlencoded: {}
+    smoke_run:
+      path: /debug/smoke-run
+      method: POST
+      credentialMode: none
+      security: unchecked
+      target: debug_record_smoke_run
+      requestBody:
+        required: false
+        content:
+          application/json: {}
