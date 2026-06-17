@@ -146,7 +146,7 @@ func TestIntrospectInactiveAfterRevokeGrant(t *testing.T) {
 	attachGrantStore(t, p)
 	ctx := context.Background()
 	subject := "user:user@example.com"
-	issued, err := p.grants.issue(ctx, subject, "openid email", defaultOAuthClientID, time.Hour)
+	issued, err := p.grants.issue(ctx, subject, "openid email", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
 	if err != nil {
 		t.Fatalf("issue() error = %v", err)
 	}
@@ -172,12 +172,12 @@ func TestListGrantsScopesToCaller(t *testing.T) {
 	p := New()
 	attachGrantStore(t, p)
 	ctx := context.Background()
-	issued, err := p.grants.issue(ctx, "user:owner@example.com", "openid", defaultOAuthClientID, time.Hour)
+	issued, err := p.grants.issue(ctx, "user:owner@example.com", "openid", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
 	if err != nil {
 		t.Fatalf("issue() error = %v", err)
 	}
 	grantID, token := issued.grantID, issued.accessToken
-	otherIssued, err := p.grants.issue(ctx, "user:other@example.com", "openid", defaultOAuthClientID, time.Hour)
+	otherIssued, err := p.grants.issue(ctx, "user:other@example.com", "openid", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
 	if err != nil {
 		t.Fatalf("issue(other) error = %v", err)
 	}
@@ -515,7 +515,7 @@ func TestGrantStorePersistsAcrossRestart(t *testing.T) {
 	p.grants = store
 
 	subject := "user:persisted"
-	issued, err := p.grants.issue(ctx, subject, "openid", defaultOAuthClientID, time.Hour)
+	issued, err := p.grants.issue(ctx, subject, "openid", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
 	if err != nil {
 		t.Fatalf("issue() error = %v", err)
 	}
@@ -595,7 +595,7 @@ func TestGrantStorePersistsOnlyTokenHashes(t *testing.T) {
 	p := New()
 	db := attachGrantStoreWithDB(t, p)
 
-	issued, err := p.grants.issue(ctx, "user:hash-only@example.com", "openid", defaultOAuthClientID, time.Hour)
+	issued, err := p.grants.issue(ctx, "user:hash-only@example.com", "openid", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
 	if err != nil {
 		t.Fatalf("issue() error = %v", err)
 	}
@@ -667,7 +667,7 @@ func TestTokenExchangeAttenuatesScope(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			issued, err := p.grants.issue(ctx, subject, tt.sourceScope, defaultOAuthClientID, time.Hour)
+			issued, err := p.grants.issue(ctx, subject, tt.sourceScope, defaultOAuthClientID, grantCategorySession, time.Hour)
 			if err != nil {
 				t.Fatalf("issue() error = %v", err)
 			}
@@ -717,7 +717,7 @@ func TestIssuePersistsGrantAndTokenHashTransactionally(t *testing.T) {
 	p := New()
 	db := attachGrantStoreWithDB(t, p)
 
-	issued, err := p.grants.issue(ctx, "user:tx@example.com", "openid", defaultOAuthClientID, time.Hour)
+	issued, err := p.grants.issue(ctx, "user:tx@example.com", "openid", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
 	if err != nil {
 		t.Fatalf("issue() error = %v", err)
 	}
@@ -758,7 +758,7 @@ func TestIssueFailsWhenGrantAddFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openGrantStore() error = %v", err)
 	}
-	issued, err := store.issue(ctx, "user:fail@example.com", "openid", defaultOAuthClientID, time.Hour)
+	issued, err := store.issue(ctx, "user:fail@example.com", "openid", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
 	if err == nil {
 		t.Fatal("issue() error = nil, want grant add failure")
 	}
@@ -780,7 +780,7 @@ func TestIssueFailsWhenTokenHashAddFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openGrantStore() error = %v", err)
 	}
-	issued, err := store.issue(ctx, "user:fail@example.com", "openid", defaultOAuthClientID, time.Hour)
+	issued, err := store.issue(ctx, "user:fail@example.com", "openid", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
 	if err == nil {
 		t.Fatal("issue() error = nil, want token hash add failure")
 	}
@@ -803,7 +803,7 @@ func TestIssueFailsWhenTransactionCommitFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openGrantStore() error = %v", err)
 	}
-	issued, err := store.issue(ctx, "user:fail@example.com", "openid", defaultOAuthClientID, time.Hour)
+	issued, err := store.issue(ctx, "user:fail@example.com", "openid", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
 	if err == nil {
 		t.Fatal("issue() error = nil, want commit failure")
 	}
@@ -946,4 +946,92 @@ func attachGrantStoreWithDB(t *testing.T, p *Provider) *oidcfake.IndexedDB {
 	p.grants = store
 	p.grantsDB = db
 	return db
+}
+
+func TestGrantManagementExcludesSessionGrants(t *testing.T) {
+	p := New()
+	attachGrantStore(t, p)
+	ctx := context.Background()
+	subject := "user:owner@example.com"
+
+	sessionIssued, err := p.grants.issue(ctx, subject, "openid", defaultOAuthClientID, grantCategorySession, time.Hour)
+	if err != nil {
+		t.Fatalf("issue(session) error = %v", err)
+	}
+	apiIssued, err := p.grants.issue(ctx, subject, "deal-hub:read", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
+	if err != nil {
+		t.Fatalf("issue(api_token) error = %v", err)
+	}
+
+	callCtx := gestalt.WithAuthCallContext(ctx, gestalt.AuthCallContext{
+		CallerBearerToken: apiIssued.accessToken,
+	})
+	listResp, err := p.ListGrants(callCtx, &gestalt.ListGrantsRequest{})
+	if err != nil {
+		t.Fatalf("ListGrants() error = %v", err)
+	}
+	if len(listResp.GrantIDs) != 1 || listResp.GrantIDs[0] != apiIssued.grantID {
+		t.Fatalf("ListGrants() = %v, want only api token grant %q", listResp.GrantIDs, apiIssued.grantID)
+	}
+	if _, err := p.GetGrant(callCtx, &gestalt.GetGrantRequest{GrantID: sessionIssued.grantID}); err == nil {
+		t.Fatal("GetGrant(session) error = nil, want not found")
+	}
+	if _, err := p.RevokeGrant(callCtx, &gestalt.RevokeGrantRequest{GrantID: sessionIssued.grantID}); err == nil {
+		t.Fatal("RevokeGrant(session) error = nil, want not found")
+	}
+
+	sessionIntrospect, err := p.Introspect(context.Background(), &gestalt.IntrospectRequest{Token: sessionIssued.accessToken})
+	if err != nil {
+		t.Fatalf("Introspect(session) error = %v", err)
+	}
+	if !sessionIntrospect.Active {
+		t.Fatal("Introspect(session) expected active token")
+	}
+}
+
+func TestFarFutureSentinelExpiryIntrospectsActive(t *testing.T) {
+	p := New()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	p.now = func() time.Time { return now }
+	attachGrantStore(t, p)
+	ctx := context.Background()
+	sentinel, err := time.Parse(time.RFC3339, legacyNonExpiringExpiry)
+	if err != nil {
+		t.Fatalf("parse sentinel: %v", err)
+	}
+
+	grantID := "grant-legacy"
+	accessToken := "legacy-plaintext-token"
+	tokenHash := hashToken(accessToken)
+	db := p.grantsDB
+	if err := db.ObjectStore(grantStoreName).Add(ctx, gestalt.Record{
+		"id":         grantID,
+		"subject":    "user:legacy@example.com",
+		"scope":      "deal-hub:read",
+		"client_id":  defaultOAuthClientID,
+		"created_at": now,
+		"expires_at": sentinel,
+		"revoked":    false,
+		"category":   grantCategoryAPIToken,
+	}); err != nil {
+		t.Fatalf("Add(grant) error = %v", err)
+	}
+	if err := db.ObjectStore(tokenHashStoreName).Add(ctx, gestalt.Record{
+		"id":         tokenHash,
+		"grant_id":   grantID,
+		"subject":    "user:legacy@example.com",
+		"scope":      "deal-hub:read",
+		"client_id":  defaultOAuthClientID,
+		"expires_at": sentinel,
+	}); err != nil {
+		t.Fatalf("Add(token hash) error = %v", err)
+	}
+
+	resp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: accessToken})
+	if err != nil {
+		t.Fatalf("Introspect() error = %v", err)
+	}
+	if !resp.Active {
+		t.Fatal("Introspect() expected active token for far-future sentinel expiry")
+	}
 }

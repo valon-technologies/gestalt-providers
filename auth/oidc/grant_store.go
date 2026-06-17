@@ -18,10 +18,13 @@ import (
 )
 
 const (
-	grantStoreName       = "authentication_grants"
-	tokenHashStoreName   = "authentication_token_hashes"
-	grantIndexBySubject  = "by_subject"
-	tokenIndexByGrantID  = "by_grant_id"
+	grantStoreName          = "authentication_grants"
+	tokenHashStoreName      = "authentication_token_hashes"
+	grantIndexBySubject     = "by_subject"
+	tokenIndexByGrantID     = "by_grant_id"
+	grantCategorySession    = "session"
+	grantCategoryAPIToken   = "api_token"
+	legacyNonExpiringExpiry = "9999-12-31T23:59:59Z"
 )
 
 const defaultOAuthClientID = "gestaltd"
@@ -80,6 +83,7 @@ func grantStoreSchema() gestalt.ObjectStoreOptions {
 			{Name: "created_at", Type: gestalt.TypeTime, NotNull: true},
 			{Name: "expires_at", Type: gestalt.TypeTime, NotNull: true},
 			{Name: "revoked", Type: gestalt.TypeBool, NotNull: true},
+			{Name: "category", Type: gestalt.TypeString, NotNull: true},
 		},
 	}
 }
@@ -104,9 +108,12 @@ func (s *grantStore) currentTime() time.Time {
 	return s.now().UTC()
 }
 
-func (s *grantStore) issue(ctx context.Context, subject, scope, clientID string, ttl time.Duration) (*issuedGrant, error) {
+func (s *grantStore) issue(ctx context.Context, subject, scope, clientID, category string, ttl time.Duration) (*issuedGrant, error) {
 	if strings.TrimSpace(clientID) == "" {
 		clientID = defaultOAuthClientID
+	}
+	if category == "" {
+		category = grantCategorySession
 	}
 	now := s.currentTime()
 	if ttl <= 0 {
@@ -136,6 +143,7 @@ func (s *grantStore) issue(ctx context.Context, subject, scope, clientID string,
 		"created_at": now,
 		"expires_at": expiresAt,
 		"revoked":    false,
+		"category":   category,
 	}); err != nil {
 		_ = tx.Abort(ctx)
 		return nil, fmt.Errorf("oidc auth: persist grant: %w", err)
@@ -195,6 +203,9 @@ func (s *grantStore) listGrantIDs(ctx context.Context, subject string) []string 
 	now := s.currentTime()
 	ids := make([]string, 0, len(records))
 	for _, record := range records {
+		if recordString(record, "category") != grantCategoryAPIToken {
+			continue
+		}
 		if recordBool(record, "revoked") || !recordTime(record, "expires_at").After(now) {
 			continue
 		}
@@ -217,6 +228,9 @@ func (s *grantStore) getGrant(ctx context.Context, grantID, subject string) (*ge
 	if recordString(record, "subject") != subject || recordBool(record, "revoked") {
 		return nil, grantNotFound(grantID)
 	}
+	if recordString(record, "category") != grantCategoryAPIToken {
+		return nil, grantNotFound(grantID)
+	}
 	if !recordTime(record, "expires_at").After(s.currentTime()) {
 		return nil, grantNotFound(grantID)
 	}
@@ -232,6 +246,9 @@ func (s *grantStore) revokeGrant(ctx context.Context, grantID, subject string) e
 		return fmt.Errorf("oidc auth: get grant %q: %w", grantID, err)
 	}
 	if recordString(record, "subject") != subject {
+		return grantNotFound(grantID)
+	}
+	if recordString(record, "category") != grantCategoryAPIToken {
 		return grantNotFound(grantID)
 	}
 	record["revoked"] = true

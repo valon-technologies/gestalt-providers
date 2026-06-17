@@ -307,7 +307,7 @@ func (p *Provider) tokenAuthorizationCode(ctx context.Context, req *gestalt.Toke
 	if clientID == "" {
 		clientID = defaultOAuthClientID
 	}
-	issued, err := p.grants.issue(ctx, subject, pending.scope, clientID, p.SessionTTL())
+	issued, err := p.grants.issue(ctx, subject, pending.scope, clientID, grantCategorySession, p.SessionTTL())
 	if err != nil {
 		return nil, err
 	}
@@ -347,7 +347,7 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 	if err != nil {
 		return nil, err
 	}
-	issued, err := p.grants.issue(ctx, introspectResp.Subject, issuedScope, clientID, p.SessionTTL())
+	issued, err := p.grants.issue(ctx, introspectResp.Subject, issuedScope, clientID, grantCategoryAPIToken, p.SessionTTL())
 	if err != nil {
 		return nil, err
 	}
