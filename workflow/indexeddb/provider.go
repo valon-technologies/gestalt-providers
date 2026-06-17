@@ -244,6 +244,11 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 		_ = db.Close()
 	}
 
+	if err := ensureWorkflowObjectStores(ctx, db); err != nil {
+		cleanup()
+		return fmt.Errorf("indexeddb workflow: ensure stores: %w", err)
+	}
+
 	runStore := db.ObjectStore(storeRuns)
 	runClaimStore := db.ObjectStore(storeRunClaims)
 	workflowKeyStore := db.ObjectStore(storeWorkflowKeys)
@@ -2220,6 +2225,67 @@ func normalizeRunClaimRenewEvery(ttl, renewEvery time.Duration) time.Duration {
 		return ttl
 	}
 	return renewEvery
+}
+
+func ensureWorkflowObjectStores(ctx context.Context, db indexeddb.Database) error {
+	if db == nil {
+		return fmt.Errorf("indexeddb database is required")
+	}
+	for _, def := range []struct {
+		name   string
+		schema gestalt.ObjectStoreOptions
+	}{
+		{name: storeSchedules, schema: gestalt.ObjectStoreOptions{}},
+		{name: storeDefinitions, schema: gestalt.ObjectStoreOptions{}},
+		{name: storeIdempotency, schema: gestalt.ObjectStoreOptions{}},
+		{name: storeWorkflowKeys, schema: gestalt.ObjectStoreOptions{}},
+		{name: storeRuns, schema: gestalt.ObjectStoreOptions{}},
+		{name: storeRunClaims, schema: workflowRunClaimSchema()},
+		{name: storeSignals, schema: workflowSignalSchema()},
+	} {
+		if _, err := db.CreateObjectStore(ctx, def.name, def.schema); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+			return fmt.Errorf("create %s store: %w", def.name, err)
+		}
+	}
+	return nil
+}
+
+func workflowRunClaimSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "run_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "owner_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "claimed_at", Type: gestalt.TypeTime},
+			{Name: "expires_at", Type: gestalt.TypeTime},
+		},
+	}
+}
+
+func workflowSignalSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
+		Indexes: []gestalt.IndexSchema{
+			{Name: "by_run", KeyPath: []string{"run_id"}},
+			{Name: "by_run_state", KeyPath: []string{"run_id", "state"}},
+			{Name: "by_run_sequence", KeyPath: []string{"run_id", "sequence"}, Unique: true},
+		},
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "run_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "workflow_key", Type: gestalt.TypeString},
+			{Name: "state", Type: gestalt.TypeString, NotNull: true},
+			{Name: "signal_json", Type: gestalt.TypeString},
+			{Name: "idempotency_key", Type: gestalt.TypeString},
+			{Name: "sequence", Type: gestalt.TypeInt},
+			{Name: "started_run", Type: gestalt.TypeBool},
+			{Name: "batch_id", Type: gestalt.TypeString},
+			{Name: "created_at", Type: gestalt.TypeTime},
+			{Name: "claimed_at", Type: gestalt.TypeTime},
+			{Name: "delivered_at", Type: gestalt.TypeTime},
+			{Name: "failed_at", Type: gestalt.TypeTime},
+			{Name: "status_message", Type: gestalt.TypeString},
+		},
+	}
 }
 
 func validateWorkflowSignalIndexes(ctx context.Context, store indexeddb.ObjectStore) error {
