@@ -11,7 +11,7 @@ from internals.events import (
     slack_app_id_from_payload,
 )
 from internals.store import (
-    get_workflow_definition_id_for_app as load_workflow_definition_id_for_app,
+    get_workflow_event_subject_for_app as load_workflow_event_subject_for_app,
     save_slack_event_registration,
 )
 from internals.smoke_metrics import record_smoke_run
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 app = gestalt.App("slack_v2")
 
 
-class GetWorkflowDefinitionIdForAppInput(gestalt.Model):
+class GetWorkflowEventSubjectForAppInput(gestalt.Model):
     app_id: str = gestalt.field(description="Slack app ID.")
 
 
@@ -38,8 +38,9 @@ class RegisterSlackEventInput(gestalt.Model):
     client_secret: str = gestalt.field(description="Slack OAuth client secret.")
     signing_secret: str = gestalt.field(description="Slack signing secret for request verification.")
     display_name: str = gestalt.field(description="Human-readable name for the Slack bot.")
-    workflow_definition_id: str = gestalt.field(
-        description="Gestalt workflow definition ID to invoke for Slack events."
+    workflow_event_subject: str = gestalt.field(
+        default="",
+        description="Workflow event subject to publish for Slack events.",
     )
 
 
@@ -56,6 +57,12 @@ def register_slack_event(
         return gestalt.Response(
             status=HTTPStatus.BAD_REQUEST, body={"error": "app_id is required"}
         )
+    workflow_event_subject = input.workflow_event_subject.strip()
+    if not workflow_event_subject:
+        return gestalt.Response(
+            status=HTTPStatus.BAD_REQUEST,
+            body={"error": "workflow_event_subject is required"},
+        )
 
     save_slack_event_registration(
         app_id=app_id,
@@ -63,23 +70,23 @@ def register_slack_event(
         client_secret=input.client_secret,
         signing_secret=input.signing_secret,
         display_name=input.display_name,
-        workflow_definition_id=input.workflow_definition_id,
+        workflow_event_subject=workflow_event_subject,
     )
     return {
         "ok": True,
         "app_id": app_id,
         "display_name": input.display_name,
-        "workflow_definition_id": input.workflow_definition_id,
+        "workflow_event_subject": workflow_event_subject,
     }
 
 
 @app.operation(
-    id="get_workflow_definition_id_for_app",
+    id="get_workflow_event_subject_for_app",
     method="POST",
-    description="Return the workflow definition ID registered for a Slack app.",
+    description="Return the workflow event subject registered for a Slack app.",
 )
-def get_workflow_definition_id_for_app(
-    input: GetWorkflowDefinitionIdForAppInput, _req: gestalt.Request
+def get_workflow_event_subject_for_app(
+    input: GetWorkflowEventSubjectForAppInput, _req: gestalt.Request
 ) -> dict[str, str] | gestalt.Response[dict[str, str]]:
     app_id = input.app_id.strip()
     if not app_id:
@@ -88,7 +95,7 @@ def get_workflow_definition_id_for_app(
         )
 
     try:
-        workflow_definition_id = load_workflow_definition_id_for_app(app_id=app_id)
+        workflow_event_subject = load_workflow_event_subject_for_app(app_id=app_id)
     except gestalt.NotFoundError:
         return gestalt.Response(
             status=HTTPStatus.NOT_FOUND,
@@ -97,7 +104,7 @@ def get_workflow_definition_id_for_app(
 
     return {
         "app_id": app_id,
-        "workflow_definition_id": workflow_definition_id,
+        "workflow_event_subject": workflow_event_subject,
     }
 
 
@@ -116,7 +123,7 @@ def debug_record_smoke_run(
 @app.operation(
     id="handle_slack_event",
     method="POST",
-    description="Handle a Slack event by delivering a workflow event for the registered definition.",
+    description="Handle a Slack event by publishing the registered workflow event subject.",
 )
 def handle_slack_event(
     input: dict[str, Any], req: gestalt.Request
@@ -129,34 +136,19 @@ def handle_slack_event(
         )
 
     try:
-        workflow_definition_id = load_workflow_definition_id_for_app(app_id=app_id)
+        workflow_event_subject = load_workflow_event_subject_for_app(app_id=app_id)
     except gestalt.NotFoundError:
         return gestalt.Response(
             status=HTTPStatus.NOT_FOUND,
             body={"error": f"registration not found for app_id {app_id!r}"},
         )
 
-    definition: gestalt.WorkflowDefinition | None = None
-    workflow_request: gestalt.WorkflowDeliverEvent
     try:
         with req.workflows() as workflows:
-            try:
-                definition = workflows.get_definition(
-                    gestalt.WorkflowGetDefinition(definition_id=workflow_definition_id)
-                )
-            except Exception:
-                logger.exception(
-                    "failed to load workflow definition for Slack app",
-                    extra={
-                        "slack_app_id": app_id,
-                        "workflow_definition_id": workflow_definition_id,
-                    },
-                )
             workflow_request = build_workflow_deliver_event_request(
                 app_id=app_id,
-                workflow_definition_id=workflow_definition_id,
+                workflow_event_subject=workflow_event_subject,
                 payload=input,
-                definition=definition,
             )
             workflows.deliver_event(workflow_request)
     except Exception as err:
@@ -164,8 +156,7 @@ def handle_slack_event(
             "failed to deliver Slack v2 workflow event",
             extra={
                 "slack_app_id": app_id,
-                "workflow_definition_id": workflow_definition_id,
-                "workflow_provider": workflow_request.provider_name,
+                "workflow_event_subject": workflow_event_subject,
             },
         )
         return gestalt.Response(
@@ -178,7 +169,7 @@ def handle_slack_event(
         "ok": True,
         "delivered": True,
         "app_id": app_id,
-        "workflow_definition_id": workflow_definition_id,
+        "workflow_event_subject": workflow_event_subject,
         "workflow_event_id": event.id if event is not None else "",
         "workflow_provider": workflow_request.provider_name,
     }

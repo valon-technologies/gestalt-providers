@@ -12,12 +12,12 @@ _init_lock = threading.Lock()
 _initialized = False
 
 
-def get_workflow_definition_id_for_app(*, app_id: str) -> str:
+def get_workflow_event_subject_for_app(*, app_id: str) -> str:
     record = _object_store().get(app_id)
-    workflow_definition_id = record.get("workflow_definition_id")
-    if not isinstance(workflow_definition_id, str) or not workflow_definition_id.strip():
-        raise gestalt.NotFoundError(f"workflow_definition_id not found for app_id {app_id!r}")
-    return workflow_definition_id.strip()
+    workflow_event_subject = record.get("workflow_event_subject")
+    if not isinstance(workflow_event_subject, str) or not workflow_event_subject.strip():
+        raise gestalt.NotFoundError(f"workflow_event_subject not found for app_id {app_id!r}")
+    return workflow_event_subject.strip()
 
 
 def save_slack_event_registration(
@@ -27,7 +27,7 @@ def save_slack_event_registration(
     client_secret: str,
     signing_secret: str,
     display_name: str,
-    workflow_definition_id: str,
+    workflow_event_subject: str,
 ) -> None:
     _ensure_initialized()
     _object_store().put(
@@ -37,7 +37,7 @@ def save_slack_event_registration(
             "client_secret": client_secret,
             "signing_secret": signing_secret,
             "display_name": display_name,
-            "workflow_definition_id": workflow_definition_id,
+            "workflow_event_subject": workflow_event_subject,
         }
     )
 
