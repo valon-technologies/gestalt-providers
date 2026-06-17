@@ -176,7 +176,7 @@ jobs:
         if: matrix.provider.has_python
         run: uv python install "${{ matrix.provider.python_version }}"
       - name: Prepare sibling Gestalt checkout for local SDK packaging
-        if: matrix.provider.has_python
+        if: matrix.provider.has_go || matrix.provider.has_python
         run: |
           set -euo pipefail
           toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
