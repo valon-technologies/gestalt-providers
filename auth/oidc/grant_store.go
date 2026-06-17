@@ -193,7 +193,7 @@ func (s *grantStore) introspect(ctx context.Context, token string) gestalt.Intro
 }
 
 func (s *grantStore) listGrantIDs(ctx context.Context, subject string) []string {
-	records, err := s.grants.Index(grantIndexBySubject).GetAll(ctx, nil, subject)
+	records, err := s.grants.Index(grantIndexBySubject).GetAll(ctx, subject)
 	if errors.Is(err, gestalt.ErrNotFound) {
 		return nil
 	}
@@ -255,7 +255,7 @@ func (s *grantStore) revokeGrant(ctx context.Context, grantID, subject string) e
 	if err := s.grants.Put(ctx, record); err != nil {
 		return fmt.Errorf("oidc auth: revoke grant %q: %w", grantID, err)
 	}
-	tokenRecords, err := s.tokens.Index(tokenIndexByGrantID).GetAll(ctx, nil, grantID)
+	tokenRecords, err := s.tokens.Index(tokenIndexByGrantID).GetAll(ctx, grantID)
 	if err != nil && !errors.Is(err, gestalt.ErrNotFound) {
 		return fmt.Errorf("oidc auth: list token hashes for grant %q: %w", grantID, err)
 	}

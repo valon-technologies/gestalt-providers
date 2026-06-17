@@ -40,7 +40,7 @@ export default function TokenTable({ tokens, onRevoked }: TokenTableProps) {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-alpha text-left">
-            <th className="px-5 py-3.5 label-text">Name</th>
+            <th className="px-5 py-3.5 label-text">ID</th>
             <th className="px-5 py-3.5 label-text">Scopes</th>
             <th className="px-5 py-3.5 label-text">Created</th>
             <th className="px-5 py-3.5 label-text">Expires</th>
@@ -50,7 +50,7 @@ export default function TokenTable({ tokens, onRevoked }: TokenTableProps) {
         <tbody>
           {tokens.map((token) => (
             <tr key={token.id} className="border-b border-alpha last:border-b-0">
-              <td className="px-5 py-4 text-primary font-medium">{token.name}</td>
+              <td className="px-5 py-4 text-primary font-mono text-xs">{token.id}</td>
               <td className="px-5 py-4 text-muted">{token.scopes || "all"}</td>
               <td className="px-5 py-4 text-muted font-mono text-xs">
                 {new Date(token.createdAt).toLocaleDateString()}

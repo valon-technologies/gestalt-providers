@@ -17,15 +17,17 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = e.currentTarget;
-    const name = (new FormData(form).get("name") as string)?.trim();
-    if (!name) return;
+    const formData = new FormData(form);
+    const name = (formData.get("name") as string)?.trim();
+    const scopes = (formData.get("scopes") as string)?.trim();
+    if (!name || !scopes) return;
 
     setCreating(true);
     setError(null);
     setPlaintext(null);
 
     try {
-      const result = await createToken(name);
+      const result = await createToken(name, scopes);
       setPlaintext(result.token);
       form.reset();
       await onCreated();
@@ -52,6 +54,22 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
             type="text"
             required
             placeholder="e.g. ci-pipeline"
+            className={`mt-2 w-full ${INPUT_CLASSES}`}
+          />
+        </div>
+        <div className="flex-1">
+          <label
+            htmlFor="token-scopes"
+            className="label-text block"
+          >
+            Scopes
+          </label>
+          <input
+            id="token-scopes"
+            name="scopes"
+            type="text"
+            required
+            placeholder="e.g. slack or slack:post_message"
             className={`mt-2 w-full ${INPUT_CLASSES}`}
           />
         </div>
