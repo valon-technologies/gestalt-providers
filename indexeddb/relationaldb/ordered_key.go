@@ -300,11 +300,6 @@ func floatRat(v float64) (*big.Rat, bool) {
 	return r, true
 }
 
-// EncodeOrderedKeyForBackfill exposes encodeOrderedKey for operational backfill tools.
-func EncodeOrderedKeyForBackfill(value any) ([]byte, error) {
-	return encodeOrderedKey(value)
-}
-
 // orderedBounds encodes the lower and upper bounds of kr for SQL range scans.
 func orderedBounds(kr *client.KeyRange) (lo, hi []byte, loOpen, hiOpen bool, err error) {
 	if kr == nil {
