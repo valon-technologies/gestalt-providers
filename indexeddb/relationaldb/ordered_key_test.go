@@ -53,6 +53,59 @@ func TestOrderedKeyRangeMatchesKeyInRange(t *testing.T) {
 	}
 }
 
+func TestOrderedKeyLargeIntegerAdjacentSweep(t *testing.T) {
+	t.Parallel()
+
+	const (
+		exactMax = int64(9007199254740991) // 2^53 - 1
+		two53    = int64(9007199254740992) // 2^53
+	)
+
+	for i := two53 - 4; i <= two53+512; i++ {
+		assertOrderedKeyCompare(t, i, i+1)
+	}
+	for i := -two53 - 512; i <= -two53+4; i++ {
+		assertOrderedKeyCompare(t, i, i+1)
+	}
+
+	const two54 = int64(1 << 54)
+	for i := two54 - 16; i <= two54+16; i++ {
+		assertOrderedKeyCompare(t, i, i+1)
+	}
+
+	for i := uint64(two53); i <= uint64(two53)+512; i++ {
+		assertOrderedKeyCompare(t, i, i+1)
+	}
+
+	for _, n := range []int64{0, 1, 42, exactMax} {
+		assertOrderedKeyByteEqual(t, int64(n), float64(n))
+		assertOrderedKeyByteEqual(t, int64(n), uint64(n))
+	}
+	for _, n := range []int64{-1, -1000, -exactMax} {
+		assertOrderedKeyByteEqual(t, int64(n), float64(n))
+	}
+	assertOrderedKeyByteEqual(t, true, int64(1))
+	assertOrderedKeyByteEqual(t, false, int64(0))
+}
+
+func assertOrderedKeyByteEqual(t *testing.T, a, b any) {
+	t.Helper()
+	encA, err := encodeOrderedKey(a)
+	if err != nil {
+		t.Fatalf("encodeOrderedKey(%#v): %v", a, err)
+	}
+	encB, err := encodeOrderedKey(b)
+	if err != nil {
+		t.Fatalf("encodeOrderedKey(%#v): %v", b, err)
+	}
+	if !bytes.Equal(encA, encB) {
+		t.Fatalf("encodeOrderedKey(%#v)=%x != encodeOrderedKey(%#v)=%x", a, encA, b, encB)
+	}
+	if sign(indexeddb.CompareKeys(a, b)) != 0 {
+		t.Fatalf("CompareKeys(%#v, %#v) != 0", a, b)
+	}
+}
+
 func randomScalarOrderedKey(rng *rand.Rand) any {
 	switch rng.Intn(5) {
 	case 0:

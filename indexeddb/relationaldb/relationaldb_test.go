@@ -942,3 +942,95 @@ func mustEncodedKey(t *testing.T, value any) encodedKey {
 	}
 	return key
 }
+
+func TestIndexRangeScanUsesOrderedKeyIndex(t *testing.T) {
+	ctx := context.Background()
+	s := testStore(t)
+
+	schema := gestalt.ObjectStoreOptions{
+		Indexes: []gestalt.IndexSchema{
+			{Name: "by_period", KeyPath: []string{"period_start"}},
+		},
+	}
+	if err := s.CreateObjectStore(ctx, "rollups", schema); err != nil {
+		t.Fatalf("CreateObjectStore: %v", err)
+	}
+
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for day := 0; day < 60; day++ {
+		date := start.AddDate(0, 0, day).Format("2006-01-02")
+		if err := s.Add(ctx, gestalt.IndexedDBRecordRequest{
+			Store: "rollups",
+			Record: gestalt.Record{
+				"id":           fmt.Sprintf("r-%03d", day),
+				"period_start": date,
+			},
+		}); err != nil {
+			t.Fatalf("Add day %d: %v", day, err)
+		}
+	}
+
+	lo, err := encodeOrderedKey("2026-02-01")
+	if err != nil {
+		t.Fatalf("encode lower bound: %v", err)
+	}
+	hi, err := encodeOrderedKey("2026-02-07")
+	if err != nil {
+		t.Fatalf("encode upper bound: %v", err)
+	}
+
+	rows, err := s.loadGenericIndexRowsByRange(ctx, s.genericIndexTable(), "rollups", "by_period", lo, hi, false, false)
+	if err != nil {
+		t.Fatalf("loadGenericIndexRowsByRange: %v", err)
+	}
+	if len(rows) != 7 {
+		t.Fatalf("narrow range row count = %d, want 7", len(rows))
+	}
+
+	plan := explainOrderedIndexRangeScan(t, s, s.genericIndexTable(), "rollups", "by_period", lo, hi)
+	scanIndex := portableIndexName(s.genericIndexTable(), "scan")
+	if !strings.Contains(plan, scanIndex) && !strings.Contains(plan, "index_key_ord") {
+		t.Fatalf("EXPLAIN QUERY PLAN did not use ordered scan index:\n%s", plan)
+	}
+}
+
+func explainOrderedIndexRangeScan(t *testing.T, s *Store, table, store, index string, lo, hi []byte) string {
+	t.Helper()
+
+	query := "SELECT " + quoteIdent(s.dialect, "index_key_ord") +
+		" FROM " + quoteTableName(s.dialect, table) +
+		" WHERE " + quoteIdent(s.dialect, "store_name") + " = ? AND " +
+		quoteIdent(s.dialect, "index_name") + " = ? AND " +
+		quoteIdent(s.dialect, "index_key_ord") + " >= ? AND " +
+		quoteIdent(s.dialect, "index_key_ord") + " <= ?"
+
+	rows, err := s.query(context.Background(),
+		"EXPLAIN QUERY PLAN "+query,
+		store, index, lo, hi,
+	)
+	if err != nil {
+		t.Fatalf("EXPLAIN QUERY PLAN: %v", err)
+	}
+	defer rows.Close()
+
+	var parts []string
+	for rows.Next() {
+		cols := make([]sql.NullString, 4)
+		dest := make([]any, len(cols))
+		for i := range cols {
+			dest[i] = &cols[i]
+		}
+		if err := rows.Scan(dest...); err != nil {
+			t.Fatalf("scan EXPLAIN row: %v", err)
+		}
+		for _, col := range cols {
+			if col.Valid {
+				parts = append(parts, col.String)
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate EXPLAIN: %v", err)
+	}
+	return strings.Join(parts, " ")
+}
