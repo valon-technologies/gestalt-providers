@@ -118,6 +118,10 @@ func Run(t *testing.T, harness Harness) {
 	t.Run("LargeIndexNarrowRange", func(t *testing.T) {
 		runLargeIndexNarrowRange(t, harness)
 	})
+
+	t.Run("NullIndexKeySkipped", func(t *testing.T) {
+		runNullIndexKeySkipped(t, harness)
+	})
 }
 
 func runTypedPrimaryKeyFidelity(t *testing.T, harness Harness) {
@@ -954,6 +958,33 @@ func runLargeIndexNarrowRange(t *testing.T, harness Harness) {
 	}
 	if count := mustIndexCount(t, sess.client, store, "by_period", rangeReq); count != int64(len(want)) {
 		t.Fatalf("IndexCount narrow range = %d, want %d", count, len(want))
+	}
+}
+
+func runNullIndexKeySkipped(t *testing.T, harness Harness) {
+	t.Helper()
+
+	sess := newSession(t, harness)
+	t.Cleanup(sess.Close)
+
+	store := "null_index_key"
+	mustCreateObjectStore(t, sess.client, store, gestalt.ObjectStoreOptions{
+		Indexes: []gestalt.IndexSchema{
+			{Name: "by_email", KeyPath: []string{"email"}},
+		},
+	})
+
+	// A present-but-null key-path value must not error on write and must not be
+	// indexed (W3C: no index entry for a null/undefined key path).
+	mustAddRecord(t, sess.client, store, gestalt.Record{"id": "no-email", "email": nil})
+	mustAddRecord(t, sess.client, store, gestalt.Record{"id": "has-email", "email": "person@example.com"})
+
+	ids := sortedStrings(recordPrimaryKeys(t, mustIndexGetAll(t, sess.client, store, "by_email", nil)))
+	if !stringSlicesEqual(ids, []string{"has-email"}) {
+		t.Fatalf("by_email index ids = %#v, want [has-email] (null-key record must be skipped)", ids)
+	}
+	if count := mustIndexCount(t, sess.client, store, "by_email", nil); count != 1 {
+		t.Fatalf("by_email index count = %d, want 1", count)
 	}
 }
 
