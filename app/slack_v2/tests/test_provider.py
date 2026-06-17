@@ -138,14 +138,6 @@ class SlackV2ProviderTests(unittest.TestCase):
             result.body, {"error": "registration not found for app_id 'A404'"}
         )
 
-    def test_handle_slack_event_returns_url_verification_challenge(self) -> None:
-        result = provider_module.handle_slack_event(
-            {"type": "url_verification", "challenge": "challenge-token"},
-            gestalt.Request(),
-        )
-
-        self.assertEqual(result, {"challenge": "challenge-token"})
-
     def test_handle_slack_event_requires_api_app_id(self) -> None:
         result = provider_module.handle_slack_event({}, gestalt.Request())
 

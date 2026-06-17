@@ -8,9 +8,7 @@ import gestalt
 
 from internals.events import (
     build_workflow_deliver_event_request,
-    is_url_verification,
     slack_app_id_from_payload,
-    url_verification_challenge,
 )
 from internals.store import (
     get_workflow_definition_id_for_app as load_workflow_definition_id_for_app,
@@ -103,9 +101,6 @@ def get_workflow_definition_id_for_app(
 def handle_slack_event(
     input: dict[str, Any], req: gestalt.Request
 ) -> dict[str, Any] | gestalt.Response[dict[str, str]]:
-    if is_url_verification(input):
-        return url_verification_challenge(input)
-
     app_id = slack_app_id_from_payload(input)
     if not app_id:
         return gestalt.Response(

@@ -14,14 +14,6 @@ def slack_app_id_from_payload(payload: dict[str, Any]) -> str:
     return str(payload.get("api_app_id") or "").strip()
 
 
-def is_url_verification(payload: dict[str, Any]) -> bool:
-    return str(payload.get("type") or "").strip() == "url_verification"
-
-
-def url_verification_challenge(payload: dict[str, Any]) -> dict[str, str]:
-    return {"challenge": str(payload.get("challenge") or "")}
-
-
 def payload_digest(payload: dict[str, Any]) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
