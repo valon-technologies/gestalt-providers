@@ -22,9 +22,8 @@ const (
 	tokenHashStoreName      = "authentication_token_hashes"
 	grantIndexBySubject     = "by_subject"
 	tokenIndexByGrantID     = "by_grant_id"
-	grantCategorySession    = "session"
-	grantCategoryAPIToken   = "api_token"
-	legacyNonExpiringExpiry = "9999-12-31T23:59:59Z"
+	grantCategorySession  = "session"
+	grantCategoryAPIToken = "api_token"
 )
 
 const defaultOAuthClientID = "gestaltd"

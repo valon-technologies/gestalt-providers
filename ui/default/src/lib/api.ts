@@ -104,7 +104,7 @@ export interface AccessPermission {
 export interface APIToken {
   id: string;
   name?: string;
-  scopes?: string;
+  scopes?: string[];
   permissions?: AccessPermission[];
   createdAt: string;
   expiresAt?: string;

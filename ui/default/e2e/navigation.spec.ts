@@ -29,7 +29,7 @@ test.describe("Navigation", () => {
       {
         id: "tok_123",
         name: "Default token",
-        scopes: "api",
+        scopes: ["api"],
         createdAt: "2026-04-13T00:00:00Z",
       },
     ]);

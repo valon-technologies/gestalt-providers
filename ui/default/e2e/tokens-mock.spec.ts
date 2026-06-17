@@ -9,12 +9,12 @@ import type { APIToken } from "../src/lib/api";
 const sampleTokens: APIToken[] = [
   {
     id: "tok-1",
-    scopes: "my-app",
+    scopes: ["my-app"],
     createdAt: "2026-01-15T10:00:00Z",
   },
   {
     id: "tok-2",
-    scopes: "other-app:read",
+    scopes: ["other-app:read"],
     createdAt: "2026-02-20T14:30:00Z",
     expiresAt: "2027-02-20T14:30:00Z",
   },
@@ -61,13 +61,18 @@ test.describe("Token Management", () => {
         tokens = [
           {
             id: "tok-new",
-            scopes: body.scopes ?? "",
-            createdAt: new Date().toISOString(),
+            scopes: body.scopes ? [body.scopes] : [],
+            createdAt: "2026-03-01T12:00:00Z",
           },
         ];
         await route.fulfill({
           status: 201,
-          json: { id: "tok-new", token: "gestalt_abc123secret" },
+          json: {
+            id: "tok-new",
+            token: "gestalt_abc123secret",
+            scopes: ["my-app"],
+            expiresAt: "2027-03-01T12:00:00Z",
+          },
         });
         return;
       }
@@ -83,6 +88,7 @@ test.describe("Token Management", () => {
     await expect(page.getByText("Copy this token now")).toBeVisible();
     await expect(page.getByText("gestalt_abc123secret")).toBeVisible();
     await expect(page.locator("tr", { hasText: "tok-new" })).toBeVisible();
+    await expect(page.getByText("my-app")).toBeVisible();
   });
 
   test("keeps the created token visible when stale list requests finish later", async ({
@@ -110,13 +116,17 @@ test.describe("Token Management", () => {
         tokens = [
           {
             id: "tok-race",
-            scopes: body.scopes ?? "",
-            createdAt: new Date().toISOString(),
+            scopes: body.scopes ? [body.scopes] : [],
+            createdAt: "2026-03-01T12:00:00Z",
           },
         ];
         await route.fulfill({
           status: 201,
-          json: { id: "tok-race", token: "gestalt_race_secret" },
+          json: {
+            id: "tok-race",
+            token: "gestalt_race_secret",
+            scopes: ["other-app"],
+          },
         });
         return;
       }

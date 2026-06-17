@@ -990,12 +990,14 @@ func TestGrantManagementExcludesSessionGrants(t *testing.T) {
 }
 
 func TestFarFutureSentinelExpiryIntrospectsActive(t *testing.T) {
+	const farFutureGrantExpiryRFC3339 = "9999-12-31T23:59:59Z"
+
 	p := New()
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	p.now = func() time.Time { return now }
 	attachGrantStore(t, p)
 	ctx := context.Background()
-	sentinel, err := time.Parse(time.RFC3339, legacyNonExpiringExpiry)
+	sentinel, err := time.Parse(time.RFC3339, farFutureGrantExpiryRFC3339)
 	if err != nil {
 		t.Fatalf("parse sentinel: %v", err)
 	}
