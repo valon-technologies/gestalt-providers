@@ -76,6 +76,12 @@ func indexKeyFromRecord(record gestalt.Record, idx *gestalt.IndexSchema) (any, b
 		if err != nil {
 			return nil, false, nil
 		}
+		// A null/undefined key-path value yields no index entry, per the W3C
+		// IndexedDB index maintenance steps. Legacy rows that stored null keys
+		// predate this and are left in place by the migration.
+		if value == nil {
+			return nil, false, nil
+		}
 		parts = append(parts, value)
 	}
 	if len(parts) == 1 {
