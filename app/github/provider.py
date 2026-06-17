@@ -27,6 +27,7 @@ from internals.constants import (
     BOT_GET_CONTENT_OPERATION,
     BOT_GET_ISSUE_OPERATION,
     BOT_LIST_COMMITS_OPERATION,
+    BOT_LIST_ISSUES_OPERATION,
     BOT_COMPARE_REFS_OPERATION,
     BOT_GET_PULL_REQUEST_OPERATION,
     BOT_GET_REPOSITORY_OPERATION,
@@ -70,6 +71,7 @@ from internals.operations import (
     GitHubCompareRefsRequest,
     GitHubFileChange,
     GitHubGetIssueRequest,
+    GitHubListIssuesRequest,
     GitHubListCheckSuiteCheckRunsRequest,
     GitHubListCheckRunAnnotationsRequest,
     GitHubListPullRequestFilesRequest,
@@ -104,6 +106,7 @@ from internals.operations import (
     get_file_text_at_ref,
     get_issue,
     list_commits,
+    list_issues,
     compare_refs,
     commit_list_summary,
     compare_refs_summary,
@@ -463,6 +466,20 @@ class GetIssueInput(gestalt.Model):
     owner: str = gestalt.field(description="Repository owner")
     repo: str = gestalt.field(description="Repository name")
     issue_number: int = gestalt.field(description="Issue number")
+
+
+class ListIssuesInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    state: str = gestalt.field(
+        description="Issue state filter: open, closed, or all",
+        default="all",
+        required=False,
+    )
+    per_page: int = gestalt.field(
+        description="Results per page (1-100)", default=100, required=False
+    )
+    page: int = gestalt.field(description="Page number", default=1, required=False)
 
 
 class CreatePullRequestConversationCommentInput(gestalt.Model):
@@ -1422,6 +1439,40 @@ def bot_get_issue(input: GetIssueInput, req: gestalt.Request) -> OperationResult
     except GitHubAPIError as err:
         return _github_error(err)
     return {"data": {"issue": issue_summary(issue)}}
+
+
+@app.operation(
+    id=BOT_LIST_ISSUES_OPERATION,
+    method="GET",
+    description="List repository issues using a GitHub App installation token",
+)
+def bot_list_issues(input: ListIssuesInput, req: gestalt.Request) -> OperationResult:
+    try:
+        issues = list_issues(
+            GitHubListIssuesRequest(
+                owner=input.owner,
+                repo=input.repo,
+                state=input.state,
+                per_page=input.per_page,
+                page=input.page,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {
+        "data": {
+            "count": len(issues),
+            "issues": [issue_summary(issue) for issue in issues],
+        }
+    }
 
 
 @app.operation(

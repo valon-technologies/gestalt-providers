@@ -182,6 +182,15 @@ class GitHubGetIssueRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubListIssuesRequest:
+    owner: str
+    repo: str
+    state: str = "all"
+    per_page: int = 100
+    page: int = 1
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubCreateIssueCommentRequest:
     owner: str
     repo: str
@@ -960,6 +969,41 @@ def get_issue(
         token,
         None,
     )
+
+
+def list_issues(
+    request: GitHubListIssuesRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> list[JsonObject]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    state = request.state.strip().lower() or "all"
+    if state not in {"open", "closed", "all"}:
+        raise ValueError("state must be open, closed, or all")
+    params = pagination_params(per_page=request.per_page, page=request.page)
+    params["state"] = state
+    params["sort"] = "created"
+    params["direction"] = "desc"
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"issues": "read"}
+    )
+    data = github.github_json_value(
+        "GET",
+        path_with_query(repo_path(owner, repo, "issues"), params),
+        token,
+    )
+    return require_json_object_list(data, "GitHub issues response")
 
 
 def create_issue_comment(
@@ -2449,8 +2493,8 @@ def issue_update_payload(
 
 
 def issue_summary(issue: Mapping[str, Any]) -> dict[str, Any]:
-    labels = map_field(issue, "labels")
-    assignees = map_field(issue, "assignees")
+    labels = issue.get("labels")
+    assignees = issue.get("assignees")
     return _compact_dict(
         {
             "number": int_field(issue, "number"),

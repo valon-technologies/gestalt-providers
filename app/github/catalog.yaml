@@ -613,6 +613,30 @@ operations:
     type: integer
     description: Issue number
     required: true
+- id: bot.listIssues
+  method: GET
+  description: List repository issues using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: state
+    type: string
+    description: Issue state filter, open, closed, or all
+    required: false
+  - name: per_page
+    type: integer
+    description: Results per page (1-100)
+    required: false
+  - name: page
+    type: integer
+    description: Page number
+    required: false
 - id: bot.addReaction
   method: POST
   description: Add a reaction using a GitHub App installation token

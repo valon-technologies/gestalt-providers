@@ -1905,6 +1905,106 @@ class GitHubProviderTests(unittest.TestCase):
             [{"issues": "read"}],
         )
 
+    def test_list_issues_uses_issue_read_permission(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            method = request.get_method()
+            path = request_path(request)
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["permissions"], {"issues": "read"})
+                return FakeHTTPResponse({"token": "issue-token"})
+            if path == "/repos/acme/widgets/issues":
+                self.assertEqual(method, "GET")
+                self.assertEqual(auth_header(request), "Bearer issue-token")
+                self.assertEqual(query["state"], ["all"])
+                self.assertEqual(query["sort"], ["created"])
+                self.assertEqual(query["direction"], ["desc"])
+                self.assertEqual(query["per_page"], ["100"])
+                return FakeHTTPResponse(
+                    [
+                        {
+                            "number": 12,
+                            "title": "Broken modal",
+                            "body": "The modal does not close.",
+                            "state": "open",
+                            "html_url": "https://github.com/acme/widgets/issues/12",
+                            "url": "https://api.github.com/repos/acme/widgets/issues/12",
+                            "id": 1200,
+                            "node_id": "I_kw",
+                            "created_at": "2026-05-01T00:00:00Z",
+                            "updated_at": "2026-05-01T00:00:00Z",
+                            "closed_at": None,
+                        }
+                    ]
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_list_issues(
+                provider_module.ListIssuesInput(
+                    owner="acme",
+                    repo="widgets",
+                    state="all",
+                    per_page=100,
+                ),
+                github_request(),
+            )
+
+        data = cast(dict[str, Any], result)["data"]
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["issues"][0]["number"], 12)
+        self.assertEqual(data["issues"][0]["title"], "Broken modal")
+        self.assertEqual(
+            [
+                call[2].get("permissions")
+                for call in calls
+                if call[1].endswith("access_tokens")
+            ],
+            [{"issues": "read"}],
+        )
+
+    def test_issue_summary_preserves_labels_and_assignees(self) -> None:
+        summary = operations_module.issue_summary(
+            {
+                "number": 12,
+                "title": "Broken modal",
+                "body": "The modal does not close.",
+                "state": "open",
+                "html_url": "https://github.com/acme/widgets/issues/12",
+                "url": "https://api.github.com/repos/acme/widgets/issues/12",
+                "id": 1200,
+                "node_id": "I_kw",
+                "created_at": "2026-05-01T00:00:00Z",
+                "updated_at": "2026-05-01T00:00:00Z",
+                "closed_at": None,
+                "labels": [
+                    {
+                        "id": 1,
+                        "node_id": "LA_kw",
+                        "name": "bug",
+                        "color": "f29513",
+                    }
+                ],
+                "assignees": [{"login": "example-user"}],
+            }
+        )
+        self.assertEqual(summary["labels"][0]["name"], "bug")
+        self.assertEqual(summary["assignees"][0]["login"], "example-user")
+
     def test_create_pull_request_conversation_comment_uses_pull_request_write_permission(
         self,
     ) -> None:
