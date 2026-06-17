@@ -33,4 +33,4 @@ default policy is allow; the relation is not consulted in that case.
 
 - `register_slack_event` — register Slack bot credentials and workflow routing in IndexedDB (keyed by `app_id`).
 - `get_workflow_definition_id_for_app` — look up the registered `workflow_definition_id` for a Slack `app_id`.
-- `handle_slack_event` — exposed to HTTP at `POST /api/v1/slack_v2/events`. Returns `hello world`.
+- `handle_slack_event` — exposed to HTTP at `POST /api/v1/slack_v2/events`. Resolves the Slack `api_app_id` to a registered `workflow_definition_id`, then delivers a workflow event for that definition.
