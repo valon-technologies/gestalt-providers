@@ -18,13 +18,16 @@ from internals.constants import (
     BOT_CLOSE_PULL_REQUEST_OPERATION,
     BOT_COMMIT_FILES_OPERATION,
     BOT_CREATE_CHECK_RUN_OPERATION,
+    BOT_CREATE_ISSUE_OPERATION,
     BOT_CREATE_ISSUE_COMMENT_OPERATION,
     BOT_CREATE_PULL_REQUEST_OPERATION,
     BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
     BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION,
     BOT_GET_CHECK_RUN_OPERATION,
     BOT_GET_CONTENT_OPERATION,
+    BOT_GET_ISSUE_OPERATION,
     BOT_LIST_COMMITS_OPERATION,
+    BOT_LIST_ISSUES_OPERATION,
     BOT_COMPARE_REFS_OPERATION,
     BOT_GET_PULL_REQUEST_OPERATION,
     BOT_GET_REPOSITORY_OPERATION,
@@ -41,6 +44,7 @@ from internals.constants import (
     BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
     BOT_SEARCH_CODE_OPERATION,
     BOT_UPDATE_CHECK_RUN_OPERATION,
+    BOT_UPDATE_ISSUE_OPERATION,
     GITHUB_EVENT_OPERATION,
     GITHUB_USER_LINKED_ACTION,
     GITHUB_USER_RESOURCE_TYPE,
@@ -57,6 +61,7 @@ from internals.operations import (
     GitHubCheckRunRequest,
     GitHubCheckRunOutput,
     GitHubCreateIssueCommentRequest,
+    GitHubCreateIssueRequest,
     GitHubCreateCheckRunRequest,
     GitHubCreatePullRequestConversationCommentRequest,
     GitHubCreatePullRequestRequest,
@@ -65,6 +70,8 @@ from internals.operations import (
     GitHubListCommitsRequest,
     GitHubCompareRefsRequest,
     GitHubFileChange,
+    GitHubGetIssueRequest,
+    GitHubListIssuesRequest,
     GitHubListCheckSuiteCheckRunsRequest,
     GitHubListCheckRunAnnotationsRequest,
     GitHubListPullRequestFilesRequest,
@@ -79,6 +86,7 @@ from internals.operations import (
     GitHubRequestReviewersRequest,
     GitHubResolvePullRequestReviewThreadRequest,
     GitHubUpdateCheckRunRequest,
+    GitHubUpdateIssueRequest,
     GitHubWorkflowRunRequest,
     add_labels,
     add_reaction,
@@ -89,13 +97,16 @@ from internals.operations import (
     commit_files,
     commit_result_dict,
     create_check_run,
+    create_issue,
     create_issue_comment,
     create_pull_request_conversation_comment,
     create_pull_request_review,
     create_pull_request_with_files,
     get_check_run,
     get_file_text_at_ref,
+    get_issue,
     list_commits,
+    list_issues,
     compare_refs,
     commit_list_summary,
     compare_refs_summary,
@@ -103,6 +114,7 @@ from internals.operations import (
     get_repository,
     get_workflow_run,
     issue_comment_summary,
+    issue_summary,
     label_summary,
     list_check_suite_check_runs,
     list_check_run_annotations,
@@ -121,6 +133,7 @@ from internals.operations import (
     resolve_pull_request_review_thread,
     search_code,
     update_check_run,
+    update_issue,
     workflow_run_job_summary,
     workflow_run_summary,
 )
@@ -415,6 +428,58 @@ class CreateIssueCommentInput(gestalt.Model):
     repo: str = gestalt.field(description="Repository name")
     issue_number: int = gestalt.field(description="Issue number")
     body: str = gestalt.field(description="Comment body")
+
+
+class CreateIssueInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    title: str = gestalt.field(description="Issue title")
+    body: str = gestalt.field(description="Issue body", default="", required=False)
+    labels: list[str] = gestalt.field(
+        description="Label names to apply", default_factory=list, required=False
+    )
+    assignees: list[str] = gestalt.field(
+        description="GitHub usernames to assign", default_factory=list, required=False
+    )
+
+
+class UpdateIssueInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    issue_number: int = gestalt.field(description="Issue number")
+    title: str = gestalt.field(description="Issue title", default="", required=False)
+    body: str | None = gestalt.field(
+        description="Issue body", default=None, required=False
+    )
+    state: str = gestalt.field(
+        description="Issue state: open or closed", default="", required=False
+    )
+    labels: list[str] = gestalt.field(
+        description="Label names to apply", default_factory=list, required=False
+    )
+    assignees: list[str] = gestalt.field(
+        description="GitHub usernames to assign", default_factory=list, required=False
+    )
+
+
+class GetIssueInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    issue_number: int = gestalt.field(description="Issue number")
+
+
+class ListIssuesInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    state: str = gestalt.field(
+        description="Issue state filter: open, closed, or all",
+        default="all",
+        required=False,
+    )
+    per_page: int = gestalt.field(
+        description="Results per page (1-100)", default=100, required=False
+    )
+    page: int = gestalt.field(description="Page number", default=1, required=False)
 
 
 class CreatePullRequestConversationCommentInput(gestalt.Model):
@@ -1279,6 +1344,135 @@ def bot_create_issue_comment(
     except GitHubAPIError as err:
         return _github_error(err)
     return {"data": {"comment": issue_comment_summary(comment)}}
+
+
+@app.operation(
+    id=BOT_CREATE_ISSUE_OPERATION,
+    method="POST",
+    description="Create an issue using a GitHub App installation token",
+)
+def bot_create_issue(
+    input: CreateIssueInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        issue = create_issue(
+            GitHubCreateIssueRequest(
+                owner=input.owner,
+                repo=input.repo,
+                title=input.title,
+                body=input.body,
+                labels=tuple(input.labels),
+                assignees=tuple(input.assignees),
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"issue": issue_summary(issue)}}
+
+
+@app.operation(
+    id=BOT_UPDATE_ISSUE_OPERATION,
+    method="POST",
+    description="Update an issue using a GitHub App installation token",
+)
+def bot_update_issue(
+    input: UpdateIssueInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        labels = tuple(input.labels) if input.labels else None
+        assignees = tuple(input.assignees) if input.assignees else None
+        issue = update_issue(
+            GitHubUpdateIssueRequest(
+                owner=input.owner,
+                repo=input.repo,
+                issue_number=input.issue_number,
+                title=input.title,
+                body=input.body,
+                state=input.state,
+                labels=labels,
+                assignees=assignees,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"issue": issue_summary(issue)}}
+
+
+@app.operation(
+    id=BOT_GET_ISSUE_OPERATION,
+    method="GET",
+    description="Get an issue using a GitHub App installation token",
+)
+def bot_get_issue(input: GetIssueInput, req: gestalt.Request) -> OperationResult:
+    try:
+        issue = get_issue(
+            GitHubGetIssueRequest(
+                owner=input.owner,
+                repo=input.repo,
+                issue_number=input.issue_number,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"data": {"issue": issue_summary(issue)}}
+
+
+@app.operation(
+    id=BOT_LIST_ISSUES_OPERATION,
+    method="GET",
+    description="List repository issues using a GitHub App installation token",
+)
+def bot_list_issues(input: ListIssuesInput, req: gestalt.Request) -> OperationResult:
+    try:
+        issues = list_issues(
+            GitHubListIssuesRequest(
+                owner=input.owner,
+                repo=input.repo,
+                state=input.state,
+                per_page=input.per_page,
+                page=input.page,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {
+        "data": {
+            "count": len(issues),
+            "issues": [issue_summary(issue) for issue in issues],
+        }
+    }
 
 
 @app.operation(

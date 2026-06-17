@@ -4,6 +4,8 @@ import (
 	"context"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/client"
+	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
 )
 
 type Entry = gestalt.IndexedDBCursorSnapshotEntry
@@ -14,7 +16,7 @@ type Snapshot struct {
 
 type LazyCursor struct {
 	Snapshot
-	Range     *gestalt.KeyRange
+	Query     *client.IndexedDBQuery
 	exhausted bool
 }
 
@@ -33,7 +35,7 @@ func NewSnapshot(req gestalt.IndexedDBOpenCursorRequest) Snapshot {
 func NewLazyCursor(req gestalt.IndexedDBOpenCursorRequest) LazyCursor {
 	return LazyCursor{
 		Snapshot: NewSnapshot(req),
-		Range:    req.Range,
+		Query:    req.Query,
 	}
 }
 
@@ -52,12 +54,12 @@ func EntriesFromRecords(records []gestalt.Record, build func(gestalt.Record) (En
 	return entries, nil
 }
 
-func (s *Snapshot) Load(entries []Entry, r *gestalt.KeyRange) error {
-	return s.IndexedDBCursorSnapshot.Load(entries, r)
+func (s *Snapshot) Load(entries []Entry, query *client.IndexedDBQuery) error {
+	return s.IndexedDBCursorSnapshot.Load(entries, query)
 }
 
-func (s *Snapshot) ApplyRange(entries []Entry, r *gestalt.KeyRange) ([]Entry, error) {
-	return s.IndexedDBCursorSnapshot.ApplyRange(entries, r)
+func (s *Snapshot) ApplyQuery(entries []Entry, query *client.IndexedDBQuery) ([]Entry, error) {
+	return gestalt.ApplyIndexedDBQuery(entries, query)
 }
 
 func (s *Snapshot) ContinueNext() (*gestalt.IndexedDBCursorEntry, bool, error) {
@@ -126,7 +128,7 @@ func (c *LazyCursor) nextMatching(ctx context.Context, next NextEntryFunc, targe
 			}
 			return nil, err
 		}
-		if ok, err := c.entryInRange(*entry); err != nil || !ok {
+		if ok, err := c.entryMatchesQuery(*entry); err != nil || !ok {
 			if err != nil {
 				return nil, err
 			}
@@ -144,12 +146,8 @@ func (c *LazyCursor) nextMatching(ctx context.Context, next NextEntryFunc, targe
 	}
 }
 
-func (c *LazyCursor) entryInRange(entry Entry) (bool, error) {
-	filtered, err := c.ApplyRange([]Entry{entry}, c.Range)
-	if err != nil {
-		return false, err
-	}
-	return len(filtered) != 0, nil
+func (c *LazyCursor) entryMatchesQuery(entry Entry) (bool, error) {
+	return indexeddb.MatchQuery(entry.Key, c.Query)
 }
 
 func (c *LazyCursor) entryReachesTarget(entry Entry, target any) bool {
@@ -161,19 +159,15 @@ func (c *LazyCursor) entryReachesTarget(entry Entry, target any) bool {
 }
 
 func CloneRecordWithField(record gestalt.Record, field string, value any) (gestalt.Record, error) {
-	return gestalt.CloneIndexedDBRecordWithField(record, field, value)
+	return indexeddb.CloneIndexedDBRecordWithField(record, field, value)
 }
 
 func DirectRecordField(record gestalt.Record, field string) (any, error) {
-	return gestalt.IndexedDBRecordField(record, field)
-}
-
-func RangeBounds(r *gestalt.KeyRange, indexCursor bool) (any, any, error) {
-	return gestalt.IndexedDBRangeBounds(r, indexCursor)
+	return indexeddb.IndexedDBRecordField(record, field)
 }
 
 func CompareValues(a, b any) int {
-	return gestalt.CompareIndexedDBValues(a, b)
+	return indexeddb.CompareKeys(a, b)
 }
 
 func cursorEntry(entry *Entry) *gestalt.IndexedDBCursorEntry {

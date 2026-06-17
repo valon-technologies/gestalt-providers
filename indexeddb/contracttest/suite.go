@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -64,10 +63,6 @@ func Run(t *testing.T, harness Harness) {
 		runCompoundIndexPrefixRange(t, harness)
 	})
 
-	t.Run("CompoundIndexIncompletePrefixRangeRejected", func(t *testing.T) {
-		runCompoundIndexIncompletePrefixRangeRejected(t, harness)
-	})
-
 	t.Run("KeyOnlyCursorSkipsUnreadableValues", func(t *testing.T) {
 		if !harness.Capabilities().UnreadablePayloadRow {
 			t.Skip("backend cannot inject unreadable payload rows under its native type constraints")
@@ -118,6 +113,14 @@ func Run(t *testing.T, harness Harness) {
 			t.Skip("backend does not support nested index paths")
 		}
 		runNestedIndexPaths(t, harness)
+	})
+
+	t.Run("LargeIndexNarrowRange", func(t *testing.T) {
+		runLargeIndexNarrowRange(t, harness)
+	})
+
+	t.Run("NullIndexKeySkipped", func(t *testing.T) {
+		runNullIndexKeySkipped(t, harness)
 	})
 }
 
@@ -200,7 +203,7 @@ func runTypedPrimaryKeyFidelity(t *testing.T, harness Harness) {
 			wantIDs := sortedValues(append([]any(nil), tc.ids...))
 			assertValueSliceEqual(t, gotIDs, wantIDs)
 
-			ranged := mustGetAll(t, sess.client, tc.store, &gestalt.KeyRange{Lower: tc.lower, Upper: tc.upper})
+			ranged := mustGetAll(t, sess.client, tc.store, indexeddb.Bound(tc.lower, tc.upper, false, false))
 			gotRangeIDs := sortedRecordIDs(t, ranged)
 			wantRangeIDs := sortedValues(append([]any(nil), tc.rangeWant...))
 			assertValueSliceEqual(t, gotRangeIDs, wantRangeIDs)
@@ -230,23 +233,25 @@ func runTypedIndexRangeFidelity(t *testing.T, harness Harness) {
 	store := "typed_index_range_fidelity"
 	mustSeedNumericIndexItems(t, sess.client, store)
 
-	rangeReq := &gestalt.KeyRange{
-		Lower: int64(9007199254740993),
-		Upper: int64(9007199254741001),
-	}
+	rangeReq := indexeddb.Bound(
+		int64(9007199254740993),
+		int64(9007199254741001),
+		false,
+		false,
+	)
 
-	records := mustIndexGetAllWithRange(t, sess.client, store, "by_rank", rangeReq)
+	records := mustIndexGetAll(t, sess.client, store, "by_rank", rangeReq)
 	gotIDs := recordPrimaryKeys(t, records)
 	if !stringSlicesEqual(gotIDs, []string{"b", "c"}) {
 		t.Fatalf("IndexGetAll by_rank ids = %#v, want %#v", gotIDs, []string{"b", "c"})
 	}
 
-	keys := mustIndexGetAllKeysWithRange(t, sess.client, store, "by_rank", rangeReq)
+	keys := mustIndexGetAllKeys(t, sess.client, store, "by_rank", rangeReq)
 	if !stringSlicesEqual(keys, []string{"b", "c"}) {
 		t.Fatalf("IndexGetAllKeys by_rank ids = %#v, want %#v", keys, []string{"b", "c"})
 	}
 
-	count := mustIndexCountWithRange(t, sess.client, store, "by_rank", rangeReq)
+	count := mustIndexCount(t, sess.client, store, "by_rank", rangeReq)
 	if count != 2 {
 		t.Fatalf("IndexCount by_rank = %d, want 2", count)
 	}
@@ -255,7 +260,7 @@ func runTypedIndexRangeFidelity(t *testing.T, harness Harness) {
 		Store:     store,
 		Index:     "by_rank",
 		Direction: gestalt.CursorNext,
-		Range:     rangeReq,
+		Query:     rangeReq,
 	})
 	if got := cursorPrimaryKeys(entries); !stringSlicesEqual(got, []string{"b", "c"}) {
 		t.Fatalf("index cursor ids = %#v, want %#v", got, []string{"b", "c"})
@@ -277,14 +282,15 @@ func runCompoundIndexPrefixRange(t *testing.T, harness Harness) {
 		store := "compound_vendor_date_closed"
 		mustSeedCompoundVendorDateItems(t, sess.client, store)
 
-		rangeReq := &gestalt.KeyRange{
-			Lower: "2026-04-01",
-			Upper: "2026-04-30",
-		}
-		values := []any{"claude_code"}
+		rangeReq := indexeddb.Bound(
+			[]any{"claude_code", "2026-04-01"},
+			[]any{"claude_code", "2026-04-30"},
+			false,
+			false,
+		)
 		want := []string{"claude-apr-09", "claude-apr-30"}
 
-		assertCompoundVendorDateIndexQuery(t, sess.client, store, "by_vendor_date", rangeReq, values, want, [][]any{
+		assertCompoundVendorDateIndexQuery(t, sess.client, store, "by_vendor_date", rangeReq, want, [][]any{
 			{"claude_code", "2026-04-09"},
 			{"claude_code", "2026-04-30"},
 		})
@@ -297,11 +303,15 @@ func runCompoundIndexPrefixRange(t *testing.T, harness Harness) {
 		store := "compound_vendor_date_lower"
 		mustSeedCompoundVendorDateItems(t, sess.client, store)
 
-		rangeReq := &gestalt.KeyRange{Lower: "2026-04-15"}
-		values := []any{"claude_code"}
+		rangeReq := indexeddb.Bound(
+			[]any{"claude_code", "2026-04-15"},
+			[]any{"claude_code", "\uffff"},
+			false,
+			false,
+		)
 		want := []string{"claude-apr-30", "claude-may-01"}
 
-		assertCompoundVendorDateIndexQuery(t, sess.client, store, "by_vendor_date", rangeReq, values, want, nil)
+		assertCompoundVendorDateIndexQuery(t, sess.client, store, "by_vendor_date", rangeReq, want, nil)
 	})
 
 	t.Run("UpperOnly", func(t *testing.T) {
@@ -311,11 +321,15 @@ func runCompoundIndexPrefixRange(t *testing.T, harness Harness) {
 		store := "compound_vendor_date_upper"
 		mustSeedCompoundVendorDateItems(t, sess.client, store)
 
-		rangeReq := &gestalt.KeyRange{Upper: "2026-04-15"}
-		values := []any{"claude_code"}
+		rangeReq := indexeddb.Bound(
+			[]any{"claude_code"},
+			[]any{"claude_code", "2026-04-15"},
+			false,
+			false,
+		)
 		want := []string{"claude-apr-09"}
 
-		assertCompoundVendorDateIndexQuery(t, sess.client, store, "by_vendor_date", rangeReq, values, want, nil)
+		assertCompoundVendorDateIndexQuery(t, sess.client, store, "by_vendor_date", rangeReq, want, nil)
 	})
 
 	t.Run("DeleteRange", func(t *testing.T) {
@@ -325,13 +339,14 @@ func runCompoundIndexPrefixRange(t *testing.T, harness Harness) {
 		store := "compound_vendor_date_delete"
 		mustSeedCompoundVendorDateItems(t, sess.client, store)
 
-		rangeReq := &gestalt.KeyRange{
-			Lower: "2026-04-01",
-			Upper: "2026-04-30",
-		}
-		values := []any{"claude_code"}
+		rangeReq := indexeddb.Bound(
+			[]any{"claude_code", "2026-04-01"},
+			[]any{"claude_code", "2026-04-30"},
+			false,
+			false,
+		)
 
-		deleted := mustIndexDeleteWithRange(t, sess.client, store, "by_vendor_date", rangeReq, values...)
+		deleted := mustIndexDelete(t, sess.client, store, "by_vendor_date", rangeReq)
 		if deleted != 2 {
 			t.Fatalf("IndexDelete range deleted = %d, want 2", deleted)
 		}
@@ -346,22 +361,21 @@ func assertCompoundVendorDateIndexQuery(
 	t *testing.T,
 	client indexeddb.Database,
 	store, index string,
-	rangeReq *gestalt.KeyRange,
-	values []any,
+	query any,
 	want []string,
 	wantCursorKeys [][]any,
 ) {
 	t.Helper()
 
-	records := mustIndexGetAllWithRange(t, client, store, index, rangeReq, values...)
+	records := mustIndexGetAll(t, client, store, index, query)
 	if got := recordPrimaryKeys(t, records); !stringSlicesEqual(got, want) {
 		t.Fatalf("IndexGetAll %s ids = %#v, want %#v", index, got, want)
 	}
-	keys := mustIndexGetAllKeysWithRange(t, client, store, index, rangeReq, values...)
+	keys := mustIndexGetAllKeys(t, client, store, index, query)
 	if !stringSlicesEqual(keys, want) {
 		t.Fatalf("IndexGetAllKeys %s ids = %#v, want %#v", index, keys, want)
 	}
-	count := mustIndexCountWithRange(t, client, store, index, rangeReq, values...)
+	count := mustIndexCount(t, client, store, index, query)
 	if count != int64(len(want)) {
 		t.Fatalf("IndexCount %s = %d, want %d", index, count, len(want))
 	}
@@ -372,71 +386,13 @@ func assertCompoundVendorDateIndexQuery(
 		Store:     store,
 		Index:     index,
 		Direction: gestalt.CursorNext,
-		Range:     rangeReq,
-		Values:    values,
+		Query:     query,
 	})
 	if got := cursorPrimaryKeys(entries); !stringSlicesEqual(got, want) {
 		t.Fatalf("index cursor ids = %#v, want %#v", got, want)
 	}
 	for i, entry := range entries {
 		assertValueSliceEqual(t, cursorKeyValues(t, entry), wantCursorKeys[i])
-	}
-}
-
-func runCompoundIndexIncompletePrefixRangeRejected(t *testing.T, harness Harness) {
-	t.Helper()
-
-	sess := newSession(t, harness)
-	t.Cleanup(sess.Close)
-
-	store := "compound_vendor_date_model"
-	mustCreateObjectStore(t, sess.client, store, gestalt.ObjectStoreOptions{
-		Indexes: []gestalt.IndexSchema{
-			{Name: "by_vendor_date_model", KeyPath: []string{"vendor", "date", "model"}},
-		},
-	})
-	mustAddRecord(t, sess.client, store, gestalt.Record{
-		"id": "claude-apr-09-gpt", "vendor": "claude_code", "date": "2026-04-09", "model": "gpt-4",
-	})
-
-	rangeReq := &gestalt.KeyRange{Lower: "2026-04-01", Upper: "2026-04-30"}
-	values := []any{"claude_code"}
-	index := sess.client.ObjectStore(store).Index("by_vendor_date_model")
-
-	assertIncompletePrefixRangeRejected(t, "GetAll", func() error {
-		_, err := index.GetAll(context.Background(), rangeReq, values...)
-		return err
-	})
-	assertIncompletePrefixRangeRejected(t, "GetAllKeys", func() error {
-		_, err := index.GetAllKeys(context.Background(), rangeReq, values...)
-		return err
-	})
-	assertIncompletePrefixRangeRejected(t, "Count", func() error {
-		_, err := index.Count(context.Background(), rangeReq, values...)
-		return err
-	})
-	assertIncompletePrefixRangeRejected(t, "DeleteRange", func() error {
-		_, err := index.DeleteRange(context.Background(), rangeReq, values...)
-		return err
-	})
-	assertIncompletePrefixRangeRejected(t, "OpenCursor", func() error {
-		_, err := index.OpenCursor(context.Background(), rangeReq, gestalt.CursorNext, values...)
-		return err
-	})
-	assertIncompletePrefixRangeRejected(t, "OpenKeyCursor", func() error {
-		_, err := index.OpenKeyCursor(context.Background(), rangeReq, gestalt.CursorNext, values...)
-		return err
-	})
-}
-
-func assertIncompletePrefixRangeRejected(t *testing.T, surface string, call func() error) {
-	t.Helper()
-	err := call()
-	if err == nil {
-		t.Fatalf("%s with incomplete prefix + scalar range: want error, got nil", surface)
-	}
-	if got := err.Error(); !strings.Contains(got, "unpinned") {
-		t.Fatalf("%s error = %q, want message about unpinned index key components", surface, got)
 	}
 }
 
@@ -469,7 +425,7 @@ func runKeyOnlyCursorSkipsUnreadableValues(t *testing.T, harness Harness) {
 		Store:     store,
 		Index:     "by_status",
 		Direction: gestalt.CursorNext,
-		Range:     &gestalt.KeyRange{Lower: "active", Upper: "active"},
+		Query:     indexeddb.Only("active"),
 		KeysOnly:  true,
 	})
 	if len(indexEntries) != 1 {
@@ -485,16 +441,16 @@ func runKeyOnlyCursorSkipsUnreadableValues(t *testing.T, harness Harness) {
 		t.Fatalf("index key cursor key = %#v, want [\"active\"]", got)
 	}
 
-	rangeReq := &gestalt.KeyRange{Lower: "active", Upper: "active"}
-	keys := mustIndexGetAllKeysWithRange(t, sess.client, store, "by_status", rangeReq)
+	rangeReq := indexeddb.Only("active")
+	keys := mustIndexGetAllKeys(t, sess.client, store, "by_status", rangeReq)
 	if !stringSlicesEqual(keys, []string{"broken"}) {
 		t.Fatalf("IndexGetAllKeys unreadable ids = %#v, want %#v", keys, []string{"broken"})
 	}
-	count := mustIndexCountWithRange(t, sess.client, store, "by_status", rangeReq)
+	count := mustIndexCount(t, sess.client, store, "by_status", rangeReq)
 	if count != 1 {
 		t.Fatalf("IndexCount unreadable = %d, want 1", count)
 	}
-	deleted := mustIndexDeleteWithRange(t, sess.client, store, "by_status", rangeReq)
+	deleted := mustIndexDelete(t, sess.client, store, "by_status", rangeReq)
 	if deleted != 1 {
 		t.Fatalf("IndexDelete unreadable deleted = %d, want 1", deleted)
 	}
@@ -614,10 +570,7 @@ func runBulkConsistency(t *testing.T, harness Harness) {
 		store := "bulk_object_store_range"
 		mustSeedBulkItems(t, sess.client, store)
 
-		rangeReq := &gestalt.KeyRange{
-			Lower: "b",
-			Upper: "c",
-		}
+		rangeReq := indexeddb.Bound("b", "c", false, false)
 		records := mustGetAll(t, sess.client, store, rangeReq)
 		keys := mustGetAllKeys(t, sess.client, store, rangeReq)
 		count := mustCount(t, sess.client, store, rangeReq)
@@ -651,10 +604,10 @@ func runBulkConsistency(t *testing.T, harness Harness) {
 		store := "bulk_index_query"
 		mustSeedBulkItems(t, sess.client, store)
 
-		values := []any{"active"}
-		records := mustIndexGetAll(t, sess.client, store, "by_status", values)
-		keys := mustIndexGetAllKeys(t, sess.client, store, "by_status", values)
-		count := mustIndexCount(t, sess.client, store, "by_status", values)
+		query := indexeddb.Only("active")
+		records := mustIndexGetAll(t, sess.client, store, "by_status", query)
+		keys := mustIndexGetAllKeys(t, sess.client, store, "by_status", query)
+		count := mustIndexCount(t, sess.client, store, "by_status", query)
 
 		want := []string{"a", "b", "d"}
 		gotIDs := recordPrimaryKeys(t, records)
@@ -668,7 +621,7 @@ func runBulkConsistency(t *testing.T, harness Harness) {
 			t.Fatalf("IndexCount = %d, want %d", count, len(want))
 		}
 
-		deleted := mustIndexDelete(t, sess.client, store, "by_status", values)
+		deleted := mustIndexDelete(t, sess.client, store, "by_status", query)
 		if deleted != int64(len(want)) {
 			t.Fatalf("IndexDelete deleted = %d, want %d", deleted, len(want))
 		}
@@ -685,10 +638,10 @@ func runBulkConsistency(t *testing.T, harness Harness) {
 		store := "bulk_index_range"
 		mustSeedBulkItems(t, sess.client, store)
 
-		rangeReq := &gestalt.KeyRange{Lower: "active", Upper: "active"}
-		records := mustIndexGetAllWithRange(t, sess.client, store, "by_status", rangeReq)
-		keys := mustIndexGetAllKeysWithRange(t, sess.client, store, "by_status", rangeReq)
-		count := mustIndexCountWithRange(t, sess.client, store, "by_status", rangeReq)
+		rangeReq := indexeddb.Only("active")
+		records := mustIndexGetAll(t, sess.client, store, "by_status", rangeReq)
+		keys := mustIndexGetAllKeys(t, sess.client, store, "by_status", rangeReq)
+		count := mustIndexCount(t, sess.client, store, "by_status", rangeReq)
 
 		want := []string{"a", "b", "d"}
 		gotIDs := recordPrimaryKeys(t, records)
@@ -702,7 +655,7 @@ func runBulkConsistency(t *testing.T, harness Harness) {
 			t.Fatalf("IndexCount range = %d, want %d", count, len(want))
 		}
 
-		deleted := mustIndexDeleteWithRange(t, sess.client, store, "by_status", rangeReq)
+		deleted := mustIndexDelete(t, sess.client, store, "by_status", rangeReq)
 		if deleted != int64(len(want)) {
 			t.Fatalf("IndexDelete range deleted = %d, want %d", deleted, len(want))
 		}
@@ -836,7 +789,7 @@ func runTypedDeleteRangeFidelity(t *testing.T, harness Harness) {
 				})
 			}
 
-			deleted := mustDeleteRange(t, sess.client, tc.store, &gestalt.KeyRange{Lower: tc.lower, Upper: tc.upper})
+			deleted := mustDeleteRange(t, sess.client, tc.store, indexeddb.Bound(tc.lower, tc.upper, false, false))
 			if deleted != 2 {
 				t.Fatalf("DeleteRange deleted = %d, want 2", deleted)
 			}
@@ -857,7 +810,7 @@ func runRestartReconfigurePersistsIndexes(t *testing.T, harness Harness) {
 	mustSeedBulkItems(t, sess.client, store)
 	sess.Restart(t)
 
-	values := []any{"active"}
+	values := indexeddb.Only("active")
 	records := mustIndexGetAll(t, sess.client, store, "by_status", values)
 	gotIDs := sortedStrings(recordPrimaryKeys(t, records))
 	want := []string{"a", "b", "d"}
@@ -869,7 +822,7 @@ func runRestartReconfigurePersistsIndexes(t *testing.T, harness Harness) {
 		Store:     store,
 		Index:     "by_status",
 		Direction: gestalt.CursorNext,
-		Range:     &gestalt.KeyRange{Lower: "active", Upper: "active"},
+		Query:     indexeddb.Only("active"),
 	})
 	if got := sortedStrings(cursorPrimaryKeys(entries)); !stringSlicesEqual(got, want) {
 		t.Fatalf("index cursor ids after restart = %#v, want %#v", got, want)
@@ -899,7 +852,7 @@ func runMissingIndexFieldExclusion(t *testing.T, harness Harness) {
 		Store:     store,
 		Index:     "by_status",
 		Direction: gestalt.CursorNext,
-		Range:     &gestalt.KeyRange{Lower: "active", Upper: "active"},
+		Query:     indexeddb.Only("active"),
 	})
 	t.Cleanup(func() { _ = cursor.Close() })
 
@@ -915,7 +868,7 @@ func runMissingIndexFieldExclusion(t *testing.T, harness Harness) {
 		t.Fatalf("cursor Update(clear indexed field): %v", err)
 	}
 
-	values := []any{"active"}
+	values := indexeddb.Only("active")
 	records := mustIndexGetAll(t, sess.client, store, "by_status", values)
 	gotIDs := sortedStrings(recordPrimaryKeys(t, records))
 	if !stringSlicesEqual(gotIDs, []string{"b"}) {
@@ -926,7 +879,7 @@ func runMissingIndexFieldExclusion(t *testing.T, harness Harness) {
 		Store:     store,
 		Index:     "by_status",
 		Direction: gestalt.CursorNext,
-		Range:     &gestalt.KeyRange{Lower: "active", Upper: "active"},
+		Query:     indexeddb.Only("active"),
 	})
 	if got := cursorPrimaryKeys(entries); !stringSlicesEqual(got, []string{"b"}) {
 		t.Fatalf("active cursor ids after clearing indexed field = %#v, want %#v", got, []string{"b"})
@@ -971,6 +924,70 @@ func runUniqueIndexConflictOnCursorUpdate(t *testing.T, harness Harness) {
 	}
 }
 
+func runLargeIndexNarrowRange(t *testing.T, harness Harness) {
+	t.Helper()
+
+	sess := newSession(t, harness)
+	t.Cleanup(sess.Close)
+
+	store := "large_index_narrow_range"
+	mustCreateObjectStore(t, sess.client, store, gestalt.ObjectStoreOptions{
+		Indexes: []gestalt.IndexSchema{
+			{Name: "by_period", KeyPath: []string{"period_start"}},
+		},
+	})
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for day := 0; day < 120; day++ {
+		date := start.AddDate(0, 0, day).Format("2006-01-02")
+		mustAddRecord(t, sess.client, store, gestalt.Record{
+			"id":           fmt.Sprintf("rollup-%03d", day+1),
+			"period_start": date,
+		})
+	}
+
+	rangeReq := indexeddb.Bound("2026-02-01", "2026-02-07", false, false)
+	want := []string{
+		"rollup-032", "rollup-033", "rollup-034", "rollup-035",
+		"rollup-036", "rollup-037", "rollup-038",
+	}
+
+	records := mustIndexGetAll(t, sess.client, store, "by_period", rangeReq)
+	gotIDs := sortedStrings(recordPrimaryKeys(t, records))
+	if !stringSlicesEqual(gotIDs, want) {
+		t.Fatalf("IndexGetAll narrow range ids = %#v, want %#v", gotIDs, want)
+	}
+	if count := mustIndexCount(t, sess.client, store, "by_period", rangeReq); count != int64(len(want)) {
+		t.Fatalf("IndexCount narrow range = %d, want %d", count, len(want))
+	}
+}
+
+func runNullIndexKeySkipped(t *testing.T, harness Harness) {
+	t.Helper()
+
+	sess := newSession(t, harness)
+	t.Cleanup(sess.Close)
+
+	store := "null_index_key"
+	mustCreateObjectStore(t, sess.client, store, gestalt.ObjectStoreOptions{
+		Indexes: []gestalt.IndexSchema{
+			{Name: "by_email", KeyPath: []string{"email"}},
+		},
+	})
+
+	// A present-but-null key-path value must not error on write and must not be
+	// indexed (W3C: no index entry for a null/undefined key path).
+	mustAddRecord(t, sess.client, store, gestalt.Record{"id": "no-email", "email": nil})
+	mustAddRecord(t, sess.client, store, gestalt.Record{"id": "has-email", "email": "person@example.com"})
+
+	ids := sortedStrings(recordPrimaryKeys(t, mustIndexGetAll(t, sess.client, store, "by_email", nil)))
+	if !stringSlicesEqual(ids, []string{"has-email"}) {
+		t.Fatalf("by_email index ids = %#v, want [has-email] (null-key record must be skipped)", ids)
+	}
+	if count := mustIndexCount(t, sess.client, store, "by_email", nil); count != 1 {
+		t.Fatalf("by_email index count = %d, want 1", count)
+	}
+}
+
 func runNestedIndexPaths(t *testing.T, harness Harness) {
 	t.Helper()
 
@@ -996,7 +1013,7 @@ func runNestedIndexPaths(t *testing.T, harness Harness) {
 		Store:     store,
 		Index:     "by_profile_name",
 		Direction: gestalt.CursorNext,
-		Range:     &gestalt.KeyRange{Lower: "Alice", Upper: "Alice"},
+		Query:     indexeddb.Only("Alice"),
 	})
 	if len(entries) != 1 {
 		t.Fatalf("nested index entry count = %d, want 1", len(entries))
@@ -1048,11 +1065,10 @@ func (s *session) Close() {
 
 type cursorRequest struct {
 	Store     string
-	Range     *gestalt.KeyRange
+	Query     any
 	Direction gestalt.CursorDirection
 	KeysOnly  bool
 	Index     string
-	Values    []any
 }
 
 func bulkItemsSchema() gestalt.ObjectStoreOptions {
@@ -1213,104 +1229,84 @@ func mustTxGet(t *testing.T, tx indexeddb.Transaction, store, id string) gestalt
 	return record
 }
 
-func mustTxIndexCount(t *testing.T, tx indexeddb.Transaction, store, index string, values ...any) int64 {
+func mustTxIndexCount(t *testing.T, tx indexeddb.Transaction, store, index string, query any) int64 {
 	t.Helper()
-	count, err := tx.ObjectStore(store).Index(index).Count(context.Background(), nil, values...)
+	count, err := tx.ObjectStore(store).Index(index).Count(context.Background(), query)
 	if err != nil {
 		t.Fatalf("transaction IndexCount(%s/%s): %v", store, index, err)
 	}
 	return count
 }
 
-func mustGetAll(t *testing.T, client indexeddb.Database, store string, keyRange *gestalt.KeyRange) []gestalt.Record {
+func mustGetAll(t *testing.T, client indexeddb.Database, store string, query any) []gestalt.Record {
 	t.Helper()
-	records, err := client.ObjectStore(store).GetAll(context.Background(), keyRange)
+	records, err := client.ObjectStore(store).GetAll(context.Background(), query)
 	if err != nil {
 		t.Fatalf("GetAll(%s): %v", store, err)
 	}
 	return records
 }
 
-func mustGetAllKeys(t *testing.T, client indexeddb.Database, store string, keyRange *gestalt.KeyRange) []string {
+func mustGetAllKeys(t *testing.T, client indexeddb.Database, store string, query any) []string {
 	t.Helper()
-	keys, err := client.ObjectStore(store).GetAllKeys(context.Background(), keyRange)
+	keys, err := client.ObjectStore(store).GetAllKeys(context.Background(), query)
 	if err != nil {
 		t.Fatalf("GetAllKeys(%s): %v", store, err)
 	}
 	return keys
 }
 
-func mustCount(t *testing.T, client indexeddb.Database, store string, keyRange *gestalt.KeyRange) int64 {
+func mustCount(t *testing.T, client indexeddb.Database, store string, query any) int64 {
 	t.Helper()
-	count, err := client.ObjectStore(store).Count(context.Background(), keyRange)
+	count, err := client.ObjectStore(store).Count(context.Background(), query)
 	if err != nil {
 		t.Fatalf("Count(%s): %v", store, err)
 	}
 	return count
 }
 
-func mustDeleteRange(t *testing.T, client indexeddb.Database, store string, keyRange *gestalt.KeyRange) int64 {
+func mustDeleteRange(t *testing.T, client indexeddb.Database, store string, query any) int64 {
 	t.Helper()
-	if keyRange == nil {
-		t.Fatalf("DeleteRange(%s) requires a key range", store)
+	if query == nil {
+		t.Fatalf("DeleteRange(%s) requires a query", store)
 	}
-	deleted, err := client.ObjectStore(store).DeleteRange(context.Background(), *keyRange)
+	deleted, err := client.ObjectStore(store).DeleteRange(context.Background(), query)
 	if err != nil {
 		t.Fatalf("DeleteRange(%s): %v", store, err)
 	}
 	return deleted
 }
 
-func mustIndexGetAll(t *testing.T, client indexeddb.Database, store, index string, values []any) []gestalt.Record {
+func mustIndexGetAll(t *testing.T, client indexeddb.Database, store, index string, query any) []gestalt.Record {
 	t.Helper()
-	return mustIndexGetAllWithRange(t, client, store, index, nil, values...)
-}
-
-func mustIndexGetAllWithRange(t *testing.T, client indexeddb.Database, store, index string, keyRange *gestalt.KeyRange, values ...any) []gestalt.Record {
-	t.Helper()
-	records, err := client.ObjectStore(store).Index(index).GetAll(context.Background(), keyRange, values...)
+	records, err := client.ObjectStore(store).Index(index).GetAll(context.Background(), query)
 	if err != nil {
 		t.Fatalf("IndexGetAll(%s/%s): %v", store, index, err)
 	}
 	return records
 }
 
-func mustIndexGetAllKeys(t *testing.T, client indexeddb.Database, store, index string, values []any) []string {
+func mustIndexGetAllKeys(t *testing.T, client indexeddb.Database, store, index string, query any) []string {
 	t.Helper()
-	return mustIndexGetAllKeysWithRange(t, client, store, index, nil, values...)
-}
-
-func mustIndexGetAllKeysWithRange(t *testing.T, client indexeddb.Database, store, index string, keyRange *gestalt.KeyRange, values ...any) []string {
-	t.Helper()
-	keys, err := client.ObjectStore(store).Index(index).GetAllKeys(context.Background(), keyRange, values...)
+	keys, err := client.ObjectStore(store).Index(index).GetAllKeys(context.Background(), query)
 	if err != nil {
 		t.Fatalf("IndexGetAllKeys(%s/%s): %v", store, index, err)
 	}
 	return keys
 }
 
-func mustIndexCount(t *testing.T, client indexeddb.Database, store, index string, values []any) int64 {
+func mustIndexCount(t *testing.T, client indexeddb.Database, store, index string, query any) int64 {
 	t.Helper()
-	return mustIndexCountWithRange(t, client, store, index, nil, values...)
-}
-
-func mustIndexCountWithRange(t *testing.T, client indexeddb.Database, store, index string, keyRange *gestalt.KeyRange, values ...any) int64 {
-	t.Helper()
-	count, err := client.ObjectStore(store).Index(index).Count(context.Background(), keyRange, values...)
+	count, err := client.ObjectStore(store).Index(index).Count(context.Background(), query)
 	if err != nil {
 		t.Fatalf("IndexCount(%s/%s): %v", store, index, err)
 	}
 	return count
 }
 
-func mustIndexDelete(t *testing.T, client indexeddb.Database, store, index string, values []any) int64 {
+func mustIndexDelete(t *testing.T, client indexeddb.Database, store, index string, query any) int64 {
 	t.Helper()
-	return mustIndexDeleteWithRange(t, client, store, index, nil, values...)
-}
-
-func mustIndexDeleteWithRange(t *testing.T, client indexeddb.Database, store, index string, keyRange *gestalt.KeyRange, values ...any) int64 {
-	t.Helper()
-	deleted, err := client.ObjectStore(store).Index(index).DeleteRange(context.Background(), keyRange, values...)
+	deleted, err := client.ObjectStore(store).Index(index).Delete(context.Background(), query)
 	if err != nil {
 		t.Fatalf("IndexDelete(%s/%s): %v", store, index, err)
 	}
@@ -1332,14 +1328,14 @@ func mustOpenCursor(t *testing.T, client indexeddb.Database, req *cursorRequest)
 	if req.Index != "" {
 		index := store.Index(req.Index)
 		if req.KeysOnly {
-			cursor, err = index.OpenKeyCursor(context.Background(), req.Range, direction, req.Values...)
+			cursor, err = index.OpenKeyCursor(context.Background(), req.Query, direction)
 		} else {
-			cursor, err = index.OpenCursor(context.Background(), req.Range, direction, req.Values...)
+			cursor, err = index.OpenCursor(context.Background(), req.Query, direction)
 		}
 	} else if req.KeysOnly {
-		cursor, err = store.OpenKeyCursor(context.Background(), req.Range, direction)
+		cursor, err = store.OpenKeyCursor(context.Background(), req.Query, direction)
 	} else {
-		cursor, err = store.OpenCursor(context.Background(), req.Range, direction)
+		cursor, err = store.OpenCursor(context.Background(), req.Query, direction)
 	}
 	if err != nil {
 		t.Fatalf("OpenCursor(%s/%s): %v", req.Store, req.Index, err)

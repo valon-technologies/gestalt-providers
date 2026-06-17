@@ -533,6 +533,110 @@ operations:
     type: string
     description: Comment body
     required: true
+- id: bot.createIssue
+  method: POST
+  description: Create an issue using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: title
+    type: string
+    description: Issue title
+    required: true
+  - name: body
+    type: string
+    description: Issue body
+    required: false
+  - name: labels
+    type: array
+    description: Label names to apply
+    required: false
+  - name: assignees
+    type: array
+    description: GitHub usernames to assign
+    required: false
+- id: bot.updateIssue
+  method: POST
+  description: Update an issue using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: issue_number
+    type: integer
+    description: Issue number
+    required: true
+  - name: title
+    type: string
+    description: Issue title
+    required: false
+  - name: body
+    type: string
+    description: Issue body
+    required: false
+  - name: state
+    type: string
+    description: Issue state, open or closed
+    required: false
+  - name: labels
+    type: array
+    description: Label names to apply
+    required: false
+  - name: assignees
+    type: array
+    description: GitHub usernames to assign
+    required: false
+- id: bot.getIssue
+  method: GET
+  description: Get an issue using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: issue_number
+    type: integer
+    description: Issue number
+    required: true
+- id: bot.listIssues
+  method: GET
+  description: List repository issues using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: state
+    type: string
+    description: Issue state filter, open, closed, or all
+    required: false
+  - name: per_page
+    type: integer
+    description: Results per page (1-100)
+    required: false
+  - name: page
+    type: integer
+    description: Page number
+    required: false
 - id: bot.addReaction
   method: POST
   description: Add a reaction using a GitHub App installation token

@@ -88,6 +88,7 @@ class ClaudeSDKRunner:
         messages: list[dict[str, Any]],
         request_context: Any | None,
         schema: dict[str, Any] | None,
+        permission_mode: str,
         timeout_seconds: float = 0.0,
     ) -> gestalt.AgentTurnOutput:
         effective_timeout = timeout_seconds if timeout_seconds > 0 else self._config.timeout_seconds
@@ -101,6 +102,7 @@ class ClaudeSDKRunner:
                         messages=messages,
                         request_context=request_context,
                         schema=schema,
+                        permission_mode=permission_mode,
                         timeout_seconds=effective_timeout,
                     ),
                     timeout=effective_timeout,
@@ -137,6 +139,7 @@ class ClaudeSDKRunner:
         messages: list[dict[str, Any]],
         request_context: Any | None,
         schema: dict[str, Any] | None,
+        permission_mode: str,
         timeout_seconds: float,
     ) -> gestalt.AgentTurnOutput:
         with self._active_turn(turn_id):
@@ -152,6 +155,7 @@ class ClaudeSDKRunner:
                     turn_id=turn_id,
                     request_context=request_context,
                     schema=schema,
+                    permission_mode=permission_mode,
                     timeout_seconds=timeout_seconds,
                 )
                 _set_config_dir(options, config_dir)
@@ -190,6 +194,7 @@ class ClaudeSDKRunner:
         turn_id: str,
         request_context: Any | None = None,
         schema: dict[str, Any] | None = None,
+        permission_mode: str,
         timeout_seconds: float = 0.0,
     ) -> ClaudeAgentOptions:
         if session.tool_source == gestalt.AGENT_TOOL_SOURCE_MODE_CATALOG:
@@ -199,18 +204,25 @@ class ClaudeSDKRunner:
                 turn_id=turn_id,
                 request_context=request_context,
                 schema=schema,
+                permission_mode=permission_mode,
                 timeout_seconds=timeout_seconds,
             )
-        return self._direct_options(model=model, session=session, schema=schema)
+        return self._direct_options(model=model, session=session, schema=schema, permission_mode=permission_mode)
 
     def _base_options_kwargs(
-        self, *, model: str, env: dict[str, str], cwd: str | None, system_prompt: str | None
+        self,
+        *,
+        model: str,
+        env: dict[str, str],
+        cwd: str | None,
+        system_prompt: str | None,
+        permission_mode: str,
     ) -> dict[str, Any]:
         return {
             "model": model,
             "cwd": cwd,
             "system_prompt": system_prompt,
-            "permission_mode": cast(PermissionMode, self._config.permission_mode),
+            "permission_mode": cast(PermissionMode, permission_mode),
             "cli_path": self._config.cli_path or None,
             "env": env,
             "agents": None,
@@ -225,6 +237,7 @@ class ClaudeSDKRunner:
         turn_id: str,
         request_context: Any | None,
         schema: dict[str, Any] | None,
+        permission_mode: str,
         timeout_seconds: float,
     ) -> ClaudeAgentOptions:
         claude_code_options = self._config.claude_code.resolve_turn_options(session.metadata)
@@ -247,6 +260,7 @@ class ClaudeSDKRunner:
                 env=env,
                 cwd=_session_cwd(session) or self._config.working_directory or None,
                 system_prompt=_system_prompt(self._config.system_prompt),
+                permission_mode=permission_mode,
             ),
             tools=allowed_gestalt_mcp_tools() + claude_code_options.base_tools,
             allowed_tools=allowed_gestalt_mcp_tools() + claude_code_options.allowed_tools,
@@ -265,7 +279,9 @@ class ClaudeSDKRunner:
             output_format=_output_format(schema),
         )
 
-    def _direct_options(self, *, model: str, session: Any, schema: dict[str, Any] | None) -> ClaudeAgentOptions:
+    def _direct_options(
+        self, *, model: str, session: Any, schema: dict[str, Any] | None, permission_mode: str
+    ) -> ClaudeAgentOptions:
         env: dict[str, str] = {}
         if self._config.anthropic_api_key:
             env["ANTHROPIC_API_KEY"] = self._config.anthropic_api_key
@@ -277,6 +293,7 @@ class ClaudeSDKRunner:
                 env=env,
                 cwd=_session_cwd(session) or self._config.working_directory or None,
                 system_prompt=system_prompt,
+                permission_mode=permission_mode,
             ),
             tools=[],
             allowed_tools=[],

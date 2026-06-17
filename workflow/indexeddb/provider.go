@@ -244,6 +244,11 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 		_ = db.Close()
 	}
 
+	if err := ensureWorkflowObjectStores(ctx, db); err != nil {
+		cleanup()
+		return fmt.Errorf("indexeddb workflow: ensure stores: %w", err)
+	}
+
 	runStore := db.ObjectStore(storeRuns)
 	runClaimStore := db.ObjectStore(storeRunClaims)
 	workflowKeyStore := db.ObjectStore(storeWorkflowKeys)
@@ -1880,7 +1885,7 @@ func transactionGetRecord(ctx context.Context, store indexeddb.TransactionObject
 	if id == "" {
 		return nil, false, nil
 	}
-	records, err := store.GetAll(ctx, &gestalt.KeyRange{Lower: id, Upper: id})
+	records, err := store.GetAll(ctx, indexeddb.Only(id))
 	if err != nil {
 		return nil, false, err
 	}
@@ -2222,6 +2227,67 @@ func normalizeRunClaimRenewEvery(ttl, renewEvery time.Duration) time.Duration {
 	return renewEvery
 }
 
+func ensureWorkflowObjectStores(ctx context.Context, db indexeddb.Database) error {
+	if db == nil {
+		return fmt.Errorf("indexeddb database is required")
+	}
+	for _, def := range []struct {
+		name   string
+		schema gestalt.ObjectStoreOptions
+	}{
+		{name: storeSchedules, schema: gestalt.ObjectStoreOptions{}},
+		{name: storeDefinitions, schema: gestalt.ObjectStoreOptions{}},
+		{name: storeIdempotency, schema: gestalt.ObjectStoreOptions{}},
+		{name: storeWorkflowKeys, schema: gestalt.ObjectStoreOptions{}},
+		{name: storeRuns, schema: gestalt.ObjectStoreOptions{}},
+		{name: storeRunClaims, schema: workflowRunClaimSchema()},
+		{name: storeSignals, schema: workflowSignalSchema()},
+	} {
+		if _, err := db.CreateObjectStore(ctx, def.name, def.schema); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+			return fmt.Errorf("create %s store: %w", def.name, err)
+		}
+	}
+	return nil
+}
+
+func workflowRunClaimSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "run_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "owner_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "claimed_at", Type: gestalt.TypeTime},
+			{Name: "expires_at", Type: gestalt.TypeTime},
+		},
+	}
+}
+
+func workflowSignalSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
+		Indexes: []gestalt.IndexSchema{
+			{Name: "by_run", KeyPath: []string{"run_id"}},
+			{Name: "by_run_state", KeyPath: []string{"run_id", "state"}},
+			{Name: "by_run_sequence", KeyPath: []string{"run_id", "sequence"}, Unique: true},
+		},
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "run_id", Type: gestalt.TypeString, NotNull: true},
+			{Name: "workflow_key", Type: gestalt.TypeString},
+			{Name: "state", Type: gestalt.TypeString, NotNull: true},
+			{Name: "signal_json", Type: gestalt.TypeString},
+			{Name: "idempotency_key", Type: gestalt.TypeString},
+			{Name: "sequence", Type: gestalt.TypeInt},
+			{Name: "started_run", Type: gestalt.TypeBool},
+			{Name: "batch_id", Type: gestalt.TypeString},
+			{Name: "created_at", Type: gestalt.TypeTime},
+			{Name: "claimed_at", Type: gestalt.TypeTime},
+			{Name: "delivered_at", Type: gestalt.TypeTime},
+			{Name: "failed_at", Type: gestalt.TypeTime},
+			{Name: "status_message", Type: gestalt.TypeString},
+		},
+	}
+}
+
 func validateWorkflowSignalIndexes(ctx context.Context, store indexeddb.ObjectStore) error {
 	probes := []struct {
 		name   string
@@ -2232,7 +2298,7 @@ func validateWorkflowSignalIndexes(ctx context.Context, store indexeddb.ObjectSt
 		{name: "by_run_sequence", values: []any{"__workflow_schema_probe__", int64(-1)}},
 	}
 	for _, probe := range probes {
-		if _, err := store.Index(probe.name).Count(ctx, nil, probe.values...); err != nil {
+		if _, err := store.Index(probe.name).Count(ctx, indexQueryKey(probe.values...)); err != nil {
 			return fmt.Errorf("%s: %w", probe.name, err)
 		}
 	}
@@ -3350,7 +3416,7 @@ func hasPendingSignalsTx(ctx context.Context, store indexeddb.TransactionObjectS
 	if runID == "" {
 		return false, nil
 	}
-	count, err := store.Index("by_run_state").Count(ctx, nil, runID, signalStatePending)
+	count, err := store.Index("by_run_state").Count(ctx, []any{runID, signalStatePending})
 	if err != nil {
 		return false, err
 	}
@@ -3362,7 +3428,7 @@ func hasSignalsInState(ctx context.Context, store indexeddb.ObjectStore, runID, 
 	if runID == "" {
 		return false, nil
 	}
-	count, err := store.Index("by_run_state").Count(ctx, nil, runID, strings.TrimSpace(state))
+	count, err := store.Index("by_run_state").Count(ctx, []any{runID, strings.TrimSpace(state)})
 	if err != nil {
 		return false, err
 	}
@@ -3671,9 +3737,9 @@ func listSignalRecords(ctx context.Context, store indexeddb.ObjectStore, runID, 
 	)
 	switch {
 	case runID != "" && state != "":
-		records, err = store.Index("by_run_state").GetAll(ctx, nil, runID, state)
+		records, err = store.Index("by_run_state").GetAll(ctx, []any{runID, state})
 	case runID != "":
-		records, err = store.Index("by_run").GetAll(ctx, nil, runID)
+		records, err = store.Index("by_run").GetAll(ctx, runID)
 	default:
 		records, err = store.GetAll(ctx, nil)
 	}
@@ -3722,9 +3788,9 @@ func listSignalRecordsTx(ctx context.Context, store indexeddb.TransactionObjectS
 	)
 	switch {
 	case runID != "" && state != "":
-		records, err = store.Index("by_run_state").GetAll(ctx, nil, runID, state)
+		records, err = store.Index("by_run_state").GetAll(ctx, []any{runID, state})
 	case runID != "":
-		records, err = store.Index("by_run").GetAll(ctx, nil, runID)
+		records, err = store.Index("by_run").GetAll(ctx, runID)
 	default:
 		records, err = store.GetAll(ctx, nil)
 	}
@@ -3741,7 +3807,7 @@ func listSignalRecordsLimit(ctx context.Context, store indexeddb.ObjectStore, ru
 		return listSignalRecords(ctx, store, runID, state)
 	}
 
-	cursor, err := store.Index("by_run_sequence").OpenKeyCursor(ctx, nil, gestalt.CursorNext, runID)
+	cursor, err := store.Index("by_run_sequence").OpenKeyCursor(ctx, indexeddb.LowerBound([]any{runID}, false), gestalt.CursorNext)
 	if err != nil {
 		return nil, err
 	}
@@ -4926,6 +4992,16 @@ func cloneJSONValue[T any](value T) T {
 
 func cloneTarget(target *gestalt.BoundWorkflowTarget) *gestalt.BoundWorkflowTarget {
 	return cloneWorkflowTarget(target)
+}
+
+func indexQueryKey(values ...any) any {
+	if len(values) == 0 {
+		return nil
+	}
+	if len(values) == 1 {
+		return values[0]
+	}
+	return values
 }
 
 var _ gestalt.MetadataProvider = (*Provider)(nil)

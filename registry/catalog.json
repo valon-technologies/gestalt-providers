@@ -2208,7 +2208,7 @@
       ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/authorization/indexeddb/assets/icon.svg",
       "kind": "authorization",
-      "latestInstallableVersion": "0.0.1-alpha.2",
+      "latestInstallableVersion": "0.0.1-alpha.3",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/authorization/indexeddb/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.2",
       "name": "indexeddb",
@@ -2218,6 +2218,18 @@
       "registryPath": "/providers/authorization/indexeddb/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/authorization/indexeddb",
       "versions": [
+        {
+          "kind": "authorization",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/authorization/indexeddb/v0.0.1-alpha.3/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.3"
+        },
         {
           "kind": "authorization",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/authorization/indexeddb/v0.0.1-alpha.2/provider-release.yaml",
@@ -2422,7 +2434,7 @@
       ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/indexeddb/relationaldb/assets/icon.svg",
       "kind": "indexeddb",
-      "latestInstallableVersion": "0.0.1-alpha.1",
+      "latestInstallableVersion": "0.0.1-alpha.2",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/indexeddb/relationaldb/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.2",
       "name": "relationaldb",
@@ -2432,6 +2444,18 @@
       "registryPath": "/providers/indexeddb/relationaldb/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/indexeddb/relationaldb",
       "versions": [
+        {
+          "kind": "indexeddb",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.2/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.2"
+        },
         {
           "kind": "indexeddb",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/indexeddb/relationaldb/v0.0.1-alpha.1/provider-release.yaml",
@@ -2955,7 +2979,7 @@
       ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/workflow/indexeddb/assets/icon.svg",
       "kind": "workflow",
-      "latestInstallableVersion": "0.0.1-alpha.1",
+      "latestInstallableVersion": "0.0.1-alpha.2",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/workflow/indexeddb/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.1",
       "name": "indexeddb",
@@ -2965,6 +2989,18 @@
       "registryPath": "/providers/workflow/indexeddb/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/workflow/indexeddb",
       "versions": [
+        {
+          "kind": "workflow",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.2/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.2"
+        },
         {
           "kind": "workflow",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/workflow/indexeddb/v0.0.1-alpha.1/provider-release.yaml",
