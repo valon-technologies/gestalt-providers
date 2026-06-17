@@ -559,6 +559,7 @@ func TestCreateObjectStoreKeepsGenericRowsWhenSchemaUnchanged(t *testing.T) {
 			indexName:     "__sentinel",
 			indexKeyHash:  indexKey.hash,
 			indexKeyBytes: indexKey.raw,
+			indexKeyOrd:   indexKey.ord,
 			pkHash:        primary.hash,
 			pkBytes:       primary.raw,
 		}})
@@ -924,6 +925,9 @@ func TestCreateGenericIndexEntriesTableSQLMySQLUsesLongBlobPayloads(t *testing.T
 	got := createGenericIndexEntriesTableSQL(dialectMySQL, "_gestalt_index_entries")
 	if !strings.Contains(got, "`index_key_bytes` LONGBLOB NOT NULL") {
 		t.Fatalf("createGenericIndexEntriesTableSQL(mysql) missing longblob index key bytes: %s", got)
+	}
+	if !strings.Contains(got, "`index_key_ord` LONGBLOB NOT NULL") {
+		t.Fatalf("createGenericIndexEntriesTableSQL(mysql) missing longblob index key ord: %s", got)
 	}
 	if !strings.Contains(got, "`pk_bytes` LONGBLOB NOT NULL") {
 		t.Fatalf("createGenericIndexEntriesTableSQL(mysql) missing longblob primary key bytes: %s", got)

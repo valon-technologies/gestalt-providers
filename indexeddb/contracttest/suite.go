@@ -114,6 +114,10 @@ func Run(t *testing.T, harness Harness) {
 		}
 		runNestedIndexPaths(t, harness)
 	})
+
+	t.Run("LargeIndexNarrowRange", func(t *testing.T) {
+		runLargeIndexNarrowRange(t, harness)
+	})
 }
 
 func runTypedPrimaryKeyFidelity(t *testing.T, harness Harness) {
@@ -913,6 +917,43 @@ func runUniqueIndexConflictOnCursorUpdate(t *testing.T, harness Harness) {
 	})
 	if !errors.Is(err, gestalt.ErrAlreadyExists) {
 		t.Fatalf("cursor update error = %v, want ErrAlreadyExists", err)
+	}
+}
+
+func runLargeIndexNarrowRange(t *testing.T, harness Harness) {
+	t.Helper()
+
+	sess := newSession(t, harness)
+	t.Cleanup(sess.Close)
+
+	store := "large_index_narrow_range"
+	mustCreateObjectStore(t, sess.client, store, gestalt.ObjectStoreOptions{
+		Indexes: []gestalt.IndexSchema{
+			{Name: "by_period", KeyPath: []string{"period_start"}},
+		},
+	})
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for day := 0; day < 120; day++ {
+		date := start.AddDate(0, 0, day).Format("2006-01-02")
+		mustAddRecord(t, sess.client, store, gestalt.Record{
+			"id":           fmt.Sprintf("rollup-%03d", day+1),
+			"period_start": date,
+		})
+	}
+
+	rangeReq := indexeddb.Bound("2026-02-01", "2026-02-07", false, false)
+	want := []string{
+		"rollup-032", "rollup-033", "rollup-034", "rollup-035",
+		"rollup-036", "rollup-037", "rollup-038",
+	}
+
+	records := mustIndexGetAll(t, sess.client, store, "by_period", rangeReq)
+	gotIDs := sortedStrings(recordPrimaryKeys(t, records))
+	if !stringSlicesEqual(gotIDs, want) {
+		t.Fatalf("IndexGetAll narrow range ids = %#v, want %#v", gotIDs, want)
+	}
+	if count := mustIndexCount(t, sess.client, store, "by_period", rangeReq); count != int64(len(want)) {
+		t.Fatalf("IndexCount narrow range = %d, want %d", count, len(want))
 	}
 }
 

@@ -213,6 +213,7 @@ func createGenericIndexEntriesTableSQL(d dialect, table string) string {
 		quoteIdent(d, "index_name") + " " + sqlType(d, 0, true) + " NOT NULL",
 		quoteIdent(d, "index_key_hash") + " " + sqlType(d, 5, true) + " NOT NULL",
 		quoteIdent(d, "index_key_bytes") + " " + sqlType(d, 5, false) + " NOT NULL",
+		quoteIdent(d, "index_key_ord") + " " + sqlType(d, 5, false) + " NOT NULL",
 		quoteIdent(d, "pk_hash") + " " + sqlType(d, 5, true) + " NOT NULL",
 		quoteIdent(d, "pk_bytes") + " " + sqlType(d, 5, false) + " NOT NULL",
 	}
@@ -246,7 +247,7 @@ func createGenericIndexRecordIndexSQL(d dialect, table string) string {
 
 func createGenericIndexScanIndexSQL(d dialect, table string) string {
 	indexName := portableIndexName(table, "scan")
-	return createColumnsIndexSQL(d, table, indexName, []string{"store_name", "index_name"}, false)
+	return createColumnsIndexSQL(d, table, indexName, []string{"store_name", "index_name", "index_key_ord"}, false)
 }
 
 func portableIndexName(table, suffix string) string {

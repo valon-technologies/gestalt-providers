@@ -24,6 +24,20 @@ func queryExactKey(query *client.IndexedDBQuery) (any, bool) {
 	return key, true
 }
 
+func queryKeyRange(query *client.IndexedDBQuery) (*client.KeyRange, bool) {
+	if query == nil {
+		return &client.KeyRange{}, true
+	}
+	rq, ok := query.Query.(*client.IndexedDBQueryQueryRange)
+	if !ok {
+		return nil, false
+	}
+	if rq.Value == nil {
+		return &client.KeyRange{}, true
+	}
+	return rq.Value, true
+}
+
 func limitRecords[T any](items []T, count *uint32) []T {
 	if count == nil || *count == 0 || int(*count) >= len(items) {
 		return items

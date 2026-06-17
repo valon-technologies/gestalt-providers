@@ -138,6 +138,7 @@ func (s *Store) createIndexStrict(ctx context.Context, storeName, indexName stri
 				indexName:     idx.Name,
 				indexKeyHash:  cloneBytes(encoded.hash),
 				indexKeyBytes: cloneBytes(encoded.raw),
+				indexKeyOrd:   cloneBytes(encoded.ord),
 				pkHash:        cloneBytes(row.pkHash),
 				pkBytes:       cloneBytes(row.pkBytes),
 			}
