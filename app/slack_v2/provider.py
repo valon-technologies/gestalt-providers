@@ -14,6 +14,7 @@ from internals.store import (
     get_workflow_definition_id_for_app as load_workflow_definition_id_for_app,
     save_slack_event_registration,
 )
+from internals.smoke_metrics import record_smoke_run
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,13 @@ app = gestalt.App("slack_v2")
 
 class GetWorkflowDefinitionIdForAppInput(gestalt.Model):
     app_id: str = gestalt.field(description="Slack app ID.")
+
+
+class DebugRecordSmokeRunInput(gestalt.Model):
+    app_id: str = gestalt.field(
+        default="",
+        description="Slack app ID from the triggering event, when available.",
+    )
 
 
 class RegisterSlackEventInput(gestalt.Model):
@@ -91,6 +99,18 @@ def get_workflow_definition_id_for_app(
         "app_id": app_id,
         "workflow_definition_id": workflow_definition_id,
     }
+
+
+@app.operation(
+    id="debug_record_smoke_run",
+    method="POST",
+    description="Debug endpoint that records an OTel metric when the smoke workflow runs.",
+)
+def debug_record_smoke_run(
+    input: DebugRecordSmokeRunInput, _req: gestalt.Request
+) -> dict[str, bool]:
+    record_smoke_run(app_id=input.app_id)
+    return {"ok": True, "recorded": True}
 
 
 @app.operation(
