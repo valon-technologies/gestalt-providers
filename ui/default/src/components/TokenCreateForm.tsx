@@ -69,7 +69,7 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
             name="scopes"
             type="text"
             required
-            placeholder="e.g. slack or slack:post_message"
+            placeholder="e.g. my-app or my-app:operation"
             className={`mt-2 w-full ${INPUT_CLASSES}`}
           />
         </div>

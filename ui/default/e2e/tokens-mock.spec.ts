@@ -9,12 +9,12 @@ import type { APIToken } from "../src/lib/api";
 const sampleTokens: APIToken[] = [
   {
     id: "tok-1",
-    scopes: "slack",
+    scopes: "my-app",
     createdAt: "2026-01-15T10:00:00Z",
   },
   {
     id: "tok-2",
-    scopes: "github:read",
+    scopes: "other-app:read",
     createdAt: "2026-02-20T14:30:00Z",
     expiresAt: "2027-02-20T14:30:00Z",
   },
@@ -32,8 +32,8 @@ test.describe("Token Management", () => {
     ).toBeVisible();
     await expect(page.getByText("tok-1")).toBeVisible();
     await expect(page.getByText("tok-2")).toBeVisible();
-    await expect(page.getByText("slack")).toBeVisible();
-    await expect(page.getByText("github:read")).toBeVisible();
+    await expect(page.getByText("my-app")).toBeVisible();
+    await expect(page.getByText("other-app:read")).toBeVisible();
   });
 
   test("shows empty state when no tokens", async ({ authenticatedPage }) => {
@@ -57,7 +57,7 @@ test.describe("Token Management", () => {
       }
       if (request.method() === "POST") {
         const body = request.postDataJSON() as { name?: string; scopes?: string };
-        expect(body).toEqual({ name: "audit-label", scopes: "slack" });
+        expect(body).toEqual({ name: "audit-label", scopes: "my-app" });
         tokens = [
           {
             id: "tok-new",
@@ -77,7 +77,7 @@ test.describe("Token Management", () => {
 
     await page.goto("/authorization");
     await page.getByLabel("Token name").fill("audit-label");
-    await page.getByLabel("Scopes").fill("slack");
+    await page.getByLabel("Scopes").fill("my-app");
     await page.getByRole("button", { name: "Create Token" }).click();
 
     await expect(page.getByText("Copy this token now")).toBeVisible();
@@ -106,7 +106,7 @@ test.describe("Token Management", () => {
 
       if (request.method() === "POST") {
         const body = request.postDataJSON() as { name?: string; scopes?: string };
-        expect(body.scopes).toBe("github");
+        expect(body.scopes).toBe("other-app");
         tokens = [
           {
             id: "tok-race",
@@ -127,7 +127,7 @@ test.describe("Token Management", () => {
 
     await page.goto("/authorization");
     await page.getByLabel("Token name").fill("race-token");
-    await page.getByLabel("Scopes").fill("github");
+    await page.getByLabel("Scopes").fill("other-app");
     await page.getByRole("button", { name: "Create Token" }).click();
 
     await expect(page.getByText("Copy this token now")).toBeVisible();
