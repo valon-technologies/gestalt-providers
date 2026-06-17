@@ -11,19 +11,12 @@ class FakeWorkflowClient:
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
         self.deliver_event_requests: list[gestalt.WorkflowDeliverEvent] = []
-        self.get_definition_requests: list[gestalt.WorkflowGetDefinition] = []
 
     def __enter__(self) -> FakeWorkflowClient:
         return self
 
     def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
         return None
-
-    def get_definition(
-        self, request: gestalt.WorkflowGetDefinition
-    ) -> gestalt.WorkflowDefinition:
-        self.get_definition_requests.append(request)
-        raise AssertionError("Slack v2 event handling should not fetch workflow definitions")
 
     def deliver_event(self, request: gestalt.WorkflowDeliverEvent) -> gestalt.WorkflowEvent:
         self.deliver_event_requests.append(request)
@@ -226,7 +219,6 @@ class SlackV2ProviderTests(unittest.TestCase):
             result = provider_module.handle_slack_event(payload, gestalt.Request())
 
         load_workflow_event_subject.assert_called_once_with(app_id="A123")
-        self.assertEqual(workflow_client.get_definition_requests, [])
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
         request = workflow_client.deliver_event_requests[0]
         self.assertEqual(request.provider_name, "")
