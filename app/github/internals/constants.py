@@ -26,6 +26,9 @@ BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION = "bot.resolvePullRequestReview
 BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION = (
     "bot.createPullRequestConversationComment"
 )
+BOT_CREATE_ISSUE_OPERATION = "bot.createIssue"
+BOT_UPDATE_ISSUE_OPERATION = "bot.updateIssue"
+BOT_GET_ISSUE_OPERATION = "bot.getIssue"
 BOT_CREATE_ISSUE_COMMENT_OPERATION = "bot.createIssueComment"
 BOT_ADD_REACTION_OPERATION = "bot.addReaction"
 BOT_ADD_LABELS_OPERATION = "bot.addLabels"
