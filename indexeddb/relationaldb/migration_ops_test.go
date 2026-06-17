@@ -49,6 +49,10 @@ func TestMigrateOrderedKeyOps(t *testing.T) {
 		for _, table := range tables {
 			migrateSwapScanIndex(ctx, t, s, table)
 		}
+	case "diagnose":
+		for _, table := range tables {
+			migrateDiagnose(ctx, t, s, table)
+		}
 	default:
 		t.Fatalf("set GESTALT_MIGRATE_PHASE to inspect|add-column|swap-index (got %q)", phase)
 	}
@@ -75,6 +79,48 @@ func migrateInspect(ctx context.Context, t *testing.T, s *Store, table string) {
 			t.Fatalf("scan index: %v", err)
 		}
 		t.Logf("  index %s cols=(%s) subparts=(%s)", name, cols, subs)
+	}
+}
+
+// migrateDiagnose scans every row and reports those whose stored key cannot be
+// encoded by encodeOrderedKey (e.g. legacy nil keys), grouped by store+index.
+func migrateDiagnose(ctx context.Context, t *testing.T, s *Store, table string) {
+	t.Helper()
+	rows, err := s.query(ctx, "SELECT "+quoteIdent(s.dialect, "store_name")+", "+quoteIdent(s.dialect, "index_name")+", "+
+		quoteIdent(s.dialect, "index_key_bytes")+" FROM "+table)
+	if err != nil {
+		t.Fatalf("scan %s: %v", table, err)
+	}
+	defer rows.Close()
+	type stat struct {
+		count   int
+		example []byte
+	}
+	bad := map[string]*stat{}
+	total, badTotal := 0, 0
+	for rows.Next() {
+		var storeName, indexName string
+		var raw []byte
+		if err := rows.Scan(&storeName, &indexName, &raw); err != nil {
+			t.Fatalf("scan row: %v", err)
+		}
+		total++
+		native, derr := decodeKeyValue(raw)
+		_, eerr := encodeOrderedKey(native)
+		if derr != nil || eerr != nil {
+			badTotal++
+			key := storeName + " / " + indexName
+			st := bad[key]
+			if st == nil {
+				st = &stat{example: raw}
+				bad[key] = st
+			}
+			st.count++
+		}
+	}
+	t.Logf("%s: scanned=%d unencodable=%d", table, total, badTotal)
+	for k, st := range bad {
+		t.Logf("  [%s] count=%d example_bytes=%x", k, st.count, st.example)
 	}
 }
 
