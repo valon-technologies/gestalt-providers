@@ -13,9 +13,11 @@ import (
 // database, so it never runs in CI.
 //
 // Run it against the live DB AFTER the column has been added nullable and
-// BEFORE it is set NOT NULL:
+// BEFORE it is set NOT NULL. GESTALT_BACKFILL_SCHEMA/PREFIX must match the
+// target datastore's config (production main-db uses schema "gestaltd"):
 //
-//	GESTALT_BACKFILL_DSN='mysql://user:pass@tcp(127.0.0.1:3306)/main_db' \
+//	GESTALT_BACKFILL_DSN='mysql://user:pass@tcp(127.0.0.1:3306)/gestaltd' \
+//	GESTALT_BACKFILL_SCHEMA='gestaltd' \
 //	  go test -run TestBackfillOrderedKey -count=1 -v .
 //
 // It is idempotent (only touches index_key_ord IS NULL rows) and reuses the
@@ -27,9 +29,12 @@ func TestBackfillOrderedKey(t *testing.T) {
 		t.Skip("set GESTALT_BACKFILL_DSN to run the ordered-key backfill against a target database")
 	}
 
-	store, err := NewStore(dsn)
+	store, err := newStoreWithOptions(dsn, storeOptions{
+		Schema:      os.Getenv("GESTALT_BACKFILL_SCHEMA"),
+		TablePrefix: os.Getenv("GESTALT_BACKFILL_PREFIX"),
+	})
 	if err != nil {
-		t.Fatalf("NewStore: %v", err)
+		t.Fatalf("newStoreWithOptions: %v", err)
 	}
 	defer store.Close()
 
