@@ -168,6 +168,31 @@ export async function mockAuthInfo(
   });
 }
 
+export async function mockAuthSession(
+  page: Page,
+  session: {
+    subjectId?: string;
+    email?: string;
+    displayName?: string;
+  } = {},
+): Promise<void> {
+  await page.route("**/api/v1/auth/session", (route) => {
+    route.fulfill({
+      json: {
+        subjectId: "user:test@gestalt.dev",
+        email: "test@gestalt.dev",
+        ...session,
+      },
+    });
+  });
+}
+
+export async function mockAuthSessionUnauthorized(page: Page): Promise<void> {
+  await page.route("**/api/v1/auth/session", (route) => {
+    route.fulfill({ status: 401, json: { error: "missing authorization" } });
+  });
+}
+
 export async function mockTokens(page: Page, tokens: APIToken[]) {
   await page.route("**/api/v1/tokens", (route: Route, request) => {
     if (request.method() === "GET") {
@@ -882,8 +907,15 @@ type CustomFixtures = {
 export const test = base.extend<CustomFixtures>({
   authenticatedPage: async ({ page }, runAuthenticatedPage) => {
     await page.addInitScript(() => {
-      localStorage.setItem("user_email", "test@gestalt.dev");
+      localStorage.setItem(
+        "gestalt.auth.session",
+        JSON.stringify({
+          subjectId: "user:test@gestalt.dev",
+          email: "test@gestalt.dev",
+        }),
+      );
     });
+    await mockAuthSession(page);
     await runAuthenticatedPage(page);
   },
 });

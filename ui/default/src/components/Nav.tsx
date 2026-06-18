@@ -1,15 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { clearSession, getUserEmail } from "@/lib/auth";
 import {
+  type AuthSession,
   getAgentSessions,
   getAuthInfo,
+  getAuthSession,
   isAPIErrorStatus,
   logout,
 } from "@/lib/api";
+import {
+  clearSession,
+  getCachedSession,
+  sessionDisplayLabel,
+  setCachedSession,
+  type CachedAuthSession,
+} from "@/lib/auth";
 import { DOCS_PATH, LOGIN_PATH } from "@/lib/constants";
 import { useTheme } from "@/hooks/use-theme";
 import Container from "./Container";
@@ -26,18 +34,28 @@ const links = [
 
 export default function Nav() {
   const pathname = usePathname();
-  const [email, setEmail] = useState<string | null>(null);
+  const [session, setSession] = useState<CachedAuthSession | null>(null);
   const [loginSupported, setLoginSupported] = useState(false);
   const [agentAvailable, setAgentAvailable] = useState(false);
   const { theme, setTheme } = useTheme();
+  const sessionRefreshGeneration = useRef(0);
 
   useEffect(() => {
-    setEmail(getUserEmail());
+    const generation = ++sessionRefreshGeneration.current;
+    setSession(getCachedSession());
+    getAuthSession()
+      .then((nextSession: AuthSession) => {
+        if (generation !== sessionRefreshGeneration.current) return;
+        setCachedSession(nextSession);
+        setSession(nextSession);
+      })
+      .catch(() => {});
   }, []);
+  const displayLabel = sessionDisplayLabel(session);
   const ThemeIcon = theme === "light" ? SunIcon : theme === "dark" ? MoonIcon : SunMoonIcon;
 
   useEffect(() => {
-    if (!email) {
+    if (!displayLabel) {
       setLoginSupported(false);
       setAgentAvailable(false);
       return;
@@ -76,9 +94,10 @@ export default function Nav() {
     return () => {
       active = false;
     };
-  }, [email]);
+  }, [displayLabel]);
 
   async function handleLogout() {
+    sessionRefreshGeneration.current++;
     await logout().catch(() => {});
     clearSession();
     window.location.href = LOGIN_PATH;
@@ -123,9 +142,9 @@ export default function Nav() {
           >
             <ThemeIcon className="h-[18px] w-[18px]" />
           </button>
-          {email && (
+          {displayLabel && (
             <>
-              <span className="text-sm text-faint">{email}</span>
+              <span className="text-sm text-faint">{displayLabel}</span>
               {loginSupported && (
                 <button
                   onClick={handleLogout}

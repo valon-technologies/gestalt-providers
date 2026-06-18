@@ -773,8 +773,18 @@ export interface AuthInfo {
   };
 }
 
+export interface AuthSession {
+  subjectId: string;
+  email?: string;
+  displayName?: string;
+}
+
 export async function getAuthInfo(): Promise<AuthInfo> {
   return fetchAPI("/api/v1/auth/info");
+}
+
+export async function getAuthSession(): Promise<AuthSession> {
+  return fetchAPI("/api/v1/auth/session");
 }
 
 export async function startLogin(state: string): Promise<{ url: string }> {
@@ -787,7 +797,7 @@ export async function startLogin(state: string): Promise<{ url: string }> {
 export async function loginCallback(
   code: string,
   state?: string,
-): Promise<{ email: string; displayName: string }> {
+): Promise<{ status?: string }> {
   const params = new URLSearchParams({ code });
   if (state) params.set("state", state);
   return fetchAPI(`/api/v1/auth/login/callback?${params}`);

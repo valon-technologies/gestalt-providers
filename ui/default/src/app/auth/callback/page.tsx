@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { loginCallback } from "@/lib/api";
-import { setUserEmail } from "@/lib/auth";
+import { loginCallback, getAuthSession } from "@/lib/api";
+import { setCachedSession } from "@/lib/auth";
 import {
   clearStoredAuthReturnPath,
   loginPathForReturnPath,
@@ -107,8 +107,9 @@ export default function AuthCallbackPage() {
     clearStoredAuthReturnPath();
 
     loginCallback(code, rawState ?? undefined)
-      .then((result) => {
-        setUserEmail(result.email);
+      .then(() => getAuthSession())
+      .then((session) => {
+        setCachedSession(session);
         window.location.replace(returnPath);
       })
       .catch((err) => {

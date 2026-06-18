@@ -1,20 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { isAuthenticated } from "@/lib/auth";
-import { loginPathForCurrentLocation } from "@/lib/authReturn";
+import { getAuthSession } from "@/lib/api";
+import { setCachedSession } from "@/lib/auth";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const [checked, setChecked] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
 
   useEffect(() => {
-    const authed = isAuthenticated();
-    setAuthenticated(authed);
-    setChecked(true);
-    if (!authed) {
-      window.location.replace(loginPathForCurrentLocation());
-    }
+    getAuthSession()
+      .then((session) => {
+        setCachedSession(session);
+        setAuthenticated(true);
+        setChecked(true);
+      })
+      .catch(() => {
+        setAuthenticated(false);
+        setChecked(true);
+      });
   }, []);
 
   if (!checked || !authenticated) return null;
