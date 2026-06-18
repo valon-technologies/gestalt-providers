@@ -155,6 +155,12 @@ def handle_slack_event(
             status=HTTPStatus.BAD_REQUEST,
             body={"error": "api_app_id is required"},
         )
+    event_id = str(input.get("event_id") or "").strip()
+    if not event_id:
+        return gestalt.Response(
+            status=HTTPStatus.BAD_REQUEST,
+            body={"error": "event_id is required"},
+        )
 
     try:
         workflow_event_subject = load_workflow_event_subject_for_app(app_id=app_id)
