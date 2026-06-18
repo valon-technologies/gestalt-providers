@@ -9,6 +9,7 @@ from .client import (
     SlackAPIError,
     SlackClientError,
     get_bytes,
+    is_slack_file_download_url,
     slack_get,
     slack_post,
     slack_post_form,
@@ -723,6 +724,14 @@ def _download_file_content(
     include_image_data: bool,
 ) -> dict[str, Any]:
     max_bytes = _bounded_file_bytes(max_bytes)
+    if not is_slack_file_download_url(url_private):
+        return {
+            "mime_type": mimetype,
+            "bytes_read": 0,
+            "truncated": False,
+            "encoding": "omitted",
+            "omitted_reason": "url_private is not a Slack HTTPS file URL",
+        }
     body, truncated = get_bytes(url_private, token, max_bytes)
     base: dict[str, Any] = {
         "mime_type": mimetype,
@@ -763,7 +772,7 @@ def _thread_participants_from_messages(
             continue
         participant = participants_by_user.get(uid)
         if participant is None:
-            participant = {
+participant = {
                 "user_id": uid,
                 "message_count": 0,
                 "first_reply_ts": string_field(message, "ts"),
