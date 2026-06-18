@@ -5,7 +5,8 @@ from typing import Any
 
 import gestalt
 
-OBJECT_STORE_NAME = "slack_v2_event_registrations"
+EVENT_REGISTRATION_OBJECT_STORE_NAME = "slack_v2_event_registrations"
+DEBUG_PAYLOAD_OBJECT_STORE_NAME = "slack_v2_debug_payloads"
 
 _client: Any | None = None
 _init_lock = threading.Lock()
@@ -13,7 +14,7 @@ _initialized = False
 
 
 def get_workflow_event_subject_for_app(*, app_id: str) -> str:
-    record = _object_store().get(app_id)
+    record = _object_store(EVENT_REGISTRATION_OBJECT_STORE_NAME).get(app_id)
     workflow_event_subject = record.get("workflow_event_subject")
     if not isinstance(workflow_event_subject, str) or not workflow_event_subject.strip():
         raise gestalt.NotFoundError(f"workflow_event_subject not found for app_id {app_id!r}")
@@ -30,7 +31,7 @@ def save_slack_event_registration(
     workflow_event_subject: str,
 ) -> None:
     _ensure_initialized()
-    _object_store().put(
+    _object_store(EVENT_REGISTRATION_OBJECT_STORE_NAME).put(
         {
             "id": app_id,
             "client_id": client_id,
@@ -42,6 +43,27 @@ def save_slack_event_registration(
     )
 
 
+def save_debug_payload(*, event_id: str, payload: dict[str, Any]) -> None:
+    _object_store(DEBUG_PAYLOAD_OBJECT_STORE_NAME).put(
+        {
+            "id": event_id,
+            "payload": payload,
+        }
+    )
+
+
+def get_debug_payload(*, event_id: str) -> dict[str, Any]:
+    record = _object_store(DEBUG_PAYLOAD_OBJECT_STORE_NAME).get(event_id)
+    payload = record.get("payload")
+    if not isinstance(payload, dict):
+        raise gestalt.NotFoundError(f"debug payload not found for event_id {event_id!r}")
+    return {"id": event_id, "payload": payload}
+
+
+def list_debug_payload_ids() -> list[str]:
+    return sorted(_object_store(DEBUG_PAYLOAD_OBJECT_STORE_NAME).get_all_keys())
+
+
 def _ensure_initialized() -> None:
     global _client, _initialized
     if _initialized:
@@ -50,15 +72,19 @@ def _ensure_initialized() -> None:
         if _initialized:
             return
         client = gestalt.IndexedDB()
-        try:
-            client.create_object_store(OBJECT_STORE_NAME)
-        except gestalt.AlreadyExistsError:
-            pass
+        for object_store_name in (
+            EVENT_REGISTRATION_OBJECT_STORE_NAME,
+            DEBUG_PAYLOAD_OBJECT_STORE_NAME,
+        ):
+            try:
+                client.create_object_store(object_store_name)
+            except gestalt.AlreadyExistsError:
+                pass
         _client = client
         _initialized = True
 
 
-def _object_store() -> Any:
+def _object_store(name: str) -> Any:
     _ensure_initialized()
     assert _client is not None
-    return _client.object_store(OBJECT_STORE_NAME)
+    return _client.object_store(name)

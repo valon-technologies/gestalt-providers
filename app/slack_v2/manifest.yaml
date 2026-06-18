@@ -34,3 +34,23 @@ spec:
         required: false
         content:
           application/json: {}
+    smoke_run_payload_get:
+      path: /debug/smoke-run/payload
+      method: POST
+      credentialMode: none
+      security: unchecked
+      target: debug_get_smoke_run_payload
+      requestBody:
+        required: false
+        content:
+          application/json: {}
+    smoke_run_payload_ids:
+      path: /debug/smoke-run/payloads
+      method: POST
+      credentialMode: none
+      security: unchecked
+      target: debug_list_smoke_run_payload_ids
+      requestBody:
+        required: false
+        content:
+          application/json: {}
