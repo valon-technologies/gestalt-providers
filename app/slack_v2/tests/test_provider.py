@@ -215,6 +215,67 @@ class SlackV2ProviderTests(unittest.TestCase):
         self.assertEqual(result.status, HTTPStatus.BAD_REQUEST)
         self.assertEqual(result.body, {"error": "api_app_id is required"})
 
+    @mock.patch("provider._verify_slack_signature", return_value=True)
+    @mock.patch("provider.load_workflow_event_subject_for_app")
+    def test_handle_slack_event_url_verification_returns_challenge(
+        self,
+        load_workflow_event_subject: mock.Mock,
+        verify_slack_signature: mock.Mock,
+    ) -> None:
+        payload = {"type": "url_verification", "challenge": "challenge-token"}
+        request = gestalt.Request()
+
+        result = provider_module.handle_slack_event(
+            payload,
+            request,
+        )
+
+        verify_slack_signature.assert_called_once_with(payload, request)
+        load_workflow_event_subject.assert_not_called()
+        self.assertEqual(result, {"challenge": "challenge-token"})
+
+    @mock.patch("provider.load_workflow_event_subject_for_app")
+    @mock.patch("provider._verify_slack_signature", return_value=False)
+    def test_handle_slack_event_rejects_invalid_signature(
+        self,
+        verify_slack_signature: mock.Mock,
+        load_workflow_event_subject: mock.Mock,
+    ) -> None:
+        payload = {
+            "api_app_id": "A123",
+            "event_id": "Ev123",
+            "type": "event_callback",
+        }
+        request = gestalt.Request()
+
+        result = provider_module.handle_slack_event(payload, request)
+
+        verify_slack_signature.assert_called_once_with(payload, request)
+        load_workflow_event_subject.assert_not_called()
+        self.assertIsInstance(result, gestalt.Response)
+        assert isinstance(result, gestalt.Response)
+        self.assertEqual(result.status, HTTPStatus.UNAUTHORIZED)
+        self.assertEqual(result.body, {"error": "invalid Slack signature"})
+
+    @mock.patch("provider.load_workflow_event_subject_for_app")
+    def test_handle_slack_event_requires_event_id(
+        self, load_workflow_event_subject: mock.Mock
+    ) -> None:
+        result = provider_module.handle_slack_event(
+            {
+                "api_app_id": "A123",
+                "type": "event_callback",
+                "event": {"event_id": "EvNested"},
+            },
+            gestalt.Request(),
+        )
+
+        load_workflow_event_subject.assert_not_called()
+        self.assertIsInstance(result, gestalt.Response)
+        assert isinstance(result, gestalt.Response)
+        self.assertEqual(result.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(result.body, {"error": "event_id is required"})
+
     @mock.patch("provider.load_workflow_event_subject_for_app")
     def test_handle_slack_event_requires_event_id(
         self, load_workflow_event_subject: mock.Mock

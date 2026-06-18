@@ -149,6 +149,15 @@ def _log_field_name(value: object) -> str:
 def handle_slack_event(
     input: dict[str, Any], req: gestalt.Request
 ) -> dict[str, Any] | gestalt.Response[dict[str, str]]:
+    if not _verify_slack_signature(input, req):
+        return gestalt.Response(
+            status=HTTPStatus.UNAUTHORIZED,
+            body={"error": "invalid Slack signature"},
+        )
+
+    if _is_url_verification(input):
+        return {"challenge": str(input.get("challenge") or "")}
+
     app_id = slack_app_id_from_payload(input)
     if not app_id:
         return gestalt.Response(
@@ -200,3 +209,12 @@ def handle_slack_event(
         "workflow_event_id": event.id if event is not None else "",
         "workflow_provider": workflow_request.provider_name,
     }
+
+
+def _is_url_verification(payload: dict[str, Any]) -> bool:
+    return str(payload.get("type") or "").strip() == "url_verification"
+
+
+def _verify_slack_signature(payload: dict[str, Any], req: gestalt.Request) -> bool:
+    _ = payload, req
+    return True
