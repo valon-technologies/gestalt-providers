@@ -421,6 +421,54 @@ func waitForCondition(t *testing.T, timeout time.Duration, fn func() bool) {
 	t.Fatal("condition not satisfied before timeout")
 }
 
+func TestNormalizeWorkflowStepAgentPreservesWorkspace(t *testing.T) {
+	t.Parallel()
+
+	workspace := &gestalt.AgentWorkspace{
+		Checkouts: []gestalt.AgentWorkspaceGitCheckout{{
+			URL:  "https://github.com/valon-technologies/toolshed.git",
+			Ref:  "main",
+			Path: "toolshed",
+		}, {
+			URL:  "https://github.com/valon-technologies/gestalt.git",
+			Ref:  "main",
+			Path: "gestalt",
+		}},
+		CWD: "toolshed",
+	}
+	agent := &gestalt.WorkflowStepAgentTurn{
+		Provider: "claude",
+		Model:    "default",
+		Prompt:   gestalt.WorkflowText{Template: "diagnose"},
+		Output:   &gestalt.AgentOutput{Text: &gestalt.AgentTextOutput{}},
+		Workspace: workspace,
+	}
+
+	normalized, _, err := normalizeWorkflowStepAgent(agent, "target.steps[0].agent")
+	if err != nil {
+		t.Fatalf("normalizeWorkflowStepAgent: %v", err)
+	}
+	if normalized.Workspace == nil || normalized.Workspace.CWD != "toolshed" {
+		t.Fatalf("workspace = %#v, want cwd toolshed", normalized.Workspace)
+	}
+	if len(normalized.Workspace.Checkouts) != 2 {
+		t.Fatalf("workspace checkouts = %#v, want 2", normalized.Workspace.Checkouts)
+	}
+	if normalized.Workspace.Checkouts[0].URL != workspace.Checkouts[0].URL ||
+		normalized.Workspace.Checkouts[1].Path != workspace.Checkouts[1].Path {
+		t.Fatalf("workspace checkouts = %#v, want original urls/paths", normalized.Workspace.Checkouts)
+	}
+
+	workspace.Checkouts = append(workspace.Checkouts, gestalt.AgentWorkspaceGitCheckout{
+		URL:  "https://github.com/valon-technologies/gestalt-providers.git",
+		Ref:  "main",
+		Path: "gestalt-providers",
+	})
+	if len(normalized.Workspace.Checkouts) != 2 {
+		t.Fatalf("normalized workspace checkouts = %#v, want isolated copy", normalized.Workspace.Checkouts)
+	}
+}
+
 func startProviderWorker(t *testing.T, provider *Provider) {
 	t.Helper()
 	if err := provider.Start(context.Background()); err != nil {
