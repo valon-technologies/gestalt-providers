@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/valon-technologies/gestalt-providers/auth/internal/configutil"
 	"github.com/valon-technologies/gestalt-providers/auth/internal/userinfo"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
@@ -82,6 +83,9 @@ type Provider struct {
 	doc                  discoveryDocument
 	httpClient           *http.Client
 	grants               *grantStore
+	claims               *claimsStore
+	oidcProvider         *oidc.Provider
+	validateIDTokenFn    idTokenValidator
 	grantsDB             indexeddb.Database
 	openIndexedDB        func(context.Context, ...string) (indexeddb.Database, error)
 	pkceMu               sync.Mutex
@@ -149,8 +153,14 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 		_ = db.Close()
 		return fmt.Errorf("oidc auth: open grant store: %w", err)
 	}
+	claims, err := openClaimsStore(ctx, db, p.now)
+	if err != nil {
+		_ = db.Close()
+		return fmt.Errorf("oidc auth: open claims store: %w", err)
+	}
 	p.grantsDB = db
 	p.grants = grants
+	p.claims = claims
 	if cfg.PKCEVerifierTTL > 0 {
 		p.pkceVerifierTTL = cfg.PKCEVerifierTTL
 	} else {
@@ -297,13 +307,35 @@ func (p *Provider) tokenAuthorizationCode(ctx context.Context, req *gestalt.Toke
 		return nil, fmt.Errorf("oidc auth: exchange code: %w", err)
 	}
 
+	rawIDToken, _ := tok.Extra("id_token").(string)
+	idTokenClaims, err := p.validateIDToken(ctx, rawIDToken)
+	if err != nil {
+		return nil, err
+	}
+
 	user, err := p.fetchUserInfo(ctx, tok.AccessToken)
 	if err != nil {
 		return nil, err
 	}
+	if strings.TrimSpace(user.Sub) != idTokenClaims.Sub {
+		return nil, fmt.Errorf("oidc auth: userinfo sub does not match id_token sub")
+	}
 	subject := subjectForVerifiedEmail(user.Email)
 	if subject == "" {
 		return nil, fmt.Errorf("oidc auth: userinfo missing verified email")
+	}
+	name := strings.TrimSpace(user.DisplayName)
+	if name == "" {
+		name = idTokenClaims.Name
+	}
+	if err := p.claims.upsert(ctx, subjectClaimsRecord{
+		Subject:     subject,
+		Email:       user.Email,
+		Name:        name,
+		Issuer:      p.cfg.IssuerURL,
+		UpstreamSub: user.Sub,
+	}); err != nil {
+		return nil, err
 	}
 	clientID := strings.TrimSpace(req.ClientID)
 	if clientID == "" {
@@ -366,6 +398,8 @@ func (p *Provider) closeGrantsDB() error {
 	db := p.grantsDB
 	p.grantsDB = nil
 	p.grants = nil
+	p.claims = nil
+	p.oidcProvider = nil
 	if db == nil {
 		return nil
 	}
@@ -387,6 +421,25 @@ func (p *Provider) Introspect(ctx context.Context, req *gestalt.IntrospectReques
 	}
 	resp := grants.introspect(ctx, strings.TrimSpace(req.Token))
 	return &resp, nil
+}
+
+func (p *Provider) UserInfo(ctx context.Context, _ *gestalt.UserInfoRequest) (*gestalt.UserInfoResponse, error) {
+	if p.claims == nil {
+		return nil, fmt.Errorf("oidc auth: provider is not configured")
+	}
+	subject, err := p.callerSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	record, err := p.claims.get(ctx, subject)
+	if err != nil {
+		return nil, err
+	}
+	return &gestalt.UserInfoResponse{
+		SubjectID: record.Subject,
+		Email:     record.Email,
+		Name:      record.Name,
+	}, nil
 }
 
 func (p *Provider) ListGrants(ctx context.Context, _ *gestalt.ListGrantsRequest) (*gestalt.ListGrantsResponse, error) {

@@ -2,6 +2,7 @@ package oidc
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -60,6 +61,7 @@ func TestTokenPKCEUsesStoredVerifier(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"access_token": "upstream-access-token",
 				"token_type":   "Bearer",
+				"id_token":     testIDToken("user-123", "User Example"),
 			})
 		case "/userinfo":
 			w.Header().Set("Content-Type", "application/json")
@@ -138,6 +140,20 @@ func TestTokenPKCEUsesStoredVerifier(t *testing.T) {
 	}
 	if introspectResp.ClientID != defaultOAuthClientID {
 		t.Fatalf("Introspect() client_id = %q, want %q", introspectResp.ClientID, defaultOAuthClientID)
+	}
+
+	userInfoCtx := gestalt.WithAuthCallContext(context.Background(), gestalt.AuthCallContext{
+		CallerBearerToken: tokenResp.AccessToken,
+	})
+	userInfoResp, err := p.UserInfo(userInfoCtx, &gestalt.UserInfoRequest{})
+	if err != nil {
+		t.Fatalf("UserInfo() error = %v", err)
+	}
+	if userInfoResp.Email != "user@example.com" {
+		t.Fatalf("UserInfo() email = %q, want user@example.com", userInfoResp.Email)
+	}
+	if userInfoResp.Name != "User Example" {
+		t.Fatalf("UserInfo() name = %q, want User Example", userInfoResp.Name)
 	}
 }
 
@@ -518,6 +534,7 @@ func TestTokenAuthorizationCodeUsesSharedPendingOAuthStore(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"access_token": "upstream-access-token",
 				"token_type":   "Bearer",
+				"id_token":     testIDToken("user-123", "User Example"),
 			})
 		case "/userinfo":
 			w.Header().Set("Content-Type", "application/json")
@@ -568,6 +585,14 @@ func TestTokenAuthorizationCodeUsesSharedPendingOAuthStore(t *testing.T) {
 	}
 	redeemer.grants = store
 	redeemer.grantsDB = db
+	claimsStore, err := openClaimsStore(ctx, db, redeemer.now)
+	if err != nil {
+		t.Fatalf("open redeemer claims store: %v", err)
+	}
+	redeemer.claims = claimsStore
+	redeemer.validateIDTokenFn = func(_ context.Context, rawIDToken string) (*idTokenClaims, error) {
+		return parseUnverifiedIDTokenClaims(rawIDToken)
+	}
 
 	resp, err := redeemer.Token(ctx, &gestalt.TokenRequest{
 		GrantType:   grantTypeAuthorizationCode,
@@ -1032,9 +1057,27 @@ func attachGrantStoreWithDB(t *testing.T, p *Provider) *oidcfake.IndexedDB {
 	if err != nil {
 		t.Fatalf("openGrantStore() error = %v", err)
 	}
+	claims, err := openClaimsStore(context.Background(), db, p.now)
+	if err != nil {
+		t.Fatalf("openClaimsStore() error = %v", err)
+	}
 	p.grants = store
+	p.claims = claims
 	p.grantsDB = db
+	p.validateIDTokenFn = func(_ context.Context, rawIDToken string) (*idTokenClaims, error) {
+		return parseUnverifiedIDTokenClaims(rawIDToken)
+	}
 	return db
+}
+
+func testIDToken(sub, name string) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
+	payloadBytes, _ := json.Marshal(map[string]string{
+		"sub":  sub,
+		"name": name,
+	})
+	payload := base64.RawURLEncoding.EncodeToString(payloadBytes)
+	return header + "." + payload + ".test-signature"
 }
 
 func TestGrantManagementExcludesSessionGrants(t *testing.T) {
@@ -1124,5 +1167,92 @@ func TestFarFutureSentinelExpiryIntrospectsActive(t *testing.T) {
 	}
 	if !resp.Active {
 		t.Fatal("Introspect() expected active token for far-future sentinel expiry")
+	}
+}
+
+func TestTokenRejectsMismatchedUserInfoSub(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/token":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "upstream-access-token",
+				"token_type":   "Bearer",
+				"id_token":     testIDToken("user-123", "User Example"),
+			})
+		case "/userinfo":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"sub":            "other-sub",
+				"email":          "user@example.com",
+				"name":           "User Example",
+				"email_verified": "true",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	p := New()
+	attachGrantStore(t, p)
+	p.httpClient = server.Client()
+	p.cfg = config{ClientID: "client-id"}
+	p.doc = discoveryDocument{
+		AuthorizationEndpoint: server.URL + "/auth",
+		TokenEndpoint:         server.URL + "/token",
+		UserinfoEndpoint:      server.URL + "/userinfo",
+	}
+
+	_, err := p.Authorize(context.Background(), &gestalt.AuthorizeRequest{
+		ResponseType: "code",
+		ClientID:     defaultOAuthClientID,
+		RedirectURI:  "https://gestalt.example/callback",
+		State:        "state",
+	})
+	if err != nil {
+		t.Fatalf("Authorize() error = %v", err)
+	}
+
+	_, err = p.Token(context.Background(), &gestalt.TokenRequest{
+		GrantType:   grantTypeAuthorizationCode,
+		Code:        "auth-code",
+		RedirectURI: "https://gestalt.example/callback",
+		ClientID:    defaultOAuthClientID,
+		State:       "state",
+	})
+	if err == nil || !strings.Contains(err.Error(), "userinfo sub does not match id_token sub") {
+		t.Fatalf("Token() error = %v, want userinfo sub mismatch", err)
+	}
+}
+
+func TestClaimsStoreDoesNotClearExistingName(t *testing.T) {
+	ctx := context.Background()
+	db := oidcfake.NewIndexedDB()
+	store, err := openClaimsStore(ctx, db, time.Now)
+	if err != nil {
+		t.Fatalf("openClaimsStore() error = %v", err)
+	}
+	subject := "user:user@example.com"
+	if err := store.upsert(ctx, subjectClaimsRecord{
+		Subject: subject,
+		Email:   "user@example.com",
+		Name:    "Stored Name",
+	}); err != nil {
+		t.Fatalf("initial upsert: %v", err)
+	}
+	if err := store.upsert(ctx, subjectClaimsRecord{
+		Subject: subject,
+		Email:   "user@example.com",
+		Name:    "",
+	}); err != nil {
+		t.Fatalf("empty-name upsert: %v", err)
+	}
+	record, err := store.get(ctx, subject)
+	if err != nil {
+		t.Fatalf("get() error = %v", err)
+	}
+	if record.Name != "Stored Name" {
+		t.Fatalf("name = %q, want Stored Name", record.Name)
 	}
 }
