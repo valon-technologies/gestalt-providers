@@ -461,6 +461,7 @@ func TestTokenExchangeRejectsInactiveSubjectToken(t *testing.T) {
 
 func TestPendingOAuthCorrelatesByState(t *testing.T) {
 	p := New()
+	attachGrantStore(t, p)
 	p.cfg = config{ClientID: "client-id"}
 	p.doc = discoveryDocument{
 		AuthorizationEndpoint: "https://issuer.example/auth",
@@ -489,7 +490,7 @@ func TestPendingOAuthCorrelatesByState(t *testing.T) {
 		t.Fatalf("Authorize(state-b) error = %v", err)
 	}
 
-	pending, err := p.pendingOAuthForToken(&gestalt.TokenRequest{
+	pending, err := p.grants.pendingOAuthForToken(context.Background(), &gestalt.TokenRequest{
 		RedirectURI: "https://gestalt.example/callback",
 		State:       "state-b",
 	})
@@ -498,6 +499,94 @@ func TestPendingOAuthCorrelatesByState(t *testing.T) {
 	}
 	if pending.scope != "profile" {
 		t.Fatalf("pending scope = %q, want %q", pending.scope, "profile")
+	}
+}
+
+func TestTokenAuthorizationCodeUsesSharedPendingOAuthStore(t *testing.T) {
+	ctx := context.Background()
+	db := oidcfake.NewIndexedDB()
+
+	var gotCode string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/token":
+			if err := r.ParseForm(); err != nil {
+				t.Fatalf("ParseForm() error = %v", err)
+			}
+			gotCode = r.FormValue("code")
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "upstream-access-token",
+				"token_type":   "Bearer",
+			})
+		case "/userinfo":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"sub":            "user-123",
+				"email":          "user@example.com",
+				"name":           "User Example",
+				"email_verified": "true",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	authorizer := New()
+	authorizer.cfg = config{ClientID: "client-id"}
+	authorizer.doc = discoveryDocument{
+		AuthorizationEndpoint: server.URL + "/auth",
+		TokenEndpoint:         server.URL + "/token",
+		UserinfoEndpoint:      server.URL + "/userinfo",
+	}
+	store, err := openGrantStore(ctx, db, authorizer.now)
+	if err != nil {
+		t.Fatalf("open authorizer grant store: %v", err)
+	}
+	authorizer.grants = store
+	authorizer.grantsDB = db
+
+	_, err = authorizer.Authorize(ctx, &gestalt.AuthorizeRequest{
+		ResponseType: "code",
+		ClientID:     defaultOAuthClientID,
+		RedirectURI:  "https://gestalt.example/callback",
+		State:        "shared-state",
+		Scope:        "profile email",
+	})
+	if err != nil {
+		t.Fatalf("Authorize() error = %v", err)
+	}
+
+	redeemer := New()
+	redeemer.httpClient = server.Client()
+	redeemer.cfg = authorizer.cfg
+	redeemer.doc = authorizer.doc
+	store, err = openGrantStore(ctx, db, redeemer.now)
+	if err != nil {
+		t.Fatalf("open redeemer grant store: %v", err)
+	}
+	redeemer.grants = store
+	redeemer.grantsDB = db
+
+	resp, err := redeemer.Token(ctx, &gestalt.TokenRequest{
+		GrantType:   grantTypeAuthorizationCode,
+		Code:        "auth-code",
+		RedirectURI: "https://gestalt.example/callback",
+		ClientID:    defaultOAuthClientID,
+		State:       "shared-state",
+	})
+	if err != nil {
+		t.Fatalf("Token() error = %v", err)
+	}
+	if gotCode != "auth-code" {
+		t.Fatalf("token endpoint code = %q, want auth-code", gotCode)
+	}
+	if resp.AccessToken == "" {
+		t.Fatal("Token() returned empty access token")
+	}
+	if _, err := db.ObjectStore(pendingOAuthStoreName).Get(ctx, "shared-state"); !errors.Is(err, gestalt.ErrNotFound) {
+		t.Fatalf("pending OAuth after Token() error = %v, want ErrNotFound", err)
 	}
 }
 
