@@ -9,9 +9,13 @@ import gestalt
 from internals.events import (
     build_workflow_deliver_event_request,
     slack_app_id_from_payload,
+    slack_event_id_from_payload,
 )
 from internals.store import (
+    get_debug_payload as load_debug_payload,
     get_workflow_event_subject_for_app as load_workflow_event_subject_for_app,
+    list_debug_payload_ids as load_debug_payload_ids,
+    save_debug_payload,
     save_slack_event_registration,
 )
 
@@ -28,6 +32,10 @@ class DebugRecordSmokeRunInput(gestalt.Model):
     payload: dict[str, Any] = gestalt.field(
         description="Original Slack event payload.",
     )
+
+
+class DebugGetSmokeRunPayloadInput(gestalt.Model):
+    event_id: str = gestalt.field(description="Slack event ID.")
 
 
 class RegisterSlackEventInput(gestalt.Model):
@@ -109,36 +117,55 @@ def get_workflow_event_subject_for_app(
 @app.operation(
     id="debug_record_smoke_run",
     method="POST",
-    description="Debug endpoint that emits a log when the smoke workflow runs.",
+    description="Debug endpoint that stores a Slack payload when the smoke workflow runs.",
 )
 def debug_record_smoke_run(
     input: DebugRecordSmokeRunInput, _req: gestalt.Request
-) -> dict[str, bool]:
-    logger.info(
-        "Slack v2 smoke workflow debug payload",
-        extra=_debug_log_extra_from_payload(input.payload),
-    )
-    return {"ok": True, "logged": True}
+) -> dict[str, Any] | gestalt.Response[dict[str, str]]:
+    event_id = slack_event_id_from_payload(input.payload)
+    if not event_id:
+        return gestalt.Response(
+            status=HTTPStatus.BAD_REQUEST,
+            body={"error": "event_id is required"},
+        )
+
+    save_debug_payload(event_id=event_id, payload=input.payload)
+    return {"ok": True, "stored": True, "id": event_id}
 
 
-def _debug_log_extra_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    extra: dict[str, Any] = {"slack_payload": payload}
-    for key, value in payload.items():
-        log_key = f"slack_payload_{_log_field_name(key)}"
-        suffix = 2
-        while log_key in extra:
-            log_key = f"slack_payload_{_log_field_name(key)}_{suffix}"
-            suffix += 1
-        extra[log_key] = value
-    return extra
+@app.operation(
+    id="debug_get_smoke_run_payload",
+    method="POST",
+    description="Return a stored Slack smoke workflow debug payload by event ID.",
+)
+def debug_get_smoke_run_payload(
+    input: DebugGetSmokeRunPayloadInput, _req: gestalt.Request
+) -> dict[str, Any] | gestalt.Response[dict[str, str]]:
+    event_id = input.event_id.strip()
+    if not event_id:
+        return gestalt.Response(
+            status=HTTPStatus.BAD_REQUEST,
+            body={"error": "event_id is required"},
+        )
+
+    try:
+        return load_debug_payload(event_id=event_id)
+    except gestalt.NotFoundError:
+        return gestalt.Response(
+            status=HTTPStatus.NOT_FOUND,
+            body={"error": f"debug payload not found for event_id {event_id!r}"},
+        )
 
 
-def _log_field_name(value: object) -> str:
-    name = "".join(
-        character if character.isalnum() else "_"
-        for character in str(value).strip()
-    ).strip("_")
-    return name or "field"
+@app.operation(
+    id="debug_list_smoke_run_payload_ids",
+    method="POST",
+    description="List stored Slack smoke workflow debug payload event IDs.",
+)
+def debug_list_smoke_run_payload_ids(
+    _input: dict[str, Any], _req: gestalt.Request
+) -> dict[str, list[str]]:
+    return {"ids": load_debug_payload_ids()}
 
 
 @app.operation(
