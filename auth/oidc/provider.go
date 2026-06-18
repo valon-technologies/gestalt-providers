@@ -86,8 +86,6 @@ type Provider struct {
 	openIndexedDB        func(context.Context, ...string) (indexeddb.Database, error)
 	pkceMu               sync.Mutex
 	pkceVerifiers        map[string]pkceVerifierEntry
-	pendingMu            sync.Mutex
-	pendingOAuth         map[string]pendingOAuthSession
 	pkceVerifierTTL      time.Duration
 	pkceVerifierMaxItems int
 	now                  func() time.Time
@@ -97,7 +95,6 @@ func New() *Provider {
 	return &Provider{
 		httpClient:           &http.Client{Timeout: defaultHTTPTimeout},
 		pkceVerifiers:        make(map[string]pkceVerifierEntry),
-		pendingOAuth:         make(map[string]pendingOAuthSession),
 		pkceVerifierTTL:      defaultPKCEVerifierTTL,
 		pkceVerifierMaxItems: defaultPKCEVerifierMaxItems,
 		now:                  time.Now,
@@ -188,9 +185,13 @@ func (p *Provider) SessionTTL() time.Duration {
 	return defaultSessionTTL
 }
 
-func (p *Provider) Authorize(_ context.Context, req *gestalt.AuthorizeRequest) (*gestalt.AuthorizeResponse, error) {
+func (p *Provider) Authorize(ctx context.Context, req *gestalt.AuthorizeRequest) (*gestalt.AuthorizeResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("oidc auth: authorize request is required")
+	}
+	grants, err := p.grantStore()
+	if err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(req.ResponseType) != "" && req.ResponseType != "code" {
 		return nil, fmt.Errorf("oidc auth: unsupported response_type %q", req.ResponseType)
@@ -231,13 +232,13 @@ func (p *Provider) Authorize(_ context.Context, req *gestalt.AuthorizeRequest) (
 	}
 
 	authURL := oauthCfg.AuthCodeURL(state, opts...)
-	if err := p.storePendingOAuth(pendingOAuthSession{
+	if err := grants.storePendingOAuth(ctx, pendingOAuthSession{
 		state:        state,
 		redirectURI:  callbackURL,
 		clientID:     strings.TrimSpace(req.ClientID),
 		scope:        strings.TrimSpace(req.Scope),
 		pkceVerifier: pkceVerifier,
-	}); err != nil {
+	}, p.pkceTTL()); err != nil {
 		return nil, err
 	}
 	return &gestalt.AuthorizeResponse{RedirectURI: authURL}, nil
@@ -262,7 +263,8 @@ func (p *Provider) Token(ctx context.Context, req *gestalt.TokenRequest) (*gesta
 }
 
 func (p *Provider) tokenAuthorizationCode(ctx context.Context, req *gestalt.TokenRequest) (*gestalt.TokenResponse, error) {
-	if _, err := p.grantStore(); err != nil {
+	grants, err := p.grantStore()
+	if err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(req.Code) == "" {
@@ -275,11 +277,11 @@ func (p *Provider) tokenAuthorizationCode(ctx context.Context, req *gestalt.Toke
 		return nil, fmt.Errorf("oidc auth: state is required")
 	}
 
-	pending, err := p.pendingOAuthForToken(req)
+	pending, err := grants.pendingOAuthForToken(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	defer p.deletePendingOAuth(pending.state)
+	defer grants.deletePendingOAuth(ctx, pending.state)
 
 	oauthCfg := p.oauthConfig(req.RedirectURI, pending.scope)
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, p.httpClient)
@@ -648,59 +650,6 @@ func (p *Provider) evictExpiredPKCEVerifiersLocked(now time.Time) {
 	for hostState, entry := range p.pkceVerifiers {
 		if !entry.expiresAt.After(now) {
 			delete(p.pkceVerifiers, hostState)
-		}
-	}
-}
-
-func (p *Provider) storePendingOAuth(session pendingOAuthSession) error {
-	if session.state == "" {
-		return fmt.Errorf("oidc auth: pending oauth state is required")
-	}
-	p.pendingMu.Lock()
-	defer p.pendingMu.Unlock()
-	now := p.currentTime()
-	p.evictExpiredPendingOAuthLocked(now)
-	session.expiresAt = now.Add(p.pkceTTL())
-	p.pendingOAuth[session.state] = session
-	return nil
-}
-
-func (p *Provider) pendingOAuthForToken(req *gestalt.TokenRequest) (pendingOAuthSession, error) {
-	state := strings.TrimSpace(req.State)
-	if state == "" {
-		return pendingOAuthSession{}, fmt.Errorf("oidc auth: state is required")
-	}
-	p.pendingMu.Lock()
-	defer p.pendingMu.Unlock()
-	now := p.currentTime()
-	p.evictExpiredPendingOAuthLocked(now)
-
-	pending, ok := p.pendingOAuth[state]
-	if !ok {
-		return pendingOAuthSession{}, fmt.Errorf("oidc auth: pending authorization not found")
-	}
-	if pending.redirectURI != req.RedirectURI {
-		return pendingOAuthSession{}, fmt.Errorf("oidc auth: pending authorization redirect_uri mismatch")
-	}
-	if clientID := strings.TrimSpace(req.ClientID); clientID != "" && pending.clientID != "" && pending.clientID != clientID {
-		return pendingOAuthSession{}, fmt.Errorf("oidc auth: pending authorization client_id mismatch")
-	}
-	return pending, nil
-}
-
-func (p *Provider) deletePendingOAuth(state string) {
-	if state == "" {
-		return
-	}
-	p.pendingMu.Lock()
-	defer p.pendingMu.Unlock()
-	delete(p.pendingOAuth, state)
-}
-
-func (p *Provider) evictExpiredPendingOAuthLocked(now time.Time) {
-	for state, pending := range p.pendingOAuth {
-		if !pending.expiresAt.After(now) {
-			delete(p.pendingOAuth, state)
 		}
 	}
 }
