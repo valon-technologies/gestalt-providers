@@ -2167,7 +2167,7 @@
       "kind": "authentication",
       "latestInstallableVersion": "0.0.1-alpha.1",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/auth/oidc/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.1",
+      "manifestVersion": "0.0.1-alpha.2",
       "name": "oidc",
       "package": "github.com/valon-technologies/gestalt-providers/auth/oidc",
       "packagePath": "auth/oidc",
