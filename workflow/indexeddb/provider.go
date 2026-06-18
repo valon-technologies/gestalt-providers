@@ -3005,6 +3005,11 @@ func normalizeWorkflowStepAgent(agent *gestalt.WorkflowStepAgentTurn, path strin
 		return nil, "", fmt.Errorf("%s.prompt or messages is required", path)
 	}
 	out.Provider = providerName
+	if out.Workspace != nil {
+		cloned := *out.Workspace
+		cloned.Checkouts = append([]gestalt.AgentWorkspaceGitCheckout(nil), out.Workspace.Checkouts...)
+		out.Workspace = &cloned
+	}
 	return &out, "agent:" + providerName, nil
 }
 
