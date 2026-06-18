@@ -20,7 +20,7 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
     const formData = new FormData(form);
     const name = (formData.get("name") as string)?.trim();
     const scopes = (formData.get("scopes") as string)?.trim();
-    if (!name || !scopes) return;
+    if (!name) return;
 
     setCreating(true);
     setError(null);
@@ -62,14 +62,13 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
             htmlFor="token-scopes"
             className="label-text block"
           >
-            Scopes
+            Scopes (optional)
           </label>
           <input
             id="token-scopes"
             name="scopes"
             type="text"
-            required
-            placeholder="e.g. my-app or my-app:operation"
+            placeholder="blank = full identity, or my-app / my-app:operation"
             className={`mt-2 w-full ${INPUT_CLASSES}`}
           />
         </div>
