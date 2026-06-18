@@ -14,7 +14,6 @@ from internals.store import (
     get_workflow_event_subject_for_app as load_workflow_event_subject_for_app,
     save_slack_event_registration,
 )
-from internals.smoke_metrics import record_smoke_run
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +25,8 @@ class GetWorkflowEventSubjectForAppInput(gestalt.Model):
 
 
 class DebugRecordSmokeRunInput(gestalt.Model):
-    app_id: str = gestalt.field(
-        default="",
-        description="Slack app ID from the triggering event, when available.",
+    payload: dict[str, Any] = gestalt.field(
+        description="Original Slack event payload.",
     )
 
 
@@ -111,13 +109,36 @@ def get_workflow_event_subject_for_app(
 @app.operation(
     id="debug_record_smoke_run",
     method="POST",
-    description="Debug endpoint that records an OTel metric when the smoke workflow runs.",
+    description="Debug endpoint that emits a log when the smoke workflow runs.",
 )
 def debug_record_smoke_run(
     input: DebugRecordSmokeRunInput, _req: gestalt.Request
 ) -> dict[str, bool]:
-    record_smoke_run(app_id=input.app_id)
-    return {"ok": True, "recorded": True}
+    logger.info(
+        "Slack v2 smoke workflow debug payload",
+        extra=_debug_log_extra_from_payload(input.payload),
+    )
+    return {"ok": True, "logged": True}
+
+
+def _debug_log_extra_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    extra: dict[str, Any] = {"slack_payload": payload}
+    for key, value in payload.items():
+        log_key = f"slack_payload_{_log_field_name(key)}"
+        suffix = 2
+        while log_key in extra:
+            log_key = f"slack_payload_{_log_field_name(key)}_{suffix}"
+            suffix += 1
+        extra[log_key] = value
+    return extra
+
+
+def _log_field_name(value: object) -> str:
+    name = "".join(
+        character if character.isalnum() else "_"
+        for character in str(value).strip()
+    ).strip("_")
+    return name or "field"
 
 
 @app.operation(

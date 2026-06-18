@@ -11,19 +11,12 @@ class FakeWorkflowClient:
     def __init__(self, *, fail: bool = False) -> None:
         self.fail = fail
         self.deliver_event_requests: list[gestalt.WorkflowDeliverEvent] = []
-        self.get_definition_requests: list[gestalt.WorkflowGetDefinition] = []
 
     def __enter__(self) -> FakeWorkflowClient:
         return self
 
     def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
         return None
-
-    def get_definition(
-        self, request: gestalt.WorkflowGetDefinition
-    ) -> gestalt.WorkflowDefinition:
-        self.get_definition_requests.append(request)
-        raise AssertionError("Slack v2 event handling should not fetch workflow definitions")
 
     def deliver_event(self, request: gestalt.WorkflowDeliverEvent) -> gestalt.WorkflowEvent:
         self.deliver_event_requests.append(request)
@@ -152,27 +145,45 @@ class SlackV2ProviderTests(unittest.TestCase):
             result.body, {"error": "registration not found for app_id 'A404'"}
         )
 
-    @mock.patch("provider.record_smoke_run")
-    def test_debug_record_smoke_run_records_metric(self, record_smoke_run: mock.Mock) -> None:
-        result = provider_module.debug_record_smoke_run(
-            provider_module.DebugRecordSmokeRunInput(app_id="A123"),
-            gestalt.Request(),
-        )
-
-        record_smoke_run.assert_called_once_with(app_id="A123")
-        self.assertEqual(result, {"ok": True, "recorded": True})
-
-    @mock.patch("provider.record_smoke_run")
-    def test_debug_record_smoke_run_allows_empty_app_id(
-        self, record_smoke_run: mock.Mock
+    @mock.patch("provider.logger.info")
+    def test_debug_record_smoke_run_logs_full_payload(
+        self, logger_info: mock.Mock
     ) -> None:
+        payload = {
+            "api_app_id": "A123",
+            "team_id": "T123",
+            "type": "event_callback",
+            "event-context": "EC123",
+            "event_context": "EC456",
+            "event": {
+                "event_id": "Ev123",
+                "type": "message",
+                "text": "hello",
+            },
+        }
+
         result = provider_module.debug_record_smoke_run(
-            provider_module.DebugRecordSmokeRunInput(),
+            provider_module.DebugRecordSmokeRunInput(payload=payload),
             gestalt.Request(),
         )
 
-        record_smoke_run.assert_called_once_with(app_id="")
-        self.assertEqual(result, {"ok": True, "recorded": True})
+        logger_info.assert_called_once_with(
+            "Slack v2 smoke workflow debug payload",
+            extra={
+                "slack_payload": payload,
+                "slack_payload_api_app_id": "A123",
+                "slack_payload_team_id": "T123",
+                "slack_payload_type": "event_callback",
+                "slack_payload_event_context": "EC123",
+                "slack_payload_event_context_2": "EC456",
+                "slack_payload_event": {
+                    "event_id": "Ev123",
+                    "type": "message",
+                    "text": "hello",
+                },
+            },
+        )
+        self.assertEqual(result, {"ok": True, "logged": True})
 
     def test_handle_slack_event_requires_api_app_id(self) -> None:
         result = provider_module.handle_slack_event({}, gestalt.Request())
@@ -226,7 +237,6 @@ class SlackV2ProviderTests(unittest.TestCase):
             result = provider_module.handle_slack_event(payload, gestalt.Request())
 
         load_workflow_event_subject.assert_called_once_with(app_id="A123")
-        self.assertEqual(workflow_client.get_definition_requests, [])
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
         request = workflow_client.deliver_event_requests[0]
         self.assertEqual(request.provider_name, "")
