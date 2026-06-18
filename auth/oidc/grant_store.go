@@ -18,10 +18,11 @@ import (
 )
 
 const (
-	grantStoreName          = "authentication_grants"
-	tokenHashStoreName      = "authentication_token_hashes"
-	grantIndexBySubject     = "by_subject"
-	tokenIndexByGrantID     = "by_grant_id"
+	grantStoreName        = "authentication_grants"
+	tokenHashStoreName    = "authentication_token_hashes"
+	pendingOAuthStoreName = "authentication_pending_oauth"
+	grantIndexBySubject   = "by_subject"
+	tokenIndexByGrantID   = "by_grant_id"
 	grantCategorySession  = "session"
 	grantCategoryAPIToken = "api_token"
 )
@@ -29,10 +30,11 @@ const (
 const defaultOAuthClientID = "gestaltd"
 
 type grantStore struct {
-	db     indexeddb.Database
-	grants indexeddb.ObjectStore
-	tokens indexeddb.ObjectStore
-	now    func() time.Time
+	db      indexeddb.Database
+	grants  indexeddb.ObjectStore
+	tokens  indexeddb.ObjectStore
+	pending indexeddb.ObjectStore
+	now     func() time.Time
 }
 
 type issuedGrant struct {
@@ -52,10 +54,11 @@ func openGrantStore(ctx context.Context, db indexeddb.Database, now func() time.
 		now = time.Now
 	}
 	return &grantStore{
-		db:     db,
-		grants: db.ObjectStore(grantStoreName),
-		tokens: db.ObjectStore(tokenHashStoreName),
-		now:    now,
+		db:      db,
+		grants:  db.ObjectStore(grantStoreName),
+		tokens:  db.ObjectStore(tokenHashStoreName),
+		pending: db.ObjectStore(pendingOAuthStoreName),
+		now:     now,
 	}, nil
 }
 
@@ -65,6 +68,9 @@ func ensureGrantStores(ctx context.Context, db indexeddb.Database) error {
 	}
 	if _, err := db.CreateObjectStore(ctx, tokenHashStoreName, tokenHashStoreSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
 		return fmt.Errorf("create %s store: %w", tokenHashStoreName, err)
+	}
+	if _, err := db.CreateObjectStore(ctx, pendingOAuthStoreName, pendingOAuthStoreSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+		return fmt.Errorf("create %s store: %w", pendingOAuthStoreName, err)
 	}
 	return nil
 }
@@ -103,8 +109,101 @@ func tokenHashStoreSchema() gestalt.ObjectStoreOptions {
 	}
 }
 
+func pendingOAuthStoreSchema() gestalt.ObjectStoreOptions {
+	return gestalt.ObjectStoreOptions{
+		Columns: []gestalt.ColumnDef{
+			{Name: "id", Type: gestalt.TypeString, PrimaryKey: true},
+			{Name: "redirect_uri", Type: gestalt.TypeString, NotNull: true},
+			{Name: "client_id", Type: gestalt.TypeString},
+			{Name: "scope", Type: gestalt.TypeString},
+			{Name: "pkce_verifier", Type: gestalt.TypeString},
+			{Name: "expires_at", Type: gestalt.TypeTime, NotNull: true},
+		},
+	}
+}
+
 func (s *grantStore) currentTime() time.Time {
 	return s.now().UTC()
+}
+
+func (s *grantStore) storePendingOAuth(ctx context.Context, session pendingOAuthSession, ttl time.Duration) error {
+	if session.state == "" {
+		return fmt.Errorf("oidc auth: pending oauth state is required")
+	}
+	if ttl <= 0 {
+		ttl = defaultPKCEVerifierTTL
+	}
+	if err := s.evictExpiredPendingOAuth(ctx); err != nil {
+		return err
+	}
+	expiresAt := s.currentTime().Add(ttl)
+	if err := s.pending.Put(ctx, gestalt.Record{
+		"id":            session.state,
+		"redirect_uri":  session.redirectURI,
+		"client_id":     session.clientID,
+		"scope":         session.scope,
+		"pkce_verifier": session.pkceVerifier,
+		"expires_at":    expiresAt,
+	}); err != nil {
+		return fmt.Errorf("oidc auth: persist pending authorization: %w", err)
+	}
+	return nil
+}
+
+func (s *grantStore) pendingOAuthForToken(ctx context.Context, req *gestalt.TokenRequest) (pendingOAuthSession, error) {
+	state := strings.TrimSpace(req.State)
+	if state == "" {
+		return pendingOAuthSession{}, fmt.Errorf("oidc auth: state is required")
+	}
+	record, err := s.pending.Get(ctx, state)
+	if err != nil {
+		if errors.Is(err, gestalt.ErrNotFound) {
+			return pendingOAuthSession{}, fmt.Errorf("oidc auth: pending authorization not found")
+		}
+		return pendingOAuthSession{}, fmt.Errorf("oidc auth: get pending authorization: %w", err)
+	}
+	if !recordTime(record, "expires_at").After(s.currentTime()) {
+		_ = s.pending.Delete(ctx, state)
+		return pendingOAuthSession{}, fmt.Errorf("oidc auth: pending authorization not found")
+	}
+	pending := pendingOAuthSession{
+		state:        state,
+		redirectURI:  recordString(record, "redirect_uri"),
+		clientID:     recordString(record, "client_id"),
+		scope:        recordString(record, "scope"),
+		pkceVerifier: recordString(record, "pkce_verifier"),
+		expiresAt:    recordTime(record, "expires_at"),
+	}
+	if pending.redirectURI != req.RedirectURI {
+		return pendingOAuthSession{}, fmt.Errorf("oidc auth: pending authorization redirect_uri mismatch")
+	}
+	if clientID := strings.TrimSpace(req.ClientID); clientID != "" && pending.clientID != "" && pending.clientID != clientID {
+		return pendingOAuthSession{}, fmt.Errorf("oidc auth: pending authorization client_id mismatch")
+	}
+	return pending, nil
+}
+
+func (s *grantStore) deletePendingOAuth(ctx context.Context, state string) {
+	if strings.TrimSpace(state) == "" {
+		return
+	}
+	if err := s.pending.Delete(ctx, state); err != nil && !errors.Is(err, gestalt.ErrNotFound) {
+		return
+	}
+}
+
+func (s *grantStore) evictExpiredPendingOAuth(ctx context.Context) error {
+	records, err := s.pending.GetAll(ctx, nil)
+	if err != nil && !errors.Is(err, gestalt.ErrNotFound) {
+		return fmt.Errorf("oidc auth: list pending authorizations: %w", err)
+	}
+	now := s.currentTime()
+	for _, record := range records {
+		if !recordTime(record, "expires_at").After(now) {
+			_ = s.pending.Delete(ctx, recordString(record, "id"))
+		}
+	}
+	return nil
 }
 
 func (s *grantStore) issue(ctx context.Context, subject, scope, clientID, category string, ttl time.Duration) (*issuedGrant, error) {
