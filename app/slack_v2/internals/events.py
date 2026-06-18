@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import Any
 
 import gestalt
@@ -14,18 +12,16 @@ def slack_app_id_from_payload(payload: dict[str, Any]) -> str:
     return str(payload.get("api_app_id") or "").strip()
 
 
-def payload_digest(payload: dict[str, Any]) -> str:
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+def slack_event_id_from_payload(payload: dict[str, Any]) -> str:
+    return str(payload.get("event_id") or "").strip()
 
 
 def workflow_event_id(*, app_id: str, payload: dict[str, Any]) -> str:
-    nested_event = payload.get("event")
-    if isinstance(nested_event, dict):
-        event_id = str(nested_event.get("event_id") or "").strip()
-        if event_id:
-            return f"slack_v2:{event_id}"
-    return f"slack_v2:{app_id}:{payload_digest(payload)}"
+    _ = app_id
+    event_id = slack_event_id_from_payload(payload)
+    if not event_id:
+        raise ValueError("event_id is required")
+    return f"slack_v2:{event_id}"
 
 
 def workflow_event_data(*, app_id: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -36,7 +32,7 @@ def workflow_event_data(*, app_id: str, payload: dict[str, Any]) -> dict[str, An
             "team_id": str(payload.get("team_id") or "").strip(),
             "enterprise_id": str(payload.get("enterprise_id") or "").strip(),
             "type": str(payload.get("type") or "").strip(),
-            "event_id": _nested_event_id(payload),
+            "event_id": slack_event_id_from_payload(payload),
         },
         "raw": payload,
     }
@@ -59,10 +55,3 @@ def build_workflow_deliver_event_request(
             data=workflow_event_data(app_id=app_id, payload=payload),
         ),
     )
-
-
-def _nested_event_id(payload: dict[str, Any]) -> str:
-    nested_event = payload.get("event")
-    if not isinstance(nested_event, dict):
-        return ""
-    return str(nested_event.get("event_id") or "").strip()

@@ -4,6 +4,7 @@ from unittest import mock
 
 import gestalt
 
+from internals import events
 import provider as provider_module
 
 
@@ -145,27 +146,66 @@ class SlackV2ProviderTests(unittest.TestCase):
             result.body, {"error": "registration not found for app_id 'A404'"}
         )
 
-    @mock.patch("provider.record_smoke_run")
-    def test_debug_record_smoke_run_records_metric(self, record_smoke_run: mock.Mock) -> None:
-        result = provider_module.debug_record_smoke_run(
-            provider_module.DebugRecordSmokeRunInput(app_id="A123"),
-            gestalt.Request(),
-        )
-
-        record_smoke_run.assert_called_once_with(app_id="A123")
-        self.assertEqual(result, {"ok": True, "recorded": True})
-
-    @mock.patch("provider.record_smoke_run")
-    def test_debug_record_smoke_run_allows_empty_app_id(
-        self, record_smoke_run: mock.Mock
+    @mock.patch("provider.logger.info")
+    def test_debug_record_smoke_run_logs_full_payload(
+        self, logger_info: mock.Mock
     ) -> None:
+        payload = {
+            "api_app_id": "A123",
+            "event_id": "Ev123",
+            "team_id": "T123",
+            "type": "event_callback",
+            "event-context": "EC123",
+            "event_context": "EC456",
+            "event": {
+                "type": "message",
+                "text": "hello",
+            },
+        }
+
         result = provider_module.debug_record_smoke_run(
-            provider_module.DebugRecordSmokeRunInput(),
+            provider_module.DebugRecordSmokeRunInput(payload=payload),
             gestalt.Request(),
         )
 
-        record_smoke_run.assert_called_once_with(app_id="")
-        self.assertEqual(result, {"ok": True, "recorded": True})
+        logger_info.assert_called_once_with(
+            "Slack v2 smoke workflow debug payload",
+            extra={
+                "slack_payload": payload,
+                "slack_payload_api_app_id": "A123",
+                "slack_payload_event_id": "Ev123",
+                "slack_payload_team_id": "T123",
+                "slack_payload_type": "event_callback",
+                "slack_payload_event_context": "EC123",
+                "slack_payload_event_context_2": "EC456",
+                "slack_payload_event": {
+                    "type": "message",
+                    "text": "hello",
+                },
+            },
+        )
+        self.assertEqual(result, {"ok": True, "logged": True})
+
+    def test_workflow_event_id_prefers_top_level_event_id(self) -> None:
+        payload = {
+            "api_app_id": "A123",
+            "event_id": "EvTopLevel",
+            "event": {"event_id": "EvNested"},
+        }
+
+        self.assertEqual(
+            events.workflow_event_id(app_id="A123", payload=payload),
+            "slack_v2:EvTopLevel",
+        )
+
+    def test_workflow_event_id_ignores_nested_event_id(self) -> None:
+        payload = {
+            "api_app_id": "A123",
+            "event": {"event_id": "EvNested"},
+        }
+
+        with self.assertRaisesRegex(ValueError, "event_id is required"):
+            events.workflow_event_id(app_id="A123", payload=payload)
 
     def test_handle_slack_event_requires_api_app_id(self) -> None:
         result = provider_module.handle_slack_event({}, gestalt.Request())
@@ -176,13 +216,32 @@ class SlackV2ProviderTests(unittest.TestCase):
         self.assertEqual(result.body, {"error": "api_app_id is required"})
 
     @mock.patch("provider.load_workflow_event_subject_for_app")
+    def test_handle_slack_event_requires_event_id(
+        self, load_workflow_event_subject: mock.Mock
+    ) -> None:
+        result = provider_module.handle_slack_event(
+            {
+                "api_app_id": "A123",
+                "type": "event_callback",
+                "event": {"event_id": "EvNested"},
+            },
+            gestalt.Request(),
+        )
+
+        load_workflow_event_subject.assert_not_called()
+        self.assertIsInstance(result, gestalt.Response)
+        assert isinstance(result, gestalt.Response)
+        self.assertEqual(result.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(result.body, {"error": "event_id is required"})
+
+    @mock.patch("provider.load_workflow_event_subject_for_app")
     def test_handle_slack_event_returns_not_found_for_unknown_app(
         self, load_workflow_event_subject: mock.Mock
     ) -> None:
         load_workflow_event_subject.side_effect = gestalt.NotFoundError("missing")
 
         result = provider_module.handle_slack_event(
-            {"api_app_id": "A404", "type": "event_callback"},
+            {"api_app_id": "A404", "event_id": "Ev404", "type": "event_callback"},
             gestalt.Request(),
         )
 
@@ -201,10 +260,10 @@ class SlackV2ProviderTests(unittest.TestCase):
         workflow_client = FakeWorkflowClient()
         payload = {
             "api_app_id": "A123",
+            "event_id": "Ev123",
             "team_id": "T123",
             "type": "event_callback",
             "event": {
-                "event_id": "Ev123",
                 "type": "message",
                 "text": "hello",
             },
@@ -229,6 +288,7 @@ class SlackV2ProviderTests(unittest.TestCase):
         self.assertEqual(event.source, "slack_v2")
         self.assertEqual(event.type, "slack_v2.event.received")
         self.assertEqual(event.subject, "slack_agent_default")
+        self.assertEqual(event.data["slack"]["event_id"], "Ev123")
         self.assertEqual(
             result,
             {
