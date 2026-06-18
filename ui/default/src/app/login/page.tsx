@@ -2,13 +2,13 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { getAuthInfo, startLogin } from "@/lib/api";
-import { isAuthenticated, setUserEmail } from "@/lib/auth";
+import { getAuthInfo, getAuthSession, isAPIErrorStatus, startLogin } from "@/lib/api";
+import { setCachedSession } from "@/lib/auth";
 import {
   authReturnPathFromLoginURL,
   storeAuthReturnPath,
 } from "@/lib/authReturn";
-import { DOCS_PATH, DEFAULT_LOCAL_EMAIL } from "@/lib/constants";
+import { DOCS_PATH, HTTP_UNAUTHORIZED } from "@/lib/constants";
 import Button from "@/components/Button";
 
 export default function LoginPage() {
@@ -18,20 +18,47 @@ export default function LoginPage() {
 
   useEffect(() => {
     const returnPath = authReturnPathFromLoginURL();
-    if (typeof window !== "undefined" && isAuthenticated()) {
-      window.location.replace(returnPath);
-      return;
+
+    function redirectWithSession() {
+      return getAuthSession().then((session) => {
+        setCachedSession(session);
+        window.location.replace(returnPath);
+      });
     }
-    getAuthInfo()
-      .then((info) => {
-        if (!info.loginSupported) {
-          setUserEmail(DEFAULT_LOCAL_EMAIL);
-          window.location.replace(returnPath);
+
+    function showLoginButton(info?: { displayName: string }) {
+      if (info) {
+        setAuthLabel("Sign in with " + info.displayName);
+      }
+    }
+
+    getAuthSession()
+      .then((session) => {
+        setCachedSession(session);
+        window.location.replace(returnPath);
+      })
+      .catch((err) => {
+        if (isAPIErrorStatus(err, HTTP_UNAUTHORIZED)) {
+          getAuthInfo()
+            .then((info) => {
+              if (!info.loginSupported) {
+                return redirectWithSession();
+              }
+              showLoginButton(info);
+            })
+            .catch(() => {});
           return;
         }
-        setAuthLabel("Sign in with " + info.displayName);
-      })
-      .catch(() => {});
+
+        getAuthInfo()
+          .then((info) => {
+            if (!info.loginSupported) {
+              return redirectWithSession();
+            }
+            showLoginButton(info);
+          })
+          .catch(() => {});
+      });
   }, []);
 
   async function handleLogin() {

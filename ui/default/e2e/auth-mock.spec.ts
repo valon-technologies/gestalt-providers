@@ -2,6 +2,8 @@ import {
   test,
   expect,
   mockAuthInfo,
+  mockAuthSession,
+  mockAuthSessionUnauthorized,
   mockIntegrations,
   mockManagedIdentities,
   mockTokens,
@@ -59,11 +61,18 @@ async function seedAuthenticatedUserOnce(
         return;
       }
       localStorage.clear();
-      localStorage.setItem("user_email", "test@gestalt.dev");
+      localStorage.setItem(
+        "gestalt.auth.session",
+        JSON.stringify({
+          subjectId: "user:test@gestalt.dev",
+          email: "test@gestalt.dev",
+        }),
+      );
       sessionStorage.setItem(seededKey, "1");
     },
     { seededKey: AUTH_TEST_USER_SEEDED_KEY },
   );
+  await mockAuthSession(page);
 }
 
 test.describe("Authentication", () => {
@@ -82,6 +91,7 @@ test.describe("Authentication", () => {
       provider: "test-sso",
       displayName: "Test SSO",
     });
+    await mockAuthSessionUnauthorized(page);
     await page.goto("/identities?id=agent-1#profile");
     await expect(page).toHaveURL((url) => {
       return (
@@ -100,6 +110,7 @@ test.describe("Authentication", () => {
       provider: "test-sso",
       displayName: "Test SSO",
     });
+    await mockAuthSessionUnauthorized(page);
     await page.goto("/login");
     await expect(page.getByRole("heading", { name: "Gestalt" })).toBeVisible();
     await expect(
@@ -114,6 +125,10 @@ test.describe("Authentication", () => {
       provider: "none",
       displayName: "none",
       loginSupported: false,
+    });
+    await mockAuthSession(page, {
+      subjectId: "user:anonymous@gestalt",
+      email: "anonymous@gestalt",
     });
     await mockIntegrations(page, []);
     await mockTokens(page, []);
@@ -144,8 +159,11 @@ test.describe("Authentication", () => {
 
     await page.evaluate(() => {
       localStorage.clear();
-      localStorage.setItem("user_email", "anonymous@gestalt");
       sessionStorage.clear();
+    });
+    await mockAuthSession(page, {
+      subjectId: "user:anonymous@gestalt",
+      email: "anonymous@gestalt",
     });
 
     await page.goto("/");
@@ -246,6 +264,7 @@ test.describe("Authentication", () => {
       provider: "test-sso",
       displayName: "Test SSO",
     });
+    await mockAuthSessionUnauthorized(page);
 
     let loginBody: { state?: string } | null = null;
     await page.route("**/api/v1/auth/login", async (route, request) => {
@@ -269,6 +288,20 @@ test.describe("Authentication", () => {
   });
 
   test("logout clears session and redirects to login", async ({ page }) => {
+    let loggedOut = false;
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem("logout-test-seeded") === "1") {
+        return;
+      }
+      sessionStorage.setItem("logout-test-seeded", "1");
+      localStorage.setItem(
+        "gestalt.auth.session",
+        JSON.stringify({
+          subjectId: "user:test@gestalt.dev",
+          email: "test@gestalt.dev",
+        }),
+      );
+    });
     await mockAuthInfo(page, {
       provider: "test-sso",
       displayName: "Test SSO",
@@ -278,19 +311,31 @@ test.describe("Authentication", () => {
     await mockTokens(page, []);
     await mockWorkflowRuns(page, []);
     await page.route("**/api/v1/auth/logout", (route) => {
+      loggedOut = true;
       route.fulfill({ json: { status: "ok" } });
     });
-
-    await page.goto("/login");
-    await page.evaluate(() => {
-      localStorage.clear();
-      sessionStorage.clear();
-      localStorage.setItem("user_email", "test@gestalt.dev");
+    await page.route("**/api/v1/auth/session", (route) => {
+      if (loggedOut) {
+        route.fulfill({ status: 401, json: { error: "missing authorization" } });
+        return;
+      }
+      route.fulfill({
+        json: {
+          subjectId: "user:test@gestalt.dev",
+          email: "test@gestalt.dev",
+        },
+      });
     });
+
     await page.goto("/");
     await page.getByRole("button", { name: /Logout/i }).click();
     await expect(page).toHaveURL(/\/login/);
-    await expect(await page.evaluate(() => localStorage.getItem("user_email"))).toBeNull();
+    await expect(
+      await page.evaluate(() => localStorage.getItem("gestalt.auth.session")),
+    ).toBeNull();
+    await expect(
+      await page.evaluate(() => localStorage.getItem("user_email")),
+    ).toBeNull();
   });
 
   test("auth callback redirects mismatched OAuth state back to login", async ({
@@ -301,6 +346,7 @@ test.describe("Authentication", () => {
       provider: "test-sso",
       displayName: "Test SSO",
     });
+    await mockAuthSessionUnauthorized(page);
 
     let callbackCalled = false;
     await page.route("**/api/v1/auth/login/callback?**", (route) => {
@@ -373,6 +419,11 @@ test.describe("Authentication", () => {
     await mockIntegrations(page, []);
     await mockTokens(page, []);
     await mockWorkflowRuns(page, []);
+    await mockAuthSession(page, {
+      subjectId: "user:test@gestalt.dev",
+      email: "test@gestalt.dev",
+      displayName: "Test User",
+    });
 
     let callbackState: string | null = null;
     await page.route("**/api/v1/auth/login/callback?**", (route, request) => {
@@ -380,10 +431,7 @@ test.describe("Authentication", () => {
       route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({
-          email: "test@gestalt.dev",
-          displayName: "Test User",
-        }),
+        body: JSON.stringify({ status: "ok" }),
       });
     });
 
@@ -397,7 +445,10 @@ test.describe("Authentication", () => {
         url.hash === "#profile"
       );
     });
-    await expect(page.getByText("test@gestalt.dev")).toBeVisible();
+    await expect(page.getByText("Test User")).toBeVisible();
+    await expect(
+      await page.evaluate(() => localStorage.getItem("gestalt.auth.session")),
+    ).not.toContain("undefined");
   });
 
   test("auth callback sanitizes stored return path before redirecting", async ({
@@ -407,6 +458,11 @@ test.describe("Authentication", () => {
     await mockIntegrations(page, []);
     await mockTokens(page, []);
     await mockWorkflowRuns(page, []);
+    await mockAuthSession(page, {
+      subjectId: "user:test@gestalt.dev",
+      email: "test@gestalt.dev",
+      displayName: "Test User",
+    });
 
     let callbackCalled = false;
     await page.route("**/api/v1/auth/login/callback?**", (route) => {
@@ -414,10 +470,7 @@ test.describe("Authentication", () => {
       route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({
-          email: "test@gestalt.dev",
-          displayName: "Test User",
-        }),
+        body: JSON.stringify({ status: "ok" }),
       });
     });
 
@@ -425,7 +478,7 @@ test.describe("Authentication", () => {
 
     await expect.poll(() => callbackCalled).toBe(true);
     await expect(page).toHaveURL("/");
-    await expect(page.getByText("test@gestalt.dev")).toBeVisible();
+    await expect(page.getByText("Test User")).toBeVisible();
   });
 
   test("auth callback redirects wrapped CLI state to the local listener", async ({
@@ -473,6 +526,13 @@ test.describe("Authentication", () => {
     page,
   }) => {
     await seedAuthenticatedUserOnce(page);
+    await page.route("**/api/v1/auth/session", (route, request) => {
+      if (request.method() === "GET") {
+        route.fulfill({ status: 401, json: { error: "invalid token" } });
+        return;
+      }
+      route.fallback();
+    });
     await page.route("**/api/v1/apps", (route) => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
@@ -490,6 +550,9 @@ test.describe("Authentication", () => {
     expect(redirectURL.searchParams.get("next")).toBe(
       "/workflows?range=week#runs",
     );
+    await expect(
+      await page.evaluate(() => localStorage.getItem("gestalt.auth.session")),
+    ).toBeNull();
   });
 
 });
