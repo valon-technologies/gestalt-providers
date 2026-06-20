@@ -5,6 +5,7 @@ import time
 import unittest
 from collections.abc import Mapping
 from http import HTTPStatus
+from types import SimpleNamespace
 from typing import Any
 from unittest import mock
 
@@ -37,6 +38,24 @@ def signed_slack_request(
                 "X-Slack-Signature": [signature],
             },
             raw_body=raw_body,
+        )
+    )
+
+
+def signed_slack_workflow_context_request(
+    payload: Mapping[str, Any],
+    *,
+    signing_secret: str = "signing-secret",
+    timestamp: int | None = None,
+) -> gestalt.Request:
+    request = signed_slack_request(
+        payload, signing_secret=signing_secret, timestamp=timestamp
+    )
+    context = request.context
+    assert isinstance(context, gestalt.HTTPSubjectRequest)
+    return gestalt.Request(
+        context=SimpleNamespace(
+            workflow={"http": {"headers": context.headers}},
         )
     )
 
@@ -461,6 +480,23 @@ class SlackV2ProviderTests(unittest.TestCase):
 
         result = provider_module._verify_slack_signature(
             payload, signed_slack_request(payload)
+        )
+
+        load_signing_secret.assert_called_once_with(app_id="A123")
+        self.assertTrue(result)
+
+    @mock.patch("provider.load_signing_secret_for_app", return_value="signing-secret")
+    def test_verify_slack_signature_accepts_workflow_context_headers(
+        self, load_signing_secret: mock.Mock
+    ) -> None:
+        payload = {
+            "api_app_id": "A123",
+            "event_id": "Ev123",
+            "type": "event_callback",
+        }
+
+        result = provider_module._verify_slack_signature(
+            payload, signed_slack_workflow_context_request(payload)
         )
 
         load_signing_secret.assert_called_once_with(app_id="A123")
