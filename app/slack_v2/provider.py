@@ -6,7 +6,7 @@ import json
 import logging
 from http import HTTPStatus
 import time
-from typing import Any
+from typing import Any, cast
 
 import gestalt
 
@@ -301,6 +301,10 @@ def _slack_request_timestamp_is_fresh(timestamp: str) -> bool:
 
 
 def _slack_request_header(req: gestalt.Request, name: str) -> str:
+    value = _slack_workflow_header(req.workflow, name)
+    if value:
+        return value
+
     context = req.context
     headers = getattr(context, "headers", None)
     value = _slack_header_value(headers, name)
@@ -308,11 +312,17 @@ def _slack_request_header(req: gestalt.Request, name: str) -> str:
         return value
 
     workflow = getattr(context, "workflow", None)
-    if isinstance(workflow, dict):
-        http_context = workflow.get("http")
-        if isinstance(http_context, dict):
-            return _slack_header_value(http_context.get("headers"), name)
-    return ""
+    return _slack_workflow_header(workflow, name)
+
+
+def _slack_workflow_header(workflow: object, name: str) -> str:
+    if not isinstance(workflow, dict):
+        return ""
+    workflow_map = cast(dict[str, Any], workflow)
+    http_context = workflow_map.get("http")
+    if not isinstance(http_context, dict):
+        return ""
+    return _slack_header_value(http_context.get("headers"), name)
 
 
 def _slack_header_value(headers: object, name: str) -> str:

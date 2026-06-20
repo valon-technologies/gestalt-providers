@@ -2,10 +2,9 @@ import hashlib
 import hmac
 import json
 import time
-import unittest
 from collections.abc import Mapping
 from http import HTTPStatus
-from types import SimpleNamespace
+import unittest
 from typing import Any
 from unittest import mock
 
@@ -54,9 +53,7 @@ def signed_slack_workflow_context_request(
     context = request.context
     assert isinstance(context, gestalt.HTTPSubjectRequest)
     return gestalt.Request(
-        context=SimpleNamespace(
-            workflow={"http": {"headers": context.headers}},
-        )
+        workflow={"http": {"headers": context.headers}},
     )
 
 
