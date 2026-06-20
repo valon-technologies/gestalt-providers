@@ -24,9 +24,12 @@ def signed_slack_request(
         timestamp = int(time.time())
     raw_body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     base_string = b"v0:" + str(timestamp).encode("utf-8") + b":" + raw_body
-    signature = "v0=" + hmac.new(
-        signing_secret.encode("utf-8"), base_string, hashlib.sha256
-    ).hexdigest()
+    signature = (
+        "v0="
+        + hmac.new(
+            signing_secret.encode("utf-8"), base_string, hashlib.sha256
+        ).hexdigest()
+    )
     return gestalt.Request(
         context=gestalt.HTTPSubjectRequest(
             headers={
@@ -49,7 +52,9 @@ class FakeWorkflowClient:
     def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
         return None
 
-    def deliver_event(self, request: gestalt.WorkflowDeliverEvent) -> gestalt.WorkflowEvent:
+    def deliver_event(
+        self, request: gestalt.WorkflowDeliverEvent
+    ) -> gestalt.WorkflowEvent:
         self.deliver_event_requests.append(request)
         if self.fail:
             raise RuntimeError("workflow client unavailable")
@@ -61,7 +66,9 @@ class FakeWorkflowClient:
 
 class SlackV2ProviderTests(unittest.TestCase):
     @mock.patch("provider.save_slack_event_registration")
-    def test_register_slack_event_persists_registration(self, save_registration: mock.Mock) -> None:
+    def test_register_slack_event_persists_registration(
+        self, save_registration: mock.Mock
+    ) -> None:
         result = provider_module.register_slack_event(
             provider_module.RegisterSlackEventInput(
                 app_id="A123",
@@ -267,9 +274,7 @@ class SlackV2ProviderTests(unittest.TestCase):
     ) -> None:
         load_payload_ids.return_value = ["Ev123", "Ev456"]
 
-        result = provider_module.debug_list_smoke_run_payload_ids(
-            {}, gestalt.Request()
-        )
+        result = provider_module.debug_list_smoke_run_payload_ids({}, gestalt.Request())
 
         load_payload_ids.assert_called_once_with()
         self.assertEqual(result, {"ids": ["Ev123", "Ev456"]})
@@ -477,6 +482,25 @@ class SlackV2ProviderTests(unittest.TestCase):
 
         load_signing_secret.assert_called_once_with(app_id="A123")
         self.assertFalse(result)
+
+    @mock.patch("provider.load_signing_secret_for_app", return_value="signing-secret")
+    def test_verify_slack_signature_uses_parsed_payload_body(
+        self, load_signing_secret: mock.Mock
+    ) -> None:
+        payload = {
+            "api_app_id": "A123",
+            "event_id": "Ev123",
+            "type": "event_callback",
+        }
+        request = signed_slack_request(payload)
+        context = request.context
+        assert isinstance(context, gestalt.HTTPSubjectRequest)
+        context.raw_body = b'{"different":"raw-body"}'
+
+        result = provider_module._verify_slack_signature(payload, request)
+
+        load_signing_secret.assert_called_once_with(app_id="A123")
+        self.assertTrue(result)
 
     @mock.patch("provider.load_signing_secret_for_app", return_value="signing-secret")
     def test_verify_slack_signature_rejects_stale_timestamp(
