@@ -16,10 +16,9 @@ from internals.events import (
     slack_event_id_from_payload,
 )
 from internals.store import (
+    get_default_signing_secret as load_default_signing_secret,
+    get_default_workflow_event_subject as load_default_workflow_event_subject,
     get_debug_payload as load_debug_payload,
-    get_signing_secret_for_app as load_signing_secret_for_app,
-    get_workflow_event_subject_for_app as load_workflow_event_subject_for_app,
-    list_signing_secrets as load_signing_secrets,
     list_debug_payload_ids as load_debug_payload_ids,
     save_debug_payload,
     save_slack_event_registration,
@@ -111,11 +110,11 @@ def get_workflow_event_subject_for_app(
         )
 
     try:
-        workflow_event_subject = load_workflow_event_subject_for_app(app_id=app_id)
+        workflow_event_subject = load_default_workflow_event_subject()
     except gestalt.NotFoundError:
         return gestalt.Response(
             status=HTTPStatus.NOT_FOUND,
-            body={"error": f"registration not found for app_id {app_id!r}"},
+            body={"error": "default Slack event registration not found"},
         )
 
     return {
@@ -209,11 +208,11 @@ def handle_slack_event(
         )
 
     try:
-        workflow_event_subject = load_workflow_event_subject_for_app(app_id=app_id)
+        workflow_event_subject = load_default_workflow_event_subject()
     except gestalt.NotFoundError:
         return gestalt.Response(
             status=HTTPStatus.NOT_FOUND,
-            body={"error": f"registration not found for app_id {app_id!r}"},
+            body={"error": "default Slack event registration not found"},
         )
 
     try:
@@ -280,14 +279,8 @@ def _verify_slack_signature(payload: dict[str, Any], req: gestalt.Request) -> bo
 
 
 def _slack_signing_secrets_for_payload(payload: dict[str, Any]) -> list[str]:
-    if _is_url_verification(payload):
-        return load_signing_secrets()
-
-    app_id = slack_app_id_from_payload(payload)
-    if not app_id:
-        return []
     try:
-        return [load_signing_secret_for_app(app_id=app_id)]
+        return [load_default_signing_secret()]
     except gestalt.NotFoundError:
         return []
 
