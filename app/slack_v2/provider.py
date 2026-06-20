@@ -303,9 +303,21 @@ def _slack_request_timestamp_is_fresh(timestamp: str) -> bool:
 def _slack_request_header(req: gestalt.Request, name: str) -> str:
     context = req.context
     headers = getattr(context, "headers", None)
+    value = _slack_header_value(headers, name)
+    if value:
+        return value
+
+    workflow = getattr(context, "workflow", None)
+    if isinstance(workflow, dict):
+        http_context = workflow.get("http")
+        if isinstance(http_context, dict):
+            return _slack_header_value(http_context.get("headers"), name)
+    return ""
+
+
+def _slack_header_value(headers: object, name: str) -> str:
     if not isinstance(headers, dict):
         return ""
-
     wanted = name.lower()
     for key, value in headers.items():
         if str(key).lower() != wanted:
