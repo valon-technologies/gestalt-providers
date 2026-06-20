@@ -21,6 +21,24 @@ def get_workflow_event_subject_for_app(*, app_id: str) -> str:
     return workflow_event_subject.strip()
 
 
+def get_signing_secret_for_app(*, app_id: str) -> str:
+    record = _object_store(EVENT_REGISTRATION_OBJECT_STORE_NAME).get(app_id)
+    signing_secret = record.get("signing_secret")
+    if not isinstance(signing_secret, str) or not signing_secret.strip():
+        raise gestalt.NotFoundError(f"signing_secret not found for app_id {app_id!r}")
+    return signing_secret.strip()
+
+
+def list_signing_secrets() -> list[str]:
+    secrets: list[str] = []
+    for key in _object_store(EVENT_REGISTRATION_OBJECT_STORE_NAME).get_all_keys():
+        try:
+            secrets.append(get_signing_secret_for_app(app_id=str(key)))
+        except gestalt.NotFoundError:
+            continue
+    return secrets
+
+
 def save_slack_event_registration(
     *,
     app_id: str,

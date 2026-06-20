@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
 from http import HTTPStatus
+import time
 from typing import Any
 
 import gestalt
@@ -13,7 +16,9 @@ from internals.events import (
 )
 from internals.store import (
     get_debug_payload as load_debug_payload,
+    get_signing_secret_for_app as load_signing_secret_for_app,
     get_workflow_event_subject_for_app as load_workflow_event_subject_for_app,
+    list_signing_secrets as load_signing_secrets,
     list_debug_payload_ids as load_debug_payload_ids,
     save_debug_payload,
     save_slack_event_registration,
@@ -243,5 +248,75 @@ def _is_url_verification(payload: dict[str, Any]) -> bool:
 
 
 def _verify_slack_signature(payload: dict[str, Any], req: gestalt.Request) -> bool:
-    _ = payload, req
-    return True
+    timestamp = _slack_request_header(req, "X-Slack-Request-Timestamp")
+    signature = _slack_request_header(req, "X-Slack-Signature")
+    raw_body = _slack_request_raw_body(req)
+    if not timestamp or not signature or raw_body is None:
+        return False
+    if not _slack_request_timestamp_is_fresh(timestamp):
+        return False
+
+    secrets = _slack_signing_secrets_for_payload(payload)
+    if not secrets:
+        return False
+
+    basestring = b"v0:" + timestamp.encode("utf-8") + b":" + raw_body
+    return any(
+        hmac.compare_digest(
+            signature,
+            "v0="
+            + hmac.new(
+                signing_secret.encode("utf-8"),
+                basestring,
+                hashlib.sha256,
+            ).hexdigest(),
+        )
+        for signing_secret in secrets
+    )
+
+
+def _slack_signing_secrets_for_payload(payload: dict[str, Any]) -> list[str]:
+    if _is_url_verification(payload):
+        return load_signing_secrets()
+
+    app_id = slack_app_id_from_payload(payload)
+    if not app_id:
+        return []
+    try:
+        return [load_signing_secret_for_app(app_id=app_id)]
+    except gestalt.NotFoundError:
+        return []
+
+
+def _slack_request_timestamp_is_fresh(timestamp: str) -> bool:
+    try:
+        request_time = int(timestamp)
+    except ValueError:
+        return False
+    return abs(time.time() - request_time) <= 60 * 5
+
+
+def _slack_request_header(req: gestalt.Request, name: str) -> str:
+    context = req.context
+    headers = getattr(context, "headers", None)
+    if not isinstance(headers, dict):
+        return ""
+
+    wanted = name.lower()
+    for key, value in headers.items():
+        if str(key).lower() != wanted:
+            continue
+        if isinstance(value, list):
+            return str(value[-1] if value else "").strip()
+        return str(value).strip()
+    return ""
+
+
+def _slack_request_raw_body(req: gestalt.Request) -> bytes | None:
+    context = req.context
+    raw_body = getattr(context, "raw_body", None)
+    if isinstance(raw_body, bytes):
+        return raw_body
+    if isinstance(raw_body, str):
+        return raw_body.encode("utf-8")
+    return None
