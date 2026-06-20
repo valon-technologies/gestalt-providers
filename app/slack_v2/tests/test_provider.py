@@ -150,18 +150,18 @@ class SlackV2ProviderTests(unittest.TestCase):
         self.assertEqual(result.status, HTTPStatus.BAD_REQUEST)
         self.assertEqual(result.body, {"error": "workflow_event_subject is required"})
 
-    @mock.patch("provider.load_workflow_event_subject_for_app")
+    @mock.patch("provider.load_default_workflow_event_subject")
     def test_get_workflow_event_subject_for_app_returns_registration(
-        self, load_workflow_event_subject: mock.Mock
+        self, load_default_workflow_event_subject: mock.Mock
     ) -> None:
-        load_workflow_event_subject.return_value = "slack_agent_default"
+        load_default_workflow_event_subject.return_value = "slack_agent_default"
 
         result = provider_module.get_workflow_event_subject_for_app(
             provider_module.GetWorkflowEventSubjectForAppInput(app_id="A123"),
             gestalt.Request(),
         )
 
-        load_workflow_event_subject.assert_called_once_with(app_id="A123")
+        load_default_workflow_event_subject.assert_called_once_with()
         self.assertEqual(
             result,
             {
@@ -181,11 +181,13 @@ class SlackV2ProviderTests(unittest.TestCase):
         self.assertEqual(result.status, HTTPStatus.BAD_REQUEST)
         self.assertEqual(result.body, {"error": "app_id is required"})
 
-    @mock.patch("provider.load_workflow_event_subject_for_app")
+    @mock.patch("provider.load_default_workflow_event_subject")
     def test_get_workflow_event_subject_for_app_returns_not_found(
-        self, load_workflow_event_subject: mock.Mock
+        self, load_default_workflow_event_subject: mock.Mock
     ) -> None:
-        load_workflow_event_subject.side_effect = gestalt.NotFoundError("missing")
+        load_default_workflow_event_subject.side_effect = gestalt.NotFoundError(
+            "missing"
+        )
 
         result = provider_module.get_workflow_event_subject_for_app(
             provider_module.GetWorkflowEventSubjectForAppInput(app_id="A404"),
@@ -196,7 +198,7 @@ class SlackV2ProviderTests(unittest.TestCase):
         assert isinstance(result, gestalt.Response)
         self.assertEqual(result.status, HTTPStatus.NOT_FOUND)
         self.assertEqual(
-            result.body, {"error": "registration not found for app_id 'A404'"}
+            result.body, {"error": "default Slack event registration not found"}
         )
 
     @mock.patch("provider.save_debug_payload")
@@ -329,10 +331,10 @@ class SlackV2ProviderTests(unittest.TestCase):
         self.assertEqual(result.body, {"error": "api_app_id is required"})
 
     @mock.patch("provider._verify_slack_signature", return_value=True)
-    @mock.patch("provider.load_workflow_event_subject_for_app")
+    @mock.patch("provider.load_default_workflow_event_subject")
     def test_handle_slack_event_url_verification_returns_challenge(
         self,
-        load_workflow_event_subject: mock.Mock,
+        load_default_workflow_event_subject: mock.Mock,
         verify_slack_signature: mock.Mock,
     ) -> None:
         payload = {"type": "url_verification", "challenge": "challenge-token"}
@@ -344,15 +346,15 @@ class SlackV2ProviderTests(unittest.TestCase):
         )
 
         verify_slack_signature.assert_called_once_with(payload, request)
-        load_workflow_event_subject.assert_not_called()
+        load_default_workflow_event_subject.assert_not_called()
         self.assertEqual(result, {"challenge": "challenge-token"})
 
-    @mock.patch("provider.load_workflow_event_subject_for_app")
+    @mock.patch("provider.load_default_workflow_event_subject")
     @mock.patch("provider._verify_slack_signature", return_value=False)
     def test_handle_slack_event_rejects_invalid_signature(
         self,
         verify_slack_signature: mock.Mock,
-        load_workflow_event_subject: mock.Mock,
+        load_default_workflow_event_subject: mock.Mock,
     ) -> None:
         payload = {
             "api_app_id": "A123",
@@ -364,18 +366,18 @@ class SlackV2ProviderTests(unittest.TestCase):
         result = provider_module.handle_slack_event(payload, request)
 
         verify_slack_signature.assert_called_once_with(payload, request)
-        load_workflow_event_subject.assert_not_called()
+        load_default_workflow_event_subject.assert_not_called()
         self.assertIsInstance(result, gestalt.Response)
         assert isinstance(result, gestalt.Response)
         self.assertEqual(result.status, HTTPStatus.UNAUTHORIZED)
         self.assertEqual(result.body, {"error": "invalid Slack signature"})
 
-    @mock.patch("provider.load_workflow_event_subject_for_app")
+    @mock.patch("provider.load_default_workflow_event_subject")
     @mock.patch("provider._verify_slack_signature", return_value=True)
     def test_handle_slack_event_requires_event_id(
         self,
         verify_slack_signature: mock.Mock,
-        load_workflow_event_subject: mock.Mock,
+        load_default_workflow_event_subject: mock.Mock,
     ) -> None:
         payload = {
             "api_app_id": "A123",
@@ -386,21 +388,23 @@ class SlackV2ProviderTests(unittest.TestCase):
         result = provider_module.handle_slack_event(payload, gestalt.Request())
 
         verify_slack_signature.assert_called_once_with(payload, mock.ANY)
-        load_workflow_event_subject.assert_not_called()
+        load_default_workflow_event_subject.assert_not_called()
         self.assertIsInstance(result, gestalt.Response)
         assert isinstance(result, gestalt.Response)
         self.assertEqual(result.status, HTTPStatus.BAD_REQUEST)
         self.assertEqual(result.body, {"error": "event_id is required"})
 
-    @mock.patch("provider.load_workflow_event_subject_for_app")
+    @mock.patch("provider.load_default_workflow_event_subject")
     @mock.patch("provider._verify_slack_signature", return_value=True)
-    def test_handle_slack_event_returns_not_found_for_unknown_app(
+    def test_handle_slack_event_returns_not_found_for_missing_default_registration(
         self,
         verify_slack_signature: mock.Mock,
-        load_workflow_event_subject: mock.Mock,
+        load_default_workflow_event_subject: mock.Mock,
     ) -> None:
-        load_workflow_event_subject.side_effect = gestalt.NotFoundError("missing")
-        payload = {"api_app_id": "A404", "event_id": "Ev404", "type": "event_callback"}
+        load_default_workflow_event_subject.side_effect = gestalt.NotFoundError(
+            "missing"
+        )
+        payload = {"api_app_id": "A123", "event_id": "Ev123", "type": "event_callback"}
 
         result = provider_module.handle_slack_event(payload, gestalt.Request())
 
@@ -409,17 +413,17 @@ class SlackV2ProviderTests(unittest.TestCase):
         assert isinstance(result, gestalt.Response)
         self.assertEqual(result.status, HTTPStatus.NOT_FOUND)
         self.assertEqual(
-            result.body, {"error": "registration not found for app_id 'A404'"}
+            result.body, {"error": "default Slack event registration not found"}
         )
 
     @mock.patch("provider._verify_slack_signature", return_value=True)
-    @mock.patch("provider.load_workflow_event_subject_for_app")
-    def test_handle_slack_event_delivers_workflow_event(
+    @mock.patch("provider.load_default_workflow_event_subject")
+    def test_handle_slack_event_delivers_workflow_event_to_default_subject(
         self,
-        load_workflow_event_subject: mock.Mock,
+        load_default_workflow_event_subject: mock.Mock,
         verify_slack_signature: mock.Mock,
     ) -> None:
-        load_workflow_event_subject.return_value = "slack_agent_default"
+        load_default_workflow_event_subject.return_value = "slack_agent_default"
         workflow_client = FakeWorkflowClient()
         payload = {
             "api_app_id": "A123",
@@ -441,7 +445,7 @@ class SlackV2ProviderTests(unittest.TestCase):
             result = provider_module.handle_slack_event(payload, gestalt.Request())
 
         verify_slack_signature.assert_called_once_with(payload, mock.ANY)
-        load_workflow_event_subject.assert_called_once_with(app_id="A123")
+        load_default_workflow_event_subject.assert_called_once_with()
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
         request = workflow_client.deliver_event_requests[0]
         self.assertEqual(request.provider_name, "")
@@ -465,9 +469,9 @@ class SlackV2ProviderTests(unittest.TestCase):
             },
         )
 
-    @mock.patch("provider.load_signing_secret_for_app", return_value="signing-secret")
+    @mock.patch("provider.load_default_signing_secret", return_value="signing-secret")
     def test_verify_slack_signature_accepts_matching_event_signature(
-        self, load_signing_secret: mock.Mock
+        self, load_default_signing_secret: mock.Mock
     ) -> None:
         payload = {
             "api_app_id": "A123",
@@ -479,12 +483,12 @@ class SlackV2ProviderTests(unittest.TestCase):
             payload, signed_slack_request(payload)
         )
 
-        load_signing_secret.assert_called_once_with(app_id="A123")
+        load_default_signing_secret.assert_called_once_with()
         self.assertTrue(result)
 
-    @mock.patch("provider.load_signing_secret_for_app", return_value="signing-secret")
+    @mock.patch("provider.load_default_signing_secret", return_value="signing-secret")
     def test_verify_slack_signature_accepts_workflow_context_headers(
-        self, load_signing_secret: mock.Mock
+        self, load_default_signing_secret: mock.Mock
     ) -> None:
         payload = {
             "api_app_id": "A123",
@@ -496,12 +500,12 @@ class SlackV2ProviderTests(unittest.TestCase):
             payload, signed_slack_workflow_context_request(payload)
         )
 
-        load_signing_secret.assert_called_once_with(app_id="A123")
+        load_default_signing_secret.assert_called_once_with()
         self.assertTrue(result)
 
-    @mock.patch("provider.load_signing_secret_for_app", return_value="signing-secret")
+    @mock.patch("provider.load_default_signing_secret", return_value="signing-secret")
     def test_verify_slack_signature_rejects_mismatched_event_signature(
-        self, load_signing_secret: mock.Mock
+        self, load_default_signing_secret: mock.Mock
     ) -> None:
         payload = {
             "api_app_id": "A123",
@@ -513,12 +517,12 @@ class SlackV2ProviderTests(unittest.TestCase):
             payload, signed_slack_request(payload, signing_secret="wrong-secret")
         )
 
-        load_signing_secret.assert_called_once_with(app_id="A123")
+        load_default_signing_secret.assert_called_once_with()
         self.assertFalse(result)
 
-    @mock.patch("provider.load_signing_secret_for_app", return_value="signing-secret")
+    @mock.patch("provider.load_default_signing_secret", return_value="signing-secret")
     def test_verify_slack_signature_uses_parsed_payload_body(
-        self, load_signing_secret: mock.Mock
+        self, load_default_signing_secret: mock.Mock
     ) -> None:
         payload = {
             "api_app_id": "A123",
@@ -532,12 +536,12 @@ class SlackV2ProviderTests(unittest.TestCase):
 
         result = provider_module._verify_slack_signature(payload, request)
 
-        load_signing_secret.assert_called_once_with(app_id="A123")
+        load_default_signing_secret.assert_called_once_with()
         self.assertTrue(result)
 
-    @mock.patch("provider.load_signing_secret_for_app", return_value="signing-secret")
+    @mock.patch("provider.load_default_signing_secret", return_value="signing-secret")
     def test_verify_slack_signature_rejects_stale_timestamp(
-        self, load_signing_secret: mock.Mock
+        self, load_default_signing_secret: mock.Mock
     ) -> None:
         payload = {
             "api_app_id": "A123",
@@ -550,15 +554,12 @@ class SlackV2ProviderTests(unittest.TestCase):
             payload, signed_slack_request(payload, timestamp=stale_timestamp)
         )
 
-        load_signing_secret.assert_not_called()
+        load_default_signing_secret.assert_not_called()
         self.assertFalse(result)
 
-    @mock.patch(
-        "provider.load_signing_secrets",
-        return_value=["other-secret", "signing-secret"],
-    )
-    def test_verify_slack_signature_accepts_url_verification_against_any_registration(
-        self, load_signing_secrets: mock.Mock
+    @mock.patch("provider.load_default_signing_secret", return_value="signing-secret")
+    def test_verify_slack_signature_accepts_url_verification_against_default_registration(
+        self, load_default_signing_secret: mock.Mock
     ) -> None:
         payload = {"type": "url_verification", "challenge": "challenge-token"}
 
@@ -566,7 +567,7 @@ class SlackV2ProviderTests(unittest.TestCase):
             payload, signed_slack_request(payload)
         )
 
-        load_signing_secrets.assert_called_once_with()
+        load_default_signing_secret.assert_called_once_with()
         self.assertTrue(result)
 
 
