@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 from http import HTTPStatus
 import time
@@ -47,8 +48,12 @@ class RegisterSlackEventInput(gestalt.Model):
     app_id: str = gestalt.field(description="Slack app ID.")
     client_id: str = gestalt.field(description="Slack OAuth client ID.")
     client_secret: str = gestalt.field(description="Slack OAuth client secret.")
-    signing_secret: str = gestalt.field(description="Slack signing secret for request verification.")
-    display_name: str = gestalt.field(description="Human-readable name for the Slack bot.")
+    signing_secret: str = gestalt.field(
+        description="Slack signing secret for request verification."
+    )
+    display_name: str = gestalt.field(
+        description="Human-readable name for the Slack bot."
+    )
     workflow_event_subject: str = gestalt.field(
         default="",
         description="Workflow event subject to publish for Slack events.",
@@ -250,8 +255,8 @@ def _is_url_verification(payload: dict[str, Any]) -> bool:
 def _verify_slack_signature(payload: dict[str, Any], req: gestalt.Request) -> bool:
     timestamp = _slack_request_header(req, "X-Slack-Request-Timestamp")
     signature = _slack_request_header(req, "X-Slack-Signature")
-    raw_body = _slack_request_raw_body(req)
-    if not timestamp or not signature or raw_body is None:
+    body = _slack_request_body(payload)
+    if not timestamp or not signature:
         return False
     if not _slack_request_timestamp_is_fresh(timestamp):
         return False
@@ -260,14 +265,13 @@ def _verify_slack_signature(payload: dict[str, Any], req: gestalt.Request) -> bo
     if not secrets:
         return False
 
-    basestring = b"v0:" + timestamp.encode("utf-8") + b":" + raw_body
     return any(
         hmac.compare_digest(
             signature,
             "v0="
             + hmac.new(
                 signing_secret.encode("utf-8"),
-                basestring,
+                b"v0:" + timestamp.encode("utf-8") + b":" + body,
                 hashlib.sha256,
             ).hexdigest(),
         )
@@ -312,11 +316,5 @@ def _slack_request_header(req: gestalt.Request, name: str) -> str:
     return ""
 
 
-def _slack_request_raw_body(req: gestalt.Request) -> bytes | None:
-    context = req.context
-    raw_body = getattr(context, "raw_body", None)
-    if isinstance(raw_body, bytes):
-        return raw_body
-    if isinstance(raw_body, str):
-        return raw_body.encode("utf-8")
-    return None
+def _slack_request_body(payload: dict[str, Any]) -> bytes:
+    return json.dumps(payload, separators=(",", ":")).encode("utf-8")
