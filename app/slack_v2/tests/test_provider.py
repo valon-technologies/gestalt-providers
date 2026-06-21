@@ -138,6 +138,7 @@ class SlackV2ProviderTests(unittest.TestCase):
                 client_secret="client-secret",
                 signing_secret="signing-secret",
                 display_name="Test Bot",
+                bot_token="xoxb-test-bot",
                 workflow_event_subject="slack_agent_default",
             ),
             gestalt.Request(),
@@ -148,6 +149,25 @@ class SlackV2ProviderTests(unittest.TestCase):
         self.assertEqual(result.status, HTTPStatus.BAD_REQUEST)
         self.assertEqual(result.body, {"error": "app_id is required"})
 
+    def test_register_slack_event_requires_bot_token(self) -> None:
+        result = provider_module.register_slack_event(
+            provider_module.RegisterSlackEventInput(
+                app_id="A123",
+                client_id="123.456",
+                client_secret="client-secret",
+                signing_secret="signing-secret",
+                display_name="Test Bot",
+                bot_token="  ",
+                workflow_event_subject="slack_agent_default",
+            ),
+            gestalt.Request(),
+        )
+
+        self.assertIsInstance(result, gestalt.Response)
+        assert isinstance(result, gestalt.Response)
+        self.assertEqual(result.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(result.body, {"error": "bot_token is required"})
+
     def test_register_slack_event_requires_workflow_event_subject(self) -> None:
         result = provider_module.register_slack_event(
             provider_module.RegisterSlackEventInput(
@@ -156,6 +176,7 @@ class SlackV2ProviderTests(unittest.TestCase):
                 client_secret="client-secret",
                 signing_secret="signing-secret",
                 display_name="Test Bot",
+                bot_token="xoxb-test-bot",
             ),
             gestalt.Request(),
         )
