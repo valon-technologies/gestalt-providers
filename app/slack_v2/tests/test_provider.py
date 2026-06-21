@@ -186,6 +186,109 @@ class SlackV2ProviderTests(unittest.TestCase):
         self.assertEqual(result.status, HTTPStatus.BAD_REQUEST)
         self.assertEqual(result.body, {"error": "workflow_event_subject is required"})
 
+    @mock.patch("provider.slack_get")
+    @mock.patch("provider.load_default_bot_token")
+    def test_get_user_display_name_returns_profile_display_name(
+        self,
+        load_default_bot_token: mock.Mock,
+        slack_get: mock.Mock,
+    ) -> None:
+        load_default_bot_token.return_value = "xoxb-test-bot"
+        slack_get.return_value = {
+            "ok": True,
+            "user": {
+                "real_name": "Alice Smith",
+                "profile": {"display_name": "alice"},
+            },
+        }
+
+        result = provider_module.get_user_display_name(
+            provider_module.GetUserDisplayNameInput(user_id="U123"),
+            gestalt.Request(),
+        )
+
+        load_default_bot_token.assert_called_once_with()
+        slack_get.assert_called_once_with(
+            "users.info", {"user": "U123"}, "xoxb-test-bot"
+        )
+        self.assertEqual(result, {"user_id": "U123", "display_name": "alice"})
+
+    @mock.patch("provider.slack_get")
+    @mock.patch("provider.load_default_bot_token")
+    def test_get_user_display_name_falls_back_to_real_name(
+        self,
+        load_default_bot_token: mock.Mock,
+        slack_get: mock.Mock,
+    ) -> None:
+        load_default_bot_token.return_value = "xoxb-test-bot"
+        slack_get.return_value = {
+            "ok": True,
+            "user": {
+                "real_name": "Alice Smith",
+                "profile": {"display_name": ""},
+            },
+        }
+
+        result = provider_module.get_user_display_name(
+            provider_module.GetUserDisplayNameInput(user_id="U123"),
+            gestalt.Request(),
+        )
+
+        self.assertEqual(result, {"user_id": "U123", "display_name": "Alice Smith"})
+
+    def test_get_user_display_name_requires_user_id(self) -> None:
+        result = provider_module.get_user_display_name(
+            provider_module.GetUserDisplayNameInput(user_id="  "),
+            gestalt.Request(),
+        )
+
+        self.assertIsInstance(result, gestalt.Response)
+        assert isinstance(result, gestalt.Response)
+        self.assertEqual(result.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(result.body, {"error": "user_id is required"})
+
+    @mock.patch("provider.load_default_bot_token")
+    def test_get_user_display_name_returns_not_found_for_missing_registration(
+        self, load_default_bot_token: mock.Mock
+    ) -> None:
+        load_default_bot_token.side_effect = gestalt.NotFoundError("missing")
+
+        result = provider_module.get_user_display_name(
+            provider_module.GetUserDisplayNameInput(user_id="U123"),
+            gestalt.Request(),
+        )
+
+        self.assertIsInstance(result, gestalt.Response)
+        assert isinstance(result, gestalt.Response)
+        self.assertEqual(result.status, HTTPStatus.NOT_FOUND)
+        self.assertEqual(
+            result.body, {"error": "default Slack event registration not found"}
+        )
+
+    @mock.patch("provider.slack_get")
+    @mock.patch("provider.load_default_bot_token")
+    def test_get_user_display_name_returns_not_found_for_missing_slack_user(
+        self,
+        load_default_bot_token: mock.Mock,
+        slack_get: mock.Mock,
+    ) -> None:
+        load_default_bot_token.return_value = "xoxb-test-bot"
+        slack_get.side_effect = provider_module.SlackAPIError(
+            HTTPStatus.NOT_FOUND, "user_not_found"
+        )
+
+        result = provider_module.get_user_display_name(
+            provider_module.GetUserDisplayNameInput(user_id="U123"),
+            gestalt.Request(),
+        )
+
+        self.assertIsInstance(result, gestalt.Response)
+        assert isinstance(result, gestalt.Response)
+        self.assertEqual(result.status, HTTPStatus.NOT_FOUND)
+        self.assertEqual(
+            result.body, {"error": "user not found for user_id 'U123'"}
+        )
+
     @mock.patch("provider.load_default_workflow_event_subject")
     def test_get_workflow_event_subject_for_app_returns_registration(
         self, load_default_workflow_event_subject: mock.Mock
