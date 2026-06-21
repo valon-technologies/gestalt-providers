@@ -105,6 +105,7 @@ class SlackV2ProviderTests(unittest.TestCase):
                 client_secret="client-secret",
                 signing_secret="signing-secret",
                 display_name="Test Bot",
+                bot_token="xoxb-test-bot",
                 workflow_event_subject="slack_agent_default",
             ),
             gestalt.Request(),
@@ -116,6 +117,7 @@ class SlackV2ProviderTests(unittest.TestCase):
             client_secret="client-secret",
             signing_secret="signing-secret",
             display_name="Test Bot",
+            bot_token="xoxb-test-bot",
             workflow_event_subject="slack_agent_default",
         )
         self.assertEqual(
