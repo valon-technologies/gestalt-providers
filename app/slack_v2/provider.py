@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -254,7 +256,7 @@ def _is_url_verification(payload: dict[str, Any]) -> bool:
 def _verify_slack_signature(payload: dict[str, Any], req: gestalt.Request) -> bool:
     timestamp = _slack_request_header(req, "X-Slack-Request-Timestamp")
     signature = _slack_request_header(req, "X-Slack-Signature")
-    body = _slack_request_body(payload)
+    body = _slack_request_body(payload, req)
     if not timestamp or not signature:
         return False
     if not _slack_request_timestamp_is_fresh(timestamp):
@@ -331,5 +333,38 @@ def _slack_header_value(headers: object, name: str) -> str:
     return ""
 
 
-def _slack_request_body(payload: dict[str, Any]) -> bytes:
+def _slack_request_body(payload: dict[str, Any], req: gestalt.Request) -> bytes:
+    raw_body = _slack_raw_request_body(req)
+    if raw_body:
+        return raw_body
     return json.dumps(payload, separators=(",", ":")).encode("utf-8")
+
+
+def _slack_raw_request_body(req: gestalt.Request) -> bytes:
+    raw_body = _slack_workflow_raw_body(req.workflow)
+    if raw_body:
+        return raw_body
+
+    context = req.context
+    context_raw_body = getattr(context, "raw_body", None)
+    if isinstance(context_raw_body, bytes) and context_raw_body:
+        return context_raw_body
+
+    workflow = getattr(context, "workflow", None)
+    return _slack_workflow_raw_body(workflow)
+
+
+def _slack_workflow_raw_body(workflow: object) -> bytes:
+    if not isinstance(workflow, dict):
+        return b""
+    workflow_map = cast(dict[str, Any], workflow)
+    http_context = workflow_map.get("http")
+    if not isinstance(http_context, dict):
+        return b""
+    raw_body_base64 = http_context.get("rawBodyBase64")
+    if not isinstance(raw_body_base64, str) or not raw_body_base64:
+        return b""
+    try:
+        return base64.b64decode(raw_body_base64, validate=True)
+    except binascii.Error, ValueError:
+        return b""

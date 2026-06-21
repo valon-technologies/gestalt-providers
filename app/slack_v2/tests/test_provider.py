@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+import base64
 import time
 from collections.abc import Mapping
 from http import HTTPStatus
@@ -17,13 +18,16 @@ import provider as provider_module
 def signed_slack_request(
     payload: Mapping[str, Any],
     *,
+    raw_body: bytes | None = None,
     signing_secret: str = "signing-secret",
     timestamp: int | None = None,
 ) -> gestalt.Request:
     if timestamp is None:
         timestamp = int(time.time())
-    raw_body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-    base_string = b"v0:" + str(timestamp).encode("utf-8") + b":" + raw_body
+    request_body = raw_body or json.dumps(payload, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    base_string = b"v0:" + str(timestamp).encode("utf-8") + b":" + request_body
     signature = (
         "v0="
         + hmac.new(
@@ -36,7 +40,7 @@ def signed_slack_request(
                 "X-Slack-Request-Timestamp": [str(timestamp)],
                 "X-Slack-Signature": [signature],
             },
-            raw_body=raw_body,
+            raw_body=request_body,
         )
     )
 
@@ -44,16 +48,25 @@ def signed_slack_request(
 def signed_slack_workflow_context_request(
     payload: Mapping[str, Any],
     *,
+    raw_body: bytes | None = None,
     signing_secret: str = "signing-secret",
     timestamp: int | None = None,
 ) -> gestalt.Request:
     request = signed_slack_request(
-        payload, signing_secret=signing_secret, timestamp=timestamp
+        payload,
+        raw_body=raw_body,
+        signing_secret=signing_secret,
+        timestamp=timestamp,
     )
     context = request.context
     assert isinstance(context, gestalt.HTTPSubjectRequest)
     return gestalt.Request(
-        workflow={"http": {"headers": context.headers}},
+        workflow={
+            "http": {
+                "headers": context.headers,
+                "rawBodyBase64": base64.b64encode(context.raw_body).decode("ascii"),
+            }
+        },
     )
 
 
@@ -521,7 +534,7 @@ class SlackV2ProviderTests(unittest.TestCase):
         self.assertFalse(result)
 
     @mock.patch("provider.load_default_signing_secret", return_value="signing-secret")
-    def test_verify_slack_signature_uses_parsed_payload_body(
+    def test_verify_slack_signature_uses_raw_request_body(
         self, load_default_signing_secret: mock.Mock
     ) -> None:
         payload = {
@@ -529,12 +542,11 @@ class SlackV2ProviderTests(unittest.TestCase):
             "event_id": "Ev123",
             "type": "event_callback",
         }
-        request = signed_slack_request(payload)
-        context = request.context
-        assert isinstance(context, gestalt.HTTPSubjectRequest)
-        context.raw_body = b'{"different":"raw-body"}'
+        raw_body = b'{"type":"event_callback","event_id":"Ev123","api_app_id":"A123"}'
 
-        result = provider_module._verify_slack_signature(payload, request)
+        result = provider_module._verify_slack_signature(
+            payload, signed_slack_workflow_context_request(payload, raw_body=raw_body)
+        )
 
         load_default_signing_secret.assert_called_once_with()
         self.assertTrue(result)
