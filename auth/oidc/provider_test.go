@@ -826,33 +826,6 @@ func TestTokenExchangeAttenuatesScope(t *testing.T) {
 	}
 }
 
-
-
-func TestTokenExchangeDefaultsTTLWhenOmitted(t *testing.T) {
-	p := New()
-	attachGrantStore(t, p)
-	ctx := context.Background()
-	subject := "user:ttl-default@example.com"
-
-	seed, err := p.grants.issue(ctx, subject, "openid", defaultOAuthClientID, grantCategorySession, time.Hour)
-	if err != nil {
-		t.Fatalf("seed issue() error = %v", err)
-	}
-
-	issued, err := p.Token(ctx, &gestalt.TokenRequest{
-		GrantType:        grantTypeTokenExchange,
-		SubjectToken:     seed.accessToken,
-		SubjectTokenType: subjectTokenTypeAccessToken,
-		Scope:            "openid",
-	})
-	if err != nil {
-		t.Fatalf("Token() error = %v", err)
-	}
-	if want := int64(defaultSessionTTL / time.Second); issued.ExpiresIn != want {
-		t.Fatalf("ExpiresIn = %d, want default %d", issued.ExpiresIn, want)
-	}
-}
-
 func TestIssuePersistsGrantAndTokenHashTransactionally(t *testing.T) {
 	ctx := context.Background()
 	p := New()

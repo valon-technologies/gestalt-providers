@@ -1256,18 +1256,10 @@ export async function cancelAgentRun(
 export async function createToken(
   name: string,
   scopes: string,
-  expiresInSeconds?: number,
 ): Promise<CreateTokenResponse> {
-  const body: { name: string; scopes: string; expiresInSeconds?: number } = {
-    name,
-    scopes,
-  };
-  if (expiresInSeconds !== undefined) {
-    body.expiresInSeconds = expiresInSeconds;
-  }
   return fetchAPI("/api/v1/tokens", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: JSON.stringify({ name, scopes }),
   });
 }
 

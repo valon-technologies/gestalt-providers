@@ -2,11 +2,7 @@
 
 import { useState } from "react";
 import { createToken } from "@/lib/api";
-import {
-  DEFAULT_TOKEN_TTL_PRESET_SECONDS,
-  INPUT_CLASSES,
-  TOKEN_TTL_PRESETS,
-} from "@/lib/constants";
+import { INPUT_CLASSES } from "@/lib/constants";
 import Button from "./Button";
 
 interface TokenCreateFormProps {
@@ -26,15 +22,12 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
     const scopes = (formData.get("scopes") as string)?.trim();
     if (!name) return;
 
-    const ttlRaw = (formData.get("ttl") as string)?.trim();
-    const ttlSeconds = ttlRaw === "" ? undefined : Number(ttlRaw);
-
     setCreating(true);
     setError(null);
     setPlaintext(null);
 
     try {
-      const result = await createToken(name, scopes, ttlSeconds);
+      const result = await createToken(name, scopes);
       setPlaintext(result.token);
       form.reset();
       await onCreated();
@@ -78,23 +71,6 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
             placeholder="blank = full identity, or my-app / my-app:operation"
             className={`mt-2 w-full ${INPUT_CLASSES}`}
           />
-        </div>
-        <div className="sm:w-40">
-          <label htmlFor="token-ttl" className="label-text block">
-            Expires
-          </label>
-          <select
-            id="token-ttl"
-            name="ttl"
-            defaultValue={String(DEFAULT_TOKEN_TTL_PRESET_SECONDS)}
-            className={`mt-2 w-full ${INPUT_CLASSES}`}
-          >
-            {TOKEN_TTL_PRESETS.map((preset) => (
-              <option key={preset.label} value={preset.seconds ?? ""}>
-                {preset.label}
-              </option>
-            ))}
-          </select>
         </div>
         <Button type="submit" disabled={creating} className="sm:shrink-0">
           {creating ? "Creating..." : "Create Token"}
