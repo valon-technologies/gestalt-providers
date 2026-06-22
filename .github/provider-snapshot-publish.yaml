@@ -1,4 +1,4 @@
-apiVersion: gestaltd.config/v6
+apiVersion: gestaltd.config/v7
 
 providerSnapshotRepositories:
   valon:
