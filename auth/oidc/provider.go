@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -33,6 +34,9 @@ const (
 	grantTypeAuthorizationCode  = "authorization_code"
 	grantTypeTokenExchange      = "urn:ietf:params:oauth:grant-type:token-exchange"
 	subjectTokenTypeAccessToken = "urn:ietf:params:oauth:token-type:access_token"
+	// maxAPITokenTTL is the upper bound on a caller-requested API-token lifetime.
+	// One year matches core.MaxTokenExpiresInSeconds in gestaltd.
+	maxAPITokenTTL = 365 * 24 * time.Hour
 )
 
 type discoveryDocument struct {
@@ -195,6 +199,26 @@ func (p *Provider) SessionTTL() time.Duration {
 	return defaultSessionTTL
 }
 
+// tokenExpiresIn resolves a caller-supplied API-token lifetime hint (seconds,
+// from the Gestalt request-side expires_in extension) against the provider's
+// session TTL fallback. A zero hint yields the fallback. Negative values are
+// rejected. Values above maxAPITokenTTL clamp to maxAPITokenTTL. The comparison
+// against the max happens in seconds before converting to time.Duration to
+// avoid int64 overflow on math.MaxInt64 inputs.
+func tokenExpiresIn(reqExpiresIn int64, fallback time.Duration) (time.Duration, error) {
+	if reqExpiresIn == 0 {
+		return fallback, nil
+	}
+	if reqExpiresIn < 0 {
+		return 0, errors.New("expires_in must be non-negative")
+	}
+	maxSeconds := int64(maxAPITokenTTL / time.Second)
+	if reqExpiresIn > maxSeconds {
+		reqExpiresIn = maxSeconds
+	}
+	return time.Duration(reqExpiresIn) * time.Second, nil
+}
+
 func (p *Provider) Authorize(ctx context.Context, req *gestalt.AuthorizeRequest) (*gestalt.AuthorizeResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("oidc auth: authorize request is required")
@@ -341,7 +365,11 @@ func (p *Provider) tokenAuthorizationCode(ctx context.Context, req *gestalt.Toke
 	if clientID == "" {
 		clientID = defaultOAuthClientID
 	}
-	issued, err := p.grants.issue(ctx, subject, pending.scope, clientID, grantCategorySession, p.SessionTTL())
+	ttl, err := tokenExpiresIn(req.ExpiresIn, p.SessionTTL())
+	if err != nil {
+		return nil, err
+	}
+	issued, err := p.grants.issue(ctx, subject, pending.scope, clientID, grantCategorySession, ttl)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +409,11 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 	if err != nil {
 		return nil, err
 	}
-	issued, err := p.grants.issue(ctx, introspectResp.Subject, issuedScope, clientID, grantCategoryAPIToken, p.SessionTTL())
+	ttl, err := tokenExpiresIn(req.ExpiresIn, p.SessionTTL())
+	if err != nil {
+		return nil, err
+	}
+	issued, err := p.grants.issue(ctx, introspectResp.Subject, issuedScope, clientID, grantCategoryAPIToken, ttl)
 	if err != nil {
 		return nil, err
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -821,6 +822,58 @@ func TestTokenExchangeAttenuatesScope(t *testing.T) {
 			}
 			if introspectResp.Scope != tt.wantScope {
 				t.Fatalf("Introspect() scope = %q, want %q", introspectResp.Scope, tt.wantScope)
+			}
+		})
+	}
+}
+
+func TestTokenExchangeExpiresIn(t *testing.T) {
+	p := New()
+	attachGrantStore(t, p)
+	ctx := context.Background()
+	subject := "user:ttl@example.com"
+
+	maxSeconds := int64(maxAPITokenTTL / time.Second)
+
+	tests := []struct {
+		name    string
+		hint    int64
+		wantIn  int64
+		wantErr string
+	}{
+		{name: "zero uses session default", hint: 0, wantIn: int64(p.SessionTTL() / time.Second)},
+		{name: "90 days forwards", hint: 90 * 24 * 3600, wantIn: 90 * 24 * 3600},
+		{name: "over max clamps to one year", hint: maxSeconds + 1, wantIn: maxSeconds},
+		{name: "math.MaxInt64 clamps to one year", hint: math.MaxInt64, wantIn: maxSeconds},
+		{name: "negative rejects", hint: -1, wantErr: "expires_in must be non-negative"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			issued, err := p.grants.issue(ctx, subject, "openid", defaultOAuthClientID, grantCategorySession, time.Hour)
+			if err != nil {
+				t.Fatalf("issue() error = %v", err)
+			}
+			tokenResp, err := p.Token(ctx, &gestalt.TokenRequest{
+				GrantType:        grantTypeTokenExchange,
+				SubjectToken:     issued.accessToken,
+				SubjectTokenType: subjectTokenTypeAccessToken,
+				ExpiresIn:        tt.hint,
+			})
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatal("Token() error = nil, want rejection")
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Token() error = %v, want substring %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Token() error = %v", err)
+			}
+			if tokenResp.ExpiresIn != tt.wantIn {
+				t.Fatalf("ExpiresIn = %d, want %d", tokenResp.ExpiresIn, tt.wantIn)
 			}
 		})
 	}
