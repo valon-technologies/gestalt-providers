@@ -475,9 +475,8 @@ func cloneSubjectInput(subject *gestalt.Subject) *gestalt.Subject {
 		return nil
 	}
 	return &gestalt.Subject{
-		ID:                  strings.TrimSpace(subject.ID),
-		CredentialSubjectID: strings.TrimSpace(subject.CredentialSubjectID),
-		Email:               strings.TrimSpace(subject.Email),
+		ID:    strings.TrimSpace(subject.ID),
+		Email: strings.TrimSpace(subject.Email),
 	}
 }
 

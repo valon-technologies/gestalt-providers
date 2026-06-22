@@ -4184,9 +4184,8 @@ func cloneSubject(subject *gestalt.Subject) *gestalt.Subject {
 		return nil
 	}
 	return &gestalt.Subject{
-		ID:                  strings.TrimSpace(subject.ID),
-		CredentialSubjectID: strings.TrimSpace(subject.CredentialSubjectID),
-		Email:               strings.TrimSpace(subject.Email),
+		ID:    strings.TrimSpace(subject.ID),
+		Email: strings.TrimSpace(subject.Email),
 	}
 }
 
@@ -4420,9 +4419,6 @@ func subjectToMap(subject *gestalt.Subject) map[string]any {
 	out := map[string]any{
 		"id": strings.TrimSpace(subject.ID),
 	}
-	if credentialSubjectID := strings.TrimSpace(subject.CredentialSubjectID); credentialSubjectID != "" {
-		out["credential_subject_id"] = credentialSubjectID
-	}
 	if email := strings.TrimSpace(subject.Email); email != "" {
 		out["email"] = email
 	}
@@ -4442,9 +4438,8 @@ func subjectFromAny(value any) *gestalt.Subject {
 		return nil
 	}
 	return &gestalt.Subject{
-		ID:                  subjectID,
-		CredentialSubjectID: stringField(data, "credential_subject_id"),
-		Email:               stringField(data, "email"),
+		ID:    subjectID,
+		Email: stringField(data, "email"),
 	}
 }
 
