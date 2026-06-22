@@ -9,6 +9,14 @@ interface TokenCreateFormProps {
   onCreated: () => void | Promise<void>;
 }
 
+const daySeconds = 24 * 60 * 60;
+const tokenLifetimeSeconds: Record<string, number> = {
+  "30d": 30 * daySeconds,
+  "90d": 90 * daySeconds,
+  "365d": 365 * daySeconds,
+};
+const defaultTokenLifetime = "30d";
+
 export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,6 +28,7 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
     const formData = new FormData(form);
     const name = (formData.get("name") as string)?.trim();
     const scopes = (formData.get("scopes") as string)?.trim();
+    const lifetime = (formData.get("lifetime") as string) ?? defaultTokenLifetime;
     if (!name) return;
 
     setCreating(true);
@@ -27,7 +36,7 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
     setPlaintext(null);
 
     try {
-      const result = await createToken(name, scopes);
+      const result = await createToken(name, scopes, tokenLifetimeSeconds[lifetime] ?? tokenLifetimeSeconds[defaultTokenLifetime]);
       setPlaintext(result.token);
       form.reset();
       await onCreated();
@@ -71,6 +80,24 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
             placeholder="blank = full identity, or my-app / my-app:operation"
             className={`mt-2 w-full ${INPUT_CLASSES}`}
           />
+        </div>
+        <div className="sm:w-40">
+          <label
+            htmlFor="token-lifetime"
+            className="label-text block"
+          >
+            Lifetime
+          </label>
+          <select
+            id="token-lifetime"
+            name="lifetime"
+            defaultValue={defaultTokenLifetime}
+            className={`mt-2 w-full ${INPUT_CLASSES}`}
+          >
+            <option value="30d">30 days</option>
+            <option value="90d">90 days</option>
+            <option value="365d">1 year</option>
+          </select>
         </div>
         <Button type="submit" disabled={creating} className="sm:shrink-0">
           {creating ? "Creating..." : "Create Token"}
