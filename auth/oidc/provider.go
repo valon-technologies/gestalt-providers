@@ -26,6 +26,7 @@ import (
 const (
 	providerVersion             = "0.0.1-alpha.1"
 	defaultSessionTTL           = 24 * time.Hour
+	maxAPITokenTTL              = 365 * 24 * time.Hour
 	defaultDisplayName          = "SSO"
 	defaultHTTPTimeout          = 10 * time.Second
 	defaultPKCEVerifierTTL      = time.Hour
@@ -180,10 +181,10 @@ func (p *Provider) Metadata() gestalt.ProviderMetadata {
 		displayName = defaultDisplayName
 	}
 	return gestalt.ProviderMetadata{
-		Kind:        gestalt.ProviderKindAuthentication,
+		Kind:        gestalt.ProviderKindIdentity,
 		Name:        "oidc",
 		DisplayName: displayName,
-		Description: "Authenticate users with an OpenID Connect provider.",
+		Description: "Identity provider backed by OpenID Connect.",
 		Version:     providerVersion,
 	}
 }
@@ -495,7 +496,7 @@ func (p *Provider) grantStore() (*grantStore, error) {
 }
 
 func (p *Provider) callerSubject(ctx context.Context) (string, error) {
-	call := gestalt.AuthCallContextFromContext(ctx)
+	call := gestalt.IdentityCallContextFromContext(ctx)
 	if call.Introspection != nil && call.Introspection.Active && strings.TrimSpace(call.Introspection.Subject) != "" {
 		return strings.TrimSpace(call.Introspection.Subject), nil
 	}
@@ -728,5 +729,5 @@ func (p *Provider) currentTime() time.Time {
 	return time.Now()
 }
 
-var _ gestalt.AuthenticationProvider = (*Provider)(nil)
+var _ gestalt.IdentityProvider = (*Provider)(nil)
 var _ gestalt.MetadataProvider = (*Provider)(nil)

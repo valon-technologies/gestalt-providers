@@ -142,7 +142,7 @@ func TestTokenPKCEUsesStoredVerifier(t *testing.T) {
 		t.Fatalf("Introspect() client_id = %q, want %q", introspectResp.ClientID, defaultOAuthClientID)
 	}
 
-	userInfoCtx := gestalt.WithAuthCallContext(context.Background(), gestalt.AuthCallContext{
+	userInfoCtx := gestalt.WithIdentityCallContext(context.Background(), gestalt.IdentityCallContext{
 		CallerBearerToken: tokenResp.AccessToken,
 	})
 	userInfoResp, err := p.UserInfo(userInfoCtx, &gestalt.UserInfoRequest{})
@@ -168,7 +168,7 @@ func TestIntrospectInactiveAfterRevokeGrant(t *testing.T) {
 	}
 	grantID, accessToken := issued.grantID, issued.accessToken
 
-	revokeCtx := gestalt.WithAuthCallContext(ctx, gestalt.AuthCallContext{
+	revokeCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
 		CallerBearerToken: accessToken,
 	})
 	if _, err := p.RevokeGrant(revokeCtx, &gestalt.RevokeGrantRequest{GrantID: grantID}); err != nil {
@@ -199,7 +199,7 @@ func TestListGrantsScopesToCaller(t *testing.T) {
 	}
 	otherGrantID := otherIssued.grantID
 
-	callCtx := gestalt.WithAuthCallContext(ctx, gestalt.AuthCallContext{
+	callCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
 		CallerBearerToken: token,
 	})
 	resp, err := p.ListGrants(callCtx, &gestalt.ListGrantsRequest{})
@@ -826,6 +826,33 @@ func TestTokenExchangeAttenuatesScope(t *testing.T) {
 	}
 }
 
+
+
+func TestTokenExchangeDefaultsTTLWhenOmitted(t *testing.T) {
+	p := New()
+	attachGrantStore(t, p)
+	ctx := context.Background()
+	subject := "user:ttl-default@example.com"
+
+	seed, err := p.grants.issue(ctx, subject, "openid", defaultOAuthClientID, grantCategorySession, time.Hour)
+	if err != nil {
+		t.Fatalf("seed issue() error = %v", err)
+	}
+
+	issued, err := p.Token(ctx, &gestalt.TokenRequest{
+		GrantType:        grantTypeTokenExchange,
+		SubjectToken:     seed.accessToken,
+		SubjectTokenType: subjectTokenTypeAccessToken,
+		Scope:            "openid",
+	})
+	if err != nil {
+		t.Fatalf("Token() error = %v", err)
+	}
+	if want := int64(defaultSessionTTL / time.Second); issued.ExpiresIn != want {
+		t.Fatalf("ExpiresIn = %d, want default %d", issued.ExpiresIn, want)
+	}
+}
+
 func TestIssuePersistsGrantAndTokenHashTransactionally(t *testing.T) {
 	ctx := context.Background()
 	p := New()
@@ -1095,7 +1122,7 @@ func TestGrantManagementExcludesSessionGrants(t *testing.T) {
 		t.Fatalf("issue(api_token) error = %v", err)
 	}
 
-	callCtx := gestalt.WithAuthCallContext(ctx, gestalt.AuthCallContext{
+	callCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
 		CallerBearerToken: apiIssued.accessToken,
 	})
 	listResp, err := p.ListGrants(callCtx, &gestalt.ListGrantsRequest{})

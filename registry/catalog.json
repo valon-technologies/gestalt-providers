@@ -2149,10 +2149,10 @@
     },
     {
       "configTarget": {
-        "entryKind": "authentication",
-        "section": "providers.authentication"
+        "entryKind": "identity",
+        "section": "providers.identity"
       },
-      "description": "Authenticate users with an OpenID Connect provider.",
+      "description": "Identity provider backed by OpenID Connect.",
       "displayName": "OIDC",
       "docs": [
         {
@@ -2164,15 +2164,15 @@
         }
       ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/auth/oidc/assets/icon.svg",
-      "kind": "authentication",
-      "latestInstallableVersion": "0.0.1-alpha.1",
+      "kind": "identity",
+      "latestInstallableVersion": "0.0.1-alpha.2",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/auth/oidc/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.2",
       "name": "oidc",
       "package": "github.com/valon-technologies/gestalt-providers/auth/oidc",
       "packagePath": "auth/oidc",
       "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/auth/oidc/README.md",
-      "registryPath": "/providers/authentication/oidc/",
+      "registryPath": "/providers/identity/oidc/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/auth/oidc",
       "versions": [
         {
@@ -2187,6 +2187,19 @@
           ],
           "runtime": "executable",
           "version": "0.0.1-alpha.1"
+        },
+        {
+          "kind": "identity",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/auth/oidc/v0.0.1-alpha.2/provider-release.yaml",
+          "platforms": [
+            "darwin/amd64",
+            "darwin/arm64",
+            "linux/amd64",
+            "linux/arm64",
+            "linux/arm"
+          ],
+          "runtime": "executable",
+          "version": "0.0.1-alpha.2"
         }
       ]
     },
