@@ -658,7 +658,7 @@ def config_target(kind: str) -> dict[str, Any]:
     if kind == "externalcredentials":
         return {"section": "providers.externalCredentials", "entryKind": kind}
     if kind in {
-        "authentication",
+        "identity",
         "authorization",
         "cache",
         "indexeddb",

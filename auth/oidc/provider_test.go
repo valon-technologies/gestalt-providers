@@ -142,7 +142,7 @@ func TestTokenPKCEUsesStoredVerifier(t *testing.T) {
 		t.Fatalf("Introspect() client_id = %q, want %q", introspectResp.ClientID, defaultOAuthClientID)
 	}
 
-	userInfoCtx := gestalt.WithAuthCallContext(context.Background(), gestalt.AuthCallContext{
+	userInfoCtx := gestalt.WithIdentityCallContext(context.Background(), gestalt.IdentityCallContext{
 		CallerBearerToken: tokenResp.AccessToken,
 	})
 	userInfoResp, err := p.UserInfo(userInfoCtx, &gestalt.UserInfoRequest{})
@@ -168,7 +168,7 @@ func TestIntrospectInactiveAfterRevokeGrant(t *testing.T) {
 	}
 	grantID, accessToken := issued.grantID, issued.accessToken
 
-	revokeCtx := gestalt.WithAuthCallContext(ctx, gestalt.AuthCallContext{
+	revokeCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
 		CallerBearerToken: accessToken,
 	})
 	if _, err := p.RevokeGrant(revokeCtx, &gestalt.RevokeGrantRequest{GrantID: grantID}); err != nil {
@@ -199,7 +199,7 @@ func TestListGrantsScopesToCaller(t *testing.T) {
 	}
 	otherGrantID := otherIssued.grantID
 
-	callCtx := gestalt.WithAuthCallContext(ctx, gestalt.AuthCallContext{
+	callCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
 		CallerBearerToken: token,
 	})
 	resp, err := p.ListGrants(callCtx, &gestalt.ListGrantsRequest{})
@@ -1095,7 +1095,7 @@ func TestGrantManagementExcludesSessionGrants(t *testing.T) {
 		t.Fatalf("issue(api_token) error = %v", err)
 	}
 
-	callCtx := gestalt.WithAuthCallContext(ctx, gestalt.AuthCallContext{
+	callCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
 		CallerBearerToken: apiIssued.accessToken,
 	})
 	listResp, err := p.ListGrants(callCtx, &gestalt.ListGrantsRequest{})
