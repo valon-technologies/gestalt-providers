@@ -1256,3 +1256,95 @@ func TestClaimsStoreDoesNotClearExistingName(t *testing.T) {
 		t.Fatalf("name = %q, want Stored Name", record.Name)
 	}
 }
+
+func TestTokenExchangeTTLClamping(t *testing.T) {
+	p := New()
+	attachGrantStore(t, p)
+	ctx := context.Background()
+	subject := "user:ttl@example.com"
+
+	// Issue a session token to exchange.
+	session, err := p.grants.issue(ctx, subject, "openid", defaultOAuthClientID, grantCategorySession, time.Hour)
+	if err != nil {
+		t.Fatalf("issue(session) error = %v", err)
+	}
+
+	tests := []struct {
+		name         string
+		requestedTTL int64
+		wantMinTTL   time.Duration
+		wantMaxTTL   time.Duration
+	}{
+		{
+			name:         "zero uses default api token ttl",
+			requestedTTL: 0,
+			wantMinTTL:   defaultAPITokenTTL - time.Second,
+			wantMaxTTL:   defaultAPITokenTTL + time.Second,
+		},
+		{
+			name:         "valid requested ttl honored",
+			requestedTTL: int64((7 * 24 * time.Hour).Seconds()),
+			wantMinTTL:   7*24*time.Hour - time.Second,
+			wantMaxTTL:   7*24*time.Hour + time.Second,
+		},
+		{
+			name:         "exceeding max clamped to max",
+			requestedTTL: int64((10 * 365 * 24 * time.Hour).Seconds()),
+			wantMinTTL:   maxAPITokenTTL - time.Second,
+			wantMaxTTL:   maxAPITokenTTL + time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tokenResp, err := p.Token(ctx, &gestalt.TokenRequest{
+				GrantType:        grantTypeTokenExchange,
+				SubjectToken:     session.accessToken,
+				SubjectTokenType: subjectTokenTypeAccessToken,
+				Scope:            "openid",
+				RequestedTTL:     tt.requestedTTL,
+			})
+			if err != nil {
+				t.Fatalf("Token() error = %v", err)
+			}
+			expiresIn := time.Duration(tokenResp.ExpiresIn) * time.Second
+			if expiresIn < tt.wantMinTTL || expiresIn > tt.wantMaxTTL {
+				t.Fatalf("ExpiresIn = %v, want %v..%v", expiresIn, tt.wantMinTTL, tt.wantMaxTTL)
+			}
+		})
+	}
+}
+
+func TestAPITokenTTLConfig(t *testing.T) {
+	p := New()
+	attachGrantStore(t, p)
+
+	// With no config, defaults apply.
+	if got := p.APITokenTTL(); got != defaultAPITokenTTL {
+		t.Fatalf("APITokenTTL() = %v, want %v", got, defaultAPITokenTTL)
+	}
+	if got := p.MaxAPITokenTTL(); got != maxAPITokenTTL {
+		t.Fatalf("MaxAPITokenTTL() = %v, want %v", got, maxAPITokenTTL)
+	}
+
+	// With config, custom values apply.
+	p.cfg.APITokenTTL = 48 * time.Hour
+	p.cfg.MaxAPITokenTTL = 100 * 24 * time.Hour
+	if got := p.APITokenTTL(); got != 48*time.Hour {
+		t.Fatalf("APITokenTTL() = %v, want 48h", got)
+	}
+	if got := p.MaxAPITokenTTL(); got != 100*24*time.Hour {
+		t.Fatalf("MaxAPITokenTTL() = %v, want 2400h", got)
+	}
+
+	// apiTokenTTL clamps requested value to max.
+	requested := int64((200 * 24 * time.Hour).Seconds())
+	if got := p.apiTokenTTL(requested); got != 100*24*time.Hour {
+		t.Fatalf("apiTokenTTL(%d) = %v, want 2400h (clamped)", requested, got)
+	}
+
+	// apiTokenTTL returns default when 0.
+	if got := p.apiTokenTTL(0); got != 48*time.Hour {
+		t.Fatalf("apiTokenTTL(0) = %v, want 48h (configured default)", got)
+	}
+}
