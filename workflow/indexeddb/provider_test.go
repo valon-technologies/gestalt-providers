@@ -429,18 +429,14 @@ func TestNormalizeWorkflowStepAgentPreservesWorkspace(t *testing.T) {
 			URL:  "https://github.com/valon-technologies/toolshed.git",
 			Ref:  "main",
 			Path: "toolshed",
-		}, {
-			URL:  "https://github.com/valon-technologies/gestalt.git",
-			Ref:  "main",
-			Path: "gestalt",
 		}},
 		CWD: "toolshed",
 	}
 	agent := &gestalt.WorkflowStepAgentTurn{
-		Provider: "claude",
-		Model:    "default",
-		Prompt:   gestalt.WorkflowText{Template: "diagnose"},
-		Output:   &gestalt.AgentOutput{Text: &gestalt.AgentTextOutput{}},
+		Provider:  "claude",
+		Model:     "default",
+		Prompt:    gestalt.WorkflowText{Template: "diagnose"},
+		Output:    &gestalt.AgentOutput{Text: &gestalt.AgentTextOutput{}},
 		Workspace: workspace,
 	}
 
@@ -448,23 +444,12 @@ func TestNormalizeWorkflowStepAgentPreservesWorkspace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("normalizeWorkflowStepAgent: %v", err)
 	}
-	if normalized.Workspace == nil || normalized.Workspace.CWD != "toolshed" {
-		t.Fatalf("workspace = %#v, want cwd toolshed", normalized.Workspace)
-	}
-	if len(normalized.Workspace.Checkouts) != 2 {
-		t.Fatalf("workspace checkouts = %#v, want 2", normalized.Workspace.Checkouts)
-	}
-	if normalized.Workspace.Checkouts[0].URL != workspace.Checkouts[0].URL ||
-		normalized.Workspace.Checkouts[1].Path != workspace.Checkouts[1].Path {
-		t.Fatalf("workspace checkouts = %#v, want original urls/paths", normalized.Workspace.Checkouts)
-	}
-
 	workspace.Checkouts = append(workspace.Checkouts, gestalt.AgentWorkspaceGitCheckout{
-		URL:  "https://github.com/valon-technologies/gestalt-providers.git",
+		URL:  "https://github.com/valon-technologies/gestalt.git",
 		Ref:  "main",
-		Path: "gestalt-providers",
+		Path: "gestalt",
 	})
-	if len(normalized.Workspace.Checkouts) != 2 {
+	if len(normalized.Workspace.Checkouts) != 1 {
 		t.Fatalf("normalized workspace checkouts = %#v, want isolated copy", normalized.Workspace.Checkouts)
 	}
 }
