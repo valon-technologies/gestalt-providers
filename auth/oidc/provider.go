@@ -26,6 +26,8 @@ import (
 const (
 	providerVersion             = "0.0.1-alpha.1"
 	defaultSessionTTL           = 24 * time.Hour
+	defaultAPITokenTTL          = 30 * 24 * time.Hour
+	maxAPITokenTTL              = 365 * 24 * time.Hour
 	defaultDisplayName          = "SSO"
 	defaultHTTPTimeout          = 10 * time.Second
 	defaultPKCEVerifierTTL      = time.Hour
@@ -49,6 +51,8 @@ type config struct {
 	AllowedDomains       []string      `yaml:"allowedDomains"`
 	Scopes               []string      `yaml:"scopes"`
 	SessionTTL           time.Duration `yaml:"sessionTtl"`
+	APITokenTTL          time.Duration `yaml:"apiTokenTtl"`
+	MaxAPITokenTTL       time.Duration `yaml:"maxApiTokenTtl"`
 	PKCE                 bool          `yaml:"pkce"`
 	DisplayName          string        `yaml:"displayName"`
 	AllowInsecureHTTP    bool          `yaml:"allowInsecureHttp"`
@@ -193,6 +197,36 @@ func (p *Provider) SessionTTL() time.Duration {
 		return p.cfg.SessionTTL
 	}
 	return defaultSessionTTL
+}
+
+func (p *Provider) APITokenTTL() time.Duration {
+	if p.cfg.APITokenTTL > 0 {
+		return p.cfg.APITokenTTL
+	}
+	return defaultAPITokenTTL
+}
+
+func (p *Provider) MaxAPITokenTTL() time.Duration {
+	if p.cfg.MaxAPITokenTTL > 0 {
+		return p.cfg.MaxAPITokenTTL
+	}
+	return maxAPITokenTTL
+}
+
+func (p *Provider) apiTokenTTL(requestedSeconds int64) time.Duration {
+	maxTTL := p.MaxAPITokenTTL()
+	if requestedSeconds <= 0 {
+		ttl := p.APITokenTTL()
+		if ttl > maxTTL {
+			return maxTTL
+		}
+		return ttl
+	}
+	requested := time.Duration(requestedSeconds) * time.Second
+	if requested > maxTTL {
+		return maxTTL
+	}
+	return requested
 }
 
 func (p *Provider) Authorize(ctx context.Context, req *gestalt.AuthorizeRequest) (*gestalt.AuthorizeResponse, error) {
@@ -381,7 +415,7 @@ func (p *Provider) tokenExchange(ctx context.Context, req *gestalt.TokenRequest)
 	if err != nil {
 		return nil, err
 	}
-	issued, err := p.grants.issue(ctx, introspectResp.Subject, issuedScope, clientID, grantCategoryAPIToken, p.SessionTTL())
+	issued, err := p.grants.issue(ctx, introspectResp.Subject, issuedScope, clientID, grantCategoryAPIToken, p.apiTokenTTL(req.RequestedTTL))
 	if err != nil {
 		return nil, err
 	}

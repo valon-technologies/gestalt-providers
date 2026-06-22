@@ -57,7 +57,7 @@ test.describe("Token Management", () => {
       }
       if (request.method() === "POST") {
         const body = request.postDataJSON() as { name?: string; scopes?: string };
-        expect(body).toEqual({ name: "audit-label", scopes: "my-app" });
+        expect(body).toEqual({ name: "audit-label", scopes: "my-app", expiresIn: 30 * 86400 });
         tokens = [
           {
             id: "tok-new",

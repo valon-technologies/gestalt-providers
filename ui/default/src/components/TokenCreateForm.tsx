@@ -9,6 +9,13 @@ interface TokenCreateFormProps {
   onCreated: () => void | Promise<void>;
 }
 
+const EXPIRY_OPTIONS = [
+  { label: "7 days", value: 7 * 86400 },
+  { label: "30 days", value: 30 * 86400 },
+  { label: "90 days", value: 90 * 86400 },
+  { label: "1 year", value: 365 * 86400 },
+];
+
 export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,14 +27,16 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
     const formData = new FormData(form);
     const name = (formData.get("name") as string)?.trim();
     const scopes = (formData.get("scopes") as string)?.trim();
+    const expiresInStr = (formData.get("expiresIn") as string)?.trim();
     if (!name) return;
+    const expiresIn = expiresInStr ? parseInt(expiresInStr, 10) : undefined;
 
     setCreating(true);
     setError(null);
     setPlaintext(null);
 
     try {
-      const result = await createToken(name, scopes);
+      const result = await createToken(name, scopes, expiresIn);
       setPlaintext(result.token);
       form.reset();
       await onCreated();
@@ -71,6 +80,26 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
             placeholder="blank = full identity, or my-app / my-app:operation"
             className={`mt-2 w-full ${INPUT_CLASSES}`}
           />
+        </div>
+        <div className="sm:w-40">
+          <label
+            htmlFor="token-expiry"
+            className="label-text block"
+          >
+            Expires in
+          </label>
+          <select
+            id="token-expiry"
+            name="expiresIn"
+            defaultValue={EXPIRY_OPTIONS[1].value.toString()}
+            className={`mt-2 w-full ${INPUT_CLASSES}`}
+          >
+            {EXPIRY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
         </div>
         <Button type="submit" disabled={creating} className="sm:shrink-0">
           {creating ? "Creating..." : "Create Token"}
