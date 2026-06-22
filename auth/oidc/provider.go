@@ -180,10 +180,10 @@ func (p *Provider) Metadata() gestalt.ProviderMetadata {
 		displayName = defaultDisplayName
 	}
 	return gestalt.ProviderMetadata{
-		Kind:        gestalt.ProviderKindAuthentication,
+		Kind:        gestalt.ProviderKindIdentity,
 		Name:        "oidc",
 		DisplayName: displayName,
-		Description: "Authenticate users with an OpenID Connect provider.",
+		Description: "Identity provider using OpenID Connect.",
 		Version:     providerVersion,
 	}
 }
@@ -406,6 +406,23 @@ func (p *Provider) closeGrantsDB() error {
 	return db.Close()
 }
 
+func (p *Provider) UserInfo(ctx context.Context, _ *gestalt.UserInfoRequest) (*gestalt.UserInfoResponse, error) {
+	call := gestalt.IdentityCallContextFromContext(ctx)
+	token := strings.TrimSpace(call.CallerBearerToken)
+	if token == "" {
+		return nil, fmt.Errorf("oidc auth: caller bearer token is required for userinfo")
+	}
+	user, err := p.fetchUserInfo(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	return &gestalt.UserInfoResponse{
+		SubjectID: subjectForVerifiedEmail(user.Email),
+		Email:     user.Email,
+		Name:      user.DisplayName,
+	}, nil
+}
+
 // Close releases provider-owned IndexedDB resources.
 func (p *Provider) Close() error {
 	return p.closeGrantsDB()
@@ -495,7 +512,7 @@ func (p *Provider) grantStore() (*grantStore, error) {
 }
 
 func (p *Provider) callerSubject(ctx context.Context) (string, error) {
-	call := gestalt.AuthCallContextFromContext(ctx)
+	call := gestalt.IdentityCallContextFromContext(ctx)
 	if call.Introspection != nil && call.Introspection.Active && strings.TrimSpace(call.Introspection.Subject) != "" {
 		return strings.TrimSpace(call.Introspection.Subject), nil
 	}
@@ -728,5 +745,5 @@ func (p *Provider) currentTime() time.Time {
 	return time.Now()
 }
 
-var _ gestalt.AuthenticationProvider = (*Provider)(nil)
+var _ gestalt.IdentityProvider = (*Provider)(nil)
 var _ gestalt.MetadataProvider = (*Provider)(nil)

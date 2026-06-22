@@ -9,9 +9,9 @@ Reference this provider in your Gestalt configuration:
 ```yaml
 server:
   providers:
-    authentication: oidc
+    identity: oidc
 providers:
-  authentication:
+  identity:
     oidc:
       source: github.com/valon-technologies/gestalt-providers/auth/oidc
       version: ...
@@ -38,7 +38,7 @@ See [Getting Started](https://gestaltd.ai/getting-started) and
 ## Overview
 
 This provider integrates any standards-compliant OpenID Connect identity provider
-as an authentication provider for Gestalt. Use it with Okta, Auth0, Azure AD,
+as an identity provider for Gestalt. Use it with Okta, Auth0, Azure AD,
 Keycloak, or any other OIDC-compatible issuer.
 
 `issuerUrl` must use `https://` by default. Set `allowInsecureHttp: true` only
@@ -84,9 +84,9 @@ Use the default production-safe cache limits:
 ```yaml
 server:
   providers:
-    authentication: oidc
+    identity: oidc
 providers:
-  authentication:
+  identity:
     oidc:
       source: github.com/valon-technologies/gestalt-providers/auth/oidc
       version: ...
@@ -112,9 +112,9 @@ Tune the PKCE cache for a slower MFA flow or higher login concurrency:
 ```yaml
 server:
   providers:
-    authentication: oidc
+    identity: oidc
 providers:
-  authentication:
+  identity:
     oidc:
       source: github.com/valon-technologies/gestalt-providers/auth/oidc
       version: ...
@@ -135,9 +135,9 @@ are bound to loopback for local testing:
 ```yaml
 server:
   providers:
-    authentication: oidc
+    identity: oidc
 providers:
-  authentication:
+  identity:
     oidc:
       source: github.com/valon-technologies/gestalt-providers/auth/oidc
       version: ...
