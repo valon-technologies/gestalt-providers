@@ -4,6 +4,10 @@ displayName: Gmail
 description: Read, send, and manage Gmail messages, threads, drafts, and labels.
 iconFile: assets/icon.svg
 kind: app
+install:
+  command: [uv, sync, --frozen]
+build:
+  command: [uv, run, python, -m, gestalt._build]
 spec:
   configSchemaPath: schemas/config.schema.yaml
   managedParameters:

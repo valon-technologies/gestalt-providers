@@ -4,6 +4,10 @@ displayName: Hex
 description: Hex Public API plus CLI-only draft notebook, YAML import/export, cell run, and Context Studio operations.
 iconFile: assets/icon.svg
 kind: app
+install:
+  command: [uv, sync, --frozen]
+build:
+  command: [uv, run, python, -m, gestalt._build]
 spec:
   surfaces:
     openapi:
