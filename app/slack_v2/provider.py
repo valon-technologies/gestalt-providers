@@ -55,6 +55,9 @@ class RegisterSlackEventInput(gestalt.Model):
     display_name: str = gestalt.field(
         description="Human-readable name for the Slack bot."
     )
+    bot_token: str = gestalt.field(
+        description="Slack bot user OAuth token (xoxb-...) for Web API calls."
+    )
     workflow_event_subject: str = gestalt.field(
         default="",
         description="Workflow event subject to publish for Slack events.",
@@ -80,6 +83,12 @@ def register_slack_event(
             status=HTTPStatus.BAD_REQUEST,
             body={"error": "workflow_event_subject is required"},
         )
+    bot_token = input.bot_token.strip()
+    if not bot_token:
+        return gestalt.Response(
+            status=HTTPStatus.BAD_REQUEST,
+            body={"error": "bot_token is required"},
+        )
 
     save_slack_event_registration(
         app_id=app_id,
@@ -87,6 +96,7 @@ def register_slack_event(
         client_secret=input.client_secret,
         signing_secret=input.signing_secret,
         display_name=input.display_name,
+        bot_token=bot_token,
         workflow_event_subject=workflow_event_subject,
     )
     return {

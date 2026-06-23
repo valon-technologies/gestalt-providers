@@ -37,6 +37,7 @@ def save_slack_event_registration(
     client_secret: str,
     signing_secret: str,
     display_name: str,
+    bot_token: str,
     workflow_event_subject: str,
 ) -> None:
     _ensure_initialized()
@@ -45,6 +46,7 @@ def save_slack_event_registration(
         "client_secret": client_secret,
         "signing_secret": signing_secret,
         "display_name": display_name,
+        "bot_token": bot_token,
         "workflow_event_subject": workflow_event_subject,
     }
     _object_store(EVENT_REGISTRATION_OBJECT_STORE_NAME).put(
