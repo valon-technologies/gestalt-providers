@@ -4,8 +4,6 @@ displayName: Google Cloud Storage
 description: S3 provider backed by Google Cloud Storage with generation-aware object versions.
 iconFile: assets/icon.svg
 kind: s3
-build:
-  command: [go, build, -o, .gestalt/build/provider, ./cmd/provider]
 entrypoint:
   artifactPath: .gestalt/build/provider
 spec: {}

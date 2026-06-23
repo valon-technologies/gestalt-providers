@@ -4,8 +4,6 @@ displayName: Temporal Workflow
 description: Temporal Cloud-backed workflow provider with durable workflow state and schedules.
 iconFile: assets/icon.svg
 kind: workflow
-build:
-  command: [go, build, -o, .gestalt/build/provider, ./cmd/provider]
 entrypoint:
   artifactPath: .gestalt/build/provider
 spec: {}

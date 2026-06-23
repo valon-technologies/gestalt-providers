@@ -4,8 +4,6 @@ displayName: Valkey
 description: Valkey-backed cache provider.
 iconFile: assets/icon.svg
 kind: cache
-build:
-  command: [go, build, -o, .gestalt/build/provider, ./cmd/provider]
 entrypoint:
   artifactPath: .gestalt/build/provider
 spec: {}
