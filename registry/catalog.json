@@ -2436,7 +2436,7 @@
       "kind": "indexeddb",
       "latestInstallableVersion": "0.0.1-alpha.2",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/indexeddb/relationaldb/manifest.yaml",
-      "manifestVersion": "0.0.1-alpha.2",
+      "manifestVersion": "0.0.1-alpha.3",
       "name": "relationaldb",
       "package": "github.com/valon-technologies/gestalt-providers/indexeddb/relationaldb",
       "packagePath": "indexeddb/relationaldb",
