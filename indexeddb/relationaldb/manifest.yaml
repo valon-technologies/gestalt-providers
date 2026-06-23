@@ -4,6 +4,4 @@ displayName: RelationalDB
 description: IndexedDB provider supporting PostgreSQL, MySQL, SQLite, and SQL Server.
 iconFile: assets/icon.svg
 kind: indexeddb
-entrypoint:
-  artifactPath: .gestalt/build/provider
 spec: {}
