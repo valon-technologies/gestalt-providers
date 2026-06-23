@@ -1,0 +1,28 @@
+source: github.com/valon-technologies/gestalt-providers/plugins/carta_crm
+version: 0.0.1-alpha.1
+displayName: Carta CRM
+description: Access Carta CRM deals, companies, investors, fundraisings, contacts, notes, attachments, and workspace configuration APIs.
+iconFile: assets/icon.svg
+kind: plugin
+spec:
+  surfaces:
+    openapi:
+      connection: default
+      document: openapi.json
+  connections:
+    default:
+      mode: user
+      auth:
+        type: manual
+        credentials:
+        - name: token
+          label: API Key
+          description: Paste the Carta CRM API key value used for the Authorization header.
+    identity:
+      mode: identity
+      auth:
+        type: manual
+        credentials:
+        - name: token
+          label: API Key
+          description: Paste the Carta CRM API key value used for the Authorization header.
