@@ -10,7 +10,7 @@
         "@connectrpc/connect-node": "2.1.0",
         "@cursor/sdk": "1.0.11",
         "@modelcontextprotocol/sdk": "1.29.0",
-        "@valon-technologies/gestalt": "0.0.1-alpha.65",
+        "@valon-technologies/gestalt": "0.0.1-alpha.66",
         "ajv": "8.20.0",
         "sqlite3": "file:./stubs/sqlite3",
       },
@@ -60,7 +60,7 @@
 
     "@types/react": ["@types/react@19.2.17", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-MXfmqaVPEVgkBT/aY0aGCkRWWtByiYQXo3xdQ8r5RzuFrPiRn8Gar2tQdXSUQ2GKV3bkXckek89V8wQBY2Q/Aw=="],
 
-    "@valon-technologies/gestalt": ["@valon-technologies/gestalt@0.0.1-alpha.65", "", { "dependencies": { "@bufbuild/protobuf": "2.11.0", "@connectrpc/connect": "2.1.0", "@connectrpc/connect-node": "2.1.0", "@opentelemetry/api": "1.9.0", "yaml": "2.8.1" }, "peerDependencies": { "typescript": "^5.9.0" }, "bin": { "gestalt-ts-build": "src/build.ts", "gestalt-ts-runtime": "src/providers/runtime.ts" } }, "sha512-4cExJzNjte216RbKjI6ne91G7ornc9UpCu9RSZH/zhmho7Nl+YL9i/JrT8SwUp+ayzRMEW7aPC7Glz2mHR1lUQ=="],
+    "@valon-technologies/gestalt": ["@valon-technologies/gestalt@0.0.1-alpha.66", "", { "dependencies": { "@bufbuild/protobuf": "2.11.0", "@connectrpc/connect": "2.1.0", "@connectrpc/connect-node": "2.1.0", "@opentelemetry/api": "1.9.0", "yaml": "2.8.1" }, "peerDependencies": { "typescript": "^5.9.0" }, "bin": { "gestalt-ts-build": "src/build.ts", "gestalt-ts-runtime": "src/providers/runtime.ts" } }, "sha512-Ljl+rJWQRMxFpV4TPuZrZGxh0+Iq2Jshz46lCs8ENdJ4jospzJzy9+N4uljLIop4uNvtr7I0qFewivP4UjpCHw=="],
 
     "accepts": ["accepts@2.0.0", "", { "dependencies": { "mime-types": "^3.0.0", "negotiator": "^1.0.0" } }, "sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng=="],
 
