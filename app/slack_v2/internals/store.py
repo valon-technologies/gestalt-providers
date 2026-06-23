@@ -30,6 +30,13 @@ def get_default_signing_secret() -> str:
     return _signing_secret_from_record(record, app_id=DEFAULT_EVENT_REGISTRATION_ID)
 
 
+def get_default_bot_token() -> str:
+    record = _object_store(EVENT_REGISTRATION_OBJECT_STORE_NAME).get(
+        DEFAULT_EVENT_REGISTRATION_ID
+    )
+    return _bot_token_from_record(record, app_id=DEFAULT_EVENT_REGISTRATION_ID)
+
+
 def save_slack_event_registration(
     *,
     app_id: str,
@@ -120,3 +127,10 @@ def _signing_secret_from_record(record: Any, *, app_id: str) -> str:
     if not isinstance(signing_secret, str) or not signing_secret.strip():
         raise gestalt.NotFoundError(f"signing_secret not found for app_id {app_id!r}")
     return signing_secret.strip()
+
+
+def _bot_token_from_record(record: Any, *, app_id: str) -> str:
+    bot_token = record.get("bot_token")
+    if not isinstance(bot_token, str) or not bot_token.strip():
+        raise gestalt.NotFoundError(f"bot_token not found for app_id {app_id!r}")
+    return bot_token.strip()

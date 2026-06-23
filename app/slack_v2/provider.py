@@ -12,12 +12,14 @@ from typing import Any, cast
 
 import gestalt
 
+from internals.client import SlackAPIError, slack_get
 from internals.events import (
     build_workflow_deliver_event_request,
     slack_app_id_from_payload,
     slack_event_id_from_payload,
 )
 from internals.store import (
+    get_default_bot_token as load_default_bot_token,
     get_default_signing_secret as load_default_signing_secret,
     get_default_workflow_event_subject as load_default_workflow_event_subject,
     get_debug_payload as load_debug_payload,
@@ -33,6 +35,10 @@ app = gestalt.App("slack_v2")
 
 class GetWorkflowEventSubjectForAppInput(gestalt.Model):
     app_id: str = gestalt.field(description="Slack app ID.")
+
+
+class GetUserDisplayNameInput(gestalt.Model):
+    user_id: str = gestalt.field(description="Slack user ID.")
 
 
 class DebugRecordSmokeRunInput(gestalt.Model):
@@ -105,6 +111,51 @@ def register_slack_event(
         "display_name": input.display_name,
         "workflow_event_subject": workflow_event_subject,
     }
+
+
+@app.operation(
+    id="get_user_display_name",
+    method="POST",
+    description="Return the Slack display name for a user ID.",
+)
+def get_user_display_name(
+    input: GetUserDisplayNameInput, _req: gestalt.Request
+) -> dict[str, str] | gestalt.Response[dict[str, str]]:
+    user_id = input.user_id.strip()
+    if not user_id:
+        return gestalt.Response(
+            status=HTTPStatus.BAD_REQUEST, body={"error": "user_id is required"}
+        )
+
+    try:
+        bot_token = load_default_bot_token()
+    except gestalt.NotFoundError:
+        return gestalt.Response(
+            status=HTTPStatus.NOT_FOUND,
+            body={"error": "default Slack event registration not found"},
+        )
+
+    try:
+        user_data = slack_get("users.info", {"user": user_id}, bot_token)
+    except SlackAPIError as err:
+        if err.status == HTTPStatus.NOT_FOUND:
+            return gestalt.Response(
+                status=HTTPStatus.NOT_FOUND,
+                body={"error": f"user not found for user_id {user_id!r}"},
+            )
+        return gestalt.Response(
+            status=HTTPStatus.BAD_GATEWAY,
+            body={"error": f"slack API error: {err}"},
+        )
+
+    display_name = _display_name_from_users_info(user_data)
+    if not display_name:
+        return gestalt.Response(
+            status=HTTPStatus.NOT_FOUND,
+            body={"error": f"display name not found for user_id {user_id!r}"},
+        )
+
+    return {"user_id": user_id, "display_name": display_name}
 
 
 @app.operation(
@@ -261,6 +312,18 @@ def handle_slack_event(
 
 def _is_url_verification(payload: dict[str, Any]) -> bool:
     return str(payload.get("type") or "").strip() == "url_verification"
+
+
+def _display_name_from_users_info(data: dict[str, Any]) -> str:
+    user = data.get("user")
+    if not isinstance(user, dict):
+        return ""
+    profile = user.get("profile")
+    if isinstance(profile, dict):
+        display_name = str(profile.get("display_name") or "").strip()
+        if display_name:
+            return display_name
+    return str(user.get("real_name") or "").strip()
 
 
 def _verify_slack_signature(payload: dict[str, Any], req: gestalt.Request) -> bool:
