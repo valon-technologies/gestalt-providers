@@ -8,7 +8,5 @@ install:
   command: [uv, sync, --frozen]
 build:
   command: [uv, run, python, -m, gestalt._build]
-entrypoint:
-  artifactPath: gestalt-app-codex
 spec:
   configSchemaPath: schemas/config.schema.yaml
