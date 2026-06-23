@@ -4,4 +4,6 @@ displayName: IndexedDB Workflow
 description: IndexedDB-backed workflow provider with durable keyed signal dispatch.
 iconFile: assets/icon.svg
 kind: workflow
+entrypoint:
+  artifactPath: .gestalt/build/provider
 spec: {}

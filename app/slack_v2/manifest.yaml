@@ -3,6 +3,12 @@ version: 0.0.1-alpha.6
 displayName: Slack v2
 description: Minimal Slack webhook app.
 kind: app
+install:
+  command: [uv, sync, --frozen]
+build:
+  command: [uv, run, python, -m, gestalt._build]
+entrypoint:
+  artifactPath: .gestalt/build/slack_v2
 spec:
   defaultConnection: default
   mcp: true

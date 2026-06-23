@@ -4,6 +4,12 @@ displayName: GitHub
 description: Repository, issue, pull request, workflow, and code search operations.
 iconFile: assets/icon.svg
 kind: app
+install:
+  command: [uv, sync, --frozen]
+build:
+  command: [uv, run, python, -m, gestalt._build]
+entrypoint:
+  artifactPath: .gestalt/build/github
 spec:
   defaultConnection: default
   configSchemaPath: schemas/config.schema.yaml

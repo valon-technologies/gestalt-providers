@@ -4,5 +4,7 @@ displayName: GKE Agent Sandbox Runtime
 description: Hosted executable-plugin runtime backed by GKE Agent Sandbox.
 iconFile: assets/icon.svg
 kind: runtime
+entrypoint:
+  artifactPath: .gestalt/build/provider
 spec:
   configSchemaPath: schemas/config.schema.yaml

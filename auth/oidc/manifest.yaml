@@ -4,4 +4,6 @@ displayName: OIDC
 description: Identity provider backed by OpenID Connect.
 iconFile: assets/icon.svg
 kind: identity
+entrypoint:
+  artifactPath: .gestalt/build/provider
 spec: {}

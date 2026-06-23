@@ -4,5 +4,11 @@ displayName: Claude Agent SDK
 description: Agent provider that runs the Claude Agent SDK with Gestalt MCP catalog tools exposed as in-process SDK tools.
 iconFile: assets/icon.svg
 kind: agent
+install:
+  command: [uv, sync, --frozen]
+build:
+  command: [uv, run, python, -m, gestalt._build]
+entrypoint:
+  artifactPath: .gestalt/build/claude
 spec:
   configSchemaPath: schemas/config.schema.yaml

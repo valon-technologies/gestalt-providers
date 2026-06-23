@@ -4,5 +4,11 @@ displayName: Cursor Agent SDK
 description: Agent provider that runs the Cursor Agent SDK with Gestalt MCP catalog tools exposed through a per-turn MCP server.
 iconFile: assets/icon.svg
 kind: agent
+install:
+  command: [bun, install, --frozen-lockfile]
+build:
+  command: [bun, run, gestalt-ts-build]
+entrypoint:
+  artifactPath: .gestalt/build/cursor
 spec:
   configSchemaPath: schemas/config.schema.yaml
