@@ -8,7 +8,5 @@ install:
   command: [bun, install, --frozen-lockfile]
 build:
   command: [bun, run, gestalt-ts-build]
-entrypoint:
-  artifactPath: gestalt-app-cursor
 spec:
   configSchemaPath: schemas/config.schema.yaml
