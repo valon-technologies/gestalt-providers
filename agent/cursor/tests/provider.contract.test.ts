@@ -88,10 +88,7 @@ const DEFAULT_SESSION_TOOLS: NonNullable<CreateAgentProviderSessionRequest["tool
 function subjectFixture(id: string, kind: string, displayName: string) {
   return {
     id,
-    kind,
-    credentialSubjectId: id,
     displayName,
-    authSource: "test",
     email: kind === "user" ? id.replace(/^user:/, "") : "",
   };
 }
@@ -102,7 +99,6 @@ function requestContext(
   return createMessage(RequestContextSchema, {
     subject: createMessage(SubjectContextSchema, {
       id: subject.id,
-      credentialSubjectId: subject.credentialSubjectId,
       displayName: subject.displayName,
       email: subject.email,
     }),

@@ -22,7 +22,7 @@ override-dependencies = [
 ]
 
 [tool.uv.sources]
-gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", rev = "8dff7f472a15f20db54a6bc7cde2f8761c875410", subdirectory = "sdk/python" }
+gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", rev = "90e100a33f90ad2b7c2b32afc329ed66d22f7359", subdirectory = "sdk/python" }
 
 [tool.gestalt]
 plugin = "provider"
