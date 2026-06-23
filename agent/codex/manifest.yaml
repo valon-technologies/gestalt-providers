@@ -4,5 +4,11 @@ displayName: Codex MCP Agent
 description: Agent provider that runs Codex CLI through its MCP harness with Gestalt MCP catalog tools scoped to the current turn.
 iconFile: assets/icon.svg
 kind: agent
+install:
+  command: [uv, sync, --frozen]
+build:
+  command: [uv, run, python, -m, gestalt._build]
+entrypoint:
+  artifactPath: .gestalt/build/codex
 spec:
   configSchemaPath: schemas/config.schema.yaml
