@@ -4,6 +4,12 @@ displayName: Vercel
 description: Manage Vercel projects and deployments, and read or write Vercel Blob storage.
 iconFile: assets/icon.svg
 kind: app
+install:
+  command: [uv, sync, --frozen]
+build:
+  command: [uv, run, python, -m, gestalt._build]
+entrypoint:
+  artifactPath: .gestalt/build/vercel
 spec:
   configSchemaPath: schemas/config.schema.yaml
   surfaces:
