@@ -4,6 +4,10 @@ displayName: BigQuery
 description: Google BigQuery data warehouse
 iconFile: assets/icon.svg
 kind: app
+install:
+  command: [uv, sync, --frozen]
+build:
+  command: [uv, run, python, -m, gestalt._build]
 spec:
   surfaces:
     rest:

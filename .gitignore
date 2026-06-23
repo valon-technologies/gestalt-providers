@@ -18,4 +18,4 @@ web/*/dist/
 ui/*/.next/
 ui/*/node_modules/
 ui/*/out/
-.gestalt/
+.gestaltd/

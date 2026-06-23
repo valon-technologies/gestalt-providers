@@ -7,8 +7,6 @@ install:
   command: [uv, sync, --frozen]
 build:
   command: [uv, run, python, -m, gestalt._build]
-entrypoint:
-  artifactPath: .gestalt/build/slack_v2
 spec:
   defaultConnection: default
   mcp: true
