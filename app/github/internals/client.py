@@ -8,8 +8,9 @@ import urllib.parse
 import urllib.request
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from http.client import HTTPMessage
 from http import HTTPStatus
-from typing import Any, Protocol, TypeAlias
+from typing import Any, IO, Protocol, TypeAlias
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -98,6 +99,10 @@ class GitHubAPIClient(Protocol):
 
     def commit_url(self, owner: str, repo: str, sha: str) -> str: ...
 
+    def workflow_job_logs(
+        self, token: str, owner: str, repo: str, job_id: int
+    ) -> str: ...
+
 
 @dataclass(frozen=True, slots=True)
 class GitHubAppClient:
@@ -182,6 +187,11 @@ class GitHubAppClient:
 
     def commit_url(self, owner: str, repo: str, sha: str) -> str:
         return commit_url(owner, repo, sha)
+
+    def workflow_job_logs(
+        self, token: str, owner: str, repo: str, job_id: int
+    ) -> str:
+        return workflow_job_logs(token, owner, repo, job_id)
 
 
 DEFAULT_GITHUB_CLIENT = GitHubAppClient()
@@ -434,6 +444,57 @@ def repo_path(owner: str, repo: str, *parts: str, safe_last: str = "") -> str:
         safe = safe_last if index == len(parts) - 1 else ""
         path_parts.append(urllib.parse.quote(str(part), safe=safe))
     return "/" + "/".join(path_parts)
+
+
+def org_path(org: str, *parts: str, safe_last: str = "") -> str:
+    path_parts = ["orgs", urllib.parse.quote(org, safe="")]
+    for index, part in enumerate(parts):
+        safe = safe_last if index == len(parts) - 1 else ""
+        path_parts.append(urllib.parse.quote(str(part), safe=safe))
+    return "/" + "/".join(path_parts)
+
+
+class _WorkflowJobLogsRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is not None:
+            redirected.remove_header("Authorization")
+        return redirected
+
+
+def workflow_job_logs(token: str, owner: str, repo: str, job_id: int) -> str:
+    if job_id <= 0:
+        raise ValueError("job_id is required")
+    path = repo_path(owner, repo, "actions", "jobs", str(job_id), "logs")
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": GITHUB_API_VERSION,
+        "User-Agent": "gestalt-github-plugin",
+        "Authorization": f"Bearer {token}",
+    }
+    request = urllib.request.Request(api_url(path), headers=headers, method="GET")
+    opener = urllib.request.build_opener(_WorkflowJobLogsRedirectHandler)
+    try:
+        with opener.open(request, timeout=30) as response:
+            body = response.read()
+    except urllib.error.HTTPError as err:
+        body = err.read().decode("utf-8", errors="replace")
+        err.close()
+        message, details = github_error_message_and_details(body, err.code)
+        raise GitHubAPIError(err.code, message, details=details) from err
+    except urllib.error.URLError as err:
+        raise GitHubAPIError(
+            502, f"GitHub workflow job logs request failed: {err.reason}"
+        ) from err
+    return body.decode("utf-8", errors="replace")
 
 
 def repository_default_branch(token: str, owner: str, repo: str) -> str:

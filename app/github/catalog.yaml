@@ -9,11 +9,11 @@ operations:
   method: POST
   description: Link the current Gestalt user subject to the GitHub user proven by
     the current GitHub credential
-  tags: [identity]
+  tags:
+  - identity
 - id: bot.getRepository
   method: GET
   description: Get repository metadata using a GitHub App installation token
-  tags: [repo, repository]
   parameters:
   - name: owner
     type: string
@@ -23,10 +23,12 @@ operations:
     type: string
     description: Repository name
     required: true
+  tags:
+  - repo
+  - repository
 - id: bot.searchCode
   method: GET
   description: Search code in one repository using a GitHub App installation token
-  tags: [repo, code, search]
   parameters:
   - name: owner
     type: string
@@ -52,10 +54,13 @@ operations:
     type: integer
     description: Page number, starting at 1
     default: 0
+  tags:
+  - repo
+  - code
+  - search
 - id: bot.getContent
   method: GET
   description: Get UTF-8 file content using a GitHub App installation token
-  tags: [repo, code, content]
   parameters:
   - name: owner
     type: string
@@ -77,10 +82,13 @@ operations:
     type: integer
     description: Maximum UTF-8 bytes to return
     default: 80000
+  tags:
+  - repo
+  - code
+  - content
 - id: bot.listCommits
   method: GET
   description: List commits on a repository using a GitHub App installation token
-  tags: [repo, code, history]
   parameters:
   - name: owner
     type: string
@@ -118,10 +126,13 @@ operations:
     type: integer
     description: Page number, starting at 1
     default: 0
+  tags:
+  - repo
+  - code
+  - history
 - id: bot.compareRefs
   method: GET
   description: Compare two refs using a GitHub App installation token
-  tags: [repo, code, history]
   parameters:
   - name: owner
     type: string
@@ -139,6 +150,10 @@ operations:
     type: string
     description: Head ref, branch, or SHA
     required: true
+  tags:
+  - repo
+  - code
+  - history
 - id: bot.commitFiles
   method: POST
   description: Create a Git commit on a branch using a GitHub App installation token
@@ -169,11 +184,6 @@ operations:
     description: Base branch for a newly-created branch. Defaults to the repository
       default branch.
     default: ''
-  - name: expected_head_sha
-    type: string
-    description: Require the target branch to still point at this commit SHA before
-      writing.
-    default: ''
   - name: coauthors
     type: array
     description: Co-authors to append as commit trailers. Each item accepts name and
@@ -185,11 +195,13 @@ operations:
     default: true
   - name: author_name
     type: string
-    description: Optional Git commit author name. Delegated agent calls use the invoking user's linked GitHub identity instead when available.
+    description: Optional Git commit author name. Delegated agent calls use the invoking
+      user's linked GitHub identity instead when available.
     default: ''
   - name: author_email
     type: string
-    description: Optional Git commit author email. Delegated agent calls use the invoking user's linked GitHub identity instead when available.
+    description: Optional Git commit author email. Delegated agent calls use the invoking
+      user's linked GitHub identity instead when available.
     default: ''
   - name: committer_name
     type: string
@@ -207,10 +219,14 @@ operations:
     type: boolean
     description: Allow updating the base branch directly
     default: false
+  - name: expected_head_sha
+    type: string
+    description: Require the target branch to still point at this commit SHA before
+      writing
+    default: ''
 - id: bot.openPullRequest
   method: POST
   description: Open a pull request using a GitHub App installation token
-  tags: [pr, prs]
   parameters:
   - name: owner
     type: string
@@ -248,10 +264,12 @@ operations:
     type: boolean
     description: Allow maintainers to modify the pull request branch
     default: true
+  tags:
+  - pr
+  - prs
 - id: bot.closePullRequest
   method: POST
   description: Close a pull request using a GitHub App installation token
-  tags: [pr, prs]
   parameters:
   - name: owner
     type: string
@@ -265,11 +283,13 @@ operations:
     type: integer
     description: Pull request number
     required: true
+  tags:
+  - pr
+  - prs
 - id: bot.createPullRequest
   method: POST
   description: Commit file changes to a branch and open a pull request using a GitHub
     App installation token
-  tags: [pr, prs]
   parameters:
   - name: owner
     type: string
@@ -315,11 +335,13 @@ operations:
     default: true
   - name: author_name
     type: string
-    description: Optional Git commit author name. Delegated agent calls use the invoking user's linked GitHub identity instead when available.
+    description: Optional Git commit author name. Delegated agent calls use the invoking
+      user's linked GitHub identity instead when available.
     default: ''
   - name: author_email
     type: string
-    description: Optional Git commit author email. Delegated agent calls use the invoking user's linked GitHub identity instead when available.
+    description: Optional Git commit author email. Delegated agent calls use the invoking
+      user's linked GitHub identity instead when available.
     default: ''
   - name: committer_name
     type: string
@@ -341,178 +363,9 @@ operations:
     type: boolean
     description: Allow maintainers to modify the pull request branch
     default: true
-- id: bot.getPullRequest
-  method: GET
-  description: Get pull request metadata using a GitHub App installation token
-  tags: [pr, prs, review]
-  parameters:
-  - name: owner
-    type: string
-    description: Repository owner
-    required: true
-  - name: repo
-    type: string
-    description: Repository name
-    required: true
-  - name: pull_number
-    type: integer
-    description: Pull request number
-    required: true
-- id: bot.listPullRequestFiles
-  method: GET
-  description: List pull request changed files and bounded patches using a GitHub App
-    installation token
-  tags: [pr, prs, review, diff]
-  parameters:
-  - name: owner
-    type: string
-    description: Repository owner
-    required: true
-  - name: repo
-    type: string
-    description: Repository name
-    required: true
-  - name: pull_number
-    type: integer
-    description: Pull request number
-    required: true
-  - name: per_page
-    type: integer
-    description: Results per page, from 1 through 100
-    default: 0
-  - name: page
-    type: integer
-    description: Page number, starting at 1
-    default: 0
-- id: bot.createPullRequestReview
-  method: POST
-  description: Create a pull request review with inline comments using a GitHub App
-    installation token
-  tags: [pr, prs, review]
-  parameters:
-  - name: owner
-    type: string
-    description: Repository owner
-    required: true
-  - name: repo
-    type: string
-    description: Repository name
-    required: true
-  - name: pull_number
-    type: integer
-    description: Pull request number
-    required: true
-  - name: body
-    type: string
-    description: Pull request review body
-    required: true
-  - name: comments
-    type: array
-    description: Inline review comments. Each item accepts path, body, line, side,
-      start_line, and start_side.
-    required: true
-  - name: commit_id
-    type: string
-    description: Optional commit SHA to review. Defaults to GitHub's latest PR commit.
-    default: ''
-- id: bot.listPullRequestReviews
-  method: GET
-  description: List pull request reviews using a GitHub App installation token
-  tags: [pr, prs, review]
-  parameters:
-  - name: owner
-    type: string
-    description: Repository owner
-    required: true
-  - name: repo
-    type: string
-    description: Repository name
-    required: true
-  - name: pull_number
-    type: integer
-    description: Pull request number
-    required: true
-  - name: per_page
-    type: integer
-    description: Results per page, from 1 through 100
-    default: 0
-  - name: page
-    type: integer
-    description: Page number, starting at 1
-    default: 0
-- id: bot.listPullRequestReviewThreads
-  method: GET
-  description: List pull request review threads and their first comments using a GitHub
-    App installation token
-  tags: [pr, prs, review]
-  parameters:
-  - name: owner
-    type: string
-    description: Repository owner
-    required: true
-  - name: repo
-    type: string
-    description: Repository name
-    required: true
-  - name: pull_number
-    type: integer
-    description: Pull request number
-    required: true
-  - name: first
-    type: integer
-    description: Number of review threads to fetch, from 1 through 100
-    default: 100
-  - name: after
-    type: string
-    description: Optional GitHub GraphQL reviewThreads page cursor
-    default: ''
-  - name: comments_first
-    type: integer
-    description: Number of comments to fetch per thread, from 1 through 50
-    default: 20
-- id: bot.resolvePullRequestReviewThread
-  method: POST
-  description: Resolve a pull request review thread after verifying it belongs to
-    the requested pull request
-  tags: [pr, prs, review]
-  parameters:
-  - name: owner
-    type: string
-    description: Repository owner
-    required: true
-  - name: repo
-    type: string
-    description: Repository name
-    required: true
-  - name: pull_number
-    type: integer
-    description: Pull request number
-    required: true
-  - name: thread_id
-    type: string
-    description: GitHub GraphQL pull request review thread node ID
-    required: true
-- id: bot.createPullRequestConversationComment
-  method: POST
-  description: Create a pull request conversation comment using a GitHub App installation
-    token
-  parameters:
-  - name: owner
-    type: string
-    description: Repository owner
-    required: true
-  - name: repo
-    type: string
-    description: Repository name
-    required: true
-  - name: pull_number
-    type: integer
-    description: Pull request number
-    required: true
-  - name: body
-    type: string
-    description: Comment body
-    required: true
+  tags:
+  - pr
+  - prs
 - id: bot.createIssueComment
   method: POST
   description: Create an issue comment using a GitHub App installation token
@@ -552,15 +405,13 @@ operations:
   - name: body
     type: string
     description: Issue body
-    required: false
+    default: ''
   - name: labels
     type: array
     description: Label names to apply
-    required: false
   - name: assignees
     type: array
     description: GitHub usernames to assign
-    required: false
 - id: bot.updateIssue
   method: POST
   description: Update an issue using a GitHub App installation token
@@ -580,23 +431,21 @@ operations:
   - name: title
     type: string
     description: Issue title
-    required: false
+    default: ''
   - name: body
     type: string
     description: Issue body
-    required: false
+    default: null
   - name: state
     type: string
-    description: Issue state, open or closed
-    required: false
+    description: 'Issue state: open or closed'
+    default: ''
   - name: labels
     type: array
     description: Label names to apply
-    required: false
   - name: assignees
     type: array
     description: GitHub usernames to assign
-    required: false
 - id: bot.getIssue
   method: GET
   description: Get an issue using a GitHub App installation token
@@ -627,16 +476,136 @@ operations:
     required: true
   - name: state
     type: string
-    description: Issue state filter, open, closed, or all
-    required: false
+    description: 'Issue state filter: open, closed, or all'
+    default: all
   - name: per_page
     type: integer
     description: Results per page (1-100)
-    required: false
+    default: 100
   - name: page
     type: integer
     description: Page number
-    required: false
+    default: 1
+- id: bot.createPullRequestReview
+  method: POST
+  description: Create a pull request review with inline comments using a GitHub App
+    installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: pull_number
+    type: integer
+    description: Pull request number
+    required: true
+  - name: body
+    type: string
+    description: Pull request review body
+    required: true
+  - name: comments
+    type: array
+    description: Inline review comments. Each item accepts path, body, line, side,
+      start_line, and start_side.
+    required: true
+  - name: commit_id
+    type: string
+    description: Optional commit SHA to review. Defaults to GitHub's latest PR commit.
+    default: ''
+  tags:
+  - pr
+  - prs
+  - review
+- id: bot.listPullRequestReviews
+  method: GET
+  description: List pull request reviews using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: pull_number
+    type: integer
+    description: Pull request number
+    required: true
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+  tags:
+  - pr
+  - prs
+  - review
+- id: bot.listPullRequestReviewThreads
+  method: GET
+  description: List pull request review threads and their first comments using a GitHub
+    App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: pull_number
+    type: integer
+    description: Pull request number
+    required: true
+  - name: first
+    type: integer
+    description: Number of review threads to fetch, from 1 through 100
+    default: 100
+  - name: after
+    type: string
+    description: Optional GitHub GraphQL reviewThreads page cursor
+    default: ''
+  - name: comments_first
+    type: integer
+    description: Number of comments to fetch per thread, from 1 through 50
+    default: 20
+  tags:
+  - pr
+  - prs
+  - review
+- id: bot.resolvePullRequestReviewThread
+  method: POST
+  description: Resolve a pull request review thread after verifying it belongs to
+    the requested pull request
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: pull_number
+    type: integer
+    description: Pull request number
+    required: true
+  - name: thread_id
+    type: string
+    description: GitHub GraphQL pull request review thread node ID
+    required: true
+  tags:
+  - pr
+  - prs
+  - review
 - id: bot.addReaction
   method: POST
   description: Add a reaction using a GitHub App installation token
@@ -651,13 +620,12 @@ operations:
     required: true
   - name: subject_type
     type: string
-    description: Reaction target type, one of issue, pull_request, issue_comment,
-      or pull_request_review_comment
+    description: 'Reaction target type: issue, pull_request, issue_comment, or pull_request_review_comment'
     required: true
   - name: content
     type: string
-    description: Reaction content, one of +1, -1, laugh, confused, heart, hooray,
-      rocket, or eyes
+    description: 'Reaction content: +1, -1, laugh, confused, heart, hooray, rocket,
+      or eyes'
     required: true
   - name: issue_number
     type: integer
@@ -686,7 +654,7 @@ operations:
     required: true
   - name: subject_type
     type: string
-    description: Label target type, one of issue or pull_request
+    description: 'Label target type: issue or pull_request'
     required: true
   - name: labels
     type: array
@@ -715,7 +683,7 @@ operations:
     required: true
   - name: subject_type
     type: string
-    description: Label target type, one of issue or pull_request
+    description: 'Label target type: issue or pull_request'
     required: true
   - name: labels
     type: array
@@ -733,7 +701,6 @@ operations:
   method: POST
   description: Request individual or team reviewers on a pull request using a GitHub
     App installation token
-  tags: [pr, prs, review]
   parameters:
   - name: owner
     type: string
@@ -750,11 +717,84 @@ operations:
   - name: reviewers
     type: array
     description: GitHub usernames to request as reviewers
-    default: []
   - name: team_reviewers
     type: array
     description: GitHub team slugs to request as reviewers
-    default: []
+  tags:
+  - pr
+  - prs
+  - review
+- id: bot.createPullRequestConversationComment
+  method: POST
+  description: Create a pull request conversation comment using a GitHub App installation
+    token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: pull_number
+    type: integer
+    description: Pull request number
+    required: true
+  - name: body
+    type: string
+    description: Comment body
+    required: true
+- id: bot.getPullRequest
+  method: GET
+  description: Get pull request metadata using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: pull_number
+    type: integer
+    description: Pull request number
+    required: true
+  tags:
+  - pr
+  - prs
+  - review
+- id: bot.listPullRequestFiles
+  method: GET
+  description: List pull request changed files and bounded patches using a GitHub
+    App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: pull_number
+    type: integer
+    description: Pull request number
+    required: true
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+  tags:
+  - pr
+  - prs
+  - review
+  - diff
 - id: bot.getCheckRun
   method: GET
   description: Get a GitHub check run using a GitHub App installation token
@@ -793,7 +833,7 @@ operations:
     required: true
   - name: status
     type: string
-    description: Check run status, usually in_progress or completed
+    description: 'Check run status: queued, in_progress, or completed'
     default: in_progress
   - name: conclusion
     type: string
@@ -888,6 +928,42 @@ operations:
     type: integer
     description: Page number, starting at 1
     default: 0
+- id: bot.listCommitCheckRuns
+  method: GET
+  description: List check runs for a commit ref using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: ref
+    type: string
+    description: Commit SHA or branch name
+    required: true
+  - name: check_name
+    type: string
+    description: Optional check run name filter
+    default: ''
+  - name: status
+    type: string
+    description: Optional check run status filter
+    default: ''
+  - name: filter
+    type: string
+    description: GitHub check runs filter, either latest or all
+    default: ''
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
 - id: bot.listCheckRunAnnotations
   method: GET
   description: List annotations for a GitHub check run using a GitHub App installation
@@ -958,3 +1034,285 @@ operations:
     type: integer
     description: Page number, starting at 1
     default: 0
+- id: bot.listWorkflowRuns
+  method: GET
+  description: List GitHub Actions workflow runs using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: workflow_id
+    type: string
+    description: Filter runs to a specific workflow by numeric ID or workflow filename
+    default: ''
+  - name: branch
+    type: string
+    description: Filter workflow runs by branch name
+    default: ''
+  - name: event
+    type: string
+    description: Filter workflow runs by event type
+    default: ''
+  - name: head_sha
+    type: string
+    description: Filter workflow runs by head commit SHA
+    default: ''
+  - name: status
+    type: string
+    description: Filter workflow runs by status
+    default: ''
+  - name: created
+    type: string
+    description: Filter workflow runs created on or after this date (YYYY-MM-DD)
+    default: ''
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+- id: bot.getWorkflowJobLogs
+  method: GET
+  description: Get plain-text logs for a GitHub Actions workflow job using a GitHub
+    App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: job_id
+    type: integer
+    description: GitHub Actions workflow job ID
+    required: true
+- id: bot.listIssueComments
+  method: GET
+  description: List issue or pull request comments using a GitHub App installation
+    token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: issue_number
+    type: integer
+    description: Issue or pull request number
+    required: true
+  - name: since
+    type: string
+    description: Only comments updated at or after this ISO 8601 timestamp
+    default: ''
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+- id: bot.searchPullRequests
+  method: GET
+  description: Search pull requests using GitHub GraphQL and a GitHub App installation
+    token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: query
+    type: string
+    description: GitHub search query for pull requests
+    required: true
+  - name: first
+    type: integer
+    description: Number of results to fetch, from 1 through 100
+    default: 30
+  - name: after
+    type: string
+    description: Optional GitHub GraphQL search page cursor
+    default: ''
+  tags:
+  - pr
+  - prs
+  - search
+- id: bot.getMergeQueue
+  method: GET
+  description: Get merge queue entries for a branch using GitHub GraphQL and a GitHub
+    App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: branch
+    type: string
+    description: Branch name for the merge queue
+    required: true
+  - name: first
+    type: integer
+    description: Number of merge queue entries to fetch, from 1 through 100
+    default: 100
+  tags:
+  - pr
+  - prs
+- id: bot.listPullRequests
+  method: GET
+  description: List pull requests using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: state
+    type: string
+    description: 'Pull request state filter: open, closed, or all'
+    default: open
+  - name: sort
+    type: string
+    description: 'Sort field: created, updated, popularity, or long-running'
+    default: ''
+  - name: direction
+    type: string
+    description: 'Sort direction: asc or desc'
+    default: ''
+  - name: base
+    type: string
+    description: Filter by base branch name
+    default: ''
+  - name: head
+    type: string
+    description: Filter by head branch name
+    default: ''
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+  tags:
+  - pr
+  - prs
+- id: bot.listPullRequestsForCommit
+  method: GET
+  description: List pull requests associated with a commit using a GitHub App installation
+    token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: commit_sha
+    type: string
+    description: Commit SHA
+    required: true
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+  tags:
+  - pr
+  - prs
+- id: bot.listOrgMembers
+  method: GET
+  description: List organization members using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Organization login (also used with repo for bot authorization)
+    required: true
+  - name: repo
+    type: string
+    description: Repository name used to anchor bot authorization
+    required: true
+  - name: role
+    type: string
+    description: 'Member role filter: all, admin, or member'
+    default: ''
+  - name: filter
+    type: string
+    description: 'Member filter: 2fa_disabled or 2fa_insecure'
+    default: ''
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+- id: bot.listRepoContributors
+  method: GET
+  description: List repository contributors using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: anon
+    type: string
+    description: 'Include anonymous contributors: true or false'
+    default: ''
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+- id: bot.getUser
+  method: GET
+  description: Get a GitHub user by login using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner used to anchor bot authorization
+    required: true
+  - name: repo
+    type: string
+    description: Repository name used to anchor bot authorization
+    required: true
+  - name: login
+    type: string
+    description: GitHub user login
+    required: true

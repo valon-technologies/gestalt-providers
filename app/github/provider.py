@@ -31,13 +31,24 @@ from internals.constants import (
     BOT_COMPARE_REFS_OPERATION,
     BOT_GET_PULL_REQUEST_OPERATION,
     BOT_GET_REPOSITORY_OPERATION,
+    BOT_GET_MERGE_QUEUE_OPERATION,
+    BOT_GET_USER_OPERATION,
+    BOT_GET_WORKFLOW_JOB_LOGS_OPERATION,
     BOT_GET_WORKFLOW_RUN_OPERATION,
     BOT_LIST_CHECK_RUN_ANNOTATIONS_OPERATION,
     BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION,
+    BOT_LIST_COMMIT_CHECK_RUNS_OPERATION,
+    BOT_LIST_ISSUE_COMMENTS_OPERATION,
+    BOT_LIST_ORG_MEMBERS_OPERATION,
     BOT_LIST_PULL_REQUEST_FILES_OPERATION,
     BOT_LIST_PULL_REQUEST_REVIEWS_OPERATION,
     BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
+    BOT_LIST_PULL_REQUESTS_FOR_COMMIT_OPERATION,
+    BOT_LIST_PULL_REQUESTS_OPERATION,
+    BOT_LIST_REPO_CONTRIBUTORS_OPERATION,
     BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
+    BOT_LIST_WORKFLOW_RUNS_OPERATION,
+    BOT_SEARCH_PULL_REQUESTS_OPERATION,
     BOT_OPEN_PULL_REQUEST_OPERATION,
     BOT_REMOVE_LABELS_OPERATION,
     BOT_REQUEST_REVIEWERS_OPERATION,
@@ -73,11 +84,22 @@ from internals.operations import (
     GitHubGetIssueRequest,
     GitHubListIssuesRequest,
     GitHubListCheckSuiteCheckRunsRequest,
+    GitHubListCommitCheckRunsRequest,
     GitHubListCheckRunAnnotationsRequest,
     GitHubListPullRequestFilesRequest,
     GitHubListPullRequestReviewsRequest,
     GitHubListPullRequestReviewThreadsRequest,
     GitHubListWorkflowRunJobsRequest,
+    GitHubListWorkflowRunsRequest,
+    GitHubGetWorkflowJobLogsRequest,
+    GitHubListIssueCommentsRequest,
+    GitHubSearchPullRequestsRequest,
+    GitHubGetMergeQueueRequest,
+    GitHubListPullRequestsRequest,
+    GitHubListPullRequestsForCommitRequest,
+    GitHubListOrgMembersRequest,
+    GitHubListRepoContributorsRequest,
+    GitHubGetUserRequest,
     GitHubOpenPullRequestRequest,
     GitHubPullRequestRequest,
     GitHubPullRequestReviewComment,
@@ -117,11 +139,22 @@ from internals.operations import (
     issue_summary,
     label_summary,
     list_check_suite_check_runs,
+    list_commit_check_runs,
     list_check_run_annotations,
     list_pull_request_files,
     list_pull_request_reviews,
     list_pull_request_review_threads,
     list_workflow_run_jobs,
+    list_workflow_runs,
+    get_workflow_job_logs,
+    list_issue_comments,
+    search_pull_requests,
+    get_merge_queue,
+    list_pull_requests,
+    list_pull_requests_for_commit,
+    list_org_members,
+    list_repo_contributors,
+    get_user,
     open_pull_request,
     pull_request_file_summary,
     pull_request_review_summary,
@@ -136,6 +169,9 @@ from internals.operations import (
     update_issue,
     workflow_run_job_summary,
     workflow_run_summary,
+    workflow_runs_list_summary,
+    user_summary,
+    contributor_summary,
 )
 from internals.webhook import (
     event_summary,
@@ -791,6 +827,33 @@ class ListCheckSuiteCheckRunsInput(gestalt.Model):
     )
 
 
+class ListCommitCheckRunsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    ref: str = gestalt.field(description="Commit SHA or branch name")
+    check_name: str = gestalt.field(
+        description="Optional check run name filter", default="", required=False
+    )
+    status: str = gestalt.field(
+        description="Optional check run status filter",
+        default="",
+        required=False,
+    )
+    filter: str = gestalt.field(
+        description="GitHub check runs filter, either latest or all",
+        default="",
+        required=False,
+    )
+    per_page: int = gestalt.field(
+        description="Results per page, from 1 through 100",
+        default=0,
+        required=False,
+    )
+    page: int = gestalt.field(
+        description="Page number, starting at 1", default=0, required=False
+    )
+
+
 class GetWorkflowRunInput(gestalt.Model):
     owner: str = gestalt.field(description="Repository owner")
     repo: str = gestalt.field(description="Repository name")
@@ -814,6 +877,208 @@ class ListWorkflowRunJobsInput(gestalt.Model):
     page: int = gestalt.field(
         description="Page number, starting at 1", default=0, required=False
     )
+
+
+class ListWorkflowRunsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    workflow_id: str = gestalt.field(
+        description="Filter runs to a specific workflow by numeric ID or workflow filename",
+        default="",
+        required=False,
+    )
+    branch: str = gestalt.field(
+        description="Filter workflow runs by branch name",
+        default="",
+        required=False,
+    )
+    event: str = gestalt.field(
+        description="Filter workflow runs by event type",
+        default="",
+        required=False,
+    )
+    head_sha: str = gestalt.field(
+        description="Filter workflow runs by head commit SHA",
+        default="",
+        required=False,
+    )
+    status: str = gestalt.field(
+        description="Filter workflow runs by status",
+        default="",
+        required=False,
+    )
+    created: str = gestalt.field(
+        description="Filter workflow runs created on or after this date (YYYY-MM-DD)",
+        default="",
+        required=False,
+    )
+    per_page: int = gestalt.field(
+        description="Results per page, from 1 through 100",
+        default=0,
+        required=False,
+    )
+    page: int = gestalt.field(
+        description="Page number, starting at 1", default=0, required=False
+    )
+
+
+class GetWorkflowJobLogsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    job_id: int = gestalt.field(description="GitHub Actions workflow job ID")
+
+
+class ListIssueCommentsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    issue_number: int = gestalt.field(description="Issue or pull request number")
+    since: str = gestalt.field(
+        description="Only comments updated at or after this ISO 8601 timestamp",
+        default="",
+        required=False,
+    )
+    per_page: int = gestalt.field(
+        description="Results per page, from 1 through 100",
+        default=0,
+        required=False,
+    )
+    page: int = gestalt.field(
+        description="Page number, starting at 1", default=0, required=False
+    )
+
+
+class SearchPullRequestsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    query: str = gestalt.field(description="GitHub search query for pull requests")
+    first: int = gestalt.field(
+        description="Number of results to fetch, from 1 through 100",
+        default=30,
+        required=False,
+    )
+    after: str = gestalt.field(
+        description="Optional GitHub GraphQL search page cursor",
+        default="",
+        required=False,
+    )
+
+
+class GetMergeQueueInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    branch: str = gestalt.field(description="Branch name for the merge queue")
+    first: int = gestalt.field(
+        description="Number of merge queue entries to fetch, from 1 through 100",
+        default=100,
+        required=False,
+    )
+
+
+class ListPullRequestsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    state: str = gestalt.field(
+        description="Pull request state filter: open, closed, or all",
+        default="open",
+        required=False,
+    )
+    sort: str = gestalt.field(
+        description="Sort field: created, updated, popularity, or long-running",
+        default="",
+        required=False,
+    )
+    direction: str = gestalt.field(
+        description="Sort direction: asc or desc",
+        default="",
+        required=False,
+    )
+    base: str = gestalt.field(
+        description="Filter by base branch name",
+        default="",
+        required=False,
+    )
+    head: str = gestalt.field(
+        description="Filter by head branch name",
+        default="",
+        required=False,
+    )
+    per_page: int = gestalt.field(
+        description="Results per page, from 1 through 100",
+        default=0,
+        required=False,
+    )
+    page: int = gestalt.field(
+        description="Page number, starting at 1", default=0, required=False
+    )
+
+
+class ListPullRequestsForCommitInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    commit_sha: str = gestalt.field(description="Commit SHA")
+    per_page: int = gestalt.field(
+        description="Results per page, from 1 through 100",
+        default=0,
+        required=False,
+    )
+    page: int = gestalt.field(
+        description="Page number, starting at 1", default=0, required=False
+    )
+
+
+class ListOrgMembersInput(gestalt.Model):
+    owner: str = gestalt.field(
+        description="Organization login (also used with repo for bot authorization)"
+    )
+    repo: str = gestalt.field(
+        description="Repository name used to anchor bot authorization"
+    )
+    role: str = gestalt.field(
+        description="Member role filter: all, admin, or member",
+        default="",
+        required=False,
+    )
+    filter: str = gestalt.field(
+        description="Member filter: 2fa_disabled or 2fa_insecure",
+        default="",
+        required=False,
+    )
+    per_page: int = gestalt.field(
+        description="Results per page, from 1 through 100",
+        default=0,
+        required=False,
+    )
+    page: int = gestalt.field(
+        description="Page number, starting at 1", default=0, required=False
+    )
+
+
+class ListRepoContributorsInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    anon: str = gestalt.field(
+        description="Include anonymous contributors: true or false",
+        default="",
+        required=False,
+    )
+    per_page: int = gestalt.field(
+        description="Results per page, from 1 through 100",
+        default=0,
+        required=False,
+    )
+    page: int = gestalt.field(
+        description="Page number, starting at 1", default=0, required=False
+    )
+
+
+class GetUserInput(gestalt.Model):
+    owner: str = gestalt.field(
+        description="Repository owner used to anchor bot authorization"
+    )
+    repo: str = gestalt.field(
+        description="Repository name used to anchor bot authorization"
+    )
+    login: str = gestalt.field(description="GitHub user login")
 
 
 @app.configure
@@ -1011,10 +1276,10 @@ def github_identity_link_self(
     return {
         "ok": True,
         "user": {
-            "id": user_id,
-            "login": login,
-            "name": name,
-            "email": email,
+        "id": user_id,
+        "login": login,
+        "name": name,
+        "email": email,
         },
         "resource": {"type": GITHUB_USER_RESOURCE_TYPE, "id": user_id},
     }
@@ -1044,9 +1309,7 @@ def bot_get_repository(input: RepositoryInput, req: gestalt.Request) -> Operatio
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"repository": repository_summary(repo)}}
-
-
+    return {"repository": repository_summary(repo)}
 @app.operation(
     id=BOT_SEARCH_CODE_OPERATION,
     method="GET",
@@ -1075,9 +1338,7 @@ def bot_search_code(input: SearchCodeInput, req: gestalt.Request) -> OperationRe
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": code_search_summary(results)}
-
-
+    return code_search_summary(results)
 @app.operation(
     id=BOT_GET_CONTENT_OPERATION,
     method="GET",
@@ -1105,9 +1366,7 @@ def bot_get_content(input: GetContentInput, req: gestalt.Request) -> OperationRe
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"path": input.path, "ref": input.ref, "content": content}}
-
-
+    return {"path": input.path, "ref": input.ref, "content": content}
 @app.operation(
     id=BOT_LIST_COMMITS_OPERATION,
     method="GET",
@@ -1141,9 +1400,7 @@ def bot_list_commits(input: ListCommitsInput, req: gestalt.Request) -> Operation
         return _github_error(err)
     if not isinstance(results, list):
         return _server_error("GitHub commits response was not a list")
-    return {"data": commit_list_summary(results)}
-
-
+    return commit_list_summary(results)
 @app.operation(
     id=BOT_COMPARE_REFS_OPERATION,
     method="GET",
@@ -1170,10 +1427,7 @@ def bot_compare_refs(input: CompareRefsInput, req: gestalt.Request) -> Operation
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": compare_refs_summary(comparison)}
-
-
-
+    return compare_refs_summary(comparison)
 @app.operation(
     id=BOT_COMMIT_FILES_OPERATION,
     method="POST",
@@ -1195,9 +1449,7 @@ def bot_commit_files(input: CommitFilesInput, req: gestalt.Request) -> Operation
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"commit": commit_result_dict(commit)}}
-
-
+    return {"commit": commit_result_dict(commit)}
 @app.operation(
     id=BOT_OPEN_PULL_REQUEST_OPERATION,
     method="POST",
@@ -1231,9 +1483,7 @@ def bot_open_pull_request(
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"pull_request": pull_request_summary(pull)}}
-
-
+    return {"pull_request": pull_request_summary(pull)}
 @app.operation(
     id=BOT_CLOSE_PULL_REQUEST_OPERATION,
     method="POST",
@@ -1261,9 +1511,7 @@ def bot_close_pull_request(
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"pull_request": pull_request_summary(pull)}}
-
-
+    return {"pull_request": pull_request_summary(pull)}
 @app.operation(
     id=BOT_CREATE_PULL_REQUEST_OPERATION,
     method="POST",
@@ -1309,10 +1557,8 @@ def bot_create_pull_request(
     except GitHubAPIError as err:
         return _github_error(err)
     return {
-        "data": {
-            "commit": commit_result_dict(result.commit),
-            "pull_request": pull_request_summary(result.pull_request),
-        }
+        "commit": commit_result_dict(result.commit),
+        "pull_request": pull_request_summary(result.pull_request),
     }
 
 
@@ -1343,9 +1589,7 @@ def bot_create_issue_comment(
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"comment": issue_comment_summary(comment)}}
-
-
+    return {"comment": issue_comment_summary(comment)}
 @app.operation(
     id=BOT_CREATE_ISSUE_OPERATION,
     method="POST",
@@ -1375,9 +1619,7 @@ def bot_create_issue(
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"issue": issue_summary(issue)}}
-
-
+    return {"issue": issue_summary(issue)}
 @app.operation(
     id=BOT_UPDATE_ISSUE_OPERATION,
     method="POST",
@@ -1411,9 +1653,7 @@ def bot_update_issue(
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"issue": issue_summary(issue)}}
-
-
+    return {"issue": issue_summary(issue)}
 @app.operation(
     id=BOT_GET_ISSUE_OPERATION,
     method="GET",
@@ -1438,9 +1678,7 @@ def bot_get_issue(input: GetIssueInput, req: gestalt.Request) -> OperationResult
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"issue": issue_summary(issue)}}
-
-
+    return {"issue": issue_summary(issue)}
 @app.operation(
     id=BOT_LIST_ISSUES_OPERATION,
     method="GET",
@@ -1468,10 +1706,8 @@ def bot_list_issues(input: ListIssuesInput, req: gestalt.Request) -> OperationRe
     except GitHubAPIError as err:
         return _github_error(err)
     return {
-        "data": {
-            "count": len(issues),
-            "issues": [issue_summary(issue) for issue in issues],
-        }
+        "count": len(issues),
+        "issues": [issue_summary(issue) for issue in issues],
     }
 
 
@@ -1505,9 +1741,7 @@ def bot_create_pull_request_review(
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"review": pull_request_review_summary(review)}}
-
-
+    return {"review": pull_request_review_summary(review)}
 @app.operation(
     id=BOT_LIST_PULL_REQUEST_REVIEWS_OPERATION,
     method="GET",
@@ -1538,10 +1772,8 @@ def bot_list_pull_request_reviews(
     except GitHubAPIError as err:
         return _github_error(err)
     return {
-        "data": {
-            "count": len(reviews),
-            "reviews": [pull_request_review_summary(review) for review in reviews],
-        }
+        "count": len(reviews),
+        "reviews": [pull_request_review_summary(review) for review in reviews],
     }
 
 
@@ -1575,9 +1807,7 @@ def bot_list_pull_request_review_threads(
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": threads}
-
-
+    return threads
 @app.operation(
     id=BOT_RESOLVE_PULL_REQUEST_REVIEW_THREAD_OPERATION,
     method="POST",
@@ -1606,9 +1836,7 @@ def bot_resolve_pull_request_review_thread(
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"thread": thread}}
-
-
+    return {"thread": thread}
 @app.operation(
     id=BOT_ADD_REACTION_OPERATION,
     method="POST",
@@ -1637,9 +1865,7 @@ def bot_add_reaction(input: AddReactionInput, req: gestalt.Request) -> Operation
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"reaction": reaction_summary(reaction)}}
-
-
+    return {"reaction": reaction_summary(reaction)}
 @app.operation(
     id=BOT_ADD_LABELS_OPERATION,
     method="POST",
@@ -1667,9 +1893,7 @@ def bot_add_labels(input: AddLabelsInput, req: gestalt.Request) -> OperationResu
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"labels": [label_summary(label) for label in labels]}}
-
-
+    return {"labels": [label_summary(label) for label in labels]}
 @app.operation(
     id=BOT_REMOVE_LABELS_OPERATION,
     method="POST",
@@ -1700,10 +1924,8 @@ def bot_remove_labels(
     except GitHubAPIError as err:
         return _github_error(err)
     return {
-        "data": {
-            "removed": list(removed),
-            "labels": [label_summary(label) for label in labels],
-        }
+        "removed": list(removed),
+        "labels": [label_summary(label) for label in labels],
     }
 
 
@@ -1736,9 +1958,7 @@ def bot_request_reviewers(
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"pull_request": pull_request_summary(pull_request)}}
-
-
+    return {"pull_request": pull_request_summary(pull_request)}
 @app.operation(
     id=BOT_CREATE_PULL_REQUEST_CONVERSATION_COMMENT_OPERATION,
     method="POST",
@@ -1766,9 +1986,7 @@ def bot_create_pull_request_conversation_comment(
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"comment": issue_comment_summary(comment)}}
-
-
+    return {"comment": issue_comment_summary(comment)}
 @app.operation(
     id=BOT_GET_PULL_REQUEST_OPERATION,
     method="GET",
@@ -1796,9 +2014,7 @@ def bot_get_pull_request(
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"pull_request": pull_request_summary(pull_request)}}
-
-
+    return {"pull_request": pull_request_summary(pull_request)}
 @app.operation(
     id=BOT_LIST_PULL_REQUEST_FILES_OPERATION,
     method="GET",
@@ -1829,10 +2045,8 @@ def bot_list_pull_request_files(
     except GitHubAPIError as err:
         return _github_error(err)
     return {
-        "data": {
-            "count": len(files),
-            "files": [pull_request_file_summary(file) for file in files],
-        }
+        "count": len(files),
+        "files": [pull_request_file_summary(file) for file in files],
     }
 
 
@@ -1860,9 +2074,7 @@ def bot_get_check_run(input: GetCheckRunInput, req: gestalt.Request) -> Operatio
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"check_run": check_run_summary(check_run)}}
-
-
+    return {"check_run": check_run_summary(check_run)}
 @app.operation(
     id=BOT_CREATE_CHECK_RUN_OPERATION,
     method="POST",
@@ -1895,9 +2107,7 @@ def bot_create_check_run(
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"check_run": check_run_summary(check_run)}}
-
-
+    return {"check_run": check_run_summary(check_run)}
 @app.operation(
     id=BOT_UPDATE_CHECK_RUN_OPERATION,
     method="POST",
@@ -1930,9 +2140,7 @@ def bot_update_check_run(
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"check_run": check_run_summary(check_run)}}
-
-
+    return {"check_run": check_run_summary(check_run)}
 @app.operation(
     id=BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION,
     method="GET",
@@ -1968,14 +2176,56 @@ def bot_list_check_suite_check_runs(
     if not isinstance(raw_check_runs, list):
         raw_check_runs = []
     return {
-        "data": {
-            "total_count": check_runs.get("total_count", len(raw_check_runs)),
-            "check_runs": [
-                check_run_summary(check_run)
-                for check_run in raw_check_runs
-                if isinstance(check_run, dict)
-            ],
-        }
+        "total_count": check_runs.get("total_count", len(raw_check_runs)),
+        "check_runs": [
+            check_run_summary(check_run)
+            for check_run in raw_check_runs
+            if isinstance(check_run, dict)
+        ],
+    }
+
+
+@app.operation(
+    id=BOT_LIST_COMMIT_CHECK_RUNS_OPERATION,
+    method="GET",
+    description="List check runs for a commit ref using a GitHub App installation token",
+)
+def bot_list_commit_check_runs(
+    input: ListCommitCheckRunsInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        check_runs = list_commit_check_runs(
+            GitHubListCommitCheckRunsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                ref=input.ref,
+                check_name=input.check_name,
+                status=input.status,
+                filter=input.filter,
+                per_page=input.per_page,
+                page=input.page,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    raw_check_runs = check_runs.get("check_runs")
+    if not isinstance(raw_check_runs, list):
+        raw_check_runs = []
+    return {
+        "total_count": check_runs.get("total_count", len(raw_check_runs)),
+        "check_runs": [
+            check_run_summary(check_run)
+            for check_run in raw_check_runs
+            if isinstance(check_run, dict)
+        ],
     }
 
 
@@ -2008,12 +2258,10 @@ def bot_list_check_run_annotations(
     except GitHubAPIError as err:
         return _github_error(err)
     return {
-        "data": {
-            "count": len(annotations),
-            "annotations": [
-                check_run_annotation_summary(annotation) for annotation in annotations
-            ],
-        }
+        "count": len(annotations),
+        "annotations": [
+            check_run_annotation_summary(annotation) for annotation in annotations
+        ],
     }
 
 
@@ -2043,9 +2291,7 @@ def bot_get_workflow_run(
         return _server_error(str(err))
     except GitHubAPIError as err:
         return _github_error(err)
-    return {"data": {"workflow_run": workflow_run_summary(workflow_run)}}
-
-
+    return {"workflow_run": workflow_run_summary(workflow_run)}
 @app.operation(
     id=BOT_LIST_WORKFLOW_RUN_JOBS_OPERATION,
     method="GET",
@@ -2079,17 +2325,344 @@ def bot_list_workflow_run_jobs(
     if not isinstance(raw_jobs, list):
         raw_jobs = []
     return {
-        "data": {
-            "total_count": jobs.get("total_count", len(raw_jobs)),
-            "jobs": [
-                workflow_run_job_summary(job)
-                for job in raw_jobs
-                if isinstance(job, dict)
-            ],
-        }
+        "total_count": jobs.get("total_count", len(raw_jobs)),
+        "jobs": [
+            workflow_run_job_summary(job)
+            for job in raw_jobs
+            if isinstance(job, dict)
+        ],
     }
 
 
+@app.operation(
+    id=BOT_LIST_WORKFLOW_RUNS_OPERATION,
+    method="GET",
+    description="List GitHub Actions workflow runs using a GitHub App installation token",
+)
+def bot_list_workflow_runs(
+    input: ListWorkflowRunsInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        runs = list_workflow_runs(
+            GitHubListWorkflowRunsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                workflow_id=input.workflow_id,
+                branch=input.branch,
+                event=input.event,
+                head_sha=input.head_sha,
+                status=input.status,
+                created=input.created,
+                per_page=input.per_page,
+                page=input.page,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return workflow_runs_list_summary(runs)
+@app.operation(
+    id=BOT_GET_WORKFLOW_JOB_LOGS_OPERATION,
+    method="GET",
+    description="Get plain-text logs for a GitHub Actions workflow job using a GitHub App installation token",
+)
+def bot_get_workflow_job_logs(
+    input: GetWorkflowJobLogsInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        logs = get_workflow_job_logs(
+            GitHubGetWorkflowJobLogsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                job_id=input.job_id,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"logs": logs}
+@app.operation(
+    id=BOT_LIST_ISSUE_COMMENTS_OPERATION,
+    method="GET",
+    description="List issue or pull request comments using a GitHub App installation token",
+)
+def bot_list_issue_comments(
+    input: ListIssueCommentsInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        comments = list_issue_comments(
+            GitHubListIssueCommentsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                issue_number=input.issue_number,
+                since=input.since,
+                per_page=input.per_page,
+                page=input.page,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {
+        "count": len(comments),
+        "comments": [issue_comment_summary(comment) for comment in comments],
+    }
+
+
+@app.operation(
+    id=BOT_SEARCH_PULL_REQUESTS_OPERATION,
+    method="GET",
+    description="Search pull requests using GitHub GraphQL and a GitHub App installation token",
+    tags=["pr", "prs", "search"],
+)
+def bot_search_pull_requests(
+    input: SearchPullRequestsInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        results = search_pull_requests(
+            GitHubSearchPullRequestsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                query=input.query,
+                first=input.first,
+                after=input.after,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return results
+@app.operation(
+    id=BOT_GET_MERGE_QUEUE_OPERATION,
+    method="GET",
+    description="Get merge queue entries for a branch using GitHub GraphQL and a GitHub App installation token",
+    tags=["pr", "prs"],
+)
+def bot_get_merge_queue(
+    input: GetMergeQueueInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        merge_queue = get_merge_queue(
+            GitHubGetMergeQueueRequest(
+                owner=input.owner,
+                repo=input.repo,
+                branch=input.branch,
+                first=input.first,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"merge_queue": merge_queue}
+@app.operation(
+    id=BOT_LIST_PULL_REQUESTS_OPERATION,
+    method="GET",
+    description="List pull requests using a GitHub App installation token",
+    tags=["pr", "prs"],
+)
+def bot_list_pull_requests(
+    input: ListPullRequestsInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        pull_requests = list_pull_requests(
+            GitHubListPullRequestsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                state=input.state,
+                sort=input.sort,
+                direction=input.direction,
+                base=input.base,
+                head=input.head,
+                per_page=input.per_page,
+                page=input.page,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {
+        "count": len(pull_requests),
+        "pull_requests": [
+            pull_request_summary(pull) for pull in pull_requests
+        ],
+    }
+
+
+@app.operation(
+    id=BOT_LIST_PULL_REQUESTS_FOR_COMMIT_OPERATION,
+    method="GET",
+    description="List pull requests associated with a commit using a GitHub App installation token",
+    tags=["pr", "prs"],
+)
+def bot_list_pull_requests_for_commit(
+    input: ListPullRequestsForCommitInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        pull_requests = list_pull_requests_for_commit(
+            GitHubListPullRequestsForCommitRequest(
+                owner=input.owner,
+                repo=input.repo,
+                commit_sha=input.commit_sha,
+                per_page=input.per_page,
+                page=input.page,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {
+        "count": len(pull_requests),
+        "pull_requests": [
+            pull_request_summary(pull) for pull in pull_requests
+        ],
+    }
+
+
+@app.operation(
+    id=BOT_LIST_ORG_MEMBERS_OPERATION,
+    method="GET",
+    description="List organization members using a GitHub App installation token",
+)
+def bot_list_org_members(
+    input: ListOrgMembersInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        members = list_org_members(
+            GitHubListOrgMembersRequest(
+                owner=input.owner,
+                repo=input.repo,
+                role=input.role,
+                filter=input.filter,
+                per_page=input.per_page,
+                page=input.page,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {
+        "count": len(members),
+        "members": [user_summary(member) for member in members],
+    }
+
+
+@app.operation(
+    id=BOT_LIST_REPO_CONTRIBUTORS_OPERATION,
+    method="GET",
+    description="List repository contributors using a GitHub App installation token",
+)
+def bot_list_repo_contributors(
+    input: ListRepoContributorsInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        contributors = list_repo_contributors(
+            GitHubListRepoContributorsRequest(
+                owner=input.owner,
+                repo=input.repo,
+                anon=input.anon,
+                per_page=input.per_page,
+                page=input.page,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {
+        "count": len(contributors),
+        "contributors": [
+            contributor_summary(contributor) for contributor in contributors
+        ],
+    }
+
+
+@app.operation(
+    id=BOT_GET_USER_OPERATION,
+    method="GET",
+    description="Get a GitHub user by login using a GitHub App installation token",
+)
+def bot_get_user(input: GetUserInput, req: gestalt.Request) -> OperationResult:
+    try:
+        user = get_user(
+            GitHubGetUserRequest(
+                owner=input.owner,
+                repo=input.repo,
+                login=input.login,
+            ),
+            subject=req.subject,
+            authorization=_request_authorization(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    return {"user": user_summary(user)}
 def _commit_request_from_input(
     input: CommitFilesInput, req: gestalt.Request
 ) -> GitHubCommitRequest:

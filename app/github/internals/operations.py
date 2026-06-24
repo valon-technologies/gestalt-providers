@@ -16,6 +16,7 @@ from .client import (
     DEFAULT_GITHUB_CLIENT,
     GitHubAPIClient,
     JsonObject,
+    org_path,
     repo_path,
 )
 from .config import get_github_config
@@ -362,6 +363,18 @@ class GitHubListCheckSuiteCheckRunsRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubListCommitCheckRunsRequest:
+    owner: str
+    repo: str
+    ref: str
+    check_name: str = ""
+    status: str = ""
+    filter: str = ""
+    per_page: int = 0
+    page: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubListCheckRunAnnotationsRequest:
     owner: str
     repo: str
@@ -385,6 +398,102 @@ class GitHubListWorkflowRunJobsRequest:
     filter: str = ""
     per_page: int = 0
     page: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubListWorkflowRunsRequest:
+    owner: str
+    repo: str
+    workflow_id: str = ""
+    branch: str = ""
+    event: str = ""
+    head_sha: str = ""
+    status: str = ""
+    created: str = ""
+    per_page: int = 0
+    page: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubGetWorkflowJobLogsRequest:
+    owner: str
+    repo: str
+    job_id: int
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubListIssueCommentsRequest:
+    owner: str
+    repo: str
+    issue_number: int
+    since: str = ""
+    per_page: int = 0
+    page: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubSearchPullRequestsRequest:
+    owner: str
+    repo: str
+    query: str
+    first: int = 30
+    after: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubGetMergeQueueRequest:
+    owner: str
+    repo: str
+    branch: str
+    first: int = 100
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubListPullRequestsRequest:
+    owner: str
+    repo: str
+    state: str = "open"
+    sort: str = ""
+    direction: str = ""
+    base: str = ""
+    head: str = ""
+    per_page: int = 0
+    page: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubListPullRequestsForCommitRequest:
+    owner: str
+    repo: str
+    commit_sha: str
+    per_page: int = 0
+    page: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubListOrgMembersRequest:
+    owner: str
+    repo: str
+    role: str = ""
+    filter: str = ""
+    per_page: int = 0
+    page: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubListRepoContributorsRequest:
+    owner: str
+    repo: str
+    anon: str = ""
+    per_page: int = 0
+    page: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class GitHubGetUserRequest:
+    owner: str
+    repo: str
+    login: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -482,6 +591,81 @@ mutation GestaltResolvePullRequestReviewThread($threadId: ID!) {
     thread {
       id
       isResolved
+    }
+  }
+}
+""".strip()
+
+SEARCH_PULL_REQUESTS_QUERY = """
+query GestaltSearchPullRequests($query: String!, $first: Int!, $after: String) {
+  search(query: $query, type: ISSUE, first: $first, after: $after) {
+    issueCount
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    edges {
+      cursor
+      node {
+        ... on PullRequest {
+          number
+          title
+          state
+          url
+          createdAt
+          updatedAt
+          mergedAt
+          author {
+            login
+          }
+          headRefName
+          baseRefName
+          headRefOid
+          mergeCommit {
+            oid
+          }
+          commits(last: 1) {
+            nodes {
+              commit {
+                committedDate
+                author {
+                  email
+                  name
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+""".strip()
+
+MERGE_QUEUE_QUERY = """
+query GestaltMergeQueue(
+  $owner: String!
+  $repo: String!
+  $branch: String!
+  $first: Int!
+) {
+  repository(owner: $owner, name: $repo) {
+    mergeQueue(branch: $branch) {
+      entries(first: $first) {
+        totalCount
+        nodes {
+          position
+          enqueuedAt
+          state
+          headCommit {
+            oid
+          }
+          pullRequest {
+            number
+            title
+          }
+        }
+      }
     }
   }
 }
@@ -1837,6 +2021,61 @@ def list_check_suite_check_runs(
     )
 
 
+def list_commit_check_runs(
+    request: GitHubListCommitCheckRunsRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    ref = require_text(request.ref, "ref")
+    check_name = request.check_name.strip()
+    status = request.status.strip()
+    if status and status not in {
+        "queued",
+        "in_progress",
+        "completed",
+        "waiting",
+        "requested",
+        "pending",
+    }:
+        raise ValueError(
+            "status must be queued, in_progress, completed, waiting, requested, or pending"
+        )
+    filter_value = request.filter.strip()
+    if filter_value and filter_value not in {"latest", "all"}:
+        raise ValueError("filter must be either 'latest' or 'all'")
+    params: dict[str, Any] = {}
+    if check_name:
+        params["check_name"] = check_name
+    if status:
+        params["status"] = status
+    if filter_value:
+        params["filter"] = filter_value
+    params.update(pagination_params(per_page=request.per_page, page=request.page))
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"checks": "read"}
+    )
+    return github.github_json(
+        "GET",
+        path_with_query(
+            repo_path(owner, repo, "commits", ref, "check-runs"),
+            params,
+        ),
+        token,
+    )
+
+
 def list_check_run_annotations(
     request: GitHubListCheckRunAnnotationsRequest,
     *,
@@ -1934,6 +2173,385 @@ def list_workflow_run_jobs(
             repo_path(owner, repo, "actions", "runs", str(run_id), "jobs"),
             params,
         ),
+        token,
+    )
+
+
+def list_workflow_runs(
+    request: GitHubListWorkflowRunsRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    params = pagination_params(per_page=request.per_page, page=request.page)
+    if request.branch.strip():
+        params["branch"] = request.branch.strip()
+    if request.event.strip():
+        params["event"] = request.event.strip()
+    if request.head_sha.strip():
+        params["head_sha"] = request.head_sha.strip()
+    if request.status.strip():
+        params["status"] = request.status.strip()
+    if request.created.strip():
+        params["created"] = request.created.strip()
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"actions": "read"}
+    )
+    workflow_id = request.workflow_id.strip()
+    if workflow_id:
+        path = repo_path(owner, repo, "actions", "workflows", workflow_id, "runs")
+    else:
+        path = repo_path(owner, repo, "actions", "runs")
+    return github.github_json(
+        "GET",
+        path_with_query(path, params),
+        token,
+    )
+
+
+def get_workflow_job_logs(
+    request: GitHubGetWorkflowJobLogsRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> str:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    job_id = require_positive_int(request.job_id, "job_id")
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"actions": "read"}
+    )
+    return github.workflow_job_logs(token, owner, repo, job_id)
+
+
+def list_issue_comments(
+    request: GitHubListIssueCommentsRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> list[JsonObject]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    issue_number = require_positive_int(request.issue_number, "issue_number")
+    params = pagination_params(per_page=request.per_page, page=request.page)
+    if request.since.strip():
+        params["since"] = request.since.strip()
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"issues": "read"}
+    )
+    data = github.github_json_value(
+        "GET",
+        path_with_query(
+            repo_path(owner, repo, "issues", str(issue_number), "comments"),
+            params,
+        ),
+        token,
+    )
+    return require_json_object_list(data, "GitHub issue comments response")
+
+
+def search_pull_requests(
+    request: GitHubSearchPullRequestsRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    query = require_text(request.query, "query")
+    first = bounded_connection_size(request.first, "first", 30, 100)
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    variables: JsonObject = {"query": query, "first": first}
+    after = request.after.strip()
+    if after:
+        variables["after"] = after
+    # The search GraphQL query selects commit data (committedDate / author email),
+    # which GitHub gates behind contents:read. pull_requests:read alone yields
+    # "Resource not accessible by integration".
+    token = github.installation_token(
+        installation_id,
+        repositories=[repo],
+        permissions={"pull_requests": "read", "contents": "read"},
+    )
+    response = github.graphql_json(SEARCH_PULL_REQUESTS_QUERY, token, variables)
+    search = map_field(map_field(response, "data"), "search")
+    if not search:
+        raise GitHubAPIError(502, "GitHub search response did not include search")
+    page_info = map_field(search, "pageInfo")
+    raw_edges = search.get("edges")
+    if not isinstance(raw_edges, list) or not page_info:
+        raise GitHubAPIError(502, "GitHub search response did not include search edges")
+    pull_requests = []
+    for edge in raw_edges:
+        if not isinstance(edge, dict):
+            continue
+        node = edge.get("node")
+        if not isinstance(node, dict):
+            continue
+        cursor = str(edge.get("cursor") or "")
+        pull_requests.append(search_pull_request_summary(node, cursor=cursor))
+    return {
+        "issue_count": int_field(search, "issueCount"),
+        "pull_requests": pull_requests,
+        "pageInfo": {
+            "hasNextPage": bool(page_info.get("hasNextPage")),
+            "endCursor": str_field(page_info, "endCursor"),
+        },
+    }
+
+
+def get_merge_queue(
+    request: GitHubGetMergeQueueRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    branch = require_branch_name(request.branch, "branch")
+    first = bounded_connection_size(request.first, "first", 100, 100)
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"contents": "read"}
+    )
+    response = github.graphql_json(
+        MERGE_QUEUE_QUERY,
+        token,
+        {"owner": owner, "repo": repo, "branch": branch, "first": first},
+    )
+    repository = map_field(map_field(response, "data"), "repository")
+    if not repository:
+        raise GitHubAPIError(
+            502, "GitHub merge queue response did not include repository"
+        )
+    merge_queue = map_field(repository, "mergeQueue")
+    if not merge_queue:
+        return {"total_count": 0, "entries": []}
+    return merge_queue_summary(merge_queue)
+
+
+def list_pull_requests(
+    request: GitHubListPullRequestsRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> list[JsonObject]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    state = request.state.strip().lower() or "open"
+    if state not in {"open", "closed", "all"}:
+        raise ValueError("state must be open, closed, or all")
+    sort = request.sort.strip().lower()
+    if sort and sort not in {"created", "updated", "popularity", "long-running"}:
+        raise ValueError("sort must be created, updated, popularity, or long-running")
+    direction = request.direction.strip().lower()
+    if direction and direction not in {"asc", "desc"}:
+        raise ValueError("direction must be asc or desc")
+    params = pagination_params(per_page=request.per_page, page=request.page)
+    params["state"] = state
+    if sort:
+        params["sort"] = sort
+    if direction:
+        params["direction"] = direction
+    if request.base.strip():
+        params["base"] = request.base.strip()
+    if request.head.strip():
+        params["head"] = request.head.strip()
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"pull_requests": "read"}
+    )
+    data = github.github_json_value(
+        "GET",
+        path_with_query(repo_path(owner, repo, "pulls"), params),
+        token,
+    )
+    return require_json_object_list(data, "GitHub pull requests response")
+
+
+def list_pull_requests_for_commit(
+    request: GitHubListPullRequestsForCommitRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> list[JsonObject]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    commit_sha = require_text(request.commit_sha, "commit_sha")
+    params = pagination_params(per_page=request.per_page, page=request.page)
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"pull_requests": "read"}
+    )
+    data = github.github_json_value(
+        "GET",
+        path_with_query(
+            repo_path(owner, repo, "commits", commit_sha, "pulls", safe_last="/.:"),
+            params,
+        ),
+        token,
+    )
+    return require_json_object_list(data, "GitHub commit pull requests response")
+
+
+def list_org_members(
+    request: GitHubListOrgMembersRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> list[JsonObject]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    role = request.role.strip().lower()
+    if role and role not in {"all", "admin", "member"}:
+        raise ValueError("role must be all, admin, or member")
+    filter_value = request.filter.strip().lower()
+    if filter_value and filter_value not in {"2fa_disabled", "2fa_insecure"}:
+        raise ValueError("filter must be 2fa_disabled or 2fa_insecure")
+    params = pagination_params(per_page=request.per_page, page=request.page)
+    if role:
+        params["role"] = role
+    if filter_value:
+        params["filter"] = filter_value
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"members": "read"}
+    )
+    data = github.github_json_value(
+        "GET",
+        path_with_query(org_path(owner, "members"), params),
+        token,
+    )
+    return require_json_object_list(data, "GitHub org members response")
+
+
+def list_repo_contributors(
+    request: GitHubListRepoContributorsRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> list[JsonObject]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    anon = request.anon.strip().lower()
+    if anon and anon not in {"true", "false", "1", "0"}:
+        raise ValueError("anon must be true or false")
+    params = pagination_params(per_page=request.per_page, page=request.page)
+    if anon:
+        params["anon"] = anon
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"metadata": "read"}
+    )
+    data = github.github_json_value(
+        "GET",
+        path_with_query(repo_path(owner, repo, "contributors"), params),
+        token,
+    )
+    return require_json_object_list(data, "GitHub contributors response")
+
+
+def get_user(
+    request: GitHubGetUserRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    login = require_text(request.login, "login")
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"metadata": "read"}
+    )
+    return github.github_json(
+        "GET",
+        f"/users/{urllib.parse.quote(login, safe='')}",
         token,
     )
 
@@ -2334,6 +2952,15 @@ def pull_request_summary(pull: Mapping[str, Any]) -> dict[str, Any]:
     merged_at = str_field(pull, "merged_at")
     if merged_at:
         summary["merged_at"] = merged_at
+    created_at = str_field(pull, "created_at")
+    if created_at:
+        summary["created_at"] = created_at
+    merge_commit_sha = str_field(pull, "merge_commit_sha")
+    if merge_commit_sha:
+        summary["merge_commit_sha"] = merge_commit_sha
+    user_login = nested_str(pull, "user", "login")
+    if user_login:
+        summary["user"] = user_login
     return summary
 
 
@@ -2364,13 +2991,16 @@ def repository_summary(repo: Mapping[str, Any]) -> dict[str, Any]:
 def commit_summary(commit: Mapping[str, Any]) -> dict[str, Any]:
     commit_obj = map_field(commit, "commit")
     author = map_field(commit_obj, "author")
+    committer = map_field(commit_obj, "committer")
     return _compact_dict(
         {
             "sha": str_field(commit, "sha"),
             "html_url": str_field(commit, "html_url"),
             "message": str_field(commit_obj, "message"),
             "author_name": str_field(author, "name"),
+            "author_email": str_field(author, "email"),
             "author_date": str_field(author, "date"),
+            "date": str_field(committer, "date"),
         }
     )
 
@@ -2627,6 +3257,15 @@ def pull_request_review_thread_comment_summary(
 
 
 def check_run_summary(check_run: Mapping[str, Any]) -> dict[str, Any]:
+    output_raw = map_field(check_run, "output")
+    output_summary: dict[str, Any] | None = None
+    if output_raw:
+        output_summary = _compact_dict(
+            {
+                "title": str_field(output_raw, "title"),
+                "summary": str_field(output_raw, "summary"),
+            }
+        )
     return _compact_dict(
         {
             "id": int_field(check_run, "id"),
@@ -2639,6 +3278,7 @@ def check_run_summary(check_run: Mapping[str, Any]) -> dict[str, Any]:
             "external_id": str_field(check_run, "external_id"),
             "started_at": str_field(check_run, "started_at"),
             "completed_at": str_field(check_run, "completed_at"),
+            "output": output_summary,
         }
     )
 
@@ -2658,24 +3298,47 @@ def check_run_annotation_summary(annotation: Mapping[str, Any]) -> dict[str, Any
 
 
 def workflow_run_summary(workflow_run: Mapping[str, Any]) -> dict[str, Any]:
+    head_ref = str_field(workflow_run, "head_ref") or str_field(workflow_run, "head_branch")
     return _compact_dict(
         {
             "id": int_field(workflow_run, "id"),
             "name": str_field(workflow_run, "name"),
+            "display_title": str_field(workflow_run, "display_title"),
             "status": str_field(workflow_run, "status"),
             "conclusion": str_field(workflow_run, "conclusion"),
             "html_url": str_field(workflow_run, "html_url"),
             "run_number": int_field(workflow_run, "run_number"),
             "event": str_field(workflow_run, "event"),
             "head_branch": str_field(workflow_run, "head_branch"),
+            "head_ref": head_ref,
             "head_sha": str_field(workflow_run, "head_sha"),
+            "path": str_field(workflow_run, "path"),
+            "workflow_id": int_field(workflow_run, "workflow_id"),
             "created_at": str_field(workflow_run, "created_at"),
             "updated_at": str_field(workflow_run, "updated_at"),
         }
     )
 
 
+def workflow_job_step_summary(step: Mapping[str, Any]) -> dict[str, Any]:
+    return _compact_dict(
+        {
+            "name": str_field(step, "name"),
+            "status": str_field(step, "status"),
+            "conclusion": str_field(step, "conclusion"),
+            "number": int_field(step, "number"),
+        }
+    )
+
+
 def workflow_run_job_summary(job: Mapping[str, Any]) -> dict[str, Any]:
+    raw_steps = job.get("steps")
+    steps = raw_steps if isinstance(raw_steps, list) else []
+    step_summaries = [
+        workflow_job_step_summary(step)
+        for step in steps
+        if isinstance(step, dict)
+    ]
     return _compact_dict(
         {
             "id": int_field(job, "id"),
@@ -2684,10 +3347,124 @@ def workflow_run_job_summary(job: Mapping[str, Any]) -> dict[str, Any]:
             "status": str_field(job, "status"),
             "conclusion": str_field(job, "conclusion"),
             "html_url": str_field(job, "html_url"),
+            "created_at": str_field(job, "created_at"),
             "started_at": str_field(job, "started_at"),
             "completed_at": str_field(job, "completed_at"),
+            "steps": step_summaries or None,
         }
     )
+
+
+def workflow_runs_list_summary(response: Mapping[str, Any]) -> dict[str, Any]:
+    raw_runs = response.get("workflow_runs")
+    runs = raw_runs if isinstance(raw_runs, list) else []
+    return {
+        "total_count": int_field(response, "total_count"),
+        "workflow_runs": [
+            workflow_run_summary(run) for run in runs if isinstance(run, dict)
+        ],
+    }
+
+
+def user_summary(user: Mapping[str, Any]) -> dict[str, Any]:
+    return _compact_dict(
+        {
+            "id": int_field(user, "id"),
+            "login": str_field(user, "login"),
+            "name": str_field(user, "name"),
+            "type": str_field(user, "type"),
+            "html_url": str_field(user, "html_url"),
+            "avatar_url": str_field(user, "avatar_url"),
+        }
+    )
+
+
+def contributor_summary(contributor: Mapping[str, Any]) -> dict[str, Any]:
+    return _compact_dict(
+        {
+            "id": int_field(contributor, "id"),
+            "login": str_field(contributor, "login"),
+            "contributions": int_field(contributor, "contributions"),
+            "html_url": str_field(contributor, "html_url"),
+            "type": str_field(contributor, "type"),
+        }
+    )
+
+
+def search_pull_request_summary(
+    node: Mapping[str, Any], *, cursor: str = ""
+) -> dict[str, Any]:
+    commit_node: Mapping[str, Any] | None = None
+    commits = map_field(node, "commits")
+    if commits:
+        raw_nodes = commits.get("nodes")
+        if isinstance(raw_nodes, list) and raw_nodes:
+            first = raw_nodes[0]
+            if isinstance(first, dict):
+                mapped_commit = map_field(first, "commit")
+                if mapped_commit:
+                    commit_node = mapped_commit
+    merge_commit = map_field(node, "mergeCommit")
+    return _compact_dict(
+        {
+            "number": int_field(node, "number"),
+            "title": str_field(node, "title"),
+            "state": str_field(node, "state"),
+            "url": str_field(node, "url"),
+            "created_at": str_field(node, "createdAt"),
+            "updated_at": str_field(node, "updatedAt"),
+            "merged_at": str_field(node, "mergedAt"),
+            "author_login": nested_str(node, "author", "login"),
+            "head_ref": str_field(node, "headRefName"),
+            "base_ref": str_field(node, "baseRefName"),
+            "head_sha": str_field(node, "headRefOid"),
+            "merge_commit_sha": str_field(merge_commit, "oid"),
+            "committed_at": str_field(commit_node, "committedDate")
+            if commit_node
+            else "",
+            "author_email": nested_str(commit_node, "author", "email")
+            if commit_node
+            else "",
+            "author_name": nested_str(commit_node, "author", "name")
+            if commit_node
+            else "",
+            "cursor": cursor.strip(),
+        }
+    )
+
+
+def merge_queue_entry_summary(entry: Mapping[str, Any]) -> dict[str, Any]:
+    head_commit = map_field(entry, "headCommit")
+    pull_request = map_field(entry, "pullRequest")
+    pull_request_summary: dict[str, Any] | None = None
+    if pull_request:
+        pull_request_summary = _compact_dict(
+            {
+                "number": int_field(pull_request, "number"),
+                "title": str_field(pull_request, "title"),
+            }
+        )
+    return _compact_dict(
+        {
+            "position": int_field(entry, "position"),
+            "enqueued_at": str_field(entry, "enqueuedAt"),
+            "merge_request_state": str_field(entry, "state"),
+            "head_commit_oid": str_field(head_commit, "oid"),
+            "pull_request": pull_request_summary,
+        }
+    )
+
+
+def merge_queue_summary(merge_queue: Mapping[str, Any]) -> dict[str, Any]:
+    entries_connection = map_field(merge_queue, "entries")
+    raw_nodes = entries_connection.get("nodes")
+    nodes = raw_nodes if isinstance(raw_nodes, list) else []
+    return {
+        "total_count": int_field(entries_connection, "totalCount"),
+        "entries": [
+            merge_queue_entry_summary(node) for node in nodes if isinstance(node, dict)
+        ],
+    }
 
 
 def pagination_params(*, per_page: int, page: int) -> dict[str, Any]:
