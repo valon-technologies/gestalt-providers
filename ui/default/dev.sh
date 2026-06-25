@@ -86,7 +86,7 @@ if [[ -z "$CONFIG" && "$API_PORT" != "8080" ]]; then
     fi
     CONFIG="$DEV_STATE_DIR/config.yaml"
     cat > "$CONFIG" <<EOF
-apiVersion: gestaltd.config/v7
+apiVersion: gestaltd.config/v8
 server:
   public:
     port: $API_PORT
