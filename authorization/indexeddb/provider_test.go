@@ -523,6 +523,18 @@ func TestProviderCheckAccess(t *testing.T) {
 					{Name: "readMetrics", Relations: []string{"reader"}},
 				},
 			},
+			{
+				Name:        "wildcardApp",
+				DefaultRole: "viewer",
+				Relations: []*AuthorizationModelRelation{
+					{Name: "viewer"},
+					{Name: "admin"},
+				},
+				Actions: []*AuthorizationModelAction{
+					{Name: "*", Relations: []string{"viewer"}},
+					{Name: "adminOnly", Relations: []string{"admin"}},
+				},
+			},
 		},
 	}
 
@@ -650,6 +662,33 @@ func TestProviderCheckAccess(t *testing.T) {
 				Subject:  &Subject{Type: "subject", Id: "user:alice"},
 				Action:   &Action{Name: "read"},
 				Resource: &Resource{Type: "issue", Id: "123"},
+			},
+			allowed: false,
+		},
+		{
+			name: "wildcard action grants any operation to default role",
+			request: &CheckAccessRequest{
+				Subject:  &Subject{Type: "subject", Id: "user:dana"},
+				Action:   &Action{Name: "some.arbitrary.operation"},
+				Resource: &Resource{Type: "wildcardApp", Id: "instance"},
+			},
+			allowed: true,
+		},
+		{
+			name: "wildcard action grants another operation to default role",
+			request: &CheckAccessRequest{
+				Subject:  &Subject{Type: "subject", Id: "user:eve"},
+				Action:   &Action{Name: "totally.different.op"},
+				Resource: &Resource{Type: "wildcardApp", Id: "instance"},
+			},
+			allowed: true,
+		},
+		{
+			name: "specific action takes precedence over wildcard and denies default role",
+			request: &CheckAccessRequest{
+				Subject:  &Subject{Type: "subject", Id: "user:dana"},
+				Action:   &Action{Name: "adminOnly"},
+				Resource: &Resource{Type: "wildcardApp", Id: "instance"},
 			},
 			allowed: false,
 		},

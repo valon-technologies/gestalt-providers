@@ -88,6 +88,9 @@ func evaluateAccess(snapshot *authorizationSnapshot, req *CheckAccessRequest) (*
 	}
 	modelAction := findModelAction(resourceType, action.Name)
 	if modelAction == nil {
+		modelAction = findModelAction(resourceType, wildcardActionName)
+	}
+	if modelAction == nil {
 		return &CheckAccessResponse{Allowed: false, ModelId: modelID}, nil
 	}
 
@@ -160,6 +163,8 @@ func findModelResourceType(model *AuthorizationModel, name string) *Authorizatio
 	}
 	return nil
 }
+
+const wildcardActionName = "*"
 
 func findModelAction(resourceType *AuthorizationModelResourceType, name string) *AuthorizationModelAction {
 	name = strings.TrimSpace(name)
