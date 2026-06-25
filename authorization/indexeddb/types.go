@@ -51,7 +51,6 @@ type RelationshipTarget = gestalt.RelationshipTarget
 type SubjectSet = gestalt.SubjectSet
 type RelationshipTargetType = gestalt.RelationshipTargetType
 type SourceLayer = gestalt.SourceLayer
-type DefaultAccessPolicy = gestalt.DefaultAccessPolicy
 
 const (
 	RelationshipTargetTypeUnspecified = gestalt.RelationshipTargetTypeUnspecified
@@ -61,9 +60,6 @@ const (
 	SourceLayerUnspecified            = gestalt.SourceLayerUnspecified
 	SourceLayerStaticConfig           = gestalt.SourceLayerStaticConfig
 	SourceLayerRuntime                = gestalt.SourceLayerRuntime
-	DefaultAccessPolicyInvalid        = DefaultAccessPolicy(-1)
-	DefaultAccessPolicyDeny           = gestalt.DefaultAccessPolicyDeny
-	DefaultAccessPolicyAllow          = gestalt.DefaultAccessPolicyAllow
 )
 
 // AuthorizationModel is currently stored with a shape like:

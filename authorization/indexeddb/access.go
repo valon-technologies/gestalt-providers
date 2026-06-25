@@ -86,9 +86,6 @@ func evaluateAccess(snapshot *authorizationSnapshot, req *CheckAccessRequest) (*
 	if resourceType == nil {
 		return &CheckAccessResponse{Allowed: false, ModelId: modelID}, nil
 	}
-	if resourceType.DefaultAccessPolicy == DefaultAccessPolicyAllow {
-		return &CheckAccessResponse{Allowed: true, ModelId: modelID}, nil
-	}
 	modelAction := findModelAction(resourceType, action.Name)
 	if modelAction == nil {
 		return &CheckAccessResponse{Allowed: false, ModelId: modelID}, nil
@@ -97,6 +94,11 @@ func evaluateAccess(snapshot *authorizationSnapshot, req *CheckAccessRequest) (*
 	allowedRelations := modelActionAllowedRelations(modelAction)
 	if len(allowedRelations) == 0 {
 		return &CheckAccessResponse{Allowed: false, ModelId: modelID}, nil
+	}
+	if defaultRole := strings.TrimSpace(resourceType.DefaultRole); defaultRole != "" {
+		if _, ok := allowedRelations[defaultRole]; ok {
+			return &CheckAccessResponse{Allowed: true, ModelId: modelID}, nil
+		}
 	}
 
 	for _, relationship := range snapshot.relationships {
