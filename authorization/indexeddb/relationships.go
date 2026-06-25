@@ -208,26 +208,6 @@ func parseSourceLayer(value string) SourceLayer {
 	}
 }
 
-func defaultAccessPolicyString(policy DefaultAccessPolicy) string {
-	switch policy {
-	case DefaultAccessPolicyAllow:
-		return "allow"
-	default:
-		return "deny"
-	}
-}
-
-func parseDefaultAccessPolicy(value string) DefaultAccessPolicy {
-	switch strings.TrimSpace(strings.ToLower(value)) {
-	case "deny":
-		return DefaultAccessPolicyDeny
-	case "allow":
-		return DefaultAccessPolicyAllow
-	default:
-		return DefaultAccessPolicyInvalid
-	}
-}
-
 func relationshipID(tuple *RelationshipTuple) string {
 	value, err := relationshipTupleToJSONValue(tuple)
 	if err != nil {
