@@ -4,4 +4,10 @@ displayName: S3
 description: S3 provider for AWS S3, GCS XML interoperability, MinIO, and similar backends.
 iconFile: assets/icon.svg
 kind: s3
+install:
+  command: [go, mod, download]
+build:
+  command: [go, run, github.com/valon-technologies/gestalt/sdk/go/cmd/gestalt, build]
+run:
+  command: [go, run, github.com/valon-technologies/gestalt/sdk/go/cmd/gestalt, run]
 spec: {}

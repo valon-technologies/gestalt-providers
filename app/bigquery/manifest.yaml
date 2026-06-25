@@ -7,7 +7,9 @@ kind: app
 install:
   command: [uv, sync, --frozen]
 build:
-  command: [uv, run, python, -m, gestalt._build]
+  command: [uv, run, gestalt, build]
+run:
+  command: [uv, run, gestalt, run, ., provider]
 spec:
   surfaces:
     rest:
