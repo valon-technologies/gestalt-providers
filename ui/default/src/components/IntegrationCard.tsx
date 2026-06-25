@@ -477,13 +477,6 @@ export default function IntegrationCard({
       }`}
       onClick={handleCardClick}
       onKeyDown={handleCardKeyDown}
-      role={cardNavigationEnabled ? "link" : undefined}
-      tabIndex={cardNavigationEnabled ? 0 : undefined}
-      aria-label={
-        cardNavigationEnabled
-          ? `Open ${integration.displayName || integration.name}`
-          : undefined
-      }
     >
       {pendingSelection && (
         <form
@@ -506,7 +499,13 @@ export default function IntegrationCard({
           </div>
           <div>
             <h3 className="text-base font-heading text-primary">
-              {integration.displayName || integration.name}
+              {cardNavigationEnabled ? (
+                <a href={mountedPath} className="hover:underline">
+                  {integration.displayName || integration.name}
+                </a>
+              ) : (
+                integration.displayName || integration.name
+              )}
             </h3>
             {integration.description && (
               <p className="mt-1 line-clamp-2 text-sm text-muted">
