@@ -4029,10 +4029,9 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(auth_header(redirected), "")
 
     def test_workflow_job_logs_returns_opener_body(self) -> None:
-        response = mock.Mock()
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
         response.read.return_value = b"job log content\n"
-        response.__enter__ = mock.Mock(return_value=response)
-        response.__exit__ = mock.Mock(return_value=None)
         opener = mock.Mock()
         opener.open.return_value = response
         with mock.patch(
