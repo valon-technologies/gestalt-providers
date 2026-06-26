@@ -9,6 +9,6 @@ install:
 build:
   command: [bun, run, gestalt, build]
 run:
-  command: [bun, run, gestalt, run, ., ./src/provider.ts#provider]
+  command: [bun, run, gestalt, run, ., './src/provider.ts#provider']
 spec:
   configSchemaPath: schemas/config.schema.yaml
