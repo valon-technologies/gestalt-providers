@@ -9,7 +9,6 @@ spec:
     Notion-Version: '2026-03-11'
   surfaces:
     openapi:
-      connection: OAuth
       document: openapi.yaml
     mcp:
       connection: MCP
