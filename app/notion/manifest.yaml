@@ -35,6 +35,15 @@ spec:
         - name: token
           label: Internal integration secret
           description: Create an internal integration at [notion.so/profile/integrations](https://www.notion.so/profile/integrations) and copy its secret, then share the relevant pages or databases with the integration
+    PAT:
+      displayName: Personal access token
+      mode: subject
+      auth:
+        type: bearer
+        credentials:
+        - name: token
+          label: Personal access token
+          description: Create a PAT in the [Notion Developer portal](https://www.notion.so/developers/tokens) with the Notion API capability. A PAT acts as you and expires one year after creation; rotate it before expiry.
     MCP:
       mode: subject
       auth:

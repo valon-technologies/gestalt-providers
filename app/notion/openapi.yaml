@@ -332,7 +332,7 @@ paths:
     get:
       operationId: users.list
       summary: List all users
-      description: List users visible to the authenticated integration.
+      description: List users visible to the authenticated integration. Not available to personal access tokens (PATs); see https://developers.notion.com/guides/get-started/personal-access-tokens#permissions-and-content-access.
       tags: [Users]
       parameters:
         - $ref: '#/components/parameters/StartCursor'
