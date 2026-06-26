@@ -308,7 +308,7 @@ def write_base_config(config_path: pathlib.Path, index_path: pathlib.Path) -> No
     config_path.write_text(
         "\n".join(
             [
-                "apiVersion: gestaltd.config/v7",
+                "apiVersion: gestaltd.config/v8",
                 "providerRepositories:",
                 "  local:",
                 f"    url: {file_url(index_path)}",

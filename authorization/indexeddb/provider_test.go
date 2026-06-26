@@ -91,9 +91,9 @@ func TestProviderSetAndGetActiveModel(t *testing.T) {
 				},
 			},
 			{
-				Name:                "folder",
-				DefaultAccessPolicy: DefaultAccessPolicyAllow,
-				SourceLayer:         SourceLayerRuntime,
+				Name:        "folder",
+				DefaultRole: "member",
+				SourceLayer: SourceLayerRuntime,
 				Relations: []*AuthorizationModelRelation{
 					{
 						Name: "parent",
@@ -140,6 +140,9 @@ func TestProviderSetAndGetActiveModel(t *testing.T) {
 	}
 	if !reflect.DeepEqual(listResp.ResourceTypes, model.ResourceTypes) {
 		t.Fatalf("ListActiveModelResourceTypes(active) = %#v, want %#v", listResp.ResourceTypes, model.ResourceTypes)
+	}
+	if got := listResp.ResourceTypes[1].DefaultRole; got != "member" {
+		t.Fatalf("ListActiveModelResourceTypes(active).ResourceTypes[1].DefaultRole = %q, want member", got)
 	}
 	if listResp.ModelId != "model-1" {
 		t.Fatalf("ListActiveModelResourceTypes(active).ModelId = %q, want model-1", listResp.ModelId)
@@ -275,7 +278,7 @@ func TestProviderSetActiveModelRejectsInvalidAllowedTargets(t *testing.T) {
 	}
 }
 
-func TestProviderSetActiveModelRejectsInvalidDefaultAccessPolicy(t *testing.T) {
+func TestProviderSetActiveModelTrimsDefaultRole(t *testing.T) {
 	ctx := context.Background()
 	provider := New()
 	fakeDB := &fakeIndexedDB{}
@@ -292,14 +295,21 @@ func TestProviderSetActiveModelRejectsInvalidDefaultAccessPolicy(t *testing.T) {
 			Version: "v1",
 			ResourceTypes: []*AuthorizationModelResourceType{
 				{
-					Name:                "telemetry",
-					DefaultAccessPolicy: DefaultAccessPolicy(2),
+					Name:        "telemetry",
+					DefaultRole: " viewer ",
 				},
 			},
 		},
 	})
-	if status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("SetActiveModel() error = %v, want InvalidArgument", err)
+	if err != nil {
+		t.Fatalf("SetActiveModel() error = %v", err)
+	}
+	listResp, err := provider.ListActiveModelResourceTypes(ctx, &ListActiveModelResourceTypesRequest{})
+	if err != nil {
+		t.Fatalf("ListActiveModelResourceTypes() error = %v", err)
+	}
+	if got := listResp.ResourceTypes[0].DefaultRole; got != "viewer" {
+		t.Fatalf("ListActiveModelResourceTypes().ResourceTypes[0].DefaultRole = %q, want viewer", got)
 	}
 }
 
@@ -507,10 +517,22 @@ func TestProviderCheckAccess(t *testing.T) {
 				},
 			},
 			{
-				Name:                "telemetry",
-				DefaultAccessPolicy: DefaultAccessPolicyAllow,
+				Name:        "telemetry",
+				DefaultRole: "reader",
 				Actions: []*AuthorizationModelAction{
 					{Name: "readMetrics", Relations: []string{"reader"}},
+				},
+			},
+			{
+				Name:        "wildcardApp",
+				DefaultRole: "viewer",
+				Relations: []*AuthorizationModelRelation{
+					{Name: "viewer"},
+					{Name: "admin"},
+				},
+				Actions: []*AuthorizationModelAction{
+					{Name: "*", Relations: []string{"viewer"}},
+					{Name: "adminOnly", Relations: []string{"admin"}},
 				},
 			},
 		},
@@ -617,7 +639,7 @@ func TestProviderCheckAccess(t *testing.T) {
 			allowed: false,
 		},
 		{
-			name: "allows default allow resource type without relationship",
+			name: "allows default role resource type without relationship",
 			request: &CheckAccessRequest{
 				Subject:  &Subject{Type: "subject", Id: "user:dana"},
 				Action:   &Action{Name: "readMetrics"},
@@ -640,6 +662,33 @@ func TestProviderCheckAccess(t *testing.T) {
 				Subject:  &Subject{Type: "subject", Id: "user:alice"},
 				Action:   &Action{Name: "read"},
 				Resource: &Resource{Type: "issue", Id: "123"},
+			},
+			allowed: false,
+		},
+		{
+			name: "wildcard action grants any operation to default role",
+			request: &CheckAccessRequest{
+				Subject:  &Subject{Type: "subject", Id: "user:dana"},
+				Action:   &Action{Name: "some.arbitrary.operation"},
+				Resource: &Resource{Type: "wildcardApp", Id: "instance"},
+			},
+			allowed: true,
+		},
+		{
+			name: "wildcard action grants another operation to default role",
+			request: &CheckAccessRequest{
+				Subject:  &Subject{Type: "subject", Id: "user:eve"},
+				Action:   &Action{Name: "totally.different.op"},
+				Resource: &Resource{Type: "wildcardApp", Id: "instance"},
+			},
+			allowed: true,
+		},
+		{
+			name: "specific action takes precedence over wildcard and denies default role",
+			request: &CheckAccessRequest{
+				Subject:  &Subject{Type: "subject", Id: "user:dana"},
+				Action:   &Action{Name: "adminOnly"},
+				Resource: &Resource{Type: "wildcardApp", Id: "instance"},
 			},
 			allowed: false,
 		},

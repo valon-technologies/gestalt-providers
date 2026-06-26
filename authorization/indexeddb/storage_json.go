@@ -35,11 +35,11 @@ type storedSubjectSet struct {
 }
 
 type storedAuthorizationModelResourceType struct {
-	Name                string                              `json:"name"`
-	DefaultAccessPolicy jsonDefaultAccessPolicy             `json:"default_access_policy"`
-	Relations           []*storedAuthorizationModelRelation `json:"relations,omitempty"`
-	Actions             []*storedAuthorizationModelAction   `json:"actions,omitempty"`
-	SourceLayer         jsonSourceLayer                     `json:"source_layer"`
+	Name        string                              `json:"name"`
+	DefaultRole string                              `json:"default_role,omitempty"`
+	Relations   []*storedAuthorizationModelRelation `json:"relations,omitempty"`
+	Actions     []*storedAuthorizationModelAction   `json:"actions,omitempty"`
+	SourceLayer jsonSourceLayer                     `json:"source_layer"`
 }
 
 type storedAuthorizationModelRelation struct {
@@ -70,7 +70,6 @@ type storedAuthorizationModelRef struct {
 }
 
 type jsonSourceLayer SourceLayer
-type jsonDefaultAccessPolicy DefaultAccessPolicy
 
 func (l jsonSourceLayer) MarshalJSON() ([]byte, error) {
 	return jsonString(sourceLayerString(SourceLayer(l)))
@@ -82,19 +81,6 @@ func (l *jsonSourceLayer) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*l = jsonSourceLayer(layer)
-	return nil
-}
-
-func (p jsonDefaultAccessPolicy) MarshalJSON() ([]byte, error) {
-	return jsonString(defaultAccessPolicyString(DefaultAccessPolicy(p)))
-}
-
-func (p *jsonDefaultAccessPolicy) UnmarshalJSON(data []byte) error {
-	policy, err := unmarshalDefaultAccessPolicy(data)
-	if err != nil {
-		return err
-	}
-	*p = jsonDefaultAccessPolicy(policy)
 	return nil
 }
 
@@ -112,18 +98,6 @@ func unmarshalSourceLayer(data []byte) (SourceLayer, error) {
 		return SourceLayerUnspecified, err
 	}
 	return SourceLayer(value), nil
-}
-
-func unmarshalDefaultAccessPolicy(data []byte) (DefaultAccessPolicy, error) {
-	var text string
-	if err := json.Unmarshal(data, &text); err == nil {
-		return parseDefaultAccessPolicy(text), nil
-	}
-	var value int32
-	if err := json.Unmarshal(data, &value); err != nil {
-		return DefaultAccessPolicyInvalid, err
-	}
-	return DefaultAccessPolicy(value), nil
 }
 
 func relationshipToJSONValue(relationship *Relationship) (any, error) {
@@ -317,11 +291,11 @@ func authorizationModelResourceTypesToStored(resourceTypes []*AuthorizationModel
 			continue
 		}
 		out = append(out, &storedAuthorizationModelResourceType{
-			Name:                resourceType.Name,
-			DefaultAccessPolicy: jsonDefaultAccessPolicy(resourceType.DefaultAccessPolicy),
-			Relations:           authorizationModelRelationsToStored(resourceType.Relations),
-			Actions:             authorizationModelActionsToStored(resourceType.Actions),
-			SourceLayer:         jsonSourceLayer(resourceType.SourceLayer),
+			Name:        resourceType.Name,
+			DefaultRole: resourceType.DefaultRole,
+			Relations:   authorizationModelRelationsToStored(resourceType.Relations),
+			Actions:     authorizationModelActionsToStored(resourceType.Actions),
+			SourceLayer: jsonSourceLayer(resourceType.SourceLayer),
 		})
 	}
 	return out
@@ -337,11 +311,11 @@ func authorizationModelResourceTypesFromStored(stored []*storedAuthorizationMode
 			continue
 		}
 		out = append(out, &AuthorizationModelResourceType{
-			Name:                resourceType.Name,
-			DefaultAccessPolicy: DefaultAccessPolicy(resourceType.DefaultAccessPolicy),
-			Relations:           authorizationModelRelationsFromStored(resourceType.Relations),
-			Actions:             authorizationModelActionsFromStored(resourceType.Actions),
-			SourceLayer:         SourceLayer(resourceType.SourceLayer),
+			Name:        resourceType.Name,
+			DefaultRole: resourceType.DefaultRole,
+			Relations:   authorizationModelRelationsFromStored(resourceType.Relations),
+			Actions:     authorizationModelActionsFromStored(resourceType.Actions),
+			SourceLayer: SourceLayer(resourceType.SourceLayer),
 		})
 	}
 	return out

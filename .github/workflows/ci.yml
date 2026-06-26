@@ -431,7 +431,7 @@ jobs:
           "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --dist-dir "${RUNNER_TEMP}/external-credentials-default-release" --version "${VALIDATION_VERSION}"
 
           cat >"${RUNNER_TEMP}/gestaltd-web-e2e.yaml" <<EOF
-          apiVersion: gestaltd.config/v7
+          apiVersion: gestaltd.config/v8
           server:
             public:
               port: 8080
