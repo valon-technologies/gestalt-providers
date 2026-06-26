@@ -4,4 +4,10 @@ displayName: RelationalDB
 description: IndexedDB provider supporting PostgreSQL, MySQL, SQLite, and SQL Server.
 iconFile: assets/icon.svg
 kind: indexeddb
+install:
+  command: [go, mod, download]
+build:
+  command: [go, run, github.com/valon-technologies/gestalt/sdk/go/cmd/gestalt, build]
+run:
+  command: [go, run, github.com/valon-technologies/gestalt/sdk/go/cmd/gestalt, run]
 spec: {}

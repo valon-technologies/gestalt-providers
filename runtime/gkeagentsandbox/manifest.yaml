@@ -4,5 +4,11 @@ displayName: GKE Agent Sandbox Runtime
 description: Hosted executable-plugin runtime backed by GKE Agent Sandbox.
 iconFile: assets/icon.svg
 kind: runtime
+install:
+  command: [go, mod, download]
+build:
+  command: [go, run, github.com/valon-technologies/gestalt/sdk/go/cmd/gestalt, build]
+run:
+  command: [go, run, github.com/valon-technologies/gestalt/sdk/go/cmd/gestalt, run]
 spec:
   configSchemaPath: schemas/config.schema.yaml

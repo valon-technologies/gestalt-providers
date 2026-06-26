@@ -4,4 +4,10 @@ displayName: IndexedDB Authorization
 description: Authorization provider backed by the host IndexedDB service.
 iconFile: assets/icon.svg
 kind: authorization
+install:
+  command: [go, mod, download]
+build:
+  command: [go, run, github.com/valon-technologies/gestalt/sdk/go/cmd/gestalt, build]
+run:
+  command: [go, run, github.com/valon-technologies/gestalt/sdk/go/cmd/gestalt, run]
 spec: {}

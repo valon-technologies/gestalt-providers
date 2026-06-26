@@ -4,4 +4,10 @@ displayName: Temporal Workflow
 description: Temporal Cloud-backed workflow provider with durable workflow state and schedules.
 iconFile: assets/icon.svg
 kind: workflow
+install:
+  command: [go, mod, download]
+build:
+  command: [go, run, github.com/valon-technologies/gestalt/sdk/go/cmd/gestalt, build]
+run:
+  command: [go, run, github.com/valon-technologies/gestalt/sdk/go/cmd/gestalt, run]
 spec: {}

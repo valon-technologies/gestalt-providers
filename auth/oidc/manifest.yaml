@@ -4,4 +4,10 @@ displayName: OIDC
 description: Identity provider backed by OpenID Connect.
 iconFile: assets/icon.svg
 kind: identity
+install:
+  command: [go, mod, download]
+build:
+  command: [go, run, github.com/valon-technologies/gestalt/sdk/go/cmd/gestalt, build]
+run:
+  command: [go, run, github.com/valon-technologies/gestalt/sdk/go/cmd/gestalt, run]
 spec: {}

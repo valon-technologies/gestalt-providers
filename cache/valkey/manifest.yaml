@@ -4,4 +4,10 @@ displayName: Valkey
 description: Valkey-backed cache provider.
 iconFile: assets/icon.svg
 kind: cache
+install:
+  command: [go, mod, download]
+build:
+  command: [go, run, github.com/valon-technologies/gestalt/sdk/go/cmd/gestalt, build]
+run:
+  command: [go, run, github.com/valon-technologies/gestalt/sdk/go/cmd/gestalt, run]
 spec: {}
