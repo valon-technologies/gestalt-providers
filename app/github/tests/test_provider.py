@@ -11,6 +11,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from email.message import Message
 from http import HTTPStatus
+from http.client import HTTPMessage
 from typing import Any, cast
 from unittest import mock
 
@@ -22,6 +23,7 @@ import internals.client as client_module
 import internals.operations as operations_module
 from internals.config import GitHubBotIdentity, GitHubUserIdentity
 from internals.errors import GitHubAPIError
+from internals.operations import MERGE_QUEUE_QUERY, SEARCH_PULL_REQUESTS_QUERY
 import provider as provider_module
 
 
@@ -353,6 +355,14 @@ class RecordingGitHubClient(client_module.GitHubAPIClient):
     def commit_url(self, owner: str, repo: str, sha: str) -> str:
         return f"https://github.example/{owner}/{repo}/commit/{sha}"
 
+    def workflow_job_logs(
+        self, token: str, owner: str, repo: str, job_id: int
+    ) -> str:
+        self.requests.append(
+            ("GET", f"/repos/{owner}/{repo}/actions/jobs/{job_id}/logs", token, {})
+        )
+        return "log line one\nlog line two\n"
+
 
 class GitHubProviderTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -502,6 +512,33 @@ class GitHubProviderTests(unittest.TestCase):
         suite_check_runs = operations[
             provider_module.BOT_LIST_CHECK_SUITE_CHECK_RUNS_OPERATION
         ]
+        commit_check_runs = operations[
+            provider_module.BOT_LIST_COMMIT_CHECK_RUNS_OPERATION
+        ]
+        list_workflow_runs = operations[
+            provider_module.BOT_LIST_WORKFLOW_RUNS_OPERATION
+        ]
+        workflow_job_logs = operations[
+            provider_module.BOT_GET_WORKFLOW_JOB_LOGS_OPERATION
+        ]
+        list_issue_comments = operations[
+            provider_module.BOT_LIST_ISSUE_COMMENTS_OPERATION
+        ]
+        search_pull_requests = operations[
+            provider_module.BOT_SEARCH_PULL_REQUESTS_OPERATION
+        ]
+        merge_queue = operations[provider_module.BOT_GET_MERGE_QUEUE_OPERATION]
+        list_pull_requests = operations[
+            provider_module.BOT_LIST_PULL_REQUESTS_OPERATION
+        ]
+        list_pull_requests_for_commit = operations[
+            provider_module.BOT_LIST_PULL_REQUESTS_FOR_COMMIT_OPERATION
+        ]
+        list_org_members = operations[provider_module.BOT_LIST_ORG_MEMBERS_OPERATION]
+        list_repo_contributors = operations[
+            provider_module.BOT_LIST_REPO_CONTRIBUTORS_OPERATION
+        ]
+        get_user = operations[provider_module.BOT_GET_USER_OPERATION]
         self.assertIn("canonical workflow", event["description"])
         self.assertIn("GitHub user", identity["description"])
         self.assertNotIn("user.createPullRequest", operation_ids)
@@ -529,6 +566,56 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("labels", remove_labels["description"])
         self.assertIn("reviewers", request_reviewers["description"])
         self.assertIn("check suite", suite_check_runs["description"])
+        self.assertIn("commit ref", commit_check_runs["description"])
+        self.assertIn("workflow runs", list_workflow_runs["description"])
+        self.assertIn("plain-text logs", workflow_job_logs["description"])
+        self.assertIn("comments", list_issue_comments["description"])
+        self.assertIn("Search pull requests", search_pull_requests["description"])
+        self.assertIn("merge queue", merge_queue["description"])
+        self.assertIn("List pull requests", list_pull_requests["description"])
+        self.assertIn("commit", list_pull_requests_for_commit["description"])
+        self.assertIn("organization members", list_org_members["description"])
+        self.assertIn("contributors", list_repo_contributors["description"])
+        self.assertIn("user by login", get_user["description"])
+        self.assertIn(
+            "head_sha",
+            [parameter["name"] for parameter in list_workflow_runs["parameters"]],
+        )
+        self.assertIn(
+            "workflow_id",
+            [parameter["name"] for parameter in list_workflow_runs["parameters"]],
+        )
+        self.assertIn(
+            "ref",
+            [parameter["name"] for parameter in commit_check_runs["parameters"]],
+        )
+        self.assertIn(
+            "job_id",
+            [parameter["name"] for parameter in workflow_job_logs["parameters"]],
+        )
+        self.assertIn(
+            "issue_number",
+            [parameter["name"] for parameter in list_issue_comments["parameters"]],
+        )
+        self.assertIn(
+            "query",
+            [parameter["name"] for parameter in search_pull_requests["parameters"]],
+        )
+        self.assertIn(
+            "branch",
+            [parameter["name"] for parameter in merge_queue["parameters"]],
+        )
+        self.assertIn(
+            "commit_sha",
+            [
+                parameter["name"]
+                for parameter in list_pull_requests_for_commit["parameters"]
+            ],
+        )
+        self.assertIn(
+            "login",
+            [parameter["name"] for parameter in get_user["parameters"]],
+        )
         self.assertIn(
             "pull_number", [parameter["name"] for parameter in pr["parameters"]]
         )
@@ -1345,7 +1432,7 @@ class GitHubProviderTests(unittest.TestCase):
             )
 
         self.assertIsInstance(result, dict)
-        data = cast(dict[str, Any], result)["data"]["commit"]
+        data = cast(dict[str, Any], result)["commit"]
         self.assertEqual(data["sha"], "new-commit")
         self.assertEqual(data["branch"], "feature")
         self.assertEqual(data["base_branch"], "main")
@@ -1495,7 +1582,7 @@ class GitHubProviderTests(unittest.TestCase):
                 github_agent_request(),
             )
 
-        data = cast(dict[str, Any], result)["data"]
+        data = cast(dict[str, Any], result)
         self.assertEqual(data["commit"]["sha"], "new-commit")
         self.assertEqual(data["pull_request"]["number"], 42)
         self.assertEqual(
@@ -1560,7 +1647,7 @@ class GitHubProviderTests(unittest.TestCase):
                 github_agent_request(),
             )
 
-        data = cast(dict[str, Any], result)["data"]["pull_request"]
+        data = cast(dict[str, Any], result)["pull_request"]
         self.assertEqual(data["number"], 42)
         self.assertEqual(
             [
@@ -1621,7 +1708,7 @@ class GitHubProviderTests(unittest.TestCase):
                 github_request(),
             )
 
-        data = cast(dict[str, Any], result)["data"]["pull_request"]
+        data = cast(dict[str, Any], result)["pull_request"]
         self.assertEqual(data["number"], 7)
         self.assertEqual(data["state"], "closed")
         self.assertEqual(
@@ -1685,7 +1772,7 @@ class GitHubProviderTests(unittest.TestCase):
                 github_request(),
             )
 
-        data = cast(dict[str, Any], result)["data"]["comment"]
+        data = cast(dict[str, Any], result)["comment"]
         self.assertEqual(data["id"], 123)
         self.assertEqual(data["user"]["login"], "example-app[bot]")
         self.assertEqual(
@@ -1762,7 +1849,7 @@ class GitHubProviderTests(unittest.TestCase):
                 github_request(),
             )
 
-        data = cast(dict[str, Any], result)["data"]["issue"]
+        data = cast(dict[str, Any], result)["issue"]
         self.assertEqual(data["number"], 12)
         self.assertEqual(data["state"], "open")
         self.assertEqual(data["html_url"], "https://github.com/acme/widgets/issues/12")
@@ -1837,7 +1924,7 @@ class GitHubProviderTests(unittest.TestCase):
                 github_request(),
             )
 
-        data = cast(dict[str, Any], result)["data"]["issue"]
+        data = cast(dict[str, Any], result)["issue"]
         self.assertEqual(data["number"], 12)
         self.assertEqual(data["state"], "closed")
         self.assertEqual(data["closed_at"], "2026-05-02T00:00:00Z")
@@ -1893,7 +1980,7 @@ class GitHubProviderTests(unittest.TestCase):
                 github_request(),
             )
 
-        data = cast(dict[str, Any], result)["data"]["issue"]
+        data = cast(dict[str, Any], result)["issue"]
         self.assertEqual(data["number"], 12)
         self.assertEqual(data["title"], "Broken modal")
         self.assertEqual(
@@ -1964,7 +2051,7 @@ class GitHubProviderTests(unittest.TestCase):
                 github_request(),
             )
 
-        data = cast(dict[str, Any], result)["data"]
+        data = cast(dict[str, Any], result)
         self.assertEqual(data["count"], 1)
         self.assertEqual(data["issues"][0]["number"], 12)
         self.assertEqual(data["issues"][0]["title"], "Broken modal")
@@ -2059,7 +2146,7 @@ class GitHubProviderTests(unittest.TestCase):
                 github_request(),
             )
 
-        data = cast(dict[str, Any], result)["data"]["comment"]
+        data = cast(dict[str, Any], result)["comment"]
         self.assertEqual(data["id"], 124)
         self.assertEqual(data["user"]["login"], "example-app[bot]")
         self.assertEqual(
@@ -2166,7 +2253,7 @@ class GitHubProviderTests(unittest.TestCase):
                 github_request(),
             )
 
-        data = cast(dict[str, Any], result)["data"]["review"]
+        data = cast(dict[str, Any], result)["review"]
         self.assertEqual(data["id"], 80)
         self.assertEqual(data["state"], "COMMENTED")
         self.assertEqual(data["user"]["login"], "example-app[bot]")
@@ -2300,17 +2387,17 @@ class GitHubProviderTests(unittest.TestCase):
                 github_request(),
             )
 
-        self.assertEqual(cast(dict[str, Any], issue)["data"]["reaction"]["id"], 1)
+        self.assertEqual(cast(dict[str, Any], issue)["reaction"]["id"], 1)
         self.assertEqual(
-            cast(dict[str, Any], pull_request)["data"]["reaction"]["content"],
+            cast(dict[str, Any], pull_request)["reaction"]["content"],
             "heart",
         )
         self.assertEqual(
-            cast(dict[str, Any], issue_comment)["data"]["reaction"]["content"],
+            cast(dict[str, Any], issue_comment)["reaction"]["content"],
             "rocket",
         )
         self.assertEqual(
-            cast(dict[str, Any], review_comment)["data"]["reaction"]["user"]["login"],
+            cast(dict[str, Any], review_comment)["reaction"]["user"]["login"],
             "example-app[bot]",
         )
         self.assertEqual(
@@ -2410,7 +2497,7 @@ class GitHubProviderTests(unittest.TestCase):
             )
 
         self.assertEqual(
-            cast(dict[str, Any], added)["data"]["labels"],
+            cast(dict[str, Any], added)["labels"],
             [
                 {"id": 10, "node_id": "LA_kw", "name": "bug", "color": "d73a4a"},
                 {
@@ -2422,10 +2509,10 @@ class GitHubProviderTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            cast(dict[str, Any], removed)["data"]["removed"], ["needs review/triage"]
+            cast(dict[str, Any], removed)["removed"], ["needs review/triage"]
         )
         self.assertEqual(
-            cast(dict[str, Any], removed)["data"]["labels"],
+            cast(dict[str, Any], removed)["labels"],
             [{"id": 10, "node_id": "LA_kw", "name": "bug", "color": "d73a4a"}],
         )
         self.assertEqual(
@@ -2539,7 +2626,7 @@ class GitHubProviderTests(unittest.TestCase):
                 github_request(),
             )
 
-        data = cast(dict[str, Any], result)["data"]["pull_request"]
+        data = cast(dict[str, Any], result)["pull_request"]
         self.assertEqual(data["number"], 7)
         self.assertEqual(data["head"], "feature")
         self.assertEqual(
@@ -3137,7 +3224,7 @@ class GitHubProviderTests(unittest.TestCase):
                 github_request(),
             )
 
-        pull_data = cast(dict[str, Any], pull_request)["data"]["pull_request"]
+        pull_data = cast(dict[str, Any], pull_request)["pull_request"]
         self.assertEqual(pull_data["head_sha"], "abc123")
         self.assertEqual(pull_data["base_sha"], "def456")
         self.assertEqual(pull_data["head_ref"], "feature")
@@ -3147,7 +3234,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(pull_data["base_repo"]["full_name"], "acme/widgets")
         self.assertEqual(pull_data["head_repo_is_base_repo"], True)
         self.assertEqual(pull_data["maintainer_can_modify"], False)
-        file_data = cast(dict[str, Any], files)["data"]["files"][0]
+        file_data = cast(dict[str, Any], files)["files"][0]
         self.assertEqual(file_data["filename"], "src/widget.py")
         self.assertEqual(file_data["previous_filename"], "src/old_widget.py")
         self.assertEqual(file_data["changes"], 4)
@@ -3156,14 +3243,14 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertLess(len(file_data["patch"]), len(long_patch))
         self.assertLessEqual(len(file_data["patch"]), file_data["patch_limit"])
         self.assertTrue(file_data["patch"].endswith("\n...<truncated>"))
-        short_file_data = cast(dict[str, Any], files)["data"]["files"][1]
+        short_file_data = cast(dict[str, Any], files)["files"][1]
         self.assertEqual(short_file_data["patch"], "@@ -1 +1 @@\n-value\n+value  ")
         self.assertEqual(short_file_data["patch_truncated"], False)
-        self.assertEqual(cast(dict[str, Any], files)["data"]["count"], 2)
-        review_data = cast(dict[str, Any], reviews)["data"]["reviews"][0]
+        self.assertEqual(cast(dict[str, Any], files)["count"], 2)
+        review_data = cast(dict[str, Any], reviews)["reviews"][0]
         self.assertEqual(review_data["state"], "APPROVED")
         self.assertEqual(review_data["user"]["login"], "octocat")
-        self.assertEqual(cast(dict[str, Any], reviews)["data"]["count"], 1)
+        self.assertEqual(cast(dict[str, Any], reviews)["count"], 1)
         self.assertEqual(
             [
                 call[2].get("permissions")
@@ -3284,15 +3371,15 @@ class GitHubProviderTests(unittest.TestCase):
             )
 
         self.assertEqual(
-            cast(dict[str, Any], repo)["data"]["repository"]["full_name"],
+            cast(dict[str, Any], repo)["repository"]["full_name"],
             "acme/widgets",
         )
         self.assertEqual(
-            cast(dict[str, Any], search)["data"]["items"][0]["path"],
+            cast(dict[str, Any], search)["items"][0]["path"],
             "src/widget.py",
         )
         self.assertEqual(
-            cast(dict[str, Any], content)["data"]["content"], "hello world\n"
+            cast(dict[str, Any], content)["content"], "hello world\n"
         )
         self.assertEqual(
             [
@@ -3365,7 +3452,7 @@ class GitHubProviderTests(unittest.TestCase):
                 github_authorized_request(),
             )
 
-        data = cast(dict[str, Any], result)["data"]
+        data = cast(dict[str, Any], result)
         self.assertEqual(data["commits"][0]["sha"], "abc123")
         self.assertEqual(
             [
@@ -3454,7 +3541,7 @@ class GitHubProviderTests(unittest.TestCase):
                 github_authorized_request(),
             )
 
-        data = cast(dict[str, Any], result)["data"]
+        data = cast(dict[str, Any], result)
         self.assertEqual(data["status"], "ahead")
         self.assertEqual(
             [
@@ -3745,32 +3832,32 @@ class GitHubProviderTests(unittest.TestCase):
             )
 
         self.assertEqual(
-            cast(dict[str, Any], created_check)["data"]["check_run"]["id"], 999
+            cast(dict[str, Any], created_check)["check_run"]["id"], 999
         )
         self.assertEqual(
-            cast(dict[str, Any], completed_created_check)["data"]["check_run"][
+            cast(dict[str, Any], completed_created_check)["check_run"][
                 "status"
             ],
             "completed",
         )
         self.assertEqual(
-            cast(dict[str, Any], updated_check)["data"]["check_run"]["conclusion"],
+            cast(dict[str, Any], updated_check)["check_run"]["conclusion"],
             "success",
         )
         self.assertEqual(
-            cast(dict[str, Any], check_run)["data"]["check_run"]["id"], 123
+            cast(dict[str, Any], check_run)["check_run"]["id"], 123
         )
         self.assertEqual(
-            cast(dict[str, Any], annotations)["data"]["annotations"][0]["message"],
+            cast(dict[str, Any], annotations)["annotations"][0]["message"],
             "broken",
         )
         self.assertEqual(
-            cast(dict[str, Any], suite_runs)["data"]["check_runs"][0]["id"], 654
+            cast(dict[str, Any], suite_runs)["check_runs"][0]["id"], 654
         )
         self.assertEqual(
-            cast(dict[str, Any], workflow_run)["data"]["workflow_run"]["name"], "CI"
+            cast(dict[str, Any], workflow_run)["workflow_run"]["name"], "CI"
         )
-        self.assertEqual(cast(dict[str, Any], jobs)["data"]["jobs"][0]["id"], 789)
+        self.assertEqual(cast(dict[str, Any], jobs)["jobs"][0]["id"], 789)
         self.assertGreaterEqual(len(calls), 8)
 
     def test_commit_files_rejects_invalid_inputs_before_github_calls(self) -> None:
@@ -3920,6 +4007,646 @@ class GitHubProviderTests(unittest.TestCase):
             result = provider_module.github_events_handle(payload, gestalt.Request())
 
         self.assertEqual(result, {"ok": True, "ignored": "unresolved_bot_sender"})
+
+    def test_workflow_job_logs_redirect_handler_strips_authorization(self) -> None:
+        handler = client_module._WorkflowJobLogsRedirectHandler()
+        request = urllib.request.Request(
+            "https://api.github.com/repos/acme/widgets/actions/jobs/789/logs",
+            headers={"Authorization": "Bearer actions-token"},
+        )
+        headers = HTTPMessage()
+        headers.add_header("Location", "https://objects.github.example/log.txt")
+        redirected = handler.redirect_request(
+            request,
+            io.BytesIO(b""),
+            302,
+            "Found",
+            headers,
+            "https://objects.github.example/log.txt",
+        )
+        self.assertIsNotNone(redirected)
+        assert redirected is not None
+        self.assertEqual(auth_header(redirected), "")
+
+    def test_workflow_job_logs_returns_opener_body(self) -> None:
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = b"job log content\n"
+        opener = mock.Mock()
+        opener.open.return_value = response
+        with mock.patch(
+            "internals.client.urllib.request.build_opener", return_value=opener
+        ):
+            logs = client_module.workflow_job_logs(
+                "actions-token", "acme", "widgets", 789
+            )
+        self.assertEqual(logs, "job log content\n")
+
+    def test_cicd_bot_read_operations_use_expected_paths_and_permissions(self) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+        graphql_calls: list[tuple[str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            method = request.get_method()
+            path = request_path(request)
+            query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                permissions = body.get("permissions", {})
+                if permissions == {"actions": "read"}:
+                    return FakeHTTPResponse({"token": "actions-token"})
+                if permissions == {"issues": "read"}:
+                    return FakeHTTPResponse({"token": "issues-token"})
+                if permissions == {"pull_requests": "read"}:
+                    return FakeHTTPResponse({"token": "pull-requests-token"})
+                if permissions == {"pull_requests": "read", "contents": "read"}:
+                    return FakeHTTPResponse({"token": "search-pull-requests-token"})
+                if permissions == {"contents": "read"}:
+                    return FakeHTTPResponse({"token": "contents-token"})
+                if permissions == {"members": "read"}:
+                    return FakeHTTPResponse({"token": "members-token"})
+                if permissions == {"metadata": "read"}:
+                    return FakeHTTPResponse({"token": "metadata-token"})
+                self.fail(f"unexpected permissions {permissions}")
+            if path == "/repos/acme/widgets/actions/runs":
+                self.assertEqual(
+                    urllib.parse.parse_qs(
+                        urllib.parse.urlparse(request.full_url).query
+                    ),
+                    urllib.parse.parse_qs(
+                        "branch=main&event=push&head_sha=abc123&per_page=10&page=1"
+                    ),
+                )
+                return FakeHTTPResponse(
+                    {
+                        "total_count": 1,
+                        "workflow_runs": [
+                            {
+                                "id": 456,
+                                "name": "CI",
+                                "status": "completed",
+                                "conclusion": "success",
+                                "head_sha": "abc123",
+                            }
+                        ],
+                    }
+                )
+            if path == "/repos/acme/widgets/issues/42/comments":
+                return FakeHTTPResponse(
+                    [
+                        {
+                            "id": 1,
+                            "body": "deployed",
+                            "user": {"login": "bot"},
+                            "created_at": "2026-05-01T00:00:00Z",
+                        }
+                    ]
+                )
+            if path == "/repos/acme/widgets/pulls":
+                return FakeHTTPResponse(
+                    [
+                        {
+                            "number": 7,
+                            "title": "Feature",
+                            "state": "open",
+                            "html_url": "https://github.com/acme/widgets/pull/7",
+                        }
+                    ]
+                )
+            if path == "/repos/acme/widgets/commits/abc123/pulls":
+                return FakeHTTPResponse(
+                    [
+                        {
+                            "number": 7,
+                            "title": "Feature",
+                            "state": "open",
+                            "html_url": "https://github.com/acme/widgets/pull/7",
+                        }
+                    ]
+                )
+            if path == "/orgs/acme/members":
+                return FakeHTTPResponse(
+                    [
+                        {
+                            "id": 11,
+                            "login": "octocat",
+                            "type": "User",
+                            "html_url": "https://github.com/octocat",
+                        }
+                    ]
+                )
+            if path == "/repos/acme/widgets/contributors":
+                return FakeHTTPResponse(
+                    [
+                        {
+                            "id": 11,
+                            "login": "octocat",
+                            "contributions": 42,
+                            "type": "User",
+                        }
+                    ]
+                )
+            if path == "/users/octocat":
+                return FakeHTTPResponse(
+                    {
+                        "id": 11,
+                        "login": "octocat",
+                        "name": "The Octocat",
+                        "type": "User",
+                        "html_url": "https://github.com/octocat",
+                    }
+                )
+            self.fail(f"unexpected request {method} {path} {query}")
+
+        def fake_graphql_json(
+            query: str, token: str | None, variables: Mapping[str, Any] | None = None
+        ) -> dict[str, Any]:
+            graphql_calls.append((query, dict(variables or {}), token or ""))
+            if "GestaltSearchPullRequests" in query:
+                return {
+                    "data": {
+                        "search": {
+                            "issueCount": 1,
+                            "pageInfo": {
+                                "hasNextPage": False,
+                                "endCursor": "cursor-1",
+                            },
+                            "edges": [
+                                {
+                                    "cursor": "edge-cursor-1",
+                                    "node": {
+                                        "number": 7,
+                                        "title": "Feature",
+                                        "state": "OPEN",
+                                        "url": "https://github.com/acme/widgets/pull/7",
+                                        "createdAt": "2026-05-01T00:00:00Z",
+                                        "updatedAt": "2026-05-02T00:00:00Z",
+                                        "mergedAt": None,
+                                        "author": {"login": "octocat"},
+                                        "headRefName": "feature",
+                                        "baseRefName": "main",
+                                        "headRefOid": "abc123def456",
+                                        "mergeCommit": {"oid": "merge123"},
+                                        "commits": {
+                                            "nodes": [
+                                                {
+                                                    "commit": {
+                                                        "committedDate": "2026-04-30T00:00:00Z",
+                                                        "author": {
+                                                            "email": "octocat@github.com",
+                                                            "name": "The Octocat",
+                                                        },
+                                                    }
+                                                }
+                                            ]
+                                        },
+                                    },
+                                }
+                            ],
+                        }
+                    }
+                }
+            if "GestaltMergeQueue" in query:
+                return {
+                    "data": {
+                        "repository": {
+                            "mergeQueue": {
+                                "entries": {
+                                    "totalCount": 1,
+                                    "nodes": [
+                                        {
+                                            "position": 1,
+                                            "enqueuedAt": "2026-05-01T00:00:00Z",
+                                            "state": "QUEUED",
+                                            "headCommit": {"oid": "abc123"},
+                                            "pullRequest": {
+                                                "number": 42,
+                                                "title": "Queued PR",
+                                            },
+                                        }
+                                    ]
+                                },
+                            }
+                        }
+                    }
+                }
+            self.fail("unexpected graphql query")
+
+        job_logs_calls: list[tuple[str, str]] = []
+
+        def fake_workflow_job_logs(
+            token: str, owner: str, repo: str, job_id: int
+        ) -> str:
+            job_logs_calls.append((token, f"/repos/{owner}/{repo}/actions/jobs/{job_id}/logs"))
+            return "job log content\n"
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+            mock.patch(
+                "internals.client.graphql_json", side_effect=fake_graphql_json
+            ),
+            mock.patch(
+                "internals.client.workflow_job_logs", side_effect=fake_workflow_job_logs
+            ),
+        ):
+            workflow_runs = provider_module.bot_list_workflow_runs(
+                provider_module.ListWorkflowRunsInput(
+                    owner="acme",
+                    repo="widgets",
+                    branch="main",
+                    event="push",
+                    head_sha="abc123",
+                    per_page=10,
+                    page=1,
+                ),
+                github_request(),
+            )
+            logs = provider_module.bot_get_workflow_job_logs(
+                provider_module.GetWorkflowJobLogsInput(
+                    owner="acme",
+                    repo="widgets",
+                    job_id=789,
+                ),
+                github_request(),
+            )
+            comments = provider_module.bot_list_issue_comments(
+                provider_module.ListIssueCommentsInput(
+                    owner="acme",
+                    repo="widgets",
+                    issue_number=42,
+                ),
+                github_request(),
+            )
+            search = provider_module.bot_search_pull_requests(
+                provider_module.SearchPullRequestsInput(
+                    owner="acme",
+                    repo="widgets",
+                    query="repo:acme/widgets is:pr author:octocat",
+                    first=25,
+                ),
+                github_request(),
+            )
+            merge_queue = provider_module.bot_get_merge_queue(
+                provider_module.GetMergeQueueInput(
+                    owner="acme",
+                    repo="widgets",
+                    branch="main",
+                    first=50,
+                ),
+                github_request(),
+            )
+            pulls = provider_module.bot_list_pull_requests(
+                provider_module.ListPullRequestsInput(
+                    owner="acme",
+                    repo="widgets",
+                    state="open",
+                ),
+                github_request(),
+            )
+            commit_pulls = provider_module.bot_list_pull_requests_for_commit(
+                provider_module.ListPullRequestsForCommitInput(
+                    owner="acme",
+                    repo="widgets",
+                    commit_sha="abc123",
+                ),
+                github_request(),
+            )
+            members = provider_module.bot_list_org_members(
+                provider_module.ListOrgMembersInput(
+                    owner="acme",
+                    repo="widgets",
+                ),
+                github_request(),
+            )
+            contributors = provider_module.bot_list_repo_contributors(
+                provider_module.ListRepoContributorsInput(
+                    owner="acme",
+                    repo="widgets",
+                ),
+                github_request(),
+            )
+            user = provider_module.bot_get_user(
+                provider_module.GetUserInput(
+                    owner="acme",
+                    repo="widgets",
+                    login="octocat",
+                ),
+                github_request(),
+            )
+
+        self.assertEqual(
+            cast(dict[str, Any], workflow_runs)["workflow_runs"][0]["id"], 456
+        )
+        self.assertEqual(cast(dict[str, Any], logs)["logs"], "job log content\n")
+        self.assertEqual(
+            cast(dict[str, Any], comments)["comments"][0]["body"], "deployed"
+        )
+        self.assertEqual(
+            cast(dict[str, Any], search)["pull_requests"][0]["number"], 7
+        )
+        self.assertEqual(
+            cast(dict[str, Any], search)["pull_requests"][0]["head_sha"],
+            "abc123def456",
+        )
+        self.assertEqual(
+            cast(dict[str, Any], search)["pull_requests"][0]["merge_commit_sha"],
+            "merge123",
+        )
+        self.assertEqual(
+            cast(dict[str, Any], search)["pull_requests"][0]["committed_at"],
+            "2026-04-30T00:00:00Z",
+        )
+        self.assertEqual(
+            cast(dict[str, Any], search)["pull_requests"][0]["author_email"],
+            "octocat@github.com",
+        )
+        self.assertEqual(
+            cast(dict[str, Any], search)["pull_requests"][0]["cursor"],
+            "edge-cursor-1",
+        )
+        self.assertEqual(
+            cast(dict[str, Any], merge_queue)["merge_queue"]["total_count"], 1
+        )
+        self.assertEqual(
+            cast(dict[str, Any], merge_queue)["merge_queue"]["entries"][0][
+                "merge_request_state"
+            ],
+            "QUEUED",
+        )
+        self.assertEqual(
+            cast(dict[str, Any], merge_queue)["merge_queue"]["entries"][0][
+                "pull_request"
+            ]["number"],
+            42,
+        )
+        self.assertNotIn("mergeRequest", MERGE_QUEUE_QUERY)
+        self.assertIn("state", MERGE_QUEUE_QUERY)
+        self.assertIn("pullRequest", MERGE_QUEUE_QUERY)
+        self.assertIn("headRefOid", SEARCH_PULL_REQUESTS_QUERY)
+        self.assertIn("edges", SEARCH_PULL_REQUESTS_QUERY)
+        merge_queue_query = graphql_calls[1][0]
+        self.assertNotIn("mergeRequest", merge_queue_query)
+        self.assertEqual(
+            cast(dict[str, Any], pulls)["pull_requests"][0]["number"], 7
+        )
+        self.assertEqual(
+            cast(dict[str, Any], commit_pulls)["pull_requests"][0]["number"], 7
+        )
+        self.assertEqual(
+            cast(dict[str, Any], members)["members"][0]["login"], "octocat"
+        )
+        self.assertEqual(
+            cast(dict[str, Any], contributors)["contributors"][0][
+                "contributions"
+            ],
+            42,
+        )
+        self.assertEqual(
+            cast(dict[str, Any], user)["user"]["login"], "octocat"
+        )
+        self.assertEqual(
+            job_logs_calls,
+            [("actions-token", "/repos/acme/widgets/actions/jobs/789/logs")],
+        )
+        self.assertEqual(graphql_calls[0][1]["query"], "repo:acme/widgets is:pr author:octocat")
+        self.assertEqual(graphql_calls[1][1]["branch"], "main")
+
+    def test_list_workflow_runs_with_workflow_id_uses_workflow_scoped_path(self) -> None:
+        requested_paths: list[str] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            path = request_path(request)
+            requested_paths.append(path)
+            body = request_json(request)
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                permissions = body.get("permissions", {})
+                if permissions == {"actions": "read"}:
+                    return FakeHTTPResponse({"token": "actions-token"})
+                self.fail(f"unexpected permissions {permissions}")
+            if path == "/repos/acme/widgets/actions/workflows/12345/runs":
+                return FakeHTTPResponse(
+                    {
+                        "total_count": 1,
+                        "workflow_runs": [
+                            {
+                                "id": 99,
+                                "name": "Combined",
+                                "status": "completed",
+                                "conclusion": "success",
+                                "head_sha": "abc123",
+                            }
+                        ],
+                    }
+                )
+            self.fail(f"unexpected request {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_list_workflow_runs(
+                provider_module.ListWorkflowRunsInput(
+                    owner="acme",
+                    repo="widgets",
+                    workflow_id="12345",
+                    event="merge_group",
+                ),
+                github_request(),
+            )
+
+        self.assertIn(
+            "/repos/acme/widgets/actions/workflows/12345/runs",
+            requested_paths,
+        )
+        self.assertEqual(
+            cast(dict[str, Any], result)["workflow_runs"][0]["id"], 99
+        )
+
+    def test_list_commit_check_runs_uses_commit_ref_path_and_maps_output(self) -> None:
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            path = request_path(request)
+            body = request_json(request)
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                permissions = body.get("permissions", {})
+                if permissions == {"checks": "read"}:
+                    return FakeHTTPResponse({"token": "checks-token"})
+                self.fail(f"unexpected permissions {permissions}")
+            if path == "/repos/acme/widgets/commits/abc123/check-runs":
+                return FakeHTTPResponse(
+                    {
+                        "total_count": 1,
+                        "check_runs": [
+                            {
+                                "id": 55,
+                                "name": "CI",
+                                "status": "completed",
+                                "conclusion": "success",
+                                "output": {
+                                    "title": "All checks passed",
+                                    "summary": "Everything is green",
+                                },
+                            }
+                        ],
+                    }
+                )
+            self.fail(f"unexpected request {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_list_commit_check_runs(
+                provider_module.ListCommitCheckRunsInput(
+                    owner="acme",
+                    repo="widgets",
+                    ref="abc123",
+                ),
+                github_request(),
+            )
+
+        data = cast(dict[str, Any], result)
+        self.assertEqual(data["check_runs"][0]["id"], 55)
+        self.assertEqual(data["check_runs"][0]["output"]["title"], "All checks passed")
+
+    def test_list_commit_check_runs_requires_ref(self) -> None:
+        result = provider_module.bot_list_commit_check_runs(
+            provider_module.ListCommitCheckRunsInput(
+                owner="acme",
+                repo="widgets",
+                ref="",
+            ),
+            github_request(),
+        )
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.BAD_REQUEST)
+
+    def test_cicd_bot_read_operations_return_forbidden_when_unauthorized(self) -> None:
+        class UnauthorizedRequest:
+            subject = github_request().subject
+
+            def authorization(self) -> FakeAuthorization:
+                return FakeAuthorization(allowed=False)
+
+        result = provider_module.bot_list_workflow_runs(
+            provider_module.ListWorkflowRunsInput(
+                owner="acme",
+                repo="widgets",
+            ),
+            UnauthorizedRequest(),  # type: ignore[arg-type]
+        )
+
+        self.assertIsInstance(result, gestalt.Response)
+        response = cast(gestalt.Response[dict[str, str]], result)
+        self.assertEqual(response.status, HTTPStatus.FORBIDDEN)
+
+
+class ExtendedSummaryTests(unittest.TestCase):
+    def test_workflow_run_summary_includes_display_title_and_head_ref(self) -> None:
+        summary = operations_module.workflow_run_summary(
+            {
+                "id": 456,
+                "name": "CI",
+                "display_title": "Deploy (#9)",
+                "status": "completed",
+                "conclusion": "success",
+                "head_branch": "pr-9-feature",
+                "head_sha": "abc123",
+                "path": ".github/workflows/combined.yml",
+                "workflow_id": 224113632,
+            }
+        )
+        self.assertEqual(summary["display_title"], "Deploy (#9)")
+        self.assertEqual(summary["head_ref"], "pr-9-feature")
+        self.assertEqual(summary["path"], ".github/workflows/combined.yml")
+        self.assertEqual(summary["workflow_id"], 224113632)
+
+    def test_workflow_run_job_summary_includes_created_at_and_steps(self) -> None:
+        summary = operations_module.workflow_run_job_summary(
+            {
+                "id": 789,
+                "run_id": 456,
+                "name": "ci-fp-test",
+                "status": "completed",
+                "conclusion": "failure",
+                "created_at": "2026-05-01T00:00:00Z",
+                "started_at": "2026-05-01T00:01:00Z",
+                "completed_at": "2026-05-01T00:10:00Z",
+                "html_url": "https://github.com/runs/789",
+                "steps": [
+                    {
+                        "name": "run tests",
+                        "status": "completed",
+                        "conclusion": "failure",
+                        "number": 1,
+                    }
+                ],
+            }
+        )
+        self.assertEqual(summary["created_at"], "2026-05-01T00:00:00Z")
+        self.assertEqual(summary["steps"][0]["name"], "run tests")
+        self.assertEqual(summary["steps"][0]["conclusion"], "failure")
+
+    def test_commit_summary_includes_author_email_and_committer_date(self) -> None:
+        summary = operations_module.commit_summary(
+            {
+                "sha": "abc123",
+                "commit": {
+                    "message": "Fix widget",
+                    "author": {
+                        "name": "Ada",
+                        "email": "ada@valon.com",
+                        "date": "2026-06-16T00:00:00Z",
+                    },
+                    "committer": {
+                        "name": "Ada",
+                        "email": "ada@valon.com",
+                        "date": "2026-06-16T01:00:00Z",
+                    },
+                },
+            }
+        )
+        self.assertEqual(summary["author_email"], "ada@valon.com")
+        self.assertEqual(summary["date"], "2026-06-16T01:00:00Z")
+
+    def test_pull_request_summary_includes_user_created_at_and_merge_commit_sha(self) -> None:
+        summary = operations_module.pull_request_summary(
+            {
+                "number": 7,
+                "title": "Feature",
+                "state": "closed",
+                "html_url": "https://github.com/acme/widgets/pull/7",
+                "user": {"login": "octocat"},
+                "created_at": "2026-05-01T00:00:00Z",
+                "merge_commit_sha": "merge123",
+                "head": {"ref": "feature", "sha": "abc123"},
+                "base": {"ref": "main", "sha": "def456"},
+            }
+        )
+        self.assertEqual(summary["user"], "octocat")
+        self.assertEqual(summary["created_at"], "2026-05-01T00:00:00Z")
+        self.assertEqual(summary["merge_commit_sha"], "merge123")
 
 
 if __name__ == "__main__":

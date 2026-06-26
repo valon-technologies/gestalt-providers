@@ -888,6 +888,42 @@ operations:
     type: integer
     description: Page number, starting at 1
     default: 0
+- id: bot.listCommitCheckRuns
+  method: GET
+  description: List check runs for a commit ref using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: ref
+    type: string
+    description: Commit SHA or branch name
+    required: true
+  - name: check_name
+    type: string
+    description: Optional check run name filter
+    default: ''
+  - name: status
+    type: string
+    description: Optional check run status filter
+    default: ''
+  - name: filter
+    type: string
+    description: GitHub check runs filter, either latest or all
+    default: ''
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
 - id: bot.listCheckRunAnnotations
   method: GET
   description: List annotations for a GitHub check run using a GitHub App installation
@@ -958,3 +994,285 @@ operations:
     type: integer
     description: Page number, starting at 1
     default: 0
+- id: bot.listWorkflowRuns
+  method: GET
+  description: List GitHub Actions workflow runs using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: workflow_id
+    type: string
+    description: Filter runs to a specific workflow by numeric ID or workflow filename
+    default: ''
+  - name: branch
+    type: string
+    description: Filter workflow runs by branch name
+    default: ''
+  - name: event
+    type: string
+    description: Filter workflow runs by event type
+    default: ''
+  - name: head_sha
+    type: string
+    description: Filter workflow runs by head commit SHA
+    default: ''
+  - name: status
+    type: string
+    description: Filter workflow runs by status
+    default: ''
+  - name: created
+    type: string
+    description: Filter workflow runs created on or after this date (YYYY-MM-DD)
+    default: ''
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+- id: bot.getWorkflowJobLogs
+  method: GET
+  description: Get plain-text logs for a GitHub Actions workflow job using a GitHub
+    App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: job_id
+    type: integer
+    description: GitHub Actions workflow job ID
+    required: true
+- id: bot.listIssueComments
+  method: GET
+  description: List issue or pull request comments using a GitHub App installation
+    token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: issue_number
+    type: integer
+    description: Issue or pull request number
+    required: true
+  - name: since
+    type: string
+    description: Only comments updated at or after this ISO 8601 timestamp
+    default: ''
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+- id: bot.searchPullRequests
+  method: GET
+  description: Search pull requests using GitHub GraphQL and a GitHub App installation
+    token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: query
+    type: string
+    description: GitHub search query for pull requests
+    required: true
+  - name: first
+    type: integer
+    description: Number of results to fetch, from 1 through 100
+    default: 30
+  - name: after
+    type: string
+    description: Optional GitHub GraphQL search page cursor
+    default: ''
+  tags:
+  - pr
+  - prs
+  - search
+- id: bot.getMergeQueue
+  method: GET
+  description: Get merge queue entries for a branch using GitHub GraphQL and a GitHub
+    App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: branch
+    type: string
+    description: Branch name for the merge queue
+    required: true
+  - name: first
+    type: integer
+    description: Number of merge queue entries to fetch, from 1 through 100
+    default: 100
+  tags:
+  - pr
+  - prs
+- id: bot.listPullRequests
+  method: GET
+  description: List pull requests using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: state
+    type: string
+    description: 'Pull request state filter: open, closed, or all'
+    default: open
+  - name: sort
+    type: string
+    description: 'Sort field: created, updated, popularity, or long-running'
+    default: ''
+  - name: direction
+    type: string
+    description: 'Sort direction: asc or desc'
+    default: ''
+  - name: base
+    type: string
+    description: Filter by base branch name
+    default: ''
+  - name: head
+    type: string
+    description: Filter by head branch name
+    default: ''
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+  tags:
+  - pr
+  - prs
+- id: bot.listPullRequestsForCommit
+  method: GET
+  description: List pull requests associated with a commit using a GitHub App installation
+    token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: commit_sha
+    type: string
+    description: Commit SHA
+    required: true
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+  tags:
+  - pr
+  - prs
+- id: bot.listOrgMembers
+  method: GET
+  description: List organization members using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Organization login (also used with repo for bot authorization)
+    required: true
+  - name: repo
+    type: string
+    description: Repository name used to anchor bot authorization
+    required: true
+  - name: role
+    type: string
+    description: 'Member role filter: all, admin, or member'
+    default: ''
+  - name: filter
+    type: string
+    description: 'Member filter: 2fa_disabled or 2fa_insecure'
+    default: ''
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+- id: bot.listRepoContributors
+  method: GET
+  description: List repository contributors using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: anon
+    type: string
+    description: 'Include anonymous contributors: true or false'
+    default: ''
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
+- id: bot.getUser
+  method: GET
+  description: Get a GitHub user by login using a GitHub App installation token
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner used to anchor bot authorization
+    required: true
+  - name: repo
+    type: string
+    description: Repository name used to anchor bot authorization
+    required: true
+  - name: login
+    type: string
+    description: GitHub user login
+    required: true

@@ -18,4 +18,6 @@ web/*/dist/
 ui/*/.next/
 ui/*/node_modules/
 ui/*/out/
+**/.gestalt/build/**/*
+**/gestalt-dev.local.manifest.yaml
 .gestaltd/
