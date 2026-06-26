@@ -1966,17 +1966,9 @@ def get_check_run(
     )
 
 
-def list_check_suite_check_runs(
-    request: GitHubListCheckSuiteCheckRunsRequest,
-    *,
-    subject: gestalt.Subject,
-    authorization: gestalt.Authorization | None = None,
-    client: GitHubAPIClient | None = None,
-) -> JsonObject:
-    github = github_client(client)
-    owner = require_slug(request.owner, "owner")
-    repo = require_slug(request.repo, "repo")
-    check_suite_id = require_positive_int(request.check_suite_id, "check_suite_id")
+def _check_run_list_params(
+    request: GitHubListCheckSuiteCheckRunsRequest | GitHubListCommitCheckRunsRequest,
+) -> dict[str, Any]:
     check_name = request.check_name.strip()
     status = request.status.strip()
     if status and status not in {
@@ -2001,6 +1993,21 @@ def list_check_suite_check_runs(
     if filter_value:
         params["filter"] = filter_value
     params.update(pagination_params(per_page=request.per_page, page=request.page))
+    return params
+
+
+def _list_repository_check_runs(
+    request: GitHubListCheckSuiteCheckRunsRequest | GitHubListCommitCheckRunsRequest,
+    *,
+    path: str,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    params = _check_run_list_params(request)
     installation_id = scoped_installation_id(
         subject,
         owner=owner,
@@ -2011,13 +2018,25 @@ def list_check_suite_check_runs(
     token = github.installation_token(
         installation_id, repositories=[repo], permissions={"checks": "read"}
     )
-    return github.github_json(
-        "GET",
-        path_with_query(
-            repo_path(owner, repo, "check-suites", str(check_suite_id), "check-runs"),
-            params,
-        ),
-        token,
+    return github.github_json("GET", path_with_query(path, params), token)
+
+
+def list_check_suite_check_runs(
+    request: GitHubListCheckSuiteCheckRunsRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> JsonObject:
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    check_suite_id = require_positive_int(request.check_suite_id, "check_suite_id")
+    return _list_repository_check_runs(
+        request,
+        path=repo_path(owner, repo, "check-suites", str(check_suite_id), "check-runs"),
+        subject=subject,
+        authorization=authorization,
+        client=client,
     )
 
 
@@ -2028,51 +2047,15 @@ def list_commit_check_runs(
     authorization: gestalt.Authorization | None = None,
     client: GitHubAPIClient | None = None,
 ) -> JsonObject:
-    github = github_client(client)
     owner = require_slug(request.owner, "owner")
     repo = require_slug(request.repo, "repo")
     ref = require_text(request.ref, "ref")
-    check_name = request.check_name.strip()
-    status = request.status.strip()
-    if status and status not in {
-        "queued",
-        "in_progress",
-        "completed",
-        "waiting",
-        "requested",
-        "pending",
-    }:
-        raise ValueError(
-            "status must be queued, in_progress, completed, waiting, requested, or pending"
-        )
-    filter_value = request.filter.strip()
-    if filter_value and filter_value not in {"latest", "all"}:
-        raise ValueError("filter must be either 'latest' or 'all'")
-    params: dict[str, Any] = {}
-    if check_name:
-        params["check_name"] = check_name
-    if status:
-        params["status"] = status
-    if filter_value:
-        params["filter"] = filter_value
-    params.update(pagination_params(per_page=request.per_page, page=request.page))
-    installation_id = scoped_installation_id(
-        subject,
-        owner=owner,
-        repo=repo,
+    return _list_repository_check_runs(
+        request,
+        path=repo_path(owner, repo, "commits", ref, "check-runs"),
+        subject=subject,
         authorization=authorization,
-        client=github,
-    )
-    token = github.installation_token(
-        installation_id, repositories=[repo], permissions={"checks": "read"}
-    )
-    return github.github_json(
-        "GET",
-        path_with_query(
-            repo_path(owner, repo, "commits", ref, "check-runs"),
-            params,
-        ),
-        token,
+        client=client,
     )
 
 
