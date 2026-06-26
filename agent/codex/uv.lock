@@ -235,7 +235,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&rev=e6f7dd65284a7a846d6aff6d152c3ba45cc98bed" },
+    { name = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&rev=78036dc64b489a0d9d6af6862e68c7ce54cca22b" },
     { name = "jsonschema", specifier = "==4.26.0" },
     { name = "mcp", specifier = "==1.27.0" },
     { name = "openai-agents", specifier = "==0.14.8" },
@@ -251,7 +251,7 @@ dev = [
 [[package]]
 name = "gestalt-sdk"
 version = "0.0.1a2"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&rev=e6f7dd65284a7a846d6aff6d152c3ba45cc98bed#e6f7dd65284a7a846d6aff6d152c3ba45cc98bed" }
+source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&rev=78036dc64b489a0d9d6af6862e68c7ce54cca22b#78036dc64b489a0d9d6af6862e68c7ce54cca22b" }
 dependencies = [
     { name = "googleapis-common-protos" },
     { name = "grpcio" },
