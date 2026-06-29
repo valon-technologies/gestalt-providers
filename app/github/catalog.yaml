@@ -384,6 +384,31 @@ operations:
     type: integer
     description: Page number, starting at 1
     default: 0
+- id: bot.listPullRequestCommits
+  method: GET
+  description: List commits on a pull request using a GitHub App installation token
+  tags: [pr, prs, history]
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: pull_number
+    type: integer
+    description: Pull request number
+    required: true
+  - name: per_page
+    type: integer
+    description: Results per page, from 1 through 100
+    default: 0
+  - name: page
+    type: integer
+    description: Page number, starting at 1
+    default: 0
 - id: bot.createPullRequestReview
   method: POST
   description: Create a pull request review with inline comments using a GitHub App
