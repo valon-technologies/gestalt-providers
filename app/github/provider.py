@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import fields
 from http import HTTPStatus
 from typing import Any, Callable, TypeAlias, TypeVar
 
@@ -2076,11 +2077,11 @@ T = TypeVar("T")
 
 
 def _to_request(request_cls: type[T], input: Any, **overrides: Any) -> T:
-    fields = {
-        name: getattr(input, name) for name in request_cls.__dataclass_fields__
+    field_values = {
+        field.name: getattr(input, field.name) for field in fields(request_cls)
     }
-    fields.update(overrides)
-    return request_cls(**fields)
+    field_values.update(overrides)
+    return request_cls(**field_values)
 
 
 def _bot_call(req: gestalt.Request) -> dict[str, Any]:
