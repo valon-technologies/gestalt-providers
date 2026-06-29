@@ -4,7 +4,7 @@ version = "0.0.1a7"
 requires-python = "==3.14.*"
 dependencies = [
   "gestalt-sdk",
-  "google-auth==2.53.0",
+  "google-auth==2.55.1",
   "google-cloud-bigquery==3.41.0",
 ]
 
