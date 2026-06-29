@@ -311,6 +311,15 @@ class GitHubListPullRequestFilesRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class GitHubListPullRequestCommitsRequest:
+    owner: str
+    repo: str
+    pull_number: int
+    per_page: int = 0
+    page: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class GitHubCheckRunRequest:
     owner: str
     repo: str
@@ -1668,6 +1677,39 @@ def list_pull_request_files(
     if not isinstance(data, list):
         raise GitHubAPIError(502, "GitHub pull request files response was not a list")
     return [item for item in data if isinstance(item, dict)]
+
+
+def list_pull_request_commits(
+    request: GitHubListPullRequestCommitsRequest,
+    *,
+    subject: gestalt.Subject,
+    authorization: gestalt.Authorization | None = None,
+    client: GitHubAPIClient | None = None,
+) -> list[JsonObject]:
+    github = github_client(client)
+    owner = require_slug(request.owner, "owner")
+    repo = require_slug(request.repo, "repo")
+    pull_number = require_positive_int(request.pull_number, "pull_number")
+    params = pagination_params(per_page=request.per_page, page=request.page)
+    installation_id = scoped_installation_id(
+        subject,
+        owner=owner,
+        repo=repo,
+        authorization=authorization,
+        client=github,
+    )
+    token = github.installation_token(
+        installation_id, repositories=[repo], permissions={"pull_requests": "read"}
+    )
+    data = github.github_json_value(
+        "GET",
+        path_with_query(
+            repo_path(owner, repo, "pulls", str(pull_number), "commits"),
+            params,
+        ),
+        token,
+    )
+    return require_json_object_list(data, "GitHub pull request commits response")
 
 
 def get_repository(

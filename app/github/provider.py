@@ -41,6 +41,7 @@ from internals.constants import (
     BOT_LIST_ISSUE_COMMENTS_OPERATION,
     BOT_LIST_ORG_MEMBERS_OPERATION,
     BOT_LIST_PULL_REQUEST_FILES_OPERATION,
+    BOT_LIST_PULL_REQUEST_COMMITS_OPERATION,
     BOT_LIST_PULL_REQUEST_REVIEWS_OPERATION,
     BOT_LIST_PULL_REQUEST_REVIEW_THREADS_OPERATION,
     BOT_LIST_PULL_REQUESTS_FOR_COMMIT_OPERATION,
@@ -87,6 +88,7 @@ from internals.operations import (
     GitHubListCommitCheckRunsRequest,
     GitHubListCheckRunAnnotationsRequest,
     GitHubListPullRequestFilesRequest,
+    GitHubListPullRequestCommitsRequest,
     GitHubListPullRequestReviewsRequest,
     GitHubListPullRequestReviewThreadsRequest,
     GitHubListWorkflowRunJobsRequest,
@@ -142,6 +144,7 @@ from internals.operations import (
     list_commit_check_runs,
     list_check_run_annotations,
     list_pull_request_files,
+    list_pull_request_commits,
     list_pull_request_reviews,
     list_pull_request_review_threads,
     list_workflow_run_jobs,
@@ -697,6 +700,20 @@ class GetPullRequestInput(gestalt.Model):
 
 
 class ListPullRequestFilesInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    pull_number: int = gestalt.field(description="Pull request number")
+    per_page: int = gestalt.field(
+        description="Results per page, from 1 through 100",
+        default=0,
+        required=False,
+    )
+    page: int = gestalt.field(
+        description="Page number, starting at 1", default=0, required=False
+    )
+
+
+class ListPullRequestCommitsInput(gestalt.Model):
     owner: str = gestalt.field(description="Repository owner")
     repo: str = gestalt.field(description="Repository name")
     pull_number: int = gestalt.field(description="Pull request number")
@@ -1661,6 +1678,33 @@ def bot_list_pull_request_files(
 ) -> OperationResult:
     return _run_bot(lambda: _counted_summaries(list_pull_request_files(
 _to_request(GitHubListPullRequestFilesRequest, input), **_bot_call(req)), pull_request_file_summary, key="files"))
+
+
+@app.operation(
+    id=BOT_LIST_PULL_REQUEST_COMMITS_OPERATION,
+    method="GET",
+    description="List commits on a pull request using a GitHub App installation token",
+    tags=["pr", "prs", "history"],
+)
+def bot_list_pull_request_commits(
+    input: ListPullRequestCommitsInput, req: gestalt.Request
+) -> OperationResult:
+    try:
+        results = list_pull_request_commits(
+            _to_request(GitHubListPullRequestCommitsRequest, input),
+            **_bot_call(req),
+        )
+    except ValueError as err:
+        return _bad_request(str(err))
+    except GitHubAuthorizationError as err:
+        return _forbidden(str(err))
+    except GitHubConfigError as err:
+        return _server_error(str(err))
+    except GitHubAPIError as err:
+        return _github_error(err)
+    if not isinstance(results, list):
+        return _server_error("GitHub pull request commits response was not a list")
+    return commit_list_summary(results)
 
 
 @app.operation(

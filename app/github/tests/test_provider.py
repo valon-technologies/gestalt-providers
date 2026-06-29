@@ -492,6 +492,7 @@ class GitHubProviderTests(unittest.TestCase):
         get_content = operations[provider_module.BOT_GET_CONTENT_OPERATION]
         pr = operations[provider_module.BOT_GET_PULL_REQUEST_OPERATION]
         pr_files = operations[provider_module.BOT_LIST_PULL_REQUEST_FILES_OPERATION]
+        pr_commits = operations[provider_module.BOT_LIST_PULL_REQUEST_COMMITS_OPERATION]
         pr_review = operations[provider_module.BOT_CREATE_PULL_REQUEST_REVIEW_OPERATION]
         pr_reviews = operations[provider_module.BOT_LIST_PULL_REQUEST_REVIEWS_OPERATION]
         close_pr = operations[provider_module.BOT_CLOSE_PULL_REQUEST_OPERATION]
@@ -554,6 +555,7 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertIn("file content", get_content["description"])
         self.assertIn("pull request metadata", pr["description"])
         self.assertIn("changed files", pr_files["description"])
+        self.assertIn("commits on a pull request", pr_commits["description"])
         self.assertIn("inline comments", pr_review["description"])
         self.assertIn("pull request reviews", pr_reviews["description"])
         self.assertIn("Close", close_pr["description"])
@@ -3491,6 +3493,67 @@ class GitHubProviderTests(unittest.TestCase):
         response = cast(gestalt.Response[dict[str, str]], result)
         self.assertEqual(response.status, HTTPStatus.BAD_GATEWAY)
         self.assertIn("not a list", response.body["error"])
+
+    def test_bot_list_pull_request_commits_succeeds_with_top_level_array_response(
+        self,
+    ) -> None:
+        calls: list[tuple[str, str, dict[str, Any], str]] = []
+
+        def fake_urlopen(
+            request: urllib.request.Request, timeout: float = 30
+        ) -> FakeHTTPResponse:
+            method = request.get_method()
+            path = request_path(request)
+            body = request_json(request)
+            calls.append((method, path, body, auth_header(request)))
+
+            if path == "/repos/acme/widgets/installation":
+                return FakeHTTPResponse({"id": 99})
+            if path == "/app/installations/99/access_tokens":
+                self.assertEqual(body["repositories"], ["widgets"])
+                self.assertEqual(body["permissions"], {"pull_requests": "read"})
+                return FakeHTTPResponse({"token": "pr-read-token"})
+            if path == "/repos/acme/widgets/pulls/42/commits":
+                self.assertEqual(auth_header(request), "Bearer pr-read-token")
+                return FakeHTTPResponse(
+                    [
+                        {
+                            "sha": "def456",
+                            "html_url": "https://github.com/acme/widgets/commit/def456",
+                            "commit": {
+                                "message": "Second commit",
+                                "author": {
+                                    "name": "Bob",
+                                    "email": "bob@example.com",
+                                    "date": "2026-06-16T01:00:00Z",
+                                },
+                                "committer": {
+                                    "date": "2026-06-16T01:00:00Z",
+                                },
+                            },
+                        }
+                    ]
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        with (
+            mock.patch("internals.client.create_app_jwt", return_value="app-jwt"),
+            mock.patch(
+                "internals.client.urllib.request.urlopen", side_effect=fake_urlopen
+            ),
+        ):
+            result = provider_module.bot_list_pull_request_commits(
+                provider_module.ListPullRequestCommitsInput(
+                    owner="acme",
+                    repo="widgets",
+                    pull_number=42,
+                ),
+                github_authorized_request(),
+            )
+
+        data = cast(dict[str, Any], result)
+        self.assertEqual(data["commits"][0]["sha"], "def456")
+        self.assertEqual(data["commits"][0]["message"], "Second commit")
 
     def test_bot_compare_refs_succeeds_with_object_response(self) -> None:
         calls: list[tuple[str, str, dict[str, Any], str]] = []
