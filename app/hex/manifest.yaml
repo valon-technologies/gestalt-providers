@@ -104,6 +104,15 @@ spec:
       alias: semanticProjects.update
     UpsertGuideDraft:
       alias: guideDrafts.upsert
+    projects.export: {}
+    projects.import: {}
+    projects.runDraft: {}
+    cells.run: {}
+    suggestions.list: {}
+    suggestions.get: {}
+    contextVersions.create: {}
+    contextVersions.update: {}
+    contextVersions.publish: {}
   connections:
     default:
       auth:
