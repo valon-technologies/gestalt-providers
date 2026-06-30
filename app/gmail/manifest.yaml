@@ -39,6 +39,12 @@ spec:
       alias: labels.patch
     threads.get: {}
     getProfile: {}
+    messages.send: {}
+    messages.reply: {}
+    messages.forward: {}
+    drafts.create: {}
+    drafts.update: {}
+    drafts.send: {}
   connections:
     default:
       auth:
