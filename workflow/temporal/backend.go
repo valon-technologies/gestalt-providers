@@ -145,35 +145,28 @@ func (b *temporalBackend) promoteCurrentVersion(ctx context.Context) error {
 	handle := b.client.WorkerDeploymentClient().GetHandle(b.cfg.Versioning.DeploymentName)
 	buildID := b.cfg.Versioning.BuildID
 
-	desc, err := handle.Describe(ctx, client.WorkerDeploymentDescribeOptions{})
-	if err != nil {
-		return fmt.Errorf("describe worker deployment: %w", err)
-	}
-	if currentDeploymentBuildID(desc) == buildID {
-		return nil
-	}
-
-	_, err = handle.SetCurrentVersion(ctx, client.WorkerDeploymentSetCurrentVersionOptions{
-		BuildID:                 buildID,
-		ConflictToken:           desc.ConflictToken,
-		Identity:                b.promotionIdentity(),
-		IgnoreMissingTaskQueues: false,
-	})
-	if err == nil {
-		return nil
-	}
-	if !isVersionConflict(err) {
-		return fmt.Errorf("set worker deployment current version: %w", err)
-	}
-	return b.waitForCurrentVersion(ctx, handle, buildID)
-}
-
-func (b *temporalBackend) waitForCurrentVersion(ctx context.Context, handle client.WorkerDeploymentHandle, buildID string) error {
 	for {
 		desc, err := handle.Describe(ctx, client.WorkerDeploymentDescribeOptions{})
-		if err == nil && currentDeploymentBuildID(desc) == buildID {
+		if err != nil {
+			return fmt.Errorf("describe worker deployment: %w", err)
+		}
+		if currentDeploymentBuildID(desc) == buildID {
 			return nil
 		}
+
+		_, err = handle.SetCurrentVersion(ctx, client.WorkerDeploymentSetCurrentVersionOptions{
+			BuildID:                 buildID,
+			ConflictToken:           desc.ConflictToken,
+			Identity:                b.promotionIdentity(),
+			IgnoreMissingTaskQueues: false,
+		})
+		if err == nil {
+			return nil
+		}
+		if !isRetryablePromotionError(err) {
+			return fmt.Errorf("set worker deployment current version: %w", err)
+		}
+
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("wait for worker deployment current version %q: %w", buildID, ctx.Err())
@@ -194,9 +187,13 @@ func currentDeploymentBuildID(desc client.WorkerDeploymentDescribeResponse) stri
 	return current.BuildID
 }
 
-func isVersionConflict(err error) bool {
+func isRetryablePromotionError(err error) bool {
 	var failedPrecondition *serviceerror.FailedPrecondition
-	return errors.As(err, &failedPrecondition)
+	if errors.As(err, &failedPrecondition) {
+		return true
+	}
+	var notFound *serviceerror.NotFound
+	return errors.As(err, &notFound)
 }
 
 func (b *temporalBackend) Close() error {
