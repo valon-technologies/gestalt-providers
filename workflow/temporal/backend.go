@@ -141,39 +141,41 @@ func (b *temporalBackend) PromoteCurrentVersion(ctx context.Context) error {
 	return b.promoteErr
 }
 
+// promoteCurrentVersion retries on two distinct, both-transient conditions:
+// FailedPrecondition (another instance already won the promotion race; our
+// conflict token is stale) and NotFound (the versioned worker is polling but
+// Temporal Cloud hasn't indexed its build as a Worker Deployment Version yet
+// -- observed to take a few seconds after backend.Start returns). Each cycle
+// re-Describes first, which detects the FailedPrecondition case cheaply
+// (another instance's success is already reflected) without a redundant
+// SetCurrentVersion call; the NotFound case has no such shortcut and needs
+// the retry itself.
 func (b *temporalBackend) promoteCurrentVersion(ctx context.Context) error {
 	handle := b.client.WorkerDeploymentClient().GetHandle(b.cfg.Versioning.DeploymentName)
 	buildID := b.cfg.Versioning.BuildID
 
-	desc, err := handle.Describe(ctx, client.WorkerDeploymentDescribeOptions{})
-	if err != nil {
-		return fmt.Errorf("describe worker deployment: %w", err)
-	}
-	if currentDeploymentBuildID(desc) == buildID {
-		return nil
-	}
-
-	_, err = handle.SetCurrentVersion(ctx, client.WorkerDeploymentSetCurrentVersionOptions{
-		BuildID:                 buildID,
-		ConflictToken:           desc.ConflictToken,
-		Identity:                b.promotionIdentity(),
-		IgnoreMissingTaskQueues: false,
-	})
-	if err == nil {
-		return nil
-	}
-	if !isVersionConflict(err) {
-		return fmt.Errorf("set worker deployment current version: %w", err)
-	}
-	return b.waitForCurrentVersion(ctx, handle, buildID)
-}
-
-func (b *temporalBackend) waitForCurrentVersion(ctx context.Context, handle client.WorkerDeploymentHandle, buildID string) error {
 	for {
 		desc, err := handle.Describe(ctx, client.WorkerDeploymentDescribeOptions{})
-		if err == nil && currentDeploymentBuildID(desc) == buildID {
+		if err != nil {
+			return fmt.Errorf("describe worker deployment: %w", err)
+		}
+		if currentDeploymentBuildID(desc) == buildID {
 			return nil
 		}
+
+		_, err = handle.SetCurrentVersion(ctx, client.WorkerDeploymentSetCurrentVersionOptions{
+			BuildID:                 buildID,
+			ConflictToken:           desc.ConflictToken,
+			Identity:                b.promotionIdentity(),
+			IgnoreMissingTaskQueues: false,
+		})
+		if err == nil {
+			return nil
+		}
+		if !isRetryablePromotionError(err) {
+			return fmt.Errorf("set worker deployment current version: %w", err)
+		}
+
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("wait for worker deployment current version %q: %w", buildID, ctx.Err())
@@ -194,9 +196,13 @@ func currentDeploymentBuildID(desc client.WorkerDeploymentDescribeResponse) stri
 	return current.BuildID
 }
 
-func isVersionConflict(err error) bool {
+func isRetryablePromotionError(err error) bool {
 	var failedPrecondition *serviceerror.FailedPrecondition
-	return errors.As(err, &failedPrecondition)
+	if errors.As(err, &failedPrecondition) {
+		return true
+	}
+	var notFound *serviceerror.NotFound
+	return errors.As(err, &notFound)
 }
 
 func (b *temporalBackend) Close() error {

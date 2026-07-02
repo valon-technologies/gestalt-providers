@@ -19,6 +19,7 @@ type fakeDeploymentHandle struct {
 	deploymentName string
 	conflictToken  []byte
 	setErr         error
+	setErrFunc     func(call int) error
 	currentBuildID func(call int) string
 
 	describeCalls int
@@ -51,8 +52,12 @@ func (h *fakeDeploymentHandle) Describe(_ context.Context, _ client.WorkerDeploy
 
 func (h *fakeDeploymentHandle) SetCurrentVersion(_ context.Context, opts client.WorkerDeploymentSetCurrentVersionOptions) (client.WorkerDeploymentSetCurrentVersionResponse, error) {
 	h.mu.Lock()
+	call := len(h.setCalls)
 	h.setCalls = append(h.setCalls, opts)
 	err := h.setErr
+	if h.setErrFunc != nil {
+		err = h.setErrFunc(call)
+	}
 	h.mu.Unlock()
 	return client.WorkerDeploymentSetCurrentVersionResponse{}, err
 }
@@ -173,6 +178,41 @@ func TestPromoteCurrentVersionConflictThenPoll(t *testing.T) {
 	}
 	if got := handle.describeCallCount(); got < 2 {
 		t.Fatalf("expected the conflict poll to Describe at least twice, got %d", got)
+	}
+}
+
+func TestPromoteCurrentVersionRetriesOnVersionNotFound(t *testing.T) {
+	handle := &fakeDeploymentHandle{
+		conflictToken:  []byte("token-1"),
+		currentBuildID: func(int) string { return "old-revision" },
+		setErrFunc: func(call int) error {
+			if call == 0 {
+				return serviceerror.NewNotFound("build ID 'revision-1' not found in Worker Deployment 'valon-tools-workflow-prod'")
+			}
+			return nil
+		},
+	}
+	b := newPromotionBackend(handle, true)
+	if err := b.PromoteCurrentVersion(context.Background()); err != nil {
+		t.Fatalf("PromoteCurrentVersion: %v", err)
+	}
+	if got := handle.setCallCount(); got != 2 {
+		t.Fatalf("expected a retried SetCurrentVersion attempt after NotFound, got %d calls", got)
+	}
+}
+
+func TestPromoteCurrentVersionFailsOnNonRetryableError(t *testing.T) {
+	handle := &fakeDeploymentHandle{
+		conflictToken:  []byte("token-1"),
+		currentBuildID: func(int) string { return "old-revision" },
+		setErr:         serviceerror.NewInvalidArgument("malformed build ID"),
+	}
+	b := newPromotionBackend(handle, true)
+	if err := b.PromoteCurrentVersion(context.Background()); err == nil {
+		t.Fatal("expected PromoteCurrentVersion to fail on a non-retryable error")
+	}
+	if got := handle.setCallCount(); got != 1 {
+		t.Fatalf("expected no retry on a non-retryable error, got %d SetCurrentVersion calls", got)
 	}
 }
 
