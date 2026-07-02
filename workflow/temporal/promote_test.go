@@ -12,9 +12,6 @@ import (
 	"go.temporal.io/sdk/worker"
 )
 
-// fakeDeploymentHandle is a scriptable WorkerDeploymentHandle for promotion tests.
-// currentBuildID returns the routing config's current build ID for the Nth
-// Describe call (0-indexed); an empty string means no current version.
 type fakeDeploymentHandle struct {
 	client.WorkerDeploymentHandle
 
@@ -161,8 +158,6 @@ func TestPromoteCurrentVersionConflictThenPoll(t *testing.T) {
 		conflictToken: []byte("token-1"),
 		setErr:        serviceerror.NewFailedPrecondition("another instance already promoted"),
 		currentBuildID: func(call int) string {
-			// call 0 is the initial pre-promotion Describe; the first poll
-			// (call 1) already reflects the winning instance's build.
 			if call == 0 {
 				return "old-revision"
 			}
@@ -200,9 +195,8 @@ func TestPromoteCurrentVersionRunsOnce(t *testing.T) {
 func TestPromoteCurrentVersionCanceledByClose(t *testing.T) {
 	polling := make(chan struct{}, 16)
 	handle := &fakeDeploymentHandle{
-		conflictToken: []byte("token-1"),
-		setErr:        serviceerror.NewFailedPrecondition("another instance already promoted"),
-		// Never matches, so the poll loop runs until the context is canceled.
+		conflictToken:  []byte("token-1"),
+		setErr:         serviceerror.NewFailedPrecondition("another instance already promoted"),
 		currentBuildID: func(int) string { return "old-revision" },
 	}
 	handle.onDescribe = func() {
@@ -216,8 +210,6 @@ func TestPromoteCurrentVersionCanceledByClose(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- b.PromoteCurrentVersion(context.Background()) }()
 
-	// Wait for the initial Describe and at least one poll Describe so we know
-	// the conflict-poll loop is running before we cancel it via Close.
 	<-polling
 	<-polling
 

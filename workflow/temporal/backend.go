@@ -118,12 +118,6 @@ func (b *temporalBackend) workerOptions() worker.Options {
 
 const promotionPollInterval = 2 * time.Second
 
-// PromoteCurrentVersion sets this build as the deployment's current version once
-// the versioned worker is polling. It is a no-op unless versioning.setCurrentOnStart
-// is enabled, and runs at most once per backend. It must be called only from
-// Provider.Start (the single, once-at-startup caller) — never from the lazy
-// backend.Start path that run ops use — so promotion never blocks a run op and
-// gestaltd's /ready gate reflects a confirmed promotion.
 func (b *temporalBackend) PromoteCurrentVersion(ctx context.Context) error {
 	if !b.cfg.Versioning.SetCurrentOnStart {
 		return nil
@@ -171,9 +165,6 @@ func (b *temporalBackend) promoteCurrentVersion(ctx context.Context) error {
 	if !isVersionConflict(err) {
 		return fmt.Errorf("set worker deployment current version: %w", err)
 	}
-	// Another instance won the race (our conflict token is now stale). Wait
-	// until routing reflects our build ID — any live instance's build is fine
-	// since they are the same revision.
 	return b.waitForCurrentVersion(ctx, handle, buildID)
 }
 
@@ -216,8 +207,6 @@ func (b *temporalBackend) Close() error {
 	cancelPromotion := b.promoteCancel
 	b.promoteCancel = nil
 	b.mu.Unlock()
-	// Cancel any in-flight promotion before tearing down the client so its
-	// conflict-poll loop unwinds instead of racing b.client.Close().
 	if cancelPromotion != nil {
 		cancelPromotion()
 	}
