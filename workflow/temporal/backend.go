@@ -141,15 +141,6 @@ func (b *temporalBackend) PromoteCurrentVersion(ctx context.Context) error {
 	return b.promoteErr
 }
 
-// promoteCurrentVersion retries on two distinct, both-transient conditions:
-// FailedPrecondition (another instance already won the promotion race; our
-// conflict token is stale) and NotFound (the versioned worker is polling but
-// Temporal Cloud hasn't indexed its build as a Worker Deployment Version yet
-// -- observed to take a few seconds after backend.Start returns). Each cycle
-// re-Describes first, which detects the FailedPrecondition case cheaply
-// (another instance's success is already reflected) without a redundant
-// SetCurrentVersion call; the NotFound case has no such shortcut and needs
-// the retry itself.
 func (b *temporalBackend) promoteCurrentVersion(ctx context.Context) error {
 	handle := b.client.WorkerDeploymentClient().GetHandle(b.cfg.Versioning.DeploymentName)
 	buildID := b.cfg.Versioning.BuildID
