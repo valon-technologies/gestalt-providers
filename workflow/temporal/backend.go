@@ -46,9 +46,13 @@ type temporalBackend struct {
 
 	newWorker temporalWorkerFactory
 
-	mu      sync.Mutex
-	started bool
-	worker  temporalWorker
+	mu            sync.Mutex
+	started       bool
+	worker        temporalWorker
+	promoteCancel context.CancelFunc
+
+	promoteOnce sync.Once
+	promoteErr  error
 }
 
 type workflowRunStartSnapshot struct {
@@ -112,12 +116,111 @@ func (b *temporalBackend) workerOptions() worker.Options {
 	}
 }
 
+const promotionPollInterval = 2 * time.Second
+
+// PromoteCurrentVersion sets this build as the deployment's current version once
+// the versioned worker is polling. It is a no-op unless versioning.setCurrentOnStart
+// is enabled, and runs at most once per backend. It must be called only from
+// Provider.Start (the single, once-at-startup caller) — never from the lazy
+// backend.Start path that run ops use — so promotion never blocks a run op and
+// gestaltd's /ready gate reflects a confirmed promotion.
+func (b *temporalBackend) PromoteCurrentVersion(ctx context.Context) error {
+	if !b.cfg.Versioning.SetCurrentOnStart {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	b.promoteOnce.Do(func() {
+		promoteCtx, cancel := context.WithCancel(ctx)
+		b.mu.Lock()
+		b.promoteCancel = cancel
+		b.mu.Unlock()
+		defer func() {
+			cancel()
+			b.mu.Lock()
+			b.promoteCancel = nil
+			b.mu.Unlock()
+		}()
+		b.promoteErr = b.promoteCurrentVersion(promoteCtx)
+	})
+	return b.promoteErr
+}
+
+func (b *temporalBackend) promoteCurrentVersion(ctx context.Context) error {
+	handle := b.client.WorkerDeploymentClient().GetHandle(b.cfg.Versioning.DeploymentName)
+	buildID := b.cfg.Versioning.BuildID
+
+	desc, err := handle.Describe(ctx, client.WorkerDeploymentDescribeOptions{})
+	if err != nil {
+		return fmt.Errorf("describe worker deployment: %w", err)
+	}
+	if currentDeploymentBuildID(desc) == buildID {
+		return nil
+	}
+
+	_, err = handle.SetCurrentVersion(ctx, client.WorkerDeploymentSetCurrentVersionOptions{
+		BuildID:                 buildID,
+		ConflictToken:           desc.ConflictToken,
+		Identity:                b.promotionIdentity(),
+		IgnoreMissingTaskQueues: false,
+	})
+	if err == nil {
+		return nil
+	}
+	if !isVersionConflict(err) {
+		return fmt.Errorf("set worker deployment current version: %w", err)
+	}
+	// Another instance won the race (our conflict token is now stale). Wait
+	// until routing reflects our build ID — any live instance's build is fine
+	// since they are the same revision.
+	return b.waitForCurrentVersion(ctx, handle, buildID)
+}
+
+func (b *temporalBackend) waitForCurrentVersion(ctx context.Context, handle client.WorkerDeploymentHandle, buildID string) error {
+	for {
+		desc, err := handle.Describe(ctx, client.WorkerDeploymentDescribeOptions{})
+		if err == nil && currentDeploymentBuildID(desc) == buildID {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for worker deployment current version %q: %w", buildID, ctx.Err())
+		case <-time.After(promotionPollInterval):
+		}
+	}
+}
+
+func (b *temporalBackend) promotionIdentity() string {
+	return fmt.Sprintf("gestaltd:%s:%s", b.cfg.Versioning.DeploymentName, b.cfg.Versioning.BuildID)
+}
+
+func currentDeploymentBuildID(desc client.WorkerDeploymentDescribeResponse) string {
+	current := desc.Info.RoutingConfig.CurrentVersion
+	if current == nil {
+		return ""
+	}
+	return current.BuildID
+}
+
+func isVersionConflict(err error) bool {
+	var failedPrecondition *serviceerror.FailedPrecondition
+	return errors.As(err, &failedPrecondition)
+}
+
 func (b *temporalBackend) Close() error {
 	b.mu.Lock()
 	w := b.worker
 	b.worker = nil
 	b.started = false
+	cancelPromotion := b.promoteCancel
+	b.promoteCancel = nil
 	b.mu.Unlock()
+	// Cancel any in-flight promotion before tearing down the client so its
+	// conflict-poll loop unwinds instead of racing b.client.Close().
+	if cancelPromotion != nil {
+		cancelPromotion()
+	}
 	if w != nil {
 		w.Stop()
 	}

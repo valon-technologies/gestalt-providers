@@ -82,7 +82,13 @@ func (p *Provider) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return backend.Start(ctx)
+	if err := backend.Start(ctx); err != nil {
+		return err
+	}
+	// Promote after the versioned worker is polling so it can be set current
+	// with allow_no_pollers=false. Runs only from this single startup caller —
+	// the lazy backend.Start path used by run ops never promotes.
+	return backend.PromoteCurrentVersion(ctx)
 }
 
 func (p *Provider) HealthCheck(ctx context.Context) error {

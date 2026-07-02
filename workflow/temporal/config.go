@@ -33,6 +33,11 @@ type config struct {
 type versioningConfig struct {
 	DeploymentName string `yaml:"deploymentName"`
 	BuildID        string `yaml:"buildID"`
+	// SetCurrentOnStart promotes this build to the deployment's current version
+	// when the provider starts. Enabled in prod so a freshly deployed gestaltd
+	// promotes itself; left false for local dev and tests so they never mutate
+	// Temporal Cloud routing.
+	SetCurrentOnStart bool `yaml:"setCurrentOnStart"`
 }
 
 func decodeConfig(raw map[string]any) (config, error) {
