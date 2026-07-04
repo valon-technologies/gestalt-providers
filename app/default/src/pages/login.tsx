@@ -17,6 +17,9 @@ export default function LoginPage() {
 
   useEffect(() => {
     const returnPath = authReturnPathFromLoginURL();
+    if (new URLSearchParams(window.location.search).get("next")) {
+      storeAuthReturnPath(returnPath);
+    }
 
     function redirectWithSession() {
       return getAuthSession().then((session) => {
@@ -68,7 +71,9 @@ export default function LoginPage() {
       sessionStorage.setItem("oauth_state", state);
       storeAuthReturnPath(authReturnPathFromLoginURL());
       const { url } = await startLogin(state);
-      window.location.href = url;
+      if (/^https?:\/\//i.test(url)) {
+        window.location.href = url;
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {
