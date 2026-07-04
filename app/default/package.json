@@ -1,0 +1,46 @@
+{
+  "name": "@gestalt/app-default",
+  "version": "0.0.1-alpha.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:theme": "node --env-file-if-exists=.env.local scripts/dev-theme-watch.mjs",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run lint && node scripts/verify-admin-assets.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "@headlessui/react": "^2.2.10",
+    "@shikijs/langs": "^3.23.0",
+    "@shikijs/themes": "^3.23.0",
+    "@tanstack/react-router": "^1.120.3",
+    "@valon-technologies/gestalt": "0.0.1-alpha.69",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
+    "shiki": "^3.23.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.59.1",
+    "@tailwindcss/postcss": "^4.3.1",
+    "@tailwindcss/vite": "^4.3.1",
+    "@types/node": "25.6.0",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "^4.5.2",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^16.2.0",
+    "postcss": "8.5.9",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.34.0",
+    "vite": "^6.3.5"
+  }
+}

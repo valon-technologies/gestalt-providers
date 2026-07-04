@@ -859,38 +859,6 @@ packages:
           - "linux/arm64"
           - "linux/arm"
         yanked: true
-  github.com/valon-technologies/gestalt-providers/ui/default:
-    displayName: "Default UI"
-    description: "Default Gestalt UI bundle served at /."
-    versions:
-      "0.0.2-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.2-alpha.1/provider-release.yaml"
-        kind: "ui"
-        runtime: "ui"
-        platforms:
-          - "generic"
-      "0.0.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1/provider-release.yaml"
-        kind: "ui"
-        runtime: "ui"
-        platforms:
-          - "generic"
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/default/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "ui"
-        runtime: "ui"
-        platforms:
-          - "generic"
-  github.com/valon-technologies/gestalt-providers/ui/github:
-    displayName: "GitHub UI"
-    description: "Mounted UI for GitHub integration settings."
-    versions:
-      "0.0.1-alpha.1":
-        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/ui/github/v0.0.1-alpha.1/provider-release.yaml"
-        kind: "ui"
-        runtime: "ui"
-        platforms:
-          - "generic"
   github.com/valon-technologies/gestalt-providers/workflow/indexeddb:
     displayName: "IndexedDB Workflow"
     description: "IndexedDB-backed workflow provider with durable keyed signal dispatch."

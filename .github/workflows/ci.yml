@@ -18,7 +18,6 @@ on:
       - 'workflow/**'
       - 'cache/**'
       - 'secrets/**'
-      - 'ui/**'
       - 'provider-index.yaml'
       - 'registry/catalog.json'
   push:
@@ -40,7 +39,6 @@ on:
       - 'workflow/**'
       - 'cache/**'
       - 'secrets/**'
-      - 'ui/**'
       - 'provider-index.yaml'
       - 'registry/catalog.json'
 
@@ -115,6 +113,7 @@ jobs:
                   package_dir = path.parent
                   has_go = any(candidate.suffix == ".go" for candidate in package_dir.glob("*.go"))
                   has_typescript = False
+                  has_frontend = False
                   package_json = package_dir / "package.json"
                   if package_json.is_file():
                       try:
@@ -123,6 +122,7 @@ jobs:
                           package_data = {}
                       provider = (package_data.get("gestalt") or {}).get("provider")
                       has_typescript = bool(provider)
+                      has_frontend = True
                   all_apps.append(
                       {
                           "dir": str(package_dir.as_posix()),
@@ -132,6 +132,7 @@ jobs:
                           "has_python": (package_dir / "pyproject.toml").is_file(),
                           "has_rust": (package_dir / "Cargo.toml").is_file(),
                           "has_typescript": has_typescript,
+                          "has_frontend": has_frontend,
                       }
                   )
           packages_by_root = {}
@@ -275,6 +276,10 @@ jobs:
         with:
           bun-version: 1.3.11
           token: ${{ github.token }}
+      - uses: actions/setup-node@v4
+        if: matrix.app.has_frontend && !matrix.app.has_typescript
+        with:
+          node-version: '20'
       - name: Install Python
         if: matrix.app.has_python
         run: uv python install 3.13 3.14
@@ -332,6 +337,11 @@ jobs:
             (cd "$app_dir" && bun run check)
           fi
 
+          if [ "${{ matrix.app.has_frontend }}" = "true" ] && [ "${{ matrix.app.has_typescript }}" != "true" ]; then
+            (cd "$app_dir" && npm ci)
+            (cd "$app_dir" && npm run check)
+          fi
+
           rm -rf "${OUTPUT_ROOT:?}/${app_name}"
           mkdir -p "${OUTPUT_ROOT}/${app_name}"
           (cd "$app_dir" && gestaltd provider package --version "${VALIDATION_VERSION}" --output "${OUTPUT_ROOT}/${app_name}")
@@ -353,14 +363,14 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: ui/default
+        working-directory: app/default
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: ui/default/package-lock.json
+          cache-dependency-path: app/default/package-lock.json
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
@@ -371,15 +381,15 @@ jobs:
     timeout-minutes: 10
     defaults:
       run:
-        working-directory: ui/default
+        working-directory: app/default
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: ui/default/package-lock.json
-      - run: npm ci && npm run build
+          cache-dependency-path: app/default/package-lock.json
+      - run: npm ci && GESTALT_BUILD_STATIC=$PWD/out npm run build
       - run: npx playwright install chromium --with-deps
       - name: Run UI tests (mock specs only)
         run: npx playwright test mock
@@ -389,7 +399,7 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: ui-playwright-report
-          path: ui/default/playwright-report/
+          path: app/default/playwright-report/
           retention-days: 7
 
   ui-e2e:
@@ -412,7 +422,7 @@ jobs:
           .github/scripts/checkout_gestalt_ref.sh "$gestalt_dir" "$GESTALT_REF"
 
           # Build UI from this repo
-          (cd ui/default && npm ci && npm run build)
+          (cd app/default && npm ci && GESTALT_BUILD_STATIC=$PWD/out npm run build)
 
           # Fix IndexedDB provider SDK replace path
           sed -i "s|../../../gestalt/sdk/go|$gestalt_dir/sdk/go|" indexeddb/relationaldb/go.mod
@@ -422,9 +432,9 @@ jobs:
           (cd "$gestalt_dir/gestaltd" && go build -o "${GITHUB_WORKSPACE}/../bin/gestaltd" ./cmd/gestaltd)
 
           # Package local providers as release metadata to avoid local-source fingerprint churn
-          mkdir -p "${RUNNER_TEMP}/ui-default-release" "${RUNNER_TEMP}/indexeddb-relationaldb-release" "${RUNNER_TEMP}/external-credentials-default-release"
-          (cd ui/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider package --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/ui-default-release")
-          "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --dist-dir "${RUNNER_TEMP}/ui-default-release" --version "${VALIDATION_VERSION}"
+          mkdir -p "${RUNNER_TEMP}/app-default-release" "${RUNNER_TEMP}/indexeddb-relationaldb-release" "${RUNNER_TEMP}/external-credentials-default-release"
+          (cd app/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider package --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/app-default-release")
+          "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --dist-dir "${RUNNER_TEMP}/app-default-release" --version "${VALIDATION_VERSION}"
           (cd indexeddb/relationaldb && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider package --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/indexeddb-relationaldb-release")
           "${GITHUB_WORKSPACE}/../bin/gestaltd" provider release --dist-dir "${RUNNER_TEMP}/indexeddb-relationaldb-release" --version "${VALIDATION_VERSION}"
           (cd externalcredentials/default && "${GITHUB_WORKSPACE}/../bin/gestaltd" provider package --version "${VALIDATION_VERSION}" --output "${RUNNER_TEMP}/external-credentials-default-release")
@@ -441,17 +451,17 @@ jobs:
               secrets: secrets
               indexeddb: main
               externalCredentials: default
-          apps: {}
+          apps:
+            home:
+              source: "${RUNNER_TEMP}/app-default-release/provider-release.yaml"
+              static:
+                mount: /
           providers:
             indexeddb:
               main:
                 source: "${RUNNER_TEMP}/indexeddb-relationaldb-release/provider-release.yaml"
                 config:
                   dsn: "sqlite://${RUNNER_TEMP}/gestalt-web-e2e.db"
-            ui:
-              default:
-                path: /
-                source: "${RUNNER_TEMP}/ui-default-release/provider-release.yaml"
             externalCredentials:
               default:
                 source: "${RUNNER_TEMP}/external-credentials-default-release/provider-release.yaml"
@@ -478,7 +488,7 @@ jobs:
             exit 1
           fi
       - name: Run E2E tests
-        working-directory: ui/default
+        working-directory: app/default
         env:
           GESTALT_BASE_URL: http://localhost:8080
         run: |
@@ -489,5 +499,5 @@ jobs:
         if: ${{ !cancelled() }}
         with:
           name: ui-e2e-playwright-report
-          path: ui/default/playwright-report/
+          path: app/default/playwright-report/
           retention-days: 7

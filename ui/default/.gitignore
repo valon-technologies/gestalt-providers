@@ -1,9 +1,0 @@
-out/
-.next/
-.dev/
-.dev-bin/
-.env*.local
-node_modules/
-playwright-report/
-test-results/
-tsconfig.tsbuildinfo

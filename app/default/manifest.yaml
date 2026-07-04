@@ -1,0 +1,15 @@
+kind: app
+source: github.com/valon-technologies/gestalt-providers/app/default
+version: 0.0.1-alpha.1
+displayName: Home
+description: Default Gestalt UI bundle served at /.
+iconFile: assets/icon.svg
+install:
+  - [npm, ci]
+build:
+  - [npm, run, check]
+  - [npm, run, build]
+  - [node, scripts/stage-provider-entrypoint.mjs]
+run:
+  - [npm, run, dev]
+spec: {}
