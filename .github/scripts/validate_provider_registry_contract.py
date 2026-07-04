@@ -295,11 +295,12 @@ def validate_catalog(repo_root: pathlib.Path, index: dict[str, Any], catalog: di
     ]
     if not generic_versions:
         raise SystemExit("provider index does not include a generic artifact target")
-    ui_default = provider_by_package.get(SOURCE_PREFIX + "ui/default")
-    if not ui_default:
-        raise SystemExit("catalog missing ui/default")
-    if (ui_default.get("configTarget") or {}).get("requiredSet", {}).get("path") != "/":
-        raise SystemExit("catalog ui/default configTarget must require path=/")
+    app_default = provider_by_package.get(SOURCE_PREFIX + "app/default")
+    if not app_default:
+        raise SystemExit("catalog missing app/default")
+    app_default_target = app_default.get("configTarget") or {}
+    if app_default_target.get("entryKind") != "app" or app_default_target.get("section") != "app":
+        raise SystemExit("catalog app/default configTarget must target apps")
     validate_icon_assets(repo_root, catalog)
     validate_provider_docs(repo_root, catalog)
 
@@ -359,7 +360,6 @@ def validate_mutations(
 ) -> None:
     plugin = require_package(packages, "app/httpbin")
     indexeddb = require_package(packages, "indexeddb/relationaldb")
-    ui = require_package(packages, "ui/default")
     run(
         [
             gestaltd,
@@ -392,25 +392,6 @@ def validate_mutations(
             indexeddb,
         ]
     )
-    run(
-        [
-            gestaltd,
-            "provider",
-            "add",
-            "--repo",
-            "local",
-            "--config",
-            str(config_path),
-            "--kind",
-            "ui",
-            "--name",
-            "registry-ui",
-            "--set",
-            "path=/",
-            "--no-lock",
-            ui,
-        ]
-    )
     mutated = load_yaml(config_path)
     if (
         (((mutated.get("apps") or {}).get("registry-app") or {}).get("source") or {}).get("package")
@@ -422,11 +403,6 @@ def validate_mutations(
         != indexeddb
     ):
         raise SystemExit("indexeddb provider add did not write providers.indexeddb entry")
-    ui_entry = (((mutated.get("providers") or {}).get("ui") or {}).get("registry-ui") or {})
-    if (ui_entry.get("source") or {}).get("package") != ui:
-        raise SystemExit("ui provider add did not write providers.ui entry")
-    if ui_entry.get("path") != "/":
-        raise SystemExit("ui provider add did not write path=/")
 
 
 def main() -> int:
