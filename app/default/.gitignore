@@ -1,0 +1,9 @@
+node_modules/
+.gestaltd/
+.gestalt/
+out/
+dist/
+.dev/
+playwright-report/
+test-results/
+*.tsbuildinfo

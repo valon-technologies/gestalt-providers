@@ -48,7 +48,7 @@ indexeddb/<name>/     IndexedDB providers (Go, Rust)
 workflow/<name>/      Workflow providers (Go)
 cache/<name>/         Cache providers (Go)
 secrets/<name>/       Secrets providers (Go)
-ui/<name>/            UI bundles
+app/<name>/           Apps (including frontend-only static bundles)
 ```
 
 Every provider requires a
