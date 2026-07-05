@@ -13,5 +13,5 @@ export async function authenticate(page: Page) {
   });
   await mockAuthSession(page);
   await page.goto("/");
-  await page.waitForURL((url) => url.pathname !== "/login", { timeout: 10000 });
+  await page.getByRole("heading", { name: "Dashboard" }).waitFor({ timeout: 10000 });
 }

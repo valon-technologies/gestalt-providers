@@ -1,4 +1,4 @@
-import { test, expect, mockAuthInfo } from "./fixtures";
+import { test, expect, mockAuthInfo, mockAuthSession } from "./fixtures";
 
 const hasBackend = !!process.env.GESTALT_BASE_URL;
 
@@ -14,14 +14,10 @@ test.describe("Docs page", () => {
     "Docs page test uses mocked auth info and does not apply when running against a real server",
   );
 
-  test("docs are reachable before login and cover the main user workflows", async ({
+  test("unauthenticated user is redirected to server login from docs", async ({
     page,
   }) => {
     const pageErrors = trackPageErrors(page);
-    const expectedOrigin =
-      process.env.PLAYWRIGHT_BASE_URL ||
-      `http://localhost:${process.env.API_PORT || 8080}`;
-    const leftNav = page.locator("aside").first();
     await page.addInitScript(() => {
       localStorage.clear();
       sessionStorage.clear();
@@ -30,11 +26,39 @@ test.describe("Docs page", () => {
       provider: "test-sso",
       displayName: "Test SSO",
     });
+    await page.route("**/api/v1/auth/session", (route) => {
+      route.fulfill({ status: 401, json: { error: "missing authorization" } });
+    });
 
-    await page.goto("/login");
-    await page.getByRole("link", { name: "documentation" }).click();
+    await page.goto("/docs/getting-started");
+    await expect(page).toHaveURL((url) => {
+      return (
+        url.pathname === "/api/v1/auth/login" &&
+        url.searchParams.get("next") === "/docs/getting-started"
+      );
+    });
+    expect(pageErrors).toEqual([]);
+  });
 
-    await expect(page).toHaveURL(/\/docs/);
+  test("authenticated docs cover the main user workflows", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    const pageErrors = trackPageErrors(page);
+    const expectedOrigin =
+      process.env.PLAYWRIGHT_BASE_URL ||
+      `http://localhost:${process.env.API_PORT || 8080}`;
+    const leftNav = page.locator("aside").first();
+    await mockAuthInfo(page, {
+      provider: "test-sso",
+      displayName: "Test SSO",
+    });
+    await mockAuthSession(page, {
+      subjectId: "user:test@gestalt.dev",
+      email: "test@gestalt.dev",
+    });
+
+    await page.goto("/docs");
     await expect(
       page.getByRole("heading", {
         name: "Getting Started",
@@ -228,31 +252,6 @@ test.describe("Docs page", () => {
       page.getByRole("cell", { name: `${expectedOrigin}/mcp` }).first(),
     ).toBeVisible();
     await expect(page.getByText("gestalt integrations list")).toHaveCount(0);
-    expect(pageErrors).toEqual([]);
-  });
-
-  test("authenticated user can access docs without redirect", async ({
-    authenticatedPage,
-  }) => {
-    const page = authenticatedPage;
-    const pageErrors = trackPageErrors(page);
-    await mockAuthInfo(page, {
-      provider: "test-sso",
-      display_name: "Test SSO",
-    });
-
-    await page.goto("/docs");
-    await expect(page).toHaveURL(/\/docs/);
-    await expect(
-      page.getByRole("heading", { name: "Getting Started" }),
-    ).toBeVisible();
-    await expect(
-      page.locator("aside").first().getByRole("link", { name: "Use With MCP" }),
-    ).toHaveAttribute("href", "/docs/mcp");
-    await expect(
-      page.locator("nav").getByRole("link", { name: "Apps", exact: true }),
-    ).toBeVisible();
-    await expect(page.getByText("test@gestalt.dev")).toBeVisible();
     expect(pageErrors).toEqual([]);
   });
 });
