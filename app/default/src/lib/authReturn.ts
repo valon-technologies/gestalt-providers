@@ -1,15 +1,15 @@
 import { AUTH_RETURN_PATH_STORAGE_KEY, LOGIN_PATH } from "@/lib/constants";
 
 const DEFAULT_RETURN_PATH = "/";
-const CALLBACK_PATH = "/auth/callback";
+const LOGIN_CALLBACK_PATH = "/api/v1/auth/login/callback";
 const API_PATH = "/api";
 
 function isBlockedPath(pathname: string): boolean {
   return (
     pathname === LOGIN_PATH ||
     pathname.startsWith(`${LOGIN_PATH}/`) ||
-    pathname === CALLBACK_PATH ||
-    pathname.startsWith(`${CALLBACK_PATH}/`) ||
+    pathname === LOGIN_CALLBACK_PATH ||
+    pathname.startsWith(`${LOGIN_CALLBACK_PATH}/`) ||
     pathname === API_PATH ||
     pathname.startsWith(`${API_PATH}/`)
   );

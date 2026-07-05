@@ -12,45 +12,7 @@ import {
 
 const hasBackend =
   !!process.env.PLAYWRIGHT_BASE_URL || !!process.env.GESTALT_BASE_URL;
-const AUTH_RETURN_PATH_STORAGE_KEY = "gestalt.auth.returnPath";
-const AUTH_TEST_OAUTH_SEEDED_KEY = "gestalt.test.oauthSeeded";
 const AUTH_TEST_USER_SEEDED_KEY = "gestalt.test.userSeeded";
-
-function encodeWrappedState(hostState: string): string {
-  return Buffer.from(
-    JSON.stringify({ host_state: hostState }),
-    "utf8",
-  ).toString("base64url");
-}
-
-async function seedOAuthState(
-  page: import("@playwright/test").Page,
-  oauthState?: string,
-  returnPath?: string,
-) {
-  await page.addInitScript(
-    ({ state, path, key, seededKey }) => {
-      if (sessionStorage.getItem(seededKey) === "1") {
-        return;
-      }
-      localStorage.clear();
-      sessionStorage.clear();
-      if (state) {
-        sessionStorage.setItem("oauth_state", state);
-      }
-      if (path) {
-        sessionStorage.setItem(key, path);
-      }
-      sessionStorage.setItem(seededKey, "1");
-    },
-    {
-      state: oauthState,
-      path: returnPath,
-      key: AUTH_RETURN_PATH_STORAGE_KEY,
-      seededKey: AUTH_TEST_OAUTH_SEEDED_KEY,
-    },
-  );
-}
 
 async function seedAuthenticatedUserOnce(
   page: import("@playwright/test").Page,
@@ -247,7 +209,6 @@ test.describe("Authentication", () => {
       "//evil.example.test/app",
       "/\\evil.example.test/app",
       "/login?next=/identities",
-      "/auth/callback?code=test-code",
       "/api/v1/auth/login/callback?code=test-code",
     ]) {
       await page.goto(`/login?next=${encodeURIComponent(next)}`);
@@ -266,9 +227,9 @@ test.describe("Authentication", () => {
     });
     await mockAuthSessionUnauthorized(page);
 
-    let loginBody: { state?: string } | null = null;
+    let loginBody: { state?: string; next?: string } | null = null;
     await page.route("**/api/v1/auth/login", async (route, request) => {
-      loginBody = request.postDataJSON() as { state?: string };
+      loginBody = request.postDataJSON() as { state?: string; next?: string };
       await route.fulfill({ json: { url: "#idp" } });
     });
 
@@ -277,14 +238,7 @@ test.describe("Authentication", () => {
     await page.getByRole("button", { name: /Sign in with Test SSO/i }).click();
 
     await expect.poll(() => loginBody?.state).toBeTruthy();
-    await expect
-      .poll(() =>
-        page.evaluate(
-          (key) => sessionStorage.getItem(key),
-          AUTH_RETURN_PATH_STORAGE_KEY,
-        ),
-      )
-      .toBe(returnPath);
+    await expect.poll(() => loginBody?.next).toBe(returnPath);
   });
 
   test("logout clears session and redirects to login", async ({ page }) => {
@@ -336,190 +290,6 @@ test.describe("Authentication", () => {
     await expect(
       await page.evaluate(() => localStorage.getItem("user_email")),
     ).toBeNull();
-  });
-
-  test("auth callback redirects mismatched OAuth state back to login", async ({
-    page,
-  }) => {
-    await seedOAuthState(page, "correct-state");
-    await mockAuthInfo(page, {
-      provider: "test-sso",
-      displayName: "Test SSO",
-    });
-    await mockAuthSessionUnauthorized(page);
-
-    let callbackCalled = false;
-    await page.route("**/api/v1/auth/login/callback?**", (route) => {
-      callbackCalled = true;
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          email: "unexpected@gestalt.dev",
-          displayName: "Unexpected",
-        }),
-      });
-    });
-
-    await page.goto("/auth/callback?code=test-code&state=wrong-state");
-    await expect(page).toHaveURL((url) => {
-      return url.pathname === "/login" && url.searchParams.get("next") === "/";
-    });
-    await expect(
-      page.getByRole("button", { name: /Sign in with Test SSO/i }),
-    ).toBeVisible();
-    expect(callbackCalled).toBe(false);
-  });
-
-  test("auth callback delegates missing OAuth state to the server callback", async ({
-    page,
-  }) => {
-    await seedOAuthState(page);
-
-    let callbackURL: string | null = null;
-    await page.route("**/api/v1/auth/login/callback?**", (route, request) => {
-      callbackURL = request.url();
-      route.fulfill({
-        status: 200,
-        contentType: "text/plain",
-        body: "delegated",
-      });
-    });
-
-    await page.goto("/auth/callback?code=attacker-code&state=attacker-state");
-    await expect.poll(() => callbackURL).not.toBeNull();
-    expect(new URL(callbackURL!).pathname).toBe("/api/v1/auth/login/callback");
-    expect(new URL(callbackURL!).searchParams.get("code")).toBe(
-      "attacker-code",
-    );
-    expect(new URL(callbackURL!).searchParams.get("state")).toBe(
-      "attacker-state",
-    );
-    await expect(page).toHaveURL((url) => {
-      return (
-        url.pathname === "/api/v1/auth/login/callback" &&
-        url.searchParams.get("code") === "attacker-code" &&
-        url.searchParams.get("state") === "attacker-state"
-      );
-    });
-  });
-
-  test("auth callback accepts wrapped host_state and completes login", async ({
-    page,
-  }) => {
-    const wrappedState = encodeWrappedState("correct-state");
-    const returnPath = "/identities?id=agent-1#profile";
-
-    await seedOAuthState(page, "correct-state", returnPath);
-    await mockAuthInfo(page, {
-      provider: "test-sso",
-      displayName: "Test SSO",
-    });
-    await mockManagedIdentities(page, []);
-    await mockIntegrations(page, []);
-    await mockTokens(page, []);
-    await mockWorkflowRuns(page, []);
-    await mockAuthSession(page, {
-      subjectId: "user:test@gestalt.dev",
-      email: "test@gestalt.dev",
-      displayName: "Test User",
-    });
-
-    let callbackState: string | null = null;
-    await page.route("**/api/v1/auth/login/callback?**", (route, request) => {
-      callbackState = new URL(request.url()).searchParams.get("state");
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ status: "ok" }),
-      });
-    });
-
-    await page.goto(`/auth/callback?code=test-code&state=${wrappedState}`);
-
-    await expect.poll(() => callbackState).toBe(wrappedState);
-    await expect(page).toHaveURL((url) => {
-      return (
-        url.pathname === "/identities" &&
-        url.searchParams.get("id") === "agent-1" &&
-        url.hash === "#profile"
-      );
-    });
-    await expect(page.getByText("Test User")).toBeVisible();
-    await expect(
-      await page.evaluate(() => localStorage.getItem("gestalt.auth.session")),
-    ).not.toContain("undefined");
-  });
-
-  test("auth callback sanitizes stored return path before redirecting", async ({
-    page,
-  }) => {
-    await seedOAuthState(page, "correct-state", "https://evil.example.test/app");
-    await mockIntegrations(page, []);
-    await mockTokens(page, []);
-    await mockWorkflowRuns(page, []);
-    await mockAuthSession(page, {
-      subjectId: "user:test@gestalt.dev",
-      email: "test@gestalt.dev",
-      displayName: "Test User",
-    });
-
-    let callbackCalled = false;
-    await page.route("**/api/v1/auth/login/callback?**", (route) => {
-      callbackCalled = true;
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ status: "ok" }),
-      });
-    });
-
-    await page.goto("/auth/callback?code=test-code&state=correct-state");
-
-    await expect.poll(() => callbackCalled).toBe(true);
-    await expect(page).toHaveURL("/");
-    await expect(page.getByText("Test User")).toBeVisible();
-  });
-
-  test("auth callback redirects wrapped CLI state to the local listener", async ({
-    page,
-  }) => {
-    const port = 43123;
-    const cliState = "cli-original-state";
-    const wrappedState = encodeWrappedState(`cli:${port}:${cliState}`);
-
-    await seedOAuthState(page);
-
-    let localCallbackURL: string | null = null;
-    let serverCallbackCalled = false;
-
-    await page.route(`http://127.0.0.1:${port}/**`, (route, request) => {
-      localCallbackURL = request.url();
-      route.fulfill({
-        status: 200,
-        contentType: "text/html",
-        body: "<!doctype html><title>CLI callback</title><p>ok</p>",
-      });
-    });
-    await page.route("**/api/v1/auth/login/callback?**", (route) => {
-      serverCallbackCalled = true;
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          email: "unexpected@gestalt.dev",
-          displayName: "Unexpected",
-        }),
-      });
-    });
-
-    await page.goto(`/auth/callback?code=test-code&state=${wrappedState}`);
-
-    await expect(page).toHaveURL(new RegExp(`^http://127\\.0\\.0\\.1:${port}/\\?`));
-    await expect.poll(() => localCallbackURL).not.toBeNull();
-    expect(new URL(localCallbackURL!).searchParams.get("code")).toBe("test-code");
-    expect(new URL(localCallbackURL!).searchParams.get("state")).toBe(cliState);
-    expect(serverCallbackCalled).toBe(false);
   });
 
   test("401 response clears session and redirects to login", async ({

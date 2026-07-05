@@ -68,9 +68,8 @@ export default function LoginPage() {
     setError(null);
     try {
       const state = crypto.randomUUID();
-      sessionStorage.setItem("oauth_state", state);
-      storeAuthReturnPath(authReturnPathFromLoginURL());
-      const { url } = await startLogin(state);
+      const returnPath = storeAuthReturnPath(authReturnPathFromLoginURL());
+      const { url } = await startLogin(state, returnPath);
       if (/^https?:\/\//i.test(url)) {
         window.location.href = url;
       }

@@ -18,7 +18,6 @@ import {
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import AgentsPage from "@/pages/agents";
 import AppsPage from "@/pages/apps";
-import AuthCallbackPage from "@/pages/auth-callback";
 import AuthorizationPage from "@/pages/authorization";
 import DashboardPage from "@/pages/index";
 import IdentitiesPage from "@/pages/identities";
@@ -91,12 +90,6 @@ const appsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/apps",
   component: AppsPage,
-});
-
-const authCallbackRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/auth/callback",
-  component: AuthCallbackPage,
 });
 
 const authorizationRoute = createRoute({
@@ -201,7 +194,6 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   agentsRoute,
   appsRoute,
-  authCallbackRoute,
   authorizationRoute,
   identitiesRoute,
   integrationsRoute,

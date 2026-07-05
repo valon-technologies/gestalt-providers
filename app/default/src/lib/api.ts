@@ -787,20 +787,16 @@ export async function getAuthSession(): Promise<AuthSession> {
   return fetchAPI("/api/v1/auth/session");
 }
 
-export async function startLogin(state: string): Promise<{ url: string }> {
+export async function startLogin(
+  state: string,
+  next?: string,
+): Promise<{ url: string }> {
+  const body: { state: string; next?: string } = { state };
+  if (next) body.next = next;
   return fetchAPI("/api/v1/auth/login", {
     method: "POST",
-    body: JSON.stringify({ state }),
+    body: JSON.stringify(body),
   });
-}
-
-export async function loginCallback(
-  code: string,
-  state?: string,
-): Promise<{ status?: string }> {
-  const params = new URLSearchParams({ code });
-  if (state) params.set("state", state);
-  return fetchAPI(`/api/v1/auth/login/callback?${params}`);
 }
 
 export async function logout(): Promise<void> {
