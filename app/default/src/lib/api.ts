@@ -1,6 +1,6 @@
 import { clearSession } from "./auth";
-import { HTTP_UNAUTHORIZED, LOGIN_PATH } from "./constants";
-import { loginPathForCurrentLocation } from "./authReturn";
+import { HTTP_UNAUTHORIZED } from "./constants";
+import { serverLoginURL } from "./authReturn";
 
 export interface ConnectionParamDef {
   required?: boolean;
@@ -735,8 +735,8 @@ export async function fetchAPI<T>(
 
   if (res.status === HTTP_UNAUTHORIZED) {
     clearSession();
-    if (window.location.pathname !== LOGIN_PATH) {
-      window.location.href = loginPathForCurrentLocation();
+    if (!window.location.pathname.startsWith("/api/v1/auth/login")) {
+      window.location.href = serverLoginURL();
     }
     throw new APIError(HTTP_UNAUTHORIZED, "Session expired");
   }
@@ -785,22 +785,6 @@ export async function getAuthInfo(): Promise<AuthInfo> {
 
 export async function getAuthSession(): Promise<AuthSession> {
   return fetchAPI("/api/v1/auth/session");
-}
-
-export async function startLogin(state: string): Promise<{ url: string }> {
-  return fetchAPI("/api/v1/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ state }),
-  });
-}
-
-export async function loginCallback(
-  code: string,
-  state?: string,
-): Promise<{ status?: string }> {
-  const params = new URLSearchParams({ code });
-  if (state) params.set("state", state);
-  return fetchAPI(`/api/v1/auth/login/callback?${params}`);
 }
 
 export async function logout(): Promise<void> {

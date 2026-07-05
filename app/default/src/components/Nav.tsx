@@ -16,7 +16,8 @@ import {
   setCachedSession,
   type CachedAuthSession,
 } from "@/lib/auth";
-import { DOCS_PATH, LOGIN_PATH } from "@/lib/constants";
+import { DOCS_PATH } from "@/lib/constants";
+import { serverLoginURL } from "@/lib/authReturn";
 import { useTheme } from "@/hooks/use-theme";
 import Container from "./Container";
 import { MoonIcon, SunIcon, SunMoonIcon } from "./icons";
@@ -98,7 +99,7 @@ export default function Nav() {
     sessionRefreshGeneration.current++;
     await logout().catch(() => {});
     clearSession();
-    window.location.href = LOGIN_PATH;
+    window.location.href = serverLoginURL("/");
   }
 
   return (

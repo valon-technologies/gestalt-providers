@@ -9,23 +9,11 @@ test.describe("Authentication", () => {
     ).toBeVisible();
   });
 
-  test("login page auto-authenticates when auth provider is disabled", async ({
-    page,
-  }) => {
-    await page.goto("/login");
-    await page.waitForURL((url) => url.pathname !== "/login", {
-      timeout: 10000,
-    });
+  test("authenticated user can access pages", async ({ page }) => {
+    await page.goto("/");
     await expect(
       page.getByRole("heading", { name: "Dashboard" }),
     ).toBeVisible();
-  });
-
-  test("authenticated user can access pages", async ({ page }) => {
-    await page.goto("/login");
-    await page.waitForURL((url) => url.pathname !== "/login", {
-      timeout: 10000,
-    });
     await page.goto("/authorization");
     await expect(
       page.getByRole("heading", { name: "Authorization" }),
