@@ -100,6 +100,9 @@ func (s *Store) createIndexStrict(ctx context.Context, storeName, indexName stri
 		return status.Error(codes.InvalidArgument, "index key path is required")
 	}
 	return s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		if _, ok := txFromContext(txCtx); !ok {
+			txCtx = contextWithTx(txCtx, tx, nil)
+		}
 		meta, ok, err := s.loadStoreMetadata(txCtx, storeName)
 		if err != nil {
 			return preserveStatusOrInternal("load metadata: %v", err)
@@ -159,6 +162,9 @@ func (s *Store) createIndexStrict(ctx context.Context, storeName, indexName stri
 
 func (s *Store) deleteIndexStrict(ctx context.Context, storeName, indexName string) error {
 	return s.withTx(ctx, func(txCtx context.Context, tx *sql.Tx) error {
+		if _, ok := txFromContext(txCtx); !ok {
+			txCtx = contextWithTx(txCtx, tx, nil)
+		}
 		meta, ok, err := s.loadStoreMetadata(txCtx, storeName)
 		if err != nil {
 			return preserveStatusOrInternal("load metadata: %v", err)
