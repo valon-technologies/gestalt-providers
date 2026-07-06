@@ -112,6 +112,9 @@ func newStoreWithDB(db *sql.DB, style bindStyle, d dialect, options storeOptions
 	if err := s.ensureGenericTables(context.Background()); err != nil {
 		return nil, err
 	}
+	if _, err := execWithRetry(context.Background(), db, options.Connection, s.q(lockTableSQL(d, s.locksTable()))); err != nil {
+		return nil, fmt.Errorf("relationaldb: create lock table: %w", err)
+	}
 
 	return s, nil
 }
