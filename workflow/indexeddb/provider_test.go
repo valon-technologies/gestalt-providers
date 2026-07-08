@@ -19,13 +19,12 @@ import (
 )
 
 func TestProviderApplyDefinitionStartRunUsesGenerationInputAndProjection(t *testing.T) {
-	ctx := context.Background()
+	ctx := gestalt.WithSubject(context.Background(), gestalt.Subject{ID: "service:config"})
 	executor := newStepExecutorStub(200, `{"version":1,"status":"succeeded","steps":[{"id":"sync","status":"succeeded"}],"outputs":{"sync":{"ok":true}},"finalStepId":"sync","finalOutput":{"ok":true}}`)
 	provider := newTestProvider(t, executor)
 	startProviderWorker(t, provider)
 
 	definition, err := provider.ApplyDefinition(ctx, &gestalt.ApplyWorkflowProviderDefinitionRequest{
-		RequestedBySubjectID: "service:config",
 		Spec: &gestalt.WorkflowDefinitionSpec{
 			ID:     "roadmap_sync",
 			Target: workflowTarget(t, "roadmap", "sync", map[string]any{"mode": "full"}),
@@ -39,11 +38,11 @@ func TestProviderApplyDefinitionStartRunUsesGenerationInputAndProjection(t *test
 		t.Fatalf("generation = %d, want 1", definition.Generation)
 	}
 
-	first, err := provider.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
-		DefinitionID:       "roadmap_sync",
-		IdempotencyKey:     "manual-sync",
-		Input:              map[string]any{"tenant": "primary"},
-		CreatedBySubjectID: "user:123",
+	runCtx := gestalt.WithSubject(ctx, gestalt.Subject{ID: "user:123"})
+	first, err := provider.StartRun(runCtx, &gestalt.StartWorkflowProviderRunRequest{
+		DefinitionID:   "roadmap_sync",
+		IdempotencyKey: "manual-sync",
+		Input:          map[string]any{"tenant": "primary"},
 	})
 	if err != nil {
 		t.Fatalf("StartRun(first): %v", err)
@@ -216,11 +215,10 @@ func TestProviderSignalOrStartRequiresDefinitionAndCarriesInput(t *testing.T) {
 }
 
 func TestProviderDeliverEventMatchesActivationMapsInputAndPause(t *testing.T) {
-	ctx := context.Background()
+	ctx := gestalt.WithSubject(context.Background(), gestalt.Subject{ID: "service:config"})
 	provider := newTestProvider(t, newStepExecutorStub(200, `{"version":1,"status":"succeeded"}`))
 
 	if _, err := provider.ApplyDefinition(ctx, &gestalt.ApplyWorkflowProviderDefinitionRequest{
-		RequestedBySubjectID: "service:config",
 		Spec: &gestalt.WorkflowDefinitionSpec{
 			ID:     "roadmap_event",
 			Target: workflowTarget(t, "roadmap", "sync", nil),
@@ -244,10 +242,10 @@ func TestProviderDeliverEventMatchesActivationMapsInputAndPause(t *testing.T) {
 		Type: "roadmap.item.updated",
 		Data: map[string]any{"item": map[string]any{"id": "item-1"}},
 	}
-	if _, err := provider.DeliverEvent(ctx, &gestalt.DeliverWorkflowProviderEventRequest{
-		AppName:              "roadmap",
-		Event:                event,
-		DeliveredBySubjectID: "service:roadmap",
+	deliverCtx := gestalt.WithSubject(ctx, gestalt.Subject{ID: "service:roadmap"})
+	if _, err := provider.DeliverEvent(deliverCtx, &gestalt.DeliverWorkflowProviderEventRequest{
+		AppName: "roadmap",
+		Event:   event,
 	}); err != nil {
 		t.Fatalf("DeliverEvent: %v", err)
 	}
@@ -384,8 +382,8 @@ func startTestIndexedDBBackend(t *testing.T) indexeddb.Database {
 	}); err != nil {
 		t.Fatalf("relationaldb.Configure: %v", err)
 	}
-	seedWorkflowObjectStores(t, store)
 	t.Cleanup(func() { _ = store.Close() })
+	seedWorkflowObjectStores(t, store)
 	return workflowfake.NewProviderDB(store)
 }
 

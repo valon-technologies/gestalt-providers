@@ -7,8 +7,10 @@ from collections.abc import Callable
 from typing import Any
 
 import gestalt
+from gestalt.migrations import MigrationRunOptions
 
 from internals import ClaudeAgentConfig, ClaudeSDKRunner, IndexedDBRunStore
+from internals.migrations import build_agent_migration_options
 from internals.claude_runner import ClaudeExecutionCanceled, ClaudeExecutionError
 from internals.provider_requests import (
     SessionCreateRequest,
@@ -35,7 +37,11 @@ AGENT_TOOL_SOURCE_MODE_CATALOG = int(gestalt.AGENT_TOOL_SOURCE_MODE_CATALOG)
 
 
 class ClaudeCodeAgentProvider(
-    gestalt.AgentProvider, gestalt.MetadataProvider, gestalt.WarningsProvider, gestalt.Closer
+    gestalt.AgentProvider,
+    gestalt.MetadataProvider,
+    gestalt.WarningsProvider,
+    gestalt.Closer,
+    gestalt.MigrationsProvider,
 ):
     def __init__(self) -> None:
         self._name = "claude"
@@ -44,6 +50,18 @@ class ClaudeCodeAgentProvider(
         self._store: IndexedDBRunStore | None = None
         self._runner: ClaudeSDKRunner | None = None
         self._session_start_lock = threading.Lock()
+
+    def migration_options(self, name: str, config: dict[str, Any]) -> MigrationRunOptions:
+        resolved = ClaudeAgentConfig.from_dict(name=name.strip() or "claude", raw_config=config)
+        revision_id = f"agent/claude/{resolved.name}/0001_init"
+        raw_binding = config.get("indexeddb")
+        db_binding = raw_binding.strip() if isinstance(raw_binding, str) else None
+        return build_agent_migration_options(
+            revision_id=revision_id,
+            run_store=resolved.run_store,
+            idempotency_store=resolved.idempotency_store,
+            db_binding=db_binding,
+        )
 
     def configure(self, name: str, config: dict[str, Any]) -> None:
         self._name = name.strip() or "claude"

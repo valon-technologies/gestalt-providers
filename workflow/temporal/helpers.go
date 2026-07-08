@@ -1,6 +1,7 @@
 package temporal
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -468,6 +469,10 @@ func createdByForUpsert(existing, requested string) string {
 
 func cloneCreatedBySubjectID(subjectID string) string {
 	return strings.TrimSpace(subjectID)
+}
+
+func requestSubjectID(ctx context.Context) string {
+	return cloneCreatedBySubjectID(gestalt.SubjectFromContext(ctx).ID)
 }
 
 func cloneSubjectInput(subject *gestalt.Subject) *gestalt.Subject {

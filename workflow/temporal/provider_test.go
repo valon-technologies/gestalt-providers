@@ -3,6 +3,7 @@ package temporal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -140,6 +141,7 @@ func TestTemporalRunRunsOneDurableStepAtATime(t *testing.T) {
 
 func TestBackendApplyDefinitionListAndActivationPause(t *testing.T) {
 	ctx, state := newTestWorkflowStateStore(t)
+	ctx = gestalt.WithSubject(ctx, gestalt.Subject{ID: actor("creator-1")})
 	schedules := newFakeScheduleClient(nil)
 	backend := newRecordingTemporalBackend(&recordingTemporalClient{scheduleClient: schedules}, state)
 
@@ -160,7 +162,6 @@ func TestBackendApplyDefinitionListAndActivationPause(t *testing.T) {
 			},
 			RunAs: &gestalt.Subject{ID: "service-account"},
 		},
-		RequestedBySubjectID: actor("creator-1"),
 	})
 	if err != nil {
 		t.Fatalf("ApplyDefinition: %v", err)
@@ -220,11 +221,11 @@ func TestBackendStartRunUsesDefinitionSnapshotInputAndVisibility(t *testing.T) {
 		t.Fatalf("ApplyDefinition: %v", err)
 	}
 
-	run, err := backend.StartRun(ctx, &gestalt.StartWorkflowProviderRunRequest{
+	runCtx := gestalt.WithSubject(ctx, gestalt.Subject{ID: actor("user-1")})
+	run, err := backend.StartRun(runCtx, &gestalt.StartWorkflowProviderRunRequest{
 		DefinitionID:                 definition.ID,
 		ExpectedDefinitionGeneration: definition.Generation,
 		Input:                        map[string]any{"ticket": "T-1"},
-		CreatedBySubjectID:           actor("user-1"),
 	})
 	if err != nil {
 		t.Fatalf("StartRun: %v", err)
@@ -327,12 +328,12 @@ func TestBackendSignalOrStartUsesWorkflowKeyTemporalID(t *testing.T) {
 		t.Fatalf("ApplyDefinition: %v", err)
 	}
 
-	resp, err := backend.SignalOrStartRun(ctx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
+	signalCtx := gestalt.WithSubject(ctx, gestalt.Subject{ID: actor("user-1")})
+	resp, err := backend.SignalOrStartRun(signalCtx, &gestalt.SignalOrStartWorkflowProviderRunRequest{
 		DefinitionID:                 definition.ID,
 		ExpectedDefinitionGeneration: definition.Generation,
 		WorkflowKey:                  " thread:C123:170000 ",
 		Signal:                       &gestalt.WorkflowSignal{ID: "signal-1", Name: "message", Payload: map[string]any{"text": "hello"}},
-		CreatedBySubjectID:           actor("user-1"),
 	})
 	if err != nil {
 		t.Fatalf("SignalOrStartRun: %v", err)
@@ -1015,7 +1016,24 @@ func startTestIndexedDBBackend(t *testing.T) indexeddb.Database {
 	}); err != nil {
 		t.Fatalf("relationaldb.Configure: %v", err)
 	}
+	seedTemporalWorkflowObjectStores(t, store)
 
 	t.Cleanup(func() { _ = store.Close() })
 	return workflowfake.NewProviderDB(store)
+}
+
+func seedTemporalWorkflowObjectStores(t *testing.T, store *relationaldb.Provider) {
+	t.Helper()
+	for _, def := range []struct {
+		name   string
+		schema gestalt.ObjectStoreOptions
+	}{
+		{name: storeTemporalDefinitions, schema: temporalDefinitionSchema()},
+		{name: storeTemporalRunIdempotency, schema: temporalRunIdempotencySchema()},
+		{name: storeTemporalSignalIdempotency, schema: temporalSignalIdempotencySchema()},
+	} {
+		if err := store.CreateObjectStore(context.Background(), def.name, def.schema); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
+			t.Fatalf("CreateObjectStore(%s): %v", def.name, err)
+		}
+	}
 }

@@ -24,6 +24,16 @@ func (db *fakeIndexedDB) DeleteObjectStore(context.Context, string) error {
 	return indexeddb.ErrUnsupported
 }
 
+func (db *fakeIndexedDB) CreateIndex(context.Context, string, indexeddb.IndexDefinition) error {
+	return nil
+}
+
+func (db *fakeIndexedDB) DeleteIndex(context.Context, string, string) error {
+	return nil
+}
+
+var _ indexeddb.IndexManager = (*fakeIndexedDB)(nil)
+
 func (db *fakeIndexedDB) Transaction(_ context.Context, stores []string, mode indexeddb.TransactionMode, _ indexeddb.TransactionOptions) (indexeddb.Transaction, error) {
 	if mode != indexeddb.TransactionReadwrite {
 		return nil, indexeddb.ErrUnsupported
@@ -111,7 +121,12 @@ func (s *fakeObjectStore) GetAll(_ context.Context, query any, _ ...uint32) ([]i
 }
 
 func (s *fakeObjectStore) GetAllKeys(context.Context, any, ...uint32) ([]string, error) {
-	return nil, indexeddb.ErrUnsupported
+	ids := make([]string, 0, len(s.records))
+	for id := range s.records {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids, nil
 }
 
 func (s *fakeObjectStore) Count(context.Context, any) (int64, error) {

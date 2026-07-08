@@ -21,6 +21,7 @@ import (
 	"github.com/valon-technologies/gestalt-providers/auth/internal/userinfo"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
+	"github.com/valon-technologies/gestalt/sdk/go/migrations"
 	"golang.org/x/oauth2"
 )
 
@@ -107,6 +108,14 @@ func New() *Provider {
 		pkceVerifierMaxItems: defaultPKCEVerifierMaxItems,
 		now:                  time.Now,
 	}
+}
+
+func (p *Provider) MigrationOptions(_ context.Context, _ string, raw map[string]any) (migrations.RunOptions, string, error) {
+	var cfg config
+	if err := configutil.Decode(raw, &cfg); err != nil {
+		return migrations.RunOptions{}, "", fmt.Errorf("oidc auth: %w", err)
+	}
+	return migrations.RunOptions{Revisions: oidcMigrations()}, cfg.IndexedDB, nil
 }
 
 func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) error {

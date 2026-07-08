@@ -43,9 +43,6 @@ func openWorkflowStateStore(ctx context.Context, scopeID string, db indexeddb.Da
 	if db == nil {
 		return nil, fmt.Errorf("indexeddb database is required")
 	}
-	if err := ensureWorkflowStateStores(ctx, db); err != nil {
-		return nil, err
-	}
 	store := &workflowStateStore{
 		scopeID:           scopeID,
 		db:                db,
@@ -54,22 +51,6 @@ func openWorkflowStateStore(ctx context.Context, scopeID string, db indexeddb.Da
 		signalIdempotency: db.ObjectStore(storeTemporalSignalIdempotency),
 	}
 	return store, nil
-}
-
-func ensureWorkflowStateStores(ctx context.Context, db indexeddb.Database) error {
-	if db == nil {
-		return nil
-	}
-	if _, err := db.CreateObjectStore(ctx, storeTemporalDefinitions, temporalDefinitionSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-		return fmt.Errorf("create workflow definition store: %w", err)
-	}
-	if _, err := db.CreateObjectStore(ctx, storeTemporalRunIdempotency, temporalRunIdempotencySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-		return fmt.Errorf("create workflow run idempotency store: %w", err)
-	}
-	if _, err := db.CreateObjectStore(ctx, storeTemporalSignalIdempotency, temporalSignalIdempotencySchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-		return fmt.Errorf("create workflow signal idempotency store: %w", err)
-	}
-	return nil
 }
 
 func temporalRunIdempotencySchema() gestalt.ObjectStoreOptions {

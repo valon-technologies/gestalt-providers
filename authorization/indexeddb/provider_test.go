@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
+	"github.com/valon-technologies/gestalt/sdk/go/migrations"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -23,12 +24,20 @@ func TestProviderConfigureAndClose(t *testing.T) {
 		return fakeDB, nil
 	}
 
-	err := configure(ctx, raw, successfulOpenIndexedDB, provider)
+	opts, _, err := provider.MigrationOptions(ctx, "test", raw)
+	if err != nil {
+		t.Fatalf("MigrationOptions() error = %v", err)
+	}
+	if _, err := migrations.Run(ctx, fakeDB, opts); err != nil {
+		t.Fatalf("migrations.Run() error = %v", err)
+	}
+
+	err = configure(ctx, raw, successfulOpenIndexedDB, provider)
 	if err != nil {
 		t.Fatalf("configure() error = %v", err)
 	}
 
-	wantStores := getStoreNames().all()
+	wantStores := append([]string{"_gestalt_migrations"}, getStoreNames().all()...)
 	if !reflect.DeepEqual(fakeDB.createdStores, wantStores) {
 		t.Fatalf("created stores = %#v, want %#v", fakeDB.createdStores, wantStores)
 	}

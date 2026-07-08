@@ -22,6 +22,7 @@ import (
 	"github.com/robfig/cron/v3"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
+	"github.com/valon-technologies/gestalt/sdk/go/migrations"
 	gestaltworkflow "github.com/valon-technologies/gestalt/sdk/go/workflow"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -216,6 +217,10 @@ func newProviderCoreWithDB(db indexeddb.Database) *Provider {
 	return &Provider{now: time.Now, claimOwnerID: uuid.NewString(), indexedDB: db}
 }
 
+func (p *Provider) MigrationOptions(_ context.Context, _ string, _ map[string]any) (migrations.RunOptions, string, error) {
+	return migrations.RunOptions{Revisions: workflowIndexedDBMigrations()}, "", nil
+}
+
 func (p *Provider) Configure(ctx context.Context, name string, raw map[string]any) error {
 	if err := p.Close(); err != nil {
 		return err
@@ -242,11 +247,6 @@ func (p *Provider) Configure(ctx context.Context, name string, raw map[string]an
 	cleanup := func() {
 		_ = executor.Close()
 		_ = db.Close()
-	}
-
-	if err := ensureWorkflowObjectStores(ctx, db); err != nil {
-		cleanup()
-		return fmt.Errorf("indexeddb workflow: ensure stores: %w", err)
 	}
 
 	runStore := db.ObjectStore(storeRuns)
@@ -419,7 +419,7 @@ func (p *Provider) StartRun(ctx context.Context, req *gestalt.StartWorkflowProvi
 	if definitionID == "" {
 		return nil, status.Error(codes.InvalidArgument, "definition_id is required")
 	}
-	actor := cloneCreatedBySubjectID(req.CreatedBySubjectID)
+	actor := requestSubjectID(ctx)
 	key := strings.TrimSpace(req.IdempotencyKey)
 	workflowKey := strings.TrimSpace(req.WorkflowKey)
 
@@ -522,7 +522,7 @@ func (p *Provider) StartRun(ctx context.Context, req *gestalt.StartWorkflowProvi
 		DefinitionID:         definition.ID,
 		DefinitionGeneration: definition.Generation,
 		Input:                cloneAnyMap(req.Input),
-		RunAs:                firstSubject(req.RunAs, definition.RunAs),
+		RunAs:                definition.RunAs,
 		WorkflowKey:          workflowKey,
 		NextSignalSequence:   1,
 	}
@@ -926,7 +926,7 @@ func (p *Provider) DeliverEvent(ctx context.Context, req *gestalt.DeliverWorkflo
 		return nil, status.Errorf(codes.Internal, "list matching event activations: %v", err)
 	}
 	now := p.clock().UTC()
-	deliveredBy := cloneCreatedBySubjectID(req.DeliveredBySubjectID)
+	deliveredBy := requestSubjectID(ctx)
 	enqueued := false
 	preferredRunID := ""
 	for _, match := range matches {
@@ -1085,11 +1085,11 @@ func signalOrStartRunInTransaction(ctx context.Context, stores workflowSignalOrS
 			Target:               cloneTarget(target.Target),
 			TriggerKind:          triggerKindManual,
 			CreatedAt:            now,
-			CreatedBySubjectID:   cloneCreatedBySubjectID(req.CreatedBySubjectID),
+			CreatedBySubjectID:   requestSubjectID(ctx),
 			DefinitionID:         definition.ID,
 			DefinitionGeneration: definition.Generation,
 			Input:                cloneAnyMap(req.Input),
-			RunAs:                firstSubject(req.RunAs, definition.RunAs),
+			RunAs:                definition.RunAs,
 			WorkflowKey:          workflowKey,
 			NextSignalSequence:   1,
 		}
@@ -2225,29 +2225,6 @@ func normalizeRunClaimRenewEvery(ttl, renewEvery time.Duration) time.Duration {
 		return ttl
 	}
 	return renewEvery
-}
-
-func ensureWorkflowObjectStores(ctx context.Context, db indexeddb.Database) error {
-	if db == nil {
-		return fmt.Errorf("indexeddb database is required")
-	}
-	for _, def := range []struct {
-		name   string
-		schema gestalt.ObjectStoreOptions
-	}{
-		{name: storeSchedules, schema: gestalt.ObjectStoreOptions{}},
-		{name: storeDefinitions, schema: gestalt.ObjectStoreOptions{}},
-		{name: storeIdempotency, schema: gestalt.ObjectStoreOptions{}},
-		{name: storeWorkflowKeys, schema: gestalt.ObjectStoreOptions{}},
-		{name: storeRuns, schema: gestalt.ObjectStoreOptions{}},
-		{name: storeRunClaims, schema: workflowRunClaimSchema()},
-		{name: storeSignals, schema: workflowSignalSchema()},
-	} {
-		if _, err := db.CreateObjectStore(ctx, def.name, def.schema); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-			return fmt.Errorf("create %s store: %w", def.name, err)
-		}
-	}
-	return nil
 }
 
 func workflowRunClaimSchema() gestalt.ObjectStoreOptions {
@@ -4177,6 +4154,10 @@ func scheduleCursorID(definitionID, activationID string) string {
 
 func cloneCreatedBySubjectID(subjectID string) string {
 	return strings.TrimSpace(subjectID)
+}
+
+func requestSubjectID(ctx context.Context) string {
+	return cloneCreatedBySubjectID(gestalt.SubjectFromContext(ctx).ID)
 }
 
 func cloneSubject(subject *gestalt.Subject) *gestalt.Subject {
