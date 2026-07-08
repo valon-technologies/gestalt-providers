@@ -76,7 +76,7 @@ class IndexedDBRunStore:
             if self._initialized:
                 return
             try:
-                client = self._ensure_client()
+                self._ensure_client()
             except Exception:
                 self._close_client()
                 raise
