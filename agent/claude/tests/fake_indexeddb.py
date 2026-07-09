@@ -140,10 +140,7 @@ class FakeIndexedDB(indexeddb_pb2_grpc.IndexedDBServicer):
         with self._lock:
             self._record_operation(store=request.store, operation="get_all_keys")
             return indexeddb_pb2.KeysResponse(
-                keys=[
-                    indexeddb_pb2.KeyValue(scalar=indexeddb_pb2.TypedValue(string_value=record_id))
-                    for record_id in _record_ids_for_request_range(self._stores.get(request.store, {}), request)
-                ]
+                keys=_record_ids_for_request_range(self._stores.get(request.store, {}), request)
             )
 
     def OpenCursor(self, request_iterator: Any, context: grpc.ServicerContext) -> Any:
