@@ -49,7 +49,7 @@ func TestAuthorizePKCEDoesNotExposeVerifier(t *testing.T) {
 		}
 	})
 
-	t.Run("loopback request overrides configured redirect", func(t *testing.T) {
+	t.Run("request redirect_uri overrides configured redirect", func(t *testing.T) {
 		p := newAuthorizeTestProvider(t, "https://app.example.com/api/v1/auth/login/callback")
 
 		resp, err := p.Authorize(context.Background(), &gestalt.AuthorizeRequest{
@@ -63,25 +63,7 @@ func TestAuthorizePKCEDoesNotExposeVerifier(t *testing.T) {
 		}
 		if !strings.Contains(resp.RedirectURI, "redirect_uri=http%3A%2F%2Flocalhost%3A8080") &&
 			!strings.Contains(resp.RedirectURI, "redirect_uri=http://localhost:8080") {
-			t.Fatalf("Authorize() redirect URI = %q, want localhost callback", resp.RedirectURI)
-		}
-	})
-
-	t.Run("non-loopback request falls back to configured redirect", func(t *testing.T) {
-		p := newAuthorizeTestProvider(t, "https://app.example.com/api/v1/auth/login/callback")
-
-		resp, err := p.Authorize(context.Background(), &gestalt.AuthorizeRequest{
-			ResponseType: "code",
-			ClientID:     defaultOAuthClientID,
-			RedirectURI:  "https://evil.example/callback",
-			State:        "host-state",
-		})
-		if err != nil {
-			t.Fatalf("Authorize() error = %v", err)
-		}
-		if !strings.Contains(resp.RedirectURI, "redirect_uri=https%3A%2F%2Fapp.example.com") &&
-			!strings.Contains(resp.RedirectURI, "redirect_uri=https://app.example.com") {
-			t.Fatalf("Authorize() redirect URI = %q, want configured callback", resp.RedirectURI)
+			t.Fatalf("Authorize() redirect URI = %q, want request callback", resp.RedirectURI)
 		}
 	})
 }

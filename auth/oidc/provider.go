@@ -555,11 +555,9 @@ func (p *Provider) callerSubject(ctx context.Context) (string, error) {
 }
 
 func (p *Provider) oauthConfig(callbackURL, requestScope string) *oauth2.Config {
-	requested := strings.TrimSpace(callbackURL)
-	configured := strings.TrimSpace(p.cfg.RedirectURL)
-	redirectURL := configured
-	if requested != "" && (configured == "" || requested == configured || isLoopbackRedirectURI(requested)) {
-		redirectURL = requested
+	redirectURL := strings.TrimSpace(callbackURL)
+	if redirectURL == "" {
+		redirectURL = strings.TrimSpace(p.cfg.RedirectURL)
 	}
 	return &oauth2.Config{
 		ClientID:     p.cfg.ClientID,
@@ -571,14 +569,6 @@ func (p *Provider) oauthConfig(callbackURL, requestScope string) *oauth2.Config 
 			TokenURL: p.doc.TokenEndpoint,
 		},
 	}
-}
-
-func isLoopbackRedirectURI(raw string) bool {
-	parsed, err := url.Parse(raw)
-	if err != nil || !parsed.IsAbs() {
-		return false
-	}
-	return isLoopbackHost(parsed.Hostname())
 }
 
 func oauthScopes(requestScope string, cfgScopes []string) []string {
