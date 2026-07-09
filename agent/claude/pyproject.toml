@@ -29,6 +29,7 @@ provider = "provider:provider"
 
 [tool.gestalt.ci]
 vulture-ignore-names = [
+  "migration_options",
   "configure",
   "metadata",
   "Invoke",
@@ -47,6 +48,7 @@ vulture-ignore-names = [
   "Delete",
   "Clear",
   "GetAll",
+  "GetAllKeys",
   "OpenCursor",
   "Transaction",
 ]
