@@ -238,7 +238,7 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkfl
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	start, err := b.manualRunStartSnapshot(ctx, req.DefinitionID, req.ExpectedDefinitionGeneration, req.Input, req.RunAs, req.CreatedBySubjectID)
+	start, err := b.manualRunStartSnapshot(ctx, req.DefinitionID, req.ExpectedDefinitionGeneration, req.Input, nil, requestSubjectID(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -588,7 +588,7 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *gestalt.Sig
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	start, err := b.manualRunStartSnapshot(ctx, req.DefinitionID, req.ExpectedDefinitionGeneration, req.Input, req.RunAs, req.CreatedBySubjectID)
+	start, err := b.manualRunStartSnapshot(ctx, req.DefinitionID, req.ExpectedDefinitionGeneration, req.Input, nil, requestSubjectID(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -688,7 +688,7 @@ func (b *temporalBackend) DeliverEvent(ctx context.Context, req *gestalt.Deliver
 	if err != nil {
 		return nil, err
 	}
-	deliveredBy := cloneCreatedBySubjectID(req.DeliveredBySubjectID)
+	deliveredBy := requestSubjectID(ctx)
 	gestalt.RecordWorkflowEventDelivered(ctx, nil, b.workflowTelemetryOptions(
 		gestalt.WorkflowOperationDeliverEvent,
 		gestalt.WorkflowTriggerKindEvent,

@@ -47,9 +47,6 @@ func openGrantStore(ctx context.Context, db indexeddb.Database, now func() time.
 	if db == nil {
 		return nil, fmt.Errorf("indexeddb database is required")
 	}
-	if err := ensureGrantStores(ctx, db); err != nil {
-		return nil, err
-	}
 	if now == nil {
 		now = time.Now
 	}
@@ -60,19 +57,6 @@ func openGrantStore(ctx context.Context, db indexeddb.Database, now func() time.
 		pending: db.ObjectStore(pendingOAuthStoreName),
 		now:     now,
 	}, nil
-}
-
-func ensureGrantStores(ctx context.Context, db indexeddb.Database) error {
-	if _, err := db.CreateObjectStore(ctx, grantStoreName, grantStoreSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-		return fmt.Errorf("create %s store: %w", grantStoreName, err)
-	}
-	if _, err := db.CreateObjectStore(ctx, tokenHashStoreName, tokenHashStoreSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-		return fmt.Errorf("create %s store: %w", tokenHashStoreName, err)
-	}
-	if _, err := db.CreateObjectStore(ctx, pendingOAuthStoreName, pendingOAuthStoreSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-		return fmt.Errorf("create %s store: %w", pendingOAuthStoreName, err)
-	}
-	return nil
 }
 
 func grantStoreSchema() gestalt.ObjectStoreOptions {

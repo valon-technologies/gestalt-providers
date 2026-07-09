@@ -31,9 +31,6 @@ func openClaimsStore(ctx context.Context, db indexeddb.Database, now func() time
 	if db == nil {
 		return nil, fmt.Errorf("indexeddb database is required")
 	}
-	if err := ensureClaimsStore(ctx, db); err != nil {
-		return nil, err
-	}
 	if now == nil {
 		now = time.Now
 	}
@@ -41,13 +38,6 @@ func openClaimsStore(ctx context.Context, db indexeddb.Database, now func() time
 		claims: db.ObjectStore(subjectClaimsStoreName),
 		now:    now,
 	}, nil
-}
-
-func ensureClaimsStore(ctx context.Context, db indexeddb.Database) error {
-	if _, err := db.CreateObjectStore(ctx, subjectClaimsStoreName, subjectClaimsStoreSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-		return fmt.Errorf("create %s store: %w", subjectClaimsStoreName, err)
-	}
-	return nil
 }
 
 func subjectClaimsStoreSchema() gestalt.ObjectStoreOptions {

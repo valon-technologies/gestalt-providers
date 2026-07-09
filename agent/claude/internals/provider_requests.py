@@ -12,6 +12,7 @@ from .config import SUPPORTED_PERMISSION_MODES, ClaudeAgentConfig
 from .session_start import validate_session_start_user_metadata
 from .store import IndexedDBRunStore
 from .store_records import StoredSession
+from .subject_id import subject_id_from_request
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,7 +103,7 @@ def session_create_request_from_provider_request(
         tool_source=tool_source,
         tool_refs=tool_refs,
         listed_tools=listed_tools,
-        created_by_subject_id=request.created_by_subject_id.strip(),
+        created_by_subject_id=subject_id_from_request(request),
         session_start=request.session_start,
     )
 
@@ -129,7 +130,7 @@ def turn_create_request_from_provider_request(
         idempotency_key=request.idempotency_key.strip(),
         model=model,
         messages=messages,
-        created_by_subject_id=request.created_by_subject_id.strip(),
+        created_by_subject_id=subject_id_from_request(request),
         execution_ref=request.execution_ref.strip(),
         permission_mode=permission_mode,
         timeout_seconds=_timeout_seconds_from_request(request),
@@ -143,7 +144,7 @@ def validate_turn_contract(
     tool_refs = list(session.tool_refs)
     if tool_source not in {tool_source_modes.catalog, tool_source_modes.none}:
         raise ValueError("agent/claude requires toolSource none or catalog")
-    if tool_source == tool_source_modes.catalog and getattr(request, "context", None) is None:
+    if tool_source == tool_source_modes.catalog and not subject_id_from_request(request):
         raise ValueError("request context is required")
     if tool_source == tool_source_modes.none and tool_refs:
         raise ValueError("tool_refs are not supported with toolSource none")

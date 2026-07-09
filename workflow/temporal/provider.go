@@ -9,6 +9,7 @@ import (
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	gestaltworkflow "github.com/valon-technologies/gestalt/sdk/go/workflow"
+	"github.com/valon-technologies/gestalt/sdk/go/migrations"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -24,6 +25,10 @@ type Provider struct {
 
 func New() *Provider {
 	return &Provider{}
+}
+
+func (p *Provider) MigrationOptions(_ context.Context, _ string, _ map[string]any) (migrations.RunOptions, string, error) {
+	return migrations.RunOptions{Revisions: workflowTemporalMigrations()}, "", nil
 }
 
 func (p *Provider) Configure(ctx context.Context, name string, raw map[string]any) error {

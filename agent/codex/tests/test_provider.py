@@ -191,7 +191,8 @@ class CodexProviderTests(unittest.TestCase):
 
         created = provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
-                created_by_subject_id="user-123", tools=_catalog_tool_config()
+                tools=_catalog_tool_config(),
+                context=_request_context("user-123"),
             )
         )
         self.assertEqual(created.model, "")
@@ -258,42 +259,47 @@ class CodexProviderTests(unittest.TestCase):
     def test_slack_sessions_are_company_readable_and_owner_writable(self) -> None:
         _, provider_client = _configure_provider()
         private = provider_client.CreateSession(
-            agent_pb2.CreateAgentProviderSessionRequest(created_by_subject_id="user-owner")
+            agent_pb2.CreateAgentProviderSessionRequest(
+                context=_request_context("user-owner"),
+            )
         )
         slack_metadata = struct_pb2.Struct()
         slack_metadata.update(_slack_session_metadata())
         slack = provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
-                metadata=slack_metadata, created_by_subject_id="service_account:slack-bot"
+                metadata=slack_metadata,
+                context=_request_context("service_account:slack-bot"),
             )
         )
 
         reader_subject = _subject_context("user-reader")
         visible = provider_client.ListSessions(
-            agent_pb2.ListAgentProviderSessionsRequest(subject=reader_subject, limit=10, summary_only=True)
+            agent_pb2.ListAgentProviderSessionsRequest(
+                context=_request_context(reader_subject.id), limit=10, summary_only=True
+            )
         )
         self.assertEqual([session.id for session in visible.sessions], [slack.id])
         fetched = provider_client.GetSession(
-            agent_pb2.GetAgentProviderSessionRequest(session_id=slack.id, subject=reader_subject)
+            agent_pb2.GetAgentProviderSessionRequest(session_id=slack.id, context=_request_context(reader_subject.id))
         )
         self.assertEqual(fetched.id, slack.id)
         with self.assertRaises(grpc.RpcError) as private_read:
             provider_client.GetSession(
-                agent_pb2.GetAgentProviderSessionRequest(session_id=private.id, subject=reader_subject)
+                agent_pb2.GetAgentProviderSessionRequest(session_id=private.id, context=_request_context(reader_subject.id))
             )
         self.assertEqual(cast(Any, private_read.exception).code(), grpc.StatusCode.NOT_FOUND)
 
         with self.assertRaises(grpc.RpcError) as denied_update:
             provider_client.UpdateSession(
                 agent_pb2.UpdateAgentProviderSessionRequest(
-                    session_id=slack.id, subject=reader_subject, state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED
+                    session_id=slack.id, context=_request_context(reader_subject.id), state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED
                 )
             )
         self.assertEqual(cast(Any, denied_update.exception).code(), grpc.StatusCode.PERMISSION_DENIED)
         owner_update = provider_client.UpdateSession(
             agent_pb2.UpdateAgentProviderSessionRequest(
                 session_id=slack.id,
-                subject=_subject_context("service_account:slack-bot"),
+                context=_request_context("service_account:slack-bot"),
                 state=agent_pb2.AGENT_SESSION_STATE_ARCHIVED,
             )
         )
@@ -306,7 +312,7 @@ class CodexProviderTests(unittest.TestCase):
         slack = provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
                 metadata=slack_metadata,
-                created_by_subject_id="service_account:slack-bot",
+                context=_request_context("service_account:slack-bot"),
                 tools=_catalog_tool_config(),
             )
         )
@@ -315,29 +321,27 @@ class CodexProviderTests(unittest.TestCase):
             session_id=slack.id,
             messages=[agent_pb2.AgentMessage(role="user", text="Company-visible turn")],
         )
-        turn_request.subject.id = "service_account:slack-bot"
-        turn_request.created_by_subject_id = "service_account:slack-bot"
+        turn_request.context.subject.id = "service_account:slack-bot"
         provider_client.CreateTurn(turn_request)
         _wait_for_turn(provider_client, "turn-slack", agent_pb2.AGENT_EXECUTION_STATUS_SUCCEEDED)
 
         reader_subject = _subject_context("user-reader")
         fetched = provider_client.GetTurn(
-            agent_pb2.GetAgentProviderTurnRequest(turn_id="turn-slack", subject=reader_subject)
+            agent_pb2.GetAgentProviderTurnRequest(turn_id="turn-slack", context=_request_context(reader_subject.id))
         )
         self.assertEqual(fetched.id, "turn-slack")
         listed = provider_client.ListTurns(
             agent_pb2.ListAgentProviderTurnsRequest(
-                session_id=slack.id, subject=reader_subject, limit=10, summary_only=True
+                session_id=slack.id, context=_request_context(reader_subject.id), limit=10, summary_only=True
             )
         )
         self.assertEqual([turn.id for turn in listed.turns], ["turn-slack"])
         events = provider_client.ListTurnEvents(
-            agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-slack", subject=reader_subject)
+            agent_pb2.ListAgentProviderTurnEventsRequest(turn_id="turn-slack", context=_request_context(reader_subject.id))
         )
         self.assertGreaterEqual(len(events.events), 1)
         denied_turn = _turn_request(turn_id="turn-denied", session_id=slack.id)
-        denied_turn.subject.id = "user-reader"
-        denied_turn.created_by_subject_id = "user-reader"
+        denied_turn.context.CopyFrom(_request_context("user-reader"))
         with self.assertRaises(grpc.RpcError) as denied_create:
             provider_client.CreateTurn(denied_turn)
         self.assertEqual(cast(Any, denied_create.exception).code(), grpc.StatusCode.PERMISSION_DENIED)
@@ -360,8 +364,7 @@ class CodexProviderTests(unittest.TestCase):
         other_subject = provider_client.CreateSession(
             agent_pb2.CreateAgentProviderSessionRequest(
                 idempotency_key="key-shared",
-                created_by_subject_id="user-456",
-                subject=_subject_context("user-456"),
+                context=_request_context("user-456"),
                 tools=_catalog_tool_config(),
             )
         )
@@ -378,7 +381,7 @@ class CodexProviderTests(unittest.TestCase):
         self.assertEqual(len(ids), 1)
         listed = provider_client.ListSessions(
             agent_pb2.ListAgentProviderSessionsRequest(
-                subject=_subject_context("user-123"), limit=50, summary_only=True
+                context=_request_context("user-123"), limit=50, summary_only=True
             )
         )
         self.assertEqual([session.id for session in listed.sessions], list(ids))
@@ -561,7 +564,7 @@ class CodexProviderTests(unittest.TestCase):
 
         canceled = provider_client.CancelTurn(
             agent_pb2.CancelAgentProviderTurnRequest(
-                turn_id="turn-cancel", reason="test cancellation", subject=_subject_context("user-123")
+                turn_id="turn-cancel", reason="test cancellation", context=_request_context("user-123")
             )
         )
         self.assertEqual(canceled.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
@@ -574,7 +577,7 @@ class CodexProviderTests(unittest.TestCase):
 
         time.sleep(0.1)
         fetched_again = provider_client.GetTurn(
-            agent_pb2.GetAgentProviderTurnRequest(turn_id="turn-cancel", subject=_subject_context("user-123"))
+            agent_pb2.GetAgentProviderTurnRequest(turn_id="turn-cancel", context=_request_context("user-123"))
         )
         self.assertEqual(fetched_again.status, agent_pb2.AGENT_EXECUTION_STATUS_CANCELED)
         self.assertEqual(runner._canceled_turns, set())
@@ -712,11 +715,9 @@ def _turn_request(
         model=model,
         messages=messages or [agent_pb2.AgentMessage(role="user", text="List my Linear issues")],
         execution_ref=execution_ref,
-        created_by_subject_id="user-123",
-        subject=_subject_context("user-123"),
     )
     if include_context:
-        request.context.subject.CopyFrom(_subject_context("user-123"))
+        request.context.CopyFrom(_request_context("user-123"))
     if output_schema is None:
         request.output.text.SetInParent()
     else:
@@ -730,7 +731,7 @@ def _owned_session_request(**kwargs: Any) -> Any:
     if "tools" not in kwargs:
         kwargs["tools"] = _catalog_tool_config()
     return agent_pb2.CreateAgentProviderSessionRequest(
-        created_by_subject_id="user-123", subject=_subject_context("user-123"), **kwargs
+        context=_request_context("user-123"), **kwargs
     )
 
 
@@ -843,7 +844,7 @@ def _wait_for_turn(provider_client: Any, turn_id: str, status: int) -> Any:
     deadline = time.time() + 5
     while time.time() < deadline:
         turn = provider_client.GetTurn(
-            agent_pb2.GetAgentProviderTurnRequest(turn_id=turn_id, subject=_subject_context("user-123"))
+            agent_pb2.GetAgentProviderTurnRequest(turn_id=turn_id, context=_request_context("user-123"))
         )
         if turn.status == status:
             return turn

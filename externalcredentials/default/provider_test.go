@@ -20,6 +20,7 @@ import (
 	extfake "github.com/valon-technologies/gestalt-providers/externalcredentials/default/internal/fake"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
+	"github.com/valon-technologies/gestalt/sdk/go/migrations"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -1216,10 +1217,8 @@ func (s *testIndexedDBs) indexedDB(binding string) indexeddb.Database {
 }
 
 func seedExternalCredentialStoreOnClient(ctx context.Context, client indexeddb.Database) error {
-	if _, err := client.CreateObjectStore(ctx, storeName, externalCredentialSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-		return err
-	}
-	return nil
+	_, err := migrations.Run(ctx, client, migrations.RunOptions{Revisions: externalCredentialMigrations()})
+	return err
 }
 
 func credentialRefreshProviderConfig(encryptionKey, tokenURL string) map[string]any {
@@ -1310,7 +1309,15 @@ func configureProvider(t *testing.T, provider *Provider, dbs *testIndexedDBs, ra
 	if err != nil {
 		t.Fatalf("configureProvider: %v", err)
 	}
-	st, err := openStore(context.Background(), cfg, dbs.indexedDB(cfg.IndexedDB))
+	db := dbs.indexedDB(cfg.IndexedDB)
+	opts, _, err := provider.MigrationOptions(context.Background(), "test", raw)
+	if err != nil {
+		t.Fatalf("configureProvider migrations: %v", err)
+	}
+	if _, err := migrations.Run(context.Background(), db, opts); err != nil {
+		t.Fatalf("configureProvider migrations: %v", err)
+	}
+	st, err := openStore(context.Background(), cfg, db)
 	if err != nil {
 		t.Fatalf("configureProvider: %v", err)
 	}

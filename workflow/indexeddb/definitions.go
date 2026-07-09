@@ -67,7 +67,7 @@ func (p *Provider) ApplyDefinition(ctx context.Context, req *gestalt.ApplyWorkfl
 		Target:             cloneTarget(target.Target),
 		Activations:        cloneWorkflowActivations(activations),
 		Paused:             spec.Paused,
-		CreatedBySubjectID: cloneCreatedBySubjectID(req.RequestedBySubjectID),
+		CreatedBySubjectID: requestSubjectID(ctx),
 		CreatedAt:          now,
 		UpdatedAt:          now,
 		RunAs:              cloneSubject(spec.RunAs),

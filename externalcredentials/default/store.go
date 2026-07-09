@@ -34,9 +34,6 @@ func openStore(ctx context.Context, cfg config, client indexeddb.Database) (*sto
 	if client == nil {
 		return nil, fmt.Errorf("indexeddb database is required")
 	}
-	if err := ensureExternalCredentialStore(ctx, client); err != nil {
-		return nil, err
-	}
 
 	encryptor, err := newEncryptorFromConfig(cfg.EncryptionKey)
 	if err != nil {
@@ -49,16 +46,6 @@ func openStore(ctx context.Context, cfg config, client indexeddb.Database) (*sto
 		encryptor:   encryptor,
 	}
 	return st, nil
-}
-
-func ensureExternalCredentialStore(ctx context.Context, client indexeddb.Database) error {
-	if client == nil {
-		return nil
-	}
-	if _, err := client.CreateObjectStore(ctx, storeName, externalCredentialSchema()); err != nil && !errors.Is(err, gestalt.ErrAlreadyExists) {
-		return fmt.Errorf("create external credential store: %w", err)
-	}
-	return nil
 }
 
 func externalCredentialSchema() gestalt.ObjectStoreOptions {

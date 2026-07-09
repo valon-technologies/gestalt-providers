@@ -37,14 +37,14 @@ func (b *temporalBackend) ApplyDefinition(ctx context.Context, req *gestalt.Appl
 		return nil, err
 	}
 	createdAt := now
-	createdBy := cloneCreatedBySubjectID(req.RequestedBySubjectID)
+	createdBy := requestSubjectID(ctx)
 	generation := int64(1)
 	if found {
 		createdAt = existing.CreatedAt
 		if createdAt.IsZero() {
 			createdAt = now
 		}
-		createdBy = createdByForUpsert(existing.CreatedBySubjectID, req.RequestedBySubjectID)
+		createdBy = createdByForUpsert(existing.CreatedBySubjectID, createdBy)
 		generation = existing.Generation + 1
 		if generation <= 0 {
 			generation = 1
@@ -133,8 +133,8 @@ func (b *temporalBackend) SetDefinitionPaused(ctx context.Context, req *gestalt.
 		next.Generation = 1
 	}
 	next.UpdatedAt = time.Now().UTC()
-	if createdBySubjectIDSet(req.RequestedBySubjectID) && isConfigManagedSubjectID(next.CreatedBySubjectID) {
-		next.CreatedBySubjectID = cloneCreatedBySubjectID(req.RequestedBySubjectID)
+	if createdBySubjectIDSet(requestSubjectID(ctx)) && isConfigManagedSubjectID(next.CreatedBySubjectID) {
+		next.CreatedBySubjectID = requestSubjectID(ctx)
 	}
 	if err := b.syncDefinitionSchedules(ctx, definition, &next); err != nil {
 		return nil, err

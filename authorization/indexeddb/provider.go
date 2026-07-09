@@ -11,6 +11,7 @@ import (
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
+	"github.com/valon-technologies/gestalt/sdk/go/migrations"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -30,6 +31,14 @@ func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) 
 	return configure(ctx, raw, gestalt.IndexedDB, p)
 }
 
+func (p *Provider) MigrationOptions(_ context.Context, _ string, raw map[string]any) (migrations.RunOptions, string, error) {
+	cfg, err := decodeConfig(raw)
+	if err != nil {
+		return migrations.RunOptions{}, "", err
+	}
+	return migrations.RunOptions{Revisions: authorizationMigrations()}, cfg.IndexedDB, nil
+}
+
 func configure(ctx context.Context, raw map[string]any, openIndexedDB openIndexedDBFunc, provider *Provider) error {
 	cfg, err := decodeConfig(raw)
 	if err != nil {
@@ -38,7 +47,6 @@ func configure(ctx context.Context, raw map[string]any, openIndexedDB openIndexe
 	if provider == nil {
 		return newAuthorizationProviderError(fmt.Errorf("provider is required"))
 	}
-	stores := getStoreNames()
 
 	var db indexeddb.Database
 	if cfg.IndexedDB != "" {
@@ -48,11 +56,6 @@ func configure(ctx context.Context, raw map[string]any, openIndexedDB openIndexe
 	}
 	if err != nil {
 		return newAuthorizationProviderError(fmt.Errorf("connect indexeddb: %w", err))
-	}
-
-	if err := ensureAuthorizationStores(ctx, db, stores); err != nil {
-		_ = db.Close()
-		return newAuthorizationProviderError(err)
 	}
 
 	provider.configureDatabase(db)

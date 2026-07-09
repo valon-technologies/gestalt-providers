@@ -10,6 +10,7 @@ import (
 	"time"
 
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
+	"github.com/valon-technologies/gestalt/sdk/go/migrations"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -27,6 +28,14 @@ type Provider struct {
 
 func New() *Provider {
 	return &Provider{now: time.Now}
+}
+
+func (p *Provider) MigrationOptions(_ context.Context, _ string, raw map[string]any) (migrations.RunOptions, string, error) {
+	cfg, err := decodeConfig(raw)
+	if err != nil {
+		return migrations.RunOptions{}, "", err
+	}
+	return migrations.RunOptions{Revisions: externalCredentialMigrations()}, cfg.IndexedDB, nil
 }
 
 func (p *Provider) Configure(ctx context.Context, _ string, raw map[string]any) error {

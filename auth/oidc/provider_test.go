@@ -15,6 +15,7 @@ import (
 	oidcfake "github.com/valon-technologies/gestalt-providers/auth/oidc/internal/fake"
 	gestalt "github.com/valon-technologies/gestalt/sdk/go"
 	"github.com/valon-technologies/gestalt/sdk/go/indexeddb"
+	"github.com/valon-technologies/gestalt/sdk/go/migrations"
 )
 
 func TestAuthorizePKCEDoesNotExposeVerifier(t *testing.T) {
@@ -620,6 +621,9 @@ func TestGrantStorePersistsAcrossRestart(t *testing.T) {
 	ctx := context.Background()
 	now := time.Unix(1_700_000_000, 0)
 	db := oidcfake.NewIndexedDB()
+	if _, err := migrations.Run(ctx, db, migrations.RunOptions{Revisions: oidcMigrations()}); err != nil {
+		t.Fatalf("migrations.Run() error = %v", err)
+	}
 
 	p := New()
 	p.now = func() time.Time { return now }
@@ -1106,7 +1110,11 @@ func attachGrantStore(t *testing.T, p *Provider) {
 func attachGrantStoreWithDB(t *testing.T, p *Provider) *oidcfake.IndexedDB {
 	t.Helper()
 	db := oidcfake.NewIndexedDB()
-	store, err := openGrantStore(context.Background(), db, p.now)
+	ctx := context.Background()
+	if _, err := migrations.Run(ctx, db, migrations.RunOptions{Revisions: oidcMigrations()}); err != nil {
+		t.Fatalf("migrations.Run() error = %v", err)
+	}
+	store, err := openGrantStore(ctx, db, p.now)
 	if err != nil {
 		t.Fatalf("openGrantStore() error = %v", err)
 	}

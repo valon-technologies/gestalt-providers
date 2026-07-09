@@ -135,6 +135,14 @@ class FakeIndexedDB(indexeddb_pb2_grpc.IndexedDBServicer):
                 ]
             )
 
+    def GetAllKeys(self, request: Any, context: grpc.ServicerContext) -> Any:
+        del context
+        with self._lock:
+            self._record_operation(store=request.store, operation="get_all_keys")
+            return indexeddb_pb2.KeysResponse(
+                keys=_record_ids_for_request_range(self._stores.get(request.store, {}), request)
+            )
+
     def OpenCursor(self, request_iterator: Any, context: grpc.ServicerContext) -> Any:
         try:
             first = next(request_iterator)
@@ -339,6 +347,10 @@ def _records_for_request_range(store: dict[str, Any], request: Any) -> list[Any]
         target = str(_typed_value_to_python(query.key.scalar) or "")
         return [record for record in records if _record_id(record) == target]
     return records
+
+
+def _record_ids_for_request_range(store: dict[str, Any], request: Any) -> list[str]:
+    return [_record_id(record) for record in _records_for_request_range(store, request)]
 
 
 def _record_id_matches_range(record_id: str, key_range: Any) -> bool:
