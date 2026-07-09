@@ -255,10 +255,7 @@ func (p *Provider) Authorize(ctx context.Context, req *gestalt.AuthorizeRequest)
 		state = generated
 	}
 
-	oauthCfg, err := p.oauthConfig(callbackURL, req.Scope)
-	if err != nil {
-		return nil, err
-	}
+	oauthCfg := p.oauthConfig(callbackURL, req.Scope)
 	opts := []oauth2.AuthCodeOption{oauth2.AccessTypeOffline}
 	pkceVerifier := ""
 	if p.cfg.PKCE {
@@ -329,10 +326,7 @@ func (p *Provider) tokenAuthorizationCode(ctx context.Context, req *gestalt.Toke
 	}
 	defer grants.deletePendingOAuth(ctx, pending.state)
 
-	oauthCfg, err := p.oauthConfig(req.RedirectURI, pending.scope)
-	if err != nil {
-		return nil, err
-	}
+	oauthCfg := p.oauthConfig(req.RedirectURI, pending.scope)
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, p.httpClient)
 	opts := []oauth2.AuthCodeOption{}
 	if pending.pkceVerifier != "" {
@@ -560,10 +554,12 @@ func (p *Provider) callerSubject(ctx context.Context) (string, error) {
 	return strings.TrimSpace(resp.Subject), nil
 }
 
-func (p *Provider) oauthConfig(callbackURL, requestScope string) (*oauth2.Config, error) {
-	redirectURL, err := p.resolveOAuthRedirectURL(callbackURL)
-	if err != nil {
-		return nil, err
+func (p *Provider) oauthConfig(callbackURL, requestScope string) *oauth2.Config {
+	requested := strings.TrimSpace(callbackURL)
+	configured := strings.TrimSpace(p.cfg.RedirectURL)
+	redirectURL := configured
+	if requested != "" && (configured == "" || requested == configured || isLoopbackRedirectURI(requested)) {
+		redirectURL = requested
 	}
 	return &oauth2.Config{
 		ClientID:     p.cfg.ClientID,
@@ -574,65 +570,15 @@ func (p *Provider) oauthConfig(callbackURL, requestScope string) (*oauth2.Config
 			AuthURL:  p.doc.AuthorizationEndpoint,
 			TokenURL: p.doc.TokenEndpoint,
 		},
-	}, nil
+	}
 }
 
-func (p *Provider) resolveOAuthRedirectURL(requested string) (string, error) {
-	requested = strings.TrimSpace(requested)
-	configured := strings.TrimSpace(p.cfg.RedirectURL)
-	if requested != "" {
-		if configured == "" || requested == configured || p.isDelegatedLoopbackRedirectURI(requested) {
-			if err := validateOAuthRedirectURI(requested); err != nil {
-				return "", err
-			}
-			return requested, nil
-		}
-	}
-	if configured != "" {
-		if err := validateOAuthRedirectURI(configured); err != nil {
-			return "", err
-		}
-		return configured, nil
-	}
-	if requested == "" {
-		return "", fmt.Errorf("oidc auth: redirect_uri is required")
-	}
-	if err := validateOAuthRedirectURI(requested); err != nil {
-		return "", err
-	}
-	return requested, nil
-}
-
-func (p *Provider) isDelegatedLoopbackRedirectURI(raw string) bool {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
+func isLoopbackRedirectURI(raw string) bool {
+	parsed, err := url.Parse(raw)
 	if err != nil || !parsed.IsAbs() {
 		return false
 	}
 	return isLoopbackHost(parsed.Hostname())
-}
-
-func validateOAuthRedirectURI(raw string) error {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return fmt.Errorf("oidc auth: redirect_uri must be a valid URL: %w", err)
-	}
-	if !parsed.IsAbs() {
-		return fmt.Errorf("oidc auth: redirect_uri must be absolute")
-	}
-	if parsed.Hostname() == "" {
-		return fmt.Errorf("oidc auth: redirect_uri must include a host")
-	}
-	switch strings.ToLower(parsed.Scheme) {
-	case "https":
-		return nil
-	case "http":
-		if isLoopbackHost(parsed.Hostname()) {
-			return nil
-		}
-		return fmt.Errorf("oidc auth: redirect_uri may use http only for loopback hosts")
-	default:
-		return fmt.Errorf("oidc auth: redirect_uri must use http or https")
-	}
 }
 
 func oauthScopes(requestScope string, cfgScopes []string) []string {

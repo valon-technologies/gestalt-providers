@@ -19,89 +19,87 @@ import (
 )
 
 func TestAuthorizePKCEDoesNotExposeVerifier(t *testing.T) {
-	p := New()
-	attachGrantStore(t, p)
-	p.cfg = config{
-		ClientID: "client-id",
-		PKCE:     true,
-	}
-	p.doc = discoveryDocument{
-		AuthorizationEndpoint: "https://issuer.example/auth",
-		TokenEndpoint:         "https://issuer.example/token",
-		UserinfoEndpoint:      "https://issuer.example/userinfo",
-	}
+	t.Run("pkce", func(t *testing.T) {
+		p := New()
+		attachGrantStore(t, p)
+		p.cfg = config{
+			ClientID: "client-id",
+			PKCE:     true,
+		}
+		p.doc = discoveryDocument{
+			AuthorizationEndpoint: "https://issuer.example/auth",
+			TokenEndpoint:         "https://issuer.example/token",
+			UserinfoEndpoint:      "https://issuer.example/userinfo",
+		}
 
-	resp, err := p.Authorize(context.Background(), &gestalt.AuthorizeRequest{
-		ResponseType: "code",
-		ClientID:     defaultOAuthClientID,
-		RedirectURI:  "https://gestalt.example/callback",
-		State:        "host-state",
+		resp, err := p.Authorize(context.Background(), &gestalt.AuthorizeRequest{
+			ResponseType: "code",
+			ClientID:     defaultOAuthClientID,
+			RedirectURI:  "https://gestalt.example/callback",
+			State:        "host-state",
+		})
+		if err != nil {
+			t.Fatalf("Authorize() error = %v", err)
+		}
+		if !strings.Contains(resp.RedirectURI, "code_challenge=") {
+			t.Fatalf("Authorize() redirect URI missing code_challenge: %s", resp.RedirectURI)
+		}
+		if _, ok := p.pkceVerifier("host-state"); !ok {
+			t.Fatal("Authorize() did not retain verifier server-side")
+		}
 	})
-	if err != nil {
-		t.Fatalf("Authorize() error = %v", err)
-	}
-	if !strings.Contains(resp.RedirectURI, "code_challenge=") {
-		t.Fatalf("Authorize() redirect URI missing code_challenge: %s", resp.RedirectURI)
-	}
-	if _, ok := p.pkceVerifier("host-state"); !ok {
-		t.Fatal("Authorize() did not retain verifier server-side")
-	}
+
+	t.Run("loopback request overrides configured redirect", func(t *testing.T) {
+		p := newAuthorizeTestProvider(t, "https://app.example.com/api/v1/auth/login/callback")
+
+		resp, err := p.Authorize(context.Background(), &gestalt.AuthorizeRequest{
+			ResponseType: "code",
+			ClientID:     defaultOAuthClientID,
+			RedirectURI:  "http://localhost:8080/api/v1/auth/login/callback",
+			State:        "host-state",
+		})
+		if err != nil {
+			t.Fatalf("Authorize() error = %v", err)
+		}
+		if !strings.Contains(resp.RedirectURI, "redirect_uri=http%3A%2F%2Flocalhost%3A8080") &&
+			!strings.Contains(resp.RedirectURI, "redirect_uri=http://localhost:8080") {
+			t.Fatalf("Authorize() redirect URI = %q, want localhost callback", resp.RedirectURI)
+		}
+	})
+
+	t.Run("non-loopback request falls back to configured redirect", func(t *testing.T) {
+		p := newAuthorizeTestProvider(t, "https://app.example.com/api/v1/auth/login/callback")
+
+		resp, err := p.Authorize(context.Background(), &gestalt.AuthorizeRequest{
+			ResponseType: "code",
+			ClientID:     defaultOAuthClientID,
+			RedirectURI:  "https://evil.example/callback",
+			State:        "host-state",
+		})
+		if err != nil {
+			t.Fatalf("Authorize() error = %v", err)
+		}
+		if !strings.Contains(resp.RedirectURI, "redirect_uri=https%3A%2F%2Fapp.example.com") &&
+			!strings.Contains(resp.RedirectURI, "redirect_uri=https://app.example.com") {
+			t.Fatalf("Authorize() redirect URI = %q, want configured callback", resp.RedirectURI)
+		}
+	})
 }
 
-func TestAuthorizePrefersLoopbackRequestRedirectURIOverConfiguredURL(t *testing.T) {
+func newAuthorizeTestProvider(t *testing.T, redirectURL string) *Provider {
+	t.Helper()
 	p := New()
 	attachGrantStore(t, p)
 	p.cfg = config{
 		ClientID:    "client-id",
-		RedirectURL: "https://valon.tools/api/v1/auth/login/callback",
+		RedirectURL: redirectURL,
 	}
 	p.doc = discoveryDocument{
 		AuthorizationEndpoint: "https://issuer.example/auth",
 		TokenEndpoint:         "https://issuer.example/token",
 		UserinfoEndpoint:      "https://issuer.example/userinfo",
 	}
-
-	resp, err := p.Authorize(context.Background(), &gestalt.AuthorizeRequest{
-		ResponseType: "code",
-		ClientID:     defaultOAuthClientID,
-		RedirectURI:  "http://localhost:8080/api/v1/auth/login/callback",
-		State:        "host-state",
-	})
-	if err != nil {
-		t.Fatalf("Authorize() error = %v", err)
-	}
-	if !strings.Contains(resp.RedirectURI, "redirect_uri=http%3A%2F%2Flocalhost%3A8080") &&
-		!strings.Contains(resp.RedirectURI, "redirect_uri=http://localhost:8080") {
-		t.Fatalf("Authorize() redirect URI = %q, want localhost callback", resp.RedirectURI)
-	}
-}
-
-func TestAuthorizeRejectsNonLoopbackRequestWhenConfiguredURLDiffers(t *testing.T) {
-	p := New()
-	attachGrantStore(t, p)
-	p.cfg = config{
-		ClientID:    "client-id",
-		RedirectURL: "https://valon.tools/api/v1/auth/login/callback",
-	}
-	p.doc = discoveryDocument{
-		AuthorizationEndpoint: "https://issuer.example/auth",
-		TokenEndpoint:         "https://issuer.example/token",
-		UserinfoEndpoint:      "https://issuer.example/userinfo",
-	}
-
-	resp, err := p.Authorize(context.Background(), &gestalt.AuthorizeRequest{
-		ResponseType: "code",
-		ClientID:     defaultOAuthClientID,
-		RedirectURI:  "https://evil.example/callback",
-		State:        "host-state",
-	})
-	if err != nil {
-		t.Fatalf("Authorize() error = %v", err)
-	}
-	if !strings.Contains(resp.RedirectURI, "redirect_uri=https%3A%2F%2Fvalon.tools") &&
-		!strings.Contains(resp.RedirectURI, "redirect_uri=https://valon.tools") {
-		t.Fatalf("Authorize() redirect URI = %q, want configured prod callback", resp.RedirectURI)
-	}
+	return p
 }
 
 func TestTokenPKCEUsesStoredVerifier(t *testing.T) {
