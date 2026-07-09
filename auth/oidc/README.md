@@ -43,6 +43,12 @@ This provider integrates any standards-compliant OpenID Connect identity provide
 as an Identity Provider for Gestalt. Use it with Okta, Auth0, Azure AD,
 Keycloak, or any other OIDC-compatible issuer.
 
+`redirectUrl` is the default OAuth redirect URI. When an `Authorize` or `Token`
+request supplies a different loopback `redirect_uri` (`localhost` or `127.0.0.1`),
+that request value is used instead so delegated local gestaltd instances can
+complete browser login against a remote identity provider. Non-loopback request
+values still fall back to `redirectUrl`.
+
 `issuerUrl` must use `https://` by default. Set `allowInsecureHttp: true` only
 for local development against loopback issuers such as `http://127.0.0.1:8080`
 or `http://localhost:8080`. The same opt-in applies to any endpoints returned by

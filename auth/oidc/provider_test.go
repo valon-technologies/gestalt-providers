@@ -48,6 +48,62 @@ func TestAuthorizePKCEDoesNotExposeVerifier(t *testing.T) {
 	}
 }
 
+func TestAuthorizePrefersLoopbackRequestRedirectURIOverConfiguredURL(t *testing.T) {
+	p := New()
+	attachGrantStore(t, p)
+	p.cfg = config{
+		ClientID:    "client-id",
+		RedirectURL: "https://valon.tools/api/v1/auth/login/callback",
+	}
+	p.doc = discoveryDocument{
+		AuthorizationEndpoint: "https://issuer.example/auth",
+		TokenEndpoint:         "https://issuer.example/token",
+		UserinfoEndpoint:      "https://issuer.example/userinfo",
+	}
+
+	resp, err := p.Authorize(context.Background(), &gestalt.AuthorizeRequest{
+		ResponseType: "code",
+		ClientID:     defaultOAuthClientID,
+		RedirectURI:  "http://localhost:8080/api/v1/auth/login/callback",
+		State:        "host-state",
+	})
+	if err != nil {
+		t.Fatalf("Authorize() error = %v", err)
+	}
+	if !strings.Contains(resp.RedirectURI, "redirect_uri=http%3A%2F%2Flocalhost%3A8080") &&
+		!strings.Contains(resp.RedirectURI, "redirect_uri=http://localhost:8080") {
+		t.Fatalf("Authorize() redirect URI = %q, want localhost callback", resp.RedirectURI)
+	}
+}
+
+func TestAuthorizeRejectsNonLoopbackRequestWhenConfiguredURLDiffers(t *testing.T) {
+	p := New()
+	attachGrantStore(t, p)
+	p.cfg = config{
+		ClientID:    "client-id",
+		RedirectURL: "https://valon.tools/api/v1/auth/login/callback",
+	}
+	p.doc = discoveryDocument{
+		AuthorizationEndpoint: "https://issuer.example/auth",
+		TokenEndpoint:         "https://issuer.example/token",
+		UserinfoEndpoint:      "https://issuer.example/userinfo",
+	}
+
+	resp, err := p.Authorize(context.Background(), &gestalt.AuthorizeRequest{
+		ResponseType: "code",
+		ClientID:     defaultOAuthClientID,
+		RedirectURI:  "https://evil.example/callback",
+		State:        "host-state",
+	})
+	if err != nil {
+		t.Fatalf("Authorize() error = %v", err)
+	}
+	if !strings.Contains(resp.RedirectURI, "redirect_uri=https%3A%2F%2Fvalon.tools") &&
+		!strings.Contains(resp.RedirectURI, "redirect_uri=https://valon.tools") {
+		t.Fatalf("Authorize() redirect URI = %q, want configured prod callback", resp.RedirectURI)
+	}
+}
+
 func TestTokenPKCEUsesStoredVerifier(t *testing.T) {
 	const hostState = "host-state"
 
