@@ -19,33 +19,39 @@ import (
 )
 
 func TestAuthorizePKCEDoesNotExposeVerifier(t *testing.T) {
-	p := New()
-	attachGrantStore(t, p)
-	p.cfg = config{
-		ClientID: "client-id",
-		PKCE:     true,
-	}
-	p.doc = discoveryDocument{
-		AuthorizationEndpoint: "https://issuer.example/auth",
-		TokenEndpoint:         "https://issuer.example/token",
-		UserinfoEndpoint:      "https://issuer.example/userinfo",
-	}
+	t.Run("pkce", func(t *testing.T) {
+		p := New()
+		attachGrantStore(t, p)
+		p.cfg = config{
+			ClientID:    "client-id",
+			RedirectURL: "https://app.example.com/callback",
+			PKCE:        true,
+		}
+		p.doc = discoveryDocument{
+			AuthorizationEndpoint: "https://issuer.example/auth",
+			TokenEndpoint:         "https://issuer.example/token",
+			UserinfoEndpoint:      "https://issuer.example/userinfo",
+		}
 
-	resp, err := p.Authorize(context.Background(), &gestalt.AuthorizeRequest{
-		ResponseType: "code",
-		ClientID:     defaultOAuthClientID,
-		RedirectURI:  "https://gestalt.example/callback",
-		State:        "host-state",
+		resp, err := p.Authorize(context.Background(), &gestalt.AuthorizeRequest{
+			ResponseType: "code",
+			ClientID:     defaultOAuthClientID,
+			RedirectURI:  "https://gestalt.example/callback",
+			State:        "host-state",
+		})
+		if err != nil {
+			t.Fatalf("Authorize() error = %v", err)
+		}
+		if !strings.Contains(resp.RedirectURI, "code_challenge=") {
+			t.Fatalf("Authorize() redirect URI missing code_challenge: %s", resp.RedirectURI)
+		}
+		if !strings.Contains(resp.RedirectURI, "redirect_uri=https%3A%2F%2Fgestalt.example%2Fcallback") {
+			t.Fatalf("Authorize() redirect URI = %q, want request redirect_uri", resp.RedirectURI)
+		}
+		if _, ok := p.pkceVerifier("host-state"); !ok {
+			t.Fatal("Authorize() did not retain verifier server-side")
+		}
 	})
-	if err != nil {
-		t.Fatalf("Authorize() error = %v", err)
-	}
-	if !strings.Contains(resp.RedirectURI, "code_challenge=") {
-		t.Fatalf("Authorize() redirect URI missing code_challenge: %s", resp.RedirectURI)
-	}
-	if _, ok := p.pkceVerifier("host-state"); !ok {
-		t.Fatal("Authorize() did not retain verifier server-side")
-	}
 }
 
 func TestTokenPKCEUsesStoredVerifier(t *testing.T) {

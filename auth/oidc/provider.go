@@ -555,9 +555,9 @@ func (p *Provider) callerSubject(ctx context.Context) (string, error) {
 }
 
 func (p *Provider) oauthConfig(callbackURL, requestScope string) *oauth2.Config {
-	redirectURL := p.cfg.RedirectURL
+	redirectURL := strings.TrimSpace(callbackURL)
 	if redirectURL == "" {
-		redirectURL = callbackURL
+		redirectURL = strings.TrimSpace(p.cfg.RedirectURL)
 	}
 	return &oauth2.Config{
 		ClientID:     p.cfg.ClientID,
