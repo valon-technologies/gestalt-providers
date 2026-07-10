@@ -282,6 +282,12 @@ packages:
     displayName: "Google Drive"
     description: "Read, create, update, and share files in Google Drive."
     versions:
+      "0.0.1-alpha.2":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_drive/v0.0.1-alpha.2/provider-release.yaml"
+        kind: "app"
+        runtime: "declarative"
+        platforms:
+          - "generic"
       "0.0.1-alpha.1":
         metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_drive/v0.0.1-alpha.1/provider-release.yaml"
         kind: "app"

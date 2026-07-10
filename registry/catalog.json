@@ -1018,7 +1018,7 @@
       ],
       "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/google_drive/assets/icon.svg",
       "kind": "app",
-      "latestInstallableVersion": "0.0.1-alpha.1",
+      "latestInstallableVersion": "0.0.1-alpha.2",
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/google_drive/manifest.yaml",
       "manifestVersion": "0.0.1-alpha.2",
       "name": "google_drive",
@@ -1028,6 +1028,15 @@
       "registryPath": "/providers/app/google_drive/",
       "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/google_drive",
       "versions": [
+        {
+          "kind": "app",
+          "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_drive/v0.0.1-alpha.2/provider-release.yaml",
+          "platforms": [
+            "generic"
+          ],
+          "runtime": "declarative",
+          "version": "0.0.1-alpha.2"
+        },
         {
           "kind": "app",
           "metadata": "https://github.com/valon-technologies/gestalt-providers/releases/download/app/google_drive/v0.0.1-alpha.1/provider-release.yaml",
