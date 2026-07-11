@@ -126,12 +126,10 @@ jobs:
         env:
           GOBIN: ${{ runner.temp }}/bin
         run: |
-          set -euo pipefail
-          mkdir -p "$GOBIN"
-          toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
-          test "$(git -C "$toolchain_dir" rev-parse HEAD)" = "${{ inputs.gestalt-ref }}"
-          (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+          .github/scripts/install_gestaltd.sh \
+            --ref "${{ inputs.gestalt-ref }}" \
+            --verify-ref \
+            --cgo-disabled
       - uses: actions/upload-artifact@v4
         with:
           name: gestaltd-linux-amd64
@@ -259,13 +257,11 @@ jobs:
         env:
           GOBIN: ${{ runner.temp }}/bin
         run: |
-          set -euo pipefail
-          mkdir -p "$GOBIN"
-          echo "$GOBIN" >> "$GITHUB_PATH"
-          toolchain_dir="${GITHUB_WORKSPACE}/../gestalt"
-          .github/scripts/checkout_gestalt_ref.sh "$toolchain_dir" "${{ inputs.gestalt-ref }}"
-          test "$(git -C "$toolchain_dir" rev-parse HEAD)" = "${{ inputs.gestalt-ref }}"
-          (cd "$toolchain_dir/gestaltd" && CGO_ENABLED=0 go build -o "$GOBIN/gestaltd" ./cmd/gestaltd)
+          .github/scripts/install_gestaltd.sh \
+            --ref "${{ inputs.gestalt-ref }}" \
+            --verify-ref \
+            --cgo-disabled \
+            --add-to-path
       - name: Package darwin/arm64 snapshot
         env:
           PROVIDER_DIR: ${{ matrix.provider.dir }}
