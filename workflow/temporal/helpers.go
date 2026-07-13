@@ -461,10 +461,7 @@ func createdBySubjectIDSet(subjectID string) bool {
 }
 
 func createdByForUpsert(existing, requested string) string {
-	if strings.TrimSpace(existing) == "" || isConfigManagedSubjectID(requested) {
-		return cloneCreatedBySubjectID(requested)
-	}
-	return cloneCreatedBySubjectID(existing)
+	return ""
 }
 
 func cloneCreatedBySubjectID(subjectID string) string {
@@ -472,7 +469,7 @@ func cloneCreatedBySubjectID(subjectID string) string {
 }
 
 func requestSubjectID(ctx context.Context) string {
-	return cloneCreatedBySubjectID(gestalt.SubjectFromContext(ctx).ID)
+	return ""
 }
 
 func cloneSubjectInput(subject *gestalt.Subject) *gestalt.Subject {

@@ -672,14 +672,7 @@ func (b *temporalBackend) DeliverEvent(ctx context.Context, req *gestalt.Deliver
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	appName := strings.TrimSpace(req.AppName)
-	if appName == "" {
-		return nil, status.Error(codes.InvalidArgument, "app_name is required")
-	}
 	eventRequest := cloneWorkflowEventInput(req.Event)
-	if eventRequest != nil {
-		eventRequest.Source = appName
-	}
 	eventInput, err := normalizeWorkflowEvent(eventRequest, time.Now)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())

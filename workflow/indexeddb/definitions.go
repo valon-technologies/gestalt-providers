@@ -316,10 +316,9 @@ func (r workflowDefinitionRecord) toRecord() gestalt.Record {
 		"target_json":      targetJSON(r.Target),
 		"activations_json": jsonValueString(r.Activations),
 		"paused":           r.Paused,
-		"created_by":       createdByToMap(r.CreatedBySubjectID),
 		"created_at":       r.CreatedAt.UTC(),
 		"updated_at":       r.UpdatedAt.UTC(),
-		"run_as":           subjectToMap(r.RunAs),
+		"run_as":           subjectValue(r.RunAs),
 	}
 }
 
@@ -358,7 +357,6 @@ func (r workflowDefinitionRecord) toInput(providerName string) *gestalt.Workflow
 		Target:             workflowTargetInput(r.Target),
 		Activations:        cloneWorkflowActivations(r.Activations),
 		Paused:             r.Paused,
-		CreatedBySubjectID: cloneCreatedBySubjectID(r.CreatedBySubjectID),
 		CreatedAt:          r.CreatedAt,
 		UpdatedAt:          r.UpdatedAt,
 		ProviderName:       strings.TrimSpace(providerName),

@@ -898,14 +898,7 @@ func (p *Provider) DeliverEvent(ctx context.Context, req *gestalt.DeliverWorkflo
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	appName := strings.TrimSpace(req.AppName)
-	if appName == "" {
-		return nil, status.Error(codes.InvalidArgument, "app_name is required")
-	}
 	eventRequest := cloneWorkflowEvent(req.Event)
-	if eventRequest != nil {
-		eventRequest.Source = appName
-	}
 	event, err := normalizeWorkflowEvent(eventRequest, p.clock())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -4134,10 +4127,7 @@ func createdBySubjectIDSet(subjectID string) bool {
 }
 
 func createdByForUpsert(existing, requested string) string {
-	if isConfigManagedSubjectID(requested) {
-		return cloneCreatedBySubjectID(requested)
-	}
-	return cloneCreatedBySubjectID(existing)
+	return ""
 }
 
 func isConfigManagedSubjectID(subjectID string) bool {
@@ -4157,7 +4147,7 @@ func cloneCreatedBySubjectID(subjectID string) string {
 }
 
 func requestSubjectID(ctx context.Context) string {
-	return cloneCreatedBySubjectID(gestalt.SubjectFromContext(ctx).ID)
+	return ""
 }
 
 func cloneSubject(subject *gestalt.Subject) *gestalt.Subject {
@@ -4393,23 +4383,23 @@ func createdByFromAny(value any) string {
 	}
 }
 
-func subjectToMap(subject *gestalt.Subject) map[string]any {
+func subjectValue(subject *gestalt.Subject) any {
 	if subject == nil {
 		return nil
 	}
-	out := map[string]any{
-		"id": strings.TrimSpace(subject.ID),
+	if id := strings.TrimSpace(subject.ID); id != "" {
+		return id
 	}
-	if email := strings.TrimSpace(subject.Email); email != "" {
-		out["email"] = email
-	}
-	if len(out) == 1 && out["id"] == "" {
-		return nil
-	}
-	return out
+	return nil
 }
 
 func subjectFromAny(value any) *gestalt.Subject {
+	if subjectID, ok := value.(string); ok {
+		if subjectID = strings.TrimSpace(subjectID); subjectID != "" {
+			return &gestalt.Subject{ID: subjectID}
+		}
+		return nil
+	}
 	data, ok := value.(map[string]any)
 	if !ok || len(data) == 0 {
 		return nil
@@ -4593,10 +4583,9 @@ func (r workflowScheduleRecord) toRecord() gestalt.Record {
 		"paused":                r.Paused,
 		"created_at":            r.CreatedAt.UTC(),
 		"updated_at":            r.UpdatedAt.UTC(),
-		"created_by":            createdByToMap(r.CreatedBySubjectID),
 		"definition_id":         r.DefinitionID,
 		"definition_generation": r.DefinitionGeneration,
-		"run_as":                subjectToMap(r.RunAs),
+		"run_as":                subjectValue(r.RunAs),
 	}
 	if r.NextRunAt != nil {
 		record["next_run_at"] = r.NextRunAt.UTC()
@@ -4651,13 +4640,12 @@ func (r workflowRunRecord) toRecord() gestalt.Record {
 		"created_at":               r.CreatedAt.UTC(),
 		"status_message":           r.StatusMessage,
 		"output_json":              jsonValueString(r.Output),
-		"created_by":               createdByToMap(r.CreatedBySubjectID),
 		"definition_id":            r.DefinitionID,
 		"definition_generation":    r.DefinitionGeneration,
 		"input_json":               jsonValueString(r.Input),
 		"current_step_id":          r.CurrentStepID,
 		"steps_json":               jsonValueString(r.Steps),
-		"run_as":                   subjectToMap(r.RunAs),
+		"run_as":                   subjectValue(r.RunAs),
 		"workflow_key":             r.WorkflowKey,
 		"next_signal_sequence":     r.NextSignalSequence,
 	}
