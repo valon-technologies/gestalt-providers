@@ -13,15 +13,15 @@ import (
 )
 
 type workflowDefinitionRecord struct {
-	ID                 string
-	Generation         int64
-	Target             *gestalt.BoundWorkflowTarget
-	Activations        []gestalt.WorkflowActivation
-	Paused             bool
-	CreatedBySubjectID string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	RunAs              *gestalt.Subject
+	ID          string
+	Generation  int64
+	Target      *gestalt.BoundWorkflowTarget
+	Activations []gestalt.WorkflowActivation
+	Paused      bool
+	CreatedBy   string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	RunAs       *gestalt.Subject
 }
 
 func (p *Provider) ApplyDefinition(ctx context.Context, req *gestalt.ApplyWorkflowProviderDefinitionRequest) (*gestalt.WorkflowDefinition, error) {
@@ -62,15 +62,15 @@ func (p *Provider) ApplyDefinition(ctx context.Context, req *gestalt.ApplyWorkfl
 		return nil, status.Errorf(codes.Internal, "load workflow definition: %v", err)
 	}
 	record := workflowDefinitionRecord{
-		ID:                 definitionID,
-		Generation:         1,
-		Target:             cloneTarget(target.Target),
-		Activations:        cloneWorkflowActivations(activations),
-		Paused:             spec.Paused,
-		CreatedBySubjectID: requestSubjectID(ctx),
-		CreatedAt:          now,
-		UpdatedAt:          now,
-		RunAs:              cloneSubject(spec.RunAs),
+		ID:          definitionID,
+		Generation:  1,
+		Target:      cloneTarget(target.Target),
+		Activations: cloneWorkflowActivations(activations),
+		Paused:      spec.Paused,
+		CreatedBy:   requestCreatedBy(ctx),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		RunAs:       cloneSubject(spec.RunAs),
 	}
 	if found {
 		record.Generation = existing.Generation + 1
@@ -78,7 +78,7 @@ func (p *Provider) ApplyDefinition(ctx context.Context, req *gestalt.ApplyWorkfl
 			record.Generation = 1
 		}
 		record.CreatedAt = existing.CreatedAt
-		record.CreatedBySubjectID = createdByForUpsert(existing.CreatedBySubjectID, record.CreatedBySubjectID)
+		record.CreatedBy = createdByForUpsert(existing.CreatedBy, record.CreatedBy)
 	}
 	if record.CreatedAt.IsZero() {
 		record.CreatedAt = now
@@ -316,10 +316,10 @@ func (r workflowDefinitionRecord) toRecord() gestalt.Record {
 		"target_json":      targetJSON(r.Target),
 		"activations_json": jsonValueString(r.Activations),
 		"paused":           r.Paused,
-		"created_by":       createdByToMap(r.CreatedBySubjectID),
+		"created_by":       cloneCreatedBy(r.CreatedBy),
 		"created_at":       r.CreatedAt.UTC(),
 		"updated_at":       r.UpdatedAt.UTC(),
-		"run_as":           subjectToMap(r.RunAs),
+		"run_as":           subjectValue(r.RunAs),
 	}
 }
 
@@ -331,13 +331,13 @@ func definitionRecordFromRecord(record gestalt.Record) (workflowDefinitionRecord
 		return workflowDefinitionRecord{}, err
 	}
 	out := workflowDefinitionRecord{
-		ID:                 id,
-		Generation:         intField(value, "generation"),
-		Target:             target,
-		Activations:        workflowActivationsFromRecordValue(value["activations_json"]),
-		Paused:             boolField(value, "paused"),
-		CreatedBySubjectID: createdByFromAny(value["created_by"]),
-		RunAs:              subjectFromAny(value["run_as"]),
+		ID:          id,
+		Generation:  intField(value, "generation"),
+		Target:      target,
+		Activations: workflowActivationsFromRecordValue(value["activations_json"]),
+		Paused:      boolField(value, "paused"),
+		CreatedBy:   createdByFromAny(value["created_by"]),
+		RunAs:       subjectFromAny(value["run_as"]),
 	}
 	if out.Generation <= 0 {
 		out.Generation = 1
@@ -353,16 +353,16 @@ func definitionRecordFromRecord(record gestalt.Record) (workflowDefinitionRecord
 
 func (r workflowDefinitionRecord) toInput(providerName string) *gestalt.WorkflowDefinition {
 	return cloneWorkflowDefinition(&gestalt.WorkflowDefinition{
-		ID:                 r.ID,
-		Generation:         r.Generation,
-		Target:             workflowTargetInput(r.Target),
-		Activations:        cloneWorkflowActivations(r.Activations),
-		Paused:             r.Paused,
-		CreatedBySubjectID: cloneCreatedBySubjectID(r.CreatedBySubjectID),
-		CreatedAt:          r.CreatedAt,
-		UpdatedAt:          r.UpdatedAt,
-		ProviderName:       strings.TrimSpace(providerName),
-		RunAs:              cloneSubject(r.RunAs),
+		ID:           r.ID,
+		Generation:   r.Generation,
+		Target:       workflowTargetInput(r.Target),
+		Activations:  cloneWorkflowActivations(r.Activations),
+		Paused:       r.Paused,
+		CreatedBy:    cloneCreatedBy(r.CreatedBy),
+		CreatedAt:    r.CreatedAt,
+		UpdatedAt:    r.UpdatedAt,
+		ProviderName: strings.TrimSpace(providerName),
+		RunAs:        cloneSubject(r.RunAs),
 	})
 }
 

@@ -24,7 +24,7 @@ type runWorkflowInput struct {
 	OwnerKey                      string                       `json:"owner_key,omitempty"`
 	Target                        *gestalt.BoundWorkflowTarget `json:"target,omitempty"`
 	Trigger                       *gestalt.WorkflowRunTrigger  `json:"trigger,omitempty"`
-	CreatedBySubjectID            string                       `json:"created_by,omitempty"`
+	CreatedBy                     string                       `json:"created_by,omitempty"`
 	InitialSignal                 *gestalt.WorkflowSignal      `json:"initial_signal,omitempty"`
 	RequireSignal                 bool                         `json:"require_signal,omitempty"`
 }
@@ -43,10 +43,10 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 	state := &gestalt.WorkflowRun{
 		ID:                   publicID,
 		Status:               gestalt.WorkflowRunStatusValuePending,
-		Target:               input.targetInput(),
+		Target:               input.Target,
 		Trigger:              input.triggerInput(now),
 		CreatedAt:            now,
-		CreatedBySubjectID:   input.createdByInput(),
+		CreatedBy:            input.CreatedBy,
 		RunAs:                cloneSubjectInput(input.RunAs),
 		WorkflowKey:          strings.TrimSpace(input.WorkflowKey),
 		DefinitionID:         strings.TrimSpace(input.DefinitionID),
@@ -90,7 +90,7 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 		signalCount++
 		return &signalInput, nil
 	}
-	if initial := input.initialSignalInput(); initial != nil {
+	if initial := input.InitialSignal; initial != nil {
 		if _, err := appendSignalInput(*initial); err != nil {
 			return nil, err
 		}
@@ -192,7 +192,7 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 				Target:               state.Target,
 				Trigger:              state.Trigger,
 				Input:                cloneMapInput(state.Input),
-				CreatedBySubjectID:   state.CreatedBySubjectID,
+				CreatedBy:            state.CreatedBy,
 				RunAs:                cloneSubjectInput(state.RunAs),
 				Signals:              batch,
 			}
@@ -294,10 +294,6 @@ const (
 	runCompletionRecordAttempts = 3
 )
 
-func (input runWorkflowInput) targetInput() *gestalt.BoundWorkflowTarget {
-	return input.Target
-}
-
 func (input runWorkflowInput) triggerInput(now time.Time) *gestalt.WorkflowRunTrigger {
 	if input.ActivationID != "" {
 		return scheduleTriggerInput(input.ActivationID, now)
@@ -306,12 +302,4 @@ func (input runWorkflowInput) triggerInput(now time.Time) *gestalt.WorkflowRunTr
 		return input.Trigger
 	}
 	return nil
-}
-
-func (input runWorkflowInput) createdByInput() string {
-	return input.CreatedBySubjectID
-}
-
-func (input runWorkflowInput) initialSignalInput() *gestalt.WorkflowSignal {
-	return input.InitialSignal
 }

@@ -62,7 +62,7 @@ type workflowRunStartSnapshot struct {
 	Target               *gestalt.BoundWorkflowTarget
 	Input                map[string]any
 	RunAs                *gestalt.Subject
-	CreatedBySubjectID   string
+	CreatedBy            string
 }
 
 func newTemporalBackend(providerName string, cfg config, tc client.Client, executor gestaltworkflow.StepExecutor, state *workflowStateStore) *temporalBackend {
@@ -238,13 +238,13 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkfl
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	start, err := b.manualRunStartSnapshot(ctx, req.DefinitionID, req.ExpectedDefinitionGeneration, req.Input, nil, requestSubjectID(ctx))
+	start, err := b.manualRunStartSnapshot(ctx, req.DefinitionID, req.ExpectedDefinitionGeneration, req.Input, nil, requestCreatedBy(ctx))
 	if err != nil {
 		return nil, err
 	}
 	key := strings.TrimSpace(req.IdempotencyKey)
 	workflowKey := strings.TrimSpace(req.WorkflowKey)
-	fingerprint := startFingerprint(start.OwnerKey, key, workflowKey, start.DefinitionID, start.DefinitionGeneration, start.Input, start.CreatedBySubjectID)
+	fingerprint := startFingerprint(start.OwnerKey, key, workflowKey, start.DefinitionID, start.DefinitionGeneration, start.Input, start.CreatedBy)
 	if key != "" && workflowKey == "" {
 		return b.startUnkeyedRun(ctx, start, key, fingerprint)
 	}
@@ -253,7 +253,7 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkfl
 	}
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "temporal-run", uuid.NewString())
 	conflictPolicy := enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL
-	input := b.runInput(start.OwnerKey, start.DefinitionID, start.DefinitionGeneration, "", start.Target, start.Input, manualTriggerInput(), start.CreatedBySubjectID, false)
+	input := b.runInput(start.OwnerKey, start.DefinitionID, start.DefinitionGeneration, "", start.Target, start.Input, manualTriggerInput(), start.CreatedBy, false)
 	input.RunAs = cloneSubjectInput(start.RunAs)
 	run, err := b.executeRun(ctx, temporalWorkflowID, input, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
@@ -588,7 +588,7 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *gestalt.Sig
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	start, err := b.manualRunStartSnapshot(ctx, req.DefinitionID, req.ExpectedDefinitionGeneration, req.Input, nil, requestSubjectID(ctx))
+	start, err := b.manualRunStartSnapshot(ctx, req.DefinitionID, req.ExpectedDefinitionGeneration, req.Input, nil, requestCreatedBy(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -672,14 +672,7 @@ func (b *temporalBackend) DeliverEvent(ctx context.Context, req *gestalt.Deliver
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	appName := strings.TrimSpace(req.AppName)
-	if appName == "" {
-		return nil, status.Error(codes.InvalidArgument, "app_name is required")
-	}
 	eventRequest := cloneWorkflowEventInput(req.Event)
-	if eventRequest != nil {
-		eventRequest.Source = appName
-	}
 	eventInput, err := normalizeWorkflowEvent(eventRequest, time.Now)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -688,7 +681,7 @@ func (b *temporalBackend) DeliverEvent(ctx context.Context, req *gestalt.Deliver
 	if err != nil {
 		return nil, err
 	}
-	deliveredBy := requestSubjectID(ctx)
+	deliveredBy := requestCreatedBy(ctx)
 	gestalt.RecordWorkflowEventDelivered(ctx, nil, b.workflowTelemetryOptions(
 		gestalt.WorkflowOperationDeliverEvent,
 		gestalt.WorkflowTriggerKindEvent,
@@ -710,9 +703,9 @@ func (b *temporalBackend) DeliverEvent(ctx context.Context, req *gestalt.Deliver
 	for _, match := range matches {
 		definition := match.Definition
 		activation := match.Activation
-		createdBy := definition.CreatedBySubjectID
-		if createdBySubjectIDSet(deliveredBy) {
-			createdBy = cloneCreatedBySubjectID(deliveredBy)
+		createdBy := definition.CreatedBy
+		if createdBySet(deliveredBy) {
+			createdBy = cloneCreatedBy(deliveredBy)
 		}
 		activationInput, err := workflowEventActivationInputMap(activation.Input, eventInput)
 		if err != nil {
@@ -787,7 +780,7 @@ func (b *temporalBackend) manualRunStartSnapshot(ctx context.Context, definition
 		Target:               cloneBoundWorkflowTargetInput(definition.Target),
 		Input:                cloneMapInput(input),
 		RunAs:                effectiveRunAs,
-		CreatedBySubjectID:   cloneCreatedBySubjectID(createdBySubjectID),
+		CreatedBy:            cloneCreatedBy(createdBySubjectID),
 	}, nil
 }
 
@@ -896,7 +889,7 @@ func (b *temporalBackend) upsertDefinitionSchedule(ctx context.Context, definiti
 	if err != nil {
 		return err
 	}
-	actionInput := b.runInput(targetOwnerKeyInput(definition.Target), definition.ID, definition.Generation, "", definition.Target, activationInput, scheduleTriggerInput(activation.ID, time.Now().UTC()), definition.CreatedBySubjectID, false)
+	actionInput := b.runInput(targetOwnerKeyInput(definition.Target), definition.ID, definition.Generation, "", definition.Target, activationInput, scheduleTriggerInput(activation.ID, time.Now().UTC()), definition.CreatedBy, false)
 	actionInput.ActivationID = activation.ID
 	actionInput.RunAs = cloneSubjectInput(definition.RunAs)
 	if err := validateWorkflowRunAsInput(actionInput.RunAs); err != nil {

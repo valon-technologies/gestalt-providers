@@ -64,11 +64,11 @@ class FakeWorkflowDeliverEvent:
     def __init__(
         self,
         event: Any = None,
-        provider_name: str = "",
+        provider: str = "",
         **_kwargs: Any,
     ) -> None:
         self.event = event
-        self.provider_name = provider_name
+        self.provider = provider
 
 
 class FakeHTTPResponse:
@@ -916,7 +916,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
         workflow_request = workflow_client.deliver_event_requests[0]
-        self.assertEqual(workflow_request.provider_name, "route-provider")
+        self.assertEqual(workflow_request.provider, "route-provider")
         self.assertEqual(workflow_request.event.type, "slack.route.agent.received")
         self.assertEqual(workflow_request.event.subject, "route:raw-workflow")
         self.assertEqual(
@@ -1018,7 +1018,7 @@ class SlackProviderTests(unittest.TestCase):
 
         self.assertEqual(operation_body(response)["ok"], True)
         workflow_request = workflow_client.deliver_event_requests[0]
-        self.assertEqual(workflow_request.provider_name, "local")
+        self.assertEqual(workflow_request.provider, "local")
         self.assertEqual(workflow_request.event.type, "slack.agent.event.received")
         self.assertEqual(workflow_request.event.subject, "route:default")
         event_data = delivered_event_data(workflow_request)
@@ -2126,7 +2126,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
 
         workflow_request = workflow_client.deliver_event_requests[0]
-        self.assertEqual(workflow_request.provider_name, "local")
+        self.assertEqual(workflow_request.provider, "local")
         expected_idempotency_key = "slack:event:T123:C789:1712161829.000300:U456"
         self.assertEqual(workflow_request.event.id, expected_idempotency_key)
         self.assertEqual(workflow_request.event.source, "slack")
@@ -2874,7 +2874,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
         workflow_request = workflow_client.deliver_event_requests[0]
-        self.assertEqual(workflow_request.provider_name, "route-provider")
+        self.assertEqual(workflow_request.provider, "route-provider")
         self.assertEqual(workflow_request.event.type, "slack.route.assistant")
         self.assertEqual(workflow_request.event.subject, "route:assistant-route")
         event_data = delivered_event_data(workflow_request)
@@ -3573,7 +3573,7 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
         workflow_request = workflow_client.deliver_event_requests[0]
-        self.assertEqual(workflow_request.provider_name, "local")
+        self.assertEqual(workflow_request.provider, "local")
         self.assertEqual(workflow_request.event.source, "slack")
         self.assertEqual(workflow_request.event.type, "slack.agent.interaction.received")
         self.assertEqual(workflow_request.event.subject, "route:default")
@@ -3732,7 +3732,7 @@ class SlackProviderTests(unittest.TestCase):
 
         self.assertEqual(operation_body(response)["ok"], True)
         workflow_request = workflow_client.deliver_event_requests[0]
-        self.assertEqual(workflow_request.provider_name, "route-provider")
+        self.assertEqual(workflow_request.provider, "route-provider")
         self.assertEqual(
             workflow_request.event.type, "slack.route.interaction.received"
         )
@@ -4254,7 +4254,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
         workflow_request = workflow_client.deliver_event_requests[0]
-        self.assertEqual(workflow_request.provider_name, "local")
+        self.assertEqual(workflow_request.provider, "local")
         self.assertEqual(workflow_request.event.type, "slack.agent.event.received")
         self.assertEqual(workflow_request.event.subject, "route:triage")
         event_metadata = delivered_event_metadata(workflow_request)
@@ -4315,7 +4315,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
         workflow_request = workflow_client.deliver_event_requests[0]
-        self.assertEqual(workflow_request.provider_name, "route-provider")
+        self.assertEqual(workflow_request.provider, "route-provider")
         self.assertEqual(workflow_request.event.type, "slack.route.agent.received")
         self.assertEqual(workflow_request.event.subject, "route:route-local")
 
@@ -4363,7 +4363,7 @@ class SlackProviderTests(unittest.TestCase):
         self.assertEqual(operation_body(response)["ok"], True)
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
         workflow_request = workflow_client.deliver_event_requests[0]
-        self.assertEqual(workflow_request.provider_name, "route-provider")
+        self.assertEqual(workflow_request.provider, "route-provider")
         self.assertEqual(
             workflow_request.event.type, "slack.route.interaction.received"
         )
@@ -5716,7 +5716,7 @@ class SlackProviderTests(unittest.TestCase):
         )
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
         request = workflow_client.deliver_event_requests[0]
-        self.assertEqual(request.provider_name, "local")
+        self.assertEqual(request.provider, "local")
         event = request.event
         self.assertEqual(event.id, "slack:EvDelivery:route:deployments")
         self.assertEqual(event.type, "deployment.slack_event")
@@ -5811,7 +5811,7 @@ class SlackProviderTests(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            [request.provider_name for request in workflow_client.deliver_event_requests],
+            [request.provider for request in workflow_client.deliver_event_requests],
             ["local", "audit"],
         )
         self.assertEqual(

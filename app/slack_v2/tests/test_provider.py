@@ -587,7 +587,7 @@ class SlackV2ProviderTests(unittest.TestCase):
         load_default_workflow_event_subject.assert_called_once_with()
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
         request = workflow_client.deliver_event_requests[0]
-        self.assertEqual(request.provider_name, "")
+        self.assertEqual(request.provider, "local")
         event = request.event
         self.assertIsNotNone(event)
         assert event is not None
@@ -604,7 +604,7 @@ class SlackV2ProviderTests(unittest.TestCase):
                 "app_id": "A123",
                 "workflow_event_subject": "slack_agent_default",
                 "workflow_event_id": "slack_v2:Ev123",
-                "workflow_provider": "",
+                "workflow_provider": "local",
             },
         )
 

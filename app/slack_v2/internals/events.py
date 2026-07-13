@@ -45,6 +45,7 @@ def build_workflow_deliver_event_request(
     payload: dict[str, Any],
 ) -> gestalt.WorkflowDeliverEvent:
     return gestalt.WorkflowDeliverEvent(
+        provider="local",
         event=gestalt.WorkflowEvent(
             id=workflow_event_id(app_id=app_id, payload=payload),
             source=SLACK_V2_EVENT_SOURCE,

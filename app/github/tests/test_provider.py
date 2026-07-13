@@ -1148,7 +1148,7 @@ class GitHubProviderTests(unittest.TestCase):
         )
         self.assertEqual(len(workflow_client.deliver_event_requests), 1)
         request = workflow_client.deliver_event_requests[0]
-        self.assertEqual(request.provider_name, "local")
+        self.assertEqual(request.provider, "local")
         event = request.event
         self.assertIsNotNone(event)
         assert event is not None

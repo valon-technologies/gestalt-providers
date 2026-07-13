@@ -19,8 +19,6 @@ import (
 const (
 	defaultSpecVersion = "1.0"
 	defaultTimezone    = "UTC"
-
-	configManagedWorkflowSubject = "system:config"
 )
 
 type scopedTarget struct {
@@ -365,7 +363,7 @@ func normalizeWorkflowSignalInput(signal *gestalt.WorkflowSignal, now time.Time)
 	}
 	out.ID = strings.TrimSpace(out.ID)
 	out.Name = name
-	out.CreatedBySubjectID = cloneCreatedBySubjectID(out.CreatedBySubjectID)
+	out.CreatedBy = cloneCreatedBy(out.CreatedBy)
 	out.IdempotencyKey = strings.TrimSpace(out.IdempotencyKey)
 	return &out, nil
 }
@@ -379,7 +377,7 @@ func cloneRunInput(run *gestalt.WorkflowRun) *gestalt.WorkflowRun {
 	out.StatusMessage = strings.TrimSpace(out.StatusMessage)
 	out.WorkflowKey = strings.TrimSpace(out.WorkflowKey)
 	out.DefinitionID = strings.TrimSpace(out.DefinitionID)
-	out.CreatedBySubjectID = cloneCreatedBySubjectID(out.CreatedBySubjectID)
+	out.CreatedBy = cloneCreatedBy(out.CreatedBy)
 	return &out
 }
 
@@ -391,7 +389,7 @@ func cloneSignalInput(signal *gestalt.WorkflowSignal) *gestalt.WorkflowSignal {
 	out.ID = strings.TrimSpace(out.ID)
 	out.Name = strings.TrimSpace(out.Name)
 	out.IdempotencyKey = strings.TrimSpace(out.IdempotencyKey)
-	out.CreatedBySubjectID = cloneCreatedBySubjectID(out.CreatedBySubjectID)
+	out.CreatedBy = cloneCreatedBy(out.CreatedBy)
 	return &out
 }
 
@@ -456,23 +454,23 @@ func eventMatchKey(typ, source, subject string) string {
 	return strings.TrimSpace(typ) + "\x00" + strings.TrimSpace(source) + "\x00" + strings.TrimSpace(subject)
 }
 
-func createdBySubjectIDSet(subjectID string) bool {
+func createdBySet(subjectID string) bool {
 	return strings.TrimSpace(subjectID) != ""
 }
 
 func createdByForUpsert(existing, requested string) string {
-	if strings.TrimSpace(existing) == "" || isConfigManagedSubjectID(requested) {
-		return cloneCreatedBySubjectID(requested)
+	if existing = cloneCreatedBy(existing); existing != "" {
+		return existing
 	}
-	return cloneCreatedBySubjectID(existing)
+	return cloneCreatedBy(requested)
 }
 
-func cloneCreatedBySubjectID(subjectID string) string {
+func cloneCreatedBy(subjectID string) string {
 	return strings.TrimSpace(subjectID)
 }
 
-func requestSubjectID(ctx context.Context) string {
-	return cloneCreatedBySubjectID(gestalt.SubjectFromContext(ctx).ID)
+func requestCreatedBy(ctx context.Context) string {
+	return cloneCreatedBy(gestalt.SubjectFromContext(ctx).ID)
 }
 
 func cloneSubjectInput(subject *gestalt.Subject) *gestalt.Subject {
@@ -502,10 +500,6 @@ func validateWorkflowActivationRunAsInput(activations []gestalt.WorkflowActivati
 		}
 	}
 	return nil
-}
-
-func isConfigManagedSubjectID(subjectID string) bool {
-	return strings.TrimSpace(subjectID) == configManagedWorkflowSubject
 }
 
 func manualTriggerInput() *gestalt.WorkflowRunTrigger {
