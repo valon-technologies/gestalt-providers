@@ -1,10 +1,8 @@
-import { Code, ConnectError } from "@connectrpc/connect";
 import {
   AgentExecutionStatus,
-  AgentProvider as SDKAgentProvider,
+  AgentProvider,
   AgentSessionState,
   AgentToolSourceMode,
-  slugName,
   type AgentInteraction,
   type AgentMessage,
   type AgentProviderCapabilities,
@@ -27,6 +25,11 @@ import {
   type ListAgentProviderTurnsRequest,
   type ResolveAgentProviderInteractionRequest,
   type UpdateAgentProviderSessionRequest,
+} from "@valon-technologies/gestalt/services/agent";
+import {
+  GestaltError,
+  GestaltErrorCode,
+  slugName,
 } from "@valon-technologies/gestalt";
 
 import {
@@ -60,7 +63,7 @@ export type CursorAgentProviderDependencies = {
   runnerFactory?: (config: CursorAgentConfig) => CursorSDKRunner;
 };
 
-export class CursorAgentProvider extends SDKAgentProvider {
+export class CursorAgentProvider extends AgentProvider {
   private config?: CursorAgentConfig;
   private runner?: CursorSDKRunner;
   private readonly store: InMemoryRunStore;
@@ -125,7 +128,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
       const { toolSource, toolRefs, listedTools } = sessionToolScopeFromConfig(
         request.tools,
       );
-      const createdBySubjectId = (request.createdBySubjectId ?? "").trim();
+      const createdBySubjectId = (request.context?.subject?.id ?? "").trim();
       if (hasSessionStartHooks(request.sessionStart)) {
         return await this.withSessionStartLock(async () => {
           const existing = this.existingSessionForCreate(
@@ -133,7 +136,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
             request.idempotencyKey,
           );
           if (existing) {
-            this.requireReadableSession(existing, request.subject);
+            this.requireReadableSession(existing, request.context?.subject);
             return sessionToAgentSession(existing);
           }
           metadata = await runSessionStartHooks(request.sessionStart, metadata);
@@ -173,15 +176,18 @@ export class CursorAgentProvider extends SDKAgentProvider {
         createdBySubjectId,
       });
       if (!created) {
-        this.requireReadableSession(session, request.subject);
+        this.requireReadableSession(session, request.context?.subject);
       }
       return sessionToAgentSession(session);
     } catch (error) {
-      if (error instanceof ConnectError) {
+      if (error instanceof GestaltError) {
         throw error;
       }
       if (errorMessage(error).startsWith("sessionStart hook")) {
-        throw new ConnectError(errorMessage(error), Code.FailedPrecondition);
+        throw new GestaltError(
+          GestaltErrorCode.FailedPrecondition,
+          errorMessage(error),
+        );
       }
       throw invalidArgument(errorMessage(error));
     }
@@ -192,7 +198,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
   ): Promise<AgentSession> {
     this.requireRuntime();
     const session = this.store.getSession(request.sessionId);
-    if (!session || !canReadSession(session, request.subject)) {
+    if (!session || !canReadSession(session, request.context?.subject)) {
       throw notFound(
         `agent session ${JSON.stringify(request.sessionId)} was not found`,
       );
@@ -210,7 +216,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     return this.store
       .listSessions({
         sessionIds: request.sessionIds,
-        subjectId: subjectIdFrom(request.subject),
+        subjectId: subjectIdFrom(request.context?.subject),
         state: request.state,
         limit: request.limit,
       })
@@ -234,7 +240,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         `agent session ${JSON.stringify(request.sessionId)} was not found`,
       );
     }
-    requireOwnedSession(existing, request.subject);
+    requireOwnedSession(existing, request.context?.subject);
     const session = this.store.updateSession({
       sessionId: request.sessionId,
       clientRef: request.clientRef,
@@ -259,7 +265,10 @@ export class CursorAgentProvider extends SDKAgentProvider {
         `agent session ${JSON.stringify(request.sessionId)} was not found`,
       );
     }
-    requireOwnedSession(session, request.subject);
+    if (request.context === undefined) {
+      throw invalidArgument("request context is required");
+    }
+    requireOwnedSession(session, request.context?.subject);
     const schema = validateCreateTurnRequest(request, session);
     if (request.messages.length === 0) {
       throw invalidArgument("messages must contain at least one entry");
@@ -276,23 +285,20 @@ export class CursorAgentProvider extends SDKAgentProvider {
         providerName: this.name,
         model,
         messages: prependSessionStartContext(request.messages, session.metadata),
-        createdBySubjectId: (request.createdBySubjectId ?? "").trim(),
+      createdBySubjectId: (request.context?.subject?.id ?? "").trim(),
         executionRef: request.executionRef,
       });
       turn = result.turn;
       created = result.created;
     } catch (error) {
       if (error instanceof StoreConflictError) {
-        throw new ConnectError(error.message, Code.AlreadyExists);
+        throw new GestaltError(GestaltErrorCode.AlreadyExists, error.message);
       }
       throw invalidArgument(errorMessage(error));
     }
 
     if (created) {
       const requestContext = request.context;
-      if (requestContext === undefined) {
-        throw invalidArgument("request context is required");
-      }
       void this.completeTurn({
         runner,
         turnId: turn.turnId,
@@ -317,7 +323,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
       );
     }
     const session = this.store.getSession(turn.sessionId);
-    if (!session || !canReadSession(session, request.subject)) {
+    if (!session || !canReadSession(session, request.context?.subject)) {
       throw notFound(
         `agent turn ${JSON.stringify(request.turnId)} was not found`,
       );
@@ -335,7 +341,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     const sessionId = String(request.sessionId ?? "").trim();
     if (sessionId) {
       const session = this.store.getSession(sessionId);
-      if (!session || !canReadSession(session, request.subject)) {
+        if (!session || !canReadSession(session, request.context?.subject)) {
         return [];
       }
     } else if (request.turnIds.length === 0) {
@@ -350,7 +356,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     });
     const readable = turns.filter((turn) => {
       const session = this.store.getSession(turn.sessionId);
-      return Boolean(session && canReadSession(session, request.subject));
+      return Boolean(session && canReadSession(session, request.context?.subject));
     });
     const limited =
       request.turnIds.length > 0 && request.limit > 0
@@ -375,7 +381,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
         `agent turn ${JSON.stringify(request.turnId)} was not found`,
       );
     }
-    requireOwnedSession(session, request.subject);
+    requireOwnedSession(session, request.context?.subject);
     const turn = this.store.cancelTurn(request.turnId, request.reason);
     if (!turn) {
       throw notFound(
@@ -394,7 +400,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     this.requireRuntime();
     const turn = this.store.getTurn(request.turnId);
     const session = turn ? this.store.getSession(turn.sessionId) : undefined;
-    if (!session || !canReadSession(session, request.subject)) {
+    if (!session || !canReadSession(session, request.context?.subject)) {
       return [];
     }
     return this.store
@@ -423,7 +429,7 @@ export class CursorAgentProvider extends SDKAgentProvider {
     if (turnId) {
       const turn = this.store.getTurn(turnId);
       const session = turn ? this.store.getSession(turn.sessionId) : undefined;
-      if (!session || !canReadSession(session, request.subject)) {
+    if (!session || !canReadSession(session, request.context?.subject)) {
         return [];
       }
     }
@@ -462,9 +468,9 @@ export class CursorAgentProvider extends SDKAgentProvider {
     runner: CursorSDKRunner;
   } {
     if (!this.config || !this.runner) {
-      throw new ConnectError(
+      throw new GestaltError(
+        GestaltErrorCode.FailedPrecondition,
         "agent provider has not been configured",
-        Code.FailedPrecondition,
       );
     }
     return { config: this.config, runner: this.runner };
@@ -591,12 +597,12 @@ function sessionToolScopeFromConfig(
   toolRefs: AgentToolRef[];
   listedTools: ListedAgentTool[];
 } {
-  if (!tools || tools.none !== undefined) {
+  if (!tools || tools.source.case !== "catalog") {
     throw invalidArgument("agent/cursor requires tools.catalog");
   }
-  if (tools.catalog !== undefined) {
-    const refs = [...(tools.catalog.refs ?? [])];
-    const listedTools = [...(tools.catalog.tools ?? [])];
+  if (tools.source.case === "catalog") {
+    const refs = [...(tools.source.value.refs ?? [])];
+    const listedTools = [...(tools.source.value.tools ?? [])];
     validateToolRefs(refs);
     validateListedTools(listedTools);
     validateListedToolsCoveredByRefs(listedTools, refs);
@@ -615,13 +621,13 @@ function schemaFromOutput(
   if (!output) {
     throw invalidArgument("output is required");
   }
-  const textSet = output.text !== undefined;
-  const structuredSet = output.structured !== undefined;
+  const textSet = output.kind.case === "text";
+  const structuredSet = output.kind.case === "structured";
   if (textSet === structuredSet) {
     throw invalidArgument("exactly one of output.text or output.structured is required");
   }
-  if (output.structured) {
-    return { ...output.structured.schema };
+  if (output.kind.case === "structured") {
+    return { ...output.kind.value.schema };
   }
   return undefined;
 }
@@ -873,16 +879,16 @@ function hasSessionStartHooks(value: AgentSessionStartConfig | undefined): boole
   return (value?.hooks?.length ?? 0) > 0;
 }
 
-function invalidArgument(message: string): ConnectError {
-  return new ConnectError(message, Code.InvalidArgument);
+function invalidArgument(message: string): GestaltError {
+  return new GestaltError(GestaltErrorCode.InvalidArgument, message);
 }
 
-function notFound(message: string): ConnectError {
-  return new ConnectError(message, Code.NotFound);
+function notFound(message: string): GestaltError {
+  return new GestaltError(GestaltErrorCode.NotFound, message);
 }
 
-function permissionDenied(message: string): ConnectError {
-  return new ConnectError(message, Code.PermissionDenied);
+function permissionDenied(message: string): GestaltError {
+  return new GestaltError(GestaltErrorCode.PermissionDenied, message);
 }
 
 function errorMessage(error: unknown): string {

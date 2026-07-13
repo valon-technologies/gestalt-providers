@@ -3,7 +3,7 @@ import type {
   AgentMessage,
   AgentSessionStartConfig,
   AgentSessionStartHook,
-} from "@valon-technologies/gestalt";
+} from "@valon-technologies/gestalt/services/agent";
 
 export const SESSION_START_PREFIX = "__gestalt.lifecycle.sessionStart";
 export const SESSION_START_ADDITIONAL_CONTEXT_KEY = `${SESSION_START_PREFIX}.additionalContext`;
@@ -70,6 +70,7 @@ export function prependSessionStartContext(
     {
       role: "system",
       text: `Session start context:\n\n${context}`,
+      parts: [],
       metadata: { source: SESSION_START_PREFIX },
     },
     ...messages,

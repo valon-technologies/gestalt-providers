@@ -4,16 +4,15 @@ import { join } from "node:path";
 
 import Ajv from "ajv";
 import Ajv2020 from "ajv/dist/2020.js";
+import type { JsonObject } from "@bufbuild/protobuf";
 import type { AgentOptions, Run, SDKAgent, SDKMessage } from "@cursor/sdk";
-import {
-  App,
-  type AgentMessage,
-  type AgentTurnOutput,
-  type CreateAgentProviderTurnRequest,
-  type JsonObject,
-  type ListedAgentTool,
-} from "@valon-technologies/gestalt";
-import { nativeRequestContext } from "@valon-technologies/gestalt/runtime";
+import { App } from "@valon-technologies/gestalt/services/app";
+import type {
+  AgentMessage,
+  AgentTurnOutput,
+  CreateAgentProviderTurnRequest,
+  ListedAgentTool,
+} from "@valon-technologies/gestalt/services/agent";
 
 import type { CursorAgentConfig } from "./config.ts";
 import { createCursorPlatformOptions } from "./cursor_platform.ts";
@@ -132,8 +131,7 @@ export class CursorSDKRunner {
       active.bridge = await startMcpBridge({
         tools,
         executeTool: async (entry, toolCallId, args) => {
-          const context = nativeRequestContext(input.requestContext);
-          const app = App.connect({ context });
+          const app = App.connect({ context: input.requestContext });
           const response = await app.invokeRaw({
             ...entry.ref,
             idempotencyKey: `agent/cursor-sdk:${input.turnId}:${toolCallId}:${entry.mcpName}`,
@@ -180,13 +178,14 @@ export class CursorSDKRunner {
       const outputText = result.result?.trim() || assistantText.join("").trim();
       if (input.schema) {
         return {
-          structured: {
+          case: "structured",
+          value: {
             text: outputText,
-            value: structuredOutputFromText(outputText, input.schema),
+            value: structuredOutputFromText(outputText, input.schema) as JsonObject,
           },
         };
       }
-      return { text: outputText };
+      return { case: "text", value: { text: outputText } };
     } finally {
       await this.cleanupActiveTurn(input.turnId, active);
     }

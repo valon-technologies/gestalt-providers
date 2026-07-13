@@ -30,14 +30,18 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   AgentExecutionStatus,
   AgentToolSourceMode,
-  ENV_HOST_SERVICE_SOCKET,
-  ENV_HOST_SERVICE_TOKEN,
   createAgentProviderService,
+  type AgentMessage,
   type AgentTurn,
   type AgentToolRef,
   type CreateAgentProviderSessionRequest,
   type CreateAgentProviderTurnRequest,
   type ListedAgentTool,
+} from "@valon-technologies/gestalt/services/agent";
+import { GestaltError } from "@valon-technologies/gestalt/services/rpc_support";
+import {
+  ENV_HOST_SERVICE_SOCKET,
+  ENV_HOST_SERVICE_TOKEN,
 } from "@valon-technologies/gestalt";
 import {
   Agent as VendoredAgentProviderService,
@@ -56,8 +60,6 @@ import {
   App as AppService,
   type AppInvokeRequest,
   OperationResultSchema,
-  RequestContextSchema,
-  SubjectContextSchema,
 } from "../node_modules/@valon-technologies/gestalt/src/internal/gen/v1/app_pb.ts";
 
 import {
@@ -79,9 +81,12 @@ const OWNER_SUBJECT = subjectFixture("user:owner@example.com", "user", "Owner");
 const OTHER_SUBJECT = subjectFixture("user:other@example.com", "user", "Other");
 const SLACK_SUBJECT = subjectFixture("service_account:slack-bot", "service_account", "Slack Bot");
 const DEFAULT_SESSION_TOOLS: NonNullable<CreateAgentProviderSessionRequest["tools"]> = {
-  catalog: {
-    refs: [{ app: "p", operation: "o" }],
-    tools: [tool({ id: "tool-p-o", mcpName: "p__o", app: "p", operation: "o" })],
+  source: {
+    case: "catalog",
+    value: {
+      refs: [toolRef({ app: "p", operation: "o" })],
+      tools: [tool({ id: "tool-p-o", mcpName: "p__o", app: "p", operation: "o" })],
+    },
   },
 };
 
@@ -96,13 +101,17 @@ function subjectFixture(id: string, kind: string, displayName: string) {
 function requestContext(
   subject = OWNER_SUBJECT,
 ): NonNullable<CreateAgentProviderTurnRequest["context"]> {
-  return createMessage(RequestContextSchema, {
-    subject: createMessage(SubjectContextSchema, {
+  return {
+    subject: {
       id: subject.id,
       displayName: subject.displayName,
       email: subject.email,
-    }),
-  });
+      scopes: [],
+      permissions: [],
+    },
+    toolRefs: [],
+    toolRefsSet: false,
+  };
 }
 
 function create(
@@ -111,11 +120,21 @@ function create(
 ): any {
   let payload = input;
   if (schema.typeName === CreateAgentProviderSessionRequestSchema.typeName) {
+    const rawTools = (input as { tools?: unknown }).tools;
+    const tools =
+      isRecord(rawTools) && "catalog" in rawTools
+        ? { source: { case: "catalog", value: rawTools.catalog } }
+        : isRecord(rawTools) && "none" in rawTools
+          ? { source: { case: "none", value: rawTools.none } }
+          : rawTools;
     payload = {
-      createdBySubjectId: OWNER_SUBJECT.id,
-      subject: OWNER_SUBJECT,
+      context: requestContext(OWNER_SUBJECT),
+      ...(tools !== undefined ? { tools } : {}),
       ...input,
     };
+    if (tools !== undefined) {
+      (payload as Record<string, unknown>).tools = tools;
+    }
   } else if (
     [
       CancelAgentProviderTurnRequestSchema,
@@ -127,21 +146,24 @@ function create(
       UpdateAgentProviderSessionRequestSchema,
     ].some((requestSchema) => requestSchema.typeName === schema.typeName)
   ) {
-    payload = { subject: OWNER_SUBJECT, ...input };
+    payload = { context: requestContext(OWNER_SUBJECT), ...input };
   }
   const message = createMessage(schema, payload as MessageInitShape<DescMessage>);
   if (schema.typeName === CreateAgentProviderSessionRequestSchema.typeName) {
     const sessionRequest = message as unknown as CreateAgentProviderSessionRequest;
-    sessionRequest.tools =
-      (input as Partial<CreateAgentProviderSessionRequest>).tools ??
-      DEFAULT_SESSION_TOOLS;
+    if ((input as Partial<CreateAgentProviderSessionRequest>).tools === undefined) {
+      sessionRequest.tools = DEFAULT_SESSION_TOOLS;
+    }
   }
   return message;
 }
 
 function turnRequest(
-  input: Partial<CreateAgentProviderTurnRequest> &
-    Pick<CreateAgentProviderTurnRequest, "turnId" | "sessionId" | "messages">,
+  input: Omit<Partial<CreateAgentProviderTurnRequest>, "messages"> & {
+    turnId: string;
+    sessionId: string;
+    messages: ReadonlyArray<Pick<AgentMessage, "role" | "text"> & Partial<AgentMessage>>;
+  },
 ): CreateAgentProviderTurnRequest {
   const protoDefaults = {
     toolRefs: [],
@@ -152,13 +174,11 @@ function turnRequest(
     sessionId: input.sessionId,
     idempotencyKey: input.idempotencyKey ?? "",
     model: input.model ?? "",
-    messages: input.messages,
-    output: input.output ?? { text: {} },
+    messages: input.messages.map((message) => ({ parts: [], ...message })),
+    output: input.output ?? { kind: { case: "text", value: {} } },
     metadata: input.metadata,
-    createdBySubjectId: input.createdBySubjectId ?? OWNER_SUBJECT.id,
     executionRef: input.executionRef ?? "",
     ...protoDefaults,
-    subject: input.subject ?? OWNER_SUBJECT,
     context: Object.prototype.hasOwnProperty.call(input, "context")
       ? input.context
       : requestContext(OWNER_SUBJECT),
@@ -168,7 +188,28 @@ function turnRequest(
 }
 
 function turnText(turn: AgentTurn): string {
-  return turn.output?.text ?? turn.output?.structured?.text ?? "";
+  if (turn.output.case === "text" || turn.output.case === "structured") {
+    return turn.output.value.text;
+  }
+  return "";
+}
+
+function toolRef(input: Partial<AgentToolRef>): AgentToolRef {
+  return {
+    app: "",
+    operation: "",
+    connection: "",
+    instance: "",
+    title: "",
+    description: "",
+    credentialMode: "",
+    system: "",
+    ...input,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 afterEach(async () => {
@@ -385,7 +426,7 @@ describe("Cursor agent provider contract", () => {
           },
         }),
       ),
-    ).rejects.toThrow(ConnectError);
+    ).rejects.toThrow(GestaltError);
 
     const session = await provider.createSession(
       create(CreateAgentProviderSessionRequestSchema, {}),
@@ -397,7 +438,7 @@ describe("Cursor agent provider contract", () => {
           "__gestalt.lifecycle.sessionStart.additionalContext": "spoofed",
         },
       } as never),
-    ).rejects.toThrow(ConnectError);
+    ).rejects.toThrow(GestaltError);
   });
 
   test("createSession mints session ids and dedupes idempotency keys per subject", async () => {
@@ -424,8 +465,7 @@ describe("Cursor agent provider contract", () => {
     const otherSubject = await provider.createSession(
       create(CreateAgentProviderSessionRequestSchema, {
         idempotencyKey: "dedup-key",
-        createdBySubjectId: OTHER_SUBJECT.id,
-        subject: OTHER_SUBJECT,
+        context: requestContext(OTHER_SUBJECT),
       }),
     );
     expect(otherSubject.id).not.toBe(first.id);
@@ -481,8 +521,7 @@ describe("Cursor agent provider contract", () => {
     });
     const session = await provider.createSession(
       create(CreateAgentProviderSessionRequestSchema, {
-        createdBySubjectId: SLACK_SUBJECT.id,
-        subject: SLACK_SUBJECT,
+        context: requestContext(SLACK_SUBJECT),
         metadata: slackSessionMetadata(),
       }),
     );
@@ -491,15 +530,14 @@ describe("Cursor agent provider contract", () => {
         turnId: "access-company-turn",
         sessionId: requireId(session),
         messages: [{ role: "user", text: "hi" }],
-        createdBySubjectId: SLACK_SUBJECT.id,
-        subject: SLACK_SUBJECT,
+        context: requestContext(SLACK_SUBJECT),
       }),
     );
 
     const otherSession = await provider.getSession(
       create(GetAgentProviderSessionRequestSchema, {
         sessionId: requireId(session),
-        subject: OTHER_SUBJECT,
+        context: requestContext(OTHER_SUBJECT),
       }),
     );
     expect(otherSession.id).toBe(session.id);
@@ -509,7 +547,7 @@ describe("Cursor agent provider contract", () => {
     );
     const otherSessions = await provider.listSessions(
       create(ListAgentProviderSessionsRequestSchema, {
-        subject: OTHER_SUBJECT,
+        context: requestContext(OTHER_SUBJECT),
       }),
     );
     expect(otherSessions.map((listed) => listed.id)).toContain(session.id);
@@ -517,14 +555,14 @@ describe("Cursor agent provider contract", () => {
     const otherTurns = await provider.listTurns(
       create(ListAgentProviderTurnsRequestSchema, {
         sessionId: requireId(session),
-        subject: OTHER_SUBJECT,
+        context: requestContext(OTHER_SUBJECT),
       }),
     );
     expect(otherTurns.map((turn) => turn.id)).toContain("access-company-turn");
     const exactOtherTurns = await provider.listTurns(
       create(ListAgentProviderTurnsRequestSchema, {
         turnIds: ["access-company-turn"],
-        subject: OTHER_SUBJECT,
+        context: requestContext(OTHER_SUBJECT),
       }),
     );
     expect(exactOtherTurns.map((turn) => turn.id)).toEqual([
@@ -548,7 +586,7 @@ describe("Cursor agent provider contract", () => {
       provider.getSession(
         create(GetAgentProviderSessionRequestSchema, {
           sessionId: privateSession.id,
-          subject: OTHER_SUBJECT,
+          context: requestContext(OTHER_SUBJECT),
         }),
       ),
       Code.NotFound,
@@ -559,7 +597,7 @@ describe("Cursor agent provider contract", () => {
     );
     const otherSessions = await provider.listSessions(
       create(ListAgentProviderSessionsRequestSchema, {
-        subject: OTHER_SUBJECT,
+        context: requestContext(OTHER_SUBJECT),
       }),
     );
     expect(otherSessions.map((session) => session.id)).not.toContain(
@@ -567,15 +605,14 @@ describe("Cursor agent provider contract", () => {
     );
     const missingSubjectSessions = await provider.listSessions(
       create(ListAgentProviderSessionsRequestSchema, {
-        subject: undefined,
+        context: undefined,
       }),
     );
     expect(missingSubjectSessions).toEqual([]);
 
     const incompleteSlackSession = await provider.createSession(
       create(CreateAgentProviderSessionRequestSchema, {
-        createdBySubjectId: SLACK_SUBJECT.id,
-        subject: SLACK_SUBJECT,
+        context: requestContext(SLACK_SUBJECT),
         metadata: { slack: { team_id: "T123", channel_id: "C456" } },
       }),
     );
@@ -583,7 +620,7 @@ describe("Cursor agent provider contract", () => {
       provider.getSession(
         create(GetAgentProviderSessionRequestSchema, {
           sessionId: incompleteSlackSession.id,
-          subject: OTHER_SUBJECT,
+          context: requestContext(OTHER_SUBJECT),
         }),
       ),
       Code.NotFound,
@@ -616,7 +653,7 @@ describe("Cursor agent provider contract", () => {
       provider.updateSession(
         create(UpdateAgentProviderSessionRequestSchema, {
           sessionId: requireId(session),
-          subject: OTHER_SUBJECT,
+          context: requestContext(OTHER_SUBJECT),
           clientRef: "not-owner",
         }),
       ),
@@ -627,7 +664,7 @@ describe("Cursor agent provider contract", () => {
         turnRequest({
           turnId: "access-private-turn-other",
           sessionId: requireId(session),
-          subject: OTHER_SUBJECT,
+          context: requestContext(OTHER_SUBJECT),
           messages: [{ role: "user", text: "nope" }],
         }),
       ),
@@ -637,7 +674,7 @@ describe("Cursor agent provider contract", () => {
       provider.cancelTurn(
         create(CancelAgentProviderTurnRequestSchema, {
           turnId: "access-private-turn",
-          subject: OTHER_SUBJECT,
+          context: requestContext(OTHER_SUBJECT),
           reason: "nope",
         }),
       ),
@@ -648,7 +685,7 @@ describe("Cursor agent provider contract", () => {
       provider.getTurn(
         create(GetAgentProviderTurnRequestSchema, {
           turnId: "access-private-turn",
-          subject: OTHER_SUBJECT,
+          context: requestContext(OTHER_SUBJECT),
         }),
       ),
       Code.NotFound,
@@ -657,7 +694,7 @@ describe("Cursor agent provider contract", () => {
       await provider.listTurns(
         create(ListAgentProviderTurnsRequestSchema, {
           sessionId: requireId(session),
-          subject: OTHER_SUBJECT,
+          context: requestContext(OTHER_SUBJECT),
         }),
       ),
     ).toEqual([]);
@@ -665,7 +702,7 @@ describe("Cursor agent provider contract", () => {
       await provider.listTurns(
         create(ListAgentProviderTurnsRequestSchema, {
           turnIds: ["access-private-turn"],
-          subject: OTHER_SUBJECT,
+          context: requestContext(OTHER_SUBJECT),
         }),
       ),
     ).toEqual([]);
@@ -673,7 +710,7 @@ describe("Cursor agent provider contract", () => {
       await provider.listTurnEvents(
         create(ListAgentProviderTurnEventsRequestSchema, {
           turnId: "access-private-turn",
-          subject: OTHER_SUBJECT,
+          context: requestContext(OTHER_SUBJECT),
         }),
       ),
     ).toEqual([]);
@@ -817,13 +854,16 @@ describe("Cursor agent provider contract", () => {
         sessionId: requireId(session),
         messages: [{ role: "user", text: "grade" }],
         output: {
-          structured: {
-            schema: {
-              type: "object",
-              required: ["score", "reasoning"],
-              properties: {
-                score: { type: "number" },
-                reasoning: { type: "string" },
+          kind: {
+            case: "structured",
+            value: {
+              schema: {
+                type: "object",
+                required: ["score", "reasoning"],
+                properties: {
+                  score: { type: "number" },
+                  reasoning: { type: "string" },
+                },
               },
             },
           },
@@ -837,7 +877,7 @@ describe("Cursor agent provider contract", () => {
     );
 
     expect(prompt).toContain("gestalt_structured_output");
-    expect(turn.output?.structured?.value).toEqual({
+    expect(turn.output.case === "structured" ? turn.output.value.value : undefined).toEqual({
       score: 1,
       reasoning: "correct",
     });
@@ -873,11 +913,14 @@ describe("Cursor agent provider contract", () => {
         sessionId: requireId(session),
         messages: [{ role: "user", text: "grade" }],
         output: {
-          structured: {
-            schema: {
-              type: "object",
-              required: ["score"],
-              properties: { score: { type: "number" } },
+          kind: {
+            case: "structured",
+            value: {
+              schema: {
+                type: "object",
+                required: ["score"],
+                properties: { score: { type: "number" } },
+              },
             },
           },
         },
@@ -921,7 +964,7 @@ describe("Cursor agent provider contract", () => {
       idempotencyKey: "",
       model: "",
       clientRef: "",
-      createdBySubjectId: OWNER_SUBJECT.id,
+      context: requestContext(OWNER_SUBJECT),
       preparedWorkspace: { root: tmpdir(), cwd: preparedCwd },
       tools: DEFAULT_SESSION_TOOLS,
     } as never);
@@ -946,7 +989,7 @@ describe("Cursor agent provider contract", () => {
         idempotencyKey: "",
         model: "",
         clientRef: "",
-        createdBySubjectId: OWNER_SUBJECT.id,
+        context: requestContext(OWNER_SUBJECT),
         preparedWorkspace: { root: tmpdir(), cwd: "" },
       } as never),
     ).rejects.toThrow("preparedWorkspace root and cwd are required");
@@ -1013,7 +1056,7 @@ describe("Cursor agent provider contract", () => {
 
   test("rejects unsupported session and turn inputs", async () => {
     const provider = await configuredProvider();
-    const invalidSessionCases: Array<[string, CreateAgentProviderSessionRequest["tools"], string]> = [
+    const invalidSessionCases: Array<[string, unknown, string]> = [
       [
         "none tools",
         { none: {} },
@@ -1081,7 +1124,7 @@ describe("Cursor agent provider contract", () => {
       ["missing request context", { context: undefined }, "request context is required"],
       [
         "empty structured output schema",
-        { output: { structured: { schema: {} } } },
+        { output: { kind: { case: "structured", value: { schema: {} } } } },
         "output.structured.schema",
       ],
       [
@@ -1341,8 +1384,8 @@ describe("Cursor agent provider contract", () => {
 
   test("rejects invalid listed catalog tools at session creation", async () => {
     const provider = await configuredProvider();
-    const baseRef: AgentToolRef = { app: "p", operation: "o" };
-    const cases: Array<[string, NonNullable<CreateAgentProviderSessionRequest["tools"]>, string]> = [
+    const baseRef: AgentToolRef = toolRef({ app: "p", operation: "o" });
+    const cases: Array<[string, unknown, string]> = [
       [
         "empty",
         { catalog: { refs: [baseRef], tools: [] } },
@@ -1581,7 +1624,7 @@ function tool(input: {
   connection?: string;
   instance?: string;
   credentialMode?: string;
-  runAs?: AgentToolRef["runAs"];
+  runAs?: unknown;
 }): ListedAgentTool {
   return create(ListedAgentToolSchema, {
     id: input.id,
@@ -1596,7 +1639,7 @@ function tool(input: {
       connection: input.connection ?? "",
       instance: input.instance ?? "",
       credentialMode: input.credentialMode ?? "",
-      runAs: input.runAs,
+      runAs: input.runAs as never,
     },
   });
 }
@@ -1620,8 +1663,10 @@ async function expectConnectCode(
   try {
     await promise;
   } catch (error) {
-    expect(error).toBeInstanceOf(ConnectError);
-    expect((error as ConnectError).code).toBe(code);
+    expect(
+      error instanceof ConnectError || error instanceof GestaltError,
+    ).toBe(true);
+    expect((error as ConnectError | GestaltError).code).toBe(code);
     return;
   }
   throw new Error(`expected ConnectError code ${code}`);
