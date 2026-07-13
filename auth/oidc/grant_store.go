@@ -25,6 +25,7 @@ const (
 	tokenIndexByGrantID   = "by_grant_id"
 	grantCategorySession  = "session"
 	grantCategoryAPIToken = "api_token"
+	apiTokenPrefix        = "gst_api_"
 )
 
 const defaultOAuthClientID = "gestaltd"
@@ -203,7 +204,7 @@ func (s *grantStore) issue(ctx context.Context, subject, scope, clientID, catego
 	}
 	expiresAt := now.Add(ttl)
 	grantID := "grant-" + uuid.NewString()
-	accessToken := generateOpaqueToken()
+	accessToken := generateAccessToken(category)
 	tokenHash := hashToken(accessToken)
 
 	tx, err := s.db.Transaction(
@@ -366,12 +367,20 @@ func grantResponseFromRecord(record gestalt.Record) *gestalt.GetGrantResponse {
 	return resp
 }
 
-func generateOpaqueToken() string {
+func generateAccessToken(category string) string {
 	var b [32]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return "tok-" + uuid.NewString()
+		suffix := uuid.NewString()
+		if category == grantCategoryAPIToken {
+			return apiTokenPrefix + suffix
+		}
+		return "tok-" + suffix
 	}
-	return base64.RawURLEncoding.EncodeToString(b[:])
+	token := base64.RawURLEncoding.EncodeToString(b[:])
+	if category == grantCategoryAPIToken {
+		return apiTokenPrefix + token
+	}
+	return token
 }
 
 func hashToken(token string) string {
