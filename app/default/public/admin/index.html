@@ -796,7 +796,8 @@
             <h2>Add or update a dynamic member</h2>
             <p class="metric-note auth-form-copy">
               Roles are stored as opaque strings and checked against the
-              app's existing <code>allowedRoles</code> rules.
+              app's <code>authorizationPolicy</code> and config-owned
+              <code>allowedOperations</code> roles.
             </p>
 
             <form id="authorization-form" class="auth-form">
