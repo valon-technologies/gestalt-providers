@@ -165,31 +165,57 @@ func TestTokenPKCEUsesStoredVerifier(t *testing.T) {
 	}
 }
 
-func TestIntrospectInactiveAfterRevokeGrant(t *testing.T) {
+func TestIntrospectInactive(t *testing.T) {
 	p := New()
 	attachGrantStore(t, p)
 	ctx := context.Background()
-	subject := "user:user@example.com"
-	issued, err := p.grants.issue(ctx, subject, "openid email", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
-	if err != nil {
-		t.Fatalf("issue() error = %v", err)
-	}
-	grantID, accessToken := issued.grantID, issued.accessToken
 
-	revokeCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
-		CallerBearerToken: accessToken,
+	t.Run("empty token", func(t *testing.T) {
+		resp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: ""})
+		if err != nil {
+			t.Fatalf("Introspect() error = %v", err)
+		}
+		if resp == nil || resp.Active {
+			t.Fatalf("Introspect() = %#v, want inactive", resp)
+		}
 	})
-	if _, err := p.RevokeGrant(revokeCtx, &gestalt.RevokeGrantRequest{GrantID: grantID}); err != nil {
-		t.Fatalf("RevokeGrant() error = %v", err)
-	}
 
-	resp, err := p.Introspect(context.Background(), &gestalt.IntrospectRequest{Token: accessToken})
-	if err != nil {
-		t.Fatalf("Introspect() error = %v", err)
-	}
-	if resp.Active {
-		t.Fatal("Introspect() expected inactive token after revoke")
-	}
+	t.Run("unknown token", func(t *testing.T) {
+		resp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: "unknown-token"})
+		if err != nil {
+			t.Fatalf("Introspect() error = %v", err)
+		}
+		if resp == nil || resp.Active {
+			t.Fatalf("Introspect() = %#v, want inactive", resp)
+		}
+	})
+
+	t.Run("revoked api token", func(t *testing.T) {
+		subject := "user:user@example.com"
+		issued, err := p.grants.issue(ctx, subject, "openid email", defaultOAuthClientID, grantCategoryAPIToken, time.Hour)
+		if err != nil {
+			t.Fatalf("issue() error = %v", err)
+		}
+		if !strings.HasPrefix(issued.accessToken, apiTokenPrefix) {
+			t.Fatalf("access token = %q, want %q prefix", issued.accessToken, apiTokenPrefix)
+		}
+		grantID, accessToken := issued.grantID, issued.accessToken
+
+		revokeCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
+			CallerBearerToken: accessToken,
+		})
+		if _, err := p.RevokeGrant(revokeCtx, &gestalt.RevokeGrantRequest{GrantID: grantID}); err != nil {
+			t.Fatalf("RevokeGrant() error = %v", err)
+		}
+
+		resp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: accessToken})
+		if err != nil {
+			t.Fatalf("Introspect() error = %v", err)
+		}
+		if resp.Active {
+			t.Fatal("Introspect() expected inactive token after revoke")
+		}
+	})
 }
 
 func TestListGrantsScopesToCaller(t *testing.T) {
@@ -823,6 +849,9 @@ func TestTokenExchangeAttenuatesScope(t *testing.T) {
 			if tokenResp.Scope != tt.wantScope {
 				t.Fatalf("Token() scope = %q, want %q", tokenResp.Scope, tt.wantScope)
 			}
+			if !strings.HasPrefix(tokenResp.AccessToken, apiTokenPrefix) {
+				t.Fatalf("exchanged token = %q, want %q prefix", tokenResp.AccessToken, apiTokenPrefix)
+			}
 			introspectResp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: tokenResp.AccessToken})
 			if err != nil {
 				t.Fatalf("Introspect() error = %v", err)
@@ -1161,6 +1190,12 @@ func TestGrantManagementExcludesSessionGrants(t *testing.T) {
 	if err != nil {
 		t.Fatalf("issue(api_token) error = %v", err)
 	}
+	if strings.HasPrefix(sessionIssued.accessToken, apiTokenPrefix) {
+		t.Fatalf("session token = %q, want no %q prefix", sessionIssued.accessToken, apiTokenPrefix)
+	}
+	if !strings.HasPrefix(apiIssued.accessToken, apiTokenPrefix) {
+		t.Fatalf("api token = %q, want %q prefix", apiIssued.accessToken, apiTokenPrefix)
+	}
 
 	callCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
 		CallerBearerToken: apiIssued.accessToken,
@@ -1179,62 +1214,117 @@ func TestGrantManagementExcludesSessionGrants(t *testing.T) {
 		t.Fatal("RevokeGrant(session) error = nil, want not found")
 	}
 
-	sessionIntrospect, err := p.Introspect(context.Background(), &gestalt.IntrospectRequest{Token: sessionIssued.accessToken})
-	if err != nil {
-		t.Fatalf("Introspect(session) error = %v", err)
-	}
-	if !sessionIntrospect.Active {
-		t.Fatal("Introspect(session) expected active token")
+	for _, tc := range []struct {
+		name        string
+		token       string
+		wantScope   string
+		wantSubject string
+	}{
+		{
+			name:        "session grant",
+			token:       sessionIssued.accessToken,
+			wantScope:   "openid",
+			wantSubject: subject,
+		},
+		{
+			name:        "api grant",
+			token:       apiIssued.accessToken,
+			wantScope:   "deal-hub:read",
+			wantSubject: subject,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: tc.token})
+			if err != nil {
+				t.Fatalf("Introspect() error = %v", err)
+			}
+			if resp == nil || !resp.Active {
+				t.Fatalf("Introspect() = %#v, want active", resp)
+			}
+			if resp.Subject != tc.wantSubject {
+				t.Fatalf("Introspect() subject = %q, want %q", resp.Subject, tc.wantSubject)
+			}
+			if resp.Scope != tc.wantScope {
+				t.Fatalf("Introspect() scope = %q, want %q", resp.Scope, tc.wantScope)
+			}
+			if resp.ClientID != defaultOAuthClientID {
+				t.Fatalf("Introspect() client_id = %q, want %q", resp.ClientID, defaultOAuthClientID)
+			}
+		})
 	}
 }
 
-func TestFarFutureSentinelExpiryIntrospectsActive(t *testing.T) {
-	const farFutureGrantExpiryRFC3339 = "9999-12-31T23:59:59Z"
+func TestIntrospectExpiry(t *testing.T) {
+	t.Run("far future sentinel stays active", func(t *testing.T) {
+		const farFutureGrantExpiryRFC3339 = "9999-12-31T23:59:59Z"
 
-	p := New()
-	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	p.now = func() time.Time { return now }
-	attachGrantStore(t, p)
-	ctx := context.Background()
-	sentinel, err := time.Parse(time.RFC3339, farFutureGrantExpiryRFC3339)
-	if err != nil {
-		t.Fatalf("parse sentinel: %v", err)
-	}
+		p := New()
+		now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		p.now = func() time.Time { return now }
+		attachGrantStore(t, p)
+		ctx := context.Background()
+		sentinel, err := time.Parse(time.RFC3339, farFutureGrantExpiryRFC3339)
+		if err != nil {
+			t.Fatalf("parse sentinel: %v", err)
+		}
 
-	grantID := "grant-legacy"
-	accessToken := "legacy-plaintext-token"
-	tokenHash := hashToken(accessToken)
-	db := p.grantsDB
-	if err := db.ObjectStore(grantStoreName).Add(ctx, gestalt.Record{
-		"id":         grantID,
-		"subject":    "user:legacy@example.com",
-		"scope":      "deal-hub:read",
-		"client_id":  defaultOAuthClientID,
-		"created_at": now,
-		"expires_at": sentinel,
-		"revoked":    false,
-		"category":   grantCategoryAPIToken,
-	}); err != nil {
-		t.Fatalf("Add(grant) error = %v", err)
-	}
-	if err := db.ObjectStore(tokenHashStoreName).Add(ctx, gestalt.Record{
-		"id":         tokenHash,
-		"grant_id":   grantID,
-		"subject":    "user:legacy@example.com",
-		"scope":      "deal-hub:read",
-		"client_id":  defaultOAuthClientID,
-		"expires_at": sentinel,
-	}); err != nil {
-		t.Fatalf("Add(token hash) error = %v", err)
-	}
+		grantID := "grant-legacy"
+		accessToken := "legacy-plaintext-token"
+		tokenHash := hashToken(accessToken)
+		db := p.grantsDB
+		if err := db.ObjectStore(grantStoreName).Add(ctx, gestalt.Record{
+			"id":         grantID,
+			"subject":    "user:legacy@example.com",
+			"scope":      "deal-hub:read",
+			"client_id":  defaultOAuthClientID,
+			"created_at": now,
+			"expires_at": sentinel,
+			"revoked":    false,
+			"category":   grantCategoryAPIToken,
+		}); err != nil {
+			t.Fatalf("Add(grant) error = %v", err)
+		}
+		if err := db.ObjectStore(tokenHashStoreName).Add(ctx, gestalt.Record{
+			"id":         tokenHash,
+			"grant_id":   grantID,
+			"subject":    "user:legacy@example.com",
+			"scope":      "deal-hub:read",
+			"client_id":  defaultOAuthClientID,
+			"expires_at": sentinel,
+		}); err != nil {
+			t.Fatalf("Add(token hash) error = %v", err)
+		}
 
-	resp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: accessToken})
-	if err != nil {
-		t.Fatalf("Introspect() error = %v", err)
-	}
-	if !resp.Active {
-		t.Fatal("Introspect() expected active token for far-future sentinel expiry")
-	}
+		resp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: accessToken})
+		if err != nil {
+			t.Fatalf("Introspect() error = %v", err)
+		}
+		if !resp.Active {
+			t.Fatal("Introspect() expected active token for far-future sentinel expiry")
+		}
+	})
+
+	t.Run("expired token is inactive", func(t *testing.T) {
+		p := New()
+		now := time.Unix(1_700_000_000, 0)
+		p.now = func() time.Time { return now }
+		attachGrantStore(t, p)
+		ctx := context.Background()
+
+		issued, err := p.grants.issue(ctx, "user:expired@example.com", "openid", defaultOAuthClientID, grantCategoryAPIToken, time.Minute)
+		if err != nil {
+			t.Fatalf("issue() error = %v", err)
+		}
+
+		p.now = func() time.Time { return now.Add(2 * time.Minute) }
+		resp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: issued.accessToken})
+		if err != nil {
+			t.Fatalf("Introspect() error = %v", err)
+		}
+		if resp == nil || resp.Active {
+			t.Fatalf("Introspect() = %#v, want inactive for expired token", resp)
+		}
+	})
 }
 
 func TestTokenRejectsMismatchedUserInfoSub(t *testing.T) {
