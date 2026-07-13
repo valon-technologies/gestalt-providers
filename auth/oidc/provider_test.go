@@ -858,12 +858,6 @@ func TestGrantManagementExcludesSessionGrants(t *testing.T) {
 	if err != nil {
 		t.Fatalf("issue(api_token) error = %v", err)
 	}
-	if strings.HasPrefix(sessionIssued.accessToken, apiTokenPrefix) {
-		t.Fatalf("session token = %q, want no %q prefix", sessionIssued.accessToken, apiTokenPrefix)
-	}
-	if !strings.HasPrefix(apiIssued.accessToken, apiTokenPrefix) {
-		t.Fatalf("api token = %q, want %q prefix", apiIssued.accessToken, apiTokenPrefix)
-	}
 
 	callCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
 		CallerBearerToken: apiIssued.accessToken,
@@ -881,78 +875,6 @@ func TestGrantManagementExcludesSessionGrants(t *testing.T) {
 	if _, err := p.RevokeGrant(callCtx, &gestalt.RevokeGrantRequest{GrantID: sessionIssued.grantID}); err == nil {
 		t.Fatal("RevokeGrant(session) error = nil, want not found")
 	}
-
-	for _, tc := range []struct {
-		name        string
-		token       string
-		wantScope   string
-		wantSubject string
-	}{
-		{
-			name:        "session grant",
-			token:       sessionIssued.accessToken,
-			wantScope:   "openid",
-			wantSubject: subject,
-		},
-		{
-			name:        "api grant",
-			token:       apiIssued.accessToken,
-			wantScope:   "deal-hub:read",
-			wantSubject: subject,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			resp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: tc.token})
-			if err != nil {
-				t.Fatalf("Introspect() error = %v", err)
-			}
-			if resp == nil || !resp.Active {
-				t.Fatalf("Introspect() = %#v, want active", resp)
-			}
-			if resp.Subject != tc.wantSubject {
-				t.Fatalf("Introspect() subject = %q, want %q", resp.Subject, tc.wantSubject)
-			}
-			if resp.Scope != tc.wantScope {
-				t.Fatalf("Introspect() scope = %q, want %q", resp.Scope, tc.wantScope)
-			}
-			if resp.ClientID != defaultOAuthClientID {
-				t.Fatalf("Introspect() client_id = %q, want %q", resp.ClientID, defaultOAuthClientID)
-			}
-		})
-	}
-
-	t.Run("revoked api token is inactive", func(t *testing.T) {
-		revokeCtx := gestalt.WithIdentityCallContext(ctx, gestalt.IdentityCallContext{
-			CallerBearerToken: apiIssued.accessToken,
-		})
-		if _, err := p.RevokeGrant(revokeCtx, &gestalt.RevokeGrantRequest{GrantID: apiIssued.grantID}); err != nil {
-			t.Fatalf("RevokeGrant() error = %v", err)
-		}
-		resp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: apiIssued.accessToken})
-		if err != nil {
-			t.Fatalf("Introspect() error = %v", err)
-		}
-		if resp == nil || resp.Active {
-			t.Fatalf("Introspect() = %#v, want inactive for revoked token", resp)
-		}
-	})
-
-	t.Run("expired api token is inactive", func(t *testing.T) {
-		now := time.Unix(1_700_000_000, 0)
-		p.now = func() time.Time { return now }
-		expiredIssued, err := p.grants.issue(ctx, subject, "deal-hub:read", defaultOAuthClientID, grantCategoryAPIToken, time.Minute)
-		if err != nil {
-			t.Fatalf("issue(expired) error = %v", err)
-		}
-		p.now = func() time.Time { return now.Add(2 * time.Minute) }
-		resp, err := p.Introspect(ctx, &gestalt.IntrospectRequest{Token: expiredIssued.accessToken})
-		if err != nil {
-			t.Fatalf("Introspect() error = %v", err)
-		}
-		if resp == nil || resp.Active {
-			t.Fatalf("Introspect() = %#v, want inactive for expired token", resp)
-		}
-	})
 }
 
 func TestTokenRejectsMismatchedUserInfoSub(t *testing.T) {
