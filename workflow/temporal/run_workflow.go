@@ -41,6 +41,10 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 		OwnerKey:         input.OwnerKey,
 	})
 	runAs := strings.TrimSpace(string(input.RunAs))
+	var runAsSubject *gestalt.Subject
+	if runAs != "" {
+		runAsSubject = &gestalt.Subject{ID: runAs}
+	}
 	state := &gestalt.WorkflowRun{
 		ID:                   publicID,
 		Status:               gestalt.WorkflowRunStatusValuePending,
@@ -56,7 +60,7 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 	}
 	publicRun := func() *gestalt.WorkflowRun {
 		out := cloneRunInput(state)
-		out.RunAs = runAsToSubject(runAs)
+		out.RunAs = runAsSubject
 		return out
 	}
 	pendingSignals := make([]gestalt.WorkflowSignal, 0)
@@ -198,7 +202,7 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 				Trigger:              state.Trigger,
 				Input:                cloneMapInput(state.Input),
 				CreatedBy:            state.CreatedBy,
-				RunAs:                runAsToSubject(runAs),
+				RunAs:                runAsSubject,
 				Signals:              batch,
 			}
 			stepReq := gestaltworkflow.StepRequest{

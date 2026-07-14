@@ -202,6 +202,10 @@ func (b *temporalBackend) pendingRunFromWorkflowRun(run client.WorkflowRun, inpu
 		WorkflowKey:      input.WorkflowKey,
 		OwnerKey:         input.OwnerKey,
 	})
+	var runAsSubject *gestalt.Subject
+	if id := strings.TrimSpace(string(input.RunAs)); id != "" {
+		runAsSubject = &gestalt.Subject{ID: id}
+	}
 	out := &gestalt.WorkflowRun{
 		ID:                   publicID,
 		Status:               gestalt.WorkflowRunStatusValuePending,
@@ -213,7 +217,7 @@ func (b *temporalBackend) pendingRunFromWorkflowRun(run client.WorkflowRun, inpu
 		DefinitionID:         strings.TrimSpace(input.DefinitionID),
 		DefinitionGeneration: input.DefinitionGeneration,
 		ProviderName:         b.providerName,
-		RunAs:                runAsToSubject(string(input.RunAs)),
+		RunAs:                runAsSubject,
 		Input:                cloneMapInput(input.Input),
 	}
 	return out

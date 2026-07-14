@@ -497,40 +497,6 @@ func requestCreatedBy(ctx context.Context) string {
 	return cloneCreatedBy(gestalt.SubjectFromContext(ctx).ID)
 }
 
-func runAsFromSubject(subject *gestalt.Subject) string {
-	if subject == nil {
-		return ""
-	}
-	return strings.TrimSpace(subject.ID)
-}
-
-func runAsToSubject(runAs string) *gestalt.Subject {
-	runAs = strings.TrimSpace(runAs)
-	if runAs == "" {
-		return nil
-	}
-	return &gestalt.Subject{ID: runAs}
-}
-
-func validateWorkflowRunAsInput(runAs string) error {
-	if strings.TrimSpace(runAs) == "" {
-		return errors.New("run_as is required")
-	}
-	return nil
-}
-
-func validateWorkflowActivationRunAsInput(activations []gestalt.WorkflowActivation, runAs string) error {
-	for _, activation := range activations {
-		if activation.Event == nil && activation.Schedule == nil {
-			continue
-		}
-		if err := validateWorkflowRunAsInput(runAs); err != nil {
-			return fmt.Errorf("activation %q run_as: %w", activation.ID, err)
-		}
-	}
-	return nil
-}
-
 func manualTriggerInput() *gestalt.WorkflowRunTrigger {
 	return &gestalt.WorkflowRunTrigger{Manual: true}
 }
