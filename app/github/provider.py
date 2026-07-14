@@ -1141,7 +1141,7 @@ def github_events_handle(
                 "github_action": summary.get("action", ""),
                 "github_delivery_id": summary.get("delivery_id", ""),
                 "github_repository": summary.get("repository", ""),
-                "workflow_provider": workflow_request.provider_name,
+                "workflow_provider": workflow_request.provider,
             },
         )
         with req.workflows() as workflows:
@@ -1168,7 +1168,7 @@ def github_events_handle(
             "workflow_event_id": workflow_request.event.id
             if workflow_request.event is not None
             else "",
-            "workflow_provider": workflow_request.provider_name,
+            "workflow_provider": workflow_request.provider,
         },
     )
 
@@ -1178,7 +1178,7 @@ def github_events_handle(
         "workflow_event_id": workflow_request.event.id
         if workflow_request.event is not None
         else "",
-        "workflow_provider": workflow_request.provider_name,
+        "workflow_provider": workflow_request.provider,
     }
 
 
@@ -1190,7 +1190,7 @@ def _build_workflow_deliver_event_request(
         f"github:{delivery_id}" if delivery_id else f"github:{payload_digest(payload)}"
     )
     return gestalt.WorkflowDeliverEvent(
-        provider_name=get_github_config().workflow_provider,
+        provider=get_github_config().workflow_provider,
         event=gestalt.WorkflowEvent(
             id=event_id,
             source="github",

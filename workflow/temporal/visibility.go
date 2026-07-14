@@ -42,7 +42,7 @@ func workflowRunSearchAttributeUpdates(scopeID string, run *gestalt.WorkflowRun)
 	if value := workflowRunStatusName(run.Status); value != "" && value != "unspecified" {
 		updates = append(updates, searchAttrRunStatus.ValueSet(value))
 	}
-	if value := searchAttributeHash(run.CreatedBySubjectID); value != "" {
+	if value := searchAttributeHash(run.CreatedBy); value != "" {
 		updates = append(updates, searchAttrCreatedBySubjectHash.ValueSet(value))
 	}
 	if value := strings.TrimSpace(run.DefinitionID); value != "" {
@@ -66,8 +66,8 @@ func workflowRunSearchAttributeUpdates(scopeID string, run *gestalt.WorkflowRun)
 func workflowRunSearchAttributesFromInput(input runWorkflowInput, status gestalt.WorkflowRunStatus) sdktemporal.SearchAttributes {
 	run := &gestalt.WorkflowRun{
 		Status:               status,
-		Target:               input.targetInput(),
-		CreatedBySubjectID:   input.createdByInput(),
+		Target:               input.Target,
+		CreatedBy:            input.CreatedBy,
 		WorkflowKey:          strings.TrimSpace(input.WorkflowKey),
 		ProviderName:         strings.TrimSpace(input.ProviderName),
 		DefinitionID:         strings.TrimSpace(input.DefinitionID),

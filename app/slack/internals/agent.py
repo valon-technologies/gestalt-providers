@@ -242,7 +242,7 @@ def _workflow_deliver_log_context(
 ) -> str:
     event = workflow_request.event if workflow_request is not None else None
     return _log_context(
-        workflow_provider=workflow_request.provider_name
+        workflow_provider=workflow_request.provider
         if workflow_request is not None
         else "",
         workflow_event_id_sha256=_sha256_log_value(event.id if event else ""),
@@ -1720,7 +1720,7 @@ def _build_workflow_deliver_event_request(
     raw_payload: dict[str, Any],
 ) -> gestalt.WorkflowDeliverEvent:
     workflow_request = gestalt.WorkflowDeliverEvent(
-        provider_name=route.workflow_provider,
+        provider=route.workflow_provider,
         event=gestalt.WorkflowEvent(
             id=_workflow_event_id(event, route),
             source="slack",
@@ -2271,7 +2271,7 @@ def _build_agent_workflow_deliver_event_request(
 ) -> gestalt.WorkflowDeliverEvent:
     workflow_key = _workflow_key(event, route)
     workflow_request = gestalt.WorkflowDeliverEvent(
-        provider_name=_workflow_provider_name(route),
+        provider=_workflow_provider_name(route),
         event=gestalt.WorkflowEvent(
             id=_agent_turn_idempotency_key(event),
             source="slack",
@@ -2379,7 +2379,7 @@ def _build_interaction_workflow_deliver_event_request(
 ) -> gestalt.WorkflowDeliverEvent:
     event = _interaction_event(payload, interaction_ref)
     return gestalt.WorkflowDeliverEvent(
-        provider_name=_workflow_provider_name(route),
+        provider=_workflow_provider_name(route),
         event=gestalt.WorkflowEvent(
             id=_interaction_idempotency_key(payload, selected_action),
             source="slack",

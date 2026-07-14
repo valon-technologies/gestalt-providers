@@ -56,7 +56,7 @@ func TestTemporalRunReturnsRunState(t *testing.T) {
 		RunAs:                         &gestalt.Subject{ID: "service:workflow-test"},
 		Target:                        nativeAppTargetInput("slack", "postMessage"),
 		Trigger:                       manualTriggerInput(),
-		CreatedBySubjectID:            actor("user-1"),
+		CreatedBy:                     actor("user-1"),
 	})
 
 	if err := env.GetWorkflowError(); err != nil {
@@ -166,7 +166,7 @@ func TestBackendApplyDefinitionListAndActivationPause(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplyDefinition: %v", err)
 	}
-	if definition.Generation != 1 || definition.ProviderName != "temporal" || definition.CreatedBySubjectID != "creator-1" {
+	if definition.Generation != 1 || definition.ProviderName != "temporal" || definition.CreatedBy != "creator-1" {
 		t.Fatalf("definition = %#v", definition)
 	}
 	scheduleID := backend.temporalScheduleID("definition-1", "hourly")
@@ -404,8 +404,7 @@ func TestBackendDeliverEventStartsMatchingActivation(t *testing.T) {
 	}
 
 	delivered, err := backend.DeliverEvent(ctx, &gestalt.DeliverWorkflowProviderEventRequest{
-		AppName: "slack",
-		Event:   &gestalt.WorkflowEvent{ID: "event-1", Type: "message.created", Data: map[string]any{"channel": "alerts"}},
+		Event: &gestalt.WorkflowEvent{ID: "event-1", Source: "slack", Type: "message.created", Data: map[string]any{"channel": "alerts"}},
 	})
 	if err != nil {
 		t.Fatalf("DeliverEvent: %v", err)
@@ -425,8 +424,7 @@ func TestBackendDeliverEventStartsMatchingActivation(t *testing.T) {
 	}
 
 	if _, err := backend.DeliverEvent(ctx, &gestalt.DeliverWorkflowProviderEventRequest{
-		AppName: "slack",
-		Event:   &gestalt.WorkflowEvent{ID: "event-1", Type: "message.created", Data: map[string]any{"channel": "alerts"}},
+		Event: &gestalt.WorkflowEvent{ID: "event-1", Source: "slack", Type: "message.created", Data: map[string]any{"channel": "alerts"}},
 	}); err != nil {
 		t.Fatalf("DeliverEvent(duplicate): %v", err)
 	}

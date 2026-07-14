@@ -306,7 +306,7 @@ def handle_slack_event(
         "app_id": app_id,
         "workflow_event_subject": workflow_event_subject,
         "workflow_event_id": event.id if event is not None else "",
-        "workflow_provider": workflow_request.provider_name,
+        "workflow_provider": workflow_request.provider,
     }
 
 

@@ -37,30 +37,30 @@ func (b *temporalBackend) ApplyDefinition(ctx context.Context, req *gestalt.Appl
 		return nil, err
 	}
 	createdAt := now
-	createdBy := requestSubjectID(ctx)
+	createdBy := requestCreatedBy(ctx)
 	generation := int64(1)
 	if found {
 		createdAt = existing.CreatedAt
 		if createdAt.IsZero() {
 			createdAt = now
 		}
-		createdBy = createdByForUpsert(existing.CreatedBySubjectID, createdBy)
+		createdBy = createdByForUpsert(existing.CreatedBy, createdBy)
 		generation = existing.Generation + 1
 		if generation <= 0 {
 			generation = 1
 		}
 	}
 	definition := &gestalt.WorkflowDefinition{
-		ID:                 definitionID,
-		Generation:         generation,
-		Target:             spec.Target,
-		Activations:        spec.Activations,
-		Paused:             spec.Paused,
-		CreatedBySubjectID: createdBy,
-		CreatedAt:          createdAt,
-		UpdatedAt:          now,
-		ProviderName:       b.providerName,
-		RunAs:              cloneSubjectInput(spec.RunAs),
+		ID:           definitionID,
+		Generation:   generation,
+		Target:       spec.Target,
+		Activations:  spec.Activations,
+		Paused:       spec.Paused,
+		CreatedBy:    createdBy,
+		CreatedAt:    createdAt,
+		UpdatedAt:    now,
+		ProviderName: b.providerName,
+		RunAs:        cloneSubjectInput(spec.RunAs),
 	}
 	if err := b.syncDefinitionSchedules(ctx, existing, definition); err != nil {
 		return nil, err
@@ -133,9 +133,6 @@ func (b *temporalBackend) SetDefinitionPaused(ctx context.Context, req *gestalt.
 		next.Generation = 1
 	}
 	next.UpdatedAt = time.Now().UTC()
-	if createdBySubjectIDSet(requestSubjectID(ctx)) && isConfigManagedSubjectID(next.CreatedBySubjectID) {
-		next.CreatedBySubjectID = requestSubjectID(ctx)
-	}
 	if err := b.syncDefinitionSchedules(ctx, definition, &next); err != nil {
 		return nil, err
 	}

@@ -238,14 +238,14 @@ func TestProviderDeliverEventMatchesActivationMapsInputAndPause(t *testing.T) {
 		t.Fatalf("ApplyDefinition: %v", err)
 	}
 	event := &gestalt.WorkflowEvent{
-		ID:   "evt-1",
-		Type: "roadmap.item.updated",
-		Data: map[string]any{"item": map[string]any{"id": "item-1"}},
+		ID:     "evt-1",
+		Source: "roadmap",
+		Type:   "roadmap.item.updated",
+		Data:   map[string]any{"item": map[string]any{"id": "item-1"}},
 	}
 	deliverCtx := gestalt.WithSubject(ctx, gestalt.Subject{ID: "service:roadmap"})
 	if _, err := provider.DeliverEvent(deliverCtx, &gestalt.DeliverWorkflowProviderEventRequest{
-		AppName: "roadmap",
-		Event:   event,
+		Event: event,
 	}); err != nil {
 		t.Fatalf("DeliverEvent: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestProviderDeliverEventMatchesActivationMapsInputAndPause(t *testing.T) {
 		t.Fatalf("SetActivationPaused: %v", err)
 	}
 	event.ID = "evt-2"
-	if _, err := provider.DeliverEvent(ctx, &gestalt.DeliverWorkflowProviderEventRequest{AppName: "roadmap", Event: event}); err != nil {
+	if _, err := provider.DeliverEvent(ctx, &gestalt.DeliverWorkflowProviderEventRequest{Event: event}); err != nil {
 		t.Fatalf("DeliverEvent(paused): %v", err)
 	}
 	runs, err = provider.ListRuns(ctx, &gestalt.ListWorkflowProviderRunsRequest{})
