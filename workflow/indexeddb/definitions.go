@@ -319,7 +319,7 @@ func (r workflowDefinitionRecord) toRecord() gestalt.Record {
 		"created_by":       cloneCreatedBy(r.CreatedBy),
 		"created_at":       r.CreatedAt.UTC(),
 		"updated_at":       r.UpdatedAt.UTC(),
-		"run_as":           cloneRunAsID(r.RunAs),
+		"run_as":           r.RunAs,
 	}
 }
 

@@ -954,7 +954,7 @@ func (p *Provider) DeliverEvent(ctx context.Context, req *gestalt.DeliverWorkflo
 			DefinitionID:          match.Definition.ID,
 			DefinitionGeneration:  match.Definition.Generation,
 			Input:                 cloneAnyMap(input),
-			RunAs:                 cloneRunAsID(match.Definition.RunAs),
+			RunAs:                 match.Definition.RunAs,
 			NextSignalSequence:    1,
 		}
 		if err := validateWorkflowRunAs(run.RunAs); err != nil {
@@ -1448,7 +1448,7 @@ func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
 			DefinitionID:         definition.ID,
 			DefinitionGeneration: definition.Generation,
 			Input:                cloneAnyMap(input),
-			RunAs:                cloneRunAsID(definition.RunAs),
+			RunAs:                definition.RunAs,
 			NextSignalSequence:   1,
 		}
 		if err := validateWorkflowRunAs(run.RunAs); err != nil {
@@ -4090,7 +4090,7 @@ func syncDefinitionScheduleActivations(ctx context.Context, store indexeddb.Obje
 			CreatedBy:            cloneCreatedBy(definition.CreatedBy),
 			DefinitionID:         definition.ID,
 			DefinitionGeneration: definition.Generation,
-			RunAs:                cloneRunAsID(definition.RunAs),
+			RunAs:                definition.RunAs,
 		}
 		if err := store.Put(ctx, record.toRecord()); err != nil {
 			return err
@@ -4146,6 +4146,51 @@ func cloneCreatedBy(subjectID string) string {
 
 func requestCreatedBy(ctx context.Context) string {
 	return cloneCreatedBy(gestalt.SubjectFromContext(ctx).ID)
+}
+
+func runAsFromSubject(subject *gestalt.Subject) string {
+	if subject == nil {
+		return ""
+	}
+	return strings.TrimSpace(subject.ID)
+}
+
+func runAsToSubject(runAs string) *gestalt.Subject {
+	runAs = strings.TrimSpace(runAs)
+	if runAs == "" {
+		return nil
+	}
+	return &gestalt.Subject{ID: runAs}
+}
+
+func runAsFromAny(value any) string {
+	if subjectID, ok := value.(string); ok {
+		return strings.TrimSpace(subjectID)
+	}
+	data, ok := value.(map[string]any)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(stringField(data, "id"))
+}
+
+func validateWorkflowRunAs(runAs string) error {
+	if strings.TrimSpace(runAs) == "" {
+		return errors.New("run_as is required")
+	}
+	return nil
+}
+
+func validateWorkflowActivationRunAs(activations []gestalt.WorkflowActivation, runAs string) error {
+	for _, activation := range activations {
+		if activation.Event == nil && activation.Schedule == nil {
+			continue
+		}
+		if err := validateWorkflowRunAs(runAs); err != nil {
+			return fmt.Errorf("activation %q run_as: %w", activation.ID, err)
+		}
+	}
+	return nil
 }
 
 func workflowTargetInput(target *gestalt.BoundWorkflowTarget) *gestalt.BoundWorkflowTarget {
@@ -4509,7 +4554,7 @@ func (r workflowScheduleRecord) toRecord() gestalt.Record {
 		"updated_at":            r.UpdatedAt.UTC(),
 		"definition_id":         r.DefinitionID,
 		"definition_generation": r.DefinitionGeneration,
-		"run_as":                cloneRunAsID(r.RunAs),
+		"run_as":                r.RunAs,
 	}
 	if r.NextRunAt != nil {
 		record["next_run_at"] = r.NextRunAt.UTC()
@@ -4570,7 +4615,7 @@ func (r workflowRunRecord) toRecord() gestalt.Record {
 		"input_json":               jsonValueString(r.Input),
 		"current_step_id":          r.CurrentStepID,
 		"steps_json":               jsonValueString(r.Steps),
-		"run_as":                   cloneRunAsID(r.RunAs),
+		"run_as":                   r.RunAs,
 		"workflow_key":             r.WorkflowKey,
 		"next_signal_sequence":     r.NextSignalSequence,
 	}

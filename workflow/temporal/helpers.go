@@ -16,17 +16,9 @@ import (
 	gestaltworkflow "github.com/valon-technologies/gestalt/sdk/go/workflow"
 )
 
-// runAsID is the scalar service-account subject ID stored in Temporal workflow
-// inputs and run state. It accepts legacy {"id":"..."} objects when decoding.
+// runAsID stores run_as as a scalar subject ID in Temporal workflow inputs.
+// UnmarshalJSON accepts legacy {"id":"..."} objects from in-flight runs.
 type runAsID string
-
-func (runAs runAsID) MarshalJSON() ([]byte, error) {
-	id := cloneRunAsID(string(runAs))
-	if id == "" {
-		return []byte("null"), nil
-	}
-	return json.Marshal(id)
-}
 
 func (runAs *runAsID) UnmarshalJSON(data []byte) error {
 	if len(data) == 0 || string(data) == "null" {
@@ -35,14 +27,16 @@ func (runAs *runAsID) UnmarshalJSON(data []byte) error {
 	}
 	var subjectID string
 	if err := json.Unmarshal(data, &subjectID); err == nil {
-		*runAs = runAsID(cloneRunAsID(subjectID))
+		*runAs = runAsID(strings.TrimSpace(subjectID))
 		return nil
 	}
-	var legacy any
+	var legacy map[string]any
 	if err := json.Unmarshal(data, &legacy); err != nil {
 		return err
 	}
-	*runAs = runAsID(runAsFromAny(legacy))
+	if id, ok := legacy["id"].(string); ok {
+		*runAs = runAsID(strings.TrimSpace(id))
+	}
 	return nil
 }
 
@@ -503,58 +497,23 @@ func requestCreatedBy(ctx context.Context) string {
 	return cloneCreatedBy(gestalt.SubjectFromContext(ctx).ID)
 }
 
-func cloneRunAsID(runAs string) string {
-	return strings.TrimSpace(runAs)
-}
-
 func runAsFromSubject(subject *gestalt.Subject) string {
 	if subject == nil {
 		return ""
 	}
-	return cloneRunAsID(subject.ID)
+	return strings.TrimSpace(subject.ID)
 }
 
 func runAsToSubject(runAs string) *gestalt.Subject {
-	runAs = cloneRunAsID(runAs)
+	runAs = strings.TrimSpace(runAs)
 	if runAs == "" {
 		return nil
 	}
 	return &gestalt.Subject{ID: runAs}
 }
 
-func runAsFromAny(value any) string {
-	switch typed := value.(type) {
-	case string:
-		return cloneRunAsID(typed)
-	case map[string]any:
-		if subjectID := cloneRunAsID(stringField(typed, "id")); subjectID != "" {
-			return subjectID
-		}
-		if nested, ok := typed["subject"].(map[string]any); ok {
-			return cloneRunAsID(stringField(nested, "id"))
-		}
-	}
-	return ""
-}
-
-func stringField(data map[string]any, key string) string {
-	if data == nil {
-		return ""
-	}
-	value, ok := data[key]
-	if !ok || value == nil {
-		return ""
-	}
-	switch typed := value.(type) {
-	case string:
-		return strings.TrimSpace(typed)
-	default:
-		return strings.TrimSpace(fmt.Sprint(typed))
-	}
-}
-
 func validateWorkflowRunAsInput(runAs string) error {
-	if cloneRunAsID(runAs) == "" {
+	if strings.TrimSpace(runAs) == "" {
 		return errors.New("run_as is required")
 	}
 	return nil

@@ -254,7 +254,7 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkfl
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "temporal-run", uuid.NewString())
 	conflictPolicy := enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL
 	input := b.runInput(start.OwnerKey, start.DefinitionID, start.DefinitionGeneration, "", start.Target, start.Input, manualTriggerInput(), start.CreatedBy, false)
-	input.RunAs = runAsID(cloneRunAsID(start.RunAs))
+	input.RunAs = runAsID(start.RunAs)
 	run, err := b.executeRun(ctx, temporalWorkflowID, input, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
