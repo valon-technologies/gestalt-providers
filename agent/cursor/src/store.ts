@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import type { JsonObject } from "@bufbuild/protobuf";
+
 import {
   AgentExecutionStatus,
   AgentSessionState,
@@ -11,7 +13,7 @@ import {
   type AgentTurnEvent,
   type AgentTurn,
   type AgentTurnOutput,
-} from "@valon-technologies/gestalt";
+} from "@valon-technologies/gestalt/services/agent";
 
 export type PreparedWorkspace = {
   root: string;
@@ -434,14 +436,12 @@ export function sessionToAgentSession(session: StoredSession, summaryOnly = fals
     model: session.model,
     clientRef: session.clientRef,
     state: session.state,
+    createdBySubjectId: session.createdBySubjectId,
     createdAt: new Date(session.createdAt),
     updatedAt: new Date(session.updatedAt),
   };
   if (!summaryOnly && Object.keys(session.metadata).length > 0) {
-    out.metadata = session.metadata;
-  }
-  if (session.createdBySubjectId) {
-    out.createdBySubjectId = session.createdBySubjectId;
+    out.metadata = session.metadata as JsonObject;
   }
   if (session.lastTurnAt) {
     out.lastTurnAt = new Date(session.lastTurnAt);
@@ -456,17 +456,15 @@ export function turnToAgentTurn(turn: StoredTurn, summaryOnly = false): AgentTur
     providerName: turn.providerName,
     model: turn.model,
     status: turn.status,
-    output: summaryOnly ? undefined : cloneMaybe(turn.output),
+    messages: summaryOnly ? [] : cloneMessages(turn.messages),
+    output: summaryOnly
+      ? { case: undefined }
+      : (cloneMaybe(turn.output) ?? { case: undefined }),
     statusMessage: turn.statusMessage,
+    createdBySubjectId: turn.createdBySubjectId,
     executionRef: turn.executionRef,
     createdAt: new Date(turn.createdAt),
   };
-  if (!summaryOnly) {
-    out.messages = cloneMessages(turn.messages);
-  }
-  if (turn.createdBySubjectId) {
-    out.createdBySubjectId = turn.createdBySubjectId;
-  }
   if (turn.startedAt) {
     out.startedAt = new Date(turn.startedAt);
   }
@@ -484,7 +482,7 @@ export function turnEventToAgentTurnEvent(event: StoredTurnEvent): AgentTurnEven
     type: event.eventType,
     source: event.source,
     visibility: event.visibility,
-    data: event.data,
+    data: event.data as JsonObject,
     createdAt: new Date(event.createdAt),
   };
 }
@@ -556,13 +554,13 @@ function cloneMaybe<T>(value: T | undefined): T | undefined {
 }
 
 function assistantMessageData(output: AgentTurnOutput): Record<string, unknown> {
-  if (output.text !== undefined) {
-    return { text: output.text };
+  if (output.case === "text") {
+    return { text: output.value.text };
   }
-  if (output.structured) {
-    const data: Record<string, unknown> = { text: output.structured.text ?? "" };
-    if (output.structured.value !== undefined) {
-      data.value = cloneMaybe(output.structured.value);
+  if (output.case === "structured") {
+    const data: Record<string, unknown> = { text: output.value.text };
+    if (output.value.value !== undefined) {
+      data.value = cloneMaybe(output.value.value);
     }
     return data;
   }

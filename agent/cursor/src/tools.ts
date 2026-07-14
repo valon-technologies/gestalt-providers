@@ -1,5 +1,5 @@
 import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
-import type { ListedAgentTool } from "@valon-technologies/gestalt";
+import type { ListedAgentTool } from "@valon-technologies/gestalt/services/agent";
 
 import { CursorExecutionError } from "./errors.ts";
 
