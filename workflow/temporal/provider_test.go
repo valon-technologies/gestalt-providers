@@ -53,7 +53,7 @@ func TestTemporalRunReturnsRunState(t *testing.T) {
 		DefinitionID:                  "definition-1",
 		DefinitionGeneration:          7,
 		Input:                         map[string]any{"ticket": "T-1"},
-		RunAs:                         &gestalt.Subject{ID: "service:workflow-test"},
+		RunAs:                         runAsID("service:workflow-test"),
 		Target:                        nativeAppTargetInput("slack", "postMessage"),
 		Trigger:                       manualTriggerInput(),
 		CreatedBy:                     actor("user-1"),
@@ -115,7 +115,7 @@ func TestTemporalRunRunsOneDurableStepAtATime(t *testing.T) {
 		ProviderName:                  "temporal",
 		DefinitionID:                  "definition-1",
 		DefinitionGeneration:          7,
-		RunAs:                         &gestalt.Subject{ID: "service:workflow-test"},
+		RunAs:                         runAsID("service:workflow-test"),
 		Target:                        target,
 		Trigger:                       manualTriggerInput(),
 	})
@@ -178,7 +178,7 @@ func TestBackendApplyDefinitionListAndActivationPause(t *testing.T) {
 	if actionInput.DefinitionID != "definition-1" || actionInput.DefinitionGeneration != 1 || actionInput.ActivationID != "hourly" {
 		t.Fatalf("schedule action input = %#v", actionInput)
 	}
-	if actionInput.Input["channel"] != "ops" || actionInput.RunAs.ID != "service-account" {
+	if actionInput.Input["channel"] != "ops" || string(actionInput.RunAs) != "service-account" {
 		t.Fatalf("schedule action run input/run_as = %#v", actionInput)
 	}
 
@@ -240,7 +240,7 @@ func TestBackendStartRunUsesDefinitionSnapshotInputAndVisibility(t *testing.T) {
 	if firstWorkflowAppStep(startInput.Target).Operation != "postMessage" || startInput.Input["ticket"] != "T-1" {
 		t.Fatalf("start input = %#v", startInput)
 	}
-	if startInput.ProviderName != "temporal" || startInput.RunAs == nil || startInput.RunAs.ID != "service:slack-post" {
+	if startInput.ProviderName != "temporal" || string(startInput.RunAs) != "service:slack-post" {
 		t.Fatalf("start input authority = %#v", startInput)
 	}
 	if startInput.ScopeID != "scope" {
@@ -419,7 +419,7 @@ func TestBackendDeliverEventStartsMatchingActivation(t *testing.T) {
 	if startInput.DefinitionID != "definition-1" || startInput.Trigger.Event.ActivationID != "message-created" || startInput.Input["channel"] != "alerts" {
 		t.Fatalf("event start input = %#v", startInput)
 	}
-	if startInput.ProviderName != "temporal" || startInput.RunAs == nil || startInput.RunAs.ID != "service:slack-events" {
+	if startInput.ProviderName != "temporal" || string(startInput.RunAs) != "service:slack-events" {
 		t.Fatalf("event start input authority = %#v", startInput)
 	}
 

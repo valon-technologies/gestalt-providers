@@ -121,7 +121,7 @@ type workflowScheduleRecord struct {
 	CreatedBy            string
 	DefinitionID         string
 	DefinitionGeneration int64
-	RunAs                *gestalt.Subject
+	RunAs                string
 }
 
 type workflowRunRecord struct {
@@ -145,7 +145,7 @@ type workflowRunRecord struct {
 	Input                 map[string]any
 	CurrentStepID         string
 	Steps                 []gestalt.WorkflowStepExecution
-	RunAs                 *gestalt.Subject
+	RunAs                 string
 	WorkflowKey           string
 	NextSignalSequence    int64
 }
@@ -954,7 +954,7 @@ func (p *Provider) DeliverEvent(ctx context.Context, req *gestalt.DeliverWorkflo
 			DefinitionID:          match.Definition.ID,
 			DefinitionGeneration:  match.Definition.Generation,
 			Input:                 cloneAnyMap(input),
-			RunAs:                 cloneSubject(match.Definition.RunAs),
+			RunAs:                 cloneRunAsID(match.Definition.RunAs),
 			NextSignalSequence:    1,
 		}
 		if err := validateWorkflowRunAs(run.RunAs); err != nil {
@@ -1448,7 +1448,7 @@ func (p *Provider) enqueueDueSchedules(ctx context.Context) error {
 			DefinitionID:         definition.ID,
 			DefinitionGeneration: definition.Generation,
 			Input:                cloneAnyMap(input),
-			RunAs:                cloneSubject(definition.RunAs),
+			RunAs:                cloneRunAsID(definition.RunAs),
 			NextSignalSequence:   1,
 		}
 		if err := validateWorkflowRunAs(run.RunAs); err != nil {
@@ -1577,7 +1577,7 @@ func (p *Provider) processNextPendingRun(ctx context.Context, preferredRunID str
 			Trigger:              pending.triggerInput(),
 			Input:                cloneAnyMap(pending.Input),
 			CreatedBy:            cloneCreatedBy(pending.CreatedBy),
-			RunAs:                cloneSubject(pending.RunAs),
+			RunAs:                runAsToSubject(pending.RunAs),
 			Signals:              signals,
 		},
 		StepIndex:      stepIndex,
@@ -4090,7 +4090,7 @@ func syncDefinitionScheduleActivations(ctx context.Context, store indexeddb.Obje
 			CreatedBy:            cloneCreatedBy(definition.CreatedBy),
 			DefinitionID:         definition.ID,
 			DefinitionGeneration: definition.Generation,
-			RunAs:                cloneSubject(definition.RunAs),
+			RunAs:                cloneRunAsID(definition.RunAs),
 		}
 		if err := store.Put(ctx, record.toRecord()); err != nil {
 			return err
@@ -4146,42 +4146,6 @@ func cloneCreatedBy(subjectID string) string {
 
 func requestCreatedBy(ctx context.Context) string {
 	return cloneCreatedBy(gestalt.SubjectFromContext(ctx).ID)
-}
-
-func cloneSubject(subject *gestalt.Subject) *gestalt.Subject {
-	if subject == nil {
-		return nil
-	}
-	return &gestalt.Subject{
-		ID:    strings.TrimSpace(subject.ID),
-		Email: strings.TrimSpace(subject.Email),
-	}
-}
-
-func validateWorkflowRunAs(subject *gestalt.Subject) error {
-	if subject == nil || strings.TrimSpace(subject.ID) == "" {
-		return errors.New("run_as.subject.id is required")
-	}
-	return nil
-}
-
-func validateWorkflowActivationRunAs(activations []gestalt.WorkflowActivation, runAs *gestalt.Subject) error {
-	for _, activation := range activations {
-		if activation.Event == nil && activation.Schedule == nil {
-			continue
-		}
-		if err := validateWorkflowRunAs(runAs); err != nil {
-			return fmt.Errorf("activation %q run_as: %w", activation.ID, err)
-		}
-	}
-	return nil
-}
-
-func firstSubject(primary, fallback *gestalt.Subject) *gestalt.Subject {
-	if primary != nil {
-		return cloneSubject(primary)
-	}
-	return cloneSubject(fallback)
 }
 
 func workflowTargetInput(target *gestalt.BoundWorkflowTarget) *gestalt.BoundWorkflowTarget {
@@ -4373,37 +4337,6 @@ func createdByFromAny(value any) string {
 	}
 }
 
-func subjectValue(subject *gestalt.Subject) any {
-	if subject == nil {
-		return nil
-	}
-	if id := strings.TrimSpace(subject.ID); id != "" {
-		return id
-	}
-	return nil
-}
-
-func subjectFromAny(value any) *gestalt.Subject {
-	if subjectID, ok := value.(string); ok {
-		if subjectID = strings.TrimSpace(subjectID); subjectID != "" {
-			return &gestalt.Subject{ID: subjectID}
-		}
-		return nil
-	}
-	data, ok := value.(map[string]any)
-	if !ok || len(data) == 0 {
-		return nil
-	}
-	subjectID := stringField(data, "id")
-	if subjectID == "" {
-		return nil
-	}
-	return &gestalt.Subject{
-		ID:    subjectID,
-		Email: stringField(data, "email"),
-	}
-}
-
 func eventToMap(event *gestalt.WorkflowEvent) map[string]any {
 	if event == nil {
 		return nil
@@ -4576,7 +4509,7 @@ func (r workflowScheduleRecord) toRecord() gestalt.Record {
 		"updated_at":            r.UpdatedAt.UTC(),
 		"definition_id":         r.DefinitionID,
 		"definition_generation": r.DefinitionGeneration,
-		"run_as":                subjectValue(r.RunAs),
+		"run_as":                cloneRunAsID(r.RunAs),
 	}
 	if r.NextRunAt != nil {
 		record["next_run_at"] = r.NextRunAt.UTC()
@@ -4603,7 +4536,7 @@ func scheduleRecordFromRecord(record gestalt.Record) (workflowScheduleRecord, er
 		CreatedBy:            createdByFromAny(value["created_by"]),
 		DefinitionID:         stringField(value, "definition_id"),
 		DefinitionGeneration: intField(value, "definition_generation"),
-		RunAs:                subjectFromAny(value["run_as"]),
+		RunAs:                runAsFromAny(value["run_as"]),
 	}
 	if out.ActivationID == "" {
 		out.ActivationID = out.ID
@@ -4637,7 +4570,7 @@ func (r workflowRunRecord) toRecord() gestalt.Record {
 		"input_json":               jsonValueString(r.Input),
 		"current_step_id":          r.CurrentStepID,
 		"steps_json":               jsonValueString(r.Steps),
-		"run_as":                   subjectValue(r.RunAs),
+		"run_as":                   cloneRunAsID(r.RunAs),
 		"workflow_key":             r.WorkflowKey,
 		"next_signal_sequence":     r.NextSignalSequence,
 	}
@@ -4683,7 +4616,7 @@ func runRecordFromRecord(record gestalt.Record) (workflowRunRecord, error) {
 		Input:                 cloneAnyMap(anyMap(anyFromJSONValueString(value["input_json"]))),
 		CurrentStepID:         stringField(value, "current_step_id"),
 		Steps:                 workflowStepExecutionsFromRecordValue(value["steps_json"]),
-		RunAs:                 subjectFromAny(value["run_as"]),
+		RunAs:                 runAsFromAny(value["run_as"]),
 		WorkflowKey:           stringField(value, "workflow_key"),
 		NextSignalSequence:    intField(value, "next_signal_sequence"),
 	}
@@ -4709,7 +4642,7 @@ func (r workflowRunRecord) toInput() (*gestalt.WorkflowRun, error) {
 		StatusMessage:        r.StatusMessage,
 		Output:               cloneAny(r.Output),
 		CreatedBy:            cloneCreatedBy(r.CreatedBy),
-		RunAs:                cloneSubject(r.RunAs),
+		RunAs:                runAsToSubject(r.RunAs),
 		WorkflowKey:          r.WorkflowKey,
 		DefinitionID:         r.DefinitionID,
 		Input:                cloneAnyMap(r.Input),

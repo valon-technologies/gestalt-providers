@@ -21,7 +21,7 @@ type workflowDefinitionRecord struct {
 	CreatedBy   string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
-	RunAs       *gestalt.Subject
+	RunAs       string
 }
 
 func (p *Provider) ApplyDefinition(ctx context.Context, req *gestalt.ApplyWorkflowProviderDefinitionRequest) (*gestalt.WorkflowDefinition, error) {
@@ -44,7 +44,7 @@ func (p *Provider) ApplyDefinition(ctx context.Context, req *gestalt.ApplyWorkfl
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if err := validateWorkflowActivationRunAs(activations, spec.RunAs); err != nil {
+	if err := validateWorkflowActivationRunAs(activations, runAsFromSubject(spec.RunAs)); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
@@ -70,7 +70,7 @@ func (p *Provider) ApplyDefinition(ctx context.Context, req *gestalt.ApplyWorkfl
 		CreatedBy:   requestCreatedBy(ctx),
 		CreatedAt:   now,
 		UpdatedAt:   now,
-		RunAs:       cloneSubject(spec.RunAs),
+		RunAs:       runAsFromSubject(spec.RunAs),
 	}
 	if found {
 		record.Generation = existing.Generation + 1
@@ -319,7 +319,7 @@ func (r workflowDefinitionRecord) toRecord() gestalt.Record {
 		"created_by":       cloneCreatedBy(r.CreatedBy),
 		"created_at":       r.CreatedAt.UTC(),
 		"updated_at":       r.UpdatedAt.UTC(),
-		"run_as":           subjectValue(r.RunAs),
+		"run_as":           cloneRunAsID(r.RunAs),
 	}
 }
 
@@ -337,7 +337,7 @@ func definitionRecordFromRecord(record gestalt.Record) (workflowDefinitionRecord
 		Activations: workflowActivationsFromRecordValue(value["activations_json"]),
 		Paused:      boolField(value, "paused"),
 		CreatedBy:   createdByFromAny(value["created_by"]),
-		RunAs:       subjectFromAny(value["run_as"]),
+		RunAs:       runAsFromAny(value["run_as"]),
 	}
 	if out.Generation <= 0 {
 		out.Generation = 1
@@ -362,7 +362,7 @@ func (r workflowDefinitionRecord) toInput(providerName string) *gestalt.Workflow
 		CreatedAt:    r.CreatedAt,
 		UpdatedAt:    r.UpdatedAt,
 		ProviderName: strings.TrimSpace(providerName),
-		RunAs:        cloneSubject(r.RunAs),
+		RunAs:        runAsToSubject(r.RunAs),
 	})
 }
 

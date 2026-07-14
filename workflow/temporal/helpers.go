@@ -16,6 +16,36 @@ import (
 	gestaltworkflow "github.com/valon-technologies/gestalt/sdk/go/workflow"
 )
 
+// runAsID is the scalar service-account subject ID stored in Temporal workflow
+// inputs and run state. It accepts legacy {"id":"..."} objects when decoding.
+type runAsID string
+
+func (runAs runAsID) MarshalJSON() ([]byte, error) {
+	id := cloneRunAsID(string(runAs))
+	if id == "" {
+		return []byte("null"), nil
+	}
+	return json.Marshal(id)
+}
+
+func (runAs *runAsID) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		*runAs = ""
+		return nil
+	}
+	var subjectID string
+	if err := json.Unmarshal(data, &subjectID); err == nil {
+		*runAs = runAsID(cloneRunAsID(subjectID))
+		return nil
+	}
+	var legacy any
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	*runAs = runAsID(runAsFromAny(legacy))
+	return nil
+}
+
 const (
 	defaultSpecVersion = "1.0"
 	defaultTimezone    = "UTC"
@@ -473,24 +503,64 @@ func requestCreatedBy(ctx context.Context) string {
 	return cloneCreatedBy(gestalt.SubjectFromContext(ctx).ID)
 }
 
-func cloneSubjectInput(subject *gestalt.Subject) *gestalt.Subject {
+func cloneRunAsID(runAs string) string {
+	return strings.TrimSpace(runAs)
+}
+
+func runAsFromSubject(subject *gestalt.Subject) string {
 	if subject == nil {
+		return ""
+	}
+	return cloneRunAsID(subject.ID)
+}
+
+func runAsToSubject(runAs string) *gestalt.Subject {
+	runAs = cloneRunAsID(runAs)
+	if runAs == "" {
 		return nil
 	}
-	return &gestalt.Subject{
-		ID:    strings.TrimSpace(subject.ID),
-		Email: strings.TrimSpace(subject.Email),
+	return &gestalt.Subject{ID: runAs}
+}
+
+func runAsFromAny(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return cloneRunAsID(typed)
+	case map[string]any:
+		if subjectID := cloneRunAsID(stringField(typed, "id")); subjectID != "" {
+			return subjectID
+		}
+		if nested, ok := typed["subject"].(map[string]any); ok {
+			return cloneRunAsID(stringField(nested, "id"))
+		}
+	}
+	return ""
+}
+
+func stringField(data map[string]any, key string) string {
+	if data == nil {
+		return ""
+	}
+	value, ok := data[key]
+	if !ok || value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
 	}
 }
 
-func validateWorkflowRunAsInput(subject *gestalt.Subject) error {
-	if subject == nil || strings.TrimSpace(subject.ID) == "" {
-		return errors.New("run_as.subject.id is required")
+func validateWorkflowRunAsInput(runAs string) error {
+	if cloneRunAsID(runAs) == "" {
+		return errors.New("run_as is required")
 	}
 	return nil
 }
 
-func validateWorkflowActivationRunAsInput(activations []gestalt.WorkflowActivation, runAs *gestalt.Subject) error {
+func validateWorkflowActivationRunAsInput(activations []gestalt.WorkflowActivation, runAs string) error {
 	for _, activation := range activations {
 		if activation.Event == nil && activation.Schedule == nil {
 			continue

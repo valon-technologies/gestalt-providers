@@ -40,7 +40,7 @@ func (b *temporalBackend) startKeyedRun(ctx context.Context, start workflowRunSt
 		}
 	}
 	input := b.runInput(start.OwnerKey, start.DefinitionID, start.DefinitionGeneration, workflowKey, start.Target, start.Input, manualTriggerInput(), start.CreatedBy, false)
-	input.RunAs = cloneSubjectInput(start.RunAs)
+	input.RunAs = runAsID(cloneRunAsID(start.RunAs))
 	run, err := b.executeRun(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE)
 	if err != nil {
 		if isAlreadyStarted(err) {
@@ -80,7 +80,7 @@ func (b *temporalBackend) startUnkeyedRun(ctx context.Context, start workflowRun
 	}
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "temporal-run-idempotent", start.OwnerKey, key)
 	input := b.runInput(start.OwnerKey, start.DefinitionID, start.DefinitionGeneration, "", start.Target, start.Input, manualTriggerInput(), start.CreatedBy, false)
-	input.RunAs = cloneSubjectInput(start.RunAs)
+	input.RunAs = runAsID(cloneRunAsID(start.RunAs))
 	run, err := b.executeRun(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
@@ -106,7 +106,7 @@ func (b *temporalBackend) signalOrStartRun(ctx context.Context, start workflowRu
 func (b *temporalBackend) startSignalWorkflowRun(ctx context.Context, start workflowRunStartSnapshot, workflowKey string, signal *gestalt.WorkflowSignal, updateID string) (*gestalt.SignalWorkflowRunResponse, error) {
 	temporalWorkflowID := workflowKeyRunWorkflowID(b.cfg.ScopeID, workflowKey)
 	input := b.runInput(start.OwnerKey, start.DefinitionID, start.DefinitionGeneration, workflowKey, start.Target, start.Input, manualTriggerInput(), start.CreatedBy, true)
-	input.RunAs = cloneSubjectInput(start.RunAs)
+	input.RunAs = runAsID(cloneRunAsID(start.RunAs))
 	startOperation := b.client.NewWithStartWorkflowOperation(
 		b.startWorkflowOptionsWithVisibility(temporalWorkflowID, enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE, input),
 		TemporalRun,
@@ -213,7 +213,7 @@ func (b *temporalBackend) pendingRunFromWorkflowRun(run client.WorkflowRun, inpu
 		DefinitionID:         strings.TrimSpace(input.DefinitionID),
 		DefinitionGeneration: input.DefinitionGeneration,
 		ProviderName:         b.providerName,
-		RunAs:                cloneSubjectInput(input.RunAs),
+		RunAs:                runAsToSubject(string(input.RunAs)),
 		Input:                cloneMapInput(input.Input),
 	}
 	return out
