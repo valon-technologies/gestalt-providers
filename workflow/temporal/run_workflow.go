@@ -19,7 +19,7 @@ type runWorkflowInput struct {
 	DefinitionID                  string                       `json:"definition_id,omitempty"`
 	DefinitionGeneration          int64                        `json:"definition_generation,omitempty"`
 	Input                         map[string]any               `json:"input,omitempty"`
-	RunAs                         *gestalt.Subject             `json:"run_as,omitempty"`
+	RunAs                         runAsID                      `json:"run_as,omitempty"`
 	WorkflowKey                   string                       `json:"workflow_key,omitempty"`
 	OwnerKey                      string                       `json:"owner_key,omitempty"`
 	Target                        *gestalt.BoundWorkflowTarget `json:"target,omitempty"`
@@ -40,6 +40,11 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 		WorkflowKey:      input.WorkflowKey,
 		OwnerKey:         input.OwnerKey,
 	})
+	runAs := strings.TrimSpace(string(input.RunAs))
+	var runAsSubject *gestalt.Subject
+	if runAs != "" {
+		runAsSubject = &gestalt.Subject{ID: runAs}
+	}
 	state := &gestalt.WorkflowRun{
 		ID:                   publicID,
 		Status:               gestalt.WorkflowRunStatusValuePending,
@@ -47,12 +52,16 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 		Trigger:              input.triggerInput(now),
 		CreatedAt:            now,
 		CreatedBy:            input.CreatedBy,
-		RunAs:                cloneSubjectInput(input.RunAs),
 		WorkflowKey:          strings.TrimSpace(input.WorkflowKey),
 		DefinitionID:         strings.TrimSpace(input.DefinitionID),
 		DefinitionGeneration: input.DefinitionGeneration,
 		ProviderName:         strings.TrimSpace(input.ProviderName),
 		Input:                cloneMapInput(input.Input),
+	}
+	publicRun := func() *gestalt.WorkflowRun {
+		out := cloneRunInput(state)
+		out.RunAs = runAsSubject
+		return out
 	}
 	pendingSignals := make([]gestalt.WorkflowSignal, 0)
 	nextSignalSequence := int64(1)
@@ -60,7 +69,7 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 	runMutex := workflow.NewMutex(ctx)
 
 	upsertVisibility := func(ctx workflow.Context) {
-		_ = workflow.UpsertTypedSearchAttributes(ctx, workflowRunSearchAttributeUpdates(input.ScopeID, state)...)
+		_ = workflow.UpsertTypedSearchAttributes(ctx, workflowRunSearchAttributeUpdates(input.ScopeID, publicRun())...)
 	}
 	rebuildRun := func(mutate func(*gestalt.WorkflowRun)) error {
 		next := *state
@@ -69,7 +78,7 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 		return nil
 	}
 	if err := workflow.SetQueryHandler(ctx, queryGetRun, func() (*gestalt.WorkflowRun, error) {
-		return cloneRunInput(state), nil
+		return publicRun(), nil
 	}); err != nil {
 		return nil, err
 	}
@@ -109,7 +118,7 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 		}
 		upsertVisibility(ctx)
 		return &gestalt.SignalWorkflowRunResponse{
-			Run:         cloneRunInput(state),
+			Run:         publicRun(),
 			Signal:      cloneSignalInput(appended),
 			StartedRun:  signalCount == 1 && state.StartedAt == nil,
 			WorkflowKey: strings.TrimSpace(state.WorkflowKey),
@@ -138,7 +147,7 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 			return nil, err
 		}
 		upsertVisibility(ctx)
-		return cloneRunInput(state), nil
+		return publicRun(), nil
 	}); err != nil {
 		return nil, err
 	}
@@ -193,7 +202,7 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 				Trigger:              state.Trigger,
 				Input:                cloneMapInput(state.Input),
 				CreatedBy:            state.CreatedBy,
-				RunAs:                cloneSubjectInput(state.RunAs),
+				RunAs:                runAsSubject,
 				Signals:              batch,
 			}
 			stepReq := gestaltworkflow.StepRequest{
@@ -284,9 +293,9 @@ func TemporalRun(ctx workflow.Context, input runWorkflowInput) (*gestalt.Workflo
 			StartToCloseTimeout: runCompletionRecordTimeout,
 			RetryPolicy:         &sdktemporal.RetryPolicy{MaximumAttempts: runCompletionRecordAttempts},
 		})
-		_ = workflow.ExecuteActivity(recordCtx, (*workflowActivities).RecordRunCompleted, cloneRunInput(state)).Get(recordCtx, nil)
+		_ = workflow.ExecuteActivity(recordCtx, (*workflowActivities).RecordRunCompleted, publicRun()).Get(recordCtx, nil)
 	}
-	return cloneRunInput(state), nil
+	return publicRun(), nil
 }
 
 const (

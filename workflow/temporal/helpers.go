@@ -16,6 +16,30 @@ import (
 	gestaltworkflow "github.com/valon-technologies/gestalt/sdk/go/workflow"
 )
 
+// runAsID stores run_as as a scalar subject ID in Temporal workflow inputs.
+// UnmarshalJSON accepts legacy {"id":"..."} objects from in-flight runs.
+type runAsID string
+
+func (runAs *runAsID) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		*runAs = ""
+		return nil
+	}
+	var subjectID string
+	if err := json.Unmarshal(data, &subjectID); err == nil {
+		*runAs = runAsID(strings.TrimSpace(subjectID))
+		return nil
+	}
+	var legacy map[string]any
+	if err := json.Unmarshal(data, &legacy); err != nil {
+		return err
+	}
+	if id, ok := legacy["id"].(string); ok {
+		*runAs = runAsID(strings.TrimSpace(id))
+	}
+	return nil
+}
+
 const (
 	defaultSpecVersion = "1.0"
 	defaultTimezone    = "UTC"
@@ -471,35 +495,6 @@ func cloneCreatedBy(subjectID string) string {
 
 func requestCreatedBy(ctx context.Context) string {
 	return cloneCreatedBy(gestalt.SubjectFromContext(ctx).ID)
-}
-
-func cloneSubjectInput(subject *gestalt.Subject) *gestalt.Subject {
-	if subject == nil {
-		return nil
-	}
-	return &gestalt.Subject{
-		ID:    strings.TrimSpace(subject.ID),
-		Email: strings.TrimSpace(subject.Email),
-	}
-}
-
-func validateWorkflowRunAsInput(subject *gestalt.Subject) error {
-	if subject == nil || strings.TrimSpace(subject.ID) == "" {
-		return errors.New("run_as.subject.id is required")
-	}
-	return nil
-}
-
-func validateWorkflowActivationRunAsInput(activations []gestalt.WorkflowActivation, runAs *gestalt.Subject) error {
-	for _, activation := range activations {
-		if activation.Event == nil && activation.Schedule == nil {
-			continue
-		}
-		if err := validateWorkflowRunAsInput(runAs); err != nil {
-			return fmt.Errorf("activation %q run_as: %w", activation.ID, err)
-		}
-	}
-	return nil
 }
 
 func manualTriggerInput() *gestalt.WorkflowRunTrigger {

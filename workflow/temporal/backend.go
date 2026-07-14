@@ -61,7 +61,7 @@ type workflowRunStartSnapshot struct {
 	OwnerKey             string
 	Target               *gestalt.BoundWorkflowTarget
 	Input                map[string]any
-	RunAs                *gestalt.Subject
+	RunAs                string
 	CreatedBy            string
 }
 
@@ -238,7 +238,7 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkfl
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	start, err := b.manualRunStartSnapshot(ctx, req.DefinitionID, req.ExpectedDefinitionGeneration, req.Input, nil, requestCreatedBy(ctx))
+	start, err := b.manualRunStartSnapshot(ctx, req.DefinitionID, req.ExpectedDefinitionGeneration, req.Input, requestCreatedBy(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +254,7 @@ func (b *temporalBackend) StartRun(ctx context.Context, req *gestalt.StartWorkfl
 	temporalWorkflowID := workflowID(b.cfg.ScopeID, "temporal-run", uuid.NewString())
 	conflictPolicy := enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL
 	input := b.runInput(start.OwnerKey, start.DefinitionID, start.DefinitionGeneration, "", start.Target, start.Input, manualTriggerInput(), start.CreatedBy, false)
-	input.RunAs = cloneSubjectInput(start.RunAs)
+	input.RunAs = runAsID(start.RunAs)
 	run, err := b.executeRun(ctx, temporalWorkflowID, input, conflictPolicy, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 	if err != nil {
 		return nil, err
@@ -588,7 +588,7 @@ func (b *temporalBackend) SignalOrStartRun(ctx context.Context, req *gestalt.Sig
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	start, err := b.manualRunStartSnapshot(ctx, req.DefinitionID, req.ExpectedDefinitionGeneration, req.Input, nil, requestCreatedBy(ctx))
+	start, err := b.manualRunStartSnapshot(ctx, req.DefinitionID, req.ExpectedDefinitionGeneration, req.Input, requestCreatedBy(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -716,10 +716,14 @@ func (b *temporalBackend) DeliverEvent(ctx context.Context, req *gestalt.Deliver
 			ActivationID: activation.ID,
 			Event:        eventInput,
 		}}
+		runAs := ""
+		if definition.RunAs != nil {
+			runAs = strings.TrimSpace(definition.RunAs.ID)
+		}
 		input := b.runInput(targetOwnerKeyInput(definition.Target), definition.ID, definition.Generation, "", definition.Target, activationInput, eventTriggerInput, createdBy, false)
-		input.RunAs = cloneSubjectInput(definition.RunAs)
-		if err := validateWorkflowRunAsInput(input.RunAs); err != nil {
-			return nil, status.Errorf(codes.FailedPrecondition, "workflow definition %q run_as: %v", definition.ID, err)
+		input.RunAs = runAsID(runAs)
+		if runAs == "" {
+			return nil, status.Errorf(codes.FailedPrecondition, "workflow definition %q run_as: run_as is required", definition.ID)
 		}
 		run, err := b.executeRun(ctx, temporalWorkflowID, input, enumspb.WORKFLOW_ID_CONFLICT_POLICY_FAIL, enumspb.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
 		if err != nil {
@@ -744,7 +748,7 @@ func (b *temporalBackend) DeliverEvent(ctx context.Context, req *gestalt.Deliver
 	return eventInput, nil
 }
 
-func (b *temporalBackend) manualRunStartSnapshot(ctx context.Context, definitionID string, expectedGeneration int64, input map[string]any, runAs *gestalt.Subject, createdBySubjectID string) (workflowRunStartSnapshot, error) {
+func (b *temporalBackend) manualRunStartSnapshot(ctx context.Context, definitionID string, expectedGeneration int64, input map[string]any, createdBySubjectID string) (workflowRunStartSnapshot, error) {
 	definitionID = strings.TrimSpace(definitionID)
 	if definitionID == "" {
 		return workflowRunStartSnapshot{}, status.Error(codes.InvalidArgument, "definition_id is required")
@@ -766,12 +770,12 @@ func (b *temporalBackend) manualRunStartSnapshot(ctx context.Context, definition
 	if ownerKey == "" {
 		return workflowRunStartSnapshot{}, status.Error(codes.InvalidArgument, "definition target owner is required")
 	}
-	effectiveRunAs := cloneSubjectInput(definition.RunAs)
-	if runAs != nil {
-		effectiveRunAs = cloneSubjectInput(runAs)
+	runAs := ""
+	if definition.RunAs != nil {
+		runAs = strings.TrimSpace(definition.RunAs.ID)
 	}
-	if err := validateWorkflowRunAsInput(effectiveRunAs); err != nil {
-		return workflowRunStartSnapshot{}, status.Error(codes.InvalidArgument, err.Error())
+	if runAs == "" {
+		return workflowRunStartSnapshot{}, status.Error(codes.InvalidArgument, "run_as is required")
 	}
 	return workflowRunStartSnapshot{
 		DefinitionID:         definition.ID,
@@ -779,7 +783,7 @@ func (b *temporalBackend) manualRunStartSnapshot(ctx context.Context, definition
 		OwnerKey:             ownerKey,
 		Target:               cloneBoundWorkflowTargetInput(definition.Target),
 		Input:                cloneMapInput(input),
-		RunAs:                effectiveRunAs,
+		RunAs:                runAs,
 		CreatedBy:            cloneCreatedBy(createdBySubjectID),
 	}, nil
 }
@@ -889,11 +893,15 @@ func (b *temporalBackend) upsertDefinitionSchedule(ctx context.Context, definiti
 	if err != nil {
 		return err
 	}
+	runAs := ""
+	if definition.RunAs != nil {
+		runAs = strings.TrimSpace(definition.RunAs.ID)
+	}
 	actionInput := b.runInput(targetOwnerKeyInput(definition.Target), definition.ID, definition.Generation, "", definition.Target, activationInput, scheduleTriggerInput(activation.ID, time.Now().UTC()), definition.CreatedBy, false)
 	actionInput.ActivationID = activation.ID
-	actionInput.RunAs = cloneSubjectInput(definition.RunAs)
-	if err := validateWorkflowRunAsInput(actionInput.RunAs); err != nil {
-		return status.Errorf(codes.InvalidArgument, "workflow definition %q run_as: %v", definition.ID, err)
+	actionInput.RunAs = runAsID(runAs)
+	if runAs == "" {
+		return status.Errorf(codes.InvalidArgument, "workflow definition %q run_as: run_as is required", definition.ID)
 	}
 	action := &client.ScheduleWorkflowAction{
 		Workflow:              TemporalRun,

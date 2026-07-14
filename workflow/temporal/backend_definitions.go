@@ -60,7 +60,7 @@ func (b *temporalBackend) ApplyDefinition(ctx context.Context, req *gestalt.Appl
 		CreatedAt:    createdAt,
 		UpdatedAt:    now,
 		ProviderName: b.providerName,
-		RunAs:        cloneSubjectInput(spec.RunAs),
+		RunAs:        spec.RunAs,
 	}
 	if err := b.syncDefinitionSchedules(ctx, existing, definition); err != nil {
 		return nil, err
@@ -220,15 +220,24 @@ func normalizeDefinitionSpec(spec *gestalt.WorkflowDefinitionSpec) (gestalt.Work
 	if err != nil {
 		return gestalt.WorkflowDefinitionSpec{}, "", err
 	}
-	if err := validateWorkflowActivationRunAsInput(activations, spec.RunAs); err != nil {
-		return gestalt.WorkflowDefinitionSpec{}, "", err
+	runAs := ""
+	if spec.RunAs != nil {
+		runAs = strings.TrimSpace(spec.RunAs.ID)
+	}
+	for _, activation := range activations {
+		if activation.Event == nil && activation.Schedule == nil {
+			continue
+		}
+		if runAs == "" {
+			return gestalt.WorkflowDefinitionSpec{}, "", fmt.Errorf("activation %q run_as: run_as is required", activation.ID)
+		}
 	}
 	return gestalt.WorkflowDefinitionSpec{
 		ID:          strings.TrimSpace(spec.ID),
 		Target:      target.Target,
 		Activations: activations,
 		Paused:      spec.Paused,
-		RunAs:       cloneSubjectInput(spec.RunAs),
+		RunAs:       spec.RunAs,
 	}, target.OwnerKey, nil
 }
 

@@ -21,7 +21,7 @@ type workflowDefinitionRecord struct {
 	CreatedBy   string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
-	RunAs       *gestalt.Subject
+	RunAs       string
 }
 
 func (p *Provider) ApplyDefinition(ctx context.Context, req *gestalt.ApplyWorkflowProviderDefinitionRequest) (*gestalt.WorkflowDefinition, error) {
@@ -44,8 +44,17 @@ func (p *Provider) ApplyDefinition(ctx context.Context, req *gestalt.ApplyWorkfl
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	if err := validateWorkflowActivationRunAs(activations, spec.RunAs); err != nil {
-		return nil, status.Error(codes.InvalidArgument, err.Error())
+	runAs := ""
+	if spec.RunAs != nil {
+		runAs = strings.TrimSpace(spec.RunAs.ID)
+	}
+	for _, activation := range activations {
+		if activation.Event == nil && activation.Schedule == nil {
+			continue
+		}
+		if runAs == "" {
+			return nil, status.Errorf(codes.InvalidArgument, "activation %q run_as: run_as is required", activation.ID)
+		}
 	}
 
 	p.mu.Lock()
@@ -70,7 +79,7 @@ func (p *Provider) ApplyDefinition(ctx context.Context, req *gestalt.ApplyWorkfl
 		CreatedBy:   requestCreatedBy(ctx),
 		CreatedAt:   now,
 		UpdatedAt:   now,
-		RunAs:       cloneSubject(spec.RunAs),
+		RunAs:       runAs,
 	}
 	if found {
 		record.Generation = existing.Generation + 1
@@ -319,7 +328,7 @@ func (r workflowDefinitionRecord) toRecord() gestalt.Record {
 		"created_by":       cloneCreatedBy(r.CreatedBy),
 		"created_at":       r.CreatedAt.UTC(),
 		"updated_at":       r.UpdatedAt.UTC(),
-		"run_as":           subjectValue(r.RunAs),
+		"run_as":           r.RunAs,
 	}
 }
 
@@ -337,7 +346,12 @@ func definitionRecordFromRecord(record gestalt.Record) (workflowDefinitionRecord
 		Activations: workflowActivationsFromRecordValue(value["activations_json"]),
 		Paused:      boolField(value, "paused"),
 		CreatedBy:   createdByFromAny(value["created_by"]),
-		RunAs:       subjectFromAny(value["run_as"]),
+	}
+	switch v := value["run_as"].(type) {
+	case string:
+		out.RunAs = strings.TrimSpace(v)
+	case map[string]any:
+		out.RunAs = strings.TrimSpace(stringField(v, "id"))
 	}
 	if out.Generation <= 0 {
 		out.Generation = 1
@@ -352,6 +366,10 @@ func definitionRecordFromRecord(record gestalt.Record) (workflowDefinitionRecord
 }
 
 func (r workflowDefinitionRecord) toInput(providerName string) *gestalt.WorkflowDefinition {
+	var runAs *gestalt.Subject
+	if id := strings.TrimSpace(r.RunAs); id != "" {
+		runAs = &gestalt.Subject{ID: id}
+	}
 	return cloneWorkflowDefinition(&gestalt.WorkflowDefinition{
 		ID:           r.ID,
 		Generation:   r.Generation,
@@ -362,7 +380,7 @@ func (r workflowDefinitionRecord) toInput(providerName string) *gestalt.Workflow
 		CreatedAt:    r.CreatedAt,
 		UpdatedAt:    r.UpdatedAt,
 		ProviderName: strings.TrimSpace(providerName),
-		RunAs:        cloneSubject(r.RunAs),
+		RunAs:        runAs,
 	})
 }
 
