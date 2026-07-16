@@ -368,6 +368,16 @@ func (p *Provider) Close() error {
 	p.mu.Lock()
 	cancel := p.pollCancel
 	done := p.pollDone
+	if cancel != nil {
+		cancel()
+	}
+	p.mu.Unlock()
+
+	if done != nil {
+		<-done
+	}
+
+	p.mu.Lock()
 	executor := p.stepExecutor
 	db := p.db
 
@@ -386,14 +396,8 @@ func (p *Provider) Close() error {
 	p.pollCancel = nil
 	p.pollDone = nil
 	p.wake = nil
+	p.lastStaleRecovery = time.Time{}
 	p.mu.Unlock()
-
-	if cancel != nil {
-		cancel()
-	}
-	if done != nil {
-		<-done
-	}
 
 	var errs []error
 	if executor != nil {
@@ -1341,7 +1345,7 @@ func (p *Provider) tick(ctx context.Context, preferredRunID string) error {
 	}
 
 	if err := p.recoverStaleWorkflowRunsIfDue(ctx); err != nil {
-		slog.WarnContext(ctx, "indexeddb workflow: recover stale workflow runs failed", "provider", p.providerName(), "error", err)
+		p.logTickError(ctx, err)
 	}
 	if err := p.enqueueDueSchedules(ctx); err != nil {
 		return err
