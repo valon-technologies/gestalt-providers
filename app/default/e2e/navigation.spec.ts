@@ -1,13 +1,10 @@
 import {
   test,
   expect,
-  mockAgentNotConfigured,
-  mockAgentRuns,
   mockAuthInfo,
   mockIntegrations,
   mockManagedIdentities,
   mockTokens,
-  mockWorkflowRuns,
 } from "./fixtures";
 
 test.describe("Navigation", () => {
@@ -33,39 +30,13 @@ test.describe("Navigation", () => {
         createdAt: "2026-04-13T00:00:00Z",
       },
     ]);
-    await mockWorkflowRuns(authenticatedPage, [
-      {
-        id: "run_123",
-        provider: "basic",
-        status: "succeeded",
-        target: {
-          steps: [
-            {
-              id: "run",
-              app: { name: "httpbin", operation: "get" },
-            },
-          ],
-        },
-        trigger: { kind: "schedule", activationId: "sched_123" },
-        createdAt: "2026-04-13T00:00:00Z",
-      },
-    ]);
-    await mockAgentRuns(authenticatedPage, [
-      {
-        id: "agent_run_123",
-        provider: "simple",
-        model: "fast",
-        status: "succeeded",
-        messages: [{ role: "user", text: "Summarize the queue." }],
-        createdAt: "2026-04-13T00:00:00Z",
-      },
-    ]);
   });
 
-  test("dashboard page renders", async ({ authenticatedPage: page }) => {
+  test("root redirects to apps", async ({ authenticatedPage: page }) => {
     await page.goto("/");
+    await expect(page).toHaveURL(/\/apps/);
     await expect(
-      page.getByRole("heading", { name: "Dashboard" }),
+      page.getByRole("heading", { name: "Apps" }),
     ).toBeVisible();
   });
 
@@ -87,20 +58,6 @@ test.describe("Navigation", () => {
     await page.goto("/authorization");
     await expect(
       page.getByRole("heading", { name: "Authorization" }),
-    ).toBeVisible();
-  });
-
-  test("workflows page renders", async ({ authenticatedPage: page }) => {
-    await page.goto("/workflows");
-    await expect(
-      page.getByRole("heading", { name: "Workflows" }),
-    ).toBeVisible();
-  });
-
-  test("agents page renders", async ({ authenticatedPage: page }) => {
-    await page.goto("/agents");
-    await expect(
-      page.getByRole("heading", { name: "Agent Sessions" }),
     ).toBeVisible();
   });
 
@@ -133,43 +90,17 @@ test.describe("Navigation", () => {
     await expect(
       page.getByRole("heading", { name: "Authorization" }),
     ).toBeVisible();
-    await page.getByRole("link", { name: "Workflows" }).click();
-    await expect(page).toHaveURL(/workflows/);
+    await page.getByRole("link", { name: "Apps", exact: true }).click();
+    await expect(page).toHaveURL(/\/apps/);
     await expect(
-      page.getByRole("heading", { name: "Workflows" }),
-    ).toBeVisible();
-    await page.getByRole("link", { name: "Agents" }).click();
-    await expect(page).toHaveURL(/agents/);
-    await expect(
-      page.getByRole("heading", { name: "Agent Sessions" }),
+      page.getByRole("heading", { name: "Apps" }),
     ).toBeVisible();
   });
 
   test("apps nav label uses the apps route", async ({ authenticatedPage: page }) => {
-    await page.goto("/");
+    await page.goto("/apps");
     await page.getByRole("link", { name: "Apps", exact: true }).click();
     await expect(page).toHaveURL(/\/apps/);
     await expect(page.getByRole("heading", { name: "Apps" })).toBeVisible();
-  });
-});
-
-test.describe("Agent availability", () => {
-  test("hides agent navigation when no agent provider is configured", async ({
-    authenticatedPage: page,
-  }) => {
-    await mockAuthInfo(page, {
-      provider: "test-sso",
-      displayName: "Test SSO",
-    });
-    await mockManagedIdentities(page, []);
-    await mockIntegrations(page, []);
-    await mockTokens(page, []);
-    await mockWorkflowRuns(page, []);
-    await mockAgentNotConfigured(page);
-
-    await page.goto("/");
-
-    await expect(page.getByRole("link", { name: "Agents" })).toHaveCount(0);
-    await expect(page.getByText("View agent sessions")).toHaveCount(0);
   });
 });

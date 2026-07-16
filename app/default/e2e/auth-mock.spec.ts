@@ -7,7 +7,6 @@ import {
   mockIntegrations,
   mockManagedIdentities,
   mockTokens,
-  mockWorkflowRuns,
 } from "./fixtures";
 
 const hasBackend =
@@ -41,7 +40,7 @@ test.describe("Authentication", () => {
     });
   });
 
-  test("no-auth server redirects to dashboard without showing logout", async ({
+  test("no-auth server redirects to apps without showing logout", async ({
     page,
   }) => {
     await mockAuthInfo(page, {
@@ -55,10 +54,9 @@ test.describe("Authentication", () => {
     });
     await mockIntegrations(page, []);
     await mockTokens(page, []);
-    await mockWorkflowRuns(page, []);
 
     await page.goto("/");
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL(/\/apps/);
     await expect(page.getByText("anonymous@gestalt")).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Authorization", exact: true }),
@@ -76,7 +74,7 @@ test.describe("Authentication", () => {
     ).toBeVisible();
   });
 
-  test("authenticated user sees dashboard", async ({ authenticatedPage }) => {
+  test("authenticated user sees apps home", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await page.route("**/api/v1/auth/info", (route) => {
       route.abort();
@@ -86,11 +84,11 @@ test.describe("Authentication", () => {
       { name: "test-svc", displayName: "Test Service" },
     ]);
     await mockTokens(page, []);
-    await mockWorkflowRuns(page, []);
 
     await page.goto("/");
+    await expect(page).toHaveURL(/\/apps/);
     await expect(
-      page.getByRole("heading", { name: "Dashboard" }),
+      page.getByRole("heading", { name: "Apps" }),
     ).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Apps", exact: true }),
@@ -125,7 +123,6 @@ test.describe("Authentication", () => {
     await mockManagedIdentities(page, []);
     await mockIntegrations(page, []);
     await mockTokens(page, []);
-    await mockWorkflowRuns(page, []);
     await page.route("**/api/v1/auth/logout", (route) => {
       loggedOut = true;
       route.fulfill({ json: { status: "ok" } });
@@ -143,12 +140,12 @@ test.describe("Authentication", () => {
       });
     });
 
-    await page.goto("/");
+    await page.goto("/apps");
     await page.getByRole("button", { name: /Logout/i }).click();
     await expect(page).toHaveURL((url) => {
       return (
         url.pathname === "/api/v1/auth/login" &&
-        url.searchParams.get("next") === "/"
+        url.searchParams.get("next") === "/apps"
       );
     });
     await expect(
@@ -162,7 +159,7 @@ test.describe("Authentication", () => {
   test("401 response clears session and redirects to server login", async ({
     page,
   }) => {
-    await page.goto("/");
+    await page.goto("/apps");
     await page.evaluate(() => {
       localStorage.setItem(
         "gestalt.auth.session",
@@ -185,15 +182,12 @@ test.describe("Authentication", () => {
     await page.route("**/api/v1/tokens", (route) => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
-    await page.route("**/api/v1/workflow/runs", (route) => {
-      route.fulfill({ status: 401, json: { error: "invalid token" } });
-    });
 
-    await page.goto("/workflows?range=week#runs");
+    await page.goto("/apps?view=catalog#list");
     await expect(page).toHaveURL((url) => {
       return (
         url.pathname === "/api/v1/auth/login" &&
-        url.searchParams.get("next") === "/workflows?range=week#runs"
+        url.searchParams.get("next") === "/apps?view=catalog#list"
       );
     });
     await expect(

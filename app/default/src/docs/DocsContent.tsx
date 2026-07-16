@@ -229,10 +229,6 @@ gestalt workflows runs list`}
           <Link to="/docs/workflows" className="doc-link">
             Workflows
           </Link>
-          . If you prefer the browser, the same workflow surfaces are also available on{" "}
-          <Link to="/workflows" className="doc-link">
-            Workflows
-          </Link>
           .
         </p>
       </DocsPageBody>
@@ -427,10 +423,6 @@ export function WorkflowsDocsPage() {
 
         <Subheading id="wf-help" title="Start with help" />
         <CodeBlock code="gestalt workflows --help" />
-        <p className="doc-copy">
-          In this workspace, the default browser UI focuses on recent workflow
-          execution history and durable per-step state.
-        </p>
 
         <Subheading id="wf-runs" title="Inspect runs" />
         <p className="doc-copy">
@@ -444,11 +436,8 @@ gestalt workflows runs list --app <app>
 gestalt workflows runs get <run-id>`}
         />
         <p className="doc-copy">
-          The browser surface at{" "}
-          <Link to="/workflows" className="doc-link">
-            Workflows
-          </Link>{" "}
-          shows recent runs and durable step state if you want a UI for inspection.
+          Use the CLI commands above to inspect recent runs and durable step
+          state.
         </p>
       </DocsPageBody>
     </>

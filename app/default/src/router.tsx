@@ -16,13 +16,10 @@ import {
   WorkflowsDocsPage,
 } from "@/docs/DocsContent";
 import { useDocumentTitle } from "@/hooks/use-document-title";
-import AgentsPage from "@/pages/agents";
 import AppsPage from "@/pages/apps";
 import AuthorizationPage from "@/pages/authorization";
-import DashboardPage from "@/pages/index";
 import IdentitiesPage from "@/pages/identities";
 import IntegrationsPage from "@/pages/integrations";
-import WorkflowsPage from "@/pages/workflows";
 import { rootRoute } from "./routes/__root";
 
 function DocsLayout() {
@@ -76,13 +73,9 @@ function DocsTroubleshootingRoute() {
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: DashboardPage,
-});
-
-const agentsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/agents",
-  component: AgentsPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/apps" });
+  },
 });
 
 const appsRoute = createRoute({
@@ -115,12 +108,6 @@ const tokensRoute = createRoute({
   beforeLoad: () => {
     throw redirect({ to: "/authorization" });
   },
-});
-
-const workflowsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/workflows",
-  component: WorkflowsPage,
 });
 
 const docsLayoutRoute = createRoute({
@@ -185,13 +172,11 @@ const docsTroubleshootingRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
-  agentsRoute,
   appsRoute,
   authorizationRoute,
   identitiesRoute,
   integrationsRoute,
   tokensRoute,
-  workflowsRoute,
   docsLayoutRoute.addChildren([
     docsIndexRoute,
     docsGettingStartedRoute,
