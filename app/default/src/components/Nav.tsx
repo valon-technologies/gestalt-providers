@@ -1,12 +1,9 @@
-
 import { useEffect, useRef, useState } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   type AuthSession,
-  getAgentSessions,
   getAuthInfo,
   getAuthSession,
-  isAPIErrorStatus,
   logout,
 } from "@/lib/api";
 import {
@@ -23,12 +20,9 @@ import Container from "./Container";
 import { MoonIcon, SunIcon, SunMoonIcon } from "./icons";
 
 const links = [
-  { href: "/", label: "Dashboard" },
   { href: BUILD_PATH, label: "Build" },
   { href: "/authorization", label: "Authorization" },
   { href: "/apps", label: "Apps" },
-  { href: "/workflows", label: "Workflows" },
-  { href: "/agents", label: "Agents" },
   { href: DOCS_PATH, label: "Docs" },
 ];
 
@@ -36,7 +30,6 @@ export default function Nav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [session, setSession] = useState<CachedAuthSession | null>(null);
   const [loginSupported, setLoginSupported] = useState(false);
-  const [agentAvailable, setAgentAvailable] = useState(false);
   const { theme, setTheme } = useTheme();
   const sessionRefreshGeneration = useRef(0);
 
@@ -57,37 +50,19 @@ export default function Nav() {
   useEffect(() => {
     if (!displayLabel) {
       setLoginSupported(false);
-      setAgentAvailable(false);
       return;
     }
 
     let active = true;
     getAuthInfo()
-      .then(async (info) => {
+      .then((info) => {
         if (active) {
           setLoginSupported(info.loginSupported);
-        }
-        if (typeof info.features?.agent === "boolean") {
-          if (active) {
-            setAgentAvailable(info.features.agent);
-          }
-          return;
-        }
-        try {
-          await getAgentSessions({ view: "summary", limit: 1 });
-          if (active) {
-            setAgentAvailable(true);
-          }
-        } catch (err) {
-          if (active) {
-            setAgentAvailable(!isAPIErrorStatus(err, 412));
-          }
         }
       })
       .catch(() => {
         if (active) {
           setLoginSupported(true);
-          setAgentAvailable(true);
         }
       });
 
@@ -100,22 +75,22 @@ export default function Nav() {
     sessionRefreshGeneration.current++;
     await logout().catch(() => {});
     clearSession();
-    window.location.href = serverLoginURL("/");
+    window.location.href = serverLoginURL("/apps");
   }
 
   return (
     <nav className="border-b border-alpha py-3 bg-background/80 backdrop-blur-xs sticky top-0 z-50">
       <Container className="flex items-center justify-between">
         <div className="flex items-center gap-8">
-          <Link to="/" className="text-lg font-heading font-bold text-primary">
+          <Link to="/apps" className="text-lg font-heading font-bold text-primary">
             Gestalt
           </Link>
           <div className="flex gap-5">
-            {links.filter((link) => link.href !== "/agents" || agentAvailable).map((link) => {
+            {links.map((link) => {
               const isActive =
                 pathname === link.href ||
                 (link.href === "/authorization" && pathname === "/tokens") ||
-                (link.href !== "/" && pathname.startsWith(link.href + "/"));
+                pathname.startsWith(link.href + "/");
               const className = `text-sm transition-colors duration-150 ${
                 isActive
                   ? "text-primary font-medium"

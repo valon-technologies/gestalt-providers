@@ -10,9 +10,9 @@ test.describe("Authentication", () => {
   });
 
   test("authenticated user can access pages", async ({ page }) => {
-    await page.goto("/");
+    await page.goto("/apps");
     await expect(
-      page.getByRole("heading", { name: "Dashboard" }),
+      page.getByRole("heading", { name: "Apps" }),
     ).toBeVisible();
     await page.goto("/authorization");
     await expect(
