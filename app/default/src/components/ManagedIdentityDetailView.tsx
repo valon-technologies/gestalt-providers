@@ -332,7 +332,7 @@ export default function ManagedIdentityDetailView({
 
   return (
     <Container as="main" className="py-12">
-      <div className="animate-fade-in-up">
+      <div>
         <Link to="/identities" className="text-sm text-muted hover:text-primary transition-colors duration-150">
           &larr; Back to identities
         </Link>
@@ -351,7 +351,7 @@ export default function ManagedIdentityDetailView({
       {loading ? <p className="mt-10 text-sm text-faint">Loading...</p> : null}
 
       {!loading && identity ? (
-        <div className="mt-10 space-y-6 animate-fade-in-up [animation-delay:60ms]">
+        <div className="mt-10 space-y-6">
           <section className={SECTION_CARD}>
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>

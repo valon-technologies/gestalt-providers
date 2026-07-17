@@ -25,6 +25,15 @@
   --ring: oklch(85.935% 0.1118 82.45);
   --danger: oklch(58.766% 0.1526 23);
   --success: oklch(48.204% 0.0881 144.06);
+  /* Interaction roles (fill vs on-fill ink). Derived from brand + foreground
+   * so tenant themes only override the brand pair / ink — never invent
+   * brand-colored text for selected chrome. Invariant: accent* colors the
+   * FILL; *-foreground stays ink (`--foreground`). */
+  --accent: var(--brand-soft);
+  --accent-foreground: var(--foreground);
+  --accent-subtle: color-mix(in oklab, var(--accent), var(--background) 30%);
+  --accent-vivid: var(--brand-soft);
+  --accent-vivid-foreground: var(--foreground);
   /* Layout and typography knobs, overridable per tenant theme. */
   --content-max-width: 80rem;
   /* Newsreader (the bundled display face) ships a 400 cut only; tenant
