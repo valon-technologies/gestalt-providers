@@ -539,7 +539,7 @@ function DocsPageHeader({
   description: ReactNode;
 }) {
   return (
-    <header className="scroll-mt-24 border-b border-alpha pb-10 animate-fade-in-up">
+    <header className="scroll-mt-24 border-b border-alpha pb-10">
       <p className="text-xs font-medium uppercase tracking-[0.16em] text-faint">
         {eyebrow}
       </p>
@@ -555,7 +555,7 @@ function DocsPageHeader({
 
 function DocsPageBody({ children }: { children: ReactNode }) {
   return (
-    <div className="mt-8 space-y-5 animate-fade-in-up [animation-delay:60ms]">
+    <div className="mt-8 space-y-5">
       {children}
     </div>
   );

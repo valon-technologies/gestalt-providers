@@ -24,8 +24,9 @@ function linkClassName(size: NavigationMenuSize) {
     "group inline-flex w-max items-center justify-center rounded-md font-medium outline-none",
     "text-secondary hover:bg-alpha-5 hover:text-primary",
     "focus-ring",
-    "data-active:bg-alpha-10 data-active:text-primary",
-    "data-active:hover:bg-alpha-10",
+    // Selected chrome: accent FILL + ink on-fill (never text-brand).
+    "data-active:bg-accent-subtle data-active:text-accent-foreground",
+    "data-active:hover:bg-accent-subtle",
     "disabled:pointer-events-none disabled:opacity-50",
     sizeClass[size],
   );

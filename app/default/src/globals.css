@@ -62,19 +62,6 @@
   /* v3's default ring color (blue-500/50) — v4 defaults to currentColor.
    * Bare-width rings (`ring-2` without a ring color) rendered blue in v3. */
   --default-ring-color: oklch(62.308% 0.188 259.81 / 0.5);
-
-  --animate-fade-in-up: fade-in-up 0.5s cubic-bezier(0.19, 1, 0.22, 1) both;
-
-  @keyframes fade-in-up {
-    0% {
-      opacity: 0;
-      transform: translateY(12px);
-    }
-    100% {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
 }
 
 /* Tokens backed by the tenant-theme contract (shared/theme.css). `inline` is
@@ -92,6 +79,11 @@
   /* Whole-color tokens; alpha modifiers work via color-mix on all of them. */
   --color-brand: var(--brand);
   --color-brand-soft: var(--brand-soft);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-vivid: var(--accent-vivid);
+  --color-accent-vivid-foreground: var(--accent-vivid-foreground);
   --color-ring: var(--ring);
   --color-danger: var(--danger);
   --color-success: var(--success);
@@ -327,15 +319,6 @@
 
   .dark dialog::backdrop {
     background-color: oklch(13.618% 0.0065 71.35 / 0.7);
-  }
-}
-
-@layer base {
-  @media (prefers-reduced-motion: reduce) {
-    .animate-fade-in-up {
-      animation: none !important;
-      opacity: 1 !important;
-    }
   }
 }
 

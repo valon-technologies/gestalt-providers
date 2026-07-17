@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { getTokens, type APIToken } from "@/lib/api";
-import AuthGuard from "@/components/AuthGuard";
 import Container from "@/components/Container";
-import Nav from "@/components/Nav";
 import TokenCreateForm from "@/components/TokenCreateForm";
 import TokenTable from "@/components/TokenTable";
 
@@ -38,62 +36,57 @@ export default function SettingsPageClient() {
   }, []);
 
   return (
-    <AuthGuard>
-      <div className="min-h-screen">
-        <Nav />
-        <Container as="main" className="py-12">
-          <div className="animate-fade-in-up">
-            <span className="label-text">Account</span>
-            <h1 className="mt-2 text-2xl font-heading text-primary">Settings</h1>
-            <p className="mt-3 max-w-3xl text-sm text-muted">
-              Manage authorization for your account — personal API tokens and
-              shared service identities.
-            </p>
-          </div>
-
-          <section
-            id="authorization"
-            className="mt-12 animate-fade-in-up rounded-2xl border border-alpha bg-base-white p-6 [animation-delay:120ms] dark:bg-surface"
-          >
-            <SettingsSectionIntro
-              eyebrow="Authorization"
-              title="Your API Tokens"
-              description="Create personal tokens for local tooling, scripts, and one-off integrations. These act as you."
-            />
-
-            <div className="mt-8">
-              <div className="rounded-xl border border-alpha bg-base-white p-5 dark:bg-surface-raised">
-                <TokenCreateForm onCreated={loadTokens} />
-              </div>
-            </div>
-
-            {tokensError && <p className="mt-4 text-sm text-ember-500">{tokensError}</p>}
-
-            {tokensLoading ? (
-              <p className="mt-10 text-sm text-faint">Loading...</p>
-            ) : !tokensError ? (
-              <div className="mt-8">
-                <TokenTable tokens={tokens} onRevoked={loadTokens} />
-              </div>
-            ) : null}
-          </section>
-
-          <section className="mt-6 animate-fade-in-up rounded-2xl border border-alpha bg-base-white p-6 [animation-delay:180ms] dark:bg-surface">
-            <SettingsSectionIntro
-              eyebrow="Authorization"
-              title="Managed Identities"
-              description="Create shared service-account subjects, grant app roles, and mint subject-owned API tokens for automation."
-            />
-            <Link
-              to="/identities"
-              className="mt-6 inline-flex rounded-md border border-alpha px-4 py-2 text-sm font-medium text-primary transition-colors duration-150 hover:border-alpha-strong hover:bg-base-100 dark:hover:bg-surface-raised"
-            >
-              Manage identities
-            </Link>
-          </section>
-        </Container>
+    <Container as="main" className="py-12">
+      <div>
+        <span className="label-text">Account</span>
+        <h1 className="mt-2 text-2xl font-heading text-primary">Settings</h1>
+        <p className="mt-3 max-w-3xl text-sm text-muted">
+          Manage authorization for your account — personal API tokens and
+          shared service identities.
+        </p>
       </div>
-    </AuthGuard>
+
+      <section
+        id="authorization"
+        className="mt-12 rounded-2xl border border-alpha bg-base-white p-6 dark:bg-surface"
+      >
+        <SettingsSectionIntro
+          eyebrow="Authorization"
+          title="Your API Tokens"
+          description="Create personal tokens for local tooling, scripts, and one-off integrations. These act as you."
+        />
+
+        <div className="mt-8">
+          <div className="rounded-xl border border-alpha bg-base-white p-5 dark:bg-surface-raised">
+            <TokenCreateForm onCreated={loadTokens} />
+          </div>
+        </div>
+
+        {tokensError && <p className="mt-4 text-sm text-ember-500">{tokensError}</p>}
+
+        {tokensLoading ? (
+          <p className="mt-10 text-sm text-faint">Loading...</p>
+        ) : !tokensError ? (
+          <div className="mt-8">
+            <TokenTable tokens={tokens} onRevoked={loadTokens} />
+          </div>
+        ) : null}
+      </section>
+
+      <section className="mt-6 rounded-2xl border border-alpha bg-base-white p-6 dark:bg-surface">
+        <SettingsSectionIntro
+          eyebrow="Authorization"
+          title="Managed Identities"
+          description="Create shared service-account subjects, grant app roles, and mint subject-owned API tokens for automation."
+        />
+        <Link
+          to="/identities"
+          className="mt-6 inline-flex rounded-md border border-alpha px-4 py-2 text-sm font-medium text-primary transition-colors duration-150 hover:border-alpha-strong hover:bg-base-100 dark:hover:bg-surface-raised"
+        >
+          Manage identities
+        </Link>
+      </section>
+    </Container>
   );
 }
 
