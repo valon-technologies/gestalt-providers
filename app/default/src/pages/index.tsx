@@ -13,6 +13,7 @@ import Nav from "@/components/Nav";
 import AuthGuard from "@/components/AuthGuard";
 import Container from "@/components/Container";
 import { AGENT_SESSION_ROUTE } from "@/lib/agentLinks";
+import { BUILD_PATH } from "@/lib/constants";
 
 export default function DashboardPage() {
   const [data, setData] = useState<{
@@ -117,6 +118,23 @@ export default function DashboardPage() {
             </h1>
             <p className="mt-2 text-sm text-muted">
               Manage the client-facing app workspace from one place.
+            </p>
+            <p className="mt-3 text-sm">
+              {data.integrations === 0 ? (
+                <Link
+                  to={BUILD_PATH}
+                  className="font-medium text-primary hover:underline"
+                >
+                  No apps connected yet — start building →
+                </Link>
+              ) : (
+                <Link
+                  to={BUILD_PATH}
+                  className="text-muted transition-colors duration-150 hover:text-primary"
+                >
+                  Start building →
+                </Link>
+              )}
             </p>
           </div>
 

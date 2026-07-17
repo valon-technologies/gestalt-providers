@@ -23,6 +23,7 @@ import DashboardPage from "@/pages/index";
 import IdentitiesPage from "@/pages/identities";
 import IntegrationsPage from "@/pages/integrations";
 import WorkflowsPage from "@/pages/workflows";
+import BuildPage from "@/pages/build";
 import { rootRoute } from "./routes/__root";
 
 function DocsLayout() {
@@ -77,6 +78,12 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   component: DashboardPage,
+});
+
+const buildRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/build",
+  component: BuildPage,
 });
 
 const agentsRoute = createRoute({
@@ -185,6 +192,7 @@ const docsTroubleshootingRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  buildRoute,
   agentsRoute,
   appsRoute,
   authorizationRoute,

@@ -69,6 +69,16 @@ test.describe("Navigation", () => {
     ).toBeVisible();
   });
 
+  test("build page renders", async ({ authenticatedPage: page }) => {
+    await page.goto("/build");
+    await expect(
+      page.getByRole("heading", { name: "Build", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Primary Google Calendar/ }),
+    ).toBeVisible();
+  });
+
   test("apps page renders", async ({ authenticatedPage: page }) => {
     await page.goto("/apps");
     await expect(
@@ -128,17 +138,22 @@ test.describe("Navigation", () => {
 
   test("nav links work", async ({ authenticatedPage: page }) => {
     await page.goto("/apps");
-    await page.getByRole("link", { name: "Authorization" }).click();
+    await page.getByRole("link", { name: "Build", exact: true }).click();
+    await expect(page).toHaveURL(/\/build/);
+    await expect(
+      page.getByRole("heading", { name: "Build", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("navigation").getByRole("link", { name: "Authorization" }).click();
     await expect(page).toHaveURL(/authorization/);
     await expect(
       page.getByRole("heading", { name: "Authorization" }),
     ).toBeVisible();
-    await page.getByRole("link", { name: "Workflows" }).click();
+    await page.getByRole("navigation").getByRole("link", { name: "Workflows" }).click();
     await expect(page).toHaveURL(/workflows/);
     await expect(
       page.getByRole("heading", { name: "Workflows" }),
     ).toBeVisible();
-    await page.getByRole("link", { name: "Agents" }).click();
+    await page.getByRole("navigation").getByRole("link", { name: "Agents" }).click();
     await expect(page).toHaveURL(/agents/);
     await expect(
       page.getByRole("heading", { name: "Agent Sessions" }),

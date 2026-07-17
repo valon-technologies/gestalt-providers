@@ -16,7 +16,7 @@ import {
   setCachedSession,
   type CachedAuthSession,
 } from "@/lib/auth";
-import { DOCS_PATH } from "@/lib/constants";
+import { DOCS_PATH, BUILD_PATH } from "@/lib/constants";
 import { serverLoginURL } from "@/lib/authReturn";
 import { useTheme } from "@/hooks/use-theme";
 import Container from "./Container";
@@ -24,6 +24,7 @@ import { MoonIcon, SunIcon, SunMoonIcon } from "./icons";
 
 const links = [
   { href: "/", label: "Dashboard" },
+  { href: BUILD_PATH, label: "Build" },
   { href: "/authorization", label: "Authorization" },
   { href: "/apps", label: "Apps" },
   { href: "/workflows", label: "Workflows" },

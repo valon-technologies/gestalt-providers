@@ -53,7 +53,12 @@ export function GettingStartedDocsPage() {
             point it at this workspace, sign in when required, connect
             apps, grant authorization, invoke operations, mint API tokens,
             and attach an MCP-aware client. No command-line experience is
-            required. Follow the pages below and copy the commands as-is.
+            required. Follow the pages below and copy the commands as-is.{" "}
+            Prefer the UI?{" "}
+            <Link to="/build" className="doc-link">
+              Open Build
+            </Link>{" "}
+            for a Connect &amp; call checklist in this workspace.
           </>
         }
       />
