@@ -57,11 +57,13 @@ test.describe("Authentication", () => {
 
     await page.goto("/");
     await expect(page).toHaveURL(/\/apps/);
+    await expect(page.getByRole("button", { name: "Open user menu" })).toBeVisible();
+    await page.getByRole("button", { name: "Open user menu" }).click();
     await expect(page.getByText("anonymous@gestalt")).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Authorization", exact: true }),
+      page.getByRole("menuitem", { name: "Settings" }),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: /Logout/i })).toHaveCount(0);
+    await expect(page.getByRole("menuitem", { name: /Log out/i })).toHaveCount(0);
 
     await page.goto("/identities");
     await expect(
@@ -94,10 +96,14 @@ test.describe("Authentication", () => {
       page.getByRole("link", { name: "Apps", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Authorization", exact: true }),
+      page.getByRole("button", { name: "Open user menu" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Open user menu" }).click();
+    await expect(
+      page.getByRole("menuitem", { name: "Settings" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /Logout/i }),
+      page.getByRole("menuitem", { name: /Log out/i }),
     ).toBeVisible();
   });
 
@@ -141,7 +147,8 @@ test.describe("Authentication", () => {
     });
 
     await page.goto("/apps");
-    await page.getByRole("button", { name: /Logout/i }).click();
+    await page.getByRole("button", { name: "Open user menu" }).click();
+    await page.getByRole("menuitem", { name: /Log out/i }).click();
     await expect(page).toHaveURL((url) => {
       return (
         url.pathname === "/api/v1/auth/login" &&

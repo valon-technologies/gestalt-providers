@@ -10,18 +10,33 @@ import {
   clearSession,
   getCachedSession,
   sessionDisplayLabel,
+  sessionInitials,
   setCachedSession,
   type CachedAuthSession,
 } from "@/lib/auth";
 import { DOCS_PATH, BUILD_PATH } from "@/lib/constants";
 import { serverLoginURL } from "@/lib/authReturn";
-import { useTheme } from "@/hooks/use-theme";
 import Container from "./Container";
-import { MoonIcon, SunIcon, SunMoonIcon } from "./icons";
+import { Avatar, AvatarFallback } from "./ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuLinkItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
+import {
+  NavigationMenu,
+  NavigationMenuItem,
+  NavigationMenuLink,
+  NavigationMenuList,
+} from "./ui/navigation-menu";
+import { ThemeToggle } from "./ui/theme-toggle";
 
 const links = [
   { href: BUILD_PATH, label: "Build" },
-  { href: "/authorization", label: "Authorization" },
   { href: "/apps", label: "Apps" },
   { href: DOCS_PATH, label: "Docs" },
 ];
@@ -30,7 +45,6 @@ export default function Nav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [session, setSession] = useState<CachedAuthSession | null>(null);
   const [loginSupported, setLoginSupported] = useState(false);
-  const { theme, setTheme } = useTheme();
   const sessionRefreshGeneration = useRef(0);
 
   useEffect(() => {
@@ -45,7 +59,7 @@ export default function Nav() {
       .catch(() => {});
   }, []);
   const displayLabel = sessionDisplayLabel(session);
-  const ThemeIcon = theme === "light" ? SunIcon : theme === "dark" ? MoonIcon : SunMoonIcon;
+  const initials = sessionInitials(session);
 
   useEffect(() => {
     if (!displayLabel) {
@@ -79,59 +93,68 @@ export default function Nav() {
   }
 
   return (
-    <nav className="border-b border-alpha py-3 bg-background/80 backdrop-blur-xs sticky top-0 z-50">
-      <Container className="flex items-center justify-between">
-        <div className="flex items-center gap-8">
-          <Link to="/apps" className="text-lg font-heading font-bold text-primary">
+    <header className="border-b border-alpha py-3 bg-background/80 backdrop-blur-xs sticky top-0 z-50">
+      <Container className="grid grid-cols-[1fr_auto_1fr] items-baseline gap-x-4">
+        <div className="justify-self-start">
+          <Link
+            to="/apps"
+            className="font-heading text-2xl font-bold leading-none text-primary"
+          >
             Gestalt
           </Link>
-          <div className="flex gap-5">
+        </div>
+
+        <NavigationMenu
+          viewport={false}
+          size="lg"
+          aria-label="Primary"
+          className="max-w-none flex-none justify-self-center"
+        >
+          <NavigationMenuList>
             {links.map((link) => {
               const isActive =
-                pathname === link.href ||
-                (link.href === "/authorization" && pathname === "/tokens") ||
-                pathname.startsWith(link.href + "/");
-              const className = `text-sm transition-colors duration-150 ${
-                isActive
-                  ? "text-primary font-medium"
-                  : "text-muted hover:text-secondary"
-              }`;
+                pathname === link.href || pathname.startsWith(link.href + "/");
               return (
-                <Link key={link.href} to={link.href} className={className}>
-                  {link.label}
-                </Link>
+                <NavigationMenuItem key={link.href}>
+                  <NavigationMenuLink asChild active={isActive}>
+                    <Link to={link.href}>{link.label}</Link>
+                  </NavigationMenuLink>
+                </NavigationMenuItem>
               );
             })}
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => {
-              if (theme === "light") setTheme("dark");
-              else if (theme === "dark") setTheme("system");
-              else setTheme("light");
-            }}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-muted transition-all duration-150 hover:bg-alpha-5"
-            title={theme === "light" ? "Light mode" : theme === "dark" ? "Dark mode" : "System preference"}
-            aria-label="Toggle theme"
-          >
-            <ThemeIcon className="h-[18px] w-[18px]" />
-          </button>
+          </NavigationMenuList>
+        </NavigationMenu>
+
+        <div className="flex items-center justify-self-end gap-3 self-center">
+          <ThemeToggle size="sm" />
           {displayLabel && (
-            <>
-              <span className="text-sm text-faint">{displayLabel}</span>
-              {loginSupported && (
-                <button
-                  onClick={handleLogout}
-                  className="text-sm text-muted hover:text-primary transition-colors duration-150"
-                >
-                  Logout
-                </button>
-              )}
-            </>
+            <DropdownMenu>
+              <DropdownMenuTrigger aria-label="Open user menu">
+                <Avatar size="xl" variant="solid" aria-hidden>
+                  <AvatarFallback>{initials}</AvatarFallback>
+                </Avatar>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-56">
+                <DropdownMenuLabel>
+                  <p className="truncate font-semibold">{displayLabel}</p>
+                  {session?.email && session.email !== displayLabel && (
+                    <p className="mt-0.5 truncate text-xs font-normal text-faint">
+                      {session.email}
+                    </p>
+                  )}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuLinkItem>
+                  <Link to="/settings">Settings</Link>
+                </DropdownMenuLinkItem>
+                {loginSupported && (
+                  <DropdownMenuItem onClick={handleLogout}>Log out</DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       </Container>
-    </nav>
+    </header>
   );
 }

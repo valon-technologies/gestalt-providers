@@ -17,10 +17,10 @@ import {
 } from "@/docs/DocsContent";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import AppsPage from "@/pages/apps";
-import AuthorizationPage from "@/pages/authorization";
 import IdentitiesPage from "@/pages/identities";
 import IntegrationsPage from "@/pages/integrations";
 import BuildPage from "@/pages/build";
+import SettingsPage from "@/pages/settings";
 import { rootRoute } from "./routes/__root";
 
 function DocsLayout() {
@@ -91,10 +91,18 @@ const appsRoute = createRoute({
   component: AppsPage,
 });
 
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings",
+  component: SettingsPage,
+});
+
 const authorizationRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/authorization",
-  component: AuthorizationPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/settings", hash: "authorization" });
+  },
 });
 
 const identitiesRoute = createRoute({
@@ -113,7 +121,7 @@ const tokensRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/tokens",
   beforeLoad: () => {
-    throw redirect({ to: "/authorization" });
+    throw redirect({ to: "/settings", hash: "authorization" });
   },
 });
 
@@ -181,6 +189,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   buildRoute,
   appsRoute,
+  settingsRoute,
   authorizationRoute,
   identitiesRoute,
   integrationsRoute,

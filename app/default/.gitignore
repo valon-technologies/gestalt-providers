@@ -1,6 +1,8 @@
 node_modules/
 .gestaltd/
 .gestalt/
+.local/
+.env.local
 out/
 dist/
 .dev/

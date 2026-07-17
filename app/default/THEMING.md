@@ -124,11 +124,19 @@ The root layout imports `@theme.css`, which resolves to the empty
 
 ```bash
 GESTALT_THEME_FILE=/path/to/deployment-repo/deploy/ui/theme.css
+# Optional override; defaults to the directory containing GESTALT_THEME_FILE
+# (same shape as deploy `assetsDir: ./ui` + `stylesheet: ./ui/theme.css`).
+# GESTALT_THEME_ASSETS_DIR=/path/to/deployment-repo/deploy/ui
 ```
 
-Run `npm run dev:theme` alongside `gestaltd serve`. It copies the source into
-`.dev/theme.css` (gitignored) whenever it changes, and the Vite dev server
-hot-applies the CSS.
+Vite then:
+
+1. Mirrors the stylesheet into `.dev/theme.css` for the `@theme.css` import
+   (and `npm run dev:theme` watches for HMR).
+2. Serves the production theme contract on the Vite origin:
+   `/theme.css` ← stylesheet, `/theme/*` ← assetsDir (brand `@font-face`
+   files at `/theme/fonts/…`). Without (2), tenant font URLs fall through
+   to the SPA HTML shell and the UI renders with system fallbacks.
 
 **Served loop (prod parity, secondary).** With `gestaltd serve`, `theme.css`
 is served by gestaltd on the mount, so the layout's link exercises the real
