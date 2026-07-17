@@ -26,9 +26,13 @@ test.describe("Token Management", () => {
     await mockTokens(page, sampleTokens);
     await mockIntegrations(page, []);
 
-    await page.goto("/authorization");
+    await page.goto("/settings");
+    await expect(page).toHaveURL(/\/settings/);
     await expect(
-      page.getByRole("heading", { name: "Authorization" }),
+      page.getByRole("heading", { name: "Settings" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Your API Tokens" }),
     ).toBeVisible();
     await expect(page.getByText("tok-1")).toBeVisible();
     await expect(page.getByText("tok-2")).toBeVisible();
@@ -41,7 +45,7 @@ test.describe("Token Management", () => {
     await mockTokens(page, []);
     await mockIntegrations(page, []);
 
-    await page.goto("/authorization");
+    await page.goto("/settings");
     await expect(page.getByText("No API tokens yet.")).toBeVisible();
   });
 
@@ -80,7 +84,7 @@ test.describe("Token Management", () => {
     });
     await mockIntegrations(page, []);
 
-    await page.goto("/authorization");
+    await page.goto("/settings");
     await page.getByLabel("Token name").fill("audit-label");
     await page.getByLabel("Scopes").fill("my-app");
     await page.getByRole("button", { name: "Create Token" }).click();
@@ -135,7 +139,7 @@ test.describe("Token Management", () => {
     });
     await mockIntegrations(page, []);
 
-    await page.goto("/authorization");
+    await page.goto("/settings");
     await page.getByLabel("Token name").fill("race-token");
     await page.getByLabel("Scopes").fill("other-app");
     await page.getByRole("button", { name: "Create Token" }).click();
@@ -165,7 +169,7 @@ test.describe("Token Management", () => {
     });
     await mockIntegrations(page, []);
 
-    await page.goto("/authorization");
+    await page.goto("/settings");
     await expect(page.getByText("tok-1")).toBeVisible();
 
     await page.getByRole("button", { name: "Revoke" }).first().click();

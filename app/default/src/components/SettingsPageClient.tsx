@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { getTokens, type APIToken } from "@/lib/api";
@@ -8,7 +7,7 @@ import Nav from "@/components/Nav";
 import TokenCreateForm from "@/components/TokenCreateForm";
 import TokenTable from "@/components/TokenTable";
 
-export default function AuthorizationPageClient() {
+export default function SettingsPageClient() {
   const [tokens, setTokens] = useState<APIToken[]>([]);
   const [tokensLoading, setTokensLoading] = useState(true);
   const [tokensError, setTokensError] = useState<string | null>(null);
@@ -44,22 +43,20 @@ export default function AuthorizationPageClient() {
         <Nav />
         <Container as="main" className="py-12">
           <div className="animate-fade-in-up">
-            <span className="label-text">Security</span>
-            <h1 className="mt-2 text-2xl font-heading text-primary">
-              Authorization
-            </h1>
+            <span className="label-text">Account</span>
+            <h1 className="mt-2 text-2xl font-heading text-primary">Settings</h1>
             <p className="mt-3 max-w-3xl text-sm text-muted">
-              Create personal API tokens for local tooling, scripts, and
-              integrations. These act as your current signed-in identity.
+              Manage authorization for your account — personal API tokens and
+              shared service identities.
             </p>
           </div>
 
           <section
-            id="tokens"
+            id="authorization"
             className="mt-12 animate-fade-in-up rounded-2xl border border-alpha bg-base-white p-6 [animation-delay:120ms] dark:bg-surface"
           >
-            <AuthorizationSectionIntro
-              eyebrow="Current User"
+            <SettingsSectionIntro
+              eyebrow="Authorization"
               title="Your API Tokens"
               description="Create personal tokens for local tooling, scripts, and one-off integrations. These act as you."
             />
@@ -82,8 +79,8 @@ export default function AuthorizationPageClient() {
           </section>
 
           <section className="mt-6 animate-fade-in-up rounded-2xl border border-alpha bg-base-white p-6 [animation-delay:180ms] dark:bg-surface">
-            <AuthorizationSectionIntro
-              eyebrow="Service Accounts"
+            <SettingsSectionIntro
+              eyebrow="Authorization"
               title="Managed Identities"
               description="Create shared service-account subjects, grant app roles, and mint subject-owned API tokens for automation."
             />
@@ -100,7 +97,7 @@ export default function AuthorizationPageClient() {
   );
 }
 
-function AuthorizationSectionIntro({
+function SettingsSectionIntro({
   eyebrow,
   title,
   description,

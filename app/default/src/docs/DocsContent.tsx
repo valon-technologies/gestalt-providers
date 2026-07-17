@@ -300,8 +300,8 @@ gestalt tokens revoke <token-id>`}
         />
         <p className="doc-copy">
           Tokens can also be created from{" "}
-          <Link to="/authorization" className="doc-link">
-            Authorization
+          <Link to="/settings" className="doc-link">
+            Settings
           </Link>
           . The raw token value is shown once, so store it immediately in your
           secret manager or shell environment.

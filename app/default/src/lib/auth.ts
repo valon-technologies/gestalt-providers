@@ -63,3 +63,19 @@ export function sessionDisplayLabel(
   if (subjectId) return subjectId;
   return null;
 }
+
+/** One or two initials for the nav avatar (GitHub-style). */
+export function sessionInitials(session: CachedAuthSession | null): string {
+  const label = sessionDisplayLabel(session);
+  if (!label) return "?";
+  const emailLocal = label.includes("@") ? label.split("@")[0] : label;
+  const parts = emailLocal
+    .replace(/[._-]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return emailLocal.slice(0, 2).toUpperCase();
+}
