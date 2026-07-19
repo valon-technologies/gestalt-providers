@@ -29,7 +29,8 @@ targets the correct Zendesk instance.
 ## Authentication
 
 Authenticates with the Zendesk API via HTTP Basic Auth. The username is your
-Zendesk agent email address and the password is an API token:
+Zendesk agent email address with `/token` appended and the password is an API
+token:
 
 1. In Zendesk, go to **Admin Center > Apps and integrations > APIs > Zendesk
    API**.
@@ -46,7 +47,7 @@ apps:
           credentials:
             - name: email
               label: Email address
-              description: The email address of the Zendesk agent or admin account.
+              description: The email address of a Zendesk agent or admin account, with /token appended.
             - name: api_token
               label: API Token
               description: Zendesk API token with read and write access.
@@ -90,7 +91,7 @@ Connections and authentication:
 
 - `default` uses manual credentials; mode `subject`.
   - Credential fields: `email`, `api_token`.
-  - `email`: The email address of a Zendesk agent or admin account.
+  - `email`: The email address of a Zendesk agent or admin account, with /token appended.
   - `api_token`: Zendesk API token with read and write access. Create one in Admin Center > Apps and integrations > APIs > Zendesk API.
   - Connection params:
     - `subdomain` (required): Your Zendesk subdomain (e.g. mycompany in https://mycompany.zendesk.com).

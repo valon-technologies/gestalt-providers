@@ -10,6 +10,7 @@ spec:
     openapi:
       connection: default
       document: https://developer.zendesk.com/zendesk/oas.yaml
+      baseUrl: https://{subdomain}.zendesk.com
   allowedOperations:
     # Tickets
     ListTickets:
@@ -194,7 +195,7 @@ spec:
         credentials:
           - name: email
             label: Email address
-            description: The email address of a Zendesk agent or admin account.
+            description: The email address of a Zendesk agent or admin account, with /token appended.
           - name: api_token
             label: API Token
             description: Zendesk API token with read and write access. Create one in Admin Center > Apps and integrations > APIs > Zendesk API.
