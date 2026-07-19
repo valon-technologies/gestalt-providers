@@ -6,6 +6,8 @@ iconFile: assets/icon.svg
 kind: app
 spec:
   defaultConnection: default
+  headers:
+    Accept: application/json
   surfaces:
     openapi:
       connection: default
