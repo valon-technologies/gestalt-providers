@@ -564,3 +564,35 @@ export async function revokeManagedIdentityToken(
     { method: "DELETE" },
   );
 }
+
+/**
+ * App authorization member row from the admin control plane.
+ * Same shape as `/admin/` Authorization → app members.
+ */
+export interface AppAuthorizationMember {
+  email?: string;
+  role?: string;
+  source?: "static" | "dynamic" | string;
+  mutable?: boolean;
+  effective?: boolean;
+  shadowedBy?: string;
+  selectorKind?: string;
+  selectorValue?: string;
+  subjectId?: string;
+}
+
+/**
+ * List humans (and selectors) with access to an app.
+ * Requires admin authorization for the app; callers should handle 403.
+ */
+export async function getAppAuthorizationMembers(
+  appName: string,
+): Promise<AppAuthorizationMember[]> {
+  const response = await fetchAPI<
+    AppAuthorizationMember[] | { members?: AppAuthorizationMember[] }
+  >(
+    `/admin/api/v1/authorization/apps/${encodeURIComponent(appName)}/members`,
+  );
+  if (Array.isArray(response)) return response;
+  return response.members ?? [];
+}

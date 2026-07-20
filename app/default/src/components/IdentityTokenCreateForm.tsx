@@ -7,6 +7,7 @@ import {
 } from "@/lib/api";
 import { INPUT_CLASSES } from "@/lib/constants";
 import Button from "./Button";
+import { Eyebrow } from "@/components/ui/eyebrow";
 
 function uniqueOperations(operations?: string[]): string[] {
   if (!operations?.length) return [];
@@ -154,7 +155,7 @@ export default function IdentityTokenCreateForm({
 
           {scopeMode === "restricted" && (
             <div>
-              <p className="label-text">Token limits</p>
+              <Eyebrow>Token limits</Eyebrow>
               {grants.length === 0 ? (
                 <p className="mt-2 text-sm text-faint">
                   This identity has no visible app grants to choose from. Use all authorized access or add an app grant first.

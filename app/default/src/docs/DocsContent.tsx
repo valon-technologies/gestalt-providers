@@ -3,6 +3,13 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { CheckIcon, CopyIcon } from "@/components/icons";
 import ShikiCode from "@/components/ShikiCode";
+import { Eyebrow } from "@/components/ui/eyebrow";
+import {
+  PageHeader,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 
 const FALLBACK_ORIGIN = "https://your-gestalt-host";
 
@@ -64,9 +71,7 @@ export function GettingStartedDocsPage() {
       />
       <DocsPageBody>
         <div className="rounded-xl border border-alpha bg-base-100 p-5 dark:bg-surface">
-          <p className="text-xs font-medium uppercase tracking-[0.16em] text-faint">
-            Base URL
-          </p>
+          <Eyebrow>Base URL</Eyebrow>
           <p className="mt-2 font-mono text-sm text-primary">{origin}</p>
         </div>
         <Subheading id="install" title="Install" />
@@ -544,17 +549,17 @@ function DocsPageHeader({
   description: ReactNode;
 }) {
   return (
-    <header className="scroll-mt-24 border-b border-alpha pb-10">
-      <p className="text-xs font-medium uppercase tracking-[0.16em] text-faint">
-        {eyebrow}
-      </p>
-      <h1 className="mt-5 font-heading text-4xl tracking-[-0.03em] text-primary sm:text-5xl">
-        {title}
-      </h1>
-      <div className="mt-6 max-w-3xl text-base leading-7 text-secondary">
-        {description}
-      </div>
-    </header>
+    <PageHeader className="scroll-mt-24 border-b border-alpha pb-10">
+      <PageHeaderContent>
+        <div className="flex flex-col gap-3">
+          <Eyebrow>{eyebrow}</Eyebrow>
+          <PageHeaderTitle size="lg">{title}</PageHeaderTitle>
+        </div>
+        <PageHeaderDescription className="mt-4 max-w-3xl text-base leading-7 text-secondary">
+          {description}
+        </PageHeaderDescription>
+      </PageHeaderContent>
+    </PageHeader>
   );
 }
 

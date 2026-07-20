@@ -12,6 +12,13 @@ import Button from "@/components/Button";
 import Container from "@/components/Container";
 import IdentitySummaryCard from "@/components/IdentitySummaryCard";
 import ManagedIdentityDetailView from "@/components/ManagedIdentityDetailView";
+import { Eyebrow } from "@/components/ui/eyebrow";
+import {
+  PageHeader,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 
 function managedIdentityLocalIDFromName(value: string): string {
   return value
@@ -118,36 +125,40 @@ export default function ManagedIdentitiesPageClient() {
       ) : identitiesAvailable === false ? (
         <Container as="main" className="py-12">
           <div className="mx-auto max-w-3xl">
-            <div>
-              <span className="label-text">Workspace</span>
-              <h1 className="mt-2 text-2xl font-heading text-primary">
-                Agent Identities
-              </h1>
-              <p className="mt-4 text-sm text-muted">
-                Managed identities require platform auth and are unavailable when auth is disabled.
-              </p>
-              <Link
-                to="/"
-                className="mt-6 inline-flex text-sm text-muted transition-colors duration-150 hover:text-primary"
-              >
-                &larr; Back to dashboard
-              </Link>
-            </div>
+            <PageHeader>
+              <PageHeaderContent>
+                <div className="flex flex-col gap-3">
+                  <Eyebrow>Workspace</Eyebrow>
+                  <PageHeaderTitle size="lg">Agent Identities</PageHeaderTitle>
+                </div>
+                <PageHeaderDescription>
+                  Managed identities require platform auth and are unavailable when auth is disabled.
+                </PageHeaderDescription>
+              </PageHeaderContent>
+            </PageHeader>
+            <Link
+              to="/apps"
+              className="mt-6 inline-flex text-sm text-muted transition-colors duration-150 hover:text-primary"
+            >
+              &larr; Back to apps
+            </Link>
           </div>
         </Container>
       ) : identityID ? (
         <ManagedIdentityDetailView identityID={identityID} />
       ) : (
         <Container as="main" className="py-12">
-          <div>
-            <span className="label-text">Workspace</span>
-            <h1 className="mt-2 text-2xl font-heading text-primary">
-              Agent Identities
-            </h1>
-            <p className="mt-2 text-sm text-muted">
-              Create and manage shared non-human identities for tokens and app authorization.
-            </p>
-          </div>
+          <PageHeader>
+            <PageHeaderContent>
+              <div className="flex flex-col gap-3">
+                <Eyebrow>Workspace</Eyebrow>
+                <PageHeaderTitle size="lg">Agent Identities</PageHeaderTitle>
+              </div>
+              <PageHeaderDescription>
+                Create and manage shared non-human identities for tokens and app authorization.
+              </PageHeaderDescription>
+            </PageHeaderContent>
+          </PageHeader>
 
           <form
             onSubmit={handleCreate}

@@ -1,5 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import Container from "@/components/Container";
+import { Eyebrow } from "@/components/ui/eyebrow";
 import { docsNavItems, getActiveDocsNavItem } from "./docs-data";
 
 export default function DocsShell({
@@ -42,9 +43,7 @@ export default function DocsShell({
           <div className="sticky top-24 space-y-6">
             {activeItem.subsections.length > 0 && (
               <div>
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-faint">
-                  On This Page
-                </p>
+                <Eyebrow>On This Page</Eyebrow>
                 <nav className="mt-3 space-y-0.5">
                   {activeItem.subsections.map((subsection) => (
                     <a

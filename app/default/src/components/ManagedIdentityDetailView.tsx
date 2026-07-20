@@ -41,6 +41,13 @@ import Container from "./Container";
 import IntegrationCard from "./IntegrationCard";
 import IdentityTokenCreateForm from "./IdentityTokenCreateForm";
 import IdentityTokenTable from "./IdentityTokenTable";
+import { Eyebrow } from "@/components/ui/eyebrow";
+import {
+  PageHeader,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 import { SearchIcon } from "./icons";
 
 const SECTION_CARD =
@@ -336,15 +343,22 @@ export default function ManagedIdentityDetailView({
         <Link to="/identities" className="text-sm text-muted hover:text-primary transition-colors duration-150">
           &larr; Back to identities
         </Link>
-        <span className="mt-5 block label-text">Managed Identity</span>
-        <h1 className="mt-2 text-2xl font-heading text-primary">
-          {identity?.displayName || "Loading identity"}
-        </h1>
-        {identity ? (
-          <p className="mt-2 text-sm text-muted">
-            You currently have <span className="font-medium text-primary">{role}</span> access.
-          </p>
-        ) : null}
+        <PageHeader className="mt-5">
+          <PageHeaderContent>
+            <div className="flex flex-col gap-3">
+              <Eyebrow>Managed Identity</Eyebrow>
+              <PageHeaderTitle size="entity">
+                {identity?.displayName || "Loading identity"}
+              </PageHeaderTitle>
+            </div>
+            {identity ? (
+              <PageHeaderDescription>
+                You currently have{" "}
+                <span className="font-medium text-primary">{role}</span> access.
+              </PageHeaderDescription>
+            ) : null}
+          </PageHeaderContent>
+        </PageHeader>
       </div>
 
       {error && <p className="mt-6 text-sm text-ember-500">{error}</p>}
@@ -355,7 +369,7 @@ export default function ManagedIdentityDetailView({
           <section className={SECTION_CARD}>
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <span className="label-text">Overview</span>
+                <Eyebrow>Overview</Eyebrow>
                 <p className="mt-3 text-sm text-muted">
                   Subject ID: <code className="font-mono text-xs text-primary">{identity.subjectId}</code>
                 </p>
@@ -401,9 +415,9 @@ export default function ManagedIdentityDetailView({
           </section>
 
           <section className={SECTION_CARD}>
-            <div>
-              <span className="label-text">Sharing</span>
-              <h2 className="mt-2 text-lg font-heading text-primary">Members</h2>
+            <div className="flex flex-col gap-3">
+              <Eyebrow>Sharing</Eyebrow>
+              <h2 className="text-lg font-heading text-primary">Members</h2>
             </div>
             {canAdmin ? (
               <form onSubmit={handleMemberSubmit} className="mt-6 flex flex-col gap-3 lg:flex-row lg:items-end">
@@ -475,8 +489,10 @@ export default function ManagedIdentityDetailView({
           </section>
 
           <section className={SECTION_CARD}>
-            <span className="label-text">Authorization</span>
-            <h2 className="mt-2 text-lg font-heading text-primary">Identity App Access</h2>
+            <div className="flex flex-col gap-3">
+              <Eyebrow>Authorization</Eyebrow>
+              <h2 className="text-lg font-heading text-primary">Identity App Access</h2>
+            </div>
             <p className="mt-2 text-sm text-muted">
               Grants are identity-level roles for apps that enforce authorization. API keys do not create these grants; they only authenticate as this identity.
             </p>
@@ -612,8 +628,10 @@ export default function ManagedIdentityDetailView({
           </section>
 
           <section className={SECTION_CARD}>
-            <span className="label-text">Connections</span>
-            <h2 className="mt-2 text-lg font-heading text-primary">App Connections</h2>
+            <div className="flex flex-col gap-3">
+              <Eyebrow>Connections</Eyebrow>
+              <h2 className="text-lg font-heading text-primary">App Connections</h2>
+            </div>
             <p className="mt-2 text-sm text-muted">
               Connections store OAuth or manual credentials for this identity. They do not add app roles or change API-key limits.
             </p>
@@ -682,8 +700,10 @@ export default function ManagedIdentityDetailView({
           </section>
 
           <section className={SECTION_CARD}>
-            <span className="label-text">API Access</span>
-            <h2 className="mt-2 text-lg font-heading text-primary">Identity API Keys</h2>
+            <div className="flex flex-col gap-3">
+              <Eyebrow>API Access</Eyebrow>
+              <h2 className="text-lg font-heading text-primary">Identity API Keys</h2>
+            </div>
             <p className="mt-2 text-sm text-muted">
               API keys authenticate as this identity. By default, a key follows managed identity app access and connector credentials at use time; token limits only narrow one key.
             </p>

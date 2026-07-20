@@ -6,6 +6,14 @@ import { filterIntegrations } from "@/lib/integrationSearch";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import PluginSearchBar from "@/components/PluginSearchBar";
+import { Eyebrow } from "@/components/ui/eyebrow";
+import {
+  PageHeader,
+  PageHeaderActions,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 import { SpinnerIcon } from "@/components/icons";
 
 const APPS_PATH = "/apps";
@@ -85,25 +93,26 @@ export default function AppsCatalogPageClient() {
         </div>
       )}
 
-      <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
-        <div>
-          <span className="label-text">Catalog</span>
-          <h1 className="mt-2 text-2xl font-heading text-primary">
-            Apps
-          </h1>
-          <p className="mt-2 text-sm text-muted">
-            Browse and connect apps.
-          </p>
-        </div>
-        <div className="w-full md:w-auto">
+      <PageHeader>
+        <PageHeaderContent>
+          <div className="flex flex-col gap-3">
+            <Eyebrow>Catalog</Eyebrow>
+            <PageHeaderTitle size="lg">Apps</PageHeaderTitle>
+          </div>
+          <PageHeaderDescription>
+            Browse apps and open an app to manage connection, access, and
+            workflows.
+          </PageHeaderDescription>
+        </PageHeaderContent>
+        <PageHeaderActions className="w-full sm:w-auto">
           <PluginSearchBar
             integrations={integrations}
             query={query}
             onQueryChange={setQuery}
             disabled={loading || !!error || integrations.length === 0}
           />
-        </div>
-      </div>
+        </PageHeaderActions>
+      </PageHeader>
 
       {loading && (
         <p className="mt-10 flex items-center gap-1.5 text-sm text-faint">

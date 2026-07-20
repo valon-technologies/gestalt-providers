@@ -16,6 +16,7 @@ import {
   WorkflowsDocsPage,
 } from "@/docs/DocsContent";
 import { useDocumentTitle } from "@/hooks/use-document-title";
+import AppAdminPage from "@/pages/app-admin";
 import AppsPage from "@/pages/apps";
 import IdentitiesPage from "@/pages/identities";
 import IntegrationsPage from "@/pages/integrations";
@@ -89,6 +90,12 @@ const appsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/apps",
   component: AppsPage,
+});
+
+const appAdminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/apps/$appName",
+  component: AppAdminPage,
 });
 
 const settingsRoute = createRoute({
@@ -189,6 +196,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   buildRoute,
   appsRoute,
+  appAdminRoute,
   settingsRoute,
   authorizationRoute,
   identitiesRoute,

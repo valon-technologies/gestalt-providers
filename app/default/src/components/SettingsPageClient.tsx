@@ -4,6 +4,13 @@ import { getTokens, type APIToken } from "@/lib/api";
 import Container from "@/components/Container";
 import TokenCreateForm from "@/components/TokenCreateForm";
 import TokenTable from "@/components/TokenTable";
+import { Eyebrow } from "@/components/ui/eyebrow";
+import {
+  PageHeader,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 
 export default function SettingsPageClient() {
   const [tokens, setTokens] = useState<APIToken[]>([]);
@@ -37,14 +44,18 @@ export default function SettingsPageClient() {
 
   return (
     <Container as="main" className="py-12">
-      <div>
-        <span className="label-text">Account</span>
-        <h1 className="mt-2 text-2xl font-heading text-primary">Settings</h1>
-        <p className="mt-3 max-w-3xl text-sm text-muted">
-          Manage authorization for your account — personal API tokens and
-          shared service identities.
-        </p>
-      </div>
+      <PageHeader>
+        <PageHeaderContent>
+          <div className="flex flex-col gap-3">
+            <Eyebrow>Account</Eyebrow>
+            <PageHeaderTitle size="lg">Settings</PageHeaderTitle>
+          </div>
+          <PageHeaderDescription className="max-w-3xl">
+            Manage authorization for your account — personal API tokens and
+            shared service identities.
+          </PageHeaderDescription>
+        </PageHeaderContent>
+      </PageHeader>
 
       <section
         id="authorization"
@@ -100,10 +111,10 @@ function SettingsSectionIntro({
   description: string;
 }) {
   return (
-    <div>
-      <span className="label-text">{eyebrow}</span>
-      <h2 className="mt-2 text-xl font-heading text-primary">{title}</h2>
-      <p className="mt-2 max-w-3xl text-sm text-muted">{description}</p>
+    <div className="flex flex-col gap-3">
+      <Eyebrow>{eyebrow}</Eyebrow>
+      <h2 className="text-xl font-heading text-primary">{title}</h2>
+      <p className="max-w-3xl text-sm text-muted">{description}</p>
     </div>
   );
 }
