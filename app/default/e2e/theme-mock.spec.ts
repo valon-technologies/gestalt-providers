@@ -3,7 +3,6 @@ import {
   expect,
   mockIntegrations,
   mockTokens,
-  mockWorkflowRuns,
 } from "./fixtures";
 
 const hasBackend =
@@ -24,9 +23,8 @@ test.describe("Theme", () => {
     });
     await mockIntegrations(page, []);
     await mockTokens(page, []);
-    await mockWorkflowRuns(page, []);
 
-    await page.goto("/");
+    await page.goto("/apps");
 
     const toggle = page.getByRole("button", { name: "Toggle theme" });
     await expect(toggle).toHaveAttribute("title", "Light mode");

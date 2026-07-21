@@ -16,13 +16,10 @@ import {
   WorkflowsDocsPage,
 } from "@/docs/DocsContent";
 import { useDocumentTitle } from "@/hooks/use-document-title";
-import AgentsPage from "@/pages/agents";
 import AppsPage from "@/pages/apps";
-import AuthorizationPage from "@/pages/authorization";
-import DashboardPage from "@/pages/index";
 import IdentitiesPage from "@/pages/identities";
 import IntegrationsPage from "@/pages/integrations";
-import WorkflowsPage from "@/pages/workflows";
+import SettingsPage from "@/pages/settings";
 import { rootRoute } from "./routes/__root";
 
 function DocsLayout() {
@@ -76,13 +73,9 @@ function DocsTroubleshootingRoute() {
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: DashboardPage,
-});
-
-const agentsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/agents",
-  component: AgentsPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/apps" });
+  },
 });
 
 const appsRoute = createRoute({
@@ -91,10 +84,18 @@ const appsRoute = createRoute({
   component: AppsPage,
 });
 
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings",
+  component: SettingsPage,
+});
+
 const authorizationRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/authorization",
-  component: AuthorizationPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/settings", hash: "authorization" });
+  },
 });
 
 const identitiesRoute = createRoute({
@@ -113,14 +114,8 @@ const tokensRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/tokens",
   beforeLoad: () => {
-    throw redirect({ to: "/authorization" });
+    throw redirect({ to: "/settings", hash: "authorization" });
   },
-});
-
-const workflowsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/workflows",
-  component: WorkflowsPage,
 });
 
 const docsLayoutRoute = createRoute({
@@ -185,13 +180,12 @@ const docsTroubleshootingRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
-  agentsRoute,
   appsRoute,
+  settingsRoute,
   authorizationRoute,
   identitiesRoute,
   integrationsRoute,
   tokensRoute,
-  workflowsRoute,
   docsLayoutRoute.addChildren([
     docsIndexRoute,
     docsGettingStartedRoute,

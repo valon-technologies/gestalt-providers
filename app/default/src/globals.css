@@ -62,19 +62,6 @@
   /* v3's default ring color (blue-500/50) — v4 defaults to currentColor.
    * Bare-width rings (`ring-2` without a ring color) rendered blue in v3. */
   --default-ring-color: oklch(62.308% 0.188 259.81 / 0.5);
-
-  --animate-fade-in-up: fade-in-up 0.5s cubic-bezier(0.19, 1, 0.22, 1) both;
-
-  @keyframes fade-in-up {
-    0% {
-      opacity: 0;
-      transform: translateY(12px);
-    }
-    100% {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
 }
 
 /* Tokens backed by the tenant-theme contract (shared/theme.css). `inline` is
@@ -92,6 +79,12 @@
   /* Whole-color tokens; alpha modifiers work via color-mix on all of them. */
   --color-brand: var(--brand);
   --color-brand-soft: var(--brand-soft);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-vivid: var(--accent-vivid);
+  --color-accent-vivid-foreground: var(--accent-vivid-foreground);
+  --color-ring: var(--ring);
   --color-danger: var(--danger);
   --color-success: var(--success);
 
@@ -112,6 +105,67 @@
 
   --shadow-dropdown: 0 4px 12px color-mix(in oklab, var(--shadow-ink) 10%, transparent);
   --shadow-card: 0 1px 3px color-mix(in oklab, var(--shadow-ink) 4%, transparent);
+
+  /* Motion utilities — mint duration-* / ease-* from :root aliases below. */
+  --ease-out-quart: var(--motion-ease-out-quart);
+  --ease-out-expo: var(--motion-ease-out-expo);
+  --ease-out-back: var(--motion-ease-out-back);
+  --ease-out-back-soft: var(--motion-ease-out-back-soft);
+  --transition-duration-hover-in: var(--motion-hover-in);
+  --transition-duration-hover-out: var(--motion-hover-out);
+  --transition-duration-press: var(--motion-press);
+  --transition-duration-select-in: var(--motion-select-in);
+  --transition-duration-select-out: var(--motion-select-out);
+  --transition-duration-reveal: var(--motion-reveal);
+  --transition-duration-dismiss: var(--motion-dismiss);
+  --transition-duration-reveal-lg: var(--motion-reveal-lg);
+  --transition-duration-dismiss-lg: var(--motion-dismiss-lg);
+  --transition-duration-move: var(--motion-move);
+  --transition-duration-overshoot: var(--motion-overshoot);
+  --transition-duration-toast: var(--motion-toast);
+}
+
+/* Motion token layer: primitives + semantic aliases. Components consume
+ * duration-<intent> / ease-<name> utilities — never raw ms. */
+:root {
+  --duration-0: 0ms;
+  --duration-50: 50ms;
+  --duration-75: 75ms;
+  --duration-100: 100ms;
+  --duration-150: 150ms;
+  --duration-200: 200ms;
+  --duration-250: 250ms;
+  --duration-300: 300ms;
+
+  --motion-hover-in: var(--duration-0);
+  --motion-hover-out: var(--duration-0);
+  --motion-press: var(--duration-0);
+  --motion-select-in: var(--duration-0);
+  --motion-select-out: var(--duration-0);
+  --motion-reveal: var(--duration-150);
+  --motion-dismiss: var(--duration-100);
+  --motion-reveal-lg: var(--duration-300);
+  --motion-dismiss-lg: var(--duration-200);
+  --motion-move: var(--duration-200);
+  --motion-overshoot: var(--duration-200);
+  --motion-toast: var(--duration-250);
+
+  --motion-ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --motion-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --motion-ease-out-back-soft: cubic-bezier(0.34, 1.25, 0.64, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-50: 0ms;
+    --duration-75: 0ms;
+    --duration-100: 0ms;
+    --duration-150: 0ms;
+    --duration-200: 0ms;
+    --duration-250: 0ms;
+    --duration-300: 0ms;
+  }
 }
 
 /* The v3 config's per-property color namespaces (textColor / borderColor /
@@ -147,6 +201,14 @@
   :where(& > :not(:last-child)) {
     border-color: color-mix(in oklab, var(--alpha-dark) 10%, transparent);
   }
+}
+
+/* Keyboard focus — solid outline on :focus-visible only (not a box-shadow ring). */
+@utility focus-ring {
+  @apply focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring;
+}
+@utility focus-ring-inset {
+  @apply focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-ring;
 }
 
 @font-face {
@@ -257,15 +319,6 @@
 
   .dark dialog::backdrop {
     background-color: oklch(13.618% 0.0065 71.35 / 0.7);
-  }
-}
-
-@layer base {
-  @media (prefers-reduced-motion: reduce) {
-    .animate-fade-in-up {
-      animation: none !important;
-      opacity: 1 !important;
-    }
   }
 }
 

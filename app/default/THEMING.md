@@ -21,6 +21,8 @@ dark).
 | `--border`, `--foreground`, `--alpha-dark` | lines, text, alpha text/border scale | warm neutrals |
 | `--shadow-ink` | shadow color (RGB triplet) — identical in light and dark by default, so shadows never become glows | `35, 24, 16` |
 | `--brand`, `--brand-soft`, `--danger`, `--success` | brand accent pair / status colors | gold pair / red / green |
+| `--accent`, `--accent-subtle`, `--accent-vivid` | selected/hover **fills** (derived from `--brand-soft`) | soft gold washes |
+| `--accent-foreground`, `--accent-vivid-foreground` | **ink on accent fills** (always `--foreground`) | same as `--foreground` |
 | `--radius` | base corner radius; the CSS theme (`@theme` in `src/globals.css`) derives `rounded-sm` (−2px), `rounded`/`rounded-md` (as is), `rounded-lg` (+4px) | `0.5rem` (→ 6/8/12px) |
 | `--content-max-width` | shared max width of the nav and every contained page (see `src/components/Container.tsx`) | `80rem` |
 | `--heading-weight` | default `h1`–`h6` weight (applied by a `globals.css` base rule) | `400` (Newsreader ships one cut) |
@@ -41,6 +43,26 @@ A tenant theme is one stylesheet that re-declares any subset of these tokens
 - **Never use `!important`** — it inverts the `:where()` armor.
 - Only `:root`, `.dark`, and `body` selectors (plus `@font-face`, `@media`,
   `@supports`) are allowed. A theme styles tokens, not components.
+
+### Interaction roles (accent fill vs on-fill ink)
+
+`--accent*` tokens are **roles**, not “make the text gold.” They exist so
+ported UI kit chrome (nav, list selection, sidebar) can keep semantic class
+names (`bg-accent-subtle`, `text-accent-foreground`, …) without inventing
+mappings to `--brand`.
+
+| Role | Means | Derived from |
+| --- | --- | --- |
+| `--accent` / `--accent-subtle` / `--accent-vivid` | selected / wash **fills** | `--brand-soft` (+ mix with `--background` for subtle) |
+| `--accent-foreground` / `--accent-vivid-foreground` | text **on** those fills | `--foreground` (ink) |
+
+**Invariant:** accent roles color the fill; on-accent text stays ink. Never
+use `text-brand` for a selected nav/list row. Tenant themes override
+`--brand` / `--brand-soft` / `--foreground` only — the accent aliases track
+them automatically (see `shared/theme.css`).
+
+When adapting shared UI kit components into `src/components/ui/`, see
+[`src/components/ui/PORTING.md`](src/components/ui/PORTING.md).
 
 ### Fonts (the `-default` seam)
 
@@ -124,11 +146,19 @@ The root layout imports `@theme.css`, which resolves to the empty
 
 ```bash
 GESTALT_THEME_FILE=/path/to/deployment-repo/deploy/ui/theme.css
+# Optional override; defaults to the directory containing GESTALT_THEME_FILE
+# (same shape as deploy `assetsDir: ./ui` + `stylesheet: ./ui/theme.css`).
+# GESTALT_THEME_ASSETS_DIR=/path/to/deployment-repo/deploy/ui
 ```
 
-Run `npm run dev:theme` alongside `gestaltd serve`. It copies the source into
-`.dev/theme.css` (gitignored) whenever it changes, and the Vite dev server
-hot-applies the CSS.
+Vite then:
+
+1. Mirrors the stylesheet into `.dev/theme.css` for the `@theme.css` import
+   (and `npm run dev:theme` watches for HMR).
+2. Serves the production theme contract on the Vite origin:
+   `/theme.css` ← stylesheet, `/theme/*` ← assetsDir (brand `@font-face`
+   files at `/theme/fonts/…`). Without (2), tenant font URLs fall through
+   to the SPA HTML shell and the UI renders with system fallbacks.
 
 **Served loop (prod parity, secondary).** With `gestaltd serve`, `theme.css`
 is served by gestaltd on the mount, so the layout's link exercises the real
