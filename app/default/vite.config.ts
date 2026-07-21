@@ -5,8 +5,21 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { gestalt } from "@valon-technologies/gestalt/vite";
 import { defineConfig } from "vite";
+import { gestaltDevMockApi } from "./scripts/vite-dev-mock-api.mjs";
+import { serveTenantThemeInDev } from "./scripts/vite-serve-tenant-theme.mjs";
 
 const projectDir = path.dirname(fileURLToPath(import.meta.url));
+
+// Two-origin local dev (Vite + gestaltd/auth-proxy): browser stays same-origin;
+// Vite forwards `/api` to the backend. Canonical env matches app-starter /
+// local-dev stacks — never bake an API origin into client bundles.
+//
+// GESTALT_DEV_MOCK_AUTH=1: fulfill /api in Vite (UI boot without OAuth). Needed
+// when gestaltd's login callback is a different origin (e.g. localhost:8080)
+// than this SPA — Google OAuth cannot mint a cookie for the Vite port.
+const mockAuth = process.env.GESTALT_DEV_MOCK_AUTH === "1";
+const apiOrigin =
+  process.env.GESTALT_API_PROXY_TARGET?.trim() || "http://127.0.0.1:8080";
 
 const devThemeSource =
   process.env.NODE_ENV !== "production" && process.env.GESTALT_THEME_FILE
@@ -24,11 +37,27 @@ const themeTarget = devThemeSource
   : path.resolve(projectDir, "src/theme.stub.css");
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), gestalt()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    gestalt(),
+    serveTenantThemeInDev(),
+    gestaltDevMockApi(),
+  ],
   resolve: {
     alias: {
       "@": path.resolve(projectDir, "src"),
       "@theme.css": themeTarget,
     },
+  },
+  server: {
+    proxy: mockAuth
+      ? undefined
+      : {
+          "/api": {
+            target: apiOrigin.replace(/\/+$/, ""),
+            changeOrigin: true,
+          },
+        },
   },
 });

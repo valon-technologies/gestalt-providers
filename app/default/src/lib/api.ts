@@ -710,14 +710,24 @@ export function isAPIErrorStatus(error: unknown, status: number): boolean {
   return error instanceof APIError && error.status === status;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 export const PENDING_CONNECTION_PATH = "/api/v1/auth/pending-connection";
 
+/**
+ * Resolve a path for same-origin API traffic.
+ *
+ * Cookie auth requires one browser origin: the SPA and `/api/*` share it.
+ * Production gestaltd serves both; local Vite proxies `/api` to
+ * `GESTALT_API_PROXY_TARGET`. Absolute URLs (e.g. OAuth selection redirects)
+ * pass through unchanged. There is no client-side API origin config.
+ */
 export function resolveAPIPath(path: string): string {
   if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(path)) {
     return path;
   }
-  return `${API_BASE}${path}`;
+  if (!path.startsWith("/")) {
+    throw new Error(`API path must be absolute (got ${JSON.stringify(path)})`);
+  }
+  return path;
 }
 
 export async function fetchAPI<T>(
