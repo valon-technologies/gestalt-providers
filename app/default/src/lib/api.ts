@@ -2,6 +2,17 @@ import { clearSession } from "./auth";
 import { HTTP_UNAUTHORIZED } from "./constants";
 import { serverLoginURL } from "./authReturn";
 
+// The browser SDK provides the AppClient for app operation invocation. The
+// provider SDK's ./client export supplies IdentityClient for personal
+// API-token grants; its REST transport defaults to credentials:"omit", so
+// we inject a fetch wrapper that restores cookie-session credentials.
+import {
+  createGestaltClient,
+  rest,
+  unauthenticated,
+  type RestGestaltClient,
+} from "@valon-technologies/gestalt/client";
+
 export interface ConnectionParamDef {
   required?: boolean;
   description?: string;
@@ -86,15 +97,6 @@ export interface Integration {
   actions?: IntegrationAction[];
 }
 
-export interface IntegrationOperation {
-  id: string;
-  title?: string;
-  description?: string;
-  readOnly?: boolean;
-  visible?: boolean;
-  tags?: string[];
-}
-
 export interface AccessPermission {
   plugin: string;
   operations?: string[];
@@ -116,550 +118,6 @@ export interface CreateTokenResponse {
   token: string;
   permissions?: AccessPermission[];
   expiresAt?: string;
-}
-
-export interface WorkflowAppTarget {
-  name: string;
-  operation: string;
-  connection?: string;
-  instance?: string;
-  credentialMode?: string;
-  input?: unknown;
-}
-
-export interface WorkflowTextTarget {
-  template?: string;
-}
-
-export interface WorkflowMessageTarget {
-  role?: string;
-  text?: WorkflowTextTarget;
-  metadata?: Record<string, unknown>;
-}
-
-export interface WorkflowAgentTarget {
-  provider?: string;
-  model?: string;
-  sessionKey?: string;
-  prompt?: WorkflowTextTarget;
-  messages?: WorkflowMessageTarget[];
-  tools?: AgentToolRef[];
-  output?: AgentOutput;
-  modelOptions?: Record<string, unknown>;
-}
-
-export interface WorkflowStepTarget {
-  id?: string;
-  inputs?: Record<string, unknown>;
-  app?: WorkflowAppTarget;
-  agent?: WorkflowAgentTarget;
-  metadata?: Record<string, unknown>;
-  timeoutSeconds?: number;
-  when?: Record<string, unknown>;
-}
-
-export interface WorkflowTarget {
-  steps: WorkflowStepTarget[];
-}
-
-export interface WorkflowEvent {
-  id?: string;
-  source?: string;
-  specVersion?: string;
-  type?: string;
-  subject?: string;
-  time?: string;
-  dataContentType?: string;
-  data?: Record<string, unknown>;
-  extensions?: Record<string, unknown>;
-}
-
-export interface WorkflowRunTrigger {
-  kind?: string;
-  activationId?: string;
-  scheduledFor?: string;
-  event?: WorkflowEvent;
-}
-
-export interface WorkflowActor {
-  subjectId?: string;
-}
-
-export interface WorkflowStepAttempt {
-  id?: string;
-  status?: string;
-  idempotencyKey?: string;
-  input?: unknown;
-  output?: unknown;
-  statusMessage?: string;
-  startedAt?: string;
-  completedAt?: string;
-}
-
-export interface WorkflowStepExecution {
-  stepId?: string;
-  status?: string;
-  attempts?: WorkflowStepAttempt[];
-  input?: unknown;
-  output?: unknown;
-  statusMessage?: string;
-  skipReason?: string;
-  startedAt?: string;
-  completedAt?: string;
-}
-
-export interface WorkflowRun {
-  id: string;
-  provider: string;
-  status?: string;
-  target: WorkflowTarget;
-  trigger?: WorkflowRunTrigger;
-  createdBy?: WorkflowActor;
-  createdAt?: string;
-  startedAt?: string;
-  completedAt?: string;
-  statusMessage?: string;
-  output?: unknown;
-  definitionId?: string;
-  definitionGeneration?: number;
-  input?: Record<string, unknown>;
-  currentStepId?: string;
-  steps?: WorkflowStepExecution[];
-}
-
-interface WorkflowRunListResponse {
-  runs: WorkflowRunWire[];
-  nextPageToken?: string;
-}
-
-type WorkflowRunWire = Omit<WorkflowRun, "target" | "steps"> & {
-  target?: unknown;
-  steps?: unknown;
-};
-
-function normalizeWorkflowRun(run: WorkflowRunWire): WorkflowRun {
-  return {
-    ...run,
-    target: normalizeWorkflowTarget(run.target),
-    steps: normalizeWorkflowStepExecutions(run.steps),
-  };
-}
-
-function normalizeWorkflowTarget(target: unknown): WorkflowTarget {
-  if (!isRecord(target)) {
-    return { steps: [] };
-  }
-
-  const rawSteps = target.steps;
-  if (!Array.isArray(rawSteps)) {
-    return { steps: [] };
-  }
-
-  return {
-    steps: rawSteps.flatMap((rawStep) => {
-      if (!isRecord(rawStep)) {
-        return [];
-      }
-      const rawApp = rawStep.app;
-      const rawAgent = rawStep.agent;
-      return [
-        {
-          id: optionalString(rawStep.id),
-          inputs: optionalRecord(rawStep.inputs),
-          app: isRecord(rawApp)
-            ? {
-                name: stringValue(rawApp.name),
-                operation: stringValue(rawApp.operation),
-                connection: optionalString(rawApp.connection),
-                instance: optionalString(rawApp.instance),
-                credentialMode: optionalString(rawApp.credentialMode),
-                input: rawApp.input,
-              }
-            : undefined,
-          agent: normalizeWorkflowAgentTarget(rawAgent),
-          metadata: optionalRecord(rawStep.metadata),
-          timeoutSeconds:
-            typeof rawStep.timeoutSeconds === "number"
-              ? rawStep.timeoutSeconds
-              : undefined,
-          when: optionalRecord(rawStep.when),
-        },
-      ];
-    }),
-  };
-}
-
-function normalizeWorkflowAgentTarget(
-  value: unknown,
-): WorkflowAgentTarget | undefined {
-  if (!isRecord(value)) return undefined;
-  return {
-    provider: optionalString(value.provider),
-    model: optionalString(value.model),
-    sessionKey: optionalString(value.sessionKey),
-    prompt: normalizeWorkflowTextTarget(value.prompt),
-    messages: Array.isArray(value.messages)
-      ? value.messages.flatMap((message) => {
-          if (!isRecord(message)) return [];
-          return [
-            {
-              role: optionalString(message.role),
-              text: normalizeWorkflowTextTarget(message.text),
-              metadata: optionalRecord(message.metadata),
-            },
-          ];
-        })
-      : undefined,
-    tools: Array.isArray(value.tools)
-      ? value.tools.flatMap((tool) => (isRecord(tool) ? [tool as AgentToolRef] : []))
-      : undefined,
-    output: isRecord(value.output) ? (value.output as AgentOutput) : undefined,
-    modelOptions: optionalRecord(value.modelOptions),
-  };
-}
-
-function normalizeWorkflowTextTarget(
-  value: unknown,
-): WorkflowTextTarget | undefined {
-  if (!isRecord(value)) return undefined;
-  return {
-    template: optionalString(value.template),
-  };
-}
-
-function normalizeWorkflowStepExecutions(
-  value: unknown,
-): WorkflowStepExecution[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((rawStep) => {
-    if (!isRecord(rawStep)) return [];
-    return [
-      {
-        stepId: optionalString(rawStep.stepId),
-        status: optionalString(rawStep.status),
-        attempts: normalizeWorkflowStepAttempts(rawStep.attempts),
-        input: rawStep.input,
-        output: rawStep.output,
-        statusMessage: optionalString(rawStep.statusMessage),
-        skipReason: optionalString(rawStep.skipReason),
-        startedAt: optionalString(rawStep.startedAt),
-        completedAt: optionalString(rawStep.completedAt),
-      },
-    ];
-  });
-}
-
-function normalizeWorkflowStepAttempts(value: unknown): WorkflowStepAttempt[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((rawAttempt) => {
-    if (!isRecord(rawAttempt)) return [];
-    return [
-      {
-        id: optionalString(rawAttempt.id),
-        status: optionalString(rawAttempt.status),
-        idempotencyKey: optionalString(rawAttempt.idempotencyKey),
-        input: rawAttempt.input,
-        output: rawAttempt.output,
-        statusMessage: optionalString(rawAttempt.statusMessage),
-        startedAt: optionalString(rawAttempt.startedAt),
-        completedAt: optionalString(rawAttempt.completedAt),
-      },
-    ];
-  });
-}
-
-export function workflowTargetApp(target: WorkflowTarget): WorkflowAppTarget {
-  return (
-    target.steps.find((step) => step.app)?.app ?? {
-      name: "",
-      operation: "",
-    }
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function stringValue(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined;
-}
-
-function optionalRecord(value: unknown): Record<string, unknown> | undefined {
-  return isRecord(value) ? value : undefined;
-}
-
-export type AgentExecutionStatus =
-  | "pending"
-  | "running"
-  | "waiting_for_input"
-  | "succeeded"
-  | "failed"
-  | "canceled"
-  | string;
-
-export type AgentSessionState = "active" | "archived" | string;
-
-export interface AgentMessagePart {
-  type?: string;
-  text?: string;
-  json?: Record<string, unknown>;
-  toolCall?: Record<string, unknown>;
-  toolResult?: Record<string, unknown>;
-  imageRef?: Record<string, unknown>;
-}
-
-export interface AgentMessage {
-  role: string;
-  text?: string;
-  parts?: AgentMessagePart[];
-  metadata?: Record<string, unknown>;
-}
-
-export interface AgentActor {
-  subjectId?: string;
-  subjectKind?: string;
-  displayName?: string;
-  authSource?: string;
-}
-
-export interface AgentToolRef {
-  system?: string;
-  plugin?: string;
-  operation?: string;
-  connection?: string;
-  instance?: string;
-  title?: string;
-  description?: string;
-}
-
-export interface AgentRun {
-  id: string;
-  sessionId?: string;
-  provider: string;
-  model?: string;
-  status?: AgentExecutionStatus;
-  messages?: AgentMessage[];
-  output?: AgentTurnOutput;
-  statusMessage?: string;
-  sessionRef?: string;
-  createdBy?: AgentActor;
-  createdAt?: string;
-  startedAt?: string;
-  completedAt?: string;
-  executionRef?: string;
-}
-
-export interface AgentRunCreate {
-  provider?: string;
-  model?: string;
-  messages: AgentMessage[];
-  toolRefs?: AgentToolRef[];
-  toolSource?: "catalog" | "explicit" | "inherit_invokes";
-  output?: AgentOutput;
-  sessionRef?: string;
-  metadata?: Record<string, unknown>;
-  modelOptions?: Record<string, unknown>;
-  idempotencyKey?: string;
-}
-
-export interface AgentSession {
-  id: string;
-  provider: string;
-  model?: string;
-  clientRef?: string;
-  state?: AgentSessionState;
-  metadata?: Record<string, unknown>;
-  createdBy?: AgentActor;
-  createdAt?: string;
-  updatedAt?: string;
-  lastTurnAt?: string;
-}
-
-export type AgentTurn = Omit<AgentRun, "sessionRef"> & {
-  sessionId: string;
-};
-
-type AgentTurnWire = AgentTurn;
-
-export type AgentOutput =
-  | { text: Record<string, never>; structured?: never }
-  | { text?: never; structured: { schema: Record<string, unknown> } };
-
-export type AgentTurnOutput =
-  | { text: { text?: string }; structured?: never }
-  | { text?: never; structured: { text?: string; value?: Record<string, unknown> } };
-
-export interface AgentProviderCapabilities {
-  streamingText?: boolean;
-  toolCalls?: boolean;
-  parallelToolCalls?: boolean;
-  interactions?: boolean;
-  resumableTurns?: boolean;
-  reasoningSummaries?: boolean;
-  boundedListHydration?: boolean;
-  supportedToolSources?: string[];
-}
-
-export interface AgentProvider {
-  name: string;
-  default?: boolean;
-  capabilities?: AgentProviderCapabilities;
-}
-
-export interface AgentProviderList {
-  providers: AgentProvider[];
-}
-
-export interface AgentSessionCreate {
-  provider?: string;
-  model?: string;
-  clientRef?: string;
-  tools?: AgentSessionTools;
-  metadata?: Record<string, unknown>;
-  modelOptions?: Record<string, unknown>;
-  idempotencyKey?: string;
-}
-
-export type AgentSessionTools =
-  | { none: Record<string, never>; catalog?: never }
-  | { none?: never; catalog: { refs?: AgentToolRef[] } };
-
-export interface AgentSessionUpdate {
-  clientRef?: string;
-  state?: AgentSessionState;
-  metadata?: Record<string, unknown>;
-}
-
-export interface AgentTurnCreate {
-  model?: string;
-  messages: AgentMessage[];
-  output?: AgentOutput;
-  metadata?: Record<string, unknown>;
-  modelOptions?: Record<string, unknown>;
-  idempotencyKey?: string;
-}
-
-export interface AgentTurnDisplay {
-  kind?: string;
-  phase?: string;
-  text?: string;
-  label?: string;
-  ref?: string;
-  parentRef?: string;
-  input?: unknown;
-  output?: unknown;
-  error?: unknown;
-  action?: string;
-  format?: string;
-  language?: string;
-}
-
-export interface AgentTurnEvent {
-  id: string;
-  turnId: string;
-  seq: number;
-  type: string;
-  source?: string;
-  visibility?: "public" | "private" | string;
-  data?: Record<string, unknown>;
-  createdAt?: string;
-  display?: AgentTurnDisplay;
-}
-
-export type AgentInteractionType =
-  | "approval"
-  | "clarification"
-  | "input"
-  | string;
-
-export type AgentInteractionState = "pending" | "resolved" | "canceled" | string;
-
-export interface AgentInteraction {
-  id: string;
-  turnId: string;
-  type: AgentInteractionType;
-  state: AgentInteractionState;
-  title?: string;
-  prompt?: string;
-  request?: Record<string, unknown>;
-  resolution?: Record<string, unknown>;
-  createdAt?: string;
-  resolvedAt?: string;
-}
-
-export interface AgentInteractionResolve {
-  resolution: Record<string, unknown>;
-}
-
-export interface AgentTurnEventStream {
-  close: () => void;
-}
-
-export interface AgentTurnEventStreamOptions {
-  after?: number;
-  limit?: number;
-  until?: "terminal" | "blocked_or_terminal";
-  onEvent?: (event: AgentTurnEvent) => void;
-  onError?: (error: Error, event?: unknown) => void;
-  onClose?: () => void;
-}
-
-function normalizeAgentRun(
-  turn: AgentTurnWire,
-  session?: AgentSession,
-): AgentRun {
-  return {
-    ...turn,
-    sessionRef: session?.clientRef || turn.sessionId,
-  };
-}
-
-function compareAgentRunsDesc(left: AgentRun, right: AgentRun): number {
-  const leftTime = Date.parse(left.createdAt || "");
-  const rightTime = Date.parse(right.createdAt || "");
-  const leftValue = Number.isNaN(leftTime) ? 0 : leftTime;
-  const rightValue = Number.isNaN(rightTime) ? 0 : rightTime;
-  return rightValue - leftValue || right.id.localeCompare(left.id);
-}
-
-function idempotencyKeyPart(prefix: string, key?: string): string | undefined {
-  return key ? `${prefix}:${key}` : undefined;
-}
-
-function agentToolRefsToRequest(
-  toolRefs?: AgentToolRef[],
-): AgentToolRef[] | undefined {
-  return toolRefs?.map((tool) => ({
-    system: tool.system,
-    plugin: tool.plugin,
-    operation: tool.operation,
-    connection: tool.connection,
-    instance: tool.instance,
-    title: tool.title,
-    description: tool.description,
-  }));
-}
-
-function agentToolsToRequest(
-  value?: AgentRunCreate["toolSource"],
-  refs?: AgentToolRef[],
-): AgentSessionTools | undefined {
-  switch (value) {
-    case undefined:
-      return undefined;
-    case "catalog":
-    case "explicit":
-      return { catalog: { refs: agentToolRefsToRequest(refs) } };
-    case "inherit_invokes":
-      throw new Error("inherit_invokes is not supported by the agent API");
-    default:
-      return undefined;
-  }
 }
 
 export interface ManagedIdentity {
@@ -710,14 +168,25 @@ export function isAPIErrorStatus(error: unknown, status: number): boolean {
   return error instanceof APIError && error.status === status;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 export const PENDING_CONNECTION_PATH = "/api/v1/auth/pending-connection";
 
+/**
+ * Resolve a path for same-origin API traffic.
+ *
+ * Cookie auth requires one browser origin: the SPA and `/api/*` share it.
+ * Production gestaltd serves both; local/prod-dev Vite proxies `/api` to
+ * `GESTALT_API_PROXY_TARGET`. Absolute URLs (e.g. OAuth selection redirects)
+ * pass through unchanged. Do not read `process.env` here — that is Node-only
+ * and blanks the Vite SPA.
+ */
 export function resolveAPIPath(path: string): string {
   if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(path)) {
     return path;
   }
-  return `${API_BASE}${path}`;
+  if (!path.startsWith("/")) {
+    throw new Error(`API path must be absolute (got ${JSON.stringify(path)})`);
+  }
+  return path;
 }
 
 export async function fetchAPI<T>(
@@ -764,13 +233,76 @@ export async function fetchAPI<T>(
   return res.json() as Promise<T>;
 }
 
+// gestalt/client's REST transport hardcodes credentials:"omit", which drops
+// the session cookie. Wrap fetch so same-origin SDK requests carry the cookie
+// and trigger the same 401 -> login redirect as fetchAPI.
+async function gestaltFetch(
+  input: string | URL | Request,
+  init?: RequestInit,
+): Promise<Response> {
+  const res = await fetch(input, { ...init, credentials: "include" });
+  if (res.status === HTTP_UNAUTHORIZED) {
+    clearSession();
+    if (!window.location.pathname.startsWith("/api/v1/auth/login")) {
+      window.location.href = serverLoginURL();
+    }
+    throw new APIError(HTTP_UNAUTHORIZED, "Session expired");
+  }
+  return res;
+}
+
+let identityClientPromise: Promise<RestGestaltClient["identity"]> | undefined;
+
+// The identity client is built once and cached. gestalt/client requires an
+// absolute http(s) address; window.location.origin keeps requests same-origin
+// (the SPA and /api share one origin in production and via the Vite dev proxy
+// locally), matching fetchAPI's resolveAPIPath contract.
+async function identityClient(): Promise<RestGestaltClient["identity"]> {
+  if (!identityClientPromise) {
+    identityClientPromise = createGestaltClient({
+      address: window.location.origin,
+      transport: rest(),
+      auth: unauthenticated(),
+      fetch: gestaltFetch,
+    }).then((client: RestGestaltClient) => client.identity);
+  }
+  return identityClientPromise;
+}
+
+// Map an identity grant onto the console's APIToken shape. The grant surface
+// carries no client label, so name is left unset. Grant response types are
+// not re-exported by gestalt/client, so the grant shape is described
+// structurally; createdAt/expiresAt are int64 epoch millis on the wire.
+type IdentityClientREST = RestGestaltClient["identity"];
+type IdentityGrant = Awaited<ReturnType<IdentityClientREST["getGrant"]>>;
+type IdentityGrantList = Awaited<
+  ReturnType<IdentityClientREST["listGrants"]>
+>;
+
+function grantToAPIToken(grantId: string, grant: IdentityGrant): APIToken {
+  return {
+    id: grantId,
+    scopes: grant.scopes.map((entry) => entry.scope),
+    createdAt: epochMillisToISO(grant.createdAt) ?? "",
+    expiresAt: epochMillisToISO(grant.expiresAt),
+  };
+}
+
+function epochMillisToISO(value: bigint | number): string | undefined {
+  if (typeof value === "bigint") {
+    if (value <= 0n) return undefined;
+    return new Date(Number(value)).toISOString();
+  }
+  if (typeof value === "number" && value > 0) {
+    return new Date(value).toISOString();
+  }
+  return undefined;
+}
+
 export interface AuthInfo {
   provider: string;
   displayName: string;
   loginSupported: boolean;
-  features?: {
-    agent?: boolean;
-  };
 }
 
 export interface AuthSession {
@@ -793,14 +325,6 @@ export async function logout(): Promise<void> {
 
 export async function getIntegrations(): Promise<Integration[]> {
   return fetchAPI<Integration[]>("/api/v1/apps");
-}
-
-export async function getIntegrationOperations(
-  integration: string,
-): Promise<IntegrationOperation[]> {
-  return fetchAPI<IntegrationOperation[]>(
-    `/api/v1/apps/${encodeURIComponent(integration)}/operations`,
-  );
 }
 
 export async function startIntegrationOAuth(
@@ -868,373 +392,14 @@ export async function disconnectIntegration(
 }
 
 export async function getTokens(): Promise<APIToken[]> {
-  return fetchAPI("/api/v1/tokens");
-}
-
-export async function getWorkflowRuns(): Promise<WorkflowRun[]> {
-  const response = await fetchAPI<WorkflowRunListResponse>(
-    "/api/v1/workflow/runs",
+  const identity = await identityClient();
+  const { grantIds }: IdentityGrantList = await identity.listGrants({});
+  const grants = await Promise.all(
+    grantIds.map((grantId) => identity.getGrant({ grantId })),
   );
-  return response.runs.map(normalizeWorkflowRun);
-}
-
-export async function getWorkflowRun(id: string): Promise<WorkflowRun> {
-  const run = await fetchAPI<WorkflowRunWire>(
-    `/api/v1/workflow/runs/${encodeURIComponent(id)}`,
+  return grantIds.map((grantId, index) =>
+    grantToAPIToken(grantId, grants[index]!),
   );
-  return normalizeWorkflowRun(run);
-}
-
-export async function cancelWorkflowRun(
-  id: string,
-  reason?: string,
-): Promise<WorkflowRun> {
-  const run = await fetchAPI<WorkflowRunWire>(
-    `/api/v1/workflow/runs/${encodeURIComponent(id)}/cancel`,
-    {
-      method: "POST",
-      body: JSON.stringify(reason ? { reason } : {}),
-    },
-  );
-  return normalizeWorkflowRun(run);
-}
-
-export async function getAgentProviders(): Promise<AgentProvider[]> {
-  const response = await fetchAPI<AgentProviderList | AgentProvider[]>(
-    "/api/v1/agent/providers",
-  );
-  return Array.isArray(response) ? response : (response.providers ?? []);
-}
-
-export async function getAgentSessions(opts?: {
-  provider?: string;
-  state?: string;
-  view?: "full" | "summary";
-  limit?: number;
-}): Promise<AgentSession[]> {
-  const query = new URLSearchParams();
-  if (opts?.provider) query.set("provider", opts.provider);
-  if (opts?.state && opts.state !== "all") query.set("state", opts.state);
-  if (opts?.view) query.set("view", opts.view);
-  if (opts?.limit) query.set("limit", String(opts.limit));
-  const params = query.toString();
-  return fetchAPI<AgentSession[]>(
-    `/api/v1/agent/sessions${params ? `?${params}` : ""}`,
-  );
-}
-
-export async function getAgentSession(
-  id: string,
-  provider: string,
-): Promise<AgentSession> {
-  return fetchAPI<AgentSession>(
-    `/api/v1/agent/sessions/${encodeURIComponent(id)}?${new URLSearchParams({ provider })}`,
-  );
-}
-
-export async function createAgentSession(
-  body: AgentSessionCreate,
-): Promise<AgentSession> {
-  return fetchAPI<AgentSession>("/api/v1/agent/sessions", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
-
-export async function updateAgentSession(
-  id: string,
-  provider: string,
-  body: AgentSessionUpdate,
-): Promise<AgentSession> {
-  return fetchAPI<AgentSession>(
-    `/api/v1/agent/sessions/${encodeURIComponent(id)}?${new URLSearchParams({ provider })}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify(body),
-    },
-  );
-}
-
-export async function getAgentTurns(
-  sessionID: string,
-  provider: string,
-  opts?: {
-    status?: string;
-    limit?: number;
-    view?: "full" | "summary";
-  },
-): Promise<AgentTurn[]> {
-  const query = new URLSearchParams({ provider });
-  if (opts?.status && opts.status !== "all") query.set("status", opts.status);
-  if (opts?.limit) query.set("limit", String(opts.limit));
-  if (opts?.view) query.set("view", opts.view);
-  return fetchAPI<AgentTurn[]>(
-    `/api/v1/agent/sessions/${encodeURIComponent(sessionID)}/turns?${query}`,
-  );
-}
-
-export async function getAgentTurn(
-  id: string,
-  provider: string,
-): Promise<AgentTurn> {
-  return fetchAPI<AgentTurn>(
-    `/api/v1/agent/turns/${encodeURIComponent(id)}?${new URLSearchParams({ provider })}`,
-  );
-}
-
-export async function createAgentTurn(
-  sessionID: string,
-  provider: string,
-  body: AgentTurnCreate,
-): Promise<AgentTurn> {
-  const output = body.output ?? { text: {} };
-  return fetchAPI<AgentTurn>(
-    `/api/v1/agent/sessions/${encodeURIComponent(sessionID)}/turns?${new URLSearchParams({ provider })}`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        model: body.model,
-        messages: body.messages,
-        output,
-        metadata: body.metadata,
-        modelOptions: body.modelOptions,
-        idempotencyKey: body.idempotencyKey,
-      }),
-    },
-  );
-}
-
-export async function cancelAgentTurn(
-  id: string,
-  provider: string,
-  reason?: string,
-): Promise<AgentTurn> {
-  return fetchAPI<AgentTurn>(
-    `/api/v1/agent/turns/${encodeURIComponent(id)}/cancel?${new URLSearchParams({ provider })}`,
-    {
-      method: "POST",
-      body: JSON.stringify(reason ? { reason } : {}),
-    },
-  );
-}
-
-export async function getAgentTurnEvents(
-  turnID: string,
-  provider: string,
-  opts?: { after?: number; limit?: number },
-): Promise<AgentTurnEvent[]> {
-  const query = new URLSearchParams({ provider });
-  if (typeof opts?.after === "number") query.set("after", String(opts.after));
-  if (typeof opts?.limit === "number") query.set("limit", String(opts.limit));
-  return fetchAPI<AgentTurnEvent[]>(
-    `/api/v1/agent/turns/${encodeURIComponent(turnID)}/events?${query}`,
-  );
-}
-
-export async function getAllAgentTurnEvents(
-  turnID: string,
-  provider: string,
-  opts?: { after?: number; limit?: number },
-): Promise<{ events: AgentTurnEvent[]; lastSeq: number }> {
-  const limit = opts?.limit ?? 100;
-  let after = opts?.after ?? 0;
-  const events: AgentTurnEvent[] = [];
-
-  for (;;) {
-    const page = await getAgentTurnEvents(turnID, provider, { after, limit });
-    if (page.length === 0) {
-      break;
-    }
-
-    let maxSeq = after;
-    for (const event of page) {
-      if (typeof event.seq === "number") {
-        maxSeq = Math.max(maxSeq, event.seq);
-      }
-      events.push(event);
-    }
-
-    if (page.length < limit || maxSeq <= after) {
-      after = maxSeq;
-      break;
-    }
-    after = maxSeq;
-  }
-
-  return { events, lastSeq: after };
-}
-
-export async function getAgentInteractions(
-  turnID: string,
-  provider: string,
-): Promise<AgentInteraction[]> {
-  return fetchAPI<AgentInteraction[]>(
-    `/api/v1/agent/turns/${encodeURIComponent(turnID)}/interactions?${new URLSearchParams({ provider })}`,
-  );
-}
-
-export async function resolveAgentInteraction(
-  turnID: string,
-  provider: string,
-  interactionID: string,
-  resolution: Record<string, unknown>,
-): Promise<AgentInteraction> {
-  return fetchAPI<AgentInteraction>(
-    `/api/v1/agent/turns/${encodeURIComponent(
-      turnID,
-    )}/interactions/${encodeURIComponent(interactionID)}/resolve?${new URLSearchParams({ provider })}`,
-    {
-      method: "POST",
-      body: JSON.stringify({ resolution } satisfies AgentInteractionResolve),
-    },
-  );
-}
-
-export function openAgentTurnEventStream(
-  turnID: string,
-  provider: string,
-  opts: AgentTurnEventStreamOptions,
-): AgentTurnEventStream {
-  const query = new URLSearchParams({
-    provider,
-    after: String(opts.after ?? 0),
-    limit: String(opts.limit ?? 100),
-    until: opts.until ?? "blocked_or_terminal",
-  });
-  const source = new EventSource(
-    resolveAPIPath(
-      `/api/v1/agent/turns/${encodeURIComponent(turnID)}/events/stream?${query}`,
-    ),
-    { withCredentials: true },
-  );
-  let closed = false;
-
-  function close() {
-    if (closed) return;
-    closed = true;
-    source.close();
-    opts.onClose?.();
-  }
-
-  function parseEvent(data: string, eventName: string): AgentTurnEvent | null {
-    const trimmed = data.trim();
-    if (!trimmed) return null;
-    try {
-      const parsed = JSON.parse(trimmed) as AgentTurnEvent;
-      if (eventName === "error") {
-        const message =
-          typeof parsed?.data?.error === "string"
-            ? parsed.data.error
-            : "Agent event stream error";
-        opts.onError?.(new Error(message), parsed);
-        return null;
-      }
-      return parsed;
-    } catch (err) {
-      opts.onError?.(
-        err instanceof Error ? err : new Error("Invalid agent event frame"),
-      );
-      return null;
-    }
-  }
-
-  source.onmessage = (event) => {
-    const parsed = parseEvent(event.data, "message");
-    if (!parsed) return;
-    opts.onEvent?.(parsed);
-    if (
-      parsed.type === "turn.completed" ||
-      parsed.type === "turn.failed" ||
-      parsed.type === "turn.canceled"
-    ) {
-      close();
-    }
-  };
-
-  source.addEventListener("error", (event) => {
-    if (event instanceof MessageEvent && typeof event.data === "string") {
-      parseEvent(event.data, "error");
-    } else {
-      opts.onError?.(new Error("Agent event stream closed"));
-    }
-    close();
-  });
-
-  return { close };
-}
-
-export async function getAgentRuns(opts?: {
-  provider?: string;
-  status?: string;
-}): Promise<AgentRun[]> {
-  const sessions = await getAgentSessions({
-    provider: opts?.provider,
-    view: "summary",
-    limit: 50,
-  });
-
-  const turnLists = await Promise.all(
-    sessions.map(async (session) => {
-      const turns = await getAgentTurns(session.id, session.provider, {
-        status: opts?.status,
-        limit: 20,
-      });
-      return turns.map((turn) => normalizeAgentRun(turn, session));
-    }),
-  );
-
-  return turnLists.flat().sort(compareAgentRunsDesc);
-}
-
-export async function getAgentRun(
-  id: string,
-  provider: string,
-): Promise<AgentRun> {
-  const turn = await getAgentTurn(id, provider);
-  return normalizeAgentRun(turn);
-}
-
-export async function createAgentRun(body: AgentRunCreate): Promise<AgentRun> {
-  const tools = agentToolsToRequest(body.toolSource, body.toolRefs);
-
-  const session = await fetchAPI<AgentSession>("/api/v1/agent/sessions", {
-    method: "POST",
-    body: JSON.stringify({
-      provider: body.provider,
-      model: body.model,
-      clientRef: body.sessionRef,
-      tools,
-      metadata: body.metadata,
-      idempotencyKey: idempotencyKeyPart("session", body.idempotencyKey),
-    }),
-  });
-
-  const turn = await fetchAPI<AgentTurnWire>(
-    `/api/v1/agent/sessions/${encodeURIComponent(session.id)}/turns?${new URLSearchParams(
-      { provider: session.provider },
-    )}`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        model: body.model,
-        messages: body.messages,
-        output: body.output ?? { text: {} },
-        metadata: body.metadata,
-        modelOptions: body.modelOptions,
-        idempotencyKey: idempotencyKeyPart("turn", body.idempotencyKey),
-      }),
-    },
-  );
-  return normalizeAgentRun(turn, session);
-}
-
-export async function cancelAgentRun(
-  id: string,
-  provider: string,
-  reason?: string,
-): Promise<AgentRun> {
-  const turn = await cancelAgentTurn(id, provider, reason);
-  return normalizeAgentRun(turn);
 }
 
 export async function createToken(
@@ -1242,6 +407,10 @@ export async function createToken(
   scopes: string,
   expiresIn?: number,
 ): Promise<CreateTokenResponse> {
+  // Token creation stays on the v1 gateway: the v2 identity token endpoint
+  // is an RFC 8693 token-exchange that requires a subject_token the browser
+  // does not hold under cookie-session auth. The host injects the session
+  // token server-side on this v1 route.
   const body: Record<string, unknown> = { name, scopes };
   if (expiresIn !== undefined) {
     body.expiresIn = expiresIn;
@@ -1253,7 +422,7 @@ export async function createToken(
 }
 
 export async function revokeToken(id: string): Promise<void> {
-  await fetchAPI(`/api/v1/tokens/${id}`, { method: "DELETE" });
+  await (await identityClient()).revokeGrant({ grantId: id });
 }
 
 const MANAGED_SUBJECTS_PATH = "/api/v1/authorization/subjects";

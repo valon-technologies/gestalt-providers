@@ -229,10 +229,6 @@ gestalt workflows runs list`}
           <Link to="/docs/workflows" className="doc-link">
             Workflows
           </Link>
-          . If you prefer the browser, the same workflow surfaces are also available on{" "}
-          <Link to="/workflows" className="doc-link">
-            Workflows
-          </Link>
           .
         </p>
       </DocsPageBody>
@@ -304,8 +300,8 @@ gestalt tokens revoke <token-id>`}
         />
         <p className="doc-copy">
           Tokens can also be created from{" "}
-          <Link to="/authorization" className="doc-link">
-            Authorization
+          <Link to="/settings" className="doc-link">
+            Settings
           </Link>
           . The raw token value is shown once, so store it immediately in your
           secret manager or shell environment.
@@ -427,10 +423,6 @@ export function WorkflowsDocsPage() {
 
         <Subheading id="wf-help" title="Start with help" />
         <CodeBlock code="gestalt workflows --help" />
-        <p className="doc-copy">
-          In this workspace, the default browser UI focuses on recent workflow
-          execution history and durable per-step state.
-        </p>
 
         <Subheading id="wf-runs" title="Inspect runs" />
         <p className="doc-copy">
@@ -444,11 +436,8 @@ gestalt workflows runs list --app <app>
 gestalt workflows runs get <run-id>`}
         />
         <p className="doc-copy">
-          The browser surface at{" "}
-          <Link to="/workflows" className="doc-link">
-            Workflows
-          </Link>{" "}
-          shows recent runs and durable step state if you want a UI for inspection.
+          Use the CLI commands above to inspect recent runs and durable step
+          state.
         </p>
       </DocsPageBody>
     </>
@@ -550,7 +539,7 @@ function DocsPageHeader({
   description: ReactNode;
 }) {
   return (
-    <header className="scroll-mt-24 border-b border-alpha pb-10 animate-fade-in-up">
+    <header className="scroll-mt-24 border-b border-alpha pb-10">
       <p className="text-xs font-medium uppercase tracking-[0.16em] text-faint">
         {eyebrow}
       </p>
@@ -566,7 +555,7 @@ function DocsPageHeader({
 
 function DocsPageBody({ children }: { children: ReactNode }) {
   return (
-    <div className="mt-8 space-y-5 animate-fade-in-up [animation-delay:60ms]">
+    <div className="mt-8 space-y-5">
       {children}
     </div>
   );
