@@ -121,10 +121,42 @@ export async function mockAuthSessionUnauthorized(page: Page): Promise<void> {
   });
 }
 
+// Token listing + revoke now flow through the gestalt SDK IdentityClient
+// (GET /api/v2/identity/grants + GET /api/v2/identity/grants/{id} for list,
+// DELETE /api/v2/identity/grants/{id} for revoke). Token creation stays on
+// POST /api/v1/tokens, mocked per-test. The grant surface carries no client
+// label, so name is not round-tripped here.
+function grantJsonForToken(token: APIToken) {
+  const createdMs = Date.parse(token.createdAt);
+  const expiresMs = token.expiresAt ? Date.parse(token.expiresAt) : 0;
+  return {
+    scopes: (token.scopes ?? []).map((scope) => ({ scope, resource: [] })),
+    createdAt: Number.isNaN(createdMs) ? 0 : createdMs,
+    expiresAt: Number.isNaN(expiresMs) ? 0 : expiresMs,
+  };
+}
+
 export async function mockTokens(page: Page, tokens: APIToken[]) {
-  await page.route("**/api/v1/tokens", (route: Route, request) => {
+  let current = tokens;
+  await page.route("**/api/v2/identity/grants", (route: Route, request) => {
     if (request.method() === "GET") {
-      route.fulfill({ json: tokens });
+      route.fulfill({ json: { grantIds: current.map((t) => t.id) } });
+    } else {
+      route.fallback();
+    }
+  });
+  await page.route("**/api/v2/identity/grants/*", (route: Route, request) => {
+    const id = new URL(request.url()).pathname.split("/").pop();
+    if (request.method() === "GET") {
+      const token = current.find((t) => t.id === id);
+      if (token) {
+        route.fulfill({ json: grantJsonForToken(token) });
+      } else {
+        route.fulfill({ status: 404, json: { error: "grant not found" } });
+      }
+    } else if (request.method() === "DELETE") {
+      current = current.filter((t) => t.id !== id);
+      route.fulfill({ json: {} });
     } else {
       route.fallback();
     }

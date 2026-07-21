@@ -64,11 +64,17 @@ export function gestaltDevMockApi() {
         if (
           method === "GET" &&
           (path === "/api/v1/apps" ||
-            path === "/api/v1/tokens" ||
             path === "/api/v1/workflow/runs" ||
             path === "/api/v1/authorization/subjects")
         ) {
           json(200, []);
+          return;
+        }
+
+        // Personal API-token grants are served by the v2 identity surface
+        // via the gestalt SDK IdentityClient.
+        if (method === "GET" && path === "/api/v2/identity/grants") {
+          json(200, { grantIds: [] });
           return;
         }
 

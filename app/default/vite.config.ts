@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { gestalt } from "@valon-technologies/gestalt/vite";
+import { gestalt } from "@valon-technologies/gestalt-web/vite";
 import { defineConfig } from "vite";
 import { gestaltDevMockApi } from "./scripts/vite-dev-mock-api.mjs";
 import { serveTenantThemeInDev } from "./scripts/vite-serve-tenant-theme.mjs";
@@ -48,6 +48,10 @@ export default defineConfig({
     alias: {
       "@": path.resolve(projectDir, "src"),
       "@theme.css": themeTarget,
+      "@connectrpc/connect-node": path.resolve(
+        projectDir,
+        "src/stubs/connect-node-stub.ts",
+      ),
     },
   },
   server: {

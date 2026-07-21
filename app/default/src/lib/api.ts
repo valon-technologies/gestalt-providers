@@ -2,6 +2,17 @@ import { clearSession } from "./auth";
 import { HTTP_UNAUTHORIZED } from "./constants";
 import { serverLoginURL } from "./authReturn";
 
+// The browser SDK provides the AppClient for app operation invocation. The
+// provider SDK's ./client export supplies IdentityClient for personal
+// API-token grants; its REST transport defaults to credentials:"omit", so
+// we inject a fetch wrapper that restores cookie-session credentials.
+import {
+  createGestaltClient,
+  rest,
+  unauthenticated,
+  type RestGestaltClient,
+} from "@valon-technologies/gestalt/client";
+
 export interface ConnectionParamDef {
   required?: boolean;
   description?: string;
@@ -84,15 +95,6 @@ export interface Integration {
   credentialState?: CredentialState;
   healthState?: HealthState;
   actions?: IntegrationAction[];
-}
-
-export interface IntegrationOperation {
-  id: string;
-  title?: string;
-  description?: string;
-  readOnly?: boolean;
-  visible?: boolean;
-  tags?: string[];
 }
 
 export interface AccessPermission {
@@ -231,6 +233,72 @@ export async function fetchAPI<T>(
   return res.json() as Promise<T>;
 }
 
+// gestalt/client's REST transport hardcodes credentials:"omit", which drops
+// the session cookie. Wrap fetch so same-origin SDK requests carry the cookie
+// and trigger the same 401 -> login redirect as fetchAPI.
+async function gestaltFetch(
+  input: string | URL | Request,
+  init?: RequestInit,
+): Promise<Response> {
+  const res = await fetch(input, { ...init, credentials: "include" });
+  if (res.status === HTTP_UNAUTHORIZED) {
+    clearSession();
+    if (!window.location.pathname.startsWith("/api/v1/auth/login")) {
+      window.location.href = serverLoginURL();
+    }
+    throw new APIError(HTTP_UNAUTHORIZED, "Session expired");
+  }
+  return res;
+}
+
+let identityClientPromise: Promise<RestGestaltClient["identity"]> | undefined;
+
+// The identity client is built once and cached. gestalt/client requires an
+// absolute http(s) address; window.location.origin keeps requests same-origin
+// (the SPA and /api share one origin in production and via the Vite dev proxy
+// locally), matching fetchAPI's resolveAPIPath contract.
+async function identityClient(): Promise<RestGestaltClient["identity"]> {
+  if (!identityClientPromise) {
+    identityClientPromise = createGestaltClient({
+      address: window.location.origin,
+      transport: rest(),
+      auth: unauthenticated(),
+      fetch: gestaltFetch,
+    }).then((client: RestGestaltClient) => client.identity);
+  }
+  return identityClientPromise;
+}
+
+// Map an identity grant onto the console's APIToken shape. The grant surface
+// carries no client label, so name is left unset. Grant response types are
+// not re-exported by gestalt/client, so the grant shape is described
+// structurally; createdAt/expiresAt are int64 epoch millis on the wire.
+type IdentityClientREST = RestGestaltClient["identity"];
+type IdentityGrant = Awaited<ReturnType<IdentityClientREST["getGrant"]>>;
+type IdentityGrantList = Awaited<
+  ReturnType<IdentityClientREST["listGrants"]>
+>;
+
+function grantToAPIToken(grantId: string, grant: IdentityGrant): APIToken {
+  return {
+    id: grantId,
+    scopes: grant.scopes.map((entry) => entry.scope),
+    createdAt: epochMillisToISO(grant.createdAt) ?? "",
+    expiresAt: epochMillisToISO(grant.expiresAt),
+  };
+}
+
+function epochMillisToISO(value: bigint | number): string | undefined {
+  if (typeof value === "bigint") {
+    if (value <= 0n) return undefined;
+    return new Date(Number(value)).toISOString();
+  }
+  if (typeof value === "number" && value > 0) {
+    return new Date(value).toISOString();
+  }
+  return undefined;
+}
+
 export interface AuthInfo {
   provider: string;
   displayName: string;
@@ -257,14 +325,6 @@ export async function logout(): Promise<void> {
 
 export async function getIntegrations(): Promise<Integration[]> {
   return fetchAPI<Integration[]>("/api/v1/apps");
-}
-
-export async function getIntegrationOperations(
-  integration: string,
-): Promise<IntegrationOperation[]> {
-  return fetchAPI<IntegrationOperation[]>(
-    `/api/v1/apps/${encodeURIComponent(integration)}/operations`,
-  );
 }
 
 export async function startIntegrationOAuth(
@@ -332,7 +392,14 @@ export async function disconnectIntegration(
 }
 
 export async function getTokens(): Promise<APIToken[]> {
-  return fetchAPI("/api/v1/tokens");
+  const identity = await identityClient();
+  const { grantIds }: IdentityGrantList = await identity.listGrants({});
+  const grants = await Promise.all(
+    grantIds.map((grantId) => identity.getGrant({ grantId })),
+  );
+  return grantIds.map((grantId, index) =>
+    grantToAPIToken(grantId, grants[index]!),
+  );
 }
 
 export async function createToken(
@@ -340,6 +407,10 @@ export async function createToken(
   scopes: string,
   expiresIn?: number,
 ): Promise<CreateTokenResponse> {
+  // Token creation stays on the v1 gateway: the v2 identity token endpoint
+  // is an RFC 8693 token-exchange that requires a subject_token the browser
+  // does not hold under cookie-session auth. The host injects the session
+  // token server-side on this v1 route.
   const body: Record<string, unknown> = { name, scopes };
   if (expiresIn !== undefined) {
     body.expiresIn = expiresIn;
@@ -351,7 +422,7 @@ export async function createToken(
 }
 
 export async function revokeToken(id: string): Promise<void> {
-  await fetchAPI(`/api/v1/tokens/${id}`, { method: "DELETE" });
+  await (await identityClient()).revokeGrant({ grantId: id });
 }
 
 const MANAGED_SUBJECTS_PATH = "/api/v1/authorization/subjects";

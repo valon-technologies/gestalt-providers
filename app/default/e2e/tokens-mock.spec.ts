@@ -54,11 +54,32 @@ test.describe("Token Management", () => {
   }) => {
     const page = authenticatedPage;
     let tokens: APIToken[] = [];
-    await page.route("**/api/v1/tokens", async (route, request) => {
+    await page.route("**/api/v2/identity/grants", async (route, request) => {
       if (request.method() === "GET") {
-        await route.fulfill({ json: tokens });
+        await route.fulfill({
+          json: { grantIds: tokens.map((t) => t.id) },
+        });
         return;
       }
+      await route.fallback();
+    });
+    await page.route("**/api/v2/identity/grants/*", (route, request) => {
+      const id = new URL(request.url()).pathname.split("/").pop();
+      const token = tokens.find((t) => t.id === id);
+      if (request.method() === "GET" && token) {
+        const createdMs = Date.parse(token.createdAt);
+        route.fulfill({
+          json: {
+            scopes: (token.scopes ?? []).map((scope) => ({ scope, resource: [] })),
+            createdAt: Number.isNaN(createdMs) ? 0 : createdMs,
+            expiresAt: 0,
+          },
+        });
+      } else {
+        route.fallback();
+      }
+    });
+    await page.route("**/api/v1/tokens", async (route, request) => {
       if (request.method() === "POST") {
         const body = request.postDataJSON() as { name?: string; scopes?: string; expiresIn?: number };
         expect(body).toEqual({ name: "audit-label", scopes: "my-app", expiresIn: 30 * 24 * 60 * 60 });
@@ -80,7 +101,7 @@ test.describe("Token Management", () => {
         });
         return;
       }
-      await route.continue();
+      await route.fallback();
     });
     await mockIntegrations(page, []);
 
@@ -100,20 +121,40 @@ test.describe("Token Management", () => {
   }) => {
     const page = authenticatedPage;
     let tokens: APIToken[] = [];
-    let getCount = 0;
+    let listCount = 0;
 
-    await page.route("**/api/v1/tokens", async (route, request) => {
+    await page.route("**/api/v2/identity/grants", async (route, request) => {
       if (request.method() === "GET") {
-        getCount += 1;
-        if (getCount === 1) {
+        listCount += 1;
+        if (listCount === 1) {
           await new Promise((resolve) => setTimeout(resolve, 250));
-          await route.fulfill({ json: [] });
+          await route.fulfill({ json: { grantIds: [] } });
           return;
         }
-        await route.fulfill({ json: tokens });
+        await route.fulfill({
+          json: { grantIds: tokens.map((t) => t.id) },
+        });
         return;
       }
-
+      await route.fallback();
+    });
+    await page.route("**/api/v2/identity/grants/*", (route, request) => {
+      const id = new URL(request.url()).pathname.split("/").pop();
+      const token = tokens.find((t) => t.id === id);
+      if (request.method() === "GET" && token) {
+        const createdMs = Date.parse(token.createdAt);
+        route.fulfill({
+          json: {
+            scopes: (token.scopes ?? []).map((scope) => ({ scope, resource: [] })),
+            createdAt: Number.isNaN(createdMs) ? 0 : createdMs,
+            expiresAt: 0,
+          },
+        });
+      } else {
+        route.fallback();
+      }
+    });
+    await page.route("**/api/v1/tokens", async (route, request) => {
       if (request.method() === "POST") {
         const body = request.postDataJSON() as { name?: string; scopes?: string };
         expect(body.scopes).toBe("other-app");
@@ -134,8 +175,7 @@ test.describe("Token Management", () => {
         });
         return;
       }
-
-      await route.continue();
+      await route.fallback();
     });
     await mockIntegrations(page, []);
 
@@ -151,22 +191,7 @@ test.describe("Token Management", () => {
 
   test("revokes a token by grant ID", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
-    let tokens = [...sampleTokens];
-    await page.route("**/api/v1/tokens", (route, request) => {
-      if (request.method() === "GET") {
-        route.fulfill({ json: tokens });
-      } else {
-        route.continue();
-      }
-    });
-    await page.route("**/api/v1/tokens/*", (route, request) => {
-      if (request.method() === "DELETE") {
-        tokens = tokens.filter((t) => !request.url().includes(t.id));
-        route.fulfill({ json: { status: "revoked" } });
-      } else {
-        route.continue();
-      }
-    });
+    await mockTokens(page, [...sampleTokens]);
     await mockIntegrations(page, []);
 
     await page.goto("/settings");
