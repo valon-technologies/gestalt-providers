@@ -69,6 +69,7 @@ test.describe("App admin", () => {
             status: "ready",
             credentialState: "connected",
             authTypes: ["oauth"],
+            actions: ["reconnect", "disconnect", "add_instance"],
           },
         ],
       },
@@ -102,6 +103,37 @@ test.describe("App admin", () => {
       page.getByRole("heading", { name: "Connection" }),
     ).toBeVisible();
     await expect(page.getByTestId("integration-card-slack")).toBeVisible();
+    await expect(page.getByTestId("app-admin-checklist")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Docs" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Reconnect" })).toBeVisible();
+  });
+
+  test("section query param deep-links into Access", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockAppMembers(page, [
+      {
+        email: "alice@example.com",
+        role: "admin",
+        source: "static",
+        mutable: false,
+        effective: true,
+      },
+    ]);
+    await page.goto("/apps/slack?section=access");
+    await expect(page.getByRole("radio", { name: "Access" })).toBeChecked();
+    await expect(page.getByText("alice@example.com")).toBeVisible();
+  });
+
+  test("section control writes section into the URL", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/apps/slack");
+    await page.getByRole("radio", { name: "Operations" }).click();
+    await expect(page).toHaveURL(/section=operations/);
+    await expect(
+      page.getByRole("heading", { name: "Operations" }),
+    ).toBeVisible();
   });
 
   test("shows members on the access tab", async ({

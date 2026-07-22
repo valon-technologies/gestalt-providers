@@ -1,9 +1,20 @@
+"use client";
+
 import { MonitorIcon, MoonIcon, SunIcon } from "@/components/icons";
 import { useTheme, type Theme } from "@/hooks/use-theme";
 import {
   SegmentedControl,
   type SegmentedControlOption,
 } from "@/components/ui/segmented-control";
+
+/**
+ * Gestalt console vendor of Valon Registry `ThemeToggle`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/theme-toggle.tsx`). Theme state stays on
+ * console `@/hooks/use-theme` (owns `.dark` + `localStorage`) so main.tsx
+ * bootstrap is unchanged; public props match Registry (`tooltips` default true).
+ */
 
 const THEME_OPTIONS: ReadonlyArray<SegmentedControlOption<Theme>> = [
   { value: "light", label: "Light", icon: SunIcon },
@@ -14,6 +25,7 @@ const THEME_OPTIONS: ReadonlyArray<SegmentedControlOption<Theme>> = [
 export type ThemeToggleProps = {
   orientation?: "horizontal" | "vertical";
   showLabels?: boolean;
+  tooltips?: boolean;
   size?: "xs" | "sm" | "default";
   label?: string;
   className?: string;
@@ -23,7 +35,8 @@ export type ThemeToggleProps = {
 export function ThemeToggle({
   orientation = "horizontal",
   showLabels = false,
-  size = "sm",
+  tooltips = true,
+  size = "default",
   label = "Theme",
   className,
 }: ThemeToggleProps) {
@@ -36,8 +49,10 @@ export function ThemeToggle({
       label={label}
       orientation={orientation}
       showLabels={showLabels}
+      tooltips={tooltips}
       size={size}
       className={className}
     />
   );
 }
+ThemeToggle.displayName = "ThemeToggle";

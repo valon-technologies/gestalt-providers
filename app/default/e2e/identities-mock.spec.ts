@@ -412,7 +412,7 @@ test.describe("Managed identities", () => {
         returnPath: "/identities?id=service_account%3Aagent-1",
       },
     ]);
-    await expect(page.getByLabel("Connected")).toBeVisible();
+    await expect(page.getByLabel("Identity connected")).toBeVisible();
 
     await page.getByRole("button", { name: "Slack settings" }).click();
     const dialog = page.getByRole("dialog");

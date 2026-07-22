@@ -173,8 +173,8 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
     <div className="space-y-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-lg font-heading text-primary">Workflows</h2>
-          <p className="mt-1 max-w-2xl text-sm text-muted">
+          <h2 className="text-lg font-heading text-foreground">Workflows</h2>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Automation for this app: recent runs, schedule and event
             activations visible from run history, and the identities those
             runs execute as.
@@ -191,11 +191,11 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
       </div>
 
       <div
-        className="rounded-lg border border-alpha bg-alpha-5 px-4 py-3 text-sm text-muted"
+        className="rounded-lg border border-alpha bg-alpha-5 px-4 py-3 text-sm text-muted-foreground"
         data-testid="app-workflow-ownership-note"
       >
         Runs listed here target this app as a{" "}
-        <span className="text-primary">step app</span> (or ship under{" "}
+        <span className="text-foreground">step app</span> (or ship under{" "}
         <code className="font-mono text-xs">app_{appName}_…</code> definition
         IDs). Workflows that only <em>publish</em> events handled elsewhere are
         not included — open the other app’s admin page for those.
@@ -210,10 +210,10 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
 
       <section className="space-y-3" aria-label="Definitions and schedules">
         <div>
-          <h3 className="text-base font-heading text-primary">
+          <h3 className="text-base font-heading text-foreground">
             Definitions &amp; schedules
           </h3>
-          <p className="mt-1 text-sm text-muted">
+          <p className="mt-1 text-sm text-muted-foreground">
             Cron jobs are schedule activations on a definition (cron, timezone,
             pause, runAs). Full definition APIs are not yet in this UI — below
             is what recent runs reveal.
@@ -237,10 +237,10 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
                 className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-start sm:justify-between"
               >
                 <div className="min-w-0">
-                  <p className="truncate font-mono text-sm text-primary">
+                  <p className="truncate font-mono text-sm text-foreground">
                     {item.definitionId}
                   </p>
-                  <p className="mt-1 text-xs text-muted">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     {item.runCount} run{item.runCount === 1 ? "" : "s"}
                     {item.lastCreatedAt
                       ? ` · last ${formatDate(item.lastCreatedAt)}`
@@ -248,7 +248,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
                     {item.lastStatus ? ` · ${item.lastStatus}` : ""}
                   </p>
                   {item.activationIds.length > 0 ? (
-                    <p className="mt-1 text-xs text-muted">
+                    <p className="mt-1 text-xs text-muted-foreground">
                       Activations: {item.activationIds.join(", ")}
                     </p>
                   ) : null}
@@ -275,7 +275,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
           </ul>
         )}
         {scheduleDefinitions.length === 0 && !loading && runs.length > 0 ? (
-          <p className="text-xs text-muted">
+          <p className="text-xs text-muted-foreground">
             No schedule-triggered runs in this window. Schedule cron / timezone
             / paused state will appear here once definition listing is wired.
           </p>
@@ -284,10 +284,10 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
 
       <section className="space-y-3" aria-label="Event activations">
         <div>
-          <h3 className="text-base font-heading text-primary">
+          <h3 className="text-base font-heading text-foreground">
             Event activations
           </h3>
-          <p className="mt-1 text-sm text-muted">
+          <p className="mt-1 text-sm text-muted-foreground">
             Event-matched activations observed on recent runs (type / source /
             subject).
           </p>
@@ -302,10 +302,10 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
           <ul className="divide-y divide-alpha rounded-lg border border-alpha">
             {eventDefinitions.map((item) => (
               <li key={`event-${item.definitionId}`} className="px-4 py-3">
-                <p className="font-mono text-sm text-primary">
+                <p className="font-mono text-sm text-foreground">
                   {item.definitionId}
                 </p>
-                <p className="mt-1 text-xs text-muted">
+                <p className="mt-1 text-xs text-muted-foreground">
                   {item.eventTypes.length > 0
                     ? `Types: ${item.eventTypes.join(", ")}`
                     : "Event trigger"}
@@ -321,10 +321,10 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
 
       <section className="space-y-3" aria-label="Automation identities">
         <div>
-          <h3 className="text-base font-heading text-primary">
+          <h3 className="text-base font-heading text-foreground">
             Automation identity
           </h3>
-          <p className="mt-1 text-sm text-muted">
+          <p className="mt-1 text-sm text-muted-foreground">
             Subjects observed as <code className="font-mono text-xs">createdBy</code>{" "}
             on recent runs (often the definition <code className="font-mono text-xs">runAs</code>).
           </p>
@@ -342,7 +342,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
                 key={subject}
                 className="flex items-center justify-between gap-3 px-4 py-3"
               >
-                <code className="truncate font-mono text-sm text-primary">
+                <code className="truncate font-mono text-sm text-foreground">
                   {subject}
                 </code>
                 {subject.startsWith("service_account:") ? (
@@ -361,8 +361,8 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
 
       <section className="space-y-4" aria-label="Recent runs">
         <div>
-          <h3 className="text-base font-heading text-primary">Recent runs</h3>
-          <p className="mt-1 text-sm text-muted">
+          <h3 className="text-base font-heading text-foreground">Recent runs</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
             Status, trigger, definition, step plan, and I/O for runs that target
             this app.
           </p>
@@ -370,20 +370,20 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
 
       <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem]">
         <label className="block">
-          <span className="text-xs font-medium text-muted">Search runs</span>
+          <span className="text-xs font-medium text-muted-foreground">Search runs</span>
           <input
             value={runsQuery}
             onChange={(event) => setRunsQuery(event.target.value)}
             placeholder="Run ID, step, definition, event"
-            className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-primary outline-hidden transition-colors duration-150 placeholder:text-faint focus:border-sky-500"
+            className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-foreground outline-hidden transition-colors duration-150 placeholder:text-faint focus:border-sky-500"
           />
         </label>
         <label className="block">
-          <span className="text-xs font-medium text-muted">Status</span>
+          <span className="text-xs font-medium text-muted-foreground">Status</span>
           <select
             value={runStatus}
             onChange={(event) => setRunStatus(event.target.value)}
-            className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-primary outline-hidden transition-colors duration-150 focus:border-sky-500"
+            className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-foreground outline-hidden transition-colors duration-150 focus:border-sky-500"
           >
             {RUN_STATUSES.map((status) => (
               <option key={status} value={status}>
@@ -394,7 +394,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
         </label>
       </div>
 
-      <p className="text-xs text-muted">
+      <p className="text-xs text-muted-foreground">
         CLI:{" "}
         <code className="font-mono text-xs">
           gestalt workflows runs list --app {appName}
@@ -482,12 +482,12 @@ function RunsPanel({
                       : "hover:bg-alpha-5"
                   }`}
                 >
-                  <span className="truncate text-sm font-medium text-primary">
+                  <span className="truncate text-sm font-medium text-foreground">
                     {targetLabel(run.target) ||
                       run.definitionId ||
                       shortRunId(run.id)}
                   </span>
-                  <span className="flex items-center gap-2 text-xs text-muted">
+                  <span className="flex items-center gap-2 text-xs text-muted-foreground">
                     <StatusBadge status={run.status} />
                     <span>{formatDate(run.createdAt)}</span>
                   </span>
@@ -509,17 +509,17 @@ function RunsPanel({
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <StatusBadge status={selectedRun.status} />
-                  <span className="truncate font-mono text-xs text-muted">
+                  <span className="truncate font-mono text-xs text-muted-foreground">
                     {shortRunId(selectedRun.id)}
                   </span>
                 </div>
-                <h3 className="mt-2 text-base font-heading text-primary">
+                <h3 className="mt-2 text-base font-heading text-foreground">
                   {targetLabel(selectedRun.target) ||
                     selectedRun.definitionId ||
                     "Workflow run"}
                 </h3>
                 {selectedRun.statusMessage ? (
-                  <p className="mt-1 text-sm text-muted">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     {selectedRun.statusMessage}
                   </p>
                 ) : null}
@@ -582,8 +582,8 @@ function DetailGrid({ items }: { items: Array<[string, string]> }) {
     <dl className="grid gap-3 sm:grid-cols-2">
       {items.map(([label, value]) => (
         <div key={label}>
-          <dt className="text-xs font-medium text-muted">{label}</dt>
-          <dd className="mt-1 break-all text-sm text-primary">{value}</dd>
+          <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+          <dd className="mt-1 break-all text-sm text-foreground">{value}</dd>
         </div>
       ))}
     </dl>
@@ -649,16 +649,16 @@ function StepExecutions({ steps }: { steps: WorkflowStepExecution[] }) {
             className="rounded-md border border-alpha px-3 py-3"
           >
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-primary">
+              <span className="text-sm font-medium text-foreground">
                 {step.stepId || `Step ${index + 1}`}
               </span>
               <StatusBadge status={step.status} />
             </div>
             {step.statusMessage ? (
-              <p className="mt-1 text-xs text-muted">{step.statusMessage}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{step.statusMessage}</p>
             ) : null}
             {step.skipReason ? (
-              <p className="mt-1 text-xs text-muted">
+              <p className="mt-1 text-xs text-muted-foreground">
                 Skipped: {step.skipReason}
               </p>
             ) : null}
@@ -688,7 +688,7 @@ function JSONSection({
     <div className={compact ? "mt-3" : undefined}>
       <SectionHeading>{title}</SectionHeading>
       <pre
-        className={`mt-2 overflow-x-auto rounded-md border border-alpha bg-alpha-5 p-3 font-mono text-xs text-primary ${
+        className={`mt-2 overflow-x-auto rounded-md border border-alpha bg-alpha-5 p-3 font-mono text-xs text-foreground ${
           compact ? "max-h-48" : "max-h-80"
         }`}
       >
@@ -700,7 +700,7 @@ function JSONSection({
 
 function SectionHeading({ children }: { children: ReactNode }) {
   return (
-    <h4 className="text-xs font-medium uppercase tracking-wide text-muted">
+    <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
       {children}
     </h4>
   );
@@ -708,8 +708,8 @@ function SectionHeading({ children }: { children: ReactNode }) {
 
 function DetailLine({ label, value }: { label: string; value: string }) {
   return (
-    <p className="text-sm text-primary">
-      <span className="text-muted">{label}: </span>
+    <p className="text-sm text-foreground">
+      <span className="text-muted-foreground">{label}: </span>
       {value}
     </p>
   );
@@ -718,8 +718,8 @@ function DetailLine({ label, value }: { label: string; value: string }) {
 function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-alpha bg-base-white px-4 py-3 dark:bg-surface">
-      <p className="text-xs font-medium text-muted">{label}</p>
-      <p className="mt-1 text-xl font-heading text-primary">{value}</p>
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="mt-1 text-xl font-heading text-foreground">{value}</p>
     </div>
   );
 }

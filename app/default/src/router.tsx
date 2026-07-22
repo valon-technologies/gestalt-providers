@@ -20,7 +20,7 @@ import AppAdminPage from "@/pages/app-admin";
 import AppsPage from "@/pages/apps";
 import IdentitiesPage from "@/pages/identities";
 import IntegrationsPage from "@/pages/integrations";
-import BuildPage from "@/pages/build";
+import BuildStepPage, { BuildIndexRedirect } from "@/pages/build";
 import SettingsPage from "@/pages/settings";
 import { rootRoute } from "./routes/__root";
 
@@ -83,7 +83,13 @@ const indexRoute = createRoute({
 const buildRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/build",
-  component: BuildPage,
+  component: BuildIndexRedirect,
+});
+
+const buildStepRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/build/$stepId",
+  component: BuildStepPage,
 });
 
 const appsRoute = createRoute({
@@ -92,9 +98,30 @@ const appsRoute = createRoute({
   component: AppsPage,
 });
 
+const APP_ADMIN_SECTIONS = [
+  "overview",
+  "access",
+  "workflows",
+  "operations",
+] as const;
+
+type AppAdminSectionSearch = (typeof APP_ADMIN_SECTIONS)[number];
+
 const appAdminRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/apps/$appName",
+  validateSearch: (search: Record<string, unknown>): {
+    section?: AppAdminSectionSearch;
+  } => {
+    const raw = search.section;
+    if (
+      typeof raw === "string" &&
+      (APP_ADMIN_SECTIONS as readonly string[]).includes(raw)
+    ) {
+      return { section: raw as AppAdminSectionSearch };
+    }
+    return {};
+  },
   component: AppAdminPage,
 });
 
@@ -195,6 +222,7 @@ const docsTroubleshootingRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   buildRoute,
+  buildStepRoute,
   appsRoute,
   appAdminRoute,
   settingsRoute,

@@ -1,6 +1,4 @@
-import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { getTokens, type APIToken } from "@/lib/api";
 import Container from "@/components/Container";
 import TokenCreateForm from "@/components/TokenCreateForm";
 import TokenTable from "@/components/TokenTable";
@@ -11,36 +9,27 @@ import {
   PageHeaderDescription,
   PageHeaderTitle,
 } from "@/components/ui/page-header";
+import {
+  useInvalidateTokens,
+  useTokensQuery,
+} from "@/hooks/use-server-queries";
 
 export default function SettingsPageClient() {
-  const [tokens, setTokens] = useState<APIToken[]>([]);
-  const [tokensLoading, setTokensLoading] = useState(true);
-  const [tokensError, setTokensError] = useState<string | null>(null);
+  const tokensQuery = useTokensQuery();
+  const invalidateTokens = useInvalidateTokens();
 
-  const tokenLoadRequestIdRef = useRef(0);
+  const tokens = tokensQuery.data ?? [];
+  const tokensLoading = tokensQuery.isPending;
+  const tokensError =
+    tokensQuery.error instanceof Error
+      ? tokensQuery.error.message
+      : tokensQuery.error
+        ? "Failed to load tokens"
+        : null;
 
-  async function loadTokens() {
-    const requestID = tokenLoadRequestIdRef.current + 1;
-    tokenLoadRequestIdRef.current = requestID;
-
-    try {
-      const nextTokens = await getTokens();
-      if (tokenLoadRequestIdRef.current !== requestID) return;
-      setTokens(nextTokens);
-      setTokensError(null);
-    } catch (err) {
-      if (tokenLoadRequestIdRef.current !== requestID) return;
-      setTokensError(err instanceof Error ? err.message : "Failed to load tokens");
-    } finally {
-      if (tokenLoadRequestIdRef.current === requestID) {
-        setTokensLoading(false);
-      }
-    }
+  async function refreshTokens() {
+    await invalidateTokens();
   }
-
-  useEffect(() => {
-    void loadTokens();
-  }, []);
 
   return (
     <Container as="main" className="py-12">
@@ -69,7 +58,7 @@ export default function SettingsPageClient() {
 
         <div className="mt-8">
           <div className="rounded-xl border border-alpha bg-base-white p-5 dark:bg-surface-raised">
-            <TokenCreateForm onCreated={loadTokens} />
+            <TokenCreateForm onCreated={refreshTokens} />
           </div>
         </div>
 
@@ -79,7 +68,7 @@ export default function SettingsPageClient() {
           <p className="mt-10 text-sm text-faint">Loading...</p>
         ) : !tokensError ? (
           <div className="mt-8">
-            <TokenTable tokens={tokens} onRevoked={loadTokens} />
+            <TokenTable tokens={tokens} onRevoked={refreshTokens} />
           </div>
         ) : null}
       </section>
@@ -92,7 +81,7 @@ export default function SettingsPageClient() {
         />
         <Link
           to="/identities"
-          className="mt-6 inline-flex rounded-md border border-alpha px-4 py-2 text-sm font-medium text-primary transition-colors duration-150 hover:border-alpha-strong hover:bg-base-100 dark:hover:bg-surface-raised"
+          className="mt-6 inline-flex rounded-md border border-alpha px-4 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:border-alpha-strong hover:bg-base-100 dark:hover:bg-surface-raised"
         >
           Manage identities
         </Link>
@@ -111,10 +100,10 @@ function SettingsSectionIntro({
   description: string;
 }) {
   return (
-    <div className="flex flex-col gap-3">
+    <div className="max-w-2xl">
       <Eyebrow>{eyebrow}</Eyebrow>
-      <h2 className="text-xl font-heading text-primary">{title}</h2>
-      <p className="max-w-3xl text-sm text-muted">{description}</p>
+      <h2 className="mt-2 font-heading text-xl text-foreground">{title}</h2>
+      <p className="mt-2 text-sm text-muted-foreground">{description}</p>
     </div>
   );
 }

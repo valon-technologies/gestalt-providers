@@ -40,7 +40,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
   if (!gate.checked || !gate.authenticated) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-muted">
+      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
         Checking session…
       </div>
     );

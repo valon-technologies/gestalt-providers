@@ -7,6 +7,7 @@ import {
   ComboboxOptions,
 } from "@headlessui/react";
 import { Link } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   type APIToken,
@@ -35,6 +36,7 @@ import {
   CONNECTION_RETURN_PATH_STORAGE_KEY,
   INPUT_CLASSES,
 } from "@/lib/constants";
+import { queryKeys } from "@/lib/queries/client";
 import { filterIntegrations, getIntegrationLabel } from "@/lib/integrationSearch";
 import Button from "./Button";
 import Container from "./Container";
@@ -116,6 +118,7 @@ export default function ManagedIdentityDetailView({
 }: {
   identityID: string;
 }) {
+  const queryClient = useQueryClient();
   const [identity, setIdentity] = useState<ManagedIdentity | null>(null);
   const [members, setMembers] = useState<ManagedIdentityMember[]>([]);
   const [grants, setGrants] = useState<ManagedIdentityGrant[]>([]);
@@ -161,7 +164,12 @@ export default function ManagedIdentityDetailView({
           getManagedIdentityMembers(identityID),
           getManagedIdentityGrants(identityID),
           getManagedIdentityTokens(identityID),
-          getIntegrations().catch(() => [] as Integration[]),
+          queryClient
+            .fetchQuery({
+              queryKey: queryKeys.integrations,
+              queryFn: getIntegrations,
+            })
+            .catch(() => [] as Integration[]),
           managedIntegrationsResult,
         ]);
       if (loadRequestIdRef.current !== requestID) return;
@@ -181,7 +189,7 @@ export default function ManagedIdentityDetailView({
         setLoading(false);
       }
     }
-  }, [identityID]);
+  }, [identityID, queryClient]);
 
   useEffect(() => {
     void loadAll();
@@ -340,7 +348,7 @@ export default function ManagedIdentityDetailView({
   return (
     <Container as="main" className="py-12">
       <div>
-        <Link to="/identities" className="text-sm text-muted hover:text-primary transition-colors duration-150">
+        <Link to="/identities" className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-150">
           &larr; Back to identities
         </Link>
         <PageHeader className="mt-5">
@@ -354,7 +362,7 @@ export default function ManagedIdentityDetailView({
             {identity ? (
               <PageHeaderDescription>
                 You currently have{" "}
-                <span className="font-medium text-primary">{role}</span> access.
+                <span className="font-medium text-foreground">{role}</span> access.
               </PageHeaderDescription>
             ) : null}
           </PageHeaderContent>
@@ -370,13 +378,13 @@ export default function ManagedIdentityDetailView({
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <Eyebrow>Overview</Eyebrow>
-                <p className="mt-3 text-sm text-muted">
-                  Subject ID: <code className="font-mono text-xs text-primary">{identity.subjectId}</code>
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Subject ID: <code className="font-mono text-xs text-foreground">{identity.subjectId}</code>
                 </p>
-                <p className="mt-2 text-sm text-muted">
-                  Local ID: <code className="font-mono text-xs text-primary">{identity.id}</code>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Local ID: <code className="font-mono text-xs text-foreground">{identity.id}</code>
                 </p>
-                <p className="mt-2 text-sm text-muted">
+                <p className="mt-2 text-sm text-muted-foreground">
                   Created {new Date(identity.createdAt).toLocaleString()} · Updated {new Date(identity.updatedAt).toLocaleString()}
                 </p>
               </div>
@@ -417,7 +425,7 @@ export default function ManagedIdentityDetailView({
           <section className={SECTION_CARD}>
             <div className="flex flex-col gap-3">
               <Eyebrow>Sharing</Eyebrow>
-              <h2 className="text-lg font-heading text-primary">Members</h2>
+              <h2 className="text-lg font-heading text-foreground">Members</h2>
             </div>
             {canAdmin ? (
               <form onSubmit={handleMemberSubmit} className="mt-6 flex flex-col gap-3 lg:flex-row lg:items-end">
@@ -467,9 +475,9 @@ export default function ManagedIdentityDetailView({
                 <tbody>
                   {members.map((member) => (
                     <tr key={member.subjectId} className="border-b border-alpha last:border-b-0">
-                      <td className="px-5 py-4 text-primary font-medium">{member.email || "-"}</td>
-                      <td className="px-5 py-4 text-muted font-mono text-xs">{member.subjectId}</td>
-                      <td className="px-5 py-4 text-muted">{member.role}</td>
+                      <td className="px-5 py-4 text-foreground font-medium">{member.email || "-"}</td>
+                      <td className="px-5 py-4 text-muted-foreground font-mono text-xs">{member.subjectId}</td>
+                      <td className="px-5 py-4 text-muted-foreground">{member.role}</td>
                       <td className="px-5 py-4">
                         {canAdmin ? (
                           <Button
@@ -491,9 +499,9 @@ export default function ManagedIdentityDetailView({
           <section className={SECTION_CARD}>
             <div className="flex flex-col gap-3">
               <Eyebrow>Authorization</Eyebrow>
-              <h2 className="text-lg font-heading text-primary">Identity App Access</h2>
+              <h2 className="text-lg font-heading text-foreground">Identity App Access</h2>
             </div>
-            <p className="mt-2 text-sm text-muted">
+            <p className="mt-2 text-sm text-muted-foreground">
               Grants are identity-level roles for apps that enforce authorization. API keys do not create these grants; they only authenticate as this identity.
             </p>
             {canAdmin ? (
@@ -524,7 +532,7 @@ export default function ManagedIdentityDetailView({
                         }}
                         placeholder="Choose a visible app"
                       />
-                      <ComboboxButton className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-faint transition-colors duration-150 hover:text-muted">
+                      <ComboboxButton className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-faint transition-colors duration-150 hover:text-muted-foreground">
                         <ChevronUpDownIcon className="h-4 w-4" />
                       </ComboboxButton>
                       <ComboboxOptions className="absolute left-0 top-full z-20 mt-2 max-h-80 w-full overflow-auto rounded-lg border border-alpha bg-base-white p-1 shadow-dropdown dark:bg-surface">
@@ -541,11 +549,11 @@ export default function ManagedIdentityDetailView({
                                 value={integration}
                                 className="cursor-pointer rounded-md px-3 py-2 transition-colors duration-150 data-[focus]:bg-base-100 dark:data-[focus]:bg-surface-raised"
                               >
-                                <div className="text-sm font-medium text-primary">
+                                <div className="text-sm font-medium text-foreground">
                                   {getIntegrationLabel(integration)}
                                 </div>
                                 {secondaryText ? (
-                                  <div className="mt-0.5 text-xs text-muted">
+                                  <div className="mt-0.5 text-xs text-muted-foreground">
                                     {secondaryText}
                                   </div>
                                 ) : null}
@@ -553,7 +561,7 @@ export default function ManagedIdentityDetailView({
                             );
                           })
                         ) : (
-                          <div className="px-3 py-2 text-sm text-muted">
+                          <div className="px-3 py-2 text-sm text-muted-foreground">
                             No matching apps.
                           </div>
                         )}
@@ -588,7 +596,7 @@ export default function ManagedIdentityDetailView({
               </form>
             ) : null}
             {grants.length === 0 ? (
-              <p className="mt-6 text-sm text-muted">
+              <p className="mt-6 text-sm text-muted-foreground">
                 No identity-level app access grants. Protected apps need a grant here; API keys can still be created below.
               </p>
             ) : (
@@ -605,9 +613,9 @@ export default function ManagedIdentityDetailView({
                   <tbody>
                     {grants.map((grant) => (
                       <tr key={grant.plugin} className="border-b border-alpha last:border-b-0">
-                        <td className="px-5 py-4 text-primary font-medium">{grant.plugin}</td>
-                        <td className="px-5 py-4 text-muted">{grant.role}</td>
-                        <td className="px-5 py-4 text-muted">{grant.source}</td>
+                        <td className="px-5 py-4 text-foreground font-medium">{grant.plugin}</td>
+                        <td className="px-5 py-4 text-muted-foreground">{grant.role}</td>
+                        <td className="px-5 py-4 text-muted-foreground">{grant.source}</td>
                         <td className="px-5 py-4">
                           {canAdmin && grant.mutable ? (
                             <Button
@@ -630,15 +638,15 @@ export default function ManagedIdentityDetailView({
           <section className={SECTION_CARD}>
             <div className="flex flex-col gap-3">
               <Eyebrow>Connections</Eyebrow>
-              <h2 className="text-lg font-heading text-primary">App Connections</h2>
+              <h2 className="text-lg font-heading text-foreground">App Connections</h2>
             </div>
-            <p className="mt-2 text-sm text-muted">
+            <p className="mt-2 text-sm text-muted-foreground">
               Connections store OAuth or manual credentials for this identity. They do not add app roles or change API-key limits.
             </p>
             {managedIntegrationError ? (
               <p className="mt-6 text-sm text-ember-500">{managedIntegrationError}</p>
             ) : managedIntegrations.length === 0 ? (
-              <p className="mt-6 text-sm text-muted">
+              <p className="mt-6 text-sm text-muted-foreground">
                 No apps are available to connect for this identity.
               </p>
             ) : (
@@ -702,9 +710,9 @@ export default function ManagedIdentityDetailView({
           <section className={SECTION_CARD}>
             <div className="flex flex-col gap-3">
               <Eyebrow>API Access</Eyebrow>
-              <h2 className="text-lg font-heading text-primary">Identity API Keys</h2>
+              <h2 className="text-lg font-heading text-foreground">Identity API Keys</h2>
             </div>
-            <p className="mt-2 text-sm text-muted">
+            <p className="mt-2 text-sm text-muted-foreground">
               API keys authenticate as this identity. By default, a key follows managed identity app access and connector credentials at use time; token limits only narrow one key.
             </p>
             {canAdmin ? (
@@ -714,7 +722,7 @@ export default function ManagedIdentityDetailView({
                 onCreated={loadAll}
               />
             ) : (
-              <p className="mt-6 text-sm text-muted">
+              <p className="mt-6 text-sm text-muted-foreground">
                 Only identity admins can create subject-owned API tokens.
               </p>
             )}

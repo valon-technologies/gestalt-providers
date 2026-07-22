@@ -76,12 +76,12 @@ export default function IdentityTokenTable({
         <tbody>
           {tokens.map((token) => (
             <tr key={token.id} className="border-b border-alpha last:border-b-0">
-              <td className="px-5 py-4 text-primary font-medium">{token.name}</td>
-              <td className="px-5 py-4 text-muted">{formatPermissions(token)}</td>
-              <td className="px-5 py-4 text-muted font-mono text-xs">
+              <td className="px-5 py-4 text-foreground font-medium">{token.name}</td>
+              <td className="px-5 py-4 text-muted-foreground">{formatPermissions(token)}</td>
+              <td className="px-5 py-4 text-muted-foreground font-mono text-xs">
                 {new Date(token.createdAt).toLocaleDateString()}
               </td>
-              <td className="px-5 py-4 text-muted font-mono text-xs">
+              <td className="px-5 py-4 text-muted-foreground font-mono text-xs">
                 {token.expiresAt
                   ? new Date(token.expiresAt).toLocaleDateString()
                   : "Never"}

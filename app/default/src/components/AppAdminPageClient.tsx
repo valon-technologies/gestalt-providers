@@ -1,22 +1,30 @@
-import { Link as RouterLink, useParams } from "@tanstack/react-router";
+import { Link as RouterLink, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   APIError,
   getAppAuthorizationMembers,
   getAuthSession,
   getIntegrationOperations,
-  getIntegrations,
   getManagedIdentities,
   getManagedIdentityGrants,
   type AppAuthorizationMember,
   type AuthSession,
-  type Integration,
   type IntegrationOperation,
   type ManagedIdentity,
   type ManagedIdentityGrant,
 } from "@/lib/api";
-import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
+import {
+  badgeVariantFromTone,
+  getAppSurfaces,
+  primaryConnectLabel,
+} from "@/lib/catalogFilters";
+import { DOCS_PATH } from "@/lib/constants";
+import { normalizeIntegrationStatus, shouldShowIntegrationSettings } from "@/lib/integrationStatus";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
+import {
+  useIntegrationsQuery,
+  useInvalidateIntegrations,
+} from "@/hooks/use-server-queries";
 import AppWorkflowRunsPanel from "@/components/AppWorkflowRunsPanel";
 import { Badge } from "@/components/Badge";
 import Button from "@/components/Button";
@@ -72,11 +80,36 @@ function memberMeta(member: AppAuthorizationMember): string {
 
 export default function AppAdminPageClient() {
   const { appName: rawAppName } = useParams({ from: "/apps/$appName" });
+  const { section: sectionSearch } = useSearch({ from: "/apps/$appName" });
+  const navigate = useNavigate({ from: "/apps/$appName" });
   const appName = decodeURIComponent(rawAppName);
-  const [section, setSection] = useState<AppAdminSection>("overview");
-  const [integration, setIntegration] = useState<Integration | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const section: AppAdminSection = sectionSearch ?? "overview";
+
+  function setSection(next: AppAdminSection) {
+    void navigate({
+      search: (prev) => ({
+        ...prev,
+        section: next === "overview" ? undefined : next,
+      }),
+      replace: true,
+    });
+  }
+
+  const integrationsQuery = useIntegrationsQuery();
+  const invalidateIntegrations = useInvalidateIntegrations();
+
+  const integration =
+    integrationsQuery.data?.find((item) => item.name === appName) ?? null;
+  const loading = integrationsQuery.isPending;
+  const error =
+    integrationsQuery.error instanceof Error
+      ? integrationsQuery.error.message
+      : integrationsQuery.error
+        ? "Failed to load app"
+        : !loading && integrationsQuery.data && !integration
+          ? `App “${appName}” was not found in this workspace.`
+          : null;
+
   const [session, setSession] = useState<AuthSession | null>(null);
   const [accessGrants, setAccessGrants] = useState<AppAccessGrant[]>([]);
   const [accessLoading, setAccessLoading] = useState(true);
@@ -88,33 +121,15 @@ export default function AppAdminPageClient() {
   const [operations, setOperations] = useState<IntegrationOperation[]>([]);
   const [operationsLoading, setOperationsLoading] = useState(false);
   const [operationsError, setOperationsError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const label = integration ? getIntegrationLabel(integration) : appName;
 
   useDocumentTitle(label);
 
   function loadIntegration() {
-    setLoading(true);
-    setError(null);
-    getIntegrations()
-      .then((integrations) => {
-        const match =
-          integrations.find((item) => item.name === appName) ?? null;
-        setIntegration(match);
-        if (!match) {
-          setError(`App “${appName}” was not found in this workspace.`);
-        }
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to load app");
-        setIntegration(null);
-      })
-      .finally(() => setLoading(false));
+    void invalidateIntegrations();
   }
-
-  useEffect(() => {
-    loadIntegration();
-  }, [appName]);
 
   useEffect(() => {
     let active = true;
@@ -231,6 +246,57 @@ export default function AppAdminPageClient() {
     ? normalizeIntegrationStatus(integration, "current_user")
     : null;
   const mountedPath = integration?.mountedPath?.trim();
+  const surfaces = integration ? getAppSurfaces(integration) : null;
+  const connectLabel = integration
+    ? primaryConnectLabel(integration, "current_user")
+    : null;
+  const showManageConnection = Boolean(
+    status &&
+      !connectLabel &&
+      (status.connected || shouldShowIntegrationSettings(status, false)),
+  );
+
+  function openConnectionSettings() {
+    setSection("overview");
+    setSettingsOpen(true);
+    requestAnimationFrame(() => {
+      document
+        .getElementById("app-admin-connection")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
+  const checklist = useMemo(() => {
+    if (!status) return [] as Array<{ id: string; label: string; done: boolean }>;
+    const items: Array<{ id: string; label: string; done: boolean; skip?: boolean }> = [
+      {
+        id: "connected",
+        label: "Ready",
+        done: status.connected && status.tone === "success",
+      },
+      {
+        id: "ui",
+        label: "Has an app page",
+        done: Boolean(surfaces?.hasUi),
+        skip: !surfaces?.hasUi,
+      },
+      {
+        id: "mcp",
+        label: "Works with AI clients",
+        done: Boolean(surfaces?.hasMcp),
+        skip: !surfaces?.hasMcp,
+      },
+    ];
+    return items
+      .filter((item) => !item.skip)
+      .map(({ id, label, done }) => ({ id, label, done }));
+  }, [status, surfaces]);
+
+  useEffect(() => {
+    if (section !== "overview") {
+      setSettingsOpen(false);
+    }
+  }, [section]);
 
   const memberCounts = useMemo(() => {
     const effective = members.filter((row) => row.effective).length;
@@ -270,7 +336,7 @@ export default function AppAdminPageClient() {
       {error && !integration ? (
         <div className={SECTION_CARD}>
           <p className="text-sm text-ember-500">{error}</p>
-          <p className="mt-3 text-sm text-muted">
+          <p className="mt-3 text-sm text-muted-foreground">
             <Link asChild>
               <RouterLink to="/apps">Back to Apps</RouterLink>
             </Link>
@@ -307,21 +373,38 @@ export default function AppAdminPageClient() {
                 </div>
               </div>
             </PageHeaderContent>
-            <PageHeaderActions className="flex flex-wrap gap-2">
+            <PageHeaderActions className="flex flex-wrap items-center gap-2">
               {status ? (
                 <Badge
-                  variant={
-                    status.connected
-                      ? "success"
-                      : status.tone === "danger"
-                        ? "destructive"
-                        : status.tone === "warning"
-                          ? "warning"
-                          : "muted"
-                  }
+                  variant={badgeVariantFromTone(status.tone)}
+                  aria-label={status.summaryLabel}
                 >
                   {status.summaryLabel}
                 </Badge>
+              ) : null}
+              {surfaces?.hasUi ? (
+                <Badge variant="secondary" size="sm">
+                  App page
+                </Badge>
+              ) : null}
+              {surfaces?.hasMcp ? (
+                <Badge variant="secondary" size="sm">
+                  Works with AI
+                </Badge>
+              ) : null}
+              {connectLabel ? (
+                <Button type="button" onClick={openConnectionSettings}>
+                  {connectLabel}
+                </Button>
+              ) : null}
+              {showManageConnection ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={openConnectionSettings}
+                >
+                  Manage connection
+                </Button>
               ) : null}
               {mountedPath ? (
                 <Button
@@ -332,6 +415,15 @@ export default function AppAdminPageClient() {
                   Open app
                 </Button>
               ) : null}
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  window.location.assign(DOCS_PATH);
+                }}
+              >
+                Docs
+              </Button>
             </PageHeaderActions>
           </PageHeader>
 
@@ -349,14 +441,55 @@ export default function AppAdminPageClient() {
           <div className="mt-8">
             {section === "overview" ? (
               <section className="space-y-6" aria-label="Overview">
-                <div className={SECTION_CARD}>
-                  <h2 className="text-lg font-heading text-primary">
+                {checklist.length > 0 ? (
+                  <div
+                    className={SECTION_CARD}
+                    data-testid="app-admin-checklist"
+                  >
+                    <h2 className="text-lg font-heading text-foreground">
+                      Setup
+                    </h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {checklist.filter((item) => item.done).length}/
+                      {checklist.length} ready
+                    </p>
+                    <ul className="mt-4 space-y-2">
+                      {checklist.map((item) => (
+                        <li
+                          key={item.id}
+                          className="flex items-center gap-2 text-sm text-foreground"
+                        >
+                          <span
+                            className={
+                              item.done ? "text-grove-600" : "text-faint"
+                            }
+                            aria-hidden
+                          >
+                            {item.done ? "✓" : "○"}
+                          </span>
+                          {item.label}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                <div
+                  className={SECTION_CARD}
+                  id="app-admin-connection"
+                  data-testid="app-admin-connection"
+                >
+                  <h2 className="text-lg font-heading text-foreground">
                     Connection
                   </h2>
-                  <p className="mt-1 text-sm text-muted">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     Connect or reconnect credentials for this app under your
-                    user. Connection instances live here (P1 from the app admin
-                    research).
+                    user. Disconnect anytime from settings.
+                  </p>
+                  <p className="mt-3 text-xs text-faint">
+                    Connecting grants this workspace permission to use the app
+                    with your credentials. Review the provider’s privacy policy
+                    before continuing.
                   </p>
                   <div className="mt-5 max-w-xl">
                     <IntegrationCard
@@ -365,6 +498,8 @@ export default function AppAdminPageClient() {
                       onDisconnected={loadIntegration}
                       returnPath={`/apps/${encodeURIComponent(appName)}`}
                       disableNavigation
+                      settingsOpen={settingsOpen}
+                      onSettingsOpenChange={setSettingsOpen}
                     />
                   </div>
                   {status && status.connections.length > 0 ? (
@@ -375,10 +510,10 @@ export default function AppAdminPageClient() {
                           className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
                         >
                           <div>
-                            <p className="text-sm font-medium text-primary">
+                            <p className="text-sm font-medium text-foreground">
                               {connection.label}
                             </p>
-                            <p className="mt-0.5 text-xs text-muted">
+                            <p className="mt-0.5 text-xs text-muted-foreground">
                               {connection.ownerLabel}
                               {connection.credentialLabel
                                 ? ` · ${connection.credentialLabel}`
@@ -403,28 +538,48 @@ export default function AppAdminPageClient() {
                 </div>
 
                 <div className={SECTION_CARD}>
-                  <h2 className="text-lg font-heading text-primary">Details</h2>
+                  <h2 className="text-lg font-heading text-foreground">Details</h2>
                   <dl className="mt-4 grid gap-3 sm:grid-cols-2">
                     <div>
-                      <dt className="text-xs font-medium text-muted">
+                      <dt className="text-xs font-medium text-muted-foreground">
                         App name
                       </dt>
-                      <dd className="mt-1 font-mono text-sm text-primary">
+                      <dd className="mt-1 font-mono text-sm text-foreground">
                         {integration.name}
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-xs font-medium text-muted">Status</dt>
-                      <dd className="mt-1 text-sm text-primary">
+                      <dt className="text-xs font-medium text-muted-foreground">Status</dt>
+                      <dd className="mt-1 text-sm text-foreground">
                         {status?.summaryLabel || "—"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-medium text-muted-foreground">
+                        Surfaces
+                      </dt>
+                      <dd className="mt-1 flex flex-wrap gap-1.5">
+                        <Badge size="sm" variant="secondary">
+                          API
+                        </Badge>
+                        {surfaces?.hasMcp ? (
+                          <Badge size="sm" variant="secondary">
+                            Works with AI
+                          </Badge>
+                        ) : null}
+                        {surfaces?.hasUi ? (
+                          <Badge size="sm" variant="secondary">
+                            App page
+                          </Badge>
+                        ) : null}
                       </dd>
                     </div>
                     {mountedPath ? (
                       <div className="sm:col-span-2">
-                        <dt className="text-xs font-medium text-muted">
+                        <dt className="text-xs font-medium text-muted-foreground">
                           Mounted path
                         </dt>
-                        <dd className="mt-1 font-mono text-sm text-primary">
+                        <dd className="mt-1 font-mono text-sm text-foreground">
                           {mountedPath}
                         </dd>
                       </div>
@@ -437,16 +592,16 @@ export default function AppAdminPageClient() {
             {section === "access" ? (
               <section className="space-y-6" aria-label="Access">
                 <div className={SECTION_CARD}>
-                  <h2 className="text-lg font-heading text-primary">
+                  <h2 className="text-lg font-heading text-foreground">
                     Your access
                   </h2>
-                  <p className="mt-1 text-sm text-muted">
+                  <p className="mt-1 text-sm text-muted-foreground">
                     Connection and credentials for the signed-in user.
                   </p>
                   <dl className="mt-4 grid gap-3 sm:grid-cols-2">
                     <div>
-                      <dt className="text-xs font-medium text-muted">User</dt>
-                      <dd className="mt-1 text-sm text-primary">
+                      <dt className="text-xs font-medium text-muted-foreground">User</dt>
+                      <dd className="mt-1 text-sm text-foreground">
                         {session?.email ||
                           session?.displayName ||
                           session?.subjectId ||
@@ -454,10 +609,10 @@ export default function AppAdminPageClient() {
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-xs font-medium text-muted">
+                      <dt className="text-xs font-medium text-muted-foreground">
                         Connection
                       </dt>
-                      <dd className="mt-1 text-sm text-primary">
+                      <dd className="mt-1 text-sm text-foreground">
                         {status?.summaryLabel || "—"}
                       </dd>
                     </div>
@@ -467,10 +622,10 @@ export default function AppAdminPageClient() {
                 <div className={SECTION_CARD}>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                      <h2 className="text-lg font-heading text-primary">
+                      <h2 className="text-lg font-heading text-foreground">
                         Members
                       </h2>
-                      <p className="mt-1 text-sm text-muted">
+                      <p className="mt-1 text-sm text-muted-foreground">
                         Who has access to this app (static policy + dynamic
                         grants). Same roster as the admin Authorization tab.
                       </p>
@@ -512,7 +667,7 @@ export default function AppAdminPageClient() {
                   ) : null}
 
                   {membersForbidden ? (
-                    <p className="mt-5 text-sm text-muted">
+                    <p className="mt-5 text-sm text-muted-foreground">
                       Member roster requires app authorization admin access.
                       Manage members in{" "}
                       <Link href="/admin/" underlineVariant="always">
@@ -546,16 +701,16 @@ export default function AppAdminPageClient() {
                           className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
                         >
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-medium text-primary">
+                            <p className="truncate text-sm font-medium text-foreground">
                               {memberLabel(member)}
                             </p>
                             {memberMeta(member) ? (
-                              <p className="mt-0.5 font-mono text-xs text-muted">
+                              <p className="mt-0.5 font-mono text-xs text-muted-foreground">
                                 {memberMeta(member)}
                               </p>
                             ) : null}
                             {!member.effective && member.shadowedBy ? (
-                              <p className="mt-1 text-xs text-muted">
+                              <p className="mt-1 text-xs text-muted-foreground">
                                 Shadowed by {member.shadowedBy}
                               </p>
                             ) : null}
@@ -593,10 +748,10 @@ export default function AppAdminPageClient() {
                 <div className={SECTION_CARD}>
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                      <h2 className="text-lg font-heading text-primary">
+                      <h2 className="text-lg font-heading text-foreground">
                         Agent identities
                       </h2>
-                      <p className="mt-1 text-sm text-muted">
+                      <p className="mt-1 text-sm text-muted-foreground">
                         Managed identities with an authorization grant for this
                         app — usually the <code className="font-mono text-xs">runAs</code>{" "}
                         subject for schedules.
@@ -645,7 +800,7 @@ export default function AppAdminPageClient() {
                                 {identity.displayName || identity.subjectId}
                               </RouterLink>
                             </Link>
-                            <p className="mt-0.5 font-mono text-xs text-muted">
+                            <p className="mt-0.5 font-mono text-xs text-muted-foreground">
                               {identity.subjectId}
                             </p>
                           </div>
@@ -669,10 +824,10 @@ export default function AppAdminPageClient() {
 
             {section === "operations" ? (
               <section className={SECTION_CARD} aria-label="Operations">
-                <h2 className="text-lg font-heading text-primary">
+                <h2 className="text-lg font-heading text-foreground">
                   Operations
                 </h2>
-                <p className="mt-1 text-sm text-muted">
+                <p className="mt-1 text-sm text-muted-foreground">
                   What this app can do — the callable operation catalog.
                 </p>
 
@@ -705,7 +860,7 @@ export default function AppAdminPageClient() {
                     {visibleOperations.map((operation) => (
                       <li key={operation.id} className="px-4 py-3">
                         <div className="flex flex-wrap items-center gap-2">
-                          <code className="font-mono text-sm text-primary">
+                          <code className="font-mono text-sm text-foreground">
                             {operation.id}
                           </code>
                           {operation.readOnly ? (
@@ -715,12 +870,12 @@ export default function AppAdminPageClient() {
                           ) : null}
                         </div>
                         {operation.title && operation.title !== operation.id ? (
-                          <p className="mt-1 text-sm text-primary">
+                          <p className="mt-1 text-sm text-foreground">
                             {operation.title}
                           </p>
                         ) : null}
                         {operation.description ? (
-                          <p className="mt-1 text-sm text-muted">
+                          <p className="mt-1 text-sm text-muted-foreground">
                             {operation.description}
                           </p>
                         ) : null}
@@ -745,8 +900,8 @@ export default function AppAdminPageClient() {
 function SummaryStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-alpha bg-alpha-5 px-3 py-2">
-      <p className="text-xs font-medium text-muted">{label}</p>
-      <p className="mt-0.5 text-lg font-heading text-primary">{value}</p>
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="mt-0.5 text-lg font-heading text-foreground">{value}</p>
     </div>
   );
 }

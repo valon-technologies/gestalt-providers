@@ -1,4 +1,6 @@
-import { forwardRef, type HTMLAttributes } from "react";
+import * as React from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+
 import { cn } from "@/lib/cn";
 
 /**
@@ -13,32 +15,40 @@ import { cn } from "@/lib/cn";
  * @see RES-20260717-006
  */
 
-type EyebrowTone = "muted" | "brand";
-
-const toneClass: Record<EyebrowTone, string> = {
-  // Registry: text-muted-foreground / text-brand
-  muted: "text-muted",
-  brand: "text-brand",
-};
-
-export type EyebrowProps = HTMLAttributes<HTMLSpanElement> & {
-  tone?: EyebrowTone;
-};
-
-export const Eyebrow = forwardRef<HTMLSpanElement, EyebrowProps>(
-  function Eyebrow({ className, tone = "muted", ...props }, ref) {
-    return (
-      <span
-        ref={ref}
-        data-slot="eyebrow"
-        className={cn(
-          // Registry recipe: text-xs font-medium uppercase tracking-wider leading-none
-          "text-xs font-medium uppercase tracking-wider leading-none",
-          toneClass[tone],
-          className,
-        )}
-        {...props}
-      />
-    );
+// Eyebrow = all-caps microtype above a heading or value (Material "overline",
+// card anatomy "eyebrow"). Named primitive so agents don't re-derive utilities
+// (eyebrow.md / RES-20260717-006). Default element is span — never a heading.
+// Caps via CSS `uppercase` — type real case in markup. Not Label (form) and not
+// Badge (filled chip).
+const eyebrowVariants = cva(
+  "text-xs font-normal uppercase tracking-eyebrow leading-none",
+  {
+    variants: {
+      tone: {
+        muted: "text-muted-foreground-soft",
+        brand: "text-brand",
+      },
+    },
+    defaultVariants: {
+      tone: "muted",
+    },
   },
 );
+
+export interface EyebrowProps
+  extends React.HTMLAttributes<HTMLSpanElement>,
+    VariantProps<typeof eyebrowVariants> {}
+
+const Eyebrow = React.forwardRef<HTMLSpanElement, EyebrowProps>(
+  ({ className, tone, ...props }, ref) => (
+    <span
+      ref={ref}
+      data-slot="eyebrow"
+      className={cn(eyebrowVariants({ tone }), className)}
+      {...props}
+    />
+  ),
+);
+Eyebrow.displayName = "Eyebrow";
+
+export { Eyebrow, eyebrowVariants };

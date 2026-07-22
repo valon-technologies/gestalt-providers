@@ -1,39 +1,181 @@
-/* Token defaults are wrapped in :where() so they carry zero specificity:
+/* Token defaults are wrapped in `:where()` so they carry zero specificity:
  * any tenant declaration served at /theme.css (e.g. `:root { --brand: … }`,
  * specificity 0,1,0) outranks them by cascade contract, not by stylesheet
  * order. The armor inverts under !important, which tenant themes therefore
  * must not use. Tokens are whole oklch() colors; alpha composition uses
- * color-mix, so any token can carry opacity without a triplet format. */
+ * color-mix, so any token can carry opacity without a triplet format.
+ *
+ * Palette + accent roles stay in sync with Valon Registry
+ * (`valon-tools/registry/theme/theme.css`) and the Valon home tenant theme
+ * (`valon-tools/deploy/ui/theme.css`). Registry is the more complete SoT for
+ * interaction roles (accent-solid / vivid / wash); deploy anchors brand +
+ * surfaces. KEEP gold/neutral steps byte-stable with Registry.
+ */
+
 :where(:root) {
   color-scheme: light;
-  --background: oklch(100% 0 0);
-  --surface: oklch(97.983% 0.0045 78.3);
-  --surface-raised: oklch(95.005% 0.0074 80.72);
-  --border: oklch(90.365% 0.0105 67.69);
-  --foreground: oklch(22.81% 0.0195 52.41);
+
+  /* ── Palette (Registry / deploy anchors) ──────────────────────────── */
+  --valon-paper: oklch(100% 0 0);
+  --valon-neutral-50: oklch(98.829% 0.0029 84.56);
+  --valon-neutral-100: oklch(97.384% 0.0045 78.3);
+  --valon-neutral-200: oklch(92.323% 0.0129 63.91);
+  --valon-neutral-400: oklch(71.063% 0.035 74.65);
+  --valon-neutral-600: oklch(44.69% 0.0382 91.81);
+  --valon-neutral-900: oklch(21.867% 0.0213 76.13);
+  /* Deploy cream surfaces (card / raised) — same family as Registry neutrals. */
+  --valon-cream-100: oklch(97.983% 0.0045 78.3);
+  --valon-cream-200: oklch(95.005% 0.0074 80.72);
+  --valon-cream-line: oklch(90.365% 0.0105 67.69);
+  --valon-ink: oklch(22.81% 0.0195 52.41);
+
+  --valon-gold-100: oklch(97.9% 0.02 81.8);
+  --valon-gold-200: oklch(93.6% 0.053 81.8);
+  --valon-gold-300: oklch(85.9% 0.112 82.4);
+  --valon-gold-400: oklch(79.3% 0.144 80.3);
+  --valon-gold-500: oklch(73.1% 0.152 72.6);
+  --valon-gold-800: oklch(46.522% 0.0933 70.48);
+
+  --valon-ember: oklch(58.766% 0.1526 23);
+  --valon-grove: oklch(48.204% 0.0881 144.06);
+
+  /* Status / soft-ink steps — Registry green/yellow/neutral ramps used by
+   * success/warning surfaces and muted-foreground-soft (eyebrow). */
+  --valon-neutral-500: oklch(55.538% 0.0431 75.75);
+  --valon-green-100: oklch(92.8% 0.045 144);
+  --valon-green-200: oklch(85.8% 0.075 144);
+  --valon-green-700: oklch(40.8% 0.105 144);
+  --valon-green-900: oklch(28.2% 0.058 144);
+  --valon-yellow-100: oklch(92.8% 0.045 82);
+  --valon-yellow-200: oklch(85.8% 0.075 82);
+  --valon-yellow-700: oklch(40.8% 0.082 82);
+  --valon-yellow-900: oklch(28.2% 0.058 82);
+  --valon-blue-100: oklch(92.8% 0.035 248);
+  --valon-blue-200: oklch(85.8% 0.07 248);
+  --valon-blue-700: oklch(40.8% 0.105 248);
+  --valon-blue-900: oklch(28.2% 0.058 248);
+
+  /* Eyebrow / overline tracking — between Tailwind wider (0.05em) and widest
+   * (0.1em). Caps need more air than body; widest reads too open on text-xs. */
+  --tracking-eyebrow: 0.075em;
+
+  /* ── System tokens ────────────────────────────────────────────────── */
+  --background: var(--valon-paper);
+  --surface: var(--valon-cream-100);
+  --surface-raised: var(--valon-cream-200);
+  --card: var(--valon-paper);
+  --card-foreground: var(--valon-ink);
+  /* Menu / overlay surfaces — Registry popover (dropdown, nav viewport). */
+  --popover: var(--valon-paper);
+  --popover-foreground: var(--valon-ink);
+  --border: var(--valon-cream-line);
+  --foreground: var(--valon-ink);
   /* Tailwind derives the radius scale from this: sm = -2px, md/DEFAULT = as
    * is, lg = +4px. 0.5rem keeps the rendered 6/8/12px scale. */
   --radius: 0.5rem;
-  --alpha-dark: oklch(22.039% 0.0231 57.22);
+  --alpha-dark: var(--valon-ink);
   /* Shadow ink is its own token, deliberately identical in light and dark:
    * shadows stay ink-dark, while --alpha-dark flips to a light triplet in
    * dark mode and would turn them into glows. */
   --shadow-ink: oklch(22.039% 0.0231 57.22);
-  --brand: oklch(46.522% 0.0933 70.48);
-  --brand-soft: oklch(84.603% 0.0657 67.5);
-  /* Keyboard focus outline — light gold (matches accent focus treatment). */
-  --ring: oklch(85.935% 0.1118 82.45);
-  --danger: oklch(58.766% 0.1526 23);
-  --success: oklch(48.204% 0.0881 144.06);
-  /* Interaction roles (fill vs on-fill ink). Derived from brand + foreground
-   * so tenant themes only override the brand pair / ink — never invent
-   * brand-colored text for selected chrome. Invariant: accent* colors the
-   * FILL; *-foreground stays ink (`--foreground`). */
-  --accent: var(--brand-soft);
+
+  /* Brand passthrough — Registry gold-800 / gold-200 soft wash. */
+  --brand: var(--valon-gold-800);
+  --brand-soft: var(--valon-gold-200);
+
+  /* Keyboard focus — Registry soft accent outline (gold-300). */
+  --ring: var(--valon-gold-300);
+  --danger: var(--valon-ember);
+  /* Status surfaces — Registry wash (100) + on-ink (700), not solid grove.
+   * Solid action green remains available via grove-* utilities. */
+  --success: var(--valon-green-100);
+  --success-foreground: var(--valon-green-700);
+  --warning: var(--valon-yellow-100);
+  --warning-foreground: var(--valon-yellow-700);
+  --info: var(--valon-blue-100);
+  --info-foreground: var(--valon-blue-700);
+
+  /* Interaction roles — Registry gold ladder (NOT all aliased to brand-soft).
+   *   accent-wash      = gold-100 pale tint (hover/surface)
+   *   accent-highlight = gold-200 search / find-in-page match wash
+   *   accent           = gold-200 soft surface
+   *   accent-vivid     = gold-300 bright stroke/fill
+   *   accent-solid     = gold-400 mid control fill (Switch checked, link underline)
+   *   accent-strong    = gold-500 link TEXT / chromatic ink
+   * On-fill ink stays --foreground. */
+  --accent: var(--valon-gold-200);
   --accent-foreground: var(--foreground);
-  --accent-subtle: color-mix(in oklab, var(--accent), var(--background) 30%);
-  --accent-vivid: var(--brand-soft);
+  /* Soft-selected (`data-soft`) hover/press — Registry selectable-rows /
+   * listItemInteraction. Distinct from menu-item --accent-hover. */
+  --accent-fill-hover: oklch(from var(--accent) calc(l - 0.012) c h);
+  --accent-fill-pressed: oklch(from var(--accent) calc(l - 0.024) c h);
+  /* Menu-item tint affordance (dropdown / breadcrumb) — distinct from
+   * accent-vivid (selected) and neutral-hover (idle chrome). */
+  --accent-hover: var(--valon-gold-100);
+  --accent-pressed: oklch(from var(--accent-hover) calc(l - 0.024) c h);
+  --accent-subtle: color-mix(in oklab, var(--accent), var(--popover) 30%);
+  --accent-vivid: var(--valon-gold-300);
   --accent-vivid-foreground: var(--foreground);
+  --accent-vivid-hover: oklch(from var(--accent-vivid) calc(l - 0.02) c h);
+  --accent-vivid-pressed: oklch(from var(--accent-vivid) calc(l - 0.04) c h);
+  --accent-wash: var(--valon-gold-100);
+  /* Search / in-text match — between wash and vivid (Registry color.md). */
+  --accent-highlight: var(--valon-gold-200);
+  --accent-solid: var(--valon-gold-400);
+  --accent-solid-hover: oklch(from var(--accent-solid) calc(l - 0.0025) c h);
+  --accent-solid-pressed: oklch(from var(--accent-solid) calc(l - 0.005) c h);
+  --accent-strong: var(--valon-gold-500);
+  --accent-strong-hover: oklch(from var(--accent-strong) calc(l - 0.02) c h);
+  --accent-strong-pressed: oklch(from var(--accent-strong) calc(l - 0.04) c h);
+  /* Link TEXT — gold-500 ladder; draw underline uses --accent-solid. */
+  --link: var(--accent-strong);
+  --link-hover: var(--accent-strong-hover);
+  --link-pressed: var(--accent-strong-pressed);
+
+  /* Neutral interaction ladder — Registry selectable-rows.md / hover-pressed-color.md.
+   * Idle on white/card: --neutral-hover / -pressed (tint appears).
+   * Idle on muted chrome (solid Card = secondary ≈ --neutral-hover): deepen with
+   * --neutral-dark-* (L-only; never jump to neutral-200). */
+  --neutral-hover: var(--valon-neutral-100);
+  --neutral-pressed: oklch(from var(--neutral-hover) calc(l - 0.015) c h);
+  --neutral-dark-hover: oklch(from var(--neutral-hover) calc(l - 0.025) c h);
+  --neutral-dark-pressed: oklch(from var(--neutral-dark-hover) calc(l - 0.015) c h);
+
+  /* Registry control / form contract (button, input, field). Keep in sync with
+   * valon-tools/registry/theme/theme.css — console vendors those components. */
+  --primary: var(--valon-neutral-900);
+  --primary-foreground: var(--valon-paper);
+  --secondary: var(--valon-neutral-100);
+  --secondary-foreground: var(--valon-neutral-900);
+  --muted: var(--valon-neutral-100);
+  --muted-foreground: var(--valon-neutral-600);
+  /* One step softer than --muted-foreground — eyebrow / overline microtype. */
+  --muted-foreground-soft: var(--valon-neutral-500);
+  --disabled: oklch(from var(--valon-neutral-100) l 0 h);
+  --disabled-foreground: oklch(from var(--valon-neutral-400) l 0 h);
+  --destructive: var(--valon-ember);
+  --destructive-foreground: var(--valon-paper);
+  --error-foreground: oklch(40.8% 0.105 25);
+  --input: oklch(82% 0 0);
+
+  /* Press/hover feedback — on-color state-layer (press-feedback.md). */
+  --state-overlay-hover: 0.08;
+  --state-overlay-press: 0.14;
+
+  /* Control sizing — shared by Input + Button (control-sizing.md). */
+  --control-h-xs: 1.5rem;
+  --control-h-sm: 2rem;
+  --control-h-default: 2.25rem;
+  --control-h-lg: 2.5rem;
+  --control-fz-xs: 0.75rem;
+  --control-fz-sm: 0.875rem;
+  --control-fz-default: 0.875rem;
+  --control-fz-lg: 1rem;
+  --control-icon-xs: 0.75rem;
+  --control-icon-sm: 1rem;
+  --control-icon-default: 1rem;
+  --control-icon-lg: 1rem;
+
   /* Layout and typography knobs, overridable per tenant theme. */
   --content-max-width: 80rem;
   /* Newsreader (the bundled display face) ships a 400 cut only; tenant
@@ -43,19 +185,91 @@
 
 :where(.dark) {
   color-scheme: dark;
-  --background: oklch(19.494% 0.0088 59.1);
-  --surface: oklch(22.685% 0.0097 52.98);
-  --surface-raised: oklch(27.009% 0.0106 48.31);
-  --border: oklch(32.208% 0.0111 55.96);
-  --foreground: oklch(92.718% 0.0097 72.66);
-  --alpha-dark: oklch(90.579% 0.0174 67.61);
+
+  /* ── Palette (Registry dark ramps) ────────────────────────────────── */
+  --valon-neutral-dark-100: oklch(92.718% 0.0097 72.66);
+  --valon-neutral-dark-700: oklch(32.208% 0.0111 56);
+  --valon-neutral-dark-800: oklch(27.009% 0.0106 54);
+  --valon-neutral-dark-900: oklch(22.685% 0.0097 53);
+  --valon-neutral-dark-950: oklch(19.494% 0.0088 52);
+
+  --valon-gold-dark-200: oklch(85.935% 0.1118 82.45);
+  --valon-gold-dark-300: oklch(77% 0.125 80);
+  --valon-gold-dark-400: oklch(67% 0.135 78);
+  --valon-gold-dark-500: oklch(57% 0.1198 76);
+  --valon-gold-dark-800: oklch(38.46% 0.075 71.86);
+
+  --valon-neutral-dark-400: oklch(61% 0.016 64);
+
+  --valon-ember-soft: oklch(79.039% 0.0918 19.31);
+  --valon-grove-soft: oklch(86.526% 0.0672 144.97);
+
+  /* ── System tokens (dark) ─────────────────────────────────────────── */
+  --background: var(--valon-neutral-dark-950);
+  --surface: var(--valon-neutral-dark-900);
+  --surface-raised: var(--valon-neutral-dark-800);
+  --card: var(--valon-neutral-dark-900);
+  --card-foreground: var(--valon-neutral-dark-100);
+  --popover: var(--valon-neutral-dark-900);
+  --popover-foreground: var(--valon-neutral-dark-100);
+  --border: var(--valon-neutral-dark-700);
+  --foreground: var(--valon-neutral-dark-100);
+  --alpha-dark: var(--valon-neutral-dark-100);
   --shadow-ink: oklch(22.039% 0.0231 57.22);
-  --brand: oklch(85.935% 0.1118 82.45);
-  --brand-soft: oklch(38.46% 0.075 71.86);
-  /* Brighter gold on dark surfaces for keyboard focus visibility. */
-  --ring: oklch(85.935% 0.1118 82.45);
-  --danger: oklch(79.039% 0.0918 19.31);
-  --success: oklch(86.526% 0.0672 144.97);
+
+  --brand: var(--valon-gold-dark-200);
+  --brand-soft: var(--valon-gold-dark-800);
+  --ring: var(--valon-gold-dark-200);
+  --danger: var(--valon-ember-soft);
+  --success: var(--valon-green-900);
+  --success-foreground: var(--valon-green-200);
+  --warning: var(--valon-yellow-900);
+  --warning-foreground: var(--valon-yellow-200);
+  --info: var(--valon-blue-900);
+  --info-foreground: var(--valon-blue-200);
+
+  --accent: var(--valon-gold-dark-800);
+  --accent-foreground: var(--foreground);
+  --accent-fill-hover: oklch(from var(--accent) calc(l - 0.012) c h);
+  --accent-fill-pressed: oklch(from var(--accent) calc(l - 0.024) c h);
+  /* Blend gold into the dark surface — not a bright gold-100 blob. */
+  --accent-hover: color-mix(in oklab, var(--accent), var(--popover) 60%);
+  --accent-pressed: oklch(from var(--accent-hover) calc(l - 0.024) c h);
+  --accent-subtle: color-mix(in oklab, var(--accent), var(--popover) 30%);
+  --accent-vivid: var(--valon-gold-dark-300);
+  --accent-vivid-foreground: var(--valon-neutral-dark-950);
+  --accent-vivid-hover: oklch(from var(--accent-vivid) calc(l - 0.02) c h);
+  --accent-vivid-pressed: oklch(from var(--accent-vivid) calc(l - 0.04) c h);
+  --accent-wash: var(--valon-gold-dark-800);
+  --accent-highlight: var(--valon-gold-dark-800);
+  --accent-solid: var(--valon-gold-dark-400);
+  --accent-solid-hover: oklch(from var(--accent-solid) calc(l - 0.0025) c h);
+  --accent-solid-pressed: oklch(from var(--accent-solid) calc(l - 0.005) c h);
+  --accent-strong: var(--valon-gold-dark-500);
+  --accent-strong-hover: oklch(from var(--accent-strong) calc(l - 0.02) c h);
+  --accent-strong-pressed: oklch(from var(--accent-strong) calc(l - 0.04) c h);
+  --link: var(--accent-strong);
+  --link-hover: var(--accent-strong-hover);
+  --link-pressed: var(--accent-strong-pressed);
+
+  --neutral-hover: var(--valon-neutral-dark-800);
+  --neutral-pressed: oklch(from var(--neutral-hover) calc(l - 0.015) c h);
+  --neutral-dark-hover: oklch(from var(--neutral-hover) calc(l - 0.025) c h);
+  --neutral-dark-pressed: oklch(from var(--neutral-dark-hover) calc(l - 0.015) c h);
+
+  --primary: var(--valon-neutral-dark-100);
+  --primary-foreground: var(--valon-neutral-dark-950);
+  --secondary: var(--valon-neutral-dark-800);
+  --secondary-foreground: var(--valon-neutral-dark-100);
+  --muted: var(--valon-neutral-dark-800);
+  --muted-foreground: oklch(72% 0.01 72);
+  --muted-foreground-soft: var(--valon-neutral-dark-400);
+  --disabled: oklch(from var(--valon-neutral-dark-800) l 0 h);
+  --disabled-foreground: oklch(from var(--valon-neutral-dark-700) l 0.02 h);
+  --destructive: var(--valon-ember-soft);
+  --destructive-foreground: var(--valon-neutral-dark-950);
+  --error-foreground: oklch(79.039% 0.0918 19.31);
+  --input: var(--valon-neutral-dark-700);
 }
 
 html {

@@ -89,10 +89,10 @@ export function PageHeaderTitle({
       data-slot="page-header-title"
       className={cn(
         // Registry: font-sans tracking-tight text-balance text-foreground
-        "font-normal tracking-tight text-balance text-primary",
+        "font-normal tracking-tight text-balance text-foreground",
         titleSizeClass[size],
-        // Registry gates font-display to lg/xl/entity; console heading face.
-        useDisplay ? "font-heading font-normal" : "font-sans",
+        // Registry gates font-display to lg/xl/entity (Season Serif via theme).
+        useDisplay ? "font-display font-normal" : "font-sans",
         className,
       )}
       {...props}
@@ -107,7 +107,7 @@ export function PageHeaderDescription({
   return (
     <p
       data-slot="page-header-description"
-      className={cn("text-pretty text-sm text-muted", className)}
+      className={cn("text-pretty text-sm text-muted-foreground", className)}
       {...props}
     />
   );

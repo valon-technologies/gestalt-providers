@@ -1,13 +1,50 @@
 import * as React from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+
 import { cn } from "@/lib/cn";
 
 /**
- * Adapted from Valon Registry `timeline-steps` for the Gestalt console token set.
- * @see toolshed/valon-tools/apps/registry/ui/src/ui/timeline-steps.tsx
+ * Gestalt console vendor of Valon Registry `timeline-steps`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/timeline-steps.tsx`). Token-adapted —
+ * primary/muted/border/warning resolve via the console theme bridge.
  */
 
-type TimelineStepsOrientation = "vertical" | "horizontal";
-type TimelineStepsStatus = "default" | "completed" | "current" | "upcoming";
+/* -----------------------------------------------------------------------------
+ * Timeline (root container)
+ * -------------------------------------------------------------------------- */
+
+const timelineStepsVariants = cva("flex [--timeline-steps-icon-size:2.5rem]", {
+  variants: {
+    orientation: {
+      vertical: "flex-col",
+      horizontal: "flex-row overflow-x-auto",
+    },
+    position: {
+      left: "",
+      right: "",
+      alternate: "",
+    },
+  },
+  defaultVariants: {
+    orientation: "vertical",
+    position: "left",
+  },
+});
+
+type TimelineStepsOrientation = NonNullable<
+  VariantProps<typeof timelineStepsVariants>["orientation"]
+>;
+type TimelineStepsPosition = NonNullable<
+  VariantProps<typeof timelineStepsVariants>["position"]
+>;
+type TimelineStepsStatus =
+  | "default"
+  | "completed"
+  | "current"
+  | "upcoming"
+  | "warning";
 
 const TimelineStepsOrientationContext =
   React.createContext<TimelineStepsOrientation>("vertical");
@@ -19,19 +56,28 @@ function useTimelineStepsOrientation(
   return orientation ?? contextOrientation;
 }
 
+interface TimelineStepsProps
+  extends React.ComponentProps<"div">,
+    VariantProps<typeof timelineStepsVariants> {}
+
 function TimelineSteps({
   className,
-  orientation = "vertical",
+  orientation,
+  position,
   ...props
-}: React.ComponentProps<"div"> & { orientation?: TimelineStepsOrientation }) {
+}: TimelineStepsProps) {
+  const resolvedOrientation = orientation ?? "vertical";
   return (
-    <TimelineStepsOrientationContext.Provider value={orientation}>
+    <TimelineStepsOrientationContext.Provider value={resolvedOrientation}>
       <div
         data-slot="timeline-steps"
-        data-orientation={orientation}
+        data-orientation={resolvedOrientation}
+        data-position={position}
         className={cn(
-          "flex [--timeline-steps-icon-size:2.5rem]",
-          orientation === "vertical" ? "flex-col" : "flex-row overflow-x-auto",
+          timelineStepsVariants({
+            orientation: resolvedOrientation,
+            position,
+          }),
           className,
         )}
         {...props}
@@ -40,15 +86,43 @@ function TimelineSteps({
   );
 }
 
+/* -----------------------------------------------------------------------------
+ * TimelineItem
+ * -------------------------------------------------------------------------- */
+
+const timelineStepsItemVariants = cva(
+  "relative flex flex-col [--timeline-steps-icon-size:2.5rem] has-[[data-size=sm]]:[--timeline-steps-icon-size:1.5rem] has-[[data-size=lg]]:[--timeline-steps-icon-size:3rem]",
+  {
+    variants: {
+      orientation: {
+        vertical: "pb-8 last:pb-0",
+        horizontal: "flex-1 items-center",
+      },
+      status: {
+        default: "",
+        completed: "",
+        current: "",
+        upcoming: "opacity-60",
+        warning: "",
+      },
+    },
+    defaultVariants: {
+      orientation: "vertical",
+      status: "default",
+    },
+  },
+);
+
+interface TimelineStepsItemProps
+  extends React.ComponentProps<"div">,
+    VariantProps<typeof timelineStepsItemVariants> {}
+
 function TimelineStepsItem({
   className,
   orientation,
-  status = "default",
+  status,
   ...props
-}: React.ComponentProps<"div"> & {
-  orientation?: TimelineStepsOrientation;
-  status?: TimelineStepsStatus;
-}) {
+}: TimelineStepsItemProps) {
   const resolvedOrientation = useTimelineStepsOrientation(orientation);
   return (
     <TimelineStepsOrientationContext.Provider value={resolvedOrientation}>
@@ -57,9 +131,10 @@ function TimelineStepsItem({
         data-orientation={resolvedOrientation}
         data-status={status}
         className={cn(
-          "relative flex flex-col [--timeline-steps-icon-size:2.5rem]",
-          resolvedOrientation === "vertical" ? "pb-8 last:pb-0" : "flex-1 items-center",
-          status === "upcoming" && "opacity-60",
+          timelineStepsItemVariants({
+            orientation: resolvedOrientation,
+            status,
+          }),
           className,
         )}
         {...props}
@@ -68,15 +143,83 @@ function TimelineStepsItem({
   );
 }
 
+/* -----------------------------------------------------------------------------
+ * TimelineConnector (the line connecting items)
+ * -------------------------------------------------------------------------- */
+
+const timelineStepsConnectorVariants = cva("", {
+  variants: {
+    orientation: {
+      vertical:
+        "absolute left-[calc(var(--timeline-steps-icon-size,2.5rem)/2)] top-[var(--timeline-steps-icon-size,2.5rem)] h-[calc(100%-var(--timeline-steps-icon-size,2.5rem))] w-px -translate-x-1/2",
+      horizontal:
+        "absolute top-[calc(var(--timeline-steps-icon-size,2.5rem)/2)] left-[calc(50%+var(--timeline-steps-icon-size,2.5rem)/2)] h-px w-[calc(100%-var(--timeline-steps-icon-size,2.5rem))] -translate-y-1/2",
+    },
+    variant: {
+      default: "bg-border",
+      dashed: "border-border bg-transparent",
+      dotted: "border-border bg-transparent",
+    },
+    status: {
+      default: "",
+      completed: "bg-primary",
+      current: "",
+      upcoming: "bg-muted",
+      warning: "bg-warning",
+    },
+  },
+  compoundVariants: [
+    {
+      orientation: "vertical",
+      variant: "dashed",
+      className: "border-l border-dashed",
+    },
+    {
+      orientation: "vertical",
+      variant: "dotted",
+      className: "border-l border-dotted",
+    },
+    {
+      orientation: "horizontal",
+      variant: "dashed",
+      className: "border-t border-dashed",
+    },
+    {
+      orientation: "horizontal",
+      variant: "dotted",
+      className: "border-t border-dotted",
+    },
+    {
+      orientation: "vertical",
+      variant: "default",
+      status: "current",
+      className: "bg-gradient-to-b from-primary to-border",
+    },
+    {
+      orientation: "horizontal",
+      variant: "default",
+      status: "current",
+      className: "bg-gradient-to-r from-primary to-border",
+    },
+  ],
+  defaultVariants: {
+    orientation: "vertical",
+    variant: "default",
+    status: "default",
+  },
+});
+
+interface TimelineStepsConnectorProps
+  extends React.ComponentProps<"div">,
+    VariantProps<typeof timelineStepsConnectorVariants> {}
+
 function TimelineStepsConnector({
   className,
   orientation,
-  status = "default",
+  variant,
+  status,
   ...props
-}: React.ComponentProps<"div"> & {
-  orientation?: TimelineStepsOrientation;
-  status?: TimelineStepsStatus;
-}) {
+}: TimelineStepsConnectorProps) {
   const resolvedOrientation = useTimelineStepsOrientation(orientation);
   return (
     <div
@@ -84,16 +227,11 @@ function TimelineStepsConnector({
       data-orientation={resolvedOrientation}
       aria-hidden="true"
       className={cn(
-        resolvedOrientation === "vertical"
-          ? "absolute left-[calc(var(--timeline-steps-icon-size,2.5rem)/2)] top-[var(--timeline-steps-icon-size,2.5rem)] h-[calc(100%-var(--timeline-steps-icon-size,2.5rem))] w-px -translate-x-1/2"
-          : "absolute top-[calc(var(--timeline-steps-icon-size,2.5rem)/2)] left-[calc(50%+var(--timeline-steps-icon-size,2.5rem)/2)] h-px w-[calc(100%-var(--timeline-steps-icon-size,2.5rem))] -translate-y-1/2",
-        status === "completed" && "bg-base-950 dark:bg-base-200",
-        status === "current" &&
-          (resolvedOrientation === "vertical"
-            ? "bg-gradient-to-b from-base-950 to-base-300 dark:from-base-200 dark:to-base-700"
-            : "bg-gradient-to-r from-base-950 to-base-300 dark:from-base-200 dark:to-base-700"),
-        (status === "default" || status === "upcoming") &&
-          "bg-base-300 dark:bg-base-700",
+        timelineStepsConnectorVariants({
+          orientation: resolvedOrientation,
+          variant,
+          status,
+        }),
         className,
       )}
       {...props}
@@ -101,23 +239,38 @@ function TimelineStepsConnector({
   );
 }
 
+/* -----------------------------------------------------------------------------
+ * TimelineHeader (contains icon and title row)
+ * -------------------------------------------------------------------------- */
+
+const timelineStepsHeaderVariants = cva("flex", {
+  variants: {
+    orientation: {
+      vertical: "items-center gap-3",
+      horizontal: "flex-col items-center gap-2 text-center",
+    },
+  },
+  defaultVariants: {
+    orientation: "vertical",
+  },
+});
+
+interface TimelineStepsHeaderProps
+  extends React.ComponentProps<"div">,
+    VariantProps<typeof timelineStepsHeaderVariants> {}
+
 function TimelineStepsHeader({
   className,
   orientation,
   ...props
-}: React.ComponentProps<"div"> & {
-  orientation?: TimelineStepsOrientation;
-}) {
+}: TimelineStepsHeaderProps) {
   const resolvedOrientation = useTimelineStepsOrientation(orientation);
   return (
     <div
       data-slot="timeline-steps-header"
       data-orientation={resolvedOrientation}
       className={cn(
-        "flex",
-        resolvedOrientation === "vertical"
-          ? "items-center gap-3"
-          : "flex-col items-center gap-2 text-center",
+        timelineStepsHeaderVariants({ orientation: resolvedOrientation }),
         className,
       )}
       {...props}
@@ -125,55 +278,92 @@ function TimelineStepsHeader({
   );
 }
 
+/* -----------------------------------------------------------------------------
+ * TimelineStepsIcon (the dot/icon indicator)
+ * -------------------------------------------------------------------------- */
+
+const timelineStepsIconVariants = cva(
+  "relative z-10 flex shrink-0 items-center justify-center rounded-full border bg-background [--timeline-steps-icon-size:2.5rem]",
+  {
+    variants: {
+      size: {
+        sm: "size-6 [--timeline-steps-icon-size:1.5rem] [&>svg]:size-3",
+        default: "size-10 [--timeline-steps-icon-size:2.5rem] [&>svg]:size-4",
+        lg: "size-12 [--timeline-steps-icon-size:3rem] [&>svg]:size-5",
+      },
+      variant: {
+        default: "border-border text-muted-foreground",
+        primary: "border-primary bg-primary text-primary-foreground",
+        secondary: "border-secondary bg-secondary text-secondary-foreground",
+        destructive:
+          "border-destructive bg-destructive text-destructive-foreground",
+        outline: "border-border bg-background text-foreground",
+        warning: "border-warning bg-warning text-warning-foreground",
+      },
+    },
+    defaultVariants: {
+      size: "default",
+      variant: "default",
+    },
+  },
+);
+
+interface TimelineStepsIconProps
+  extends React.ComponentProps<"div">,
+    VariantProps<typeof timelineStepsIconVariants> {}
+
 function TimelineStepsIcon({
   className,
-  size = "default",
-  variant = "default",
+  size,
+  variant,
   ...props
-}: React.ComponentProps<"div"> & {
-  size?: "sm" | "default" | "lg";
-  variant?: "default" | "primary" | "outline";
-}) {
+}: TimelineStepsIconProps) {
+  const resolvedSize = size ?? "default";
   return (
     <div
       data-slot="timeline-steps-icon"
-      data-size={size}
+      data-size={resolvedSize}
       className={cn(
-        "relative z-10 flex shrink-0 items-center justify-center rounded-full border bg-background",
-        size === "sm" &&
-          "size-6 [--timeline-steps-icon-size:1.5rem] [&>svg]:size-3",
-        size === "default" &&
-          "size-10 [--timeline-steps-icon-size:2.5rem] [&>svg]:size-4",
-        size === "lg" &&
-          "size-12 [--timeline-steps-icon-size:3rem] [&>svg]:size-5",
-        variant === "default" && "border-alpha text-muted",
-        variant === "primary" &&
-          "border-base-950 bg-base-950 text-white dark:border-base-100 dark:bg-base-100 dark:text-base-950",
-        variant === "outline" && "border-alpha-strong bg-background text-primary",
+        timelineStepsIconVariants({ size: resolvedSize, variant }),
         className,
       )}
       {...props}
     />
   );
 }
+
+/* -----------------------------------------------------------------------------
+ * TimelineStepsContent (container for description, time, etc.)
+ * -------------------------------------------------------------------------- */
+
+const timelineStepsContentVariants = cva("flex flex-col gap-1 pt-0.5 pb-2", {
+  variants: {
+    orientation: {
+      vertical: "ms-[calc(var(--timeline-steps-icon-size,2.5rem)+0.75rem)]",
+      horizontal: "mt-2 items-center text-center",
+    },
+  },
+  defaultVariants: {
+    orientation: "vertical",
+  },
+});
+
+interface TimelineStepsContentProps
+  extends React.ComponentProps<"div">,
+    VariantProps<typeof timelineStepsContentVariants> {}
 
 function TimelineStepsContent({
   className,
   orientation,
   ...props
-}: React.ComponentProps<"div"> & {
-  orientation?: TimelineStepsOrientation;
-}) {
+}: TimelineStepsContentProps) {
   const resolvedOrientation = useTimelineStepsOrientation(orientation);
   return (
     <div
       data-slot="timeline-steps-content"
       data-orientation={resolvedOrientation}
       className={cn(
-        "flex flex-col gap-1 pt-0.5 pb-2",
-        resolvedOrientation === "vertical"
-          ? "ms-[calc(var(--timeline-steps-icon-size,2.5rem)+0.75rem)]"
-          : "mt-2 items-center text-center",
+        timelineStepsContentVariants({ orientation: resolvedOrientation }),
         className,
       )}
       {...props}
@@ -181,21 +371,29 @@ function TimelineStepsContent({
   );
 }
 
+/* -----------------------------------------------------------------------------
+ * TimelineStepsTitle
+ * -------------------------------------------------------------------------- */
+
 function TimelineStepsTitle({
   className,
   ...props
-}: React.ComponentProps<"h2">) {
+}: React.ComponentProps<"div">) {
   return (
-    <h2
+    <div
       data-slot="timeline-steps-title"
       className={cn(
-        "font-heading text-base leading-none tracking-tight text-primary",
+        "text-foreground leading-none font-medium tracking-tight",
         className,
       )}
       {...props}
     />
   );
 }
+
+/* -----------------------------------------------------------------------------
+ * TimelineDescription
+ * -------------------------------------------------------------------------- */
 
 function TimelineStepsDescription({
   className,
@@ -204,11 +402,32 @@ function TimelineStepsDescription({
   return (
     <div
       data-slot="timeline-steps-description"
-      className={cn("text-sm text-muted", className)}
+      className={cn("text-muted-foreground text-sm", className)}
       {...props}
     />
   );
 }
+
+/* -----------------------------------------------------------------------------
+ * TimelineStepsTime (timestamp display)
+ * -------------------------------------------------------------------------- */
+
+function TimelineStepsTime({
+  className,
+  ...props
+}: React.ComponentProps<"time">) {
+  return (
+    <time
+      data-slot="timeline-steps-time"
+      className={cn("text-muted-foreground text-xs", className)}
+      {...props}
+    />
+  );
+}
+
+/* -----------------------------------------------------------------------------
+ * Exports
+ * -------------------------------------------------------------------------- */
 
 export {
   TimelineSteps,
@@ -219,6 +438,17 @@ export {
   TimelineStepsContent,
   TimelineStepsTitle,
   TimelineStepsDescription,
+  TimelineStepsTime,
+  timelineStepsVariants,
+  timelineStepsItemVariants,
+  timelineStepsConnectorVariants,
+  timelineStepsHeaderVariants,
+  timelineStepsIconVariants,
+  timelineStepsContentVariants,
 };
 
-export type { TimelineStepsStatus };
+export type {
+  TimelineStepsStatus,
+  TimelineStepsOrientation,
+  TimelineStepsPosition,
+};

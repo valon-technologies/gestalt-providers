@@ -10,6 +10,7 @@ import {
   PageHeaderDescription,
   PageHeaderTitle,
 } from "@/components/ui/page-header";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const FALLBACK_ORIGIN = "https://your-gestalt-host";
 
@@ -72,7 +73,7 @@ export function GettingStartedDocsPage() {
       <DocsPageBody>
         <div className="rounded-xl border border-alpha bg-base-100 p-5 dark:bg-surface">
           <Eyebrow>Base URL</Eyebrow>
-          <p className="mt-2 font-mono text-sm text-primary">{origin}</p>
+          <p className="mt-2 font-mono text-sm text-foreground">{origin}</p>
         </div>
         <Subheading id="install" title="Install" />
         <p className="doc-copy">
@@ -555,7 +556,7 @@ function DocsPageHeader({
           <Eyebrow>{eyebrow}</Eyebrow>
           <PageHeaderTitle size="lg">{title}</PageHeaderTitle>
         </div>
-        <PageHeaderDescription className="mt-4 max-w-3xl text-base leading-7 text-secondary">
+        <PageHeaderDescription className="mt-4 max-w-3xl text-base leading-7 text-foreground/80">
           {description}
         </PageHeaderDescription>
       </PageHeaderContent>
@@ -599,6 +600,14 @@ function useHashTab(ids: readonly string[], fallbackId: string) {
   return [activeId, selectTab] as const;
 }
 
+/** Docs panel shell under Registry TabsList — layout only, not tab chrome. */
+const docTabPanelClass =
+  "mt-0 space-y-4 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface";
+const docTabPanelClassSpacious =
+  "mt-0 space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface";
+const docTabsListClassName =
+  "h-auto w-full flex-wrap justify-start rounded-none border-border";
+
 function SetupMethodTabs({
   items,
 }: {
@@ -607,56 +616,31 @@ function SetupMethodTabs({
   const [activeId, setActiveId] = useState(items[0]?.id ?? "");
 
   return (
-    <div className="space-y-4">
-      <div
-        role="tablist"
+    <Tabs value={activeId} onValueChange={setActiveId} className="w-full gap-0">
+      <TabsList
+        size="default"
         aria-label="CLI setup methods"
-        className="flex flex-wrap gap-5 border-b border-alpha"
+        className={docTabsListClassName}
       >
-        {items.map((item) => {
-          const isActive = item.id === activeId;
-          return (
-            <button
-              key={item.id}
-              id={item.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={`${item.id}-panel`}
-              onClick={() => setActiveId(item.id)}
-              className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
-                isActive
-                  ? "border-gold-600 text-primary dark:border-gold-300"
-                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
-              }`}
-            >
-              {item.label}
-            </button>
-          );
-        })}
-      </div>
+        {items.map((item) => (
+          <TabsTrigger key={item.id} value={item.id} className="flex-none">
+            {item.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
 
-      {items.map((item) => {
-        const isActive = item.id === activeId;
-        return (
-          <section
-            key={item.id}
-            id={`${item.id}-panel`}
-            role="tabpanel"
-            aria-labelledby={item.id}
-            hidden={!isActive}
-            className={
-              isActive
-                ? "space-y-4 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
-                : "hidden"
-            }
-          >
-            <CodeBlock code={item.code} />
-            <p className="doc-copy">{item.description}</p>
-          </section>
-        );
-      })}
-    </div>
+      {items.map((item) => (
+        <TabsContent
+          key={item.id}
+          value={item.id}
+          id={`${item.id}-panel`}
+          className={docTabPanelClass}
+        >
+          <CodeBlock code={item.code} />
+          <p className="doc-copy">{item.description}</p>
+        </TabsContent>
+      ))}
+    </Tabs>
   );
 }
 
@@ -668,109 +652,56 @@ function AuthMethodTabs({
   const [activeId, setActiveId] = useState(items[0]?.id ?? "");
 
   return (
-    <div className="space-y-4">
-      <div
-        role="tablist"
+    <Tabs value={activeId} onValueChange={setActiveId} className="w-full gap-0">
+      <TabsList
+        size="default"
         aria-label="Authentication methods"
-        className="flex flex-wrap gap-5 border-b border-alpha"
+        className={docTabsListClassName}
       >
-        {items.map((item) => {
-          const isActive = item.id === activeId;
-          return (
-            <button
-              key={item.id}
-              id={item.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={`${item.id}-panel`}
-              onClick={() => setActiveId(item.id)}
-              className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
-                isActive
-                  ? "border-gold-600 text-primary dark:border-gold-300"
-                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
-              }`}
-            >
-              {item.label}
-            </button>
-          );
-        })}
-      </div>
+        {items.map((item) => (
+          <TabsTrigger key={item.id} value={item.id} className="flex-none">
+            {item.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
 
-      {items.map((item) => {
-        const isActive = item.id === activeId;
-        return (
-          <section
-            key={item.id}
-            id={`${item.id}-panel`}
-            role="tabpanel"
-            aria-labelledby={item.id}
-            hidden={!isActive}
-            className={
-              isActive
-                ? "space-y-4 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
-                : "hidden"
-            }
-          >
-            <CodeBlock code={item.code} />
-            <p className="doc-copy">{item.description}</p>
-          </section>
-        );
-      })}
-    </div>
+      {items.map((item) => (
+        <TabsContent
+          key={item.id}
+          value={item.id}
+          id={`${item.id}-panel`}
+          className={docTabPanelClass}
+        >
+          <CodeBlock code={item.code} />
+          <p className="doc-copy">{item.description}</p>
+        </TabsContent>
+      ))}
+    </Tabs>
   );
 }
 
 function InvokeMethodTabs({ origin }: { origin: string }) {
-  const [activeId, setActiveId] = useState<"invoke-cli" | "invoke-http">(
-    "invoke-cli",
-  );
+  const [activeId, setActiveId] = useState("invoke-cli");
 
   return (
-    <div className="space-y-4">
-      <div
-        role="tablist"
+    <Tabs value={activeId} onValueChange={setActiveId} className="w-full gap-0">
+      <TabsList
+        size="default"
         aria-label="Invocation methods"
-        className="flex flex-wrap gap-5 border-b border-alpha"
+        className={docTabsListClassName}
       >
-        {[
-          { id: "invoke-cli", label: "CLI" },
-          { id: "invoke-http", label: "HTTP" },
-        ].map((item) => {
-          const isActive = item.id === activeId;
-          return (
-            <button
-              key={item.id}
-              id={item.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={`${item.id}-panel`}
-              onClick={() =>
-                setActiveId(item.id as "invoke-cli" | "invoke-http")
-              }
-              className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
-                isActive
-                  ? "border-gold-600 text-primary dark:border-gold-300"
-                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
-              }`}
-            >
-              {item.label}
-            </button>
-          );
-        })}
-      </div>
+        <TabsTrigger value="invoke-cli" className="flex-none">
+          CLI
+        </TabsTrigger>
+        <TabsTrigger value="invoke-http" className="flex-none">
+          HTTP
+        </TabsTrigger>
+      </TabsList>
 
-      <section
+      <TabsContent
+        value="invoke-cli"
         id="invoke-cli-panel"
-        role="tabpanel"
-        aria-labelledby="invoke-cli"
-        hidden={activeId !== "invoke-cli"}
-        className={
-          activeId === "invoke-cli"
-            ? "space-y-4 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
-            : "hidden"
-        }
+        className={docTabPanelClass}
       >
         <CodeBlock
           code={`gestalt apps invoke <app>
@@ -784,18 +715,12 @@ gestalt apps invoke <app> <operation> --input-file payload.json --select data.it
           <InlineCode>gestalt apps invoke &lt;app&gt;</InlineCode>{" "}
           lists available operations instead of running one.
         </p>
-      </section>
+      </TabsContent>
 
-      <section
+      <TabsContent
+        value="invoke-http"
         id="invoke-http-panel"
-        role="tabpanel"
-        aria-labelledby="invoke-http"
-        hidden={activeId !== "invoke-http"}
-        className={
-          activeId === "invoke-http"
-            ? "space-y-4 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
-            : "hidden"
-        }
+        className={docTabPanelClass}
       >
         <p className="doc-copy">
           The CLI calls the same HTTP API that the workspace exposes for direct
@@ -813,8 +738,8 @@ curl \\
   -d '{"example":"value"}' \\
   ${origin}/api/v1/<app>/<operation>`}
         />
-      </section>
-    </div>
+      </TabsContent>
+    </Tabs>
   );
 }
 
@@ -825,45 +750,32 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
   );
 
   return (
-    <div className="space-y-5">
-      <div
-        role="tablist"
+    <Tabs
+      value={activeTabId}
+      onValueChange={setActiveTabId}
+      className="w-full gap-0"
+    >
+      <TabsList
+        size="default"
         aria-label="Cloud environment configuration"
-        className="flex flex-wrap gap-5 border-b border-alpha"
+        className={docTabsListClassName}
       >
-        {agentEnvironmentTabs.map((tab) => {
-          const isActive = tab.id === activeTabId;
-          return (
-            <button
-              key={tab.id}
-              id={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={`${tab.id}-panel`}
-              onClick={() => setActiveTabId(tab.id)}
-              className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
-                isActive
-                  ? "border-gold-600 text-primary dark:border-gold-300"
-                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
-              }`}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
+        {agentEnvironmentTabs.map((tab) => (
+          <TabsTrigger
+            key={tab.id}
+            id={tab.id}
+            value={tab.id}
+            className="flex-none"
+          >
+            {tab.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
 
-      <section
+      <TabsContent
+        value="agent-codex"
         id="agent-codex-panel"
-        role="tabpanel"
-        aria-labelledby="agent-codex"
-        hidden={activeTabId !== "agent-codex"}
-        className={
-          activeTabId === "agent-codex"
-            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
-            : "hidden"
-        }
+        className={docTabPanelClassSpacious}
       >
         <p className="doc-copy">
           Navigate to{" "}
@@ -899,18 +811,12 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
           </a>
           .
         </p>
-      </section>
+      </TabsContent>
 
-      <section
+      <TabsContent
+        value="agent-cursor"
         id="agent-cursor-panel"
-        role="tabpanel"
-        aria-labelledby="agent-cursor"
-        hidden={activeTabId !== "agent-cursor"}
-        className={
-          activeTabId === "agent-cursor"
-            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
-            : "hidden"
-        }
+        className={docTabPanelClassSpacious}
       >
         <p className="doc-copy">
           Navigate to{" "}
@@ -955,18 +861,12 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
           </a>
           .
         </p>
-      </section>
+      </TabsContent>
 
-      <section
+      <TabsContent
+        value="agent-claude-code"
         id="agent-claude-code-panel"
-        role="tabpanel"
-        aria-labelledby="agent-claude-code"
-        hidden={activeTabId !== "agent-claude-code"}
-        className={
-          activeTabId === "agent-claude-code"
-            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
-            : "hidden"
-        }
+        className={docTabPanelClassSpacious}
       >
         <p className="doc-copy">
           Navigate to{" "}
@@ -1008,8 +908,8 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
           </a>
           .
         </p>
-      </section>
-    </div>
+      </TabsContent>
+    </Tabs>
   );
 }
 
@@ -1017,45 +917,32 @@ function McpClientTabs({ origin }: { origin: string }) {
   const [activeTabId, setActiveTabId] = useHashTab(mcpTabIds, defaultMcpTabId);
 
   return (
-    <div className="space-y-5">
-      <div
-        role="tablist"
+    <Tabs
+      value={activeTabId}
+      onValueChange={setActiveTabId}
+      className="w-full gap-0"
+    >
+      <TabsList
+        size="default"
         aria-label="MCP client configuration"
-        className="flex flex-wrap gap-5 border-b border-alpha"
+        className={docTabsListClassName}
       >
-        {mcpTabs.map((tab) => {
-          const isActive = tab.id === activeTabId;
-          return (
-            <button
-              key={tab.id}
-              id={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={`${tab.id}-panel`}
-              onClick={() => setActiveTabId(tab.id)}
-              className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
-                isActive
-                  ? "border-gold-600 text-primary dark:border-gold-300"
-                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
-              }`}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
+        {mcpTabs.map((tab) => (
+          <TabsTrigger
+            key={tab.id}
+            id={tab.id}
+            value={tab.id}
+            className="flex-none"
+          >
+            {tab.label}
+          </TabsTrigger>
+        ))}
+      </TabsList>
 
-      <section
+      <TabsContent
+        value="mcp-claude-code"
         id="mcp-claude-code-panel"
-        role="tabpanel"
-        aria-labelledby="mcp-claude-code"
-        hidden={activeTabId !== "mcp-claude-code"}
-        className={
-          activeTabId === "mcp-claude-code"
-            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
-            : "hidden"
-        }
+        className={docTabPanelClassSpacious}
       >
         <p className="doc-copy">
           Use{" "}
@@ -1084,18 +971,12 @@ function McpClientTabs({ origin }: { origin: string }) {
   --header "Authorization: Bearer $GESTALT_API_KEY" \\
   gestalt "$GESTALT_URL/mcp"`}
         />
-      </section>
+      </TabsContent>
 
-      <section
+      <TabsContent
+        value="mcp-codex"
         id="mcp-codex-panel"
-        role="tabpanel"
-        aria-labelledby="mcp-codex"
-        hidden={activeTabId !== "mcp-codex"}
-        className={
-          activeTabId === "mcp-codex"
-            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
-            : "hidden"
-        }
+        className={docTabPanelClassSpacious}
       >
         <p className="doc-copy">
           Codex can register the workspace directly from the CLI:
@@ -1108,18 +989,12 @@ function McpClientTabs({ origin }: { origin: string }) {
           <InlineCode>--bearer-token-env-var GESTALT_API_KEY</InlineCode>{" "}
           from the command.
         </p>
-      </section>
+      </TabsContent>
 
-      <section
+      <TabsContent
+        value="mcp-cursor"
         id="mcp-cursor-panel"
-        role="tabpanel"
-        aria-labelledby="mcp-cursor"
-        hidden={activeTabId !== "mcp-cursor"}
-        className={
-          activeTabId === "mcp-cursor"
-            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
-            : "hidden"
-        }
+        className={docTabPanelClassSpacious}
       >
         <p className="doc-copy">
           Config file:{" "}
@@ -1141,18 +1016,12 @@ function McpClientTabs({ origin }: { origin: string }) {
   }
 }`}
         />
-      </section>
+      </TabsContent>
 
-      <section
+      <TabsContent
+        value="mcp-other"
         id="mcp-other-panel"
-        role="tabpanel"
-        aria-labelledby="mcp-other"
-        hidden={activeTabId !== "mcp-other"}
-        className={
-          activeTabId === "mcp-other"
-            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
-            : "hidden"
-        }
+        className={docTabPanelClassSpacious}
       >
         <p className="doc-copy">
           Any MCP-compatible client can connect to Gestalt. You need three
@@ -1181,8 +1050,8 @@ function McpClientTabs({ origin }: { origin: string }) {
   }
 }`}
         />
-      </section>
-    </div>
+      </TabsContent>
+    </Tabs>
   );
 }
 
@@ -1198,7 +1067,7 @@ function useDeploymentOrigin() {
 
 function InlineCode({ children }: { children: React.ReactNode }) {
   return (
-    <code className="rounded-sm border border-alpha bg-surface px-[0.3em] py-[0.1em] font-mono text-[0.875em] text-primary">
+    <code className="rounded-sm border border-alpha bg-surface px-[0.3em] py-[0.1em] font-mono text-[0.875em] text-foreground">
       {children}
     </code>
   );
@@ -1208,7 +1077,7 @@ function Subheading({ id, title }: { id?: string; title: string }) {
   return (
     <h2
       id={id}
-      className="scroll-mt-24 pt-2 text-lg tracking-[-0.01em] text-primary"
+      className="scroll-mt-24 pt-2 text-lg tracking-[-0.01em] text-foreground"
     >
       {title}
     </h2>
@@ -1239,7 +1108,7 @@ function CodeBlock({
       </div>
       <button
         onClick={handleCopy}
-        className="absolute right-3 top-3 rounded-md p-1.5 text-muted opacity-0 transition-all duration-150 hover:bg-alpha-5 hover:text-primary group-hover:opacity-100"
+        className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground opacity-0 transition-all duration-150 hover:bg-alpha-5 hover:text-foreground group-hover:opacity-100"
         title="Copy to clipboard"
         aria-label="Copy to clipboard"
       >
@@ -1260,10 +1129,10 @@ function InfoTable({ rows }: { rows: [string, string][] }) {
         <tbody>
           {rows.map(([label, value]) => (
             <tr key={label} className="border-t border-alpha first:border-t-0">
-              <th className="w-56 bg-base-100 px-4 py-3 align-top font-medium text-primary dark:bg-surface-raised">
+              <th className="w-56 bg-base-100 px-4 py-3 align-top font-medium text-foreground dark:bg-surface-raised">
                 {label}
               </th>
-              <td className="px-4 py-3 text-muted">{value}</td>
+              <td className="px-4 py-3 text-muted-foreground">{value}</td>
             </tr>
           ))}
         </tbody>

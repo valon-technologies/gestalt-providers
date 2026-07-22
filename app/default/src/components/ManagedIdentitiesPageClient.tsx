@@ -138,7 +138,7 @@ export default function ManagedIdentitiesPageClient() {
             </PageHeader>
             <Link
               to="/apps"
-              className="mt-6 inline-flex text-sm text-muted transition-colors duration-150 hover:text-primary"
+              className="mt-6 inline-flex text-sm text-muted-foreground transition-colors duration-150 hover:text-foreground"
             >
               &larr; Back to apps
             </Link>
@@ -205,7 +205,7 @@ export default function ManagedIdentitiesPageClient() {
                     setIdentityIDEdited(true);
                     setIdentityLocalID(event.target.value);
                   }}
-                  className="min-w-0 flex-1 bg-transparent px-4 py-3 text-primary placeholder:text-faint focus:outline-hidden"
+                  className="min-w-0 flex-1 bg-transparent px-4 py-3 text-foreground placeholder:text-faint focus:outline-hidden"
                 />
               </div>
               <p className="mt-2 text-xs text-faint">

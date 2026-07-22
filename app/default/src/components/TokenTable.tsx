@@ -2,6 +2,7 @@
 import { APIToken, revokeToken } from "@/lib/api";
 import Button from "./Button";
 import { useState } from "react";
+import { useInvalidateTokens } from "@/hooks/use-server-queries";
 
 interface TokenTableProps {
   tokens: APIToken[];
@@ -9,6 +10,7 @@ interface TokenTableProps {
 }
 
 export default function TokenTable({ tokens, onRevoked }: TokenTableProps) {
+  const invalidateTokens = useInvalidateTokens();
   const [revoking, setRevoking] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,6 +19,7 @@ export default function TokenTable({ tokens, onRevoked }: TokenTableProps) {
     setError(null);
     try {
       await revokeToken(id);
+      await invalidateTokens();
       await onRevoked();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to revoke token");
@@ -49,14 +52,14 @@ export default function TokenTable({ tokens, onRevoked }: TokenTableProps) {
         <tbody>
           {tokens.map((token) => (
             <tr key={token.id} className="border-b border-alpha last:border-b-0">
-              <td className="px-5 py-4 text-primary font-mono text-xs">{token.id}</td>
-              <td className="px-5 py-4 text-muted">
+              <td className="px-5 py-4 text-foreground font-mono text-xs">{token.id}</td>
+              <td className="px-5 py-4 text-muted-foreground">
                 {token.scopes?.length ? token.scopes.join(" ") : "all"}
               </td>
-              <td className="px-5 py-4 text-muted font-mono text-xs">
+              <td className="px-5 py-4 text-muted-foreground font-mono text-xs">
                 {new Date(token.createdAt).toLocaleDateString()}
               </td>
-              <td className="px-5 py-4 text-muted font-mono text-xs">
+              <td className="px-5 py-4 text-muted-foreground font-mono text-xs">
                 {token.expiresAt
                   ? new Date(token.expiresAt).toLocaleDateString()
                   : "Never"}

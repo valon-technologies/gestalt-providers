@@ -3,6 +3,7 @@ import {
   expect,
   mockTokens,
   mockIntegrations,
+  mockIntegrationOperations,
 } from "./fixtures";
 import type { APIToken } from "../src/lib/api";
 
@@ -82,11 +83,19 @@ test.describe("Token Management", () => {
       }
       await route.continue();
     });
-    await mockIntegrations(page, []);
+    await mockIntegrations(page, [
+      { name: "my-app", displayName: "My App" },
+      { name: "other-app", displayName: "Other App" },
+    ]);
+    await mockIntegrationOperations(page, {
+      "my-app": [{ id: "read", title: "Read" }],
+      "other-app": [{ id: "write", title: "Write" }],
+    });
 
     await page.goto("/settings");
     await page.getByLabel("Token name").fill("audit-label");
-    await page.getByLabel("Scopes").fill("my-app");
+    await page.getByRole("radio", { name: /Only select apps/ }).click();
+    await page.getByRole("checkbox", { name: "Select My App" }).click();
     await page.getByRole("button", { name: "Create Token" }).click();
 
     await expect(page.getByText("Copy this token now")).toBeVisible();
@@ -137,11 +146,19 @@ test.describe("Token Management", () => {
 
       await route.continue();
     });
-    await mockIntegrations(page, []);
+    await mockIntegrations(page, [
+      { name: "my-app", displayName: "My App" },
+      { name: "other-app", displayName: "Other App" },
+    ]);
+    await mockIntegrationOperations(page, {
+      "my-app": [{ id: "read", title: "Read" }],
+      "other-app": [{ id: "write", title: "Write" }],
+    });
 
     await page.goto("/settings");
     await page.getByLabel("Token name").fill("race-token");
-    await page.getByLabel("Scopes").fill("other-app");
+    await page.getByRole("radio", { name: /Only select apps/ }).click();
+    await page.getByRole("checkbox", { name: "Select Other App" }).click();
     await page.getByRole("button", { name: "Create Token" }).click();
 
     await expect(page.getByText("Copy this token now")).toBeVisible();

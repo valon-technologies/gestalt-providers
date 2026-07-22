@@ -16,16 +16,16 @@ export default function IdentitySummaryCard({
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-3">
           <Eyebrow>Managed Identity</Eyebrow>
-          <h2 className="text-lg font-heading tracking-tight text-primary">
+          <h2 className="text-lg font-heading tracking-tight text-foreground">
             {identity.displayName}
           </h2>
-          <p className="font-mono text-xs text-muted">{identity.subjectId}</p>
+          <p className="font-mono text-xs text-muted-foreground">{identity.subjectId}</p>
         </div>
         <span className="rounded-full border border-alpha px-3 py-1 text-xs uppercase tracking-wider text-faint">
           {identity.kind}
         </span>
       </div>
-      <p className="mt-4 text-sm text-muted group-hover:text-primary transition-colors duration-150">
+      <p className="mt-4 text-sm text-muted-foreground group-hover:text-foreground transition-colors duration-150">
         Open identity
         <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
           &rarr;

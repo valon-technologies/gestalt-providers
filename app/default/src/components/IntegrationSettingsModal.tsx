@@ -15,15 +15,22 @@ import {
   type NormalizedConnection,
   type NormalizedIntegrationStatus,
 } from "@/lib/integrationStatus";
+import { Badge } from "@/components/Badge";
 import Button from "./Button";
 import { CheckCircleIcon, CloseIcon } from "./icons";
 
-type ModalView = "default" | "disconnect" | "instance" | "token";
+type ModalView = "default" | "disconnect" | "instance" | "token" | "oauth_params";
 type ActionKind = "connect" | "add_instance" | "reconnect" | "select_instance";
 type ConnectionTarget = {
   instance?: string;
   connection?: string;
 };
+
+function hasConnectionParams(
+  params: Record<string, ConnectionParamDef> | undefined,
+): boolean {
+  return !!params && Object.keys(params).length > 0;
+}
 
 type AuthAction = {
   key: string;
@@ -43,7 +50,11 @@ type PendingAuthAction = AuthAction & {
 interface IntegrationSettingsModalProps {
   integration: Integration;
   onClose: () => void;
-  onStartOAuth: (instance?: string, connection?: string) => void;
+  onStartOAuth: (
+    instance?: string,
+    connection?: string,
+    connectionParams?: Record<string, string>,
+  ) => void;
   onSubmitToken: (credential: string | Record<string, string>, connectionParams?: Record<string, string>, instance?: string, connection?: string) => void;
   onDisconnect: (instance?: string, connection?: string) => void;
   reconnecting: boolean;
@@ -52,18 +63,24 @@ interface IntegrationSettingsModalProps {
   error: string | null;
   readOnly?: boolean;
   connectionContext?: ConnectionContext;
+  /** Open directly on disconnect/uninstall confirm (catalog ellipsis → Uninstall). */
+  initialView?: ModalView;
+  /** Copy for the destructive confirm — catalog uses Uninstall. */
+  destructiveActionLabel?: "Disconnect" | "Uninstall";
 }
 
-function statusBadgeClasses(tone: NormalizedIntegrationStatus["tone"]): string {
+function statusBadgeVariant(
+  tone: NormalizedIntegrationStatus["tone"],
+): "success" | "warning" | "destructive" | "secondary" {
   switch (tone) {
     case "success":
-      return "border-grove-200 bg-grove-50 text-grove-700 dark:border-grove-600 dark:bg-grove-700/20 dark:text-grove-200";
+      return "success";
     case "warning":
-      return "border-gold-200 bg-gold-50 text-gold-700 dark:border-gold-600 dark:bg-gold-700/20 dark:text-gold-200";
+      return "warning";
     case "danger":
-      return "border-ember-200 bg-ember-50 text-ember-700 dark:border-ember-600 dark:bg-ember-700/20 dark:text-ember-200";
+      return "destructive";
     case "neutral":
-      return "border-alpha bg-base-100 text-muted dark:bg-surface-raised";
+      return "secondary";
   }
 }
 
@@ -209,10 +226,26 @@ export default function IntegrationSettingsModal({
   error,
   readOnly = false,
   connectionContext = "current_user",
+  initialView = "default",
+  destructiveActionLabel = "Disconnect",
 }: IntegrationSettingsModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const [view, setView] = useState<ModalView>("default");
-  const [disconnectTarget, setDisconnectTarget] = useState<ConnectionTarget>({});
+  const [view, setView] = useState<ModalView>(initialView);
+  const [disconnectTarget, setDisconnectTarget] = useState<ConnectionTarget>(() => {
+    if (initialView !== "disconnect") return {};
+    const status = normalizeIntegrationStatus(integration, connectionContext);
+    for (const connection of status.connections) {
+      if (!connection.canDisconnect) continue;
+      if (connection.instances.length > 0) {
+        return {
+          connection: connection.connection,
+          instance: connection.instances[0]?.name,
+        };
+      }
+      return { connection: connection.connection };
+    }
+    return {};
+  });
   const [pendingAction, setPendingAction] = useState<PendingAuthAction | undefined>();
 
   useEffect(() => {
@@ -232,6 +265,9 @@ export default function IntegrationSettingsModal({
       )
     : undefined;
   const pendingConnectionParams = pendingConnection?.connectionParams;
+  const destructiveVerb = destructiveActionLabel;
+  const destructiveProgressLabel =
+    destructiveVerb === "Uninstall" ? "Uninstalling..." : "Disconnecting...";
 
   function handleCancel(e: SyntheticEvent<HTMLDialogElement>) {
     if (disconnecting || submitting) {
@@ -249,15 +285,30 @@ export default function IntegrationSettingsModal({
     dialogRef.current?.close();
   }
 
+  function connectionParamsForAction(
+    action: AuthAction | PendingAuthAction | undefined,
+  ): Record<string, ConnectionParamDef> | undefined {
+    if (!action) return undefined;
+    return normalizedStatus.connections.find(
+      (connection) => connection.key === action.connectionKey,
+    )?.connectionParams;
+  }
+
   function startAuthAction(action: AuthAction) {
     setPendingAction(action);
     if (action.requiresInstanceName) {
       setView("instance");
-    } else if (action.authType === "manual") {
-      setView("token");
-    } else {
-      onStartOAuth(undefined, action.connection);
+      return;
     }
+    if (action.authType === "manual") {
+      setView("token");
+      return;
+    }
+    if (hasConnectionParams(connectionParamsForAction(action))) {
+      setView("oauth_params");
+      return;
+    }
+    onStartOAuth(undefined, action.connection);
   }
 
   function handleInstanceSubmit(e: FormEvent<HTMLFormElement>) {
@@ -268,9 +319,32 @@ export default function IntegrationSettingsModal({
     setPendingAction(action);
     if (action.authType === "manual") {
       setView("token");
-    } else {
-      onStartOAuth(action.instance, action.connection);
+      return;
     }
+    if (hasConnectionParams(connectionParamsForAction(action))) {
+      setView("oauth_params");
+      return;
+    }
+    onStartOAuth(action.instance, action.connection);
+  }
+
+  function handleOAuthParamsSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!pendingAction) return;
+    const fd = new FormData(e.currentTarget);
+    const params: Record<string, string> = {};
+    const defs = pendingConnectionParams;
+    if (defs) {
+      for (const name of Object.keys(defs)) {
+        const val = (fd.get(`cp_${name}`) as string)?.trim();
+        if (val) params[name] = val;
+      }
+    }
+    onStartOAuth(
+      pendingAction.instance,
+      pendingAction.connection,
+      Object.keys(params).length > 0 ? params : undefined,
+    );
   }
 
   function resolveCredentialFields(): CredentialFieldDef[] | undefined {
@@ -326,11 +400,9 @@ export default function IntegrationSettingsModal({
       connection.healthState,
     );
     return (
-      <span
-        className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-medium ${statusBadgeClasses(tone)}`}
-      >
+      <Badge size="sm" variant={statusBadgeVariant(tone)}>
         {connection.summaryLabel}
-      </span>
+      </Badge>
     );
   }
 
@@ -390,7 +462,7 @@ export default function IntegrationSettingsModal({
                 <CheckCircleIcon className="h-4 w-4 shrink-0 text-grove-500" />
               ) : null}
               <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-primary">
+                <div className="truncate text-sm font-medium text-foreground">
                   {connection.label}
                 </div>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-faint">
@@ -402,7 +474,7 @@ export default function IntegrationSettingsModal({
             </div>
 
             {actionCopy ? (
-              <p className="mt-3 text-xs text-muted">{actionCopy}</p>
+              <p className="mt-3 text-xs text-muted-foreground">{actionCopy}</p>
             ) : null}
 
             {connection.instances.length > 0 ? (
@@ -413,7 +485,7 @@ export default function IntegrationSettingsModal({
                     className="flex items-center justify-between gap-3 rounded-md bg-base-100 px-3 py-2 dark:bg-surface-raised"
                   >
                     <div>
-                      <div className="text-sm text-primary">{instance.name}</div>
+                      <div className="text-sm text-foreground">{instance.name}</div>
                       {instance.connection ? (
                         <div className="text-xs text-faint">
                           {instance.connection}
@@ -464,11 +536,11 @@ export default function IntegrationSettingsModal({
           <>
             <h2
               id={headingId}
-              className="text-lg font-heading text-primary"
+              className="text-lg font-heading text-foreground"
             >
-              Disconnect {displayName}?
+              {destructiveVerb} {displayName}?
             </h2>
-            <p className="mt-3 text-sm text-muted">
+            <p className="mt-3 text-sm text-muted-foreground">
               {disconnectCopy(displayName, connectionContext)}
             </p>
             {error && <p className="mt-3 text-sm text-ember-500">{error}</p>}
@@ -477,6 +549,10 @@ export default function IntegrationSettingsModal({
                 variant="secondary"
                 className="flex-1"
                 onClick={() => {
+                  if (initialView === "disconnect") {
+                    onClose();
+                    return;
+                  }
                   setView("default");
                   setDisconnectTarget({});
                 }}
@@ -490,7 +566,7 @@ export default function IntegrationSettingsModal({
                 onClick={() => onDisconnect(disconnectTarget.instance, disconnectTarget.connection)}
                 disabled={disconnecting}
               >
-                {disconnecting ? "Disconnecting..." : "Disconnect"}
+                {disconnecting ? destructiveProgressLabel : destructiveVerb}
               </Button>
             </div>
           </>
@@ -498,7 +574,7 @@ export default function IntegrationSettingsModal({
           <form onSubmit={handleInstanceSubmit}>
             <h2
               id={headingId}
-              className="text-lg font-heading text-primary"
+              className="text-lg font-heading text-foreground"
             >
               Add Connection
             </h2>
@@ -532,6 +608,54 @@ export default function IntegrationSettingsModal({
               </Button>
             </div>
           </form>
+        ) : view === "oauth_params" ? (
+          <form onSubmit={handleOAuthParamsSubmit}>
+            <h2
+              id={headingId}
+              className="text-lg font-heading text-foreground"
+            >
+              Connection details
+            </h2>
+            {error && <p className="mt-3 text-sm text-ember-500">{error}</p>}
+            {pendingConnectionParams &&
+              Object.entries(pendingConnectionParams).map(([name, def]) => (
+                <div key={name} className="mt-3">
+                  <label
+                    htmlFor={`cp_${name}-${integration.name}`}
+                    className="label-text block"
+                  >
+                    {def.description || name}
+                  </label>
+                  <input
+                    id={`cp_${name}-${integration.name}`}
+                    name={`cp_${name}`}
+                    type="text"
+                    required={def.required}
+                    defaultValue={def.default}
+                    placeholder={name}
+                    className={inputClasses}
+                  />
+                </div>
+              ))}
+            <div className="mt-6 flex gap-3">
+              <Button
+                type="button"
+                variant="secondary"
+                className="flex-1"
+                onClick={() =>
+                  setView(
+                    pendingAction?.requiresInstanceName ? "instance" : "default",
+                  )
+                }
+                disabled={reconnecting}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" className="flex-1" disabled={reconnecting}>
+                {reconnecting ? "Connecting..." : "Continue"}
+              </Button>
+            </div>
+          </form>
         ) : view === "token" ? (
           <TokenForm
             integrationName={integration.name}
@@ -551,19 +675,19 @@ export default function IntegrationSettingsModal({
               <div>
                 <h2
                   id={headingId}
-                  className="text-lg font-heading text-primary"
+                  className="text-lg font-heading text-foreground"
                 >
                   {displayName}
                 </h2>
                 {shouldShowIntegrationSummary(normalizedStatus) ? (
-                  <p className="mt-2 text-sm text-muted">
+                  <p className="mt-2 text-sm text-muted-foreground">
                     {normalizedStatus.summaryLabel}
                   </p>
                 ) : null}
               </div>
               <button
                 onClick={closeDialog}
-                className="rounded-md p-1.5 text-faint transition-colors duration-150 hover:bg-alpha-5 hover:text-muted"
+                className="rounded-md p-1.5 text-faint transition-colors duration-150 hover:bg-alpha-5 hover:text-muted-foreground"
                 aria-label="Close"
               >
                 <CloseIcon className="h-4 w-4" />
@@ -619,7 +743,7 @@ function TokenForm({
     <form onSubmit={onSubmit}>
       <h2
         id={headingId}
-        className="text-lg font-heading text-primary"
+        className="text-lg font-heading text-foreground"
       >
         {heading}
       </h2>

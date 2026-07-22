@@ -173,6 +173,9 @@ function renderSafeSVGNode(
   if (tagName === "svg") {
     props["aria-hidden"] = "true";
     props.focusable = "false";
+    // Let the frame own layout size; baked-in width/height fight fill.
+    delete props.width;
+    delete props.height;
   }
 
   const children: ReactNode[] = [];
@@ -204,18 +207,30 @@ export default function IntegrationIcon({
 }: {
   iconSvg?: string;
   className?: string;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xl";
 }) {
   const iconIDPrefix = `provider-icon-${useId().replace(/:/g, "")}`;
   const iconNode = iconSvg ? renderSafeIcon(iconSvg, iconIDPrefix) : null;
+  // Brand marks from /api/v1/apps are full-bleed; glyph fallback stays inset.
+  const hasBrandMark = iconNode != null;
 
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-lg bg-base-100 text-muted dark:bg-surface-raised",
-        size === "sm" && "h-8 w-8 [&>svg]:h-4 [&>svg]:w-4",
-        size === "md" && "h-10 w-10 [&>svg]:h-5 [&>svg]:w-5",
-        size === "lg" && "h-12 w-12 [&>svg]:h-7 [&>svg]:w-7",
+        // Frameless mark — no plate. A filled frame matches the card at rest
+        // and only appears on card hover (card darkens, plate does not).
+        "flex shrink-0 items-center justify-center overflow-hidden text-muted-foreground",
+        size === "sm" && "size-8",
+        size === "md" && "size-10",
+        size === "lg" && "size-12",
+        size === "xl" && "size-14",
+        hasBrandMark
+          ? "[&>svg]:size-full"
+          : size === "sm"
+            ? "[&>svg]:size-4"
+            : size === "lg" || size === "xl"
+              ? "[&>svg]:size-7"
+              : "[&>svg]:size-5",
         className,
       )}
     >
