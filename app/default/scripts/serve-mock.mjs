@@ -1,10 +1,23 @@
 import http from "node:http";
-import fs from "node:fs/promises";
+import fs from "node:fs";
+import fsPromises from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const outDir = path.join(projectDir, "out");
+// Prefer Vite's default `dist/`; fall back to Gestalt static `out/` when present.
+const outDirCandidates = [
+  path.join(projectDir, "dist"),
+  path.join(projectDir, "out"),
+];
+const outDir =
+  outDirCandidates.find((candidate) => {
+    try {
+      return fs.existsSync(path.join(candidate, "index.html"));
+    } catch {
+      return false;
+    }
+  }) || outDirCandidates[0];
 const port = Number(process.env.PORT || process.env.API_PORT || 8080);
 
 const contentTypes = {
@@ -18,7 +31,7 @@ const contentTypes = {
 };
 
 async function readIndexHtml() {
-  const html = await fs.readFile(path.join(outDir, "index.html"), "utf8");
+  const html = await fsPromises.readFile(path.join(outDir, "index.html"), "utf8");
   if (/<base\b/i.test(html)) {
     return html;
   }
@@ -41,10 +54,10 @@ const server = http.createServer(async (req, res) => {
     }
 
     try {
-      const stat = await fs.stat(filePath);
+      const stat = await fsPromises.stat(filePath);
       if (stat.isFile()) {
         const ext = path.extname(filePath);
-        const body = await fs.readFile(filePath);
+        const body = await fsPromises.readFile(filePath);
         res.writeHead(200, {
           "Content-Type": contentTypes[ext] || "application/octet-stream",
         });
@@ -53,9 +66,9 @@ const server = http.createServer(async (req, res) => {
       }
       if (stat.isDirectory()) {
         const indexPath = path.join(filePath, "index.html");
-        const indexStat = await fs.stat(indexPath);
+        const indexStat = await fsPromises.stat(indexPath);
         if (indexStat.isFile()) {
-          const body = await fs.readFile(indexPath);
+          const body = await fsPromises.readFile(indexPath);
           res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
           res.end(body);
           return;
@@ -75,5 +88,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`mock SPA server listening on http://127.0.0.1:${port}`);
+  console.log(
+    `mock SPA server listening on http://127.0.0.1:${port} (from ${path.basename(outDir)})`,
+  );
 });

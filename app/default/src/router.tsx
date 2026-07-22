@@ -16,13 +16,12 @@ import {
   WorkflowsDocsPage,
 } from "@/docs/DocsContent";
 import { useDocumentTitle } from "@/hooks/use-document-title";
-import AgentsPage from "@/pages/agents";
+import AppAdminPage from "@/pages/app-admin";
 import AppsPage from "@/pages/apps";
-import AuthorizationPage from "@/pages/authorization";
-import DashboardPage from "@/pages/index";
 import IdentitiesPage from "@/pages/identities";
 import IntegrationsPage from "@/pages/integrations";
-import WorkflowsPage from "@/pages/workflows";
+import BuildStepPage, { BuildIndexRedirect } from "@/pages/build";
+import SettingsPage from "@/pages/settings";
 import { rootRoute } from "./routes/__root";
 
 function DocsLayout() {
@@ -76,13 +75,21 @@ function DocsTroubleshootingRoute() {
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: DashboardPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/apps" });
+  },
 });
 
-const agentsRoute = createRoute({
+const buildRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/agents",
-  component: AgentsPage,
+  path: "/build",
+  component: BuildIndexRedirect,
+});
+
+const buildStepRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/build/$stepId",
+  component: BuildStepPage,
 });
 
 const appsRoute = createRoute({
@@ -91,10 +98,45 @@ const appsRoute = createRoute({
   component: AppsPage,
 });
 
+const APP_ADMIN_SECTIONS = [
+  "overview",
+  "access",
+  "workflows",
+  "operations",
+] as const;
+
+type AppAdminSectionSearch = (typeof APP_ADMIN_SECTIONS)[number];
+
+const appAdminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/apps/$appName",
+  validateSearch: (search: Record<string, unknown>): {
+    section?: AppAdminSectionSearch;
+  } => {
+    const raw = search.section;
+    if (
+      typeof raw === "string" &&
+      (APP_ADMIN_SECTIONS as readonly string[]).includes(raw)
+    ) {
+      return { section: raw as AppAdminSectionSearch };
+    }
+    return {};
+  },
+  component: AppAdminPage,
+});
+
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings",
+  component: SettingsPage,
+});
+
 const authorizationRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/authorization",
-  component: AuthorizationPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/settings", hash: "authorization" });
+  },
 });
 
 const identitiesRoute = createRoute({
@@ -113,14 +155,8 @@ const tokensRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/tokens",
   beforeLoad: () => {
-    throw redirect({ to: "/authorization" });
+    throw redirect({ to: "/settings", hash: "authorization" });
   },
-});
-
-const workflowsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/workflows",
-  component: WorkflowsPage,
 });
 
 const docsLayoutRoute = createRoute({
@@ -185,13 +221,15 @@ const docsTroubleshootingRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
-  agentsRoute,
+  buildRoute,
+  buildStepRoute,
   appsRoute,
+  appAdminRoute,
+  settingsRoute,
   authorizationRoute,
   identitiesRoute,
   integrationsRoute,
   tokensRoute,
-  workflowsRoute,
   docsLayoutRoute.addChildren([
     docsIndexRoute,
     docsGettingStartedRoute,

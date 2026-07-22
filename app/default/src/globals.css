@@ -1,4 +1,5 @@
 @import "../shared/theme.css";
+@import "./styles/typeset-code-hljs.css";
 
 /* Scan src/ only — the v3 config's content globs. The default heuristic would
  * also crawl public/ (e.g. admin/echarts.min.js) for class candidates. */
@@ -22,17 +23,17 @@
   --color-base-900: oklch(21.867% 0.0213 76.13);
   --color-base-950: oklch(22.039% 0.0231 57.22);
 
-  --color-gold-50: oklch(99.474% 0.0045 78.3);
-  --color-gold-100: oklch(97.858% 0.0203 81.78);
-  --color-gold-200: oklch(93.565% 0.0534 81.79);
-  --color-gold-300: oklch(85.935% 0.1118 82.45);
-  --color-gold-400: oklch(79.263% 0.1438 80.29);
-  --color-gold-500: oklch(73.06% 0.1519 72.63);
-  --color-gold-600: oklch(64.374% 0.1336 72.56);
-  --color-gold-700: oklch(54.881% 0.1131 70.82);
+  --color-gold-50: oklch(99.5% 0.005 78.3);
+  --color-gold-100: oklch(97.9% 0.02 81.8);
+  --color-gold-200: oklch(93.6% 0.053 81.8);
+  --color-gold-300: oklch(85.9% 0.112 82.4);
+  --color-gold-400: oklch(79.3% 0.144 80.3);
+  --color-gold-500: oklch(73.1% 0.152 72.6);
+  --color-gold-600: oklch(64.4% 0.134 72.6);
+  --color-gold-700: oklch(54.9% 0.113 70.8);
   --color-gold-800: oklch(46.522% 0.0933 70.48);
-  --color-gold-900: oklch(38.46% 0.075 71.86);
-  --color-gold-950: oklch(29.579% 0.0548 73.6);
+  --color-gold-900: oklch(38.5% 0.075 71.9);
+  --color-gold-950: oklch(29.6% 0.055 73.6);
 
   --color-grove-50: oklch(97.289% 0.0152 145.46);
   --color-grove-100: oklch(93.286% 0.0323 145.31);
@@ -62,19 +63,6 @@
   /* v3's default ring color (blue-500/50) — v4 defaults to currentColor.
    * Bare-width rings (`ring-2` without a ring color) rendered blue in v3. */
   --default-ring-color: oklch(62.308% 0.188 259.81 / 0.5);
-
-  --animate-fade-in-up: fade-in-up 0.5s cubic-bezier(0.19, 1, 0.22, 1) both;
-
-  @keyframes fade-in-up {
-    0% {
-      opacity: 0;
-      transform: translateY(12px);
-    }
-    100% {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
 }
 
 /* Tokens backed by the tenant-theme contract (shared/theme.css). `inline` is
@@ -87,13 +75,81 @@
   --color-background: var(--background);
   --color-surface: var(--surface);
   --color-surface-raised: var(--surface-raised);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
   --color-foreground: var(--foreground);
   --color-border: var(--border);
   /* Whole-color tokens; alpha modifiers work via color-mix on all of them. */
   --color-brand: var(--brand);
   --color-brand-soft: var(--brand-soft);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-pressed: var(--accent-pressed);
+  --color-accent-fill-hover: var(--accent-fill-hover);
+  --color-accent-fill-pressed: var(--accent-fill-pressed);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-vivid: var(--accent-vivid);
+  --color-accent-vivid-foreground: var(--accent-vivid-foreground);
+  --color-accent-vivid-hover: var(--accent-vivid-hover);
+  --color-accent-vivid-pressed: var(--accent-vivid-pressed);
+  --color-accent-wash: var(--accent-wash);
+  --color-accent-highlight: var(--accent-highlight);
+  --color-accent-solid: var(--accent-solid);
+  --color-accent-solid-hover: var(--accent-solid-hover);
+  --color-accent-solid-pressed: var(--accent-solid-pressed);
+  --color-neutral-hover: var(--neutral-hover);
+  --color-neutral-pressed: var(--neutral-pressed);
+  --color-neutral-dark-hover: var(--neutral-dark-hover);
+  --color-neutral-dark-pressed: var(--neutral-dark-pressed);
+  --color-ring: var(--ring);
   --color-danger: var(--danger);
   --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-link: var(--link);
+  --color-link-hover: var(--link-hover);
+  --color-link-pressed: var(--link-pressed);
+
+  /* Registry semantic colors — single contract with Valon Registry
+   * (`guidelines/color.md`). Console ink is text-foreground /
+   * text-muted-foreground; fills are bg-primary / bg-muted / bg-secondary. */
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted-foreground-soft: var(--muted-foreground-soft);
+  --color-disabled: var(--disabled);
+  --color-disabled-foreground: var(--disabled-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-error-foreground: var(--error-foreground);
+  --color-input: var(--input);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-strong-hover: var(--accent-strong-hover);
+  --color-accent-strong-pressed: var(--accent-strong-pressed);
+
+  --tracking-eyebrow: 0.075em;
+
+  --height-control-xs: var(--control-h-xs);
+  --height-control-sm: var(--control-h-sm);
+  --height-control-default: var(--control-h-default);
+  --height-control-lg: var(--control-h-lg);
+  --text-control-xs: var(--control-fz-xs);
+  --text-control-sm: var(--control-fz-sm);
+  --text-control-default: var(--control-fz-default);
+  --text-control-lg: var(--control-fz-lg);
+  --size-control-xs: var(--control-h-xs);
+  --size-control-sm: var(--control-h-sm);
+  --size-control-default: var(--control-h-default);
+  --size-control-lg: var(--control-h-lg);
 
   --container-content: var(--content-max-width);
 
@@ -112,20 +168,89 @@
 
   --shadow-dropdown: 0 4px 12px color-mix(in oklab, var(--shadow-ink) 10%, transparent);
   --shadow-card: 0 1px 3px color-mix(in oklab, var(--shadow-ink) 4%, transparent);
+
+  /* Motion utilities — mint duration-* / ease-* from :root aliases below. */
+  --ease-out-quart: var(--motion-ease-out-quart);
+  --ease-out-expo: var(--motion-ease-out-expo);
+  --ease-out-back: var(--motion-ease-out-back);
+  --ease-out-back-soft: var(--motion-ease-out-back-soft);
+  --transition-duration-hover-in: var(--motion-hover-in);
+  --transition-duration-hover-out: var(--motion-hover-out);
+  --transition-duration-press: var(--motion-press);
+  --transition-duration-select-in: var(--motion-select-in);
+  --transition-duration-select-out: var(--motion-select-out);
+  --transition-duration-reveal: var(--motion-reveal);
+  --transition-duration-dismiss: var(--motion-dismiss);
+  --transition-duration-reveal-lg: var(--motion-reveal-lg);
+  --transition-duration-dismiss-lg: var(--motion-dismiss-lg);
+  --transition-duration-move: var(--motion-move);
+  --transition-duration-overshoot: var(--motion-overshoot);
+  --transition-duration-toast: var(--motion-toast);
 }
 
-/* The v3 config's per-property color namespaces (textColor / borderColor /
- * backgroundColor extensions) have no v4 theme equivalent — recreated as
- * utilities with the exact same values. */
-@utility text-primary {
-  color: var(--alpha-dark);
+/* Motion token layer: primitives + semantic aliases. Components consume
+ * duration-<intent> / ease-<name> utilities — never raw ms. */
+:root {
+  --duration-0: 0ms;
+  --duration-50: 50ms;
+  --duration-75: 75ms;
+  --duration-100: 100ms;
+  --duration-150: 150ms;
+  --duration-200: 200ms;
+  --duration-250: 250ms;
+  --duration-300: 300ms;
+
+  --motion-hover-in: var(--duration-0);
+  --motion-hover-out: var(--duration-0);
+  --motion-press: var(--duration-0);
+  --motion-select-in: var(--duration-0);
+  --motion-select-out: var(--duration-0);
+  --motion-reveal: var(--duration-150);
+  --motion-dismiss: var(--duration-100);
+  --motion-reveal-lg: var(--duration-300);
+  --motion-dismiss-lg: var(--duration-200);
+  --motion-move: var(--duration-200);
+  --motion-overshoot: var(--duration-200);
+  --motion-toast: var(--duration-250);
+
+  --motion-ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --motion-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --motion-ease-out-back-soft: cubic-bezier(0.34, 1.25, 0.64, 1);
+
+  /* Registry-compatible ease aliases (Link underline, etc. use var(--ease-*)). */
+  --ease-out-quart: var(--motion-ease-out-quart);
+  --ease-out-expo: var(--motion-ease-out-expo);
+  --ease-out-back: var(--motion-ease-out-back);
+  --ease-out-back-soft: var(--motion-ease-out-back-soft);
 }
-@utility text-secondary {
-  color: color-mix(in oklab, var(--alpha-dark) 80%, transparent);
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-50: 0ms;
+    --duration-75: 0ms;
+    --duration-100: 0ms;
+    --duration-150: 0ms;
+    --duration-200: 0ms;
+    --duration-250: 0ms;
+    --duration-300: 0ms;
+  }
 }
-@utility text-muted {
-  color: color-mix(in oklab, var(--alpha-dark) 60%, transparent);
+
+/* Checkbox finish — after the two strokes draw on, the whole indicator gives one
+ * small scale pop. Registry checkbox / selection-check pass --duration-200 as
+ * the animation duration, so the reduced-motion block above zeroes it. */
+@keyframes valon-check-bounce {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.1); }
+  100% { transform: scale(1); }
 }
+
+/* Console-only ink ladder remnant: 40% alpha-dark. Prefer
+ * text-muted-foreground for captions; text-faint for tertiary chrome
+ * (icons, placeholders) that must stay lighter than muted-foreground.
+ * Do not reintroduce text-primary / text-muted / text-secondary — those
+ * names belong to Registry fills (bg-primary, bg-muted, bg-secondary). */
 @utility text-faint {
   color: color-mix(in oklab, var(--alpha-dark) 40%, transparent);
 }
@@ -147,6 +272,14 @@
   :where(& > :not(:last-child)) {
     border-color: color-mix(in oklab, var(--alpha-dark) 10%, transparent);
   }
+}
+
+/* Keyboard focus — solid outline on :focus-visible only (not a box-shadow ring). */
+@utility focus-ring {
+  @apply focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring;
+}
+@utility focus-ring-inset {
+  @apply focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-ring;
 }
 
 @font-face {
@@ -249,6 +382,19 @@
     font-weight: var(--heading-weight);
   }
 
+  /* Registry / Valon app base: avoid ragged orphans on wrapped copy
+   * (page-header.md descriptions use text-pretty; titles keep text-balance
+   * via utility where needed — utilities win over this base rule). */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  p {
+    text-wrap: pretty;
+  }
+
   dialog::backdrop {
     /* Scrim from the light ink; the .dark override keeps its own constant —
      * the dark --alpha-dark is a text/border scale, not a scrim color. */
@@ -260,28 +406,19 @@
   }
 }
 
-@layer base {
-  @media (prefers-reduced-motion: reduce) {
-    .animate-fade-in-up {
-      animation: none !important;
-      opacity: 1 !important;
-    }
-  }
-}
-
 @layer components {
   .doc-copy {
-    @apply text-base leading-7 text-secondary;
+    @apply text-base leading-7 text-foreground/80;
   }
 
   .doc-link {
-    @apply text-primary underline decoration-base-300 underline-offset-4 transition-colors duration-150 hover:text-gold-600 dark:decoration-base-600;
+    @apply text-foreground underline decoration-base-300 underline-offset-4 transition-colors duration-150 hover:text-gold-600 dark:decoration-base-600;
   }
 
   /* Code-block shell shared by the Shiki output and its plain <pre>
    * fallback, so layout is identical before and after highlighting. */
   .doc-code pre {
-    @apply overflow-x-auto rounded-xl border border-alpha bg-surface px-4 py-4 pr-12 font-mono text-sm leading-6 text-primary;
+    @apply overflow-x-auto rounded-xl border border-alpha bg-surface px-4 py-4 pr-12 font-mono text-sm leading-6 text-foreground;
   }
 }
 

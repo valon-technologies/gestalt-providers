@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-type Theme = "light" | "dark" | "system";
+export type Theme = "light" | "dark" | "system";
 
 function readTheme(): Theme {
   if (typeof window === "undefined") return "system";

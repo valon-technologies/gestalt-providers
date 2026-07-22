@@ -7,6 +7,8 @@ import {
 } from "@/lib/api";
 import { INPUT_CLASSES } from "@/lib/constants";
 import Button from "./Button";
+import { CodeBlock } from "@/components/ui/code-block";
+import { Eyebrow } from "@/components/ui/eyebrow";
 
 function uniqueOperations(operations?: string[]): string[] {
   if (!operations?.length) return [];
@@ -110,7 +112,7 @@ export default function IdentityTokenCreateForm({
               Token limits only narrow what this API key can use. App grants and connector credentials stay on the managed identity.
             </p>
             <div className="mt-3 space-y-3">
-              <label className="flex items-start gap-3 rounded-md border border-alpha bg-base-50 p-4 text-sm text-muted dark:bg-surface-raised">
+              <label className="flex items-start gap-3 rounded-md border border-alpha bg-base-50 p-4 text-sm text-muted-foreground dark:bg-surface-raised">
                 <input
                   type="radio"
                   name="scope_mode"
@@ -123,14 +125,14 @@ export default function IdentityTokenCreateForm({
                   className="mt-0.5 h-4 w-4"
                 />
                 <span>
-                  <span className="block font-medium text-primary">All authorized access</span>
+                  <span className="block font-medium text-foreground">All authorized access</span>
                   <span className="mt-1 block text-faint">
                     The token follows managed identity app authorization and connector credentials at use time.
                   </span>
                 </span>
               </label>
 
-              <label className="flex items-start gap-3 rounded-md border border-alpha bg-base-50 p-4 text-sm text-muted dark:bg-surface-raised">
+              <label className="flex items-start gap-3 rounded-md border border-alpha bg-base-50 p-4 text-sm text-muted-foreground dark:bg-surface-raised">
                 <input
                   type="radio"
                   name="scope_mode"
@@ -143,7 +145,7 @@ export default function IdentityTokenCreateForm({
                   className="mt-0.5 h-4 w-4"
                 />
                 <span>
-                  <span className="block font-medium text-primary">Restrict this token</span>
+                  <span className="block font-medium text-foreground">Restrict this token</span>
                   <span className="mt-1 block text-faint">
                     Limit this API key to selected apps or operations.
                   </span>
@@ -154,7 +156,7 @@ export default function IdentityTokenCreateForm({
 
           {scopeMode === "restricted" && (
             <div>
-              <p className="label-text">Token limits</p>
+              <Eyebrow>Token limits</Eyebrow>
               {grants.length === 0 ? (
                 <p className="mt-2 text-sm text-faint">
                   This identity has no visible app grants to choose from. Use all authorized access or add an app grant first.
@@ -168,12 +170,12 @@ export default function IdentityTokenCreateForm({
                         className="rounded-md border border-alpha bg-base-50 p-4 dark:bg-surface-raised"
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-sm font-medium text-primary">{grant.plugin}</p>
+                          <p className="text-sm font-medium text-foreground">{grant.plugin}</p>
                           <span className="rounded-full border border-alpha px-2.5 py-1 text-xs text-faint">
                             {grant.role}
                           </span>
                         </div>
-                        <label className="mt-3 flex items-center gap-2 text-sm text-muted">
+                        <label className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
                           <input
                             type="checkbox"
                             name={`plugin_${grant.plugin}`}
@@ -216,13 +218,15 @@ export default function IdentityTokenCreateForm({
       </form>
 
       {plaintext && (
-        <div className="mt-6 rounded-lg border border-gold-300 bg-gold-50 p-5 dark:border-gold-700 dark:bg-gold-950/30">
+        <div className="mt-6 space-y-3 rounded-lg border border-gold-300 bg-gold-50 p-5 dark:border-gold-700 dark:bg-gold-950/30">
           <p className="text-sm font-medium text-gold-800 dark:text-gold-300">
             Copy this token now. It will not be shown again.
           </p>
-          <code className="mt-3 block break-all rounded-sm bg-base-white p-3 font-mono text-sm text-primary border border-alpha dark:bg-surface">
-            {plaintext}
-          </code>
+          <CodeBlock
+            code={plaintext}
+            language="plaintext"
+            filename="token"
+          />
         </div>
       )}
 
