@@ -72,6 +72,7 @@ export function PublishedVersionDetail({
           <span>
             <ExternalLink href={pullRequest.url}>
               PR #{pullRequest.number}
+              {pullRequest.title ? ` · ${pullRequest.title}` : ""}
             </ExternalLink>
           </span>
         ) : (
