@@ -39,6 +39,7 @@ const PUBLISHED_LEGACY: AppAdminRegistryResponse["publishedVersions"][number] = 
 const MANAGED_INTEGRATION: Integration = {
   name: APP,
   displayName: "G Issues",
+  mountedPath: `/${APP}`,
   managementPath: `/apps/${APP}/admin`,
 };
 
@@ -94,6 +95,7 @@ test.describe("app admin registry UI", () => {
   });
 
   test("renders published snapshots newest first with PR titles", async ({ page }) => {
+    await mockIntegrations(page, [MANAGED_INTEGRATION]);
     await mockAppAdminRegistry(page, APP, installedRegistryState());
     await page.goto(`/apps/${APP}/admin`);
 
@@ -105,6 +107,17 @@ test.describe("app admin registry UI", () => {
     await expect(rows.nth(0)).toContainText("yesterday");
     await expect(rows.nth(1)).toContainText(PUBLISHED_LEGACY.version.slice(0, 20));
     await expect(rows.nth(1)).toContainText("Deployed");
+  });
+
+  test("links to the mounted app page when mountedPath is available", async ({ page }) => {
+    await mockIntegrations(page, [MANAGED_INTEGRATION]);
+    await mockAppAdminRegistry(page, APP, installedRegistryState());
+    await page.goto(`/apps/${APP}/admin`);
+
+    const openAppLink = page.getByTestId("open-app-link");
+    await expect(openAppLink).toBeVisible();
+    await expect(openAppLink).toHaveAttribute("href", `/${APP}`);
+    await expect(openAppLink).toHaveText("Open app →");
   });
 
   test("sorts published snapshots newest first even when API returns older first", async ({

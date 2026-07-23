@@ -8,6 +8,7 @@ import { isActiveRegistryRollout } from "@/features/registry/format";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import {
   getAppAdminRegistry,
+  getIntegrations,
   isAPIErrorStatus,
   selectAppAdminRegistryVersion,
   type AppAdminRegistryResponse,
@@ -19,6 +20,7 @@ const POLL_INTERVAL_MS = 12_000;
 export default function AppAdminPageClient({ appName }: { appName: string }) {
   useDocumentTitle(`${appName} · App management`);
   const [registry, setRegistry] = useState<AppAdminRegistryResponse | null>(null);
+  const [appMountedPath, setAppMountedPath] = useState<string | undefined>();
   const [deployingVersion, setDeployingVersion] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [forbidden, setForbidden] = useState(false);
@@ -30,9 +32,16 @@ export default function AppAdminPageClient({ appName }: { appName: string }) {
     loadRequestIdRef.current = requestId;
 
     try {
-      const data = await getAppAdminRegistry(appName);
+      const [data, integrations] = await Promise.all([
+        getAppAdminRegistry(appName),
+        getIntegrations().catch(() => []),
+      ]);
       if (loadRequestIdRef.current !== requestId) return data;
       setRegistry(data);
+      const mountedPath = integrations
+        .find((integration) => integration.name === appName)
+        ?.mountedPath?.trim();
+      setAppMountedPath(mountedPath || undefined);
       setForbidden(false);
       setError(null);
       return data;
@@ -41,6 +50,7 @@ export default function AppAdminPageClient({ appName }: { appName: string }) {
       if (isAPIErrorStatus(err, 403)) {
         setForbidden(true);
         setRegistry(null);
+        setAppMountedPath(undefined);
         setError(null);
         return;
       }
@@ -57,6 +67,7 @@ export default function AppAdminPageClient({ appName }: { appName: string }) {
     setLoading(true);
     setForbidden(false);
     setRegistry(null);
+    setAppMountedPath(undefined);
     setError(null);
     void loadRegistry();
   }, [loadRegistry]);
@@ -125,6 +136,7 @@ export default function AppAdminPageClient({ appName }: { appName: string }) {
             <div className="animate-fade-in-up [animation-delay:60ms]">
               <AppAdminVersionPanel
                 registry={registry}
+                appMountedPath={appMountedPath}
                 deployingVersion={deployingVersion}
                 onDeployVersion={(version) => void handleDeployVersion(version)}
                 error={error}

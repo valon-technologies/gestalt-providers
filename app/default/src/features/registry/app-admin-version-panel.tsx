@@ -13,6 +13,7 @@ import type { RegistryAppSummary } from "@/features/registry/types";
 
 export function AppAdminVersionPanel({
   registry,
+  appMountedPath,
   deployingVersion,
   onDeployVersion,
   error,
@@ -23,6 +24,7 @@ export function AppAdminVersionPanel({
     disabledReason?: string;
     desiredVersion?: string;
   };
+  appMountedPath?: string;
   deployingVersion: string | null;
   onDeployVersion: (version: string) => void;
   error: string | null;
@@ -39,6 +41,15 @@ export function AppAdminVersionPanel({
           <h1 className="text-2xl font-heading text-primary">{registry.app}</h1>
           <p className="text-sm text-muted">Registry: {registry.registry}</p>
           <p className="text-sm text-faint">App management</p>
+          {appMountedPath ? (
+            <a
+              href={appMountedPath}
+              className="inline-flex text-sm font-medium text-gold-700 transition-colors hover:text-gold-800 dark:text-gold-300 dark:hover:text-gold-200"
+              data-testid="open-app-link"
+            >
+              Open app →
+            </a>
+          ) : null}
         </div>
         <RolloutBadge app={registry} />
       </div>
