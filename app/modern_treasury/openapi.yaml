@@ -8874,7 +8874,6 @@ paths:
             schema:
               "$ref": "#/components/schemas/payment_flow_update_request"
 servers:
-- url: http://localhost:3000
 - url: https://app.moderntreasury.com
 components:
   securitySchemes:
