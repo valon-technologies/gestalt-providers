@@ -1,5 +1,4 @@
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -31,9 +30,9 @@ function PublishedVersionOptionLabel({
 }) {
   const meta = formatPublishedVersionOptionMeta(version);
   return (
-    <span className="flex min-w-0 items-center gap-1.5">
-      <span className="font-mono text-[0.92em]">{version.version}</span>
-      {meta ? <span className="font-sans text-muted-foreground">· {meta}</span> : null}
+    <span className="flex items-center gap-1.5 whitespace-nowrap">
+      <span className="font-mono text-[0.92em] text-foreground">{version.version}</span>
+      {meta ? <span className="font-sans text-secondary">· {meta}</span> : null}
     </span>
   );
 }
@@ -107,31 +106,31 @@ export function AppAdminVersionPanel({
           <p className="text-sm text-muted">No published versions are available.</p>
         ) : (
           <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="app-admin-version-select" variant="field">
-                Published version
-              </Label>
-              <Select
-                value={selectedVersion}
-                disabled={controlsDisabled}
-                onValueChange={onSelectedVersionChange}
+            <Select
+              value={selectedVersion}
+              disabled={controlsDisabled}
+              onValueChange={onSelectedVersionChange}
+            >
+              <SelectTrigger
+                id="app-admin-version-select"
+                data-testid="version-select"
+                aria-label="Published version"
+                className="h-auto w-full min-h-10 py-2 text-foreground *:data-[slot=select-value]:line-clamp-none *:data-[slot=select-value]:whitespace-nowrap"
               >
-                <SelectTrigger
-                  id="app-admin-version-select"
-                  data-testid="version-select"
-                  className="max-w-xl"
-                >
-                  <SelectValue placeholder="Select a published version" />
-                </SelectTrigger>
-                <SelectContent>
-                  {publishedVersions.map((version) => (
-                    <SelectItem key={version.version} value={version.version}>
-                      <PublishedVersionOptionLabel version={version} />
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                <SelectValue placeholder="Select a published version" />
+              </SelectTrigger>
+              <SelectContent className="w-[var(--radix-select-trigger-width)] min-w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-3rem)]">
+                {publishedVersions.map((version) => (
+                  <SelectItem
+                    key={version.version}
+                    value={version.version}
+                    className="whitespace-nowrap"
+                  >
+                    <PublishedVersionOptionLabel version={version} />
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
             {selectedPublished ? (
               <PublishedVersionDetail version={selectedPublished} />
