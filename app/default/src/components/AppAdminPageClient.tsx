@@ -16,20 +16,11 @@ import {
 const APPS_PATH = "/apps";
 const POLL_INTERVAL_MS = 12_000;
 
-function initialSelectedVersion(registry: AppAdminRegistryResponse): string {
-  const published = registry.publishedVersions.map((version) => version.version);
-  if (registry.desiredVersion && published.includes(registry.desiredVersion)) {
-    return registry.desiredVersion;
-  }
-  return published[0] ?? "";
-}
-
 export default function AppAdminPageClient({ appName }: { appName: string }) {
   useDocumentTitle(`${appName} · App management`);
   const [registry, setRegistry] = useState<AppAdminRegistryResponse | null>(null);
-  const [selectedVersion, setSelectedVersion] = useState("");
+  const [deployingVersion, setDeployingVersion] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const loadRequestIdRef = useRef(0);
@@ -42,13 +33,6 @@ export default function AppAdminPageClient({ appName }: { appName: string }) {
       const data = await getAppAdminRegistry(appName);
       if (loadRequestIdRef.current !== requestId) return data;
       setRegistry(data);
-      setSelectedVersion((current) => {
-        const next = initialSelectedVersion(data);
-        if (!current || !data.publishedVersions.some((v) => v.version === current)) {
-          return next;
-        }
-        return current;
-      });
       setForbidden(false);
       setError(null);
       return data;
@@ -90,22 +74,22 @@ export default function AppAdminPageClient({ appName }: { appName: string }) {
     return () => window.clearTimeout(timer);
   }, [registry, loadRegistry]);
 
-  async function handleSelectVersion() {
-    if (!selectedVersion || registry?.selectionDisabled) return;
+  async function handleDeployVersion(version: string) {
+    if (!version || registry?.selectionDisabled) return;
 
-    setSubmitting(true);
+    setDeployingVersion(version);
     setError(null);
     try {
-      await selectAppAdminRegistryVersion(appName, selectedVersion);
+      await selectAppAdminRegistryVersion(appName, version);
       await loadRegistry();
     } catch (err) {
       if (isAPIErrorStatus(err, 409)) {
         await loadRegistry();
         return;
       }
-      setError(err instanceof Error ? err.message : "Failed to select version");
+      setError(err instanceof Error ? err.message : "Failed to deploy version");
     } finally {
-      setSubmitting(false);
+      setDeployingVersion(null);
     }
   }
 
@@ -141,10 +125,8 @@ export default function AppAdminPageClient({ appName }: { appName: string }) {
             <div className="animate-fade-in-up [animation-delay:60ms]">
               <AppAdminVersionPanel
                 registry={registry}
-                selectedVersion={selectedVersion}
-                onSelectedVersionChange={setSelectedVersion}
-                onSelectVersion={() => void handleSelectVersion()}
-                submitting={submitting}
+                deployingVersion={deployingVersion}
+                onDeployVersion={(version) => void handleDeployVersion(version)}
                 error={error}
               />
             </div>

@@ -36,6 +36,7 @@ export type RegistryAppDetail = RegistryAppSummary & {
 export type AppAdminPublicationPullRequest = {
   number: number;
   url: string;
+  title?: string;
 };
 
 export type AppAdminPublicationCommit = {

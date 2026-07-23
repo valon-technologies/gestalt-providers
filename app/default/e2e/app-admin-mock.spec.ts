@@ -22,6 +22,7 @@ const PUBLISHED_NEW: AppAdminRegistryResponse["publishedVersions"][number] = {
     triggerPullRequest: {
       number: 3251,
       url: "https://github.com/valon-technologies/valon-tools/pull/3251",
+      title: "Add registry deploy banner",
     },
   },
 };
@@ -69,28 +70,6 @@ function installedRegistryState(): AppAdminRegistryResponse {
 
 const APP_ADMIN_FIXED_TIME = new Date("2026-07-23T15:00:00Z");
 
-async function expectVersionSelectShows(
-  page: import("@playwright/test").Page,
-  version: string,
-) {
-  await expect(page.getByTestId("version-select")).toContainText(version);
-}
-
-async function selectPublishedVersion(
-  page: import("@playwright/test").Page,
-  version: string,
-) {
-  await page.getByTestId("version-select").click();
-  const listbox = page.getByRole("listbox");
-  await expect(listbox).toBeVisible();
-  await listbox.getByRole("option", { name: new RegExp(version) }).click();
-}
-
-async function openVersionSelect(page: import("@playwright/test").Page) {
-  await page.getByTestId("version-select").click();
-  await expect(page.getByRole("listbox")).toBeVisible();
-}
-
 test.describe("app admin registry UI", () => {
   test.beforeEach(async ({ page }) => {
     await page.clock.install({ time: APP_ADMIN_FIXED_TIME });
@@ -114,25 +93,21 @@ test.describe("app admin registry UI", () => {
     await expect(page.getByTestId("manage-app-slack")).toHaveCount(0);
   });
 
-  test("renders published versions newest first with desired version selected", async ({
-    page,
-  }) => {
+  test("renders published snapshots newest first with PR titles", async ({ page }) => {
     await mockAppAdminRegistry(page, APP, installedRegistryState());
     await page.goto(`/apps/${APP}/admin`);
 
-    await expectVersionSelectShows(page, PUBLISHED_LEGACY.version);
-
-    await openVersionSelect(page);
-    const options = page.getByRole("listbox").getByRole("option");
-    await expect(options).toHaveCount(2);
-    await expect(options.nth(0)).toContainText(PUBLISHED_NEW.version);
-    await expect(options.nth(0)).toContainText("PR #3251");
-    await expect(options.nth(0)).toContainText("yesterday");
-    await expect(options.nth(1)).toContainText(PUBLISHED_LEGACY.version);
-    await expect(options.nth(1)).toContainText("2 days ago");
+    const rows = page.getByTestId("snapshot-row-published");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.nth(0)).toContainText(PUBLISHED_NEW.version.slice(0, 20));
+    await expect(rows.nth(0)).toContainText("PR #3251");
+    await expect(rows.nth(0)).toContainText("Add registry deploy banner");
+    await expect(rows.nth(0)).toContainText("yesterday");
+    await expect(rows.nth(1)).toContainText(PUBLISHED_LEGACY.version.slice(0, 20));
+    await expect(rows.nth(1)).toContainText("Deployed");
   });
 
-  test("sorts published versions newest first even when API returns older first", async ({
+  test("sorts published snapshots newest first even when API returns older first", async ({
     page,
   }) => {
     await mockAppAdminRegistry(page, APP, {
@@ -141,32 +116,9 @@ test.describe("app admin registry UI", () => {
     });
     await page.goto(`/apps/${APP}/admin`);
 
-    await openVersionSelect(page);
-    const options = page.getByRole("listbox").getByRole("option");
-    await expect(options.nth(0)).toContainText(PUBLISHED_NEW.version);
-    await expect(options.nth(1)).toContainText(PUBLISHED_LEGACY.version);
-  });
-
-  test("shows publication details and legacy not recorded fields", async ({ page }) => {
-    await mockAppAdminRegistry(page, APP, installedRegistryState());
-    await page.goto(`/apps/${APP}/admin`);
-
-    await selectPublishedVersion(page, PUBLISHED_NEW.version);
-    await expect(page.getByTestId("published-version-summary")).toContainText(
-      "Published yesterday",
-    );
-    await expect(page.getByRole("link", { name: "Commit def456d" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "PR #3251" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "workflow run" })).toBeVisible();
-
-    await selectPublishedVersion(page, PUBLISHED_LEGACY.version);
-    await expect(page.getByTestId("published-version-pr")).toHaveText(
-      "PR: not recorded",
-    );
-    await expect(page.getByTestId("published-version-workflow")).toHaveText(
-      "workflow: not recorded",
-    );
-    await expect(page.getByRole("link", { name: "Commit abc123a" })).toBeVisible();
+    const rows = page.getByTestId("snapshot-row-published");
+    await expect(rows.nth(0)).toContainText(PUBLISHED_NEW.version.slice(0, 20));
+    await expect(rows.nth(1)).toContainText(PUBLISHED_LEGACY.version.slice(0, 20));
   });
 
   test("renders first-install copy when no desired version exists", async ({ page }) => {
@@ -180,10 +132,10 @@ test.describe("app admin registry UI", () => {
     await page.goto(`/apps/${APP}/admin`);
 
     await expect(page.getByText(/No version is installed yet/i)).toBeVisible();
-    await expectVersionSelectShows(page, PUBLISHED_NEW.version);
+    await expect(page.getByTestId("snapshot-row-published")).toHaveCount(1);
   });
 
-  test("disables selector and submit during active rollout", async ({ page }) => {
+  test("disables deploy buttons during active rollout", async ({ page }) => {
     await mockAppAdminRegistry(page, APP, {
       ...installedRegistryState(),
       rollout: {
@@ -198,14 +150,14 @@ test.describe("app admin registry UI", () => {
     await expect(page.getByTestId("rollout-active-banner")).toContainText(
       "Rollout enrolling",
     );
-    await expect(page.getByTestId("version-select")).toBeDisabled();
-    await expect(page.getByTestId("select-version-button")).toBeDisabled();
+    await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toBeDisabled();
+    await expect(page.getByTestId(`deploy-version-${PUBLISHED_LEGACY.version}`)).toBeDisabled();
     await expect(page.getByTestId("selection-disabled-reason")).toHaveText(
       "rollout in progress",
     );
   });
 
-  test("successful selection shows the new active rollout", async ({ page }) => {
+  test("successful deploy shows the new active rollout", async ({ page }) => {
     await mockAppAdminRegistry(page, APP, installedRegistryState(), {
       onSelectVersion: (version) => ({
         app: APP,
@@ -220,13 +172,12 @@ test.describe("app admin registry UI", () => {
     });
     await page.goto(`/apps/${APP}/admin`);
 
-    await selectPublishedVersion(page, PUBLISHED_NEW.version);
-    await page.getByTestId("select-version-button").click();
+    await page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`).click();
 
     await expect(page.getByTestId("rollout-active-banner")).toContainText(
       PUBLISHED_NEW.version,
     );
-    await expect(page.getByTestId("version-select")).toBeDisabled();
+    await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toBeDisabled();
     await expect(page.getByTestId("rollout-badge")).toHaveText("enrolling");
   });
 
@@ -248,11 +199,10 @@ test.describe("app admin registry UI", () => {
     });
     await page.goto(`/apps/${APP}/admin`);
 
-    await selectPublishedVersion(page, PUBLISHED_NEW.version);
-    await page.getByTestId("select-version-button").click();
+    await page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`).click();
 
-    await expect(page.getByTestId("version-select")).toBeDisabled();
-    await expect(page.getByTestId("select-version-button")).toBeDisabled();
+    await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toBeDisabled();
+    await expect(page.getByTestId(`deploy-version-${PUBLISHED_LEGACY.version}`)).toBeDisabled();
   });
 
   test("403 renders access denied without registry metadata", async ({ page }) => {
@@ -263,7 +213,7 @@ test.describe("app admin registry UI", () => {
 
     await expect(page.getByTestId("app-admin-access-denied")).toBeVisible();
     await expect(page.getByText("Access denied")).toBeVisible();
-    await expect(page.getByTestId("version-select")).toHaveCount(0);
+    await expect(page.getByTestId("snapshots-table")).toHaveCount(0);
     await expect(page.getByText("toolshed")).toHaveCount(0);
   });
 });

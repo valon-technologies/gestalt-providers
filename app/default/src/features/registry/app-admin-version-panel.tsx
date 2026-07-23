@@ -1,73 +1,36 @@
-import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   SectionHeader,
   SectionHeaderContent,
   SectionHeaderDescription,
   SectionHeaderTitle,
 } from "@/components/ui/section-header";
-import { PublishedVersionDetail } from "@/features/registry/published-version-detail";
+import { AppAdminSnapshotsTable } from "@/features/registry/app-admin-snapshots-table";
 import type { AppAdminPublishedVersion } from "@/features/registry/types";
-import {
-  formatPublishedVersionOptionMeta,
-  isActiveRegistryRollout,
-  sortPublishedVersionsNewestFirst,
-} from "@/features/registry/format";
+import { isActiveRegistryRollout } from "@/features/registry/format";
 import { RegistryCode } from "@/features/registry/registry-code";
 import { RolloutBadge } from "@/features/registry/rollout-badge";
 import type { RegistryAppSummary } from "@/features/registry/types";
 
-function PublishedVersionOptionLabel({
-  version,
-}: {
-  version: AppAdminPublishedVersion;
-}) {
-  const meta = formatPublishedVersionOptionMeta(version);
-  return (
-    <span className="flex items-center gap-1.5 whitespace-nowrap">
-      <span className="font-mono text-[0.92em] text-foreground">{version.version}</span>
-      {meta ? <span className="font-sans text-secondary">· {meta}</span> : null}
-    </span>
-  );
-}
-
 export function AppAdminVersionPanel({
   registry,
-  selectedVersion,
-  onSelectedVersionChange,
-  onSelectVersion,
-  submitting,
+  deployingVersion,
+  onDeployVersion,
   error,
 }: {
   registry: RegistryAppSummary & {
     publishedVersions: AppAdminPublishedVersion[];
     selectionDisabled: boolean;
     disabledReason?: string;
+    desiredVersion?: string;
   };
-  selectedVersion: string;
-  onSelectedVersionChange: (version: string) => void;
-  onSelectVersion: () => void;
-  submitting: boolean;
+  deployingVersion: string | null;
+  onDeployVersion: (version: string) => void;
   error: string | null;
 }) {
-  const publishedVersions = sortPublishedVersionsNewestFirst(registry.publishedVersions);
-  const selectedPublished = publishedVersions.find(
-    (version) => version.version === selectedVersion,
-  );
   const rolloutActive = registry.rollout
     ? isActiveRegistryRollout(registry.rollout.state)
     : false;
-  const controlsDisabled = registry.selectionDisabled || submitting;
-  const canSubmit =
-    !!selectedVersion &&
-    !controlsDisabled &&
-    selectedVersion !== registry.desiredVersion;
+  const controlsDisabled = registry.selectionDisabled || deployingVersion !== null;
 
   return (
     <div className="space-y-8">
@@ -93,69 +56,29 @@ export function AppAdminVersionPanel({
       <section className="space-y-4 rounded-2xl border border-alpha bg-base-white p-6 dark:bg-surface">
         <SectionHeader>
           <SectionHeaderContent>
-            <SectionHeaderTitle>Desired version</SectionHeaderTitle>
+            <SectionHeaderTitle>Published snapshots</SectionHeaderTitle>
             <SectionHeaderDescription>
               {registry.desiredVersion
-                ? "Select a published version to upgrade, revert, or reinstall across the fleet."
-                : "No version is installed yet. Select a published version to install this app across the fleet."}
+                ? "Deploy any published snapshot across the fleet."
+                : "No version is installed yet. Deploy a published snapshot to install this app across the fleet."}
             </SectionHeaderDescription>
           </SectionHeaderContent>
         </SectionHeader>
 
-        {publishedVersions.length === 0 ? (
-          <p className="text-sm text-muted">No published versions are available.</p>
-        ) : (
-          <div className="space-y-4">
-            <Select
-              value={selectedVersion}
-              disabled={controlsDisabled}
-              onValueChange={onSelectedVersionChange}
-            >
-              <SelectTrigger
-                id="app-admin-version-select"
-                data-testid="version-select"
-                aria-label="Published version"
-                className="h-auto w-full min-h-10 py-2 text-foreground *:data-[slot=select-value]:line-clamp-none *:data-[slot=select-value]:whitespace-nowrap"
-              >
-                <SelectValue placeholder="Select a published version" />
-              </SelectTrigger>
-              <SelectContent className="w-[var(--radix-select-trigger-width)] min-w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-3rem)]">
-                {publishedVersions.map((version) => (
-                  <SelectItem
-                    key={version.version}
-                    value={version.version}
-                    className="whitespace-nowrap"
-                  >
-                    <PublishedVersionOptionLabel version={version} />
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <AppAdminSnapshotsTable
+          registry={registry}
+          controlsDisabled={controlsDisabled}
+          deployingVersion={deployingVersion}
+          onDeployVersion={onDeployVersion}
+        />
 
-            {selectedPublished ? (
-              <PublishedVersionDetail version={selectedPublished} />
-            ) : null}
+        {registry.selectionDisabled && registry.disabledReason ? (
+          <p className="text-sm text-muted" data-testid="selection-disabled-reason">
+            {registry.disabledReason}
+          </p>
+        ) : null}
 
-            {registry.selectionDisabled && registry.disabledReason ? (
-              <p className="text-sm text-muted" data-testid="selection-disabled-reason">
-                {registry.disabledReason}
-              </p>
-            ) : null}
-
-            {error ? <p className="text-sm text-ember-500">{error}</p> : null}
-
-            <div className="flex justify-end">
-              <Button
-                type="button"
-                data-testid="select-version-button"
-                disabled={!canSubmit}
-                onClick={onSelectVersion}
-              >
-                {submitting ? "Selecting..." : "Select version"}
-              </Button>
-            </div>
-          </div>
-        )}
+        {error ? <p className="text-sm text-ember-500">{error}</p> : null}
       </section>
     </div>
   );

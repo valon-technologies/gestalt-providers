@@ -48,7 +48,11 @@ export function formatPublishedVersionOptionMeta(
   const parts: string[] = [];
   const pullRequest = version.publication?.triggerPullRequest;
   if (pullRequest?.number) {
-    parts.push(`PR #${pullRequest.number}`);
+    parts.push(
+      pullRequest.title
+        ? `PR #${pullRequest.number} · ${pullRequest.title}`
+        : `PR #${pullRequest.number}`,
+    );
   }
   const ago = formatRegistryTimeAgo(version.publishedAt, now);
   if (ago) {

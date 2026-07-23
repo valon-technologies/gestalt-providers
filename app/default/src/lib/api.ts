@@ -90,6 +90,7 @@ export interface Integration {
 export interface AppAdminPublicationPullRequest {
   number: number;
   url: string;
+  title?: string;
 }
 
 export interface AppAdminPublicationCommit {
