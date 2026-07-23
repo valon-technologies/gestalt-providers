@@ -1,6 +1,7 @@
 
 import { createElement, useEffect, useId, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
 import {
   ConnectionParamDef,
   Integration,
@@ -537,6 +538,19 @@ export default function IntegrationCard({
           )}
         </div>
       </div>
+      {integration.managementPath ? (
+        <div className="mt-4">
+          <Link
+            to="/apps/$app/admin"
+            params={{ app: integration.name }}
+            className="text-sm font-medium text-gold-700 transition-colors hover:text-gold-800 dark:text-gold-300 dark:hover:text-gold-200"
+            onClick={(event) => event.stopPropagation()}
+            data-testid={`manage-app-${integration.name}`}
+          >
+            Manage app
+          </Link>
+        </div>
+      ) : null}
       {error && !settingsOpen && (
         <p className="mt-3 text-sm text-ember-500">{error}</p>
       )}

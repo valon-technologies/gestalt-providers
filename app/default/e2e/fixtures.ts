@@ -7,6 +7,8 @@ import type {
   AgentTurn,
   AgentTurnEvent,
   APIToken,
+  AppAdminRegistryResponse,
+  AppAdminRegistryVersionResponse,
   Integration,
   IntegrationOperation,
   ManagedIdentity,
@@ -191,6 +193,103 @@ export async function mockAuthSessionUnauthorized(page: Page): Promise<void> {
   await page.route("**/api/v1/auth/session", (route) => {
     route.fulfill({ status: 401, json: { error: "missing authorization" } });
   });
+}
+
+type MockAppAdminRegistryOptions = {
+  onSelectVersion?: (
+    version: string,
+    state: AppAdminRegistryResponse,
+  ) =>
+    | AppAdminRegistryVersionResponse
+    | AppAdminRegistryResponse
+    | { status: number; json: unknown; nextState?: AppAdminRegistryResponse };
+};
+
+export async function mockAppAdminRegistry(
+  page: Page,
+  app: string,
+  initialState: AppAdminRegistryResponse,
+  opts?: MockAppAdminRegistryOptions,
+): Promise<{ getState: () => AppAdminRegistryResponse; setState: (state: AppAdminRegistryResponse) => void }> {
+  let state = initialState;
+
+  await page.route(`**/api/v1/apps/${app}/admin/registry`, (route: Route, request) => {
+    if (request.method() === "GET") {
+      route.fulfill({ json: state });
+      return;
+    }
+    route.fallback();
+  });
+
+  await page.route(
+    `**/api/v1/apps/${app}/admin/registry/version`,
+    async (route: Route, request) => {
+      if (request.method() !== "POST") {
+        await route.fallback();
+        return;
+      }
+
+      const body = JSON.parse(request.postData() || "{}") as { version?: string };
+      const version = body.version || "";
+      if (opts?.onSelectVersion) {
+        const result = opts.onSelectVersion(version, state);
+        if ("status" in result) {
+          if (result.nextState) {
+            state = result.nextState;
+          }
+          await route.fulfill({ status: result.status, json: result.json });
+          return;
+        }
+        if ("publishedVersions" in result) {
+          state = result;
+          await route.fulfill({
+            json: {
+              app: state.app,
+              registry: state.registry,
+              desiredVersion: version,
+              rollout: state.rollout,
+            } satisfies AppAdminRegistryVersionResponse,
+          });
+          return;
+        }
+        state = {
+          ...state,
+          desiredVersion: result.desiredVersion,
+          rollout: result.rollout,
+          selectionDisabled: true,
+          disabledReason: "rollout in progress",
+        };
+        await route.fulfill({ json: result });
+        return;
+      }
+
+      state = {
+        ...state,
+        desiredVersion: version,
+        rollout: {
+          version,
+          state: "enrolling",
+        },
+        selectionDisabled: true,
+        disabledReason: "rollout in progress",
+      };
+      await route.fulfill({
+        json: {
+          app: state.app,
+          registry: state.registry,
+          desiredVersion: version,
+          rollout: state.rollout,
+        } satisfies AppAdminRegistryVersionResponse,
+      });
+    },
+  );
+
+  return {
+    getState: () => state,
+    setState: (nextState) => {
+      state = nextState;
+    },
+  };
 }
 
 export async function mockTokens(page: Page, tokens: APIToken[]) {

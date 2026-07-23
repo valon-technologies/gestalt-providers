@@ -79,11 +79,66 @@ export interface Integration {
   description?: string;
   iconSvg?: string;
   mountedPath?: string;
+  managementPath?: string;
   connections?: ConnectionDefInfo[];
   status?: IntegrationStatus;
   credentialState?: CredentialState;
   healthState?: HealthState;
   actions?: IntegrationAction[];
+}
+
+export interface AppAdminPublicationPullRequest {
+  number: number;
+  url: string;
+}
+
+export interface AppAdminPublicationCommit {
+  sha: string;
+  url: string;
+}
+
+export interface AppAdminPublication {
+  workflowRunUrl?: string;
+  triggerPullRequest?: AppAdminPublicationPullRequest;
+  triggerCommit?: AppAdminPublicationCommit;
+}
+
+export interface AppAdminPublishedVersion {
+  version: string;
+  publishedAt: string;
+  platforms?: string[];
+  sourceRef?: string;
+  sourceUrl?: string;
+  publication?: AppAdminPublication;
+}
+
+export interface AppAdminRegistryResponse {
+  app: string;
+  registry: string;
+  desiredVersion?: string;
+  knownVersions: Array<{
+    version: string;
+    installedAt?: string;
+    installedBy?: string;
+  }>;
+  publishedVersions: AppAdminPublishedVersion[];
+  rollout?: {
+    version: string;
+    state: string;
+  };
+  selectionDisabled: boolean;
+  disabledReason?: string;
+}
+
+export interface AppAdminRegistryVersionResponse {
+  app: string;
+  registry: string;
+  fromVersion?: string;
+  desiredVersion: string;
+  rollout: {
+    version: string;
+    state: string;
+  };
 }
 
 export interface IntegrationOperation {
@@ -793,6 +848,27 @@ export async function logout(): Promise<void> {
 
 export async function getIntegrations(): Promise<Integration[]> {
   return fetchAPI<Integration[]>("/api/v1/apps");
+}
+
+export async function getAppAdminRegistry(
+  app: string,
+): Promise<AppAdminRegistryResponse> {
+  return fetchAPI<AppAdminRegistryResponse>(
+    `/api/v1/apps/${encodeURIComponent(app)}/admin/registry`,
+  );
+}
+
+export async function selectAppAdminRegistryVersion(
+  app: string,
+  version: string,
+): Promise<AppAdminRegistryVersionResponse> {
+  return fetchAPI<AppAdminRegistryVersionResponse>(
+    `/api/v1/apps/${encodeURIComponent(app)}/admin/registry/version`,
+    {
+      method: "POST",
+      body: JSON.stringify({ version }),
+    },
+  );
 }
 
 export async function getIntegrationOperations(
