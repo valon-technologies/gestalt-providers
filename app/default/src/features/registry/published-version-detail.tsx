@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { AppAdminPublishedVersion } from "@/features/registry/types";
 import {
   formatRegistryTime,
+  formatRegistryTimeAgo,
   shortenSourceRef,
 } from "@/features/registry/format";
 
@@ -31,6 +32,7 @@ export function PublishedVersionDetail({
 }) {
   const shortRef = shortenSourceRef(version.sourceRef);
   const publication = version.publication;
+  const publishedAgo = formatRegistryTimeAgo(version.publishedAt);
 
   return (
     <div
@@ -38,7 +40,15 @@ export function PublishedVersionDetail({
       data-testid="published-version-detail"
     >
       <p data-testid="published-version-summary">
-        Published {formatRegistryTime(version.publishedAt)}
+        Published{" "}
+        {publishedAgo ? (
+          <>
+            {publishedAgo}
+            <span className="text-faint"> ({formatRegistryTime(version.publishedAt)})</span>
+          </>
+        ) : (
+          formatRegistryTime(version.publishedAt)
+        )}
         {version.platforms?.length ? ` · ${version.platforms.join(", ")}` : ""}
       </p>
       <p className="flex flex-wrap gap-x-3 gap-y-1">
