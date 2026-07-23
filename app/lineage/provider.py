@@ -67,6 +67,13 @@ def get_column_lineage(
             raise ValueError("max_depth must be positive")
 
         snapshot = LineageSnapshot.load(tenant)
+        if not snapshot.edges:
+            return gestalt.Response(
+                status=HTTPStatus.NOT_FOUND,
+                body={
+                    "error": f"No column lineage data found for tenant: {tenant}"
+                },
+            )
         results = traverse(
             snapshot.edges,
             model=model,

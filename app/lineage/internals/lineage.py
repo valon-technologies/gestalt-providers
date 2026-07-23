@@ -44,11 +44,6 @@ class LineageSnapshot:
             FROM `{LINEAGE_TABLE}`
             WHERE tenant = @tenant
               AND edge_level = 'column'
-            ORDER BY
-              downstream_model,
-              downstream_column,
-              upstream_model,
-              upstream_column
         """
         job_config = bigquery.QueryJobConfig(
             query_parameters=[

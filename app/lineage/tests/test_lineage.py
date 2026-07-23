@@ -1,4 +1,5 @@
 import datetime as dt
+from http import HTTPStatus
 import unittest
 from unittest import mock
 
@@ -96,6 +97,33 @@ class TraverseTests(unittest.TestCase):
                 ("loan_report", "loan_id", 3),
                 ("mart_loans", "loan_id", 3),
             ],
+        )
+
+    def test_operation_rejects_tenant_without_lineage_data(self) -> None:
+        with mock.patch.object(
+            provider_module.LineageSnapshot,
+            "load",
+            return_value=provider_module.LineageSnapshot(
+                edges=(),
+                generated_at=None,
+            ),
+        ):
+            result = provider_module.get_column_lineage(
+                provider_module.GetColumnLineageInput(
+                    tenant="unknown",
+                    model="model",
+                    column="column",
+                    direction="upstream",
+                ),
+                gestalt.Request(),
+            )
+
+        self.assertIsInstance(result, gestalt.Response)
+        assert isinstance(result, gestalt.Response)
+        self.assertEqual(result.status, HTTPStatus.NOT_FOUND)
+        self.assertEqual(
+            result.body,
+            {"error": "No column lineage data found for tenant: unknown"},
         )
 
     def test_max_depth_stops_traversal(self) -> None:
