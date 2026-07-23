@@ -67,8 +67,11 @@ function installedRegistryState(): AppAdminRegistryResponse {
   };
 }
 
+const APP_ADMIN_FIXED_TIME = new Date("2026-07-23T15:00:00Z");
+
 test.describe("app admin registry UI", () => {
   test.beforeEach(async ({ page }) => {
+    await page.clock.install({ time: APP_ADMIN_FIXED_TIME });
     await page.addInitScript(() => {
       localStorage.setItem(
         "gestalt.auth.session",
@@ -97,10 +100,27 @@ test.describe("app admin registry UI", () => {
 
     const select = page.getByTestId("version-select");
     await expect(select).toHaveValue(PUBLISHED_LEGACY.version);
-    await expect(select.locator("option")).toHaveText([
-      PUBLISHED_NEW.version,
-      PUBLISHED_LEGACY.version,
-    ]);
+
+    const options = select.locator("option");
+    await expect(options).toHaveCount(2);
+    await expect(options.nth(0)).toHaveText(
+      `${PUBLISHED_NEW.version} · PR #3251 · yesterday`,
+    );
+    await expect(options.nth(1)).toHaveText(`${PUBLISHED_LEGACY.version} · 2 days ago`);
+  });
+
+  test("sorts published versions newest first even when API returns older first", async ({
+    page,
+  }) => {
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      publishedVersions: [PUBLISHED_LEGACY, PUBLISHED_NEW],
+    });
+    await page.goto(`/apps/${APP}/admin`);
+
+    const options = page.getByTestId("version-select").locator("option");
+    await expect(options.nth(0)).toContainText(PUBLISHED_NEW.version);
+    await expect(options.nth(1)).toContainText(PUBLISHED_LEGACY.version);
   });
 
   test("shows publication details and legacy not recorded fields", async ({ page }) => {
@@ -109,7 +129,7 @@ test.describe("app admin registry UI", () => {
 
     await page.getByTestId("version-select").selectOption(PUBLISHED_NEW.version);
     await expect(page.getByTestId("published-version-summary")).toContainText(
-      "Published",
+      "Published yesterday",
     );
     await expect(page.getByRole("link", { name: "Commit def456d" })).toBeVisible();
     await expect(page.getByRole("link", { name: "PR #3251" })).toBeVisible();

@@ -8,7 +8,11 @@ import {
   SectionHeaderTitle,
 } from "@/features/registry/section-header";
 import type { AppAdminPublishedVersion } from "@/features/registry/types";
-import { isActiveRegistryRollout } from "@/features/registry/format";
+import {
+  formatPublishedVersionOptionLabel,
+  isActiveRegistryRollout,
+  sortPublishedVersionsNewestFirst,
+} from "@/features/registry/format";
 import { RegistryCode } from "@/features/registry/registry-code";
 import { RolloutBadge } from "@/features/registry/rollout-badge";
 import type { RegistryAppSummary } from "@/features/registry/types";
@@ -32,7 +36,8 @@ export function AppAdminVersionPanel({
   submitting: boolean;
   error: string | null;
 }) {
-  const selectedPublished = registry.publishedVersions.find(
+  const publishedVersions = sortPublishedVersionsNewestFirst(registry.publishedVersions);
+  const selectedPublished = publishedVersions.find(
     (version) => version.version === selectedVersion,
   );
   const rolloutActive = registry.rollout
@@ -77,7 +82,7 @@ export function AppAdminVersionPanel({
           </SectionHeaderContent>
         </SectionHeader>
 
-        {registry.publishedVersions.length === 0 ? (
+        {publishedVersions.length === 0 ? (
           <p className="text-sm text-muted">No published versions are available.</p>
         ) : (
           <div className="space-y-4">
@@ -93,9 +98,9 @@ export function AppAdminVersionPanel({
                 disabled={controlsDisabled}
                 onChange={(event) => onSelectedVersionChange(event.target.value)}
               >
-                {registry.publishedVersions.map((version) => (
+                {publishedVersions.map((version) => (
                   <option key={version.version} value={version.version}>
-                    {version.version}
+                    {formatPublishedVersionOptionLabel(version)}
                   </option>
                 ))}
               </select>
