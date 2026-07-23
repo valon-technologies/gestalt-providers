@@ -1448,6 +1448,35 @@
         "entryKind": "app",
         "section": "app"
       },
+      "description": "Query upstream or downstream dbt column lineage.",
+      "displayName": "dbt Column Lineage",
+      "docs": [
+        {
+          "editUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/lineage/README.md",
+          "path": "/",
+          "rawUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/lineage/README.md",
+          "sourcePath": "app/lineage/README.md",
+          "title": "dbt Column Lineage"
+        }
+      ],
+      "iconUrl": null,
+      "kind": "app",
+      "latestInstallableVersion": null,
+      "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/lineage/manifest.yaml",
+      "manifestVersion": "0.0.1-alpha.1",
+      "name": "lineage",
+      "package": "github.com/valon-technologies/gestalt-providers/app/lineage",
+      "packagePath": "app/lineage",
+      "readmeUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/lineage/README.md",
+      "registryPath": "/providers/app/lineage/",
+      "sourceUrl": "https://github.com/valon-technologies/gestalt-providers/tree/main/app/lineage",
+      "versions": []
+    },
+    {
+      "configTarget": {
+        "entryKind": "app",
+        "section": "app"
+      },
       "description": "Manage issues, projects, and teams.",
       "displayName": "Linear",
       "docs": [

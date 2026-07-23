@@ -1,0 +1,28 @@
+[project]
+name = "gestalt-lineage"
+version = "0.0.1a1"
+requires-python = "==3.14.*"
+dependencies = [
+  "gestalt-sdk",
+  "google-auth==2.53.0",
+  "google-cloud-bigquery==3.41.0",
+]
+
+[dependency-groups]
+dev = [
+  "ruff==0.15.9",
+  "ty==0.0.37",
+  "vulture==2.16",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", rev = "7c27e618694975b5045ffa3de8ce8aeaaf9a425c", subdirectory = "sdk/python" }
+
+[tool.gestalt]
+provider = "provider:app"
+
+[tool.gestalt.ci]
+vulture-ignore-names = ["UPSTREAM", "DOWNSTREAM", "get_column_lineage"]

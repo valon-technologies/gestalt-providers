@@ -1,0 +1,17 @@
+source: github.com/valon-technologies/gestalt-providers/app/lineage
+version: 0.0.1-alpha.1
+displayName: dbt Column Lineage
+description: Query upstream or downstream dbt column lineage.
+kind: app
+install:
+  command: [uv, sync, --frozen]
+build:
+  command: [uv, run, gestalt, build]
+run:
+  command: [uv, run, gestalt, run, ., provider:app]
+spec:
+  defaultConnection: default
+  mcp: true
+  connections:
+    default:
+      mode: none
