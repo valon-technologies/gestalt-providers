@@ -1,18 +1,18 @@
-import { cva, type VariantProps } from "class-variance-authority";
-
 /**
  * Gestalt console vendor of Valon Registry `list-item-interaction`.
  *
- * Ownership: Valon Registry
- * (`valon-tools/apps/registry/ui/src/lib/list-item-interaction.ts`).
- * Token adaptation only — consume accent / neutral ladders from
- * `shared/theme.css` + `globals.css`.
- *
+ * Ownership: Valon Registry (`valon-tools/apps/registry/ui/src/lib/list-item-interaction.ts`).
+ * Synced from toolshed origin/main — import-path adaptation only.
+ */
+
+import { cva, type VariantProps } from "class-variance-authority";
+
+/**
  * Selectable-surface interaction chrome (white / card).
  *
- * Normative: Registry `guidelines/selectable-rows.md`. Prefer these role
- * utilities — never invent fills, never author `list-item-*` /
- * `sidebar-item-selected-*` (those are legacy aliases of the roles below).
+ * Normative: `guidelines/selectable-rows.md`. Prefer these role utilities —
+ * never invent fills, never author `list-item-*` / `sidebar-item-selected-*`
+ * (those are legacy aliases of the roles below).
  *
  * | Regime | Rest | Hover | Press |
  * | Idle | transparent | `neutral-hover` | `neutral-pressed` |

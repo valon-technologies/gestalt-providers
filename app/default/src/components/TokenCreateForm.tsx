@@ -24,7 +24,10 @@ import {
 } from "@/hooks/use-server-queries";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { CodeBlock } from "@/components/ui/code-block";
+import {
+  CheckboxTree,
+  type CheckboxTreeNode,
+} from "@/components/ui/checkbox-tree";
 import {
   Field,
   FieldDescription,
@@ -33,13 +36,25 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group";
+import {
+  Alert,
+  AlertDescription,
+} from "@/components/ui/alert";
 import { RadioGroup, RadioGroupItem } from "@/components/RadioGroup";
 import {
   CalendarIcon,
   CheckIcon,
   ChevronDownIcon,
+  CopyIcon,
   SearchIcon,
 } from "@/components/icons";
+import { Info } from "lucide-react";
 import { HighlightMatch } from "@/components/HighlightMatch";
 import {
   filterIntegrations,
@@ -48,8 +63,19 @@ import {
 import { cn } from "@/lib/cn";
 
 interface TokenCreateFormProps {
-  /** Called with the one-time plaintext token after a successful create. */
-  onCreated: (plaintext: string) => void | Promise<void>;
+  /**
+   * Called with the one-time plaintext token after a successful create.
+   * `created` carries the durable id + name for session persistence.
+   */
+  onCreated: (
+    plaintext: string,
+    created: { id: string; name: string },
+  ) => void | Promise<void>;
+  /** Controlled token name — persists via parent when provided with onNameChange. */
+  name?: string;
+  onNameChange?: (name: string) => void;
+  /** Uncontrolled initial name when `name` is omitted. */
+  defaultName?: string;
 }
 
 type DayPreset = 7 | 30 | 60 | 90;
@@ -96,7 +122,138 @@ function normalizeAppIdKey(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
-export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
+/** Scope grammar leaf: `app:operation` — matches encodeTokenScopes. */
+function operationLeafId(appName: string, operationId: string): string {
+  return `${appName}:${operationId}`;
+}
+
+function parseOperationLeafId(
+  leafId: string,
+): { appName: string; operationId: string } | null {
+  const sep = leafId.indexOf(":");
+  if (sep <= 0) return null;
+  return {
+    appName: leafId.slice(0, sep),
+    operationId: leafId.slice(sep + 1),
+  };
+}
+
+function listedOperations(
+  opsState: IntegrationOperation[] | "loading" | "error" | undefined,
+): IntegrationOperation[] | null {
+  return Array.isArray(opsState) && opsState.length > 0 ? opsState : null;
+}
+
+/** Build CheckboxTree nodes: app parents → operation leaves (Registry Nested tree). */
+function buildAppAccessTree(
+  selectedAppNames: readonly string[],
+  selectedApps: Record<string, SelectedAppState>,
+  opsByApp: Record<string, IntegrationOperation[] | "loading" | "error">,
+  integrations: { name: string; displayName?: string }[] | null,
+): CheckboxTreeNode[] {
+  return selectedAppNames
+    .map((appName) => {
+      const app = integrations?.find((item) => item.name === appName);
+      const label = app?.displayName?.trim() || appName;
+      const ops = listedOperations(opsByApp[appName]);
+      if (!ops) {
+        // Loading / error / empty — app is a leaf (bare app scope = all ops).
+        return { id: appName, label };
+      }
+      return {
+        id: appName,
+        label,
+        children: ops.map((op) => ({
+          id: operationLeafId(appName, op.id),
+          label: op.title?.trim() || op.id,
+        })),
+      };
+    })
+    .filter((node) => selectedApps[node.id] != null);
+}
+
+/** Derive CheckboxTree leaf value from SelectedAppState + loaded ops. */
+function leafValueFromSelectedApps(
+  selectedApps: Record<string, SelectedAppState>,
+  opsByApp: Record<string, IntegrationOperation[] | "loading" | "error">,
+): string[] {
+  const leaves: string[] = [];
+  for (const [appName, state] of Object.entries(selectedApps)) {
+    const ops = listedOperations(opsByApp[appName]);
+    if (!ops) {
+      leaves.push(appName);
+      continue;
+    }
+    if (state.allOperations) {
+      for (const op of ops) {
+        leaves.push(operationLeafId(appName, op.id));
+      }
+      continue;
+    }
+    for (const opId of state.operationIds) {
+      leaves.push(operationLeafId(appName, opId));
+    }
+  }
+  return leaves;
+}
+
+/**
+ * Map CheckboxTree leaf ids back to SelectedAppState.
+ * Unchecking every leaf under an app removes it from the selection set.
+ */
+function selectedAppsFromLeafValue(
+  leafIds: readonly string[],
+  previous: Record<string, SelectedAppState>,
+  opsByApp: Record<string, IntegrationOperation[] | "loading" | "error">,
+): Record<string, SelectedAppState> {
+  const byApp = new Map<string, Set<string>>();
+  const bareApps = new Set<string>();
+
+  for (const leafId of leafIds) {
+    const parsed = parseOperationLeafId(leafId);
+    if (parsed) {
+      const set = byApp.get(parsed.appName) ?? new Set<string>();
+      set.add(parsed.operationId);
+      byApp.set(parsed.appName, set);
+      continue;
+    }
+    bareApps.add(leafId);
+  }
+
+  const next: Record<string, SelectedAppState> = {};
+
+  for (const appName of bareApps) {
+    next[appName] = previous[appName] ?? {
+      allOperations: true,
+      operationIds: new Set(),
+    };
+    if (!listedOperations(opsByApp[appName])) {
+      next[appName] = { allOperations: true, operationIds: new Set() };
+    }
+  }
+
+  for (const [appName, operationIds] of byApp) {
+    const ops = listedOperations(opsByApp[appName]);
+    if (!ops) {
+      next[appName] = { allOperations: true, operationIds: new Set() };
+      continue;
+    }
+    const allSelected =
+      ops.length > 0 && ops.every((op) => operationIds.has(op.id));
+    next[appName] = allSelected
+      ? { allOperations: true, operationIds: new Set() }
+      : { allOperations: false, operationIds };
+  }
+
+  return next;
+}
+
+export default function TokenCreateForm({
+  onCreated,
+  name: nameProp,
+  onNameChange,
+  defaultName = "",
+}: TokenCreateFormProps) {
   const idPrefix = useId();
   const nameId = `${idPrefix}-name`;
   const expirationId = `${idPrefix}-expiration`;
@@ -104,11 +261,22 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
   const appAccessId = `${idPrefix}-app-access`;
   const appSearchId = `${idPrefix}-app-search`;
 
-  const [name, setName] = useState("");
+  const isNameControlled = nameProp !== undefined;
+  const [nameUncontrolled, setNameUncontrolled] = useState(defaultName);
+  const name = isNameControlled ? nameProp : nameUncontrolled;
+
+  function setName(next: string) {
+    if (!isNameControlled) {
+      setNameUncontrolled(next);
+    }
+    onNameChange?.(next);
+  }
+
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [plaintext, setPlaintext] = useState<string | null>(null);
+  const [tokenCopied, setTokenCopied] = useState(false);
 
   const [expirationIdSelected, setExpirationIdSelected] =
     useState<ExpirationOption["id"]>("30d");
@@ -174,59 +342,6 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
     });
   }
 
-  function setAppAllOperations(appName: string, all: boolean) {
-    setSelectedApps((prev) => {
-      const current = prev[appName];
-      if (!current) return prev;
-      if (all) {
-        return {
-          ...prev,
-          [appName]: { allOperations: true, operationIds: new Set() },
-        };
-      }
-      const ops = opsByApp[appName];
-      const allIds =
-        Array.isArray(ops) ? ops.map((op) => op.id) : [...current.operationIds];
-      return {
-        ...prev,
-        [appName]: {
-          allOperations: false,
-          operationIds: new Set(allIds),
-        },
-      };
-    });
-  }
-
-  function toggleOperation(appName: string, opId: string, checked: boolean) {
-    setSelectedApps((prev) => {
-      const current = prev[appName];
-      if (!current) return prev;
-
-      const nextIds = new Set(
-        current.allOperations
-          ? Array.isArray(opsByApp[appName])
-            ? (opsByApp[appName] as IntegrationOperation[]).map((op) => op.id)
-            : []
-          : current.operationIds,
-      );
-
-      if (checked) nextIds.add(opId);
-      else nextIds.delete(opId);
-
-      const ops = opsByApp[appName];
-      const total = Array.isArray(ops) ? ops.length : nextIds.size;
-      const allSelected = total > 0 && nextIds.size === total;
-
-      return {
-        ...prev,
-        [appName]: {
-          allOperations: allSelected,
-          operationIds: allSelected ? new Set() : nextIds,
-        },
-      };
-    });
-  }
-
   function buildSelections() {
     return Object.entries(selectedApps).map(([appId, state]) => ({
       appId,
@@ -279,14 +394,20 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
     try {
       const result = await createToken(trimmedName, scopes, expiresIn);
       setPlaintext(result.token);
-      setName("");
+      setTokenCopied(false);
+      if (!isNameControlled) {
+        setName("");
+      }
       setScopeMode("all");
       setSelectedApps({});
       setAppQuery("");
       setExpirationIdSelected("30d");
       setCustomDate("");
       await invalidateTokens();
-      await onCreated(result.token);
+      await onCreated(result.token, {
+        id: result.id,
+        name: trimmedName,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create token");
     } finally {
@@ -300,6 +421,56 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
   );
 
   const selectedAppNames = Object.keys(selectedApps);
+
+  const accessTree = useMemo(
+    () =>
+      buildAppAccessTree(
+        selectedAppNames,
+        selectedApps,
+        opsByApp,
+        integrations,
+      ),
+    [selectedAppNames, selectedApps, opsByApp, integrations],
+  );
+
+  const accessTreeValue = useMemo(
+    () => leafValueFromSelectedApps(selectedApps, opsByApp),
+    [selectedApps, opsByApp],
+  );
+
+  const accessTreeStatusNotes: {
+    appName: string;
+    tone: "muted" | "error";
+    text: string;
+  }[] = [];
+  for (const appName of selectedAppNames) {
+    const opsState = opsByApp[appName];
+    const app = integrations?.find((item) => item.name === appName);
+    const label = app?.displayName?.trim() || appName;
+    if (opsState === "loading" || opsState === undefined) {
+      accessTreeStatusNotes.push({
+        appName,
+        tone: "muted",
+        text: `Loading operations for ${label}…`,
+      });
+      continue;
+    }
+    if (opsState === "error") {
+      accessTreeStatusNotes.push({
+        appName,
+        tone: "error",
+        text: `Could not load operations for ${label}. Token will grant all operations for this app.`,
+      });
+      continue;
+    }
+    if (opsState.length === 0) {
+      accessTreeStatusNotes.push({
+        appName,
+        tone: "muted",
+        text: `No listed operations for ${label} — token grants full access to this app.`,
+      });
+    }
+  }
 
   return (
     <>
@@ -491,86 +662,41 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
 
                 {selectedAppNames.length > 0 ? (
                   <div className="space-y-3 border-t border-alpha pt-3">
-                    {selectedAppNames.map((appName) => {
-                      const state = selectedApps[appName];
-                      const app = integrations?.find((a) => a.name === appName);
-                      const label = app?.displayName ?? appName;
-                      const opsState = opsByApp[appName];
-                      return (
-                        <div key={appName} className="space-y-2">
-                          <p className="text-sm font-medium text-foreground">
-                            {label}
-                          </p>
-                          {opsState === "loading" || opsState === undefined ? (
-                            <p className="text-xs text-muted-foreground">
-                              Loading operations…
-                            </p>
-                          ) : opsState === "error" ? (
-                            <p className="text-xs text-ember-500">
-                              Could not load operations. Token will grant all
-                              operations for this app.
-                            </p>
-                          ) : opsState.length === 0 ? (
-                            <p className="text-xs text-muted-foreground">
-                              No listed operations — token grants full access to
-                              this app.
-                            </p>
-                          ) : (
-                            <ul className="space-y-1 pl-1">
-                              <li>
-                                <label className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 hover:bg-alpha-5">
-                                  <Checkbox
-                                    checked={state.allOperations}
-                                    onCheckedChange={(value) =>
-                                      setAppAllOperations(
-                                        appName,
-                                        value === true,
-                                      )
-                                    }
-                                    aria-label={`All operations for ${label}`}
-                                  />
-                                  <span className="text-sm text-foreground">
-                                    All operations
-                                  </span>
-                                </label>
-                              </li>
-                              {opsState.map((op) => {
-                                const opChecked =
-                                  state.allOperations ||
-                                  state.operationIds.has(op.id);
-                                return (
-                                  <li key={op.id}>
-                                    <label className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 hover:bg-alpha-5">
-                                      <Checkbox
-                                        checked={opChecked}
-                                        onCheckedChange={(value) =>
-                                          toggleOperation(
-                                            appName,
-                                            op.id,
-                                            value === true,
-                                          )
-                                        }
-                                        aria-label={`${op.title ?? op.id} for ${label}`}
-                                      />
-                                      <span className="min-w-0">
-                                        <span className="block truncate text-sm text-foreground">
-                                          {op.title ?? op.id}
-                                        </span>
-                                        {op.title ? (
-                                          <span className="block truncate text-xs text-muted-foreground">
-                                            {op.id}
-                                          </span>
-                                        ) : null}
-                                      </span>
-                                    </label>
-                                  </li>
-                                );
-                              })}
-                            </ul>
-                          )}
-                        </div>
-                      );
-                    })}
+                    <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                      Selected apps & permissions
+                    </p>
+                    {accessTreeStatusNotes.length > 0 ? (
+                      <ul className="space-y-1">
+                        {accessTreeStatusNotes.map((note) => (
+                          <li
+                            key={note.appName}
+                            className={
+                              note.tone === "error"
+                                ? "text-xs text-ember-500"
+                                : "text-xs text-muted-foreground"
+                            }
+                          >
+                            {note.text}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    <CheckboxTree
+                      tree={accessTree}
+                      value={accessTreeValue}
+                      onValueChange={(nextLeaves) => {
+                        setSelectedApps((prev) =>
+                          selectedAppsFromLeafValue(
+                            nextLeaves,
+                            prev,
+                            opsByApp,
+                          ),
+                        );
+                        setFieldError(null);
+                      }}
+                      showIcons={false}
+                      className="max-h-72 max-w-none overflow-auto"
+                    />
                   </div>
                 ) : null}
               </div>
@@ -586,15 +712,42 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
       </form>
 
       {plaintext && (
-        <div className="mt-6 space-y-3 rounded-lg border border-gold-300 bg-gold-50 p-5 dark:border-gold-700 dark:bg-gold-950/30">
-          <p className="text-sm font-medium text-gold-800 dark:text-gold-300">
-            Copy this token now. It will not be shown again.
-          </p>
-          <CodeBlock
-            code={plaintext}
-            language="plaintext"
-            filename="token"
-          />
+        <div className="mt-6 space-y-2">
+          <InputGroup>
+            <InputGroupInput
+              value={plaintext}
+              readOnly
+              aria-label="API token"
+              className="font-mono text-sm"
+              onFocus={(event) => event.currentTarget.select()}
+            />
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton
+                size="icon-xs"
+                aria-label={tokenCopied ? "Copied" : "Copy token"}
+                title={tokenCopied ? "Copied" : "Copy"}
+                onClick={() => {
+                  void navigator.clipboard.writeText(plaintext).then(() => {
+                    setTokenCopied(true);
+                    window.setTimeout(() => setTokenCopied(false), 2000);
+                  });
+                }}
+              >
+                {tokenCopied ? (
+                  <CheckIcon className="size-3.5" />
+                ) : (
+                  <CopyIcon className="size-3.5" />
+                )}
+              </InputGroupButton>
+            </InputGroupAddon>
+          </InputGroup>
+          <Alert>
+            <Info aria-hidden />
+            <AlertDescription className="font-normal">
+              We&apos;ll use this token for this example. You can delete it later
+              and create a safer one if you want.
+            </AlertDescription>
+          </Alert>
         </div>
       )}
 

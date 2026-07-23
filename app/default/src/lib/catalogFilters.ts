@@ -16,7 +16,7 @@ export type ConnectionSetupBucket =
   | "ready"
   | "needs_attention";
 
-/** Segmented catalog filters — attention is sort/warning, not a filter tab. */
+/** Connection setup partitions for sort / attention — not UI filter tabs. */
 export type ConnectionFilter = "all" | "needs_connection" | "ready";
 
 export type SurfaceFilter = "all" | "has_ui" | "no_ui" | "has_mcp";

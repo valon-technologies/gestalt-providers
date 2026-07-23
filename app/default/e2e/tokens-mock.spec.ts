@@ -55,14 +55,19 @@ test.describe("Token Management", () => {
   }) => {
     const page = authenticatedPage;
     let tokens: APIToken[] = [];
+    await mockTokens(page, () => tokens);
     await page.route("**/api/v1/tokens", async (route, request) => {
-      if (request.method() === "GET") {
-        await route.fulfill({ json: tokens });
-        return;
-      }
       if (request.method() === "POST") {
-        const body = request.postDataJSON() as { name?: string; scopes?: string; expiresIn?: number };
-        expect(body).toEqual({ name: "audit-label", scopes: "my-app", expiresIn: 30 * 24 * 60 * 60 });
+        const body = request.postDataJSON() as {
+          name?: string;
+          scopes?: string;
+          expiresIn?: number;
+        };
+        expect(body).toEqual({
+          name: "audit-label",
+          scopes: "my-app",
+          expiresIn: 30 * 24 * 60 * 60,
+        });
         tokens = [
           {
             id: "tok-new",
@@ -81,7 +86,7 @@ test.describe("Token Management", () => {
         });
         return;
       }
-      await route.continue();
+      await route.fallback();
     });
     await mockIntegrations(page, [
       { name: "my-app", displayName: "My App" },
@@ -98,8 +103,12 @@ test.describe("Token Management", () => {
     await page.getByRole("checkbox", { name: "Select My App" }).click();
     await page.getByRole("button", { name: "Create Token" }).click();
 
-    await expect(page.getByText("Copy this token now")).toBeVisible();
-    await expect(page.getByText("gestalt_abc123secret")).toBeVisible();
+    await expect(page.getByLabel("API token")).toHaveValue(
+      "gestalt_abc123secret",
+    );
+    await expect(
+      page.getByText("We'll use this token for this example"),
+    ).toBeVisible();
     await expect(page.locator("tr", { hasText: "tok-new" })).toBeVisible();
     await expect(page.getByText("my-app")).toBeVisible();
   });
@@ -109,22 +118,64 @@ test.describe("Token Management", () => {
   }) => {
     const page = authenticatedPage;
     let tokens: APIToken[] = [];
-    let getCount = 0;
+    let listCount = 0;
 
-    await page.route("**/api/v1/tokens", async (route, request) => {
-      if (request.method() === "GET") {
-        getCount += 1;
-        if (getCount === 1) {
+    await page.route(
+      (url) => url.pathname.includes("/api/v2/identity/grants"),
+      async (route, request) => {
+      const url = new URL(request.url());
+      if (
+        request.method() === "GET" &&
+        /\/api\/v2\/identity\/grants\/?$/.test(url.pathname)
+      ) {
+        listCount += 1;
+        if (listCount === 1) {
           await new Promise((resolve) => setTimeout(resolve, 250));
-          await route.fulfill({ json: [] });
+          await route.fulfill({ json: { grantIds: [] } });
           return;
         }
-        await route.fulfill({ json: tokens });
+        await route.fulfill({
+          json: { grantIds: tokens.map((token) => token.id) },
+        });
         return;
       }
 
+      const match = url.pathname.match(
+        /\/api\/v2\/identity\/grants\/([^/]+)\/?$/,
+      );
+      if (request.method() === "GET" && match) {
+        const id = decodeURIComponent(match[1]!);
+        const token = tokens.find((item) => item.id === id);
+        if (!token) {
+          await route.fulfill({ status: 404, json: { error: "not found" } });
+          return;
+        }
+        const createdMs = Date.parse(token.createdAt);
+        await route.fulfill({
+          json: {
+            scopes: (token.scopes ?? []).map((scope) => ({
+              scope,
+              resource: [],
+            })),
+            createdAt: Number.isFinite(createdMs)
+              ? String(Math.floor(createdMs / 1000))
+              : "0",
+            expiresAt: "0",
+          },
+        });
+        return;
+      }
+
+      await route.fallback();
+    },
+    );
+
+    await page.route("**/api/v1/tokens", async (route, request) => {
       if (request.method() === "POST") {
-        const body = request.postDataJSON() as { name?: string; scopes?: string };
+        const body = request.postDataJSON() as {
+          name?: string;
+          scopes?: string;
+        };
         expect(body.scopes).toBe("other-app");
         tokens = [
           {
@@ -143,8 +194,7 @@ test.describe("Token Management", () => {
         });
         return;
       }
-
-      await route.continue();
+      await route.fallback();
     });
     await mockIntegrations(page, [
       { name: "my-app", displayName: "My App" },
@@ -161,7 +211,9 @@ test.describe("Token Management", () => {
     await page.getByRole("checkbox", { name: "Select Other App" }).click();
     await page.getByRole("button", { name: "Create Token" }).click();
 
-    await expect(page.getByText("Copy this token now")).toBeVisible();
+    await expect(page.getByLabel("API token")).toHaveValue(
+      "gestalt_race_secret",
+    );
     await expect(page.locator("tr", { hasText: "tok-race" })).toBeVisible();
     await expect(page.getByText("No API tokens yet.")).toBeHidden();
   });
@@ -169,20 +221,10 @@ test.describe("Token Management", () => {
   test("revokes a token by grant ID", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     let tokens = [...sampleTokens];
-    await page.route("**/api/v1/tokens", (route, request) => {
-      if (request.method() === "GET") {
-        route.fulfill({ json: tokens });
-      } else {
-        route.continue();
-      }
-    });
-    await page.route("**/api/v1/tokens/*", (route, request) => {
-      if (request.method() === "DELETE") {
-        tokens = tokens.filter((t) => !request.url().includes(t.id));
-        route.fulfill({ json: { status: "revoked" } });
-      } else {
-        route.continue();
-      }
+    await mockTokens(page, () => tokens, {
+      onRevoke: (id) => {
+        tokens = tokens.filter((token) => token.id !== id);
+      },
     });
     await mockIntegrations(page, []);
 

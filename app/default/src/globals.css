@@ -60,6 +60,12 @@
   --color-sky-600: oklch(58.762% 0.1389 241.97);
   --color-sky-700: oklch(49.998% 0.1193 242.75);
 
+  /* Absolute type-scale floor below Tailwind's text-xs (0.75rem). Named step
+   * so call sites never author text-[10px] — keep in sync with Valon Registry
+   * theme (`--text-2xs`, guidelines/typography-base-size.md). */
+  --text-2xs: 0.625rem;
+  --text-2xs--line-height: 0.875rem;
+
   /* v3's default ring color (blue-500/50) — v4 defaults to currentColor.
    * Bare-width rings (`ring-2` without a ring color) rendered blue in v3. */
   --default-ring-color: oklch(62.308% 0.188 259.81 / 0.5);
@@ -96,6 +102,8 @@
   --color-accent-vivid-hover: var(--accent-vivid-hover);
   --color-accent-vivid-pressed: var(--accent-vivid-pressed);
   --color-accent-wash: var(--accent-wash);
+  --color-accent-wash-hover: var(--accent-wash-hover);
+  --color-accent-wash-pressed: var(--accent-wash-pressed);
   --color-accent-highlight: var(--accent-highlight);
   --color-accent-solid: var(--accent-solid);
   --color-accent-solid-hover: var(--accent-solid-hover);
@@ -104,6 +112,8 @@
   --color-neutral-pressed: var(--neutral-pressed);
   --color-neutral-dark-hover: var(--neutral-dark-hover);
   --color-neutral-dark-pressed: var(--neutral-dark-pressed);
+  --color-list-item-hover: var(--list-item-hover);
+  --color-list-item-pressed: var(--list-item-pressed);
   --color-ring: var(--ring);
   --color-danger: var(--danger);
   --color-success: var(--success);
@@ -137,6 +147,30 @@
   --color-accent-strong-pressed: var(--accent-strong-pressed);
 
   --tracking-eyebrow: 0.075em;
+  --tracking-display: var(--valon-tracking-display);
+  --tracking-display-tight: var(--valon-tracking-display-tight);
+  --tracking-heading: var(--valon-tracking-heading);
+  --tracking-heading-tight: var(--valon-tracking-heading-tight);
+
+  /* Brand type scale utilities — text-display-sm, text-heading-md, text-body-lg. */
+  --text-body-lg: var(--valon-text-body-lg);
+  --text-body-lg--line-height: var(--valon-text-body-lg--line-height);
+  --text-heading-sm: var(--valon-text-heading-sm);
+  --text-heading-sm--line-height: var(--valon-text-heading-sm--line-height);
+  --text-heading-md: var(--valon-text-heading-md);
+  --text-heading-md--line-height: var(--valon-text-heading-md--line-height);
+  --text-heading-lg: var(--valon-text-heading-lg);
+  --text-heading-lg--line-height: var(--valon-text-heading-lg--line-height);
+  --text-heading-xl: var(--valon-text-heading-xl);
+  --text-heading-xl--line-height: var(--valon-text-heading-xl--line-height);
+  --text-display-sm: var(--valon-text-display-sm);
+  --text-display-sm--line-height: var(--valon-text-display-sm--line-height);
+  --text-display-md: var(--valon-text-display-md);
+  --text-display-md--line-height: var(--valon-text-display-md--line-height);
+  --text-display-lg: var(--valon-text-display-lg);
+  --text-display-lg--line-height: var(--valon-text-display-lg--line-height);
+  --text-display-xl: var(--valon-text-display-xl);
+  --text-display-xl--line-height: var(--valon-text-display-xl--line-height);
 
   --height-control-xs: var(--control-h-xs);
   --height-control-sm: var(--control-h-sm);
@@ -244,6 +278,35 @@
   0% { transform: scale(1); }
   40% { transform: scale(1.1); }
   100% { transform: scale(1); }
+}
+
+/*
+ * Accordion / Collapsible drawer — height to/from the intrinsic `auto` (no JS
+ * measurement), enabled by `interpolate-size: allow-keywords` on the panel.
+ * Registry theme.css — keep keyframes + data-slot selectors in sync.
+ */
+@keyframes valon-accordion-open {
+  from { height: 0; }
+  to { height: auto; }
+}
+
+@keyframes valon-accordion-close {
+  from { height: auto; }
+  to { height: 0; }
+}
+
+[data-slot="accordion-content"][data-state="open"],
+[data-slot="collapsible-content"][data-state="open"] {
+  animation-name: valon-accordion-open;
+  animation-duration: var(--motion-overshoot);
+  animation-timing-function: var(--ease-out-back-soft);
+}
+
+[data-slot="accordion-content"][data-state="closed"],
+[data-slot="collapsible-content"][data-state="closed"] {
+  animation-name: valon-accordion-close;
+  animation-duration: var(--motion-dismiss);
+  animation-timing-function: var(--ease-out-back-soft);
 }
 
 /* Console-only ink ladder remnant: 40% alpha-dark. Prefer

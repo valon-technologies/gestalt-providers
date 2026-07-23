@@ -1,39 +1,36 @@
 "use client";
 
-import * as React from "react";
-import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
-
-import {
-  CheckIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
-  CircleIcon,
-} from "@/components/icons";
-import { cn } from "@/lib/cn";
 
 /**
  * Gestalt console vendor of Valon Registry `dropdown-menu`.
  *
  * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/dropdown-menu.tsx`). Token adaptation
- * only — `cn` import path; lucide → `@/components/icons`. Theme bridge:
- * `--popover` / `--accent-hover` / `--accent-pressed` in `shared/theme.css` +
- * `globals.css` `@theme inline`.
+ * (`valon-tools/apps/registry/ui/src/ui/dropdown-menu.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
  */
+
+import * as React from "react";
+import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
+import { ChevronDown, ChevronRight } from "lucide-react";
+
+import { SelectionCheck } from "@/components/ui/selection-check";
+import { disclosureCaretClassName } from "@/lib/disclosure-caret";
+import { menuItemVariants } from "@/lib/menu";
+import { cn } from "@/lib/cn";
 
 const DropdownMenu = DropdownMenuPrimitive.Root;
 
 const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
 
 // Drop a <DropdownMenuCaret /> inside a `group`-classed trigger button to get
-// the same caret-down that rotates on open as the select/combobox triggers.
-function DropdownMenuCaret({ className }: { className?: string }) {
+// the shared disclosure caret (guidelines/transitions.md § Caret rotate).
+function DropdownMenuCaret({ className, ...props }: React.ComponentProps<typeof ChevronDown>) {
   return (
-    <ChevronDownIcon
-      className={cn(
-        "ml-2 size-4 shrink-0 opacity-50 transition-transform duration-overshoot ease-out-back group-data-[state=open]:rotate-180",
-        className,
-      )}
+    <ChevronDown
+      aria-hidden
+      className={cn(disclosureCaretClassName, "ml-2", className)}
+      {...props}
     />
   );
 }
@@ -55,14 +52,15 @@ const DropdownMenuSubTrigger = React.forwardRef<
   <DropdownMenuPrimitive.SubTrigger
     ref={ref}
     className={cn(
-      "flex cursor-default select-none items-center rounded-md px-2 py-1.5 text-sm outline-none focus:bg-accent-hover data-[state=open]:bg-accent-hover",
-      inset && "pl-8",
+      // Same row chrome as CommandItem / SelectItem — icon size included.
+      menuItemVariants({ indicator: inset ? "leading" : "none" }),
+      "data-[state=open]:bg-neutral-hover",
       className,
     )}
     {...props}
   >
     {children}
-    <ChevronRightIcon className="ml-auto h-4 w-4" />
+    <ChevronRight className="ml-auto size-4 shrink-0 opacity-50" />
   </DropdownMenuPrimitive.SubTrigger>
 ));
 DropdownMenuSubTrigger.displayName = DropdownMenuPrimitive.SubTrigger.displayName;
@@ -109,8 +107,7 @@ const DropdownMenuItem = React.forwardRef<
   <DropdownMenuPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-colors focus:not-active:bg-accent-hover focus:text-accent-foreground active:bg-accent-pressed active:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&>svg]:size-4 [&>svg]:shrink-0",
-      inset && "pl-8",
+      menuItemVariants({ indicator: inset ? "leading" : "none" }),
       className,
     )}
     {...props}
@@ -125,22 +122,23 @@ const DropdownMenuCheckboxItem = React.forwardRef<
   <DropdownMenuPrimitive.CheckboxItem
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-start rounded-md py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:not-active:bg-accent-hover focus:text-accent-foreground active:bg-accent-pressed active:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      // Same Neutral row chrome as DropdownMenuItem / SelectItem / CommandItem.
+      // Leading gutter holds the check column (selection-indicators.md / flyout.md).
+      menuItemVariants({ indicator: "leading" }),
       className,
     )}
     checked={checked}
     {...props}
   >
-    <span className="absolute left-2 top-1.5 flex h-4 w-4 items-center justify-center">
+    <span className="absolute left-2 flex size-3.5 items-center justify-center">
       <DropdownMenuPrimitive.ItemIndicator>
-        <CheckIcon className="h-4 w-4" />
+        <SelectionCheck tone="solid" />
       </DropdownMenuPrimitive.ItemIndicator>
     </span>
     {children}
   </DropdownMenuPrimitive.CheckboxItem>
 ));
-DropdownMenuCheckboxItem.displayName =
-  DropdownMenuPrimitive.CheckboxItem.displayName;
+DropdownMenuCheckboxItem.displayName = DropdownMenuPrimitive.CheckboxItem.displayName;
 
 const DropdownMenuRadioItem = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.RadioItem>,
@@ -149,14 +147,16 @@ const DropdownMenuRadioItem = React.forwardRef<
   <DropdownMenuPrimitive.RadioItem
     ref={ref}
     className={cn(
-      "relative flex cursor-default select-none items-center rounded-md py-1.5 pl-8 pr-2 text-sm outline-none transition-colors focus:not-active:bg-accent-hover focus:text-accent-foreground active:bg-accent-pressed active:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      // Same Neutral row chrome + solid SelectionCheck as checkbox items /
+      // Select / Combobox — not a parallel accent + lucide-dot path.
+      menuItemVariants({ indicator: "leading" }),
       className,
     )}
     {...props}
   >
-    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+    <span className="absolute left-2 flex size-3.5 items-center justify-center">
       <DropdownMenuPrimitive.ItemIndicator>
-        <CircleIcon className="h-2 w-2 fill-current" />
+        <SelectionCheck tone="solid" />
       </DropdownMenuPrimitive.ItemIndicator>
     </span>
     {children}

@@ -1,5 +1,15 @@
 "use client";
 
+
+/**
+ * Gestalt console vendor of Valon Registry `stepper`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/stepper.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
+ */
+
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
@@ -8,15 +18,6 @@ import { cn } from "@/lib/cn";
 import { listItemInteraction } from "@/lib/list-item-interaction";
 import { Button } from "@/components/ui/button";
 import { SelectionCheck } from "@/components/ui/selection-check";
-
-/**
- * Gestalt console vendor of Valon Registry `stepper`.
- *
- * Ownership: Valon Registry is the canonical source of truth
- * (`valon-tools/apps/registry/ui/src/ui/stepper.tsx`). Token adaptation only —
- * `cn` import path; Button / SelectionCheck / listItemInteraction resolve to
- * console vendors. Spec: `valon-tools/registry/guidelines/stepper.md`.
- */
 
 // Multi-step *process navigation* (wizard chrome) — not TimelineSteps.
 // Progress chrome (checks + connectors) is derived from the *active index*:

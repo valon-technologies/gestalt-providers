@@ -1,16 +1,22 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { Integration } from "@/lib/api";
 import { groupCatalogForBrowse } from "@/lib/catalogBuckets";
 import {
   countNeedsAttention,
   filterCatalogIntegrations,
-  type ConnectionFilter,
 } from "@/lib/catalogFilters";
 import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "@/lib/constants";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import PluginSearchBar from "@/components/PluginSearchBar";
-import { Eyebrow } from "@/components/ui/eyebrow";
 import {
   PageHeader,
   PageHeaderActions,
@@ -18,7 +24,12 @@ import {
   PageHeaderDescription,
   PageHeaderTitle,
 } from "@/components/ui/page-header";
-import { SegmentedControl } from "@/components/ui/segmented-control";
+import {
+  TableOfContents,
+  isTableOfContentsLink,
+  type TableOfContentsItem,
+} from "@/components/ui/table-of-contents";
+import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import { SpinnerIcon } from "@/components/icons";
 import Button from "@/components/Button";
 import {
@@ -28,12 +39,10 @@ import {
 
 const APPS_PATH = "/apps";
 const LEGACY_INTEGRATIONS_PATH = "/integrations";
-
-const CONNECTION_FILTERS: Array<{ value: ConnectionFilter; label: string }> = [
-  { value: "all", label: "All" },
-  { value: "needs_connection", label: "To connect" },
-  { value: "ready", label: "Ready" },
-];
+/** Offset below the viewport top for TOC scroll-spy + scroll-margin on headings. */
+/** Must sit below `scroll-mt-24` (96px) so a clicked heading still counts as
+ *  crossed after `scrollIntoView` parks it on the scroll-margin. */
+const CATALOG_TOC_ACTIVATION_OFFSET = 112;
 
 export default function AppsCatalogPageClient() {
   const integrationsQuery = useIntegrationsQuery();
@@ -50,8 +59,6 @@ export default function AppsCatalogPageClient() {
         : null;
 
   const [query, setQuery] = useState("");
-  const [connectionFilter, setConnectionFilter] =
-    useState<ConnectionFilter>("all");
   const [toast, setToast] = useState<string | null>(() => {
     if (typeof window === "undefined") {
       return null;
@@ -64,7 +71,7 @@ export default function AppsCatalogPageClient() {
   const deferredQuery = useDeferredValue(query);
   const filteredIntegrations = filterCatalogIntegrations(integrations, {
     query: deferredQuery,
-    connection: connectionFilter,
+    connection: "all",
     surface: "all",
   });
   const { installed, sections: catalogSections } = useMemo(
@@ -73,8 +80,68 @@ export default function AppsCatalogPageClient() {
   );
   const needsAttentionCount = countNeedsAttention(integrations);
   const hasSearchQuery = query.trim().length > 0;
-  const hasActiveFilters = connectionFilter !== "all" || hasSearchQuery;
   const hasCatalogContent = installed.length > 0 || catalogSections.length > 0;
+
+  const tocItems = useMemo((): TableOfContentsItem[] => {
+    const items: TableOfContentsItem[] = [];
+    if (installed.length > 0) {
+      items.push({
+        id: "catalog-bucket-installed",
+        title: "Installed",
+        depth: 1,
+      });
+    }
+    if (installed.length > 0 && catalogSections.length > 0) {
+      items.push({ kind: "separator", id: "catalog-toc-sep-installed" });
+    }
+    for (const { bucket } of catalogSections) {
+      items.push({
+        id: `catalog-bucket-${bucket.id}`,
+        title: bucket.label,
+        depth: 1,
+      });
+    }
+    return items;
+  }, [catalogSections, installed.length]);
+
+  const scrollRootRef = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    scrollRootRef.current = document.documentElement;
+  }, []);
+
+  const linkItems = useMemo(
+    () => tocItems.filter(isTableOfContentsLink),
+    [tocItems],
+  );
+  const sectionsKey = linkItems.map((item) => item.id).join(",");
+  const getEntries = useCallback(() => {
+    return linkItems.flatMap((item) => {
+      const el = document.getElementById(item.id);
+      return el
+        ? [{ id: item.id, top: el.getBoundingClientRect().top }]
+        : [];
+    });
+  }, [linkItems]);
+
+  const { activeId, activate } = useScrollSpy({
+    scrollRootRef,
+    getEntries,
+    sectionsKey,
+    activationOffset: CATALOG_TOC_ACTIVATION_OFFSET,
+    forceLastAtBottom: true,
+    enabled: hasCatalogContent && linkItems.length > 0,
+    observeWindow: true,
+  });
+
+  const onTocSelect = useCallback(
+    (id: string) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      activate(id);
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    },
+    [activate],
+  );
 
   useEffect(() => {
     if (window.location.pathname !== LEGACY_INTEGRATIONS_PATH) {
@@ -123,13 +190,8 @@ export default function AppsCatalogPageClient() {
     }
   }
 
-  function clearFilters() {
-    setQuery("");
-    setConnectionFilter("all");
-  }
-
   return (
-    <Container as="main" className="py-12">
+    <Container as="main" className="pt-12 pb-24">
       {toast && (
         <div className="mb-8 flex items-center justify-between rounded-lg border border-grove-200 bg-grove-50 px-5 py-3.5 text-sm text-grove-700 dark:border-grove-600 dark:bg-grove-700/20 dark:text-grove-200">
           <span>{toast}</span>
@@ -144,34 +206,19 @@ export default function AppsCatalogPageClient() {
       )}
 
       <PageHeader>
-        <PageHeaderContent>
-          <div className="flex flex-col gap-3">
-            <Eyebrow>Catalog</Eyebrow>
-            <PageHeaderTitle size="lg">Apps</PageHeaderTitle>
-          </div>
+        <PageHeaderContent size="lg">
+          <PageHeaderTitle>Apps</PageHeaderTitle>
           <PageHeaderDescription>
             Browse installed apps, then discover more by category. Connect
             credentials, then open an app to manage access.
           </PageHeaderDescription>
         </PageHeaderContent>
         <PageHeaderActions className="w-full max-w-md sm:w-auto">
-          <div className="flex w-full flex-col gap-3 sm:items-end">
-            <PluginSearchBar
-              query={query}
-              onQueryChange={setQuery}
-              disabled={loading || !!error || integrations.length === 0}
-            />
-            <SegmentedControl
-              value={connectionFilter}
-              onValueChange={(value) =>
-                setConnectionFilter(value as ConnectionFilter)
-              }
-              options={CONNECTION_FILTERS}
-              label="Filter by connection status"
-              size="sm"
-              className="w-full sm:w-auto"
-            />
-          </div>
+          <PluginSearchBar
+            query={query}
+            onQueryChange={setQuery}
+            disabled={loading || !!error || integrations.length === 0}
+          />
         </PageHeaderActions>
       </PageHeader>
 
@@ -226,108 +273,124 @@ export default function AppsCatalogPageClient() {
         !hasCatalogContent && (
           <div className="mt-10 flex flex-col items-start gap-3">
             <p className="text-sm text-faint">
-              {hasSearchQuery && connectionFilter === "all" ? (
+              {hasSearchQuery ? (
                 <>
                   No apps match <span>{`"${query.trim()}"`}</span>. Try a
                   different search, or clear it.
                 </>
-              ) : hasActiveFilters ? (
-                hasSearchQuery ? (
-                  <>
-                    No apps match <span>{`"${query.trim()}"`}</span> with this
-                    filter. Try All, or clear search.
-                  </>
-                ) : (
-                  "No apps match this filter. Try All, or clear search."
-                )
               ) : (
                 "No apps are available yet. Ask your admin if you expected to see ones here."
               )}
             </p>
-            {hasActiveFilters ? (
-              <Button type="button" variant="secondary" onClick={clearFilters}>
-                Clear filters
+            {hasSearchQuery ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setQuery("")}
+              >
+                Clear search
               </Button>
             ) : null}
           </div>
         )}
 
       {!loading && !error && hasCatalogContent && (
-        <div className="mt-10 space-y-12" data-testid="plugin-grid">
-          {installed.length > 0 ? (
-            <section
-              aria-labelledby="catalog-bucket-installed"
-              data-testid="catalog-bucket-installed"
+        <div className="mt-10 flex gap-8" data-testid="plugin-grid">
+          {tocItems.length > 0 ? (
+            <aside
+              className="hidden w-44 shrink-0 lg:block"
+              data-testid="apps-catalog-toc"
             >
-              <div className="mb-4 max-w-2xl">
-                <h2
-                  id="catalog-bucket-installed"
-                  className="font-heading text-xl text-foreground"
-                >
-                  Installed
-                </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Apps you’re already connected to — open one to manage access.
-                </p>
+              <div className="sticky top-24 h-[calc(100vh-7rem)]">
+                <TableOfContents
+                  items={tocItems}
+                  activeId={activeId}
+                  onItemSelect={onTocSelect}
+                  label="Categories"
+                  className="min-h-0"
+                  maxHeight="100%"
+                />
               </div>
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                {installed.map((integration) => (
-                  <IntegrationCard
-                    key={integration.name}
-                    integration={integration}
-                    highlightQuery={deferredQuery}
-                    onConnected={() =>
-                      void refreshIntegrations({ background: true })
-                    }
-                    onDisconnected={() =>
-                      void refreshIntegrations({ background: true })
-                    }
-                    onStatusMessage={setToast}
-                    returnPath={APPS_PATH}
-                  />
-                ))}
-              </div>
-            </section>
+            </aside>
           ) : null}
 
-          {catalogSections.map(({ bucket, integrations: sectionApps }) => (
-            <section
-              key={bucket.id}
-              aria-labelledby={`catalog-bucket-${bucket.id}`}
-              data-testid={`catalog-bucket-${bucket.id}`}
-            >
-              <div className="mb-4 max-w-2xl">
-                <h2
-                  id={`catalog-bucket-${bucket.id}`}
-                  className="font-heading text-xl text-foreground"
-                >
-                  {bucket.label}
-                </h2>
-                {bucket.description ? (
+          <div className="min-w-0 flex-1 space-y-12">
+            {installed.length > 0 ? (
+              <section
+                aria-labelledby="catalog-bucket-installed"
+                data-testid="catalog-bucket-installed"
+              >
+                <div className="mb-4 max-w-2xl">
+                  <h2
+                    id="catalog-bucket-installed"
+                    className="scroll-mt-24 font-heading text-xl text-foreground"
+                  >
+                    Installed
+                  </h2>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    {bucket.description}
+                    Apps you’re already connected to — open one to manage
+                    access.
                   </p>
-                ) : null}
-              </div>
-              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                {sectionApps.map((integration) => (
-                  <IntegrationCard
-                    key={integration.name}
-                    integration={integration}
-                    highlightQuery={deferredQuery}
-                    onConnected={() =>
-                      void refreshIntegrations({ background: true })
-                    }
-                    onDisconnected={() =>
-                      void refreshIntegrations({ background: true })
-                    }
-                    onStatusMessage={setToast}
-                    returnPath={APPS_PATH}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
+                </div>
+                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                  {installed.map((integration) => (
+                    <IntegrationCard
+                      key={integration.name}
+                      integration={integration}
+                      highlightQuery={deferredQuery}
+                      onConnected={() =>
+                        void refreshIntegrations({ background: true })
+                      }
+                      onDisconnected={() =>
+                        void refreshIntegrations({ background: true })
+                      }
+                      onStatusMessage={setToast}
+                      returnPath={APPS_PATH}
+                    />
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {catalogSections.map(({ bucket, integrations: sectionApps }) => (
+              <section
+                key={bucket.id}
+                aria-labelledby={`catalog-bucket-${bucket.id}`}
+                data-testid={`catalog-bucket-${bucket.id}`}
+              >
+                <div className="mb-4 max-w-2xl">
+                  <h2
+                    id={`catalog-bucket-${bucket.id}`}
+                    className="scroll-mt-24 font-heading text-xl text-foreground"
+                  >
+                    {bucket.label}
+                  </h2>
+                  {bucket.description ? (
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {bucket.description}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                  {sectionApps.map((integration) => (
+                    <IntegrationCard
+                      key={integration.name}
+                      integration={integration}
+                      highlightQuery={deferredQuery}
+                      onConnected={() =>
+                        void refreshIntegrations({ background: true })
+                      }
+                      onDisconnected={() =>
+                        void refreshIntegrations({ background: true })
+                      }
+                      onStatusMessage={setToast}
+                      returnPath={APPS_PATH}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
         </div>
       )}
     </Container>

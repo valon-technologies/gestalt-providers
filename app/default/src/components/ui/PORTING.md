@@ -44,11 +44,27 @@ Do not fork tile chrome at call sites. Import `choiceCardClassName` from
 `@/components/RadioGroup` (Registry ChoiceCards / ChoiceCardsGrid recipe).
 Layout-only changes are OK. Agent contract: [`../../../AGENTS.md`](../../../AGENTS.md).
 
-## InlineCode
+## Code (inline)
 
-Registry has no standalone `InlineCode` item — inline code paint is Plate
-`code-node` / typeset `:not(pre) > code`. Vendored as `ui/inline-code.tsx`
-(`bg-muted` + mono) for app UI outside Plate / `.typeset`.
+Registry `code` is vendored as `ui/code.tsx` (`Code` / `codeVariants`). Use for
+inline identifiers / paths / flags in UI copy — not `CodeBlock`, not `Kbd`.
+Do not hand-roll `bg-muted font-mono` at call sites.
+
+## Brand type scale
+
+Registry PageHeader / SectionHeader consume `text-heading-*`, `text-display-*`,
+`tracking-heading`, `tracking-display` (valon.ai/style). Bridge those tokens in
+`shared/theme.css` (`--valon-text-*`, `--valon-tracking-*`) and expose them via
+`globals.css` `@theme inline`. Do not invent freestyle `tracking-*` /
+`text-*` sizes at call sites.
+
+## Card / Collapsible
+
+Registry `card` + `collapsible` are vendored here. Expand/collapse is owned by
+`Collapsible` — paint the root with `cardVariants({ variant: "outline" })` at
+the call site (cards.md Card Collapsible). Do not restyle trigger hover/press
+(List Item Neutral via `listItemInteraction`). Drawer height animation lives on
+`[data-slot=collapsible-content]` in `globals.css` (Registry theme keyframes).
 
 ## Tabs
 
@@ -74,3 +90,20 @@ checks + connectors). Depends on `lib/list-item-interaction.ts` and
 `--accent-fill-pressed` for soft-selected hover (selectable-rows). Build page
 uses controlled `activationMode="jump"` — do not restyle Stepper chrome at the
 call site (layout-only wrappers OK).
+
+## Held local overrides (discuss before dropping)
+
+### Add to Registry (so console can drop the fork)
+
+| Item | Why |
+| --- | --- |
+| **Avatar `xl` size** (`size-10` / 40px) | Nav account chip; Registry stops at `lg` |
+| **TableOfContents `kind: "separator"`** | Apps catalog TOC divider between groups |
+| **`InputGroupInput` forwards `ref`** | Search bar focus; Registry component does not forward ref today |
+| **`AGENT_CONSOLE_THEME_CODEX` / `_CURSOR` exports** (optional) | Story palettes only today; Build re-copies them — promote from `agent-console.stories` |
+
+### Keep as console adapters (not Registry gaps)
+
+| Item | Why |
+| --- | --- |
+| **`theme-toggle.tsx`** | Thin wrapper on `@/hooks/use-theme` — Registry ships its own `useTheme`; app theme ownership stays local |

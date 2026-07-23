@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Gestalt mark: left black field with G cutout; right G ink on transparent. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Gestalt">
+  <defs>
+    <clipPath id="gestalt-left">
+      <rect x="0" y="0" width="16" height="32" />
+    </clipPath>
+    <clipPath id="gestalt-right">
+      <rect x="16" y="0" width="16" height="32" />
+    </clipPath>
+    <path
+      id="gestalt-g"
+      stroke-width="1.25"
+      stroke-linejoin="round"
+      paint-order="stroke fill"
+      d="M15.93 26.37Q13.91 26.37 12.09 25.72Q10.27 25.06 8.86 23.76Q7.45 22.45 6.62 20.51Q5.79 18.56 5.79 15.99Q5.79 13.38 6.76 11.45Q7.73 9.52 9.32 8.22Q10.92 6.91 12.86 6.27Q14.81 5.63 16.77 5.63Q19.26 5.63 21.04 6.31Q22.82 7 24.19 8.20L22.82 12.12L22.45 12.07Q22.09 10.69 21.32 9.41Q20.55 8.12 19.40 7.28Q18.25 6.44 16.69 6.44Q14.75 6.44 13.09 7.47Q11.42 8.51 10.41 10.54Q9.41 12.57 9.41 15.57Q9.41 18.53 10.26 20.79Q11.11 23.04 12.65 24.30Q14.19 25.56 16.18 25.56Q17.89 25.56 19.02 24.88Q20.16 24.19 20.86 23.07L20.86 17.92L17.16 16.60L17.16 16.24L26.21 16.24L26.21 16.60L23.97 17.92L23.97 22.87Q22.48 24.44 21.03 25.18Q19.57 25.93 18.28 26.15Q16.99 26.37 15.93 26.37"
+    />
+    <mask id="gestalt-left-cutout">
+      <rect x="0" y="0" width="16" height="32" fill="#ffffff" />
+      <g clip-path="url(#gestalt-left)">
+        <use href="#gestalt-g" fill="#000000" stroke="#000000" />
+      </g>
+    </mask>
+  </defs>
+
+  <rect x="0" y="0" width="16" height="32" fill="#000000" mask="url(#gestalt-left-cutout)" />
+
+  <g clip-path="url(#gestalt-right)">
+    <use href="#gestalt-g" fill="#000000" stroke="#000000" />
+  </g>
+</svg>

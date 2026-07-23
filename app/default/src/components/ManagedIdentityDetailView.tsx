@@ -352,13 +352,11 @@ export default function ManagedIdentityDetailView({
           &larr; Back to identities
         </Link>
         <PageHeader className="mt-5">
-          <PageHeaderContent>
-            <div className="flex flex-col gap-3">
-              <Eyebrow>Managed Identity</Eyebrow>
-              <PageHeaderTitle size="entity">
-                {identity?.displayName || "Loading identity"}
-              </PageHeaderTitle>
-            </div>
+          <PageHeaderContent size="entity">
+            <Eyebrow>Managed Identity</Eyebrow>
+            <PageHeaderTitle>
+              {identity?.displayName || "Loading identity"}
+            </PageHeaderTitle>
             {identity ? (
               <PageHeaderDescription>
                 You currently have{" "}

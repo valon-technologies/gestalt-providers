@@ -1,21 +1,21 @@
 "use client";
 
-import * as React from "react";
-import * as NavigationMenuPrimitive from "@radix-ui/react-navigation-menu";
-import { cva, type VariantProps } from "class-variance-authority";
-
-import { ChevronDownIcon } from "@/components/icons";
-import { cn } from "@/lib/cn";
 
 /**
  * Gestalt console vendor of Valon Registry `navigation-menu`.
  *
  * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/navigation-menu.tsx`). Token adaptation
- * only — `cn` import path; lucide → `@/components/icons`. Theme bridge:
- * `--popover` / neutral + accent-vivid ladders in `shared/theme.css` +
- * `globals.css` `@theme inline`.
+ * (`valon-tools/apps/registry/ui/src/ui/navigation-menu.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
  */
+
+import * as React from "react";
+import * as NavigationMenuPrimitive from "@radix-ui/react-navigation-menu";
+import { cva, type VariantProps } from "class-variance-authority";
+import { ChevronDown } from "lucide-react";
+
+import { cn } from "@/lib/cn";
 
 const navigationMenuTriggerStyle = cva(
   // Idle hover/press gated off `data-active` — same contract as listItemInteraction
@@ -123,8 +123,9 @@ function NavigationMenuTrigger({
       {...props}
     >
       {children}{" "}
-      <ChevronDownIcon
+      <ChevronDown
         className="relative top-px ml-1 size-3 shrink-0 transition-transform duration-overshoot ease-out-back group-data-[state=open]:rotate-180"
+        aria-hidden="true"
       />
     </NavigationMenuPrimitive.Trigger>
   );

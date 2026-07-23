@@ -1,20 +1,17 @@
+/**
+ * Gestalt console vendor of Valon Registry `button`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/button.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
+ */
+
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/cn";
-
-/**
- * Gestalt console vendor of Valon Registry `button`.
- *
- * Ownership: Valon Registry is the canonical source of truth
- * (`valon-tools/apps/registry/ui/src/ui/button.tsx`). Token adaptation only —
- * hover/press use the on-color `::after` scrim (press-feedback.md); disabled is
- * a recolor, not opacity-50 (disabled-states.md).
- *
- * Theme bridge: `--primary` / `--success` / `--state-overlay-*` / `--control-*`
- * in `shared/theme.css` + `globals.css` `@theme inline`.
- */
 
 // Hover/press feedback is an on-color state-layer overlay, not a brightness
 // filter (press-feedback.md / RES-20260617-004): the `::after` scrim paints in
@@ -40,22 +37,16 @@ const buttonVariants = cva(
       variant: {
         default: "bg-primary text-primary-foreground",
         destructive: "bg-destructive text-destructive-foreground",
-        success:
-          "border border-success-foreground/30 bg-success/40 text-success-foreground hover:border-success-foreground/50 hover:bg-success hover:text-success-foreground",
-        danger:
-          "border border-destructive/30 bg-destructive/5 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground",
-        outline:
-          "border border-input bg-background hover:bg-neutral-hover active:bg-neutral-pressed hover:after:opacity-0 active:after:opacity-0 disabled:bg-transparent",
+        success: "border border-success-foreground/30 bg-success/40 text-success-foreground hover:border-success-foreground/50 hover:bg-success hover:text-success-foreground",
+        danger: "border border-destructive/30 bg-destructive/5 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground",
+        outline: "border border-input bg-background hover:bg-neutral-hover active:bg-neutral-pressed hover:after:opacity-0 active:after:opacity-0 disabled:bg-transparent",
         secondary: "bg-secondary text-secondary-foreground",
         // Ghost is transparent chrome: hover/press use the base ::after on-color scrim only
         // (RES-20260617-004), so it composites on neutral and tinted parents alike — not
         // --accent-hover, which is reserved for dropdown items and breadcrumb triggers.
-        ghost:
-          "text-muted-foreground hover:text-foreground aria-checked:bg-foreground aria-checked:text-background disabled:bg-transparent",
-        ghostSuccess:
-          "text-muted-foreground hover:bg-success hover:text-success-foreground active:bg-success/70 disabled:bg-transparent",
-        ghostDestructive:
-          "text-muted-foreground hover:bg-destructive hover:text-destructive-foreground active:bg-destructive/70 disabled:bg-transparent",
+        ghost: "text-muted-foreground hover:text-foreground aria-checked:bg-foreground aria-checked:text-background disabled:bg-transparent",
+        ghostSuccess: "text-muted-foreground hover:bg-success hover:text-success-foreground active:bg-success/70 disabled:bg-transparent",
+        ghostDestructive: "text-muted-foreground hover:bg-destructive hover:text-destructive-foreground active:bg-destructive/70 disabled:bg-transparent",
       },
       size: {
         xs: "h-control-xs gap-1 rounded-md px-2 text-control-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-[length:var(--control-icon-xs)]",
@@ -63,12 +54,9 @@ const buttonVariants = cva(
         default: "h-control-default px-2 py-2 text-control-default",
         lg: "h-control-lg rounded-md px-8 text-control-lg [&_svg:not([class*='size-'])]:size-[length:var(--control-icon-lg)]",
         icon: "size-control-default",
-        "icon-xs":
-          "size-control-xs rounded-md [&_svg:not([class*='size-'])]:size-[length:var(--control-icon-xs)]",
-        "icon-sm":
-          "size-control-sm [&_svg:not([class*='size-'])]:size-[length:var(--control-icon-sm)]",
-        "icon-lg":
-          "size-control-lg [&_svg:not([class*='size-'])]:size-[length:var(--control-icon-lg)]",
+        "icon-xs": "size-control-xs rounded-md [&_svg:not([class*='size-'])]:size-[length:var(--control-icon-xs)]",
+        "icon-sm": "size-control-sm [&_svg:not([class*='size-'])]:size-[length:var(--control-icon-sm)]",
+        "icon-lg": "size-control-lg [&_svg:not([class*='size-'])]:size-[length:var(--control-icon-lg)]",
       },
     },
     defaultVariants: {

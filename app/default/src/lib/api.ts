@@ -331,8 +331,90 @@ export async function disconnectIntegration(
   );
 }
 
+/**
+ * Personal API-token grants live on Identity v2 after gestaltd dropped
+ * `GET /api/v1/tokens` (#2861). Create still uses v1 POST (login/create flows).
+ * List never returns the plaintext secret — only grant metadata.
+ */
+const IDENTITY_GRANTS_PATH = "/api/v2/identity/grants";
+
+type IdentityListGrantsResponse = {
+  grantIds?: string[];
+  grant_ids?: string[];
+};
+
+type IdentityGrantScope = {
+  scope?: string;
+  resource?: string[];
+};
+
+type IdentityGetGrantResponse = {
+  scopes?: IdentityGrantScope[];
+  createdAt?: string | number;
+  expiresAt?: string | number;
+  created_at?: string | number;
+  expires_at?: string | number;
+  name?: string;
+};
+
+function identityGrantPath(id: string): string {
+  return `${IDENTITY_GRANTS_PATH}/${encodeURIComponent(id)}`;
+}
+
+/** Identity timestamps are unix seconds (number or numeric string). */
+function grantUnixToIso(
+  value: string | number | undefined,
+): string | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  const seconds =
+    typeof value === "number" ? value : Number.parseInt(String(value), 10);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return undefined;
+  }
+  return new Date(seconds * 1000).toISOString();
+}
+
+function apiTokenFromGrant(
+  id: string,
+  detail: IdentityGetGrantResponse,
+): APIToken {
+  const scopes = (detail.scopes ?? [])
+    .map((entry) => entry.scope?.trim())
+    .filter((scope): scope is string => Boolean(scope));
+  const createdAt = grantUnixToIso(detail.createdAt ?? detail.created_at) ?? "";
+  const expiresAt = grantUnixToIso(detail.expiresAt ?? detail.expires_at);
+  const name = detail.name?.trim();
+  return {
+    id,
+    ...(name ? { name } : {}),
+    scopes,
+    createdAt,
+    ...(expiresAt ? { expiresAt } : {}),
+  };
+}
+
 export async function getTokens(): Promise<APIToken[]> {
-  return fetchAPI("/api/v1/tokens");
+  const list = await fetchAPI<IdentityListGrantsResponse>(IDENTITY_GRANTS_PATH);
+  const ids = list.grantIds ?? list.grant_ids ?? [];
+  const tokens = await Promise.all(
+    ids.map(async (id) => {
+      try {
+        const detail = await fetchAPI<IdentityGetGrantResponse>(
+          identityGrantPath(id),
+        );
+        return apiTokenFromGrant(id, detail);
+      } catch (error) {
+        // Match CLI `gestalt token list`: skip grants that disappear mid-list.
+        if (isAPIErrorStatus(error, 404)) {
+          return null;
+        }
+        throw error;
+      }
+    }),
+  );
+  return tokens.filter((token): token is APIToken => token != null);
 }
 
 export async function createToken(
@@ -351,7 +433,7 @@ export async function createToken(
 }
 
 export async function revokeToken(id: string): Promise<void> {
-  await fetchAPI(`/api/v1/tokens/${id}`, { method: "DELETE" });
+  await fetchAPI(identityGrantPath(id), { method: "DELETE" });
 }
 
 const MANAGED_SUBJECTS_PATH = "/api/v1/authorization/subjects";

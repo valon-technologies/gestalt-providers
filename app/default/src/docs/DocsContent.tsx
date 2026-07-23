@@ -550,17 +550,15 @@ function DocsPageHeader({
   description: ReactNode;
 }) {
   return (
-    <PageHeader className="scroll-mt-24 border-b border-alpha pb-10">
-      <PageHeaderContent>
-        <div className="flex flex-col gap-3">
+    <div className="scroll-mt-24 border-b border-alpha pb-10">
+      <PageHeader>
+        <PageHeaderContent size="lg">
           <Eyebrow>{eyebrow}</Eyebrow>
-          <PageHeaderTitle size="lg">{title}</PageHeaderTitle>
-        </div>
-        <PageHeaderDescription className="mt-4 max-w-3xl text-base leading-7 text-foreground/80">
-          {description}
-        </PageHeaderDescription>
-      </PageHeaderContent>
-    </PageHeader>
+          <PageHeaderTitle>{title}</PageHeaderTitle>
+          <PageHeaderDescription>{description}</PageHeaderDescription>
+        </PageHeaderContent>
+      </PageHeader>
+    </div>
   );
 }
 

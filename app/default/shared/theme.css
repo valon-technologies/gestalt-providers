@@ -59,6 +59,34 @@
    * (0.1em). Caps need more air than body; widest reads too open on text-xs. */
   --tracking-eyebrow: 0.075em;
 
+  /* Brand type scale — valon.ai/style / Registry theme. Display roles are
+   * 44px+; Heading / Body LG are product chrome. Consumed by PageHeader /
+   * SectionHeader via @theme aliases in globals.css. Font faces stay on
+   * --font-display / --font-body (tenant), not hard-coded Melange/Season. */
+  --valon-text-body-lg: 1.125rem; /* 18px */
+  --valon-text-body-lg--line-height: 1.5rem; /* 24px */
+  --valon-text-heading-sm: 1.125rem; /* 18px */
+  --valon-text-heading-sm--line-height: 1.5rem; /* 24px */
+  --valon-text-heading-md: 1.25rem; /* 20px */
+  --valon-text-heading-md--line-height: 1.75rem; /* 28px */
+  --valon-text-heading-lg: 1.5rem; /* 24px */
+  --valon-text-heading-lg--line-height: 2rem; /* 32px */
+  --valon-text-heading-xl: 2rem; /* 32px */
+  --valon-text-heading-xl--line-height: 2.5rem; /* 40px */
+  --valon-text-display-sm: 2.75rem; /* 44px — display floor */
+  --valon-text-display-sm--line-height: 3.125rem; /* 50px */
+  --valon-text-display-md: 3.25rem; /* 52px */
+  --valon-text-display-md--line-height: 3.625rem; /* 58px */
+  --valon-text-display-lg: 3.75rem; /* 60px */
+  --valon-text-display-lg--line-height: 4rem; /* 64px */
+  --valon-text-display-xl: 4.25rem; /* 68px */
+  --valon-text-display-xl--line-height: 4.25rem; /* 68px */
+  /* Display / heading tracking — valon.ai/style (−0.5px / −0.8px / −1px). */
+  --valon-tracking-display: -0.03125rem; /* −0.5px */
+  --valon-tracking-display-tight: -0.0625rem; /* −1px */
+  --valon-tracking-heading: -0.03125rem; /* −0.5px · Heading LG */
+  --valon-tracking-heading-tight: -0.05rem; /* −0.8px · Heading XL */
+
   /* ── System tokens ────────────────────────────────────────────────── */
   --background: var(--valon-paper);
   --surface: var(--valon-cream-100);
@@ -119,6 +147,8 @@
   --accent-vivid-hover: oklch(from var(--accent-vivid) calc(l - 0.02) c h);
   --accent-vivid-pressed: oklch(from var(--accent-vivid) calc(l - 0.04) c h);
   --accent-wash: var(--valon-gold-100);
+  --accent-wash-hover: oklch(from var(--accent-wash) calc(l - 0.012) c h);
+  --accent-wash-pressed: oklch(from var(--accent-wash) calc(l - 0.024) c h);
   /* Search / in-text match — between wash and vivid (Registry color.md). */
   --accent-highlight: var(--valon-gold-200);
   --accent-solid: var(--valon-gold-400);
@@ -140,6 +170,9 @@
   --neutral-pressed: oklch(from var(--neutral-hover) calc(l - 0.015) c h);
   --neutral-dark-hover: oklch(from var(--neutral-hover) calc(l - 0.025) c h);
   --neutral-dark-pressed: oklch(from var(--neutral-dark-hover) calc(l - 0.015) c h);
+  /* List / TOC idle hover — Registry aliases onto the neutral ladder. */
+  --list-item-hover: var(--neutral-hover);
+  --list-item-pressed: var(--neutral-pressed);
 
   /* Registry control / form contract (button, input, field). Keep in sync with
    * valon-tools/registry/theme/theme.css — console vendors those components. */
@@ -221,11 +254,14 @@
   --brand-soft: var(--valon-gold-dark-800);
   --ring: var(--valon-gold-dark-200);
   --danger: var(--valon-ember-soft);
-  --success: var(--valon-green-900);
+  /* Status soft chips — light wash + contrasting ink (same contract as light).
+   * Do not use solid green-900 as the badge fill; that reads as a heavy slab
+   * with weak contrast on dark catalog cards. */
+  --success: color-mix(in oklab, var(--valon-green-200) 22%, var(--popover));
   --success-foreground: var(--valon-green-200);
-  --warning: var(--valon-yellow-900);
+  --warning: color-mix(in oklab, var(--valon-yellow-200) 22%, var(--popover));
   --warning-foreground: var(--valon-yellow-200);
-  --info: var(--valon-blue-900);
+  --info: color-mix(in oklab, var(--valon-blue-200) 22%, var(--popover));
   --info-foreground: var(--valon-blue-200);
 
   --accent: var(--valon-gold-dark-800);
@@ -241,6 +277,8 @@
   --accent-vivid-hover: oklch(from var(--accent-vivid) calc(l - 0.02) c h);
   --accent-vivid-pressed: oklch(from var(--accent-vivid) calc(l - 0.04) c h);
   --accent-wash: var(--valon-gold-dark-800);
+  --accent-wash-hover: oklch(from var(--accent-wash) calc(l - 0.012) c h);
+  --accent-wash-pressed: oklch(from var(--accent-wash) calc(l - 0.024) c h);
   --accent-highlight: var(--valon-gold-dark-800);
   --accent-solid: var(--valon-gold-dark-400);
   --accent-solid-hover: oklch(from var(--accent-solid) calc(l - 0.0025) c h);
@@ -256,6 +294,8 @@
   --neutral-pressed: oklch(from var(--neutral-hover) calc(l - 0.015) c h);
   --neutral-dark-hover: oklch(from var(--neutral-hover) calc(l - 0.025) c h);
   --neutral-dark-pressed: oklch(from var(--neutral-dark-hover) calc(l - 0.015) c h);
+  --list-item-hover: var(--neutral-hover);
+  --list-item-pressed: var(--neutral-pressed);
 
   --primary: var(--valon-neutral-dark-100);
   --primary-foreground: var(--valon-neutral-dark-950);

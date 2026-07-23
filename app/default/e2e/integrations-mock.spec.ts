@@ -224,6 +224,11 @@ async function openAppManage(
   page: import("@playwright/test").Page,
   label: string,
 ) {
+  const add = page.getByRole("button", { name: `Add ${label}` });
+  if ((await add.count()) > 0) {
+    await add.click();
+    return;
+  }
   await page.getByRole("button", { name: `${label} options` }).click();
   await page.getByRole("menuitem", { name: "Manage" }).click();
 }
@@ -287,9 +292,10 @@ test.describe("Integrations", () => {
     await expect(page.getByText("Another Service")).toBeVisible();
     await expect(page.getByText(OAUTH_INTEGRATION.description!)).toBeVisible();
     await expect(page.getByText(MANUAL_INTEGRATION.description!)).toBeVisible();
-    await expect(page.getByRole("button", { name: "OAuth Service options" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Manual Service options" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Another Service options" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Add OAuth Service" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add Manual Service" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add Another Service" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "OAuth Service options" })).toHaveCount(0);
   });
 
   test("renders svg icons even when the payload omits xmlns", async ({ authenticatedPage }) => {
@@ -374,9 +380,10 @@ test.describe("Integrations", () => {
     await mockTokens(page, []);
 
     await page.goto("/apps");
+    await expect(page.getByRole("button", { name: "Add Mounted UI Service" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Mounted UI Service options" })).toHaveCount(0);
     await expect(
-      page.getByTestId("integration-card-mounted-ui-svc").getByText("App page"),
+      page.getByTestId("integration-card-mounted-ui-svc").getByText("App"),
     ).toBeVisible();
 
     await page.getByTestId("integration-card-mounted-ui-svc").click();
@@ -385,7 +392,15 @@ test.describe("Integrations", () => {
     await expect(
       page.getByRole("heading", { level: 1, name: "Mounted UI Service" }),
     ).toBeVisible();
-    await expect(page.getByRole("link", { name: "← Apps" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "breadcrumb" })).toBeVisible();
+    await expect(
+      page.getByRole("navigation", { name: "breadcrumb" }).getByRole("link", { name: "Apps" }),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole("navigation", { name: "breadcrumb" })
+        .getByRole("link", { name: "Mounted UI Service" }),
+    ).toHaveAttribute("aria-current", "page");
   });
 
   test("mounted ui options menu does not trigger navigation", async ({ authenticatedPage }) => {
@@ -455,11 +470,11 @@ test.describe("Integrations", () => {
     await search.fill("missing-plugin");
 
     await expect(page.getByText('No apps match "missing-plugin". Try a different search, or clear it.')).toBeVisible();
-    await expect(page.getByRole("button", { name: "Clear filters" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Clear search" })).toBeVisible();
     await expect(page.getByTestId("plugin-grid")).toHaveCount(0);
   });
 
-  test("setup filters are exclusive; attention apps sort first with a callout", async ({
+  test("attention apps sort first with a callout; all setup states remain visible", async ({
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
@@ -471,35 +486,28 @@ test.describe("Integrations", () => {
 
     await page.goto("/apps");
 
+    await expect(
+      page.getByRole("radiogroup", { name: "Filter by connection status" }),
+    ).toHaveCount(0);
+    await expect(page.getByRole("radio", { name: "All" })).toHaveCount(0);
+    await expect(page.getByRole("radio", { name: "To connect" })).toHaveCount(0);
+    await expect(page.getByRole("radio", { name: "Ready" })).toHaveCount(0);
     await expect(page.getByRole("radio", { name: "Needs fix" })).toHaveCount(0);
+
     await expect(page.getByTestId("apps-needs-attention-callout")).toBeVisible();
     await expect(page.getByTestId("apps-needs-attention-callout")).toContainText(
       "1 app needs attention",
     );
 
-    await expect(
-      page.getByTestId("integration-card-select-instance-svc"),
-    ).toBeVisible();
-
-    await page.getByRole("radio", { name: "To connect" }).click();
-    const toConnect = page.getByTestId("plugin-grid");
-    await expect(page.getByTestId("catalog-bucket-installed")).toHaveCount(0);
-    await expect(toConnect.getByText("Manual Service", { exact: true })).toBeVisible();
-    await expect(toConnect.getByText("OAuth Service", { exact: true })).toHaveCount(0);
-    await expect(toConnect.getByText("Select Instance Service", { exact: true })).toHaveCount(0);
-
-    await page.getByRole("radio", { name: "Ready" }).click();
-    const ready = page.getByTestId("plugin-grid");
     await expect(page.getByTestId("catalog-bucket-installed")).toBeVisible();
     await expect(
       page.getByTestId("catalog-bucket-installed").getByText("OAuth Service", { exact: true }),
     ).toBeVisible();
-    await expect(ready.getByText("Manual Service", { exact: true })).toHaveCount(0);
-    await expect(ready.getByText("Select Instance Service", { exact: true })).toHaveCount(0);
+    await expect(
+      page.getByTestId("integration-card-select-instance-svc"),
+    ).toBeVisible();
+    await expect(page.getByTestId("integration-card-manual-svc")).toBeVisible();
 
-    await page.getByRole("radio", { name: "All" }).click();
-    await expect(page.getByTestId("catalog-bucket-installed")).toBeVisible();
-    await expect(page.getByTestId("catalog-bucket-other")).toBeVisible();
     await page.getByTestId("integration-card-manual-svc").click();
     await expect(page.getByTestId("app-listing-detail-manual-svc")).toBeVisible();
     await expect(
@@ -548,7 +556,7 @@ test.describe("Integrations", () => {
     await expect(grid.getByText("Another Service", { exact: true })).toBeVisible();
   });
 
-  test("connected integration shows installed switch and options menu", async ({
+  test("connected integration shows installed check and options menu", async ({
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
@@ -561,17 +569,14 @@ test.describe("Integrations", () => {
     await expect(page.getByText(OAUTH_INTEGRATION.displayName!)).toBeVisible();
     await expect(page.getByText(MANUAL_INTEGRATION.displayName!)).toBeVisible();
     await expect(
-      page.getByTestId("integration-card-oauth-svc").getByRole("switch", {
-        name: "OAuth Service installed",
-      }),
-    ).toBeChecked();
+      page.getByTestId("integration-card-oauth-svc").getByLabel("Installed"),
+    ).toBeVisible();
     await expect(
-      page.getByTestId("integration-card-manual-svc").getByRole("switch", {
-        name: "Manual Service installed",
-      }),
-    ).not.toBeChecked();
+      page.getByTestId("integration-card-manual-svc").getByLabel("Installed"),
+    ).toHaveCount(0);
     await expect(page.getByRole("button", { name: "OAuth Service options" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Manual Service options" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add Manual Service" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Manual Service options" })).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "Open for OAuth Service" }),
     ).toHaveCount(0);
@@ -660,7 +665,8 @@ test.describe("Integrations", () => {
     await dialog.getByRole("button", { name: "Uninstall" }).click();
 
     await expect(page.getByRole("dialog")).not.toBeVisible();
-    await expect(page.getByRole("button", { name: "OAuth Service options" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add OAuth Service" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "OAuth Service options" })).toHaveCount(0);
     await openAppManage(page, "OAuth Service");
     await expect(page.getByRole("dialog").getByText("Not connected")).toHaveCount(0);
     await expect(page.getByRole("dialog").getByRole("button", { name: "Connect" })).toBeVisible();
@@ -704,6 +710,7 @@ test.describe("Integrations", () => {
 
     await dialog.getByRole("button", { name: "Submit" }).click();
     await expect(page.getByRole("button", { name: "Manual Service options" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add Manual Service" })).toHaveCount(0);
     expect(receivedCredential).toBe("test-api-key-123");
   });
 
@@ -787,9 +794,7 @@ test.describe("Integrations", () => {
     const card = page.getByTestId("integration-card-no-auth-svc");
     await expect(card.getByLabel("Ready", { exact: true })).toHaveCount(0);
     await expect(card.getByText("Not connected")).toHaveCount(0);
-    await expect(
-      card.getByRole("switch", { name: "No Auth Service installed" }),
-    ).not.toBeChecked();
+    await expect(card.getByLabel("Installed")).toHaveCount(0);
     await openAppManage(page, "No Auth Service");
     const dialog = page.getByRole("dialog");
 
@@ -823,10 +828,8 @@ test.describe("Integrations", () => {
 
     await page.goto("/apps");
     await expect(
-      page.getByTestId("integration-card-user-actions-svc").getByRole("switch", {
-        name: "User Actions Service installed",
-      }),
-    ).toBeChecked();
+      page.getByTestId("integration-card-user-actions-svc").getByLabel("Installed"),
+    ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "View details for User Actions Service" }),
     ).toHaveCount(0);

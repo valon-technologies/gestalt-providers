@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent } from "react";
 import {
   Integration,
@@ -18,7 +18,6 @@ import {
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import {
   normalizeIntegrationStatus,
-  shouldShowIntegrationSettings,
   type ConnectionContext,
 } from "@/lib/integrationStatus";
 import { cn } from "@/lib/cn";
@@ -28,12 +27,13 @@ import { HighlightMatch } from "./HighlightMatch";
 import IntegrationIcon from "./IntegrationIcon";
 import {
   MoreHorizontalIcon,
+  PlusIcon,
   SlidersIcon,
   TrashIcon,
 } from "./icons";
 import IntegrationSettingsModal from "./IntegrationSettingsModal";
-import { Switch } from "./Switch";
 import { Button } from "./ui/button";
+import { SelectionCheck } from "./ui/selection-check";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -123,7 +123,6 @@ export default function IntegrationCard({
 }) {
   const navigate = useNavigate();
   const label = getIntegrationLabel(integration);
-  const connectedSwitchId = useId();
   const [loading, setLoading] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -155,20 +154,21 @@ export default function IntegrationCard({
     integration,
     connectionContext,
   );
-  const settingsAvailable = shouldShowIntegrationSettings(
-    normalizedStatus,
-    readOnly,
-  );
   const surfaces = getAppSurfaces(integration);
   const setupBucket = connectionSetupBucket(integration, connectionContext);
   const isConnected = setupBucket === "ready";
-  const attentionLabel =
+  /** Attention chip only — Ready is a check beside the options menu. */
+  const statusBadgeLabel =
     setupBucket === "needs_attention" ? normalizedStatus.summaryLabel : null;
+  const statusBadgeVariant = badgeVariantFromTone(normalizedStatus.tone);
   const cardActivateTarget = catalogCardActivateTarget(
     integration,
     connectionContext,
   );
   const cardNavigationEnabled = !disableNavigation && !settingsOpen;
+  /** Installed → More (Manage / Uninstall). Not installed → Add (connect). */
+  const showInstalledMenu = isConnected;
+  const showAddButton = !isConnected && !readOnly;
 
   useEffect(() => {
     if (!pendingSelection) return;
@@ -335,20 +335,6 @@ export default function IntegrationCard({
     activateCard();
   }
 
-  function handleConnectedChange(nextConnected: boolean) {
-    if (readOnly || loading || disconnecting) return;
-    if (nextConnected) {
-      if (cardActivateTarget === "listing") {
-        setListingOpen(true);
-        return;
-      }
-      openManage();
-      return;
-    }
-    // Disconnect / uninstall confirmation lives in settings.
-    openUninstall();
-  }
-
   const cardAriaLabel =
     cardActivateTarget === "listing"
       ? `View details for ${label}`
@@ -363,6 +349,11 @@ export default function IntegrationCard({
         // tokens, not a ramp jump to base-200 (hover-pressed-color.md).
         "rounded-xl bg-neutral-hover p-4 text-foreground",
         "hover:bg-neutral-dark-hover active:bg-neutral-dark-pressed",
+        // Nested controls own the hit (More / Add): suppress card deepen while
+        // they are hovered/pressed — same :has() contract as Registry table
+        // tbody rows (table.tsx + ROW_LINK_INTERACTIVE_SELECTOR / data-no-row-click).
+        "hover:has-[button:hover,[role=button]:hover,[data-no-row-click]:hover]:bg-neutral-hover",
+        "active:has-[button:active,[role=button]:active,[data-no-row-click]:active]:bg-neutral-hover",
         cardNavigationEnabled &&
           "cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold-400 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       )}
@@ -401,20 +392,20 @@ export default function IntegrationCard({
                 />
               </p>
             )}
-            {(attentionLabel || surfaces.hasUi) && (
+            {(statusBadgeLabel || surfaces.hasUi) && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                {attentionLabel ? (
+                {statusBadgeLabel ? (
                   <Badge
                     size="sm"
-                    variant={badgeVariantFromTone(normalizedStatus.tone)}
-                    aria-label={attentionLabel}
+                    variant={statusBadgeVariant}
+                    aria-label={statusBadgeLabel}
                   >
-                    {attentionLabel}
+                    {statusBadgeLabel}
                   </Badge>
                 ) : null}
                 {surfaces.hasUi ? (
                   <Badge size="sm" variant="secondary">
-                    App page
+                    App
                   </Badge>
                 ) : null}
               </div>
@@ -422,28 +413,32 @@ export default function IntegrationCard({
           </div>
         </div>
         <div
+          data-no-row-click
           className="flex shrink-0 items-center gap-1"
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         >
           <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex">
-                  <Switch
-                    id={connectedSwitchId}
-                    size="default"
-                    checked={isConnected}
-                    disabled={readOnly || loading || disconnecting}
-                    onCheckedChange={handleConnectedChange}
-                    aria-label={`${label} installed`}
-                  />
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top">Installed</TooltipContent>
-            </Tooltip>
+            {isConnected ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className="flex size-8 items-center justify-center"
+                    aria-label="Installed"
+                  >
+                    {/* Registry SelectionCheck — stroke-draw / bounce. */}
+                    <SelectionCheck
+                      checked
+                      tone="solid"
+                      density="default"
+                    />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">Installed</TooltipContent>
+              </Tooltip>
+            ) : null}
 
-            {settingsAvailable ? (
+            {showInstalledMenu ? (
               <DropdownMenu>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -467,7 +462,7 @@ export default function IntegrationCard({
                     <SlidersIcon />
                     Manage
                   </DropdownMenuItem>
-                  {isConnected && !readOnly ? (
+                  {!readOnly ? (
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
@@ -481,6 +476,25 @@ export default function IntegrationCard({
                   ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
+            ) : null}
+
+            {showAddButton ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Add ${label}`}
+                      onClick={openManage}
+                    >
+                      <PlusIcon />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">Add</TooltipContent>
+              </Tooltip>
             ) : null}
           </TooltipProvider>
         </div>

@@ -1,16 +1,18 @@
 "use client";
 
-import * as React from "react";
-
-import { cn } from "@/lib/cn";
 
 /**
  * Gestalt console vendor of Valon Registry `selection-check`.
  *
- * Ownership: Valon Registry
- * (`valon-tools/apps/registry/ui/src/ui/selection-check.tsx`). Token
- * adaptation only — `cn` import path.
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/selection-check.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
  */
+
+import * as React from "react";
+
+import { cn } from "@/lib/cn";
 
 // Canonical Valon selection checkmark — stroke-draw glyph shared by Checkbox,
 // Combobox, Select, and Listbox. Two paths (down into the vertex, then up out

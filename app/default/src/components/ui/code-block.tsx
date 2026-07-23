@@ -1,9 +1,20 @@
 "use client";
 
+
+/**
+ * Gestalt console vendor of Valon Registry `code-block`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/code-block.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
+ */
+
 import * as React from "react";
+
+import { CheckIcon, CopyIcon, FileCode2 } from "lucide-react";
 import { all, createLowlight } from "lowlight";
 
-import { CheckIcon, CopyIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import {
   CodeFenceHeader,
@@ -25,43 +36,13 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/cn";
 
-/**
- * Gestalt console vendor of Valon Registry `CodeBlock` (display / syntax).
- *
- * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/code-block.tsx`). Highlighting uses
- * the same lowlight → hljs class pipeline, styled by `.typeset-code-hljs`.
- * Surface paint comes from `code-fence`. Multi-pane / language-tab variants
- * wire through vendored `tabs`.
- *
- * @see valon-tools/registry/guidelines/code-blocks.md
- */
-
-// Display CodeBlock for install snippets / docs / token reveal — not a Plate
-// editor fence. Chrome (filename, copy, line numbers) follows Registry.
+// Display CodeBlock for install snippets / docs / AI messages — not the Plate
+// editor fence. Highlighting uses the same lowlight → hljs class pipeline as
+// markdown-editor, styled by valon-typeset's `.typeset-code-hljs`. Surface
+// paint comes from `code-fence` (shared with Plate code-block-node). Chrome
+// (filename, copy, line numbers, tabs) is modeled on shadcnspace's CodeBlock.
 
 const lowlight = createLowlight(all);
-
-/** Lucide FileCode2 stand-in — console has no lucide-react dependency. */
-function FileCodeIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      <path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4" />
-      <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-      <path d="m10 12-2 2 2 2" />
-      <path d="m14 18 2-2-2-2" />
-    </svg>
-  );
-}
 
 type HastElement = {
   type: "element";
@@ -81,8 +62,6 @@ const LANGUAGE_ALIASES: Record<string, string> = {
   md: "markdown",
   sh: "bash",
   shell: "bash",
-  // Console / Shiki-compat alias used by docs surfaces.
-  shellscript: "bash",
   yml: "yaml",
   plaintext: "plaintext",
   text: "plaintext",
@@ -283,10 +262,8 @@ function CodeBody({
                 <span
                   className={cn(
                     "min-w-0 whitespace-pre",
-                    // Registry: border-highlight bg-highlight/20 → console
-                    // accent-highlight (search/match wash).
                     isHighlighted &&
-                      "-mx-4 border-l-2 border-accent-highlight bg-accent-highlight/20 px-4",
+                      "-mx-4 border-l-2 border-highlight bg-highlight/20 px-4",
                     !showLineNumbers && isHighlighted && "block",
                   )}
                 >
@@ -298,79 +275,6 @@ function CodeBody({
         </code>
       </pre>
     </div>
-  );
-}
-
-function CodeBlockShell({
-  className,
-  children,
-}: {
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <TooltipProvider delayDuration={0}>
-      <CodeFenceShell data-slot="code-block" className={cn("w-full", className)}>
-        {children}
-      </CodeFenceShell>
-    </TooltipProvider>
-  );
-}
-
-function CodeBlockHeader({
-  label,
-  code,
-  leading,
-}: {
-  label: React.ReactNode;
-  code: string;
-  leading?: React.ReactNode;
-}) {
-  return (
-    <CodeFenceHeader data-slot="code-block-header">
-      <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
-        {leading ?? <FileCodeIcon className="size-3.5 shrink-0" />}
-        <span className="truncate font-mono text-xs">{label}</span>
-      </div>
-      <CodeBlockCopyButton code={code} />
-    </CodeFenceHeader>
-  );
-}
-
-export type CodeBlockProps = {
-  code: string;
-  language?: string;
-  filename?: string;
-  showLineNumbers?: boolean;
-  scrollable?: boolean;
-  maxHeight?: number;
-  /** 1-based line numbers to emphasize. */
-  highlightLines?: number[];
-  className?: string;
-};
-
-function CodeBlock({
-  code,
-  language = "tsx",
-  filename,
-  showLineNumbers = false,
-  scrollable = false,
-  maxHeight = 400,
-  highlightLines,
-  className,
-}: CodeBlockProps) {
-  return (
-    <CodeBlockShell className={className}>
-      <CodeBlockHeader label={filename ?? language} code={code} />
-      <CodeBody
-        code={code}
-        language={language}
-        showLineNumbers={showLineNumbers}
-        scrollable={scrollable}
-        maxHeight={maxHeight}
-        highlightLines={highlightLines}
-      />
-    </CodeBlockShell>
   );
 }
 
@@ -557,6 +461,79 @@ function CodeBlockTabPanelStack({
     >
       {children}
     </div>
+  );
+}
+
+function CodeBlockShell({
+  className,
+  children,
+}: {
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <TooltipProvider delayDuration={0}>
+      <CodeFenceShell data-slot="code-block" className={cn("w-full", className)}>
+        {children}
+      </CodeFenceShell>
+    </TooltipProvider>
+  );
+}
+
+function CodeBlockHeader({
+  label,
+  code,
+  leading,
+}: {
+  label: React.ReactNode;
+  code: string;
+  leading?: React.ReactNode;
+}) {
+  return (
+    <CodeFenceHeader data-slot="code-block-header">
+      <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
+        {leading ?? <FileCode2 className="size-3.5 shrink-0" aria-hidden />}
+        <span className="truncate font-mono text-xs">{label}</span>
+      </div>
+      <CodeBlockCopyButton code={code} />
+    </CodeFenceHeader>
+  );
+}
+
+export type CodeBlockProps = {
+  code: string;
+  language?: string;
+  filename?: string;
+  showLineNumbers?: boolean;
+  scrollable?: boolean;
+  maxHeight?: number;
+  /** 1-based line numbers to emphasize. */
+  highlightLines?: number[];
+  className?: string;
+};
+
+function CodeBlock({
+  code,
+  language = "tsx",
+  filename,
+  showLineNumbers = false,
+  scrollable = false,
+  maxHeight = 400,
+  highlightLines,
+  className,
+}: CodeBlockProps) {
+  return (
+    <CodeBlockShell className={className}>
+      <CodeBlockHeader label={filename ?? language} code={code} />
+      <CodeBody
+        code={code}
+        language={language}
+        showLineNumbers={showLineNumbers}
+        scrollable={scrollable}
+        maxHeight={maxHeight}
+        highlightLines={highlightLines}
+      />
+    </CodeBlockShell>
   );
 }
 

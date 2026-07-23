@@ -1,21 +1,15 @@
-import * as React from "react";
-import { Slot } from "@radix-ui/react-slot";
-
-import { cn } from "@/lib/cn";
-
 /**
  * Gestalt console vendor of Valon Registry `link`.
  *
  * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/link.tsx`). Token-adapted only — same
- * API (`asChild`, `icon`, `underlineVariant`). Link TEXT uses `--link`
- * (gold-500 / accent-strong); the draw underline uses `--accent-solid`
- * (gold-400) — both bridged in `shared/theme.css`.
- *
- * Prefer Registry install when the console consumes Valon registry.
- *
- * @see toolshed/valon-tools/registry/guidelines/links.md
+ * (`valon-tools/apps/registry/ui/src/ui/link.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
  */
+
+import * as React from "react";
+import { Slot } from "@radix-ui/react-slot";
+
+import { cn } from "@/lib/cn";
 
 // The one Valon link treatment, owned here so every link (Link, BreadcrumbLink,
 // Plate markdown links, app-level entity links) stays in sync. Link text uses --link
@@ -37,10 +31,7 @@ function linkUnderlineFor(variant: LinkUnderlineVariant = "hover") {
   return variant === "always" ? linkUnderlineAlways : linkUnderlineHover;
 }
 
-function linkAnchorClassName(
-  variant: LinkUnderlineVariant = "hover",
-  className?: string,
-) {
+function linkAnchorClassName(variant: LinkUnderlineVariant = "hover", className?: string) {
   return cn("group/link", linkColor, linkUnderlineFor(variant), className);
 }
 
@@ -67,27 +58,17 @@ function Link({
     return (
       <a
         data-slot="link"
-        className={cn(
-          "group/link inline-flex max-w-full items-center gap-1.5",
-          linkColor,
-          className,
-        )}
+        className={cn("group/link inline-flex max-w-full items-center gap-1.5", linkColor, className)}
         {...props}
       >
-        <span className="shrink-0 text-muted-foreground group-hover/link:text-link [&>svg]:size-3.5">
-          {icon}
-        </span>
+        <span className="shrink-0 text-muted-foreground group-hover/link:text-link [&>svg]:size-3.5">{icon}</span>
         <span className={cn("truncate", underline)}>{children}</span>
       </a>
     );
   }
   const Comp = asChild ? Slot : "a";
   return (
-    <Comp
-      data-slot="link"
-      className={cn("group/link", linkColor, underline, className)}
-      {...props}
-    >
+    <Comp data-slot="link" className={cn("group/link", linkColor, underline, className)} {...props}>
       {children}
     </Comp>
   );

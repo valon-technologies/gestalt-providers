@@ -28,6 +28,7 @@ dark).
 | `--content-max-width` | shared max width of the nav and every contained page (see `src/components/Container.tsx`) | `80rem` |
 | `--heading-weight` | default `h1`–`h6` weight (applied by a `globals.css` base rule) | `400` (Newsreader ships one cut) |
 | `--font-display`, `--font-body`, `--font-mono` | type stacks (see the font seam below) | Newsreader (opsz 72) / Instrument Sans / Geist Mono — all OFL |
+| `--text-2xs` (Tailwind `@theme`) | absolute type-scale floor → `text-2xs` utility | `0.625rem` / 10px (below Tailwind `text-xs`) |
 
 The bundled defaults are wrapped in `:where(:root)` / `:where(.dark)` — zero
 specificity — so any tenant declaration (`:root { … }`, `.dark { … }`)

@@ -18,6 +18,7 @@ import {
   getAppSurfaces,
   primaryConnectLabel,
 } from "@/lib/catalogFilters";
+import { getAppPromptExamples } from "@/lib/appPromptExamples";
 import { DOCS_PATH } from "@/lib/constants";
 import { normalizeIntegrationStatus, shouldShowIntegrationSettings } from "@/lib/integrationStatus";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
@@ -25,6 +26,7 @@ import {
   useIntegrationsQuery,
   useInvalidateIntegrations,
 } from "@/hooks/use-server-queries";
+import AppPromptExamplePromo from "@/components/AppPromptExamplePromo";
 import AppWorkflowRunsPanel from "@/components/AppWorkflowRunsPanel";
 import { Badge } from "@/components/Badge";
 import Button from "@/components/Button";
@@ -32,6 +34,14 @@ import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import IntegrationIcon from "@/components/IntegrationIcon";
 import { Link } from "@/components/Link";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import {
   PageHeader,
@@ -41,6 +51,7 @@ import {
   PageHeaderTitle,
 } from "@/components/ui/page-header";
 import { SegmentedControl } from "@/components/ui/segmented-control";
+import { SelectionCheck } from "@/components/ui/selection-check";
 import { SpinnerIcon } from "@/components/icons";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 
@@ -124,6 +135,7 @@ export default function AppAdminPageClient() {
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const label = integration ? getIntegrationLabel(integration) : appName;
+  const promptExample = getAppPromptExamples(appName, label)[0]!;
 
   useDocumentTitle(label);
 
@@ -321,9 +333,19 @@ export default function AppAdminPageClient() {
   return (
     <Container as="main" className="py-12">
       <div className="mb-6">
-        <Link asChild underlineVariant="hover">
-          <RouterLink to="/apps">← Apps</RouterLink>
-        </Link>
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <RouterLink to="/apps">Apps</RouterLink>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>{label}</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
       </div>
 
       {loading ? (
@@ -345,9 +367,34 @@ export default function AppAdminPageClient() {
       ) : null}
 
       {integration ? (
-        <>
+        <div className="grid gap-10 xl:grid-cols-[220px_minmax(0,1fr)_240px]">
+          <aside className="hidden xl:block">
+            <div className="sticky top-24">
+              <nav className="space-y-0.5" aria-label="App sections">
+                {SECTION_OPTIONS.map((option) => {
+                  const isActive = option.value === section;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setSection(option.value)}
+                      className={`block w-full rounded-md px-3 py-2 text-left text-sm transition-colors duration-150 ${
+                        isActive
+                          ? "bg-alpha-5 font-medium text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+          </aside>
+
+          <div className="min-w-0">
           <PageHeader>
-            <PageHeaderContent>
+            <PageHeaderContent size="lg">
               <div className="flex items-start gap-4">
                 <IntegrationIcon
                   iconSvg={integration.iconSvg}
@@ -356,7 +403,7 @@ export default function AppAdminPageClient() {
                 />
                 <div className="flex min-w-0 flex-col gap-3">
                   <Eyebrow>App</Eyebrow>
-                  <PageHeaderTitle size="lg">{label}</PageHeaderTitle>
+                  <PageHeaderTitle>{label}</PageHeaderTitle>
                   {integration.description ? (
                     <PageHeaderDescription>
                       {integration.description}
@@ -384,7 +431,7 @@ export default function AppAdminPageClient() {
               ) : null}
               {surfaces?.hasUi ? (
                 <Badge variant="secondary" size="sm">
-                  App page
+                  App
                 </Badge>
               ) : null}
               {surfaces?.hasMcp ? (
@@ -427,7 +474,7 @@ export default function AppAdminPageClient() {
             </PageHeaderActions>
           </PageHeader>
 
-          <div className="mt-8">
+          <div className="mt-8 xl:hidden">
             <SegmentedControl
               label="App sections"
               options={SECTION_OPTIONS}
@@ -441,6 +488,11 @@ export default function AppAdminPageClient() {
           <div className="mt-8">
             {section === "overview" ? (
               <section className="space-y-6" aria-label="Overview">
+                <AppPromptExamplePromo
+                  displayName={promptExample.displayName}
+                  body={promptExample.body}
+                />
+
                 {checklist.length > 0 ? (
                   <div
                     className={SECTION_CARD}
@@ -459,14 +511,11 @@ export default function AppAdminPageClient() {
                           key={item.id}
                           className="flex items-center gap-2 text-sm text-foreground"
                         >
-                          <span
-                            className={
-                              item.done ? "text-grove-600" : "text-faint"
-                            }
-                            aria-hidden
-                          >
-                            {item.done ? "✓" : "○"}
-                          </span>
+                          <SelectionCheck
+                            checked={item.done}
+                            tone="solid"
+                            density="default"
+                          />
                           {item.label}
                         </li>
                       ))}
@@ -569,7 +618,7 @@ export default function AppAdminPageClient() {
                         ) : null}
                         {surfaces?.hasUi ? (
                           <Badge size="sm" variant="secondary">
-                            App page
+                            App
                           </Badge>
                         ) : null}
                       </dd>
@@ -891,7 +940,10 @@ export default function AppAdminPageClient() {
               </section>
             ) : null}
           </div>
-        </>
+          </div>
+
+          <aside className="hidden xl:block" aria-hidden />
+        </div>
       ) : null}
     </Container>
   );

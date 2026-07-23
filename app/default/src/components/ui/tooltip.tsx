@@ -1,19 +1,19 @@
 "use client";
 
-import * as React from "react";
-import * as TooltipPrimitive from "@radix-ui/react-tooltip";
-
-import { cn } from "@/lib/cn";
 
 /**
  * Gestalt console vendor of Valon Registry `tooltip`.
  *
  * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/tooltip.tsx`). Mount `TooltipProvider`
- * once near the app root (or around a feature island). Delay defaults to 0
- * (instant open); arrow + motion tokens match Registry when animate utilities
- * are available.
+ * (`valon-tools/apps/registry/ui/src/ui/tooltip.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
  */
+
+import * as React from "react";
+import * as TooltipPrimitive from "@radix-ui/react-tooltip";
+
+import { cn } from "@/lib/cn";
 
 /**
  * Mount once at the app root so every tooltip shares one timing context.
@@ -39,10 +39,20 @@ function Tooltip(props: React.ComponentProps<typeof TooltipPrimitive.Root>) {
   return <TooltipPrimitive.Root data-slot="tooltip" {...props} />;
 }
 
-function TooltipTrigger(
-  props: React.ComponentProps<typeof TooltipPrimitive.Trigger>,
-) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
+function TooltipTrigger({
+  asChild,
+  ...props
+}: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
+  // asChild projects onto the child — omit data-slot entirely so we do not
+  // clear or overwrite the child's slot (InputGroupButton edge inset). Own
+  // slot only when Trigger renders its own element.
+  return (
+    <TooltipPrimitive.Trigger
+      asChild={asChild}
+      {...(asChild ? null : { "data-slot": "tooltip-trigger" })}
+      {...props}
+    />
+  );
 }
 
 function TooltipContent({
@@ -63,10 +73,9 @@ function TooltipContent({
           // NOTE: Radix tooltip's open state is "instant-open"/"delayed-open" (never
           // "open"), so the ENTER classes are unconditional — the content only mounts
           // while open — and only the EXIT is gated on data-[state=closed].
-          // Console does not ship tw-animate; enter/exit utilities are no-ops until
-          // that plugin is added — delay + arrow still match Registry.
-          "duration-reveal ease-out-back",
-          "data-[state=closed]:duration-dismiss data-[state=closed]:ease-out-expo",
+          "animate-in fade-in-0 zoom-in-85 blur-in-10 ease-out-back duration-reveal",
+          "data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1",
+          "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-92 data-[state=closed]:blur-out-6 data-[state=closed]:ease-out-expo data-[state=closed]:duration-dismiss",
           className,
         )}
         {...props}

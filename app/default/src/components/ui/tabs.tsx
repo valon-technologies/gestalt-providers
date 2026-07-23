@@ -1,19 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ComponentProps, type Ref } from "react";
-import * as TabsPrimitive from "@radix-ui/react-tabs";
-import { cva } from "class-variance-authority";
-
-import { cn } from "@/lib/cn";
 
 /**
  * Gestalt console vendor of Valon Registry `tabs`.
  *
  * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/tabs.tsx`). Token adaptation only —
- * `cn` import path; motion uses `duration-move` / `ease-out-quart` from
- * `globals.css`. Line underline only — mode switching is SegmentedControl.
+ * (`valon-tools/apps/registry/ui/src/ui/tabs.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
  */
+
+import { useCallback, useEffect, useRef, useState, type ComponentProps, type Ref } from "react";
+import * as TabsPrimitive from "@radix-ui/react-tabs";
+import { cva } from "class-variance-authority";
+
+import { cn } from "@/lib/cn";
 
 type IndicatorStyle = { left: string; width: string };
 

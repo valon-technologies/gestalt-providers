@@ -79,7 +79,7 @@ export default function AppListingDetail({
               </Badge>
               {surfaces.hasUi ? (
                 <Badge size="sm" variant="secondary">
-                  App page
+                  App
                 </Badge>
               ) : null}
             </div>

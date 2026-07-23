@@ -1,5 +1,15 @@
 "use client";
 
+
+/**
+ * Gestalt console vendor of Valon Registry `segmented-control`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/segmented-control.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
+ */
+
 import * as React from "react";
 
 import { cn } from "@/lib/cn";
@@ -9,15 +19,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-
-/**
- * Gestalt console vendor of Valon Registry `segmented-control`.
- *
- * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/segmented-control.tsx`). Local keeps
- * an extra `lg` size for denser console chrome; recipes otherwise match Registry
- * (muted track, control type scale, neutral-dark idle hover).
- */
 
 // One option in the control. `icon` is any component that takes a className
 // (lucide icons qualify), so the control isn't tied to a single icon set.
@@ -33,7 +34,7 @@ const PREV_KEYS = new Set(["ArrowLeft", "ArrowUp"]);
 // Per-size geometry. The control's TRACK (outer height) matches a Button of the
 // same size — so a SegmentedControl and a Button sit the SAME height side by side:
 //   xs → 24px (dense / icon-button),  sm → 32px (control-sm),  default → 36px
-//   (control-default). Console keeps `lg` for larger labeled filters.
+//   (control-default).
 // The track is `segment + 1px padding + 1px border` on each edge (= segment + 4px),
 // so each square is the button height minus 4. Icon-only segments are SQUARE;
 // labelled ones grow to fit their text.
@@ -62,13 +63,6 @@ const SIZE_STYLES = {
     icon: "size-4",
     text: "text-control-default",
   },
-  lg: {
-    container: "p-1",
-    square: "size-11",
-    labelled: "min-h-11 px-4 py-2.5",
-    icon: "size-5",
-    text: "text-control-lg",
-  },
 } as const;
 
 export type SegmentedControlProps<V extends string = string> = {
@@ -80,7 +74,7 @@ export type SegmentedControlProps<V extends string = string> = {
   orientation?: "horizontal" | "vertical";
   showLabels?: boolean;
   tooltips?: boolean;
-  size?: "xs" | "sm" | "default" | "lg";
+  size?: "xs" | "sm" | "default";
   className?: string;
 };
 
@@ -135,11 +129,7 @@ export function SegmentedControl<V extends string>({
       height: btn.offsetHeight,
     };
     setPill((prev) =>
-      prev &&
-      prev.left === next.left &&
-      prev.top === next.top &&
-      prev.width === next.width &&
-      prev.height === next.height
+      prev && prev.left === next.left && prev.top === next.top && prev.width === next.width && prev.height === next.height
         ? prev
         : next,
     );
@@ -205,22 +195,12 @@ export function SegmentedControl<V extends string>({
     >
       <span
         aria-hidden
-        style={
-          pill
-            ? {
-                left: pill.left,
-                top: pill.top,
-                width: pill.width,
-                height: pill.height,
-              }
-            : { opacity: 0 }
-        }
+        style={pill ? { left: pill.left, top: pill.top, width: pill.width, height: pill.height } : { opacity: 0 }}
         className={cn(
           "pointer-events-none absolute rounded-md bg-background shadow-sm",
           // ease-out-back-soft = gentler overshoot than the default --ease-out-back, for the
           // pill's larger travel; duration-overshoot auto-zeroes under prefers-reduced-motion.
-          animate &&
-            "transition-[left,top,width,height] duration-overshoot ease-out-back-soft",
+          animate && "transition-[left,top,width,height] duration-overshoot ease-out-back-soft",
         )}
       />
       {options.map((option, index) => {
@@ -253,8 +233,7 @@ export function SegmentedControl<V extends string>({
             {showLabels ? <span>{option.label}</span> : null}
           </button>
         );
-        if (!withTooltips)
-          return <React.Fragment key={option.value}>{segment}</React.Fragment>;
+        if (!withTooltips) return <React.Fragment key={option.value}>{segment}</React.Fragment>;
         return (
           <Tooltip key={option.value}>
             <TooltipTrigger asChild>{segment}</TooltipTrigger>

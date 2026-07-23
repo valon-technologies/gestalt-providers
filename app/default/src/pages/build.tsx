@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Link,
   Navigate,
@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router";
 import { Badge } from "@/components/Badge";
 import Container from "@/components/Container";
+import IntegrationCard from "@/components/IntegrationCard";
 import IntegrationIcon from "@/components/IntegrationIcon";
 import { Link as UiLink } from "@/components/Link";
 import { RadioGroup, RadioGroupItem, choiceCardClassName } from "@/components/RadioGroup";
@@ -18,10 +19,27 @@ import {
   PageHeaderDescription,
   PageHeaderTitle,
 } from "@/components/ui/page-header";
-import { SegmentedControl } from "@/components/ui/segmented-control";
-import { CodeBlock } from "@/components/ui/code-block";
+import {
+  SectionHeader,
+  SectionHeaderContent,
+  SectionHeaderDescription,
+  SectionHeaderTitle,
+} from "@/components/ui/section-header";
+import { CodeBlock, LanguageTabsCodeBlock } from "@/components/ui/code-block";
+import { Code } from "@/components/ui/code";
+import { cardVariants } from "@/components/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import {
   Field,
   FieldDescription,
@@ -37,6 +55,7 @@ import {
   StepperTrigger,
 } from "@/components/ui/stepper";
 import {
+  AGENT_CONSOLE_THEME_CLAUDE,
   AgentConsole,
   AgentConsoleBody,
   AgentConsoleChrome,
@@ -47,6 +66,7 @@ import {
   AgentConsoleIdentity,
   AgentConsoleInput,
   AgentConsoleMedia,
+  AgentConsolePanel,
   AgentConsolePath,
   AgentConsoleProduct,
   AgentConsolePrompt,
@@ -54,36 +74,38 @@ import {
   AgentConsoleTrafficLights,
   AgentConsoleTyping,
   AgentConsoleWindowTitle,
-  AGENT_CONSOLE_THEME_CLAUDE,
+  type AgentConsoleTheme,
 } from "@/components/ui/agent-console";
-import ShikiCode from "@/components/ShikiCode";
 import TokenCreateForm from "@/components/TokenCreateForm";
 import {
   CheckIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  ClaudeIcon,
-  CodexIcon,
   CopyIcon,
-  CursorIcon,
+  EyeIcon,
+  EyeOffIcon,
 } from "@/components/icons";
 import { useBuildSession } from "@/hooks/use-build-session";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import {
   useIntegrationsQuery,
+  useInvalidateIntegrations,
   useInvalidateTokens,
   useTokensQuery,
 } from "@/hooks/use-server-queries";
 import {
-  startIntegrationOAuth,
   type APIToken,
   type Integration,
 } from "@/lib/api";
 import {
+  BUILD_CREATE_NEW_TOKEN_ID,
   BUILD_EXEMPLARS,
   BUILD_STEPS,
+  buildAuthorizeSelectionReady,
   companionAppLabel,
   connectedAppIds,
+  DEFAULT_BUILD_TOKEN_NAME,
   firstIncompleteStepId,
   getExemplar,
   isBuildStepId,
@@ -94,16 +116,8 @@ import {
   type BuildStepId,
   type BuildWorkspaceSnapshot,
 } from "@/lib/buildPaths";
-import { primaryConnectLabel } from "@/lib/catalogFilters";
 import { cn } from "@/lib/cn";
-import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
-import {
-  BUILD_PATH,
-  CONNECTION_RETURN_PATH_STORAGE_KEY,
-  DOCS_PATH,
-} from "@/lib/constants";
-
-type McpClient = "cursor" | "claude" | "codex";
+import { BUILD_PATH, DOCS_PATH } from "@/lib/constants";
 
 /** `/build` → first incomplete step. */
 export function BuildIndexRedirect() {
@@ -118,7 +132,7 @@ export function BuildIndexRedirect() {
   if (!tokensReady || !integrationsReady) {
     return (
       <Container as="main" className="py-12">
-        <div className="mx-auto w-full max-w-5xl">
+        <div className="mx-auto w-full max-w-4xl">
           <p className="text-sm text-faint">Loading Build…</p>
         </div>
       </Container>
@@ -131,6 +145,8 @@ export function BuildIndexRedirect() {
     activeExemplarId: session.activeExemplarId,
     mcpInstalled: session.mcpInstalled,
     apiToken: session.apiToken,
+    tokenName: session.tokenName,
+    selectedTokenId: session.selectedTokenId,
     introSeen: session.introSeen,
   };
 
@@ -142,7 +158,6 @@ export function BuildIndexRedirect() {
 }
 
 export default function BuildStepPage() {
-  useDocumentTitle("Build");
   const { stepId: rawStepId } = useParams({ strict: false }) as {
     stepId?: string;
   };
@@ -151,11 +166,17 @@ export default function BuildStepPage() {
   const integrationsQuery = useIntegrationsQuery();
   const tokensQuery = useTokensQuery();
   const invalidateTokens = useInvalidateTokens();
+  const stepId = rawStepId && isBuildStepId(rawStepId) ? rawStepId : null;
+  const currentStep = stepId
+    ? BUILD_STEPS.find((s) => s.id === stepId)!
+    : null;
+  useDocumentTitle(
+    currentStep ? `${currentStep.title} · Build` : "Build",
+  );
 
-  if (!rawStepId || !isBuildStepId(rawStepId)) {
+  if (!stepId || !currentStep) {
     return <Navigate to="/build" replace />;
   }
-  const stepId = rawStepId;
 
   const tokensReady = !tokensQuery.isPending;
   const integrationsReady = !integrationsQuery.isPending;
@@ -166,6 +187,8 @@ export default function BuildStepPage() {
     activeExemplarId: session.activeExemplarId,
     mcpInstalled: session.mcpInstalled,
     apiToken: session.apiToken,
+    tokenName: session.tokenName,
+    selectedTokenId: session.selectedTokenId,
     introSeen: session.introSeen,
   };
 
@@ -178,7 +201,6 @@ export default function BuildStepPage() {
 
   const activeExemplar = getExemplar(session.activeExemplarId);
   const connected = connectedAppIds(snapshot.integrations);
-  const currentStep = BUILD_STEPS.find((s) => s.id === stepId)!;
 
   function goToStep(id: BuildStepId) {
     void navigate({ to: "/build/$stepId", params: { stepId: id } });
@@ -190,28 +212,14 @@ export default function BuildStepPage() {
 
   return (
     <Container as="main" className="py-12">
-      <div className="mx-auto w-full max-w-5xl">
-        <PageHeader className="animate-fade-in-up">
-          <PageHeaderContent>
-            <div className="flex flex-col gap-3">
-              <Eyebrow>Get started</Eyebrow>
-              <PageHeaderTitle size="lg">Build</PageHeaderTitle>
-            </div>
-            <PageHeaderDescription className="max-w-2xl">
-              Choose what someone on a team would ask an agent to do — then
-              create a token, install Gestalt, connect companions, and make
-              your first call.
-            </PageHeaderDescription>
-          </PageHeaderContent>
-        </PageHeader>
-
+      <div className="mx-auto w-full max-w-4xl">
         {error && (
-          <p className="mt-8 text-sm text-ember-500">{error}</p>
+          <p className="mb-8 text-sm text-ember-500">{error}</p>
         )}
 
         <div
           data-testid="build-step-nav"
-          className="mt-8 animate-fade-in-up [animation-delay:40ms]"
+          className="animate-fade-in-up"
         >
           <Stepper
             value={stepId}
@@ -238,6 +246,23 @@ export default function BuildStepPage() {
           </Stepper>
         </div>
 
+        <PageHeader
+          className={cn(
+            "mt-10 animate-fade-in-up [animation-delay:40ms]",
+            stepId === "authorize" && "hidden",
+          )}
+        >
+          <PageHeaderContent size="lg">
+            {currentStep.eyebrow ? (
+              <Eyebrow>{currentStep.eyebrow}</Eyebrow>
+            ) : null}
+            <PageHeaderTitle>{currentStep.title}</PageHeaderTitle>
+            <PageHeaderDescription>
+              {currentStep.description}
+            </PageHeaderDescription>
+          </PageHeaderContent>
+        </PageHeader>
+
         <BuildStepPanel
           step={currentStep}
           tokensReady={tokensReady}
@@ -250,20 +275,15 @@ export default function BuildStepPage() {
           onSelectExemplar={session.setActiveExemplarId}
           apiToken={session.apiToken}
           onApiToken={session.setApiToken}
+          tokenName={session.tokenName}
+          onTokenName={session.setTokenName}
+          selectedTokenId={session.selectedTokenId}
+          onSelectedTokenId={session.setSelectedTokenId}
           onRefreshTokens={refreshTokens}
           onMarkMcpInstalled={session.markMcpInstalled}
           onMarkIntroSeen={session.markIntroSeen}
           onGoToStep={goToStep}
         />
-
-        <p className="mt-10 text-sm text-muted-foreground animate-fade-in-up [animation-delay:120ms]">
-          Using the CLI?{" "}
-          <UiLink asChild className="text-sm">
-            <Link to={`${DOCS_PATH}/getting-started`}>
-              Open Getting Started
-            </Link>
-          </UiLink>
-        </p>
       </div>
     </Container>
   );
@@ -280,16 +300,13 @@ function isStepDone(
     case "intro":
       return true;
     case "authorize":
-      return snapshot.apiToken.trim().length > 0 || tokensReady;
+      return buildAuthorizeSelectionReady(snapshot);
     case "install":
       return true;
     case "connect":
       return integrationsReady;
     case "invoke":
-      return (
-        integrationsReady &&
-        (snapshot.apiToken.trim().length > 0 || tokensReady)
-      );
+      return integrationsReady && buildAuthorizeSelectionReady(snapshot);
     default:
       return true;
   }
@@ -333,7 +350,245 @@ function ClaudePixelIcon({ className }: { className?: string }) {
   );
 }
 
-/** Registry ChoiceCardsGrid — use shared {@link choiceCardClassName} only. */
+/**
+ * Build-page skin ids — composition variants, not an AgentConsole prop.
+ * Palettes match Registry `agent-console.stories` (THEME_CODEX / THEME_CURSOR).
+ * Prefer promoting story themes to Registry exports if other apps need them.
+ */
+type BuildAgentSkin = "claude" | "codex" | "cursor";
+
+const BUILD_AGENT_SKINS: BuildAgentSkin[] = ["claude", "codex", "cursor"];
+
+const BUILD_AGENT_THEMES: Record<BuildAgentSkin, AgentConsoleTheme> = {
+  claude: AGENT_CONSOLE_THEME_CLAUDE,
+  // OpenAI Codex CLI — near-black charcoal, white caret, green prompt glyph.
+  codex: {
+    background: "#121212",
+    accent: "#f0f0f0",
+    traffic: "#3a3a3a",
+    foreground: "#f8f8f8",
+    muted: "rgba(255,255,255,0.45)",
+    glyph: "#b0d8a8",
+  },
+  // Cursor Agent terminal — near-black charcoal, white caret.
+  cursor: {
+    background: "#141414",
+    accent: "#f5f5f5",
+    traffic: "#3a3a3a",
+    foreground: "#e8e8e8",
+    muted: "rgba(255,255,255,0.45)",
+    glyph: "rgba(255,255,255,0.85)",
+  },
+};
+
+function pickBuildAgentSkin(exclude?: BuildAgentSkin): BuildAgentSkin {
+  const options =
+    exclude == null
+      ? BUILD_AGENT_SKINS
+      : BUILD_AGENT_SKINS.filter((id) => id !== exclude);
+  return options[Math.floor(Math.random() * options.length)]!;
+}
+
+/** Codex CLI status-panel highlights — Registry AgentConsole Codex story. */
+const CODEX_HL = {
+  model: "#90b8b0",
+  command: "#a890b8",
+  path: "#f0e0b8",
+  permission: "#a890b8",
+} as const;
+
+function BuildAgentConsolePreview({
+  variant,
+  prompt,
+  reply,
+  cwd,
+}: {
+  variant: BuildAgentSkin;
+  prompt: string;
+  /** When set, sequence: type prompt → think → type reply. */
+  reply?: string;
+  cwd: string;
+}) {
+  const theme = BUILD_AGENT_THEMES[variant];
+  const [phase, setPhase] = useState<"prompt" | "thinking" | "reply">(
+    reply ? "prompt" : "prompt",
+  );
+
+  // Reset the turn when the exemplar prompt/reply changes.
+  useEffect(() => {
+    setPhase("prompt");
+  }, [prompt, reply]);
+
+  useEffect(() => {
+    if (!reply || phase !== "thinking") return;
+    const timer = window.setTimeout(() => setPhase("reply"), 1600);
+    return () => window.clearTimeout(timer);
+  }, [phase, reply]);
+
+  const promptComplete = !reply || phase === "thinking" || phase === "reply";
+
+  const promptLine = (
+    <AgentConsolePrompt
+      className={
+        variant === "codex"
+          ? reply
+            ? "mt-0 -mx-1 border-transparent bg-white/[0.06] px-2 py-1.5"
+            : "mt-auto -mx-1 border-transparent bg-white/[0.06] px-2 py-1.5"
+          : variant === "cursor"
+            ? "border-transparent py-1"
+            : undefined
+      }
+    >
+      <AgentConsoleGlyph>
+        {variant === "cursor" ? "→" : "❯"}
+      </AgentConsoleGlyph>
+      <AgentConsoleInput measureText={prompt}>
+        {reply ? (
+          <>
+            {promptComplete ? (
+              <span className="whitespace-pre-wrap">{prompt}</span>
+            ) : (
+              <AgentConsoleTyping
+                text={prompt}
+                onComplete={() => setPhase("thinking")}
+              />
+            )}
+            {!promptComplete ? <AgentConsoleCursor /> : null}
+          </>
+        ) : (
+          <>
+            <AgentConsoleTyping text={prompt} />
+            <AgentConsoleCursor />
+          </>
+        )}
+      </AgentConsoleInput>
+    </AgentConsolePrompt>
+  );
+
+  const replyBlock =
+    reply && phase === "thinking" ? (
+      <AgentConsoleHint
+        className="motion-safe:animate-pulse"
+        data-testid="build-agent-thinking"
+      >
+        Thinking…
+      </AgentConsoleHint>
+    ) : reply && phase === "reply" ? (
+      <AgentConsolePanel
+        className="whitespace-pre-wrap text-[length:inherit] leading-relaxed"
+        data-testid="build-agent-reply"
+      >
+        <AgentConsoleTyping text={reply} delayMs={120} />
+      </AgentConsolePanel>
+    ) : null;
+
+  if (variant === "codex") {
+    return (
+      <AgentConsole theme={theme} className="h-full w-full max-w-full">
+        <AgentConsoleChrome>
+          <AgentConsoleTrafficLights />
+          <AgentConsoleWindowTitle>codex</AgentConsoleWindowTitle>
+        </AgentConsoleChrome>
+        <AgentConsoleBody className="min-h-0 flex-1 gap-4">
+          <AgentConsolePanel className="space-y-0.5">
+            <p className="text-[var(--agent-console-fg)]">
+              <span className="text-[var(--agent-console-muted)]">{">_ "}</span>
+              OpenAI Codex
+            </p>
+            <p>
+              <span className="text-[var(--agent-console-muted)]">model: </span>
+              <span style={{ color: CODEX_HL.model }}>gpt-5.6-sol max</span>{" "}
+              <span style={{ color: CODEX_HL.command }}>/model</span>{" "}
+              <span className="text-[var(--agent-console-muted)]">
+                to change
+              </span>
+            </p>
+            <p>
+              <span className="text-[var(--agent-console-muted)]">
+                directory:{" "}
+              </span>
+              <span style={{ color: CODEX_HL.path }}>{cwd}</span>
+            </p>
+            <p>
+              <span className="text-[var(--agent-console-muted)]">
+                permissions:{" "}
+              </span>
+              <span style={{ color: CODEX_HL.permission }}>YOLO mode</span>
+            </p>
+          </AgentConsolePanel>
+          {promptLine}
+          {replyBlock}
+        </AgentConsoleBody>
+      </AgentConsole>
+    );
+  }
+
+  if (variant === "cursor") {
+    return (
+      <AgentConsole theme={theme} className="h-full w-full max-w-full">
+        <AgentConsoleChrome>
+          <AgentConsoleTrafficLights />
+          <AgentConsoleWindowTitle>cursor</AgentConsoleWindowTitle>
+        </AgentConsoleChrome>
+        <AgentConsoleBody className="min-h-0 flex-1">
+          <AgentConsoleIdentity className="gap-0">
+            <AgentConsoleHeading>
+              <AgentConsoleProduct>Cursor Agent</AgentConsoleProduct>
+              <AgentConsoleSubtitle className="text-[var(--agent-console-muted)]">
+                Building with Gestalt
+              </AgentConsoleSubtitle>
+            </AgentConsoleHeading>
+          </AgentConsoleIdentity>
+          <div
+            className={
+              reply ? "flex flex-col gap-3" : "mt-auto flex flex-col gap-3"
+            }
+          >
+            {promptLine}
+            {replyBlock}
+            <AgentConsoleHint className="text-[var(--agent-console-fg)]">
+              {cwd} · origin/main
+            </AgentConsoleHint>
+          </div>
+        </AgentConsoleBody>
+      </AgentConsole>
+    );
+  }
+
+  return (
+    <AgentConsole theme={theme} className="h-full w-full max-w-full">
+      <AgentConsoleChrome>
+        <AgentConsoleTrafficLights />
+        <AgentConsoleWindowTitle>claude</AgentConsoleWindowTitle>
+      </AgentConsoleChrome>
+      <AgentConsoleBody className="min-h-0 flex-1">
+        <AgentConsoleIdentity>
+          <AgentConsoleMedia>
+            <ClaudePixelIcon className="size-16" />
+          </AgentConsoleMedia>
+          <AgentConsoleHeading>
+            <AgentConsoleProduct>Claude Code</AgentConsoleProduct>
+            <AgentConsoleSubtitle>Building with Gestalt</AgentConsoleSubtitle>
+            <AgentConsolePath>{cwd}</AgentConsolePath>
+          </AgentConsoleHeading>
+        </AgentConsoleIdentity>
+        <div
+          className={
+            reply ? "flex flex-col gap-3" : "mt-auto flex flex-col gap-3"
+          }
+        >
+          {promptLine}
+          {replyBlock}
+          {!reply ? (
+            <AgentConsoleHint>? for shortcuts</AgentConsoleHint>
+          ) : null}
+        </div>
+      </AgentConsoleBody>
+    </AgentConsole>
+  );
+}
+
+/** Registry ChoiceCards — vertical rail (features-14 spine); use {@link choiceCardClassName} only. */
 
 function IntroStepActions({
   activeExemplarId,
@@ -347,6 +602,13 @@ function IntroStepActions({
   onGoToStep: (id: BuildStepId) => void;
 }) {
   const exemplar = getExemplar(activeExemplarId);
+  const [agentSkin, setAgentSkin] = useState<BuildAgentSkin>("claude");
+  const cwd = `~/${exemplar.department.toLowerCase().replace(/\s+/g, "-")}`;
+
+  function handleSelectExemplar(id: BuildExemplarId) {
+    onSelectExemplar(id);
+    setAgentSkin((current) => pickBuildAgentSkin(current));
+  }
 
   function handleContinue() {
     onMarkIntroSeen();
@@ -355,87 +617,67 @@ function IntroStepActions({
 
   return (
     <div className="space-y-6" data-testid="build-intro">
-      <div data-testid="build-outcome-toggle" className="w-full">
-        <RadioGroup
-          value={activeExemplarId}
-          onValueChange={(value) =>
-            onSelectExemplar(value as BuildExemplarId)
-          }
-          className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4"
-          aria-label="What to build"
-        >
-          {BUILD_EXEMPLARS.map((item) => {
-            const inputId = `build-outcome-${item.id}`;
-            return (
-              <Label
-                key={item.id}
-                htmlFor={inputId}
-                className={cn(choiceCardClassName, "h-full")}
-                data-testid={`build-outcome-card-${item.id}`}
-              >
-                <RadioGroupItem
-                  value={item.id}
-                  id={inputId}
-                  className="absolute end-3 top-3"
-                  aria-label={item.outcomeTitle}
-                />
-                <Eyebrow
-                  data-testid={
-                    item.id === activeExemplarId
-                      ? "build-outcome-department"
-                      : undefined
-                  }
+      {/*
+        features-14 spine: ~⅓ pick rail + ~⅔ preview panel.
+        Selection = RadioGroup ChoiceCards (pick-one outcomes); panel = AgentConsole slot.
+      */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:items-stretch lg:gap-8">
+        <div data-testid="build-outcome-toggle" className="min-w-0">
+          <RadioGroup
+            value={activeExemplarId}
+            onValueChange={(value) =>
+              handleSelectExemplar(value as BuildExemplarId)
+            }
+            className="grid grid-cols-1 gap-2"
+            aria-label="What to build"
+          >
+            {BUILD_EXEMPLARS.map((item) => {
+              const inputId = `build-outcome-${item.id}`;
+              return (
+                <Label
+                  key={item.id}
+                  htmlFor={inputId}
+                  className={cn(choiceCardClassName)}
+                  data-testid={`build-outcome-card-${item.id}`}
                 >
-                  {item.department}
-                </Eyebrow>
-                <span
-                  data-choice-title
-                  className="text-base font-medium text-foreground"
-                >
-                  {item.outcomeTitle}
-                </span>
-              </Label>
-            );
-          })}
-        </RadioGroup>
-      </div>
+                  <RadioGroupItem
+                    value={item.id}
+                    id={inputId}
+                    className="absolute end-3 top-3"
+                    aria-label={item.outcomeTitle}
+                  />
+                  <Eyebrow
+                    data-testid={
+                      item.id === activeExemplarId
+                        ? "build-outcome-department"
+                        : undefined
+                    }
+                  >
+                    {item.department}
+                  </Eyebrow>
+                  <span
+                    data-choice-title
+                    className="text-base font-medium text-foreground"
+                  >
+                    {item.outcomeTitle}
+                  </span>
+                </Label>
+              );
+            })}
+          </RadioGroup>
+        </div>
 
-      <div data-testid="build-agent-console" className="max-w-xl">
-        <AgentConsole
-          key={exemplar.id}
-          theme={AGENT_CONSOLE_THEME_CLAUDE}
-          className="w-full max-w-full"
+        <div
+          data-testid="build-agent-console"
+          className="flex min-h-0 min-w-0"
         >
-          <AgentConsoleChrome>
-            <AgentConsoleTrafficLights />
-            <AgentConsoleWindowTitle>claude</AgentConsoleWindowTitle>
-          </AgentConsoleChrome>
-          <AgentConsoleBody>
-            <AgentConsoleIdentity>
-              <AgentConsoleMedia>
-                <ClaudePixelIcon className="size-16" />
-              </AgentConsoleMedia>
-              <AgentConsoleHeading>
-                <AgentConsoleProduct>Claude Code</AgentConsoleProduct>
-                <AgentConsoleSubtitle>
-                  Building with Gestalt
-                </AgentConsoleSubtitle>
-                <AgentConsolePath>
-                  ~/
-                  {exemplar.department.toLowerCase().replace(/\s+/g, "-")}
-                </AgentConsolePath>
-              </AgentConsoleHeading>
-            </AgentConsoleIdentity>
-            <AgentConsolePrompt>
-              <AgentConsoleGlyph>❯</AgentConsoleGlyph>
-              <AgentConsoleInput measureText={exemplar.llmPrompt}>
-                <AgentConsoleTyping text={exemplar.llmPrompt} />
-                <AgentConsoleCursor />
-              </AgentConsoleInput>
-            </AgentConsolePrompt>
-            <AgentConsoleHint>? for shortcuts</AgentConsoleHint>
-          </AgentConsoleBody>
-        </AgentConsole>
+          <BuildAgentConsolePreview
+            key={`${exemplar.id}-${agentSkin}`}
+            variant={agentSkin}
+            prompt={exemplar.llmPrompt}
+            cwd={cwd}
+          />
+        </div>
       </div>
 
       <nav
@@ -446,14 +688,18 @@ function IntroStepActions({
           type="button"
           data-testid="build-intro-continue"
           onClick={handleContinue}
-          className="group flex flex-col gap-1 rounded-xl border border-alpha bg-background px-5 py-5 text-left transition-[color,background-color,border-color] duration-hover-out ease-out-quart hover:border-alpha-strong hover:bg-neutral-hover hover:duration-hover-in focus-ring sm:items-end sm:text-right"
+          className="group flex w-fit max-w-xs flex-col gap-1 rounded-xl bg-neutral-hover px-5 py-5 text-left transition-[background-color] duration-hover-out ease-out-quart hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed focus-ring sm:items-end sm:text-right"
         >
-          <span className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+          <span className="text-2xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
             Next
           </span>
-          <span className="mt-1 flex items-center gap-2 font-heading text-xl leading-tight tracking-tight text-foreground sm:flex-row-reverse">
-            <ChevronRightIcon className="size-6 shrink-0 text-muted-foreground transition-colors duration-hover-out group-hover:text-foreground" />
-            Create a token
+          <span className="mt-1 flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground sm:flex-row-reverse">
+            <ChevronRightIcon
+              tight
+              strokeWidth={1.5}
+              className="size-[1ex] shrink-0 text-muted-foreground transition-colors duration-hover-out group-hover:text-foreground"
+            />
+            {BUILD_STEPS.find((step) => step.id === "authorize")?.title}
           </span>
         </button>
       </nav>
@@ -471,7 +717,6 @@ function McpInstallPanel({
   const mcpBase = gestaltMcpBaseUrl();
   const mcpUrl = `${mcpBase}/mcp`;
   const tokenForSnippets = apiToken || "gst_api_YOUR_TOKEN";
-  const [mcpClient, setMcpClient] = useState<McpClient>("cursor");
   const hasToken = apiToken.length > 0;
   const cursorInstallHref = hasToken
     ? cursorMcpInstallHref(mcpUrl, apiToken)
@@ -496,86 +741,84 @@ function McpInstallPanel({
 codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
 
   return (
-    <div className="space-y-3">
-      <SegmentedControl
-        label="AI client"
-        size="sm"
-        showLabels
-        value={mcpClient}
-        onValueChange={setMcpClient}
-        options={[
-          { value: "cursor", label: "Cursor", icon: CursorIcon },
-          { value: "claude", label: "Claude Code", icon: ClaudeIcon },
-          { value: "codex", label: "Codex", icon: CodexIcon },
-        ]}
-      />
-      {mcpClient === "cursor" ? (
-        <div className="space-y-3 text-sm text-muted-foreground">
-          <p>
-            One-click install opens Cursor and adds this workspace as an MCP
-            server (uses your API token).
-          </p>
-          {cursorInstallHref ? (
-            <Button asChild>
-              <a
-                href={cursorInstallHref}
-                data-testid="build-add-to-cursor"
-                onClick={() => onMarkMcpInstalled()}
-              >
-                Add to Cursor
-              </a>
-            </Button>
-          ) : (
-            <Button type="button" disabled data-testid="build-add-to-cursor">
-              Add to Cursor
-            </Button>
-          )}
-          <details className="rounded-md border border-alpha bg-base-white dark:bg-surface">
-            <summary className="cursor-pointer list-none px-3 py-2 text-sm font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">
-              Prefer editing{" "}
-              <code className="font-mono text-xs">.cursor/mcp.json</code>{" "}
-              manually
-            </summary>
-            <div className="space-y-2 border-t border-alpha px-3 py-3">
-              <CodeBlock
-                code={cursorConfig}
-                language="json"
-                filename=".cursor/mcp.json"
-              />
-            </div>
-          </details>
-        </div>
-      ) : null}
-      {mcpClient === "claude" ? (
-        <div className="space-y-2 text-sm text-muted-foreground">
-          <p>
-            Run this in a terminal (uses your API token), or see{" "}
-            <UiLink asChild className="text-sm">
-              <Link to={`${DOCS_PATH}/mcp`}>Use with MCP</Link>
-            </UiLink>
-            .
-          </p>
-          <CodeBlock
-            code={claudeCommand}
-            language="bash"
-            filename="Terminal"
-          />
-        </div>
-      ) : null}
-      {mcpClient === "codex" ? (
-        <div className="space-y-2 text-sm text-muted-foreground">
-          <p>Register this workspace with the Codex CLI:</p>
-          <CodeBlock
-            code={codexCommand}
-            language="bash"
-            filename="Terminal"
-          />
-        </div>
-      ) : null}
+    <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Endpoint:{" "}
-        <code className="font-mono text-xs text-foreground">{mcpUrl}</code>
+        Install Gestalt in your AI client. See{" "}
+        <UiLink asChild className="text-sm">
+          <Link to={`${DOCS_PATH}/mcp`}>Use with MCP</Link>
+        </UiLink>{" "}
+        for full setup notes.
       </p>
+
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          In Cursor, one-click install adds this workspace as an MCP server
+          using your API token.
+        </p>
+        {cursorInstallHref ? (
+          <Button asChild>
+            <a
+              href={cursorInstallHref}
+              data-testid="build-add-to-cursor"
+              onClick={() => onMarkMcpInstalled()}
+            >
+              Add to Cursor
+            </a>
+          </Button>
+        ) : (
+          <Button type="button" disabled data-testid="build-add-to-cursor">
+            Add to Cursor
+          </Button>
+        )}
+        <details
+          className="group rounded-md border border-alpha bg-base-white dark:bg-surface"
+          data-testid="build-cursor-manual-config"
+        >
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">
+            <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform duration-hover-out ease-out-quart group-open:rotate-180" />
+            <span>
+              Or paste into{" "}
+              <code className="font-mono text-xs">.cursor/mcp.json</code>
+            </span>
+          </summary>
+          <div className="space-y-2 border-t border-alpha px-3 py-3">
+            <p className="text-sm text-muted-foreground">
+              Skip one-click and add this MCP server block to your project’s
+              Cursor config, then reload MCP in Cursor.
+            </p>
+            <CodeBlock
+              code={cursorConfig}
+              language="json"
+              filename=".cursor/mcp.json"
+            />
+          </div>
+        </details>
+      </div>
+
+      {/* Registry LanguageTabsCodeBlock — Tabs over syntax fence; do not fork. */}
+      <div className="space-y-2" data-testid="build-mcp-install-tabs">
+        <p className="text-sm text-muted-foreground">
+          Or copy a snippet for Claude Code or Codex:
+        </p>
+        <LanguageTabsCodeBlock
+          tabs={[
+            {
+              id: "claude",
+              label: "Claude Code",
+              filename: "Terminal",
+              language: "bash",
+              code: claudeCommand,
+            },
+            {
+              id: "codex",
+              label: "Codex",
+              filename: "Terminal",
+              language: "bash",
+              code: codexCommand,
+            },
+          ]}
+        />
+      </div>
     </div>
   );
 }
@@ -592,6 +835,10 @@ function BuildStepPanel({
   onSelectExemplar,
   apiToken,
   onApiToken,
+  tokenName,
+  onTokenName,
+  selectedTokenId,
+  onSelectedTokenId,
   onRefreshTokens,
   onMarkMcpInstalled,
   onMarkIntroSeen,
@@ -608,11 +855,21 @@ function BuildStepPanel({
   onSelectExemplar: (id: BuildExemplarId) => void;
   apiToken: string;
   onApiToken: (token: string) => void;
+  tokenName: string;
+  onTokenName: (name: string) => void;
+  selectedTokenId: string;
+  onSelectedTokenId: (id: string) => void;
   onRefreshTokens: () => void | Promise<void>;
   onMarkMcpInstalled: () => void;
   onMarkIntroSeen: () => void;
   onGoToStep: (id: BuildStepId) => void;
 }) {
+  const authorizeReady = buildAuthorizeSelectionReady({
+    apiToken,
+    selectedTokenId,
+    tokens,
+  });
+
   return (
     <section
       data-testid="build-step-panel"
@@ -623,15 +880,6 @@ function BuildStepPanel({
         (step.id === "invoke" && (!tokensReady || !integrationsReady))
       }
     >
-      {step.id !== "intro" ? (
-        <>
-          <h2 className="font-heading text-xl leading-none tracking-tight text-foreground">
-            {step.title}
-          </h2>
-          <p className="text-sm text-muted-foreground">{step.description}</p>
-        </>
-      ) : null}
-
       {step.id === "intro" ? (
         <IntroStepActions
           activeExemplarId={activeExemplarId}
@@ -643,10 +891,17 @@ function BuildStepPanel({
 
       {step.id === "authorize" ? (
         <AuthorizeStepActions
+          title={step.title}
+          description={step.description}
           tokens={tokens}
           tokensLoaded={tokensReady}
+          integrations={integrations}
           apiToken={apiToken}
           onApiToken={onApiToken}
+          tokenName={tokenName}
+          onTokenName={onTokenName}
+          selectedTokenId={selectedTokenId}
+          onSelectedTokenId={onSelectedTokenId}
           onTokensChanged={onRefreshTokens}
         />
       ) : null}
@@ -676,7 +931,31 @@ function BuildStepPanel({
       ) : null}
 
       {step.id !== "intro" ? (
-        <BuildStepPager stepId={step.id} onGoToStep={onGoToStep} />
+        <BuildStepPager
+          stepId={step.id}
+          onGoToStep={(id) => {
+            if (step.id === "install") {
+              const from = BUILD_STEPS.findIndex((s) => s.id === step.id);
+              const to = BUILD_STEPS.findIndex((s) => s.id === id);
+              if (to > from) onMarkMcpInstalled();
+            }
+            onGoToStep(id);
+          }}
+          nextDisabled={
+            (step.id === "authorize" && !authorizeReady) ||
+            (step.id === "connect" &&
+              activeExemplar.companionAppIds.some(
+                (appId) => !connected.has(appId),
+              ))
+          }
+          nextDisabledTitle={
+            step.id === "authorize"
+              ? "Pick an existing token or create a new one before continuing"
+              : step.id === "connect"
+                ? "Connect every required app before continuing"
+                : undefined
+          }
+        />
       ) : null}
     </section>
   );
@@ -685,9 +964,14 @@ function BuildStepPanel({
 function BuildStepPager({
   stepId,
   onGoToStep,
+  nextDisabled = false,
+  nextDisabledTitle,
 }: {
   stepId: BuildStepId;
   onGoToStep: (id: BuildStepId) => void;
+  /** When true, the Next control is shown but not actionable. */
+  nextDisabled?: boolean;
+  nextDisabledTitle?: string;
 }) {
   const index = BUILD_STEPS.findIndex((step) => step.id === stepId);
   const prev = index > 0 ? BUILD_STEPS[index - 1] : null;
@@ -698,13 +982,14 @@ function BuildStepPager({
   if (!prev && !next) return null;
 
   const cardClass =
-    "group flex w-full flex-col gap-1 rounded-xl border border-alpha bg-background px-5 py-5 text-left transition-[color,background-color,border-color] duration-hover-out ease-out-quart hover:border-alpha-strong hover:bg-neutral-hover hover:duration-hover-in focus-ring";
+    // Registry Card solid (bg-secondary ≈ neutral-hover) + Neutral dark hover/press.
+    "group flex w-fit max-w-xs flex-col gap-1 rounded-xl bg-neutral-hover px-5 py-5 text-left transition-[background-color] duration-hover-out ease-out-quart hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed focus-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-neutral-hover disabled:active:bg-neutral-hover";
 
   return (
     <nav
       aria-label="Build step navigation"
       data-testid="build-step-pager"
-      className="mt-8 grid gap-3 border-t border-alpha pt-6 sm:grid-cols-2"
+      className="mt-8 flex flex-wrap items-stretch justify-between gap-3 border-t border-alpha pt-6"
     >
       {prev ? (
         <button
@@ -713,29 +998,40 @@ function BuildStepPager({
           onClick={() => onGoToStep(prev.id)}
           className={cardClass}
         >
-          <span className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+          <span className="text-2xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
             Previous
           </span>
-          <span className="mt-1 flex items-center gap-2 font-heading text-xl leading-tight tracking-tight text-foreground">
-            <ChevronLeftIcon className="size-6 shrink-0 text-muted-foreground transition-colors duration-hover-out group-hover:text-foreground" />
+          <span className="mt-1 flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground">
+            <ChevronLeftIcon
+              tight
+              strokeWidth={1.5}
+              className="size-[1ex] shrink-0 text-muted-foreground transition-colors duration-hover-out group-hover:text-foreground"
+            />
             {prev.title}
           </span>
         </button>
       ) : (
-        <div className="hidden sm:block" aria-hidden />
+        <span className="hidden sm:block" aria-hidden />
       )}
       {next ? (
         <button
           type="button"
           data-testid="build-step-next"
           onClick={() => onGoToStep(next.id)}
-          className={cn(cardClass, "sm:items-end sm:text-right")}
+          disabled={nextDisabled}
+          aria-disabled={nextDisabled}
+          title={nextDisabled ? nextDisabledTitle : undefined}
+          className={cn(cardClass, "ms-auto items-end text-right")}
         >
-          <span className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+          <span className="text-2xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
             Next
           </span>
-          <span className="mt-1 flex items-center gap-2 font-heading text-xl leading-tight tracking-tight text-foreground sm:flex-row-reverse">
-            <ChevronRightIcon className="size-6 shrink-0 text-muted-foreground transition-colors duration-hover-out group-hover:text-foreground" />
+          <span className="mt-1 flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground flex-row-reverse">
+            <ChevronRightIcon
+              tight
+              strokeWidth={1.5}
+              className="size-[1ex] shrink-0 text-muted-foreground transition-colors duration-hover-out group-hover:text-foreground"
+            />
             {next.title}
           </span>
         </button>
@@ -744,111 +1040,216 @@ function BuildStepPager({
   );
 }
 
+function tokenChoiceTitle(token: APIToken): string {
+  const name = token.name?.trim();
+  if (name && name !== token.id) return name;
+  return token.id;
+}
+
+function scopeAppId(scope: string): string {
+  const [appId] = scope.split(":");
+  return appId.trim();
+}
+
+function appScopeDisplayName(
+  appId: string,
+  integrations: Integration[],
+): string {
+  const match = integrations.find((item) => item.name === appId);
+  if (match?.displayName?.trim()) return match.displayName.trim();
+  return companionAppLabel(appId);
+}
+
+function tokenScopeLabel(token: APIToken, integrations: Integration[]): string {
+  if (!token.scopes?.length) return "Scope: all";
+  const labels = [
+    ...new Set(
+      token.scopes.map((scope) =>
+        appScopeDisplayName(scopeAppId(scope), integrations),
+      ),
+    ),
+  ];
+  return `Scope: ${labels.join(", ")}`;
+}
+
 function AuthorizeStepActions({
+  title,
+  description,
   tokens,
   tokensLoaded,
+  integrations,
   apiToken,
   onApiToken,
+  tokenName,
+  onTokenName,
+  selectedTokenId,
+  onSelectedTokenId,
   onTokensChanged,
 }: {
+  title: string;
+  description: string;
   tokens: APIToken[];
   tokensLoaded: boolean;
+  integrations: Integration[];
   apiToken: string;
   onApiToken: (token: string) => void;
+  tokenName: string;
+  onTokenName: (name: string) => void;
+  selectedTokenId: string;
+  onSelectedTokenId: (id: string) => void;
   onTokensChanged: () => void | Promise<void>;
 }) {
-  const [addingAnother, setAddingAnother] = useState(false);
   const hasTokens = tokens.length > 0;
-  const showCreateForm = !hasTokens || addingAnother;
+  const createSelected =
+    !hasTokens || selectedTokenId === BUILD_CREATE_NEW_TOKEN_ID;
 
-  async function handleTokenCreated(plaintext: string) {
+  // When the account has no tokens yet, treat authorize as the create path.
+  const radioValue = hasTokens
+    ? selectedTokenId || undefined
+    : BUILD_CREATE_NEW_TOKEN_ID;
+
+  async function handleTokenCreated(
+    plaintext: string,
+    created: { id: string; name: string },
+  ) {
     onApiToken(plaintext);
-    setAddingAnother(false);
+    onTokenName(created.name);
+    onSelectedTokenId(created.id);
     await onTokensChanged();
   }
 
+  function selectExistingToken(token: APIToken) {
+    onSelectedTokenId(token.id);
+    onTokenName(tokenChoiceTitle(token));
+  }
+
+  function selectCreateNew() {
+    const wasCreating =
+      selectedTokenId === BUILD_CREATE_NEW_TOKEN_ID || !hasTokens;
+    onSelectedTokenId(BUILD_CREATE_NEW_TOKEN_ID);
+    if (!wasCreating || !tokenName.trim()) {
+      onTokenName(DEFAULT_BUILD_TOKEN_NAME);
+    }
+  }
+
   return (
-    <div className="space-y-3">
-      {!tokensLoaded ? (
-        <p className="text-sm text-faint">Loading tokens…</p>
-      ) : null}
+    <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_min(100%,360px)] lg:items-start">
+      <div className="min-w-0 space-y-4">
+        <PageHeader>
+          <PageHeaderContent size="lg">
+            <PageHeaderTitle>{title}</PageHeaderTitle>
+            <PageHeaderDescription>{description}</PageHeaderDescription>
+          </PageHeaderContent>
+        </PageHeader>
+
+        {!tokensLoaded ? (
+          <p className="text-sm text-faint">Loading tokens…</p>
+        ) : null}
+
+        {tokensLoaded && createSelected ? (
+          <div className="space-y-2">
+            {hasTokens ? null : (
+              <p className="text-sm text-muted-foreground">
+                Name this token for the rest of Build — you can change it before
+                creating.
+              </p>
+            )}
+            <TokenCreateForm
+              name={tokenName}
+              onNameChange={onTokenName}
+              defaultName={DEFAULT_BUILD_TOKEN_NAME}
+              onCreated={handleTokenCreated}
+            />
+          </div>
+        ) : null}
+      </div>
 
       {tokensLoaded && hasTokens ? (
-        <div
-          className="overflow-hidden rounded-xl border border-alpha bg-base-100 dark:bg-surface"
-          data-testid="build-token-list"
-        >
-          <ul className="divide-y divide-alpha">
-            {tokens.map((token) => (
-              <li
-                key={token.id}
-                className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-3"
+        <div className="w-full max-w-[360px] space-y-2 lg:justify-self-end">
+          <RadioGroup
+            value={radioValue}
+            onValueChange={(value) => {
+              if (value === BUILD_CREATE_NEW_TOKEN_ID) {
+                selectCreateNew();
+                return;
+              }
+              const token = tokens.find((item) => item.id === value);
+              if (token) selectExistingToken(token);
+            }}
+            className="gap-2"
+            data-testid="build-token-radio"
+            aria-label="Choose an API token"
+          >
+            {tokens.map((token) => {
+              const inputId = `build-token-${token.id}`;
+              const tokenTitle = tokenChoiceTitle(token);
+              const showMonospace = tokenTitle === token.id;
+              const created = token.createdAt
+                ? new Date(token.createdAt).toLocaleDateString()
+                : null;
+              return (
+                <Label
+                  key={token.id}
+                  htmlFor={inputId}
+                  className={cn(choiceCardClassName)}
+                >
+                  <RadioGroupItem
+                    value={token.id}
+                    id={inputId}
+                    className="absolute end-3 top-3"
+                    aria-label={tokenTitle}
+                  />
+                  <span
+                    data-choice-title
+                    className={cn(
+                      "text-sm font-medium text-foreground",
+                      showMonospace && "truncate font-mono font-normal",
+                    )}
+                    title={showMonospace ? tokenTitle : undefined}
+                  >
+                    {tokenTitle}
+                  </span>
+                  <span
+                    data-choice-desc
+                    className="text-sm font-normal text-muted-foreground"
+                  >
+                    {tokenScopeLabel(token, integrations)}
+                    {created ? ` · Created ${created}` : null}
+                  </span>
+                </Label>
+              );
+            })}
+
+            <Label
+              htmlFor="build-token-create"
+              className={cn(choiceCardClassName)}
+            >
+              <RadioGroupItem
+                value={BUILD_CREATE_NEW_TOKEN_ID}
+                id="build-token-create"
+                className="absolute end-3 top-3"
+                aria-label="Create a new token"
+              />
+              <span
+                data-choice-title
+                className="text-sm font-medium text-foreground"
               >
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-foreground">
-                    {token.name?.trim() || token.id}
-                  </p>
-                  <p className="mt-0.5 font-mono text-xs text-faint">
-                    {token.id}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                  <span>
-                    {token.scopes?.length
-                      ? token.scopes.join(" ")
-                      : "all scopes"}
-                  </span>
-                  <span className="font-mono">
-                    {new Date(token.createdAt).toLocaleDateString()}
-                  </span>
-                  {token.expiresAt ? (
-                    <span className="font-mono">
-                      expires{" "}
-                      {new Date(token.expiresAt).toLocaleDateString()}
-                    </span>
-                  ) : (
-                    <span>no expiry</span>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-          <div className="border-t border-alpha px-4 py-2">
-            <UiLink asChild className="text-sm">
-              <Link to="/settings" hash="authorization">
-                Manage tokens
-              </Link>
-            </UiLink>
-          </div>
-        </div>
-      ) : null}
+                Create a new token
+              </span>
+              <span
+                data-choice-desc
+                className="text-sm font-normal text-muted-foreground"
+              >
+                Name it for this Build path — the secret is only shown once.
+              </span>
+            </Label>
+          </RadioGroup>
 
-      {tokensLoaded && hasTokens && !showCreateForm ? (
-        <Button
-          type="button"
-          variant="outline"
-          data-testid="build-add-another-token"
-          onClick={() => setAddingAnother(true)}
-        >
-          Add another token
-        </Button>
-      ) : null}
-
-      {tokensLoaded && showCreateForm ? (
-        <div className="space-y-2">
-          {hasTokens ? (
-            <p className="text-sm text-muted-foreground">
-              Add another token — the secret is only shown once.
-            </p>
-          ) : null}
-          <TokenCreateForm onCreated={handleTokenCreated} />
-          {hasTokens && addingAnother && !apiToken ? (
-            <UiLink asChild className="text-sm">
-              <button type="button" onClick={() => setAddingAnother(false)}>
-                Cancel
-              </button>
-            </UiLink>
-          ) : null}
+          <UiLink asChild className="text-sm">
+            <Link to="/settings" hash="authorization">
+              Manage tokens
+            </Link>
+          </UiLink>
         </div>
       ) : null}
     </div>
@@ -864,6 +1265,9 @@ function InstallStepActions({
   onApiToken: (token: string) => void;
   onMarkMcpInstalled: () => void;
 }) {
+  const [secretVisible, setSecretVisible] = useState(false);
+  const [secretCopied, setSecretCopied] = useState(false);
+
   return (
     <div className="space-y-4">
       <Field className="max-w-xl">
@@ -872,16 +1276,52 @@ function InstallStepActions({
             ? "API token secret"
             : "Paste an API token secret"}
         </FieldLabel>
-        <Input
-          id="build-api-token"
-          type="password"
-          autoComplete="off"
-          spellCheck={false}
-          placeholder="gst_api_…"
-          value={apiToken}
-          onChange={(event) => onApiToken(event.target.value.trim())}
-          className="font-mono"
-        />
+        <InputGroup>
+          <InputGroupInput
+            id="build-api-token"
+            type={secretVisible ? "text" : "password"}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="gst_api_…"
+            value={apiToken}
+            onChange={(event) => onApiToken(event.target.value.trim())}
+            className="font-mono text-sm"
+          />
+          <InputGroupAddon align="inline-end">
+            <InputGroupButton
+              size="icon-xs"
+              aria-label={secretVisible ? "Hide token" : "Show token"}
+              title={secretVisible ? "Hide" : "Show"}
+              aria-pressed={secretVisible}
+              onClick={() => setSecretVisible((prev) => !prev)}
+            >
+              {secretVisible ? (
+                <EyeOffIcon className="size-3.5" />
+              ) : (
+                <EyeIcon className="size-3.5" />
+              )}
+            </InputGroupButton>
+            <InputGroupButton
+              size="icon-xs"
+              aria-label={secretCopied ? "Copied" : "Copy token"}
+              title={secretCopied ? "Copied" : "Copy"}
+              disabled={!apiToken}
+              onClick={() => {
+                if (!apiToken) return;
+                void navigator.clipboard.writeText(apiToken).then(() => {
+                  setSecretCopied(true);
+                  window.setTimeout(() => setSecretCopied(false), 2000);
+                });
+              }}
+            >
+              {secretCopied ? (
+                <CheckIcon className="size-3.5" />
+              ) : (
+                <CopyIcon className="size-3.5" />
+              )}
+            </InputGroupButton>
+          </InputGroupAddon>
+        </InputGroup>
         <FieldDescription>
           {apiToken
             ? "Token ready — install Gestalt below, or paste a different secret."
@@ -893,15 +1333,6 @@ function InstallStepActions({
         apiToken={apiToken}
         onMarkMcpInstalled={onMarkMcpInstalled}
       />
-
-      <Button
-        type="button"
-        variant="outline"
-        data-testid="build-mark-mcp-installed"
-        onClick={onMarkMcpInstalled}
-      >
-        I&apos;ve installed Gestalt
-      </Button>
     </div>
   );
 }
@@ -916,99 +1347,196 @@ function InvokeStepActions({
   const integration = integrations.find((item) => item.name === exemplar.id);
   const open = resolveExemplarOpenPath(exemplar, integration);
   const displayName = integration?.displayName?.trim() || exemplar.label;
+  const invokeOp = `${exemplar.invokeAppId}.${exemplar.operationId}`;
+  const [agentSkin] = useState<BuildAgentSkin>(() =>
+    pickBuildAgentSkin("claude"),
+  );
+  const [promptCopied, setPromptCopied] = useState(false);
+  const cwd = `~/${exemplar.department.toLowerCase().replace(/\s+/g, "-")}`;
 
   return (
     <div className="space-y-5" data-testid="build-first-call">
-      <div
-        className="space-y-3 rounded-lg border border-grove-200 bg-grove-50 px-4 py-4 dark:border-grove-600 dark:bg-grove-700/15"
-        data-testid="build-golden-prompt"
-      >
-        <div className="space-y-1">
-          <Eyebrow>Golden first call</Eyebrow>
-          <p className="text-sm font-medium text-foreground">
-            {exemplar.label}
-          </p>
-          <p className="text-sm text-muted-foreground">{exemplar.need}</p>
-          <p className="font-mono text-xs text-muted-foreground">
-            {exemplar.invokeAppId}.{exemplar.operationId}
-          </p>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Paste this prompt in your AI client (MCP wired above) — or use the CLI
-          recipe below.
+      <div className="space-y-5" data-testid="build-golden-prompt">
+        <p className="text-sm text-muted-foreground text-pretty">
+          Prompt your favorite LLM with{" "}
+          <span className="inline-flex max-w-full items-center gap-1 align-middle">
+            <Code>{exemplar.llmPrompt}</Code>
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              className="shrink-0 text-muted-foreground"
+              aria-label={promptCopied ? "Copied prompt" : "Copy prompt"}
+              onClick={() => {
+                void navigator.clipboard.writeText(exemplar.llmPrompt).then(() => {
+                  setPromptCopied(true);
+                  window.setTimeout(() => setPromptCopied(false), 2000);
+                });
+              }}
+            >
+              {promptCopied ? (
+                <CheckIcon className="size-3.5" />
+              ) : (
+                <CopyIcon className="size-3.5" />
+              )}
+            </Button>
+          </span>{" "}
+          and it should reply like in this example below.
         </p>
-        <RecipeCodeBlock code={exemplar.llmPrompt} language="text" />
-        <details className="group rounded-md border border-alpha bg-base-white open:pb-3 dark:bg-surface">
-          <summary className="cursor-pointer list-none px-3 py-2 text-sm font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">
-            Prefer the CLI instead
-          </summary>
-          <div className="space-y-2 border-t border-alpha px-3 pt-2">
-            <RecipeCodeBlock
+
+        <div
+          className="min-h-[16rem] w-full"
+          data-testid="build-agent-console-reply"
+        >
+          <BuildAgentConsolePreview
+            variant={agentSkin}
+            prompt={exemplar.llmPrompt}
+            reply={exemplar.expectedResult}
+            cwd={cwd}
+          />
+        </div>
+
+        <p className="text-sm text-muted-foreground text-pretty">
+          Behind the scenes this calls{" "}
+          <Code>{invokeOp}</Code>.
+        </p>
+
+        {/* Registry Card Collapsible — compose cardVariants; do not restyle chrome. */}
+        <Collapsible
+          defaultOpen
+          className={cn(cardVariants({ variant: "outline" }), "w-full")}
+          data-testid="build-cli-alert"
+        >
+          <CollapsibleTrigger className="rounded-t-xl p-4 data-[state=closed]:rounded-b-xl">
+            How to do it with the CLI
+            <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform duration-overshoot ease-out-back" />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-3 rounded-b-xl border-t border-border px-4 py-3">
+            <p className="text-sm text-muted-foreground text-pretty">
+              If you want to use the CLI instead, do it this way:
+            </p>
+            <CodeBlock
               code={exemplar.invokeRecipe}
-              language="shellscript"
+              language="bash"
+              filename="Terminal"
             />
-          </div>
-        </details>
+          </CollapsibleContent>
+        </Collapsible>
       </div>
 
-      <div
-        role="note"
-        className="space-y-3 rounded-lg border border-alpha bg-alpha-5 px-4 py-4 dark:bg-surface-raised"
-        data-testid="build-exemplar-cta"
-      >
-        <p className="text-sm font-heading text-foreground">
-          Congratulations — you&apos;re ready to build
-        </p>
-        <p className="text-sm text-muted-foreground">
-          You should see something like this:
-        </p>
-        <RecipeCodeBlock code={exemplar.expectedResult} language="text" />
-        <p className="text-sm text-muted-foreground">
-          By the way — <span className="text-foreground">{exemplar.builderNote}</span>{" "}
-          already shipped <span className="text-foreground">{displayName}</span>.
-          Open it, or find this and more relevant apps in the store.
-        </p>
-        <div className="flex flex-wrap gap-4">
-          {open.kind === "mount" ? (
-            <Button asChild>
-              <a href={open.href} data-testid="build-open-exemplar">
-                Open {displayName}
-              </a>
-            </Button>
-          ) : (
-            <Button asChild>
-              <Link
-                to="/apps/$appName"
-                params={{ appName: exemplar.id }}
-                data-testid="build-open-exemplar"
-              >
-                Open {displayName}
-              </Link>
-            </Button>
-          )}
-          <UiLink asChild className="text-sm">
-            <Link to="/apps">Browse app store</Link>
-          </UiLink>
-          <UiLink asChild className="text-sm">
-            <Link to="/identities">Agent identities</Link>
-          </UiLink>
-          <UiLink asChild className="text-sm">
-            <Link to={`${DOCS_PATH}/getting-started`}>Read the docs</Link>
-          </UiLink>
+      <div className="space-y-3" data-testid="build-shipped-app">
+        <SectionHeader>
+          <SectionHeaderContent>
+            <SectionHeaderTitle size="sm">Already shipped</SectionHeaderTitle>
+            <SectionHeaderDescription>
+              <span className="text-foreground">{exemplar.builderNote}</span>{" "}
+              already shipped{" "}
+              <span className="text-foreground">{displayName}</span>. It&apos;s a
+              custom App that answers just what you asked and more.
+            </SectionHeaderDescription>
+          </SectionHeaderContent>
+        </SectionHeader>
+        <div className="max-w-md">
+          <BuildStoreAppCard
+            name={exemplar.id}
+            label={displayName}
+            description={
+              integration?.description?.trim() ||
+              exemplar.need
+            }
+            iconSvg={integration?.iconSvg}
+            href={open.href}
+            testId="build-open-exemplar"
+          />
         </div>
       </div>
 
-      <UiLink asChild className="inline-flex w-fit text-sm">
-        <Link to={`${DOCS_PATH}/mcp`}>Full MCP setup</Link>
-      </UiLink>
+      <div className="space-y-3" data-testid="build-related-apps">
+        <SectionHeader>
+          <SectionHeaderContent>
+            <SectionHeaderTitle size="sm">Related apps</SectionHeaderTitle>
+            <SectionHeaderDescription>
+              More apps that fit this outcome — open one, or browse the full
+              store.
+            </SectionHeaderDescription>
+          </SectionHeaderContent>
+        </SectionHeader>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {exemplar.relatedAppIds.map((appId) => {
+            const related = integrations.find((item) => item.name === appId);
+            const label =
+              related?.displayName?.trim() || companionAppLabel(appId);
+            const href = related?.mountedPath?.trim()
+              ? related.mountedPath.trim()
+              : `/apps/${encodeURIComponent(appId)}`;
+            return (
+              <BuildStoreAppCard
+                key={appId}
+                name={appId}
+                label={label}
+                description={
+                  related?.description?.trim() ||
+                  `Open ${label} in Gestalt.`
+                }
+                iconSvg={related?.iconSvg}
+                href={href}
+              />
+            );
+          })}
+        </div>
+        <UiLink asChild className="inline-flex w-fit text-sm">
+          <Link to="/apps">See all apps</Link>
+        </UiLink>
+      </div>
     </div>
+  );
+}
+
+/** Catalog-style solid card — opens the app in a new tab (no connect chrome). */
+function BuildStoreAppCard({
+  name,
+  label,
+  description,
+  iconSvg,
+  href,
+  testId,
+}: {
+  name: string;
+  label: string;
+  description: string;
+  iconSvg?: string;
+  href: string;
+  testId?: string;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      data-testid={testId ?? `build-open-app-${name}`}
+      className={cn(
+        "flex items-start gap-4 rounded-xl bg-neutral-hover p-4 text-foreground",
+        "transition-[background-color] duration-hover-out ease-out-quart",
+        "hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed",
+        "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold-400 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+      )}
+    >
+      <IntegrationIcon iconSvg={iconSvg} size="xl" />
+      <span className="min-w-0">
+        <span className="block text-base font-heading text-foreground">
+          {label}
+        </span>
+        <span className="mt-1 block line-clamp-2 text-sm text-muted-foreground">
+          {description}
+        </span>
+      </span>
+    </a>
   );
 }
 
 function ConnectStepActions({
   exemplar,
   integrations,
-  connected,
   catalogReady,
 }: {
   exemplar: BuildExemplar;
@@ -1016,162 +1544,72 @@ function ConnectStepActions({
   connected: Set<string>;
   catalogReady: boolean;
 }) {
-  const [connectingAppId, setConnectingAppId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const invalidateIntegrations = useInvalidateIntegrations();
   const returnPath = `${BUILD_PATH}/connect`;
 
-  async function handleConnect(appId: string) {
-    setConnectingAppId(appId);
-    setError(null);
-    try {
-      window.sessionStorage.setItem(
-        CONNECTION_RETURN_PATH_STORAGE_KEY,
-        returnPath,
-      );
-      const { url } = await startIntegrationOAuth(
-        appId,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        returnPath,
-      );
-      window.location.href = url;
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start connect");
-      setConnectingAppId(null);
-    }
+  async function refreshIntegrations() {
+    await invalidateIntegrations();
   }
 
   if (!catalogReady) {
     return <p className="text-sm text-faint">Loading apps…</p>;
   }
 
-  if (exemplar.companionAppIds.length === 0) {
-    return (
-      <div className="space-y-3" data-testid="build-connect-self-contained">
-        <p className="text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">{exemplar.label}</span>{" "}
-          is self-contained — no companion apps to connect. Continue to make
-          your first call, then open the app in the store.
-        </p>
-        <UiLink asChild className="text-sm">
-          <Link to="/apps/$appName" params={{ appName: exemplar.id }}>
-            View {exemplar.label} in the store
-          </Link>
-        </UiLink>
-      </div>
-    );
-  }
+  const companionIntegrations = exemplar.companionAppIds.map((appId) => {
+    const integration = integrations.find((item) => item.name === appId);
+    return { appId, integration };
+  });
+  const missingFromCatalog = companionIntegrations.filter(
+    (item) => !item.integration,
+  );
 
   return (
-    <div className="flex flex-col items-start gap-3">
-      <p className="text-sm text-muted-foreground">
-        Connect companions for{" "}
-        <span className="font-medium text-foreground">{exemplar.label}</span> —
-        they unlock the golden prompt.
-      </p>
-      <ul className="flex w-full flex-col gap-2">
-        {exemplar.companionAppIds.map((appId) => {
-          const integration = integrations.find((item) => item.name === appId);
-          const status = integration
-            ? normalizeIntegrationStatus(integration)
-            : null;
-          const alreadyConnected = Boolean(
-            status?.connected && status.tone === "success",
-          );
-          const actionLabel =
-            (integration ? primaryConnectLabel(integration) : null) ??
-            (alreadyConnected ? null : "Connect");
-          const label = companionAppLabel(appId);
-          const connecting = connectingAppId === appId;
-          const inCatalog = connected.has(appId) || Boolean(integration);
+    <div className="flex flex-col gap-6" data-testid="build-connect-apps">
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+        {companionIntegrations.map(({ appId, integration }) => {
+          if (!integration) {
+            return (
+              <div
+                key={appId}
+                className="rounded-xl bg-neutral-hover p-4 text-foreground"
+                data-testid={`build-connect-app-${appId}`}
+              >
+                <div className="flex items-start gap-3">
+                  <IntegrationIcon size="md" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground">
+                      {companionAppLabel(appId)}
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      This app is not available in your workspace yet.
+                    </p>
+                    <Badge variant="warning" size="sm" className="mt-2">
+                      Not in workspace
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            );
+          }
 
           return (
-            <li
+            <IntegrationCard
               key={appId}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-alpha bg-base-100 px-4 py-3 dark:bg-surface"
-              data-testid={`build-connect-app-${appId}`}
-            >
-              <div className="flex min-w-0 items-center gap-3">
-                <IntegrationIcon iconSvg={integration?.iconSvg} size="sm" />
-                <span className="text-sm font-medium text-foreground">
-                  {label}
-                </span>
-                {alreadyConnected ? (
-                  <Badge variant="success" size="sm">
-                    Connected
-                  </Badge>
-                ) : null}
-                {!inCatalog ? (
-                  <Badge variant="warning" size="sm">
-                    Not in workspace
-                  </Badge>
-                ) : null}
-              </div>
-              {alreadyConnected ? null : (
-                <Button
-                  type="button"
-                  onClick={() => handleConnect(appId)}
-                  disabled={connecting || !actionLabel || !integration}
-                >
-                  {connecting
-                    ? "Connecting…"
-                    : `${actionLabel ?? "Connect"} ${label}`}
-                </Button>
-              )}
-            </li>
+              integration={integration}
+              returnPath={returnPath}
+              onConnected={() => void refreshIntegrations()}
+              onDisconnected={() => void refreshIntegrations()}
+            />
           );
         })}
-      </ul>
-      <Link
-        to="/apps"
-        className="text-sm text-muted-foreground underline-offset-2 transition-colors duration-150 hover:text-foreground hover:underline"
-      >
-        See all apps
-      </Link>
-      {error && <p className="text-sm text-ember-500">{error}</p>}
-    </div>
-  );
-}
-
-function RecipeCodeBlock({
-  code,
-  language = "shellscript",
-}: {
-  code: string;
-  language?: "shellscript" | "json" | "text";
-}) {
-  const [copied, setCopied] = useState(false);
-
-  async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* ignore */
-    }
-  }
-
-  return (
-    <div className="group relative">
-      <div className="doc-code">
-        <ShikiCode language={language} text={code} />
       </div>
-      <button
-        type="button"
-        onClick={handleCopy}
-        className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground opacity-0 transition-all duration-150 hover:bg-alpha-5 hover:text-foreground group-hover:opacity-100"
-        title="Copy to clipboard"
-        aria-label="Copy to clipboard"
-      >
-        {copied ? (
-          <CheckIcon className="h-4 w-4 text-grove-600 dark:text-grove-200" />
-        ) : (
-          <CopyIcon className="h-4 w-4" />
-        )}
-      </button>
+
+      {missingFromCatalog.length > 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Ask an admin to add missing apps to this workspace before you
+          continue.
+        </p>
+      ) : null}
     </div>
   );
 }

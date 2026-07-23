@@ -5,9 +5,9 @@ import { matchRangesForQuery } from "@/lib/integrationSearch";
  * Case-insensitive highlight of query tokens inside plain text.
  * Tokens are whitespace-split; each occurrence is wrapped in <mark>.
  *
- * Search-match fill is Registry `bg-accent-highlight` (color.md — between
- * accent-wash and accent-vivid), matching g-issues `SearchHighlight`.
- * Do not use accent-wash here — that rung is for pale hover/surface tint.
+ * Search-match fill uses Registry `bg-accent-vivid` (gold-300) — one rung
+ * darker than `accent-highlight` (gold-200) so matches read on card surfaces.
+ * Ladder: wash → highlight → vivid (color.md). Do not use accent-wash here.
  */
 export function HighlightMatch({
   text,
@@ -30,7 +30,7 @@ export function HighlightMatch({
     parts.push(
       <mark
         key={`${range.start}-${range.end}-${index}`}
-        className="rounded-sm bg-accent-highlight text-inherit"
+        className="rounded-sm bg-accent-vivid text-inherit"
       >
         {text.slice(range.start, range.end)}
       </mark>,

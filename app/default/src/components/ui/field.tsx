@@ -1,16 +1,25 @@
+/**
+ * Gestalt console vendor of Valon Registry `field`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/field.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
+ */
+
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/cn";
 import { Label, labelVariants } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
 
-/**
- * Gestalt console vendor of Valon Registry `field`.
- *
- * Ownership: Valon Registry (`valon-tools/apps/registry/ui/src/ui/field.tsx`).
- * Spec: guidelines/fields.md. FieldSeparator uses an inline hairline (Separator
- * not vendored — same chrome as Registry `bg-border` rule).
- */
+// Field is the labeled-control unit: label + control + optional description/error.
+// Invalid: data-invalid on Field + aria-invalid + aria-describedby → FieldError id
+//   on the control.
+// Disabled: native disabled on the control; optional data-disabled on Field for
+// the label row — recolor (text-disabled-foreground), never opacity.
+// Spec: guidelines/fields.md · RES-20260717-001.
 
 function FieldSet({ className, ...props }: React.ComponentProps<"fieldset">) {
   return (
@@ -65,32 +74,35 @@ function FieldGroup({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
-const fieldVariants = cva("group/field flex w-full gap-1.5", {
-  variants: {
-    orientation: {
-      vertical: ["flex-col [&>*]:w-full [&>.sr-only]:w-auto"],
-      horizontal: [
-        // Checkbox/radio companion rows (no FieldContent): simple flex.
-        "flex-row items-center",
-        // Settings rows (FieldContent present): join FieldGroup's shared columns.
-        // Baseline-align label text with the control's text (not box-center /
-        // top); description/error hang below inside FieldContent.
-        // gap-x must match FieldGroup — a subgrid's own gap overrides the parent.
-        "has-[>[data-slot=field-content]]:col-span-2 has-[>[data-slot=field-content]]:grid has-[>[data-slot=field-content]]:grid-cols-subgrid has-[>[data-slot=field-content]]:items-baseline has-[>[data-slot=field-content]]:gap-x-4 has-[>[data-slot=field-content]]:gap-y-0",
-        "has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px",
-      ],
-      responsive: [
-        "flex-col [&>*]:w-full [&>.sr-only]:w-auto",
-        "@md/field-group:flex-row @md/field-group:items-center @md/field-group:[&>*]:w-auto",
-        "@md/field-group:has-[>[data-slot=field-content]]:col-span-2 @md/field-group:has-[>[data-slot=field-content]]:grid @md/field-group:has-[>[data-slot=field-content]]:grid-cols-subgrid @md/field-group:has-[>[data-slot=field-content]]:items-baseline @md/field-group:has-[>[data-slot=field-content]]:gap-x-4 @md/field-group:has-[>[data-slot=field-content]]:gap-y-0",
-        "@md/field-group:has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px",
-      ],
+const fieldVariants = cva(
+  "group/field flex w-full gap-1.5",
+  {
+    variants: {
+      orientation: {
+        vertical: ["flex-col [&>*]:w-full [&>.sr-only]:w-auto"],
+        horizontal: [
+          // Checkbox/radio companion rows (no FieldContent): simple flex.
+          "flex-row items-center",
+          // Settings rows (FieldContent present): join FieldGroup's shared columns.
+          // Baseline-align label text with the control's text (not box-center /
+          // top); description/error hang below inside FieldContent.
+          // gap-x must match FieldGroup — a subgrid's own gap overrides the parent.
+          "has-[>[data-slot=field-content]]:col-span-2 has-[>[data-slot=field-content]]:grid has-[>[data-slot=field-content]]:grid-cols-subgrid has-[>[data-slot=field-content]]:items-baseline has-[>[data-slot=field-content]]:gap-x-4 has-[>[data-slot=field-content]]:gap-y-0",
+          "has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px",
+        ],
+        responsive: [
+          "flex-col [&>*]:w-full [&>.sr-only]:w-auto",
+          "@md/field-group:flex-row @md/field-group:items-center @md/field-group:[&>*]:w-auto",
+          "@md/field-group:has-[>[data-slot=field-content]]:col-span-2 @md/field-group:has-[>[data-slot=field-content]]:grid @md/field-group:has-[>[data-slot=field-content]]:grid-cols-subgrid @md/field-group:has-[>[data-slot=field-content]]:items-baseline @md/field-group:has-[>[data-slot=field-content]]:gap-x-4 @md/field-group:has-[>[data-slot=field-content]]:gap-y-0",
+          "@md/field-group:has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px",
+        ],
+      },
+    },
+    defaultVariants: {
+      orientation: "vertical",
     },
   },
-  defaultVariants: {
-    orientation: "vertical",
-  },
-});
+);
 
 function Field({
   className,
@@ -188,11 +200,7 @@ function FieldSeparator({
       )}
       {...props}
     >
-      <div
-        role="separator"
-        aria-hidden="true"
-        className="absolute inset-x-0 top-1/2 h-px w-full shrink-0 bg-border"
-      />
+      <Separator className="absolute inset-0 top-1/2" />
       {children ? (
         <span
           className="relative mx-auto block w-fit bg-background px-2 text-muted-foreground"
@@ -216,17 +224,14 @@ function FieldError({
   let content: React.ReactNode = children ?? null;
 
   if (!content && errors?.length) {
-    const uniqueErrors = [
-      ...new Map(errors.map((error) => [error?.message, error])).values(),
-    ];
+    const uniqueErrors = [...new Map(errors.map((error) => [error?.message, error])).values()];
     if (uniqueErrors.length === 1) {
       content = uniqueErrors[0]?.message;
     } else {
       content = (
         <ul className="ml-4 flex list-disc flex-col gap-1">
           {uniqueErrors.map(
-            (error, index) =>
-              error?.message && <li key={index}>{error.message}</li>,
+            (error, index) => error?.message && <li key={index}>{error.message}</li>,
           )}
         </ul>
       );

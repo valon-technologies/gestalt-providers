@@ -11,7 +11,7 @@ export type BuildStepId =
 export type BuildExemplarId =
   | "aiSpendTracker"
   | "oncall"
-  | "valonLearn"
+  | "ashby"
   | "valonSats";
 
 /**
@@ -30,8 +30,11 @@ export type BuildExemplar = {
   need: string;
   /** AgentConsole typewriter — need-shaped, no product spoiler. */
   llmPrompt: string;
-  /** Companion catalog apps to connect (empty = self-contained). */
-  companionAppIds: string[];
+  /**
+   * Catalog apps the Connect step must link before Next.
+   * Every exemplar requires at least one — Build always teaches connect.
+   */
+  companionAppIds: readonly [string, ...string[]];
   /** App used for the first-call proof (often the exemplar itself). */
   invokeAppId: string;
   operationId: string;
@@ -41,6 +44,8 @@ export type BuildExemplar = {
   builderNote: string;
   /** Known mount path when catalog omits mountedPath. */
   knownMountPath: string;
+  /** Other catalog apps to promote under the shipped exemplar. */
+  relatedAppIds: readonly string[];
 };
 
 export interface BuildWorkspaceSnapshot {
@@ -49,12 +54,22 @@ export interface BuildWorkspaceSnapshot {
   activeExemplarId: BuildExemplarId;
   mcpInstalled: boolean;
   apiToken: string;
+  /** Display name for the token chosen or drafted in this Build session. */
+  tokenName: string;
+  /**
+   * Radio selection on authorize: an existing token id, {@link BUILD_CREATE_NEW_TOKEN_ID},
+   * or empty when nothing chosen yet.
+   */
+  selectedTokenId: string;
   introSeen: boolean;
 }
 
 export interface BuildStep {
   id: BuildStepId;
   title: string;
+  /** Optional PageHeader eyebrow — omit when the step title stands alone. */
+  eyebrow?: string;
+  /** Plain-English support line under the title — must not restate the title. */
   description: string;
   ctaLabel: string;
   to: string;
@@ -80,6 +95,7 @@ Eng percentile: top 40%
 (Slack digest preview ready for weekday morning.)`,
     builderNote: "Jon",
     knownMountPath: "/ai-spend",
+    relatedAppIds: ["oncall", "modelProviderBillingMetrics"],
   },
   {
     id: "oncall",
@@ -97,25 +113,27 @@ Open queue: 3 pages
 Next rotation: Thu 09:00`,
     builderNote: "Valon Engineering",
     knownMountPath: "/oncall",
+    relatedAppIds: ["incident_io", "datadog"],
   },
   {
-    id: "valonLearn",
-    label: "Valon Learn",
+    id: "ashby",
+    label: "Ashby",
     department: "People",
-    outcomeTitle: "Continue onboarding",
-    need: "Know which onboarding courses to take next.",
-    llmPrompt: "What’s next in my onboarding?",
-    companionAppIds: [],
-    invokeAppId: "valonLearn",
-    operationId: "listMyProgress",
-    invokeRecipe: "gestalt apps invoke valonLearn listMyProgress",
-    expectedResult: `In progress:
-• Servicing Knowledge — 62%
-• Valon OS basics — not started
+    outcomeTitle: "Check hiring pipeline",
+    need: "See which candidates need a follow-up this week.",
+    llmPrompt: "Which candidates need a follow-up?",
+    companionAppIds: ["ashby", "slack"],
+    invokeAppId: "ashby",
+    operationId: "listFollowUps",
+    invokeRecipe: "gestalt apps invoke ashby listFollowUps",
+    expectedResult: `Follow-ups due:
+• Jordan Lee — onsite debrief (Slack reminder drafted)
+• Priya Shah — offer packet review
 
-Next: complete the Escrow quiz in Servicing Knowledge.`,
-    builderNote: "Kaitlyn Schiffhauer",
-    knownMountPath: "/learn",
+3 candidates waiting more than 5 days.`,
+    builderNote: "People Ops",
+    knownMountPath: "/apps/ashby",
+    relatedAppIds: ["rippling", "talentTeam"],
   },
   {
     id: "valonSats",
@@ -124,7 +142,7 @@ Next: complete the Escrow quiz in Servicing Knowledge.`,
     outcomeTitle: "Practice servicing knowledge",
     need: "Self-check mortgage servicing knowledge.",
     llmPrompt: "Am I ready for another servicing quiz?",
-    companionAppIds: [],
+    companionAppIds: ["slack"],
     invokeAppId: "valonSats",
     operationId: "getHistory",
     invokeRecipe: "gestalt apps invoke valonSats getHistory",
@@ -133,6 +151,7 @@ Topics to review: ETD timing, MI cancellation
 Ready for a new attempt when you are.`,
     builderNote: "Valon Servicing",
     knownMountPath: "/valon-sats",
+    relatedAppIds: ["valonLearn", "trainingCurriculum"],
   },
 ];
 
@@ -141,26 +160,25 @@ export const BUILD_STEPS: BuildStep[] = [
     id: "intro",
     title: "Pick what to build",
     description:
-      "See what someone on that team would ask an agent to do.",
+      "Choose a team outcome, then watch how an agent would ask for it.",
     ctaLabel: "Continue",
     to: "/build/intro",
     isComplete: (snapshot) => snapshot.introSeen,
   },
   {
     id: "authorize",
-    title: "Create a token",
+    title: "Choose a token",
     description:
-      "Create a personal API token (or reuse one you already have). Secrets are only shown once.",
+      "Your agent needs a key to use Gestalt. Make a new one here, or pick one you already have.",
     ctaLabel: "Create API token",
     to: "/build/authorize",
-    isComplete: (snapshot) =>
-      snapshot.tokens.length > 0 || snapshot.apiToken.trim().length > 0,
+    isComplete: (snapshot) => buildAuthorizeSelectionReady(snapshot),
   },
   {
     id: "install",
     title: "Install Gestalt",
     description:
-      "Add Gestalt as an MCP server in Cursor, Claude Code, or Codex using your token.",
+      "Add Gestalt to Cursor, Claude Code, or Codex so the agent can reach your workspace.",
     ctaLabel: "Open MCP docs",
     to: "/build/install",
     isComplete: (snapshot) => snapshot.mcpInstalled,
@@ -169,7 +187,7 @@ export const BUILD_STEPS: BuildStep[] = [
     id: "connect",
     title: "Connect apps",
     description:
-      "Connect companion apps this outcome needs — skip ahead when none are required.",
+      "Link the apps this path needs before you make your first call.",
     ctaLabel: "See all apps",
     to: "/build/connect",
     isComplete: (snapshot) => exemplarCompanionsConnected(snapshot),
@@ -178,15 +196,37 @@ export const BUILD_STEPS: BuildStep[] = [
     id: "invoke",
     title: "Make your first call",
     description:
-      "Paste the golden prompt into your AI client and confirm a real result.",
+      "Paste the prompt into your agent and confirm you get a real answer.",
     ctaLabel: "Open Invoke docs",
     to: "/build/invoke",
     isComplete: (snapshot) =>
-      (snapshot.tokens.length > 0 || snapshot.apiToken.trim().length > 0) &&
+      buildAuthorizeSelectionReady(snapshot) &&
       snapshot.mcpInstalled &&
       exemplarCompanionsConnected(snapshot),
   },
 ];
+
+/** Radio value for “create a new token” on the authorize step. */
+export const BUILD_CREATE_NEW_TOKEN_ID = "new";
+
+/** Demo name prefilled when drafting a Build token. */
+export const DEFAULT_BUILD_TOKEN_NAME = "Gestalt Build";
+
+/**
+ * Authorize is ready when the user picked an existing token or created/pasted
+ * a secret for this session — not merely because tokens exist in the account.
+ */
+export function buildAuthorizeSelectionReady(
+  snapshot: Pick<
+    BuildWorkspaceSnapshot,
+    "apiToken" | "selectedTokenId" | "tokens"
+  >,
+): boolean {
+  if (snapshot.apiToken.trim().length > 0) return true;
+  const selected = snapshot.selectedTokenId.trim();
+  if (!selected || selected === BUILD_CREATE_NEW_TOKEN_ID) return false;
+  return snapshot.tokens.some((token) => token.id === selected);
+}
 
 const BUILD_STEP_IDS = new Set<string>(BUILD_STEPS.map((step) => step.id));
 
@@ -203,12 +243,11 @@ export function getExemplar(
   );
 }
 
-/** True when every companion for the active exemplar is connected (or none required). */
+/** True when every companion for the active exemplar is connected. */
 export function exemplarCompanionsConnected(
   snapshot: BuildWorkspaceSnapshot,
 ): boolean {
   const exemplar = getExemplar(snapshot.activeExemplarId);
-  if (exemplar.companionAppIds.length === 0) return true;
   const connected = connectedAppIds(snapshot.integrations);
   return exemplar.companionAppIds.every((appId) => connected.has(appId));
 }
@@ -244,14 +283,30 @@ export function companionAppLabel(appId: string): string {
       return "PagerDuty";
     case "linear":
       return "Linear";
+    case "ashby":
+      return "Ashby";
+    case "intercom":
+      return "Intercom";
     case "aiSpendTracker":
       return "AI Spend Tracker";
     case "oncall":
       return "Oncall";
-    case "valonLearn":
-      return "Valon Learn";
     case "valonSats":
       return "Valon SATs";
+    case "valonLearn":
+      return "Valon Learn";
+    case "trainingCurriculum":
+      return "Training Curriculum";
+    case "modelProviderBillingMetrics":
+      return "Model provider billing";
+    case "incident_io":
+      return "incident.io";
+    case "datadog":
+      return "Datadog";
+    case "rippling":
+      return "Rippling";
+    case "talentTeam":
+      return "Talent Team";
     default:
       return appId;
   }
@@ -278,6 +333,9 @@ export const MCP_INSTALLED_STORAGE_KEY = "gestalt.build.mcpInstalled";
 export const BUILD_EXEMPLAR_STORAGE_KEY = "gestalt.build.activeExemplarId";
 export const BUILD_INTRO_SEEN_STORAGE_KEY = "gestalt.build.introSeen";
 export const BUILD_API_TOKEN_STORAGE_KEY = "gestalt.build.apiToken";
+export const BUILD_TOKEN_NAME_STORAGE_KEY = "gestalt.build.tokenName";
+export const BUILD_SELECTED_TOKEN_ID_STORAGE_KEY =
+  "gestalt.build.selectedTokenId";
 
 export function readMcpInstalledFlag(): boolean {
   return readSessionFlag(MCP_INSTALLED_STORAGE_KEY);
@@ -333,6 +391,50 @@ export function writeStoredApiToken(token: string): void {
       window.sessionStorage.setItem(BUILD_API_TOKEN_STORAGE_KEY, token);
     } else {
       window.sessionStorage.removeItem(BUILD_API_TOKEN_STORAGE_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readStoredTokenName(): string {
+  if (typeof window === "undefined") return DEFAULT_BUILD_TOKEN_NAME;
+  try {
+    const raw = window.sessionStorage.getItem(BUILD_TOKEN_NAME_STORAGE_KEY);
+    if (raw == null) return DEFAULT_BUILD_TOKEN_NAME;
+    return raw;
+  } catch {
+    return DEFAULT_BUILD_TOKEN_NAME;
+  }
+}
+
+export function writeStoredTokenName(name: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(BUILD_TOKEN_NAME_STORAGE_KEY, name);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readStoredSelectedTokenId(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return (
+      window.sessionStorage.getItem(BUILD_SELECTED_TOKEN_ID_STORAGE_KEY) ?? ""
+    );
+  } catch {
+    return "";
+  }
+}
+
+export function writeStoredSelectedTokenId(id: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (id) {
+      window.sessionStorage.setItem(BUILD_SELECTED_TOKEN_ID_STORAGE_KEY, id);
+    } else {
+      window.sessionStorage.removeItem(BUILD_SELECTED_TOKEN_ID_STORAGE_KEY);
     }
   } catch {
     /* ignore */

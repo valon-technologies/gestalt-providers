@@ -134,14 +134,88 @@ export async function mockAuthSessionUnauthorized(page: Page): Promise<void> {
   });
 }
 
-export async function mockTokens(page: Page, tokens: APIToken[]) {
-  await page.route("**/api/v1/tokens", (route: Route, request) => {
-    if (request.method() === "GET") {
-      route.fulfill({ json: tokens });
-    } else {
+function isIdentityGrantsCollection(url: URL): boolean {
+  return /\/api\/v2\/identity\/grants\/?$/.test(url.pathname);
+}
+
+function identityGrantIdFromUrl(url: URL): string | null {
+  const match = url.pathname.match(/\/api\/v2\/identity\/grants\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]!) : null;
+}
+
+function identityGrantDetailJson(token: APIToken): {
+  scopes: { scope: string; resource: string[] }[];
+  createdAt: string;
+  expiresAt: string;
+  name?: string;
+} {
+  const createdMs = Date.parse(token.createdAt);
+  const expiresMs = token.expiresAt ? Date.parse(token.expiresAt) : NaN;
+  return {
+    scopes: (token.scopes ?? []).map((scope) => ({ scope, resource: [] })),
+    createdAt: Number.isFinite(createdMs)
+      ? String(Math.floor(createdMs / 1000))
+      : "0",
+    expiresAt: Number.isFinite(expiresMs)
+      ? String(Math.floor(expiresMs / 1000))
+      : "0",
+    ...(token.name?.trim() ? { name: token.name.trim() } : {}),
+  };
+}
+
+/**
+ * Mock Identity v2 personal-token grants (list + get + optional revoke).
+ * Create remains `POST /api/v1/tokens` and is not mocked here.
+ */
+export async function mockTokens(
+  page: Page,
+  tokens: APIToken[] | (() => APIToken[]),
+  opts?: {
+    onRevoke?: (id: string) => void;
+  },
+) {
+  const readTokens = () => (typeof tokens === "function" ? tokens() : tokens);
+
+  await page.route(
+    (url) => url.pathname.includes("/api/v2/identity/grants"),
+    (route: Route, request) => {
+    const url = new URL(request.url());
+    if (isIdentityGrantsCollection(url)) {
+      if (request.method() === "GET") {
+        route.fulfill({
+          json: { grantIds: readTokens().map((token) => token.id) },
+        });
+        return;
+      }
       route.fallback();
+      return;
     }
-  });
+
+    const id = identityGrantIdFromUrl(url);
+    if (!id) {
+      route.fallback();
+      return;
+    }
+
+    if (request.method() === "GET") {
+      const token = readTokens().find((item) => item.id === id);
+      if (!token) {
+        route.fulfill({ status: 404, json: { error: "grant not found" } });
+        return;
+      }
+      route.fulfill({ json: identityGrantDetailJson(token) });
+      return;
+    }
+
+    if (request.method() === "DELETE") {
+      opts?.onRevoke?.(id);
+      route.fulfill({ json: {} });
+      return;
+    }
+
+    route.fallback();
+  },
+  );
 }
 
 export async function mockWorkflowRuns(

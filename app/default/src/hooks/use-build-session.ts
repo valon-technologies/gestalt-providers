@@ -4,16 +4,24 @@ import {
   readIntroSeenFlag,
   readMcpInstalledFlag,
   readStoredApiToken,
+  readStoredSelectedTokenId,
+  readStoredTokenName,
   writeActiveExemplarId,
   writeIntroSeenFlag,
   writeMcpInstalledFlag,
   writeStoredApiToken,
+  writeStoredSelectedTokenId,
+  writeStoredTokenName,
   type BuildExemplarId,
 } from "@/lib/buildPaths";
 
 export type BuildSession = {
   apiToken: string;
   setApiToken: (token: string) => void;
+  tokenName: string;
+  setTokenName: (name: string) => void;
+  selectedTokenId: string;
+  setSelectedTokenId: (id: string) => void;
   mcpInstalled: boolean;
   markMcpInstalled: () => void;
   activeExemplarId: BuildExemplarId;
@@ -25,6 +33,10 @@ export type BuildSession = {
 /** Client session for the Build journey — survives step navigation via sessionStorage. */
 export function useBuildSession(): BuildSession {
   const [apiToken, setApiTokenState] = useState(readStoredApiToken);
+  const [tokenName, setTokenNameState] = useState(readStoredTokenName);
+  const [selectedTokenId, setSelectedTokenIdState] = useState(
+    readStoredSelectedTokenId,
+  );
   const [mcpInstalled, setMcpInstalled] = useState(readMcpInstalledFlag);
   const [activeExemplarId, setActiveExemplarIdState] =
     useState(readActiveExemplarId);
@@ -33,6 +45,16 @@ export function useBuildSession(): BuildSession {
   const setApiToken = useCallback((token: string) => {
     writeStoredApiToken(token);
     setApiTokenState(token);
+  }, []);
+
+  const setTokenName = useCallback((name: string) => {
+    writeStoredTokenName(name);
+    setTokenNameState(name);
+  }, []);
+
+  const setSelectedTokenId = useCallback((id: string) => {
+    writeStoredSelectedTokenId(id);
+    setSelectedTokenIdState(id);
   }, []);
 
   const markMcpInstalled = useCallback(() => {
@@ -53,6 +75,10 @@ export function useBuildSession(): BuildSession {
   return {
     apiToken,
     setApiToken,
+    tokenName,
+    setTokenName,
+    selectedTokenId,
+    setSelectedTokenId,
     mcpInstalled,
     markMcpInstalled,
     activeExemplarId,

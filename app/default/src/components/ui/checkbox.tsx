@@ -1,19 +1,21 @@
 "use client";
 
+
+/**
+ * Gestalt console vendor of Valon Registry `checkbox`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/checkbox.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
+ */
+
 import * as React from "react";
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
 import { cva, type VariantProps } from "class-variance-authority";
 
 import { SelectionCheck } from "@/components/ui/selection-check";
 import { cn } from "@/lib/cn";
-
-/**
- * Gestalt console vendor of Valon Registry `checkbox`.
- *
- * Ownership: Valon Registry (`valon-tools/apps/registry/ui/src/ui/checkbox.tsx`).
- * Token adaptation only — accent-vivid checked fill; disabled recolor; `cn`
- * import path. Depends on `selection-check` + `valon-check-bounce` keyframes.
- */
 
 // A checkbox pairs with its label text, so its size tracks the font-size token
 // (sm/default/lg = 14/14/16px) rather than the input/button control-height —

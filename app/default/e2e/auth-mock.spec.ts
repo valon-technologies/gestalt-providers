@@ -186,7 +186,7 @@ test.describe("Authentication", () => {
     await page.route("**/api/v1/apps", (route) => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
-    await page.route("**/api/v1/tokens", (route) => {
+    await page.route("**/api/v2/identity/grants**", (route) => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
 

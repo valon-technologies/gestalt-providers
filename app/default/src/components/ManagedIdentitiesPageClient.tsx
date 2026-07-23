@@ -126,11 +126,9 @@ export default function ManagedIdentitiesPageClient() {
         <Container as="main" className="py-12">
           <div className="mx-auto max-w-3xl">
             <PageHeader>
-              <PageHeaderContent>
-                <div className="flex flex-col gap-3">
-                  <Eyebrow>Workspace</Eyebrow>
-                  <PageHeaderTitle size="lg">Agent Identities</PageHeaderTitle>
-                </div>
+              <PageHeaderContent size="lg">
+                <Eyebrow>Workspace</Eyebrow>
+                <PageHeaderTitle>Agent Identities</PageHeaderTitle>
                 <PageHeaderDescription>
                   Managed identities require platform auth and are unavailable when auth is disabled.
                 </PageHeaderDescription>
@@ -149,11 +147,9 @@ export default function ManagedIdentitiesPageClient() {
       ) : (
         <Container as="main" className="py-12">
           <PageHeader>
-            <PageHeaderContent>
-              <div className="flex flex-col gap-3">
-                <Eyebrow>Workspace</Eyebrow>
-                <PageHeaderTitle size="lg">Agent Identities</PageHeaderTitle>
-              </div>
+            <PageHeaderContent size="lg">
+              <Eyebrow>Workspace</Eyebrow>
+              <PageHeaderTitle>Agent Identities</PageHeaderTitle>
               <PageHeaderDescription>
                 Create and manage shared non-human identities for tokens and app authorization.
               </PageHeaderDescription>

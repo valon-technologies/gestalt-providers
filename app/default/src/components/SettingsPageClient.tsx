@@ -34,12 +34,10 @@ export default function SettingsPageClient() {
   return (
     <Container as="main" className="py-12">
       <PageHeader>
-        <PageHeaderContent>
-          <div className="flex flex-col gap-3">
-            <Eyebrow>Account</Eyebrow>
-            <PageHeaderTitle size="lg">Settings</PageHeaderTitle>
-          </div>
-          <PageHeaderDescription className="max-w-3xl">
+        <PageHeaderContent size="lg">
+          <Eyebrow>Account</Eyebrow>
+          <PageHeaderTitle>Settings</PageHeaderTitle>
+          <PageHeaderDescription>
             Manage authorization for your account — personal API tokens and
             shared service identities.
           </PageHeaderDescription>
@@ -58,7 +56,11 @@ export default function SettingsPageClient() {
 
         <div className="mt-8">
           <div className="rounded-xl border border-alpha bg-base-white p-5 dark:bg-surface-raised">
-            <TokenCreateForm onCreated={refreshTokens} />
+          <TokenCreateForm
+            onCreated={async () => {
+              await refreshTokens();
+            }}
+          />
           </div>
         </div>
 

@@ -1,19 +1,16 @@
-import * as React from "react";
-import { cva, type VariantProps } from "class-variance-authority";
-
-import { cn } from "@/lib/cn";
-
 /**
  * Gestalt console vendor of Valon Registry `eyebrow`.
  *
  * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/eyebrow.tsx`). Token-adapted only —
- * same public API (`tone`). Prefer Registry install when the console consumes
- * Valon registry.
- *
- * @see toolshed/valon-tools/registry/guidelines/eyebrow.md
- * @see RES-20260717-006
+ * (`valon-tools/apps/registry/ui/src/ui/eyebrow.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
  */
+
+import * as React from "react";
+import { cva, type VariantProps } from "class-variance-authority";
+
+import { cn } from "@/lib/cn";
 
 // Eyebrow = all-caps microtype above a heading or value (Material "overline",
 // card anatomy "eyebrow"). Named primitive so agents don't re-derive utilities
