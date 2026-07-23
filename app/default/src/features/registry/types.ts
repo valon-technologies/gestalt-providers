@@ -39,15 +39,6 @@ export type AppAdminPublicationPullRequest = {
   title?: string;
 };
 
-export type AppAdminPendingPublish = {
-  workflowRunUrl: string;
-  workflowStatus: string;
-  sourceRef?: string;
-  expectedVersion?: string;
-  startedAt: string;
-  triggerPullRequest?: AppAdminPublicationPullRequest;
-};
-
 export type AppAdminPublicationCommit = {
   sha: string;
   url: string;
@@ -75,7 +66,6 @@ export type AppAdminRegistryResponse = RegistryAppSummary & {
     installedBy?: string;
   }>;
   publishedVersions: AppAdminPublishedVersion[];
-  pendingPublishes?: AppAdminPendingPublish[];
   selectionDisabled: boolean;
   disabledReason?: string;
 };

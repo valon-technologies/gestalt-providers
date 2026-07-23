@@ -93,15 +93,6 @@ export interface AppAdminPublicationPullRequest {
   title?: string;
 }
 
-export interface AppAdminPendingPublish {
-  workflowRunUrl: string;
-  workflowStatus: string;
-  sourceRef?: string;
-  expectedVersion?: string;
-  startedAt: string;
-  triggerPullRequest?: AppAdminPublicationPullRequest;
-}
-
 export interface AppAdminPublicationCommit {
   sha: string;
   url: string;
@@ -132,7 +123,6 @@ export interface AppAdminRegistryResponse {
     installedBy?: string;
   }>;
   publishedVersions: AppAdminPublishedVersion[];
-  pendingPublishes?: AppAdminPendingPublish[];
   rollout?: {
     version: string;
     state: string;

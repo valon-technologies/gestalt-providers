@@ -7,22 +7,9 @@ import {
 } from "@/features/registry/format";
 import { RegistryCode } from "@/features/registry/registry-code";
 import type {
-  AppAdminPendingPublish,
   AppAdminPublishedVersion,
   RegistryAppSummary,
 } from "@/features/registry/types";
-
-type SnapshotRow =
-  | {
-      kind: "pending";
-      key: string;
-      pending: AppAdminPendingPublish;
-    }
-  | {
-      kind: "published";
-      key: string;
-      version: AppAdminPublishedVersion;
-    };
 
 function shortenSnapshotVersion(version: string): string {
   const trimmed = version.trim();
@@ -38,25 +25,6 @@ function pullRequestLabel(
     return `PR #${pullRequest.number} · ${pullRequest.title.trim()}`;
   }
   return `PR #${pullRequest.number}`;
-}
-
-function buildSnapshotRows(
-  publishedVersions: AppAdminPublishedVersion[],
-  pendingPublishes: AppAdminPendingPublish[] = [],
-): SnapshotRow[] {
-  const rows: SnapshotRow[] = [
-    ...pendingPublishes.map((pending) => ({
-      kind: "pending" as const,
-      key: `pending:${pending.workflowRunUrl}`,
-      pending,
-    })),
-    ...sortPublishedVersionsNewestFirst(publishedVersions).map((version) => ({
-      kind: "published" as const,
-      key: version.version,
-      version,
-    })),
-  ];
-  return rows;
 }
 
 function snapshotStatus({
@@ -89,7 +57,6 @@ export function AppAdminSnapshotsTable({
 }: {
   registry: RegistryAppSummary & {
     publishedVersions: AppAdminPublishedVersion[];
-    pendingPublishes?: AppAdminPendingPublish[];
     desiredVersion?: string;
     selectionDisabled: boolean;
   };
@@ -97,12 +64,9 @@ export function AppAdminSnapshotsTable({
   deployingVersion: string | null;
   onDeployVersion: (version: string) => void;
 }) {
-  const rows = buildSnapshotRows(
-    registry.publishedVersions,
-    registry.pendingPublishes,
-  );
+  const publishedVersions = sortPublishedVersionsNewestFirst(registry.publishedVersions);
 
-  if (rows.length === 0) {
+  if (publishedVersions.length === 0) {
     return <p className="text-sm text-muted">No published versions are available.</p>;
   }
 
@@ -119,61 +83,7 @@ export function AppAdminSnapshotsTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-alpha bg-base-white dark:bg-surface">
-          {rows.map((row) => {
-            if (row.kind === "pending") {
-              const { pending } = row;
-              const pullRequest = pending.triggerPullRequest;
-              return (
-                <tr key={row.key} data-testid="snapshot-row-pending">
-                  <td className="px-4 py-3 align-top">
-                    {pullRequest?.url ? (
-                      <a
-                        href={pullRequest.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="font-medium text-gold-700 underline decoration-gold-300 underline-offset-2 hover:text-gold-800 dark:text-gold-300"
-                      >
-                        {pullRequestLabel(pullRequest)}
-                      </a>
-                    ) : (
-                      <span className="text-muted">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 align-top text-muted">
-                    {pending.expectedVersion ? (
-                      <RegistryCode title={pending.expectedVersion}>
-                        {shortenSnapshotVersion(pending.expectedVersion)}
-                      </RegistryCode>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td className="px-4 py-3 align-top text-muted">
-                    {formatRegistryTimeAgo(pending.startedAt) || "—"}
-                  </td>
-                  <td className="px-4 py-3 align-top">
-                    <Badge variant="info" data-testid="snapshot-status-publishing">
-                      Publishing
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-3 align-top text-right">
-                    {pending.workflowRunUrl ? (
-                      <Button type="button" variant="secondary" size="sm" asChild>
-                        <a href={pending.workflowRunUrl} target="_blank" rel="noreferrer">
-                          View workflow
-                        </a>
-                      </Button>
-                    ) : (
-                      <Button type="button" variant="secondary" size="sm" disabled>
-                        Publish pending
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              );
-            }
-
-            const { version } = row;
+          {publishedVersions.map((version) => {
             const pullRequest = version.publication?.triggerPullRequest;
             const status = snapshotStatus({
               version: version.version,
@@ -187,7 +97,7 @@ export function AppAdminSnapshotsTable({
               version.version === registry.desiredVersion;
 
             return (
-              <tr key={row.key} data-testid="snapshot-row-published">
+              <tr key={version.version} data-testid="snapshot-row-published">
                 <td className="px-4 py-3 align-top">
                   {pullRequest?.url ? (
                     <a

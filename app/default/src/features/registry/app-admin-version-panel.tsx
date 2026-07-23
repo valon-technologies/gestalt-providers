@@ -5,10 +5,7 @@ import {
   SectionHeaderTitle,
 } from "@/components/ui/section-header";
 import { AppAdminSnapshotsTable } from "@/features/registry/app-admin-snapshots-table";
-import type {
-  AppAdminPendingPublish,
-  AppAdminPublishedVersion,
-} from "@/features/registry/types";
+import type { AppAdminPublishedVersion } from "@/features/registry/types";
 import { isActiveRegistryRollout } from "@/features/registry/format";
 import { RegistryCode } from "@/features/registry/registry-code";
 import { RolloutBadge } from "@/features/registry/rollout-badge";
@@ -22,7 +19,6 @@ export function AppAdminVersionPanel({
 }: {
   registry: RegistryAppSummary & {
     publishedVersions: AppAdminPublishedVersion[];
-    pendingPublishes?: AppAdminPendingPublish[];
     selectionDisabled: boolean;
     disabledReason?: string;
     desiredVersion?: string;
@@ -63,7 +59,7 @@ export function AppAdminVersionPanel({
             <SectionHeaderTitle>Published snapshots</SectionHeaderTitle>
             <SectionHeaderDescription>
               {registry.desiredVersion
-                ? "Deploy any published snapshot across the fleet. Pending rows appear while auto-publish is still running."
+                ? "Deploy any published snapshot across the fleet."
                 : "No version is installed yet. Deploy a published snapshot to install this app across the fleet."}
             </SectionHeaderDescription>
           </SectionHeaderContent>

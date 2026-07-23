@@ -36,18 +36,6 @@ const PUBLISHED_LEGACY: AppAdminRegistryResponse["publishedVersions"][number] = 
     "https://github.com/valon-technologies/valon-tools/commit/abc123abc123abc123abc123abc123abc123ab",
 };
 
-const PENDING_PUBLISH: NonNullable<AppAdminRegistryResponse["pendingPublishes"]>[number] = {
-  workflowRunUrl: "https://github.com/valon-technologies/toolshed/actions/runs/999",
-  workflowStatus: "in_progress",
-  expectedVersion: "0.0.0-snapshot.gpending123",
-  startedAt: "2026-07-23T14:30:00Z",
-  triggerPullRequest: {
-    number: 3300,
-    url: "https://github.com/valon-technologies/toolshed/pull/3300",
-    title: "Ship pending snapshot",
-  },
-};
-
 const MANAGED_INTEGRATION: Integration = {
   name: APP,
   displayName: "G Issues",
@@ -131,21 +119,6 @@ test.describe("app admin registry UI", () => {
     const rows = page.getByTestId("snapshot-row-published");
     await expect(rows.nth(0)).toContainText(PUBLISHED_NEW.version.slice(0, 20));
     await expect(rows.nth(1)).toContainText(PUBLISHED_LEGACY.version.slice(0, 20));
-  });
-
-  test("shows pending publish rows above published snapshots", async ({ page }) => {
-    await mockAppAdminRegistry(page, APP, {
-      ...installedRegistryState(),
-      pendingPublishes: [PENDING_PUBLISH],
-    });
-    await page.goto(`/apps/${APP}/admin`);
-
-    await expect(page.getByTestId("snapshot-row-pending")).toContainText("PR #3300");
-    await expect(page.getByTestId("snapshot-row-pending")).toContainText(
-      "Ship pending snapshot",
-    );
-    await expect(page.getByTestId("snapshot-status-publishing")).toHaveText("Publishing");
-    await expect(page.getByTestId("snapshot-row-pending")).toContainText("30 minutes ago");
   });
 
   test("renders first-install copy when no desired version exists", async ({ page }) => {
