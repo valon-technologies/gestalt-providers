@@ -17,6 +17,7 @@ import {
 } from "@/docs/DocsContent";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import AgentsPage from "@/pages/agents";
+import AppAdminPage from "@/pages/app-admin";
 import AppsPage from "@/pages/apps";
 import AuthorizationPage from "@/pages/authorization";
 import DashboardPage from "@/pages/index";
@@ -89,6 +90,12 @@ const appsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/apps",
   component: AppsPage,
+});
+
+const appAdminRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/apps/$app/admin",
+  component: AppAdminPage,
 });
 
 const authorizationRoute = createRoute({
@@ -187,6 +194,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   agentsRoute,
   appsRoute,
+  appAdminRoute,
   authorizationRoute,
   identitiesRoute,
   integrationsRoute,
