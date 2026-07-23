@@ -120,7 +120,6 @@ test.describe("app admin registry UI", () => {
     await mockAppAdminRegistry(page, APP, installedRegistryState());
     await page.goto(`/apps/${APP}/admin`);
 
-    const select = page.getByTestId("version-select");
     await expectVersionSelectShows(page, PUBLISHED_LEGACY.version);
 
     await openVersionSelect(page);
