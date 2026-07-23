@@ -69,6 +69,28 @@ function installedRegistryState(): AppAdminRegistryResponse {
 
 const APP_ADMIN_FIXED_TIME = new Date("2026-07-23T15:00:00Z");
 
+async function expectVersionSelectShows(
+  page: import("@playwright/test").Page,
+  version: string,
+) {
+  await expect(page.getByTestId("version-select")).toContainText(version);
+}
+
+async function selectPublishedVersion(
+  page: import("@playwright/test").Page,
+  version: string,
+) {
+  await page.getByTestId("version-select").click();
+  const listbox = page.getByRole("listbox");
+  await expect(listbox).toBeVisible();
+  await listbox.getByRole("option", { name: new RegExp(version) }).click();
+}
+
+async function openVersionSelect(page: import("@playwright/test").Page) {
+  await page.getByTestId("version-select").click();
+  await expect(page.getByRole("listbox")).toBeVisible();
+}
+
 test.describe("app admin registry UI", () => {
   test.beforeEach(async ({ page }) => {
     await page.clock.install({ time: APP_ADMIN_FIXED_TIME });
@@ -98,15 +120,16 @@ test.describe("app admin registry UI", () => {
     await mockAppAdminRegistry(page, APP, installedRegistryState());
     await page.goto(`/apps/${APP}/admin`);
 
-    const select = page.getByTestId("version-select");
-    await expect(select).toHaveValue(PUBLISHED_LEGACY.version);
+    await expectVersionSelectShows(page, PUBLISHED_LEGACY.version);
 
-    const options = select.locator("option");
+    await openVersionSelect(page);
+    const options = page.getByRole("listbox").getByRole("option");
     await expect(options).toHaveCount(2);
-    await expect(options.nth(0)).toHaveText(
-      `${PUBLISHED_NEW.version} · PR #3251 · yesterday`,
-    );
-    await expect(options.nth(1)).toHaveText(`${PUBLISHED_LEGACY.version} · 2 days ago`);
+    await expect(options.nth(0)).toContainText(PUBLISHED_NEW.version);
+    await expect(options.nth(0)).toContainText("PR #3251");
+    await expect(options.nth(0)).toContainText("yesterday");
+    await expect(options.nth(1)).toContainText(PUBLISHED_LEGACY.version);
+    await expect(options.nth(1)).toContainText("2 days ago");
   });
 
   test("sorts published versions newest first even when API returns older first", async ({
@@ -118,7 +141,8 @@ test.describe("app admin registry UI", () => {
     });
     await page.goto(`/apps/${APP}/admin`);
 
-    const options = page.getByTestId("version-select").locator("option");
+    await openVersionSelect(page);
+    const options = page.getByRole("listbox").getByRole("option");
     await expect(options.nth(0)).toContainText(PUBLISHED_NEW.version);
     await expect(options.nth(1)).toContainText(PUBLISHED_LEGACY.version);
   });
@@ -127,7 +151,7 @@ test.describe("app admin registry UI", () => {
     await mockAppAdminRegistry(page, APP, installedRegistryState());
     await page.goto(`/apps/${APP}/admin`);
 
-    await page.getByTestId("version-select").selectOption(PUBLISHED_NEW.version);
+    await selectPublishedVersion(page, PUBLISHED_NEW.version);
     await expect(page.getByTestId("published-version-summary")).toContainText(
       "Published yesterday",
     );
@@ -135,7 +159,7 @@ test.describe("app admin registry UI", () => {
     await expect(page.getByRole("link", { name: "PR #3251" })).toBeVisible();
     await expect(page.getByRole("link", { name: "workflow run" })).toBeVisible();
 
-    await page.getByTestId("version-select").selectOption(PUBLISHED_LEGACY.version);
+    await selectPublishedVersion(page, PUBLISHED_LEGACY.version);
     await expect(page.getByTestId("published-version-pr")).toHaveText(
       "PR: not recorded",
     );
@@ -156,7 +180,7 @@ test.describe("app admin registry UI", () => {
     await page.goto(`/apps/${APP}/admin`);
 
     await expect(page.getByText(/No version is installed yet/i)).toBeVisible();
-    await expect(page.getByTestId("version-select")).toHaveValue(PUBLISHED_NEW.version);
+    await expectVersionSelectShows(page, PUBLISHED_NEW.version);
   });
 
   test("disables selector and submit during active rollout", async ({ page }) => {
@@ -196,7 +220,7 @@ test.describe("app admin registry UI", () => {
     });
     await page.goto(`/apps/${APP}/admin`);
 
-    await page.getByTestId("version-select").selectOption(PUBLISHED_NEW.version);
+    await selectPublishedVersion(page, PUBLISHED_NEW.version);
     await page.getByTestId("select-version-button").click();
 
     await expect(page.getByTestId("rollout-active-banner")).toContainText(
@@ -224,7 +248,7 @@ test.describe("app admin registry UI", () => {
     });
     await page.goto(`/apps/${APP}/admin`);
 
-    await page.getByTestId("version-select").selectOption(PUBLISHED_NEW.version);
+    await selectPublishedVersion(page, PUBLISHED_NEW.version);
     await page.getByTestId("select-version-button").click();
 
     await expect(page.getByTestId("version-select")).toBeDisabled();

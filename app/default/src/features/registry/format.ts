@@ -41,11 +41,11 @@ export function formatRegistryTimeAgo(
   return "";
 }
 
-export function formatPublishedVersionOptionLabel(
+export function formatPublishedVersionOptionMeta(
   version: AppAdminPublishedVersion,
   now?: number | Date,
 ): string {
-  const parts = [version.version];
+  const parts: string[] = [];
   const pullRequest = version.publication?.triggerPullRequest;
   if (pullRequest?.number) {
     parts.push(`PR #${pullRequest.number}`);
@@ -55,6 +55,14 @@ export function formatPublishedVersionOptionLabel(
     parts.push(ago);
   }
   return parts.join(" · ");
+}
+
+export function formatPublishedVersionOptionLabel(
+  version: AppAdminPublishedVersion,
+  now?: number | Date,
+): string {
+  const meta = formatPublishedVersionOptionMeta(version, now);
+  return meta ? `${version.version} · ${meta}` : version.version;
 }
 
 export function sortPublishedVersionsNewestFirst(

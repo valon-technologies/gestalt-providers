@@ -1,21 +1,42 @@
-import Button from "@/components/Button";
-import { INPUT_CLASSES } from "@/lib/constants";
-import { PublishedVersionDetail } from "@/features/registry/published-version-detail";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   SectionHeader,
   SectionHeaderContent,
   SectionHeaderDescription,
   SectionHeaderTitle,
-} from "@/features/registry/section-header";
+} from "@/components/ui/section-header";
+import { PublishedVersionDetail } from "@/features/registry/published-version-detail";
 import type { AppAdminPublishedVersion } from "@/features/registry/types";
 import {
-  formatPublishedVersionOptionLabel,
+  formatPublishedVersionOptionMeta,
   isActiveRegistryRollout,
   sortPublishedVersionsNewestFirst,
 } from "@/features/registry/format";
 import { RegistryCode } from "@/features/registry/registry-code";
 import { RolloutBadge } from "@/features/registry/rollout-badge";
 import type { RegistryAppSummary } from "@/features/registry/types";
+
+function PublishedVersionOptionLabel({
+  version,
+}: {
+  version: AppAdminPublishedVersion;
+}) {
+  const meta = formatPublishedVersionOptionMeta(version);
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <span className="font-mono text-[0.92em]">{version.version}</span>
+      {meta ? <span className="font-sans text-muted-foreground">· {meta}</span> : null}
+    </span>
+  );
+}
 
 export function AppAdminVersionPanel({
   registry,
@@ -86,24 +107,30 @@ export function AppAdminVersionPanel({
           <p className="text-sm text-muted">No published versions are available.</p>
         ) : (
           <div className="space-y-4">
-            <div>
-              <label htmlFor="app-admin-version-select" className="label-text">
+            <div className="space-y-1.5">
+              <Label htmlFor="app-admin-version-select" variant="field">
                 Published version
-              </label>
-              <select
-                id="app-admin-version-select"
-                data-testid="version-select"
-                className={`mt-1.5 w-full max-w-xl ${INPUT_CLASSES}`}
+              </Label>
+              <Select
                 value={selectedVersion}
                 disabled={controlsDisabled}
-                onChange={(event) => onSelectedVersionChange(event.target.value)}
+                onValueChange={onSelectedVersionChange}
               >
-                {publishedVersions.map((version) => (
-                  <option key={version.version} value={version.version}>
-                    {formatPublishedVersionOptionLabel(version)}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger
+                  id="app-admin-version-select"
+                  data-testid="version-select"
+                  className="max-w-xl"
+                >
+                  <SelectValue placeholder="Select a published version" />
+                </SelectTrigger>
+                <SelectContent>
+                  {publishedVersions.map((version) => (
+                    <SelectItem key={version.version} value={version.version}>
+                      <PublishedVersionOptionLabel version={version} />
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             {selectedPublished ? (

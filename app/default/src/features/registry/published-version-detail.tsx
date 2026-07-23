@@ -25,14 +25,30 @@ function ExternalLink({
   );
 }
 
+function publishedCommitRef(version: AppAdminPublishedVersion): {
+  href?: string;
+  label: string;
+} | null {
+  const publication = version.publication;
+  const sourceRef = shortenSourceRef(version.sourceRef);
+  const triggerCommitRef = shortenSourceRef(publication?.triggerCommit?.sha);
+  const label = sourceRef || triggerCommitRef;
+  if (!label) return null;
+  return {
+    href: version.sourceUrl || publication?.triggerCommit?.url,
+    label,
+  };
+}
+
 export function PublishedVersionDetail({
   version,
 }: {
   version: AppAdminPublishedVersion;
 }) {
-  const shortRef = shortenSourceRef(version.sourceRef);
   const publication = version.publication;
   const publishedAgo = formatRegistryTimeAgo(version.publishedAt);
+  const pullRequest = publication?.triggerPullRequest;
+  const commit = publishedCommitRef(version);
 
   return (
     <div
@@ -52,28 +68,24 @@ export function PublishedVersionDetail({
         {version.platforms?.length ? ` · ${version.platforms.join(", ")}` : ""}
       </p>
       <p className="flex flex-wrap gap-x-3 gap-y-1">
-        {version.sourceUrl && shortRef ? (
+        {pullRequest ? (
           <span>
-            <ExternalLink href={version.sourceUrl}>Commit {shortRef}</ExternalLink>
-          </span>
-        ) : shortRef ? (
-          <span>Commit {shortRef}</span>
-        ) : null}
-        {publication?.triggerPullRequest ? (
-          <span>
-            <ExternalLink href={publication.triggerPullRequest.url}>
-              PR #{publication.triggerPullRequest.number}
-            </ExternalLink>
-          </span>
-        ) : publication?.triggerCommit ? (
-          <span>
-            <ExternalLink href={publication.triggerCommit.url}>
-              commit {shortenSourceRef(publication.triggerCommit.sha)}
+            <ExternalLink href={pullRequest.url}>
+              PR #{pullRequest.number}
             </ExternalLink>
           </span>
         ) : (
           <span data-testid="published-version-pr">PR: not recorded</span>
         )}
+        {commit ? (
+          <span>
+            {commit.href ? (
+              <ExternalLink href={commit.href}>Commit {commit.label}</ExternalLink>
+            ) : (
+              <>Commit {commit.label}</>
+            )}
+          </span>
+        ) : null}
         {publication?.workflowRunUrl ? (
           <span>
             <ExternalLink href={publication.workflowRunUrl}>
