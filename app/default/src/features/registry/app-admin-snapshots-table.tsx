@@ -67,13 +67,15 @@ export function AppAdminSnapshotsTable({
   const publishedVersions = sortPublishedVersionsNewestFirst(registry.publishedVersions);
 
   if (publishedVersions.length === 0) {
-    return <p className="text-sm text-muted">No published versions are available.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">No published versions are available.</p>
+    );
   }
 
   return (
     <div className="overflow-x-auto rounded-xl border border-alpha">
       <table className="min-w-full divide-y divide-alpha text-sm" data-testid="snapshots-table">
-        <thead className="bg-foreground/[0.03] text-left text-xs uppercase tracking-wide text-muted">
+        <thead className="bg-foreground/[0.03] text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
           <tr>
             <th className="px-4 py-3 font-medium">Pull request</th>
             <th className="px-4 py-3 font-medium">Snapshot</th>
@@ -109,7 +111,7 @@ export function AppAdminSnapshotsTable({
                       {pullRequestLabel(pullRequest)}
                     </a>
                   ) : (
-                    <span className="text-muted">—</span>
+                    <span className="text-muted-foreground">—</span>
                   )}
                 </td>
                 <td className="px-4 py-3 align-top">
@@ -117,7 +119,7 @@ export function AppAdminSnapshotsTable({
                     {shortenSnapshotVersion(version.version)}
                   </RegistryCode>
                 </td>
-                <td className="px-4 py-3 align-top text-muted">
+                <td className="px-4 py-3 align-top text-muted-foreground">
                   {formatRegistryTimeAgo(version.publishedAt) || "—"}
                 </td>
                 <td className="px-4 py-3 align-top">
