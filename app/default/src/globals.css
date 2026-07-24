@@ -611,7 +611,10 @@ pre.shiki span {
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-:root {
+/* Valon registry semantic tokens — :where() keeps zero effective specificity so
+ * serve-time /theme.css (:root { … }, 0,1,0) outranks these defaults per
+ * THEMING.md, even though the bundled sheet loads after the layout link. */
+:where(:root) {
   --radius: 0.5rem;
   --valon-font-sans: "KMR Melange Grotesk", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --valon-font-display: "Season Serif", Georgia, ui-serif, serif;
@@ -652,7 +655,7 @@ pre.shiki span {
   --control-fz-sm: 0.875rem;
   --control-fz-default: 0.875rem;
   --control-fz-lg: 1rem;
-  --valon-paper: oklch(100% 0 0);
+  --valon-paper: oklch(99.1% 0.0041 91.45);
   --valon-neutral-50: oklch(98.829% 0.0029 84.56);
   --valon-neutral-100: oklch(97.384% 0.0045 78.3);
   --valon-neutral-200: oklch(92.323% 0.0129 63.91);
@@ -798,7 +801,7 @@ pre.shiki span {
   --accent-fill-pressed: oklch(from var(--accent) calc(l - 0.015) c h);
 }
 
-.dark {
+:where(.dark) {
   --valon-neutral-dark-50: oklch(95.5% 0.006 73);
   --valon-neutral-dark-100: oklch(92.718% 0.0097 72.66);
   --valon-neutral-dark-200: oklch(84% 0.013 70);
