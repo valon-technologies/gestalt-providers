@@ -1,0 +1,804 @@
+/*
+ * Valon Typeset — owned fork of shadcn/typeset for rendered HTML / markdown.
+ * Upstream: https://ui.shadcn.com/docs/typeset
+ *
+ * Install via `shadcn add …/valon-typeset.json`, then in the app globals.css:
+ *   @import "./styles/valon-typeset.css";
+ *
+ * Wrap rendered markdown in `.typeset` plus a preset (`.typeset-docs` or
+ * `.typeset-chat`). Opt out of a subtree with `.not-typeset`.
+ *
+ * Fonts: body + headings use Melange (`--font-sans`) per guidelines/fonts.md —
+ * Season Serif stays reserved for large PageHeader titles, not long-form
+ * headings. Mono uses Geist Mono via `--font-mono` (see fonts.md).
+ */
+
+@layer components {
+  /*
+   * Reading-scale tokens — Plate markdown nodes consume these same vars so
+   * edit + read stay one contract. Sizes match Plate's text-3xl…text-lg
+   * scale when --typeset-size is 1rem (.typeset-docs). First-class rungs are
+   * h1–h4 only — markdown does not deserialize ##### / ######.
+   */
+  .typeset,
+  .slate-editor,
+  .group\/editor {
+    /* Document ladder (body = 1em): h1–h3 stepped down from the old
+       text-4xl… scale; h4 is one step above body. */
+    --typeset-h1-size: 1.875em; /* text-3xl — was 2.25em */
+    --typeset-h2-size: 1.375em; /* between 2xl and xl — was 1.5em */
+    --typeset-h3-size: 1.25em; /* text-xl */
+    --typeset-h4-size: 1.125em; /* text-lg — one step above body */
+    --typeset-h1-weight: 700;
+    --typeset-heading-weight: 600;
+    --typeset-h1-margin-start: 1.6em;
+    --typeset-h2-margin-start: 1.4em;
+    --typeset-h3-margin-start: 1em;
+    --typeset-h4-margin-start: 0.75em;
+    --typeset-flow: 1.5em;
+    --typeset-list-indent: 1.5em;
+    --typeset-list-item-padding-inline: 0.4em;
+    --typeset-after-heading-margin-start: 1em;
+    /* Visual gap before code in body em. Typeset <pre> compensates for 0.875em font. */
+    --typeset-code-margin-start: var(--typeset-flow);
+    --typeset-pre-margin-start: calc(var(--typeset-code-margin-start) / 0.875);
+    --typeset-hr-margin-start: calc(var(--typeset-flow) * 2.4);
+    --typeset-blockquote-border-width: 3px;
+    --typeset-blockquote-padding-inline: 1.5em;
+    --typeset-blockquote-margin-start: var(--typeset-flow);
+    --typeset-marker: var(--accent-solid, var(--color-accent-solid, currentColor));
+    --typeset-link: var(--link, var(--color-link, currentColor));
+    --typeset-link-hover: var(--link-hover, var(--color-link-hover, var(--typeset-link)));
+    --typeset-link-pressed: var(
+      --link-pressed,
+      var(--color-link-pressed, var(--typeset-link))
+    );
+    --typeset-link-underline: var(
+      --accent-solid,
+      var(--color-accent-solid, var(--typeset-link))
+    );
+    --typeset-cell-padding-block: 0.5em;
+    --typeset-cell-padding-inline: 0.75em;
+  }
+
+  .typeset {
+    /* Valon: Melange for body + headings; inherit size from the container. */
+    --typeset-font-body: var(--font-sans, inherit);
+    --typeset-font-heading: var(--font-sans, inherit);
+    --typeset-font-mono: var(
+      --font-mono,
+      ui-monospace,
+      SFMono-Regular,
+      Menlo,
+      Monaco,
+      Consolas,
+      "Liberation Mono",
+      "Courier New",
+      monospace
+    );
+    --typeset-size: 1em;
+    --typeset-leading: 1.75;
+    --typeset-flow: 1.25em;
+  }
+}
+
+@layer components {
+  .typeset {
+    font-family: var(--typeset-font-body);
+    font-size: calc(var(--typeset-size) * 1.125);
+    line-height: var(--typeset-leading);
+    color: var(--color-foreground, currentColor);
+    overflow-wrap: break-word;
+    margin-trim: block-start;
+
+    @media (min-width: 48rem), print {
+      font-size: var(--typeset-size);
+    }
+
+    --typeset-muted: var(
+      --color-muted-foreground,
+      color-mix(in oklab, currentColor 60%, transparent)
+    );
+    --typeset-rule: var(
+      --color-border,
+      color-mix(in oklab, currentColor 20%, transparent)
+    );
+  }
+
+  .typeset
+    *:not(
+      :where(
+        .not-typeset,
+        [data-not-typeset],
+        .not-typeset *,
+        [data-not-typeset] *
+      )
+    ) {
+    /* Paragraphs. */
+    &:where(p) {
+      margin-block-start: var(--typeset-flow);
+      margin-block-end: 0;
+    }
+
+    /* Headings — sizes/weights match Plate heading-node (via --typeset-h*). */
+    &:where(h1, h2, h3, h4) {
+      color: var(--color-foreground, currentColor);
+      font-family: var(--typeset-font-heading);
+      font-weight: var(--typeset-heading-weight);
+      margin-block-end: 0;
+      line-height: 1.25;
+    }
+    &:where(h1) {
+      font-size: var(--typeset-h1-size);
+      font-weight: var(--typeset-h1-weight);
+      margin-block-start: var(--typeset-h1-margin-start);
+      padding-block-end: 0.25em;
+    }
+    &:where(h2) {
+      font-size: var(--typeset-h2-size);
+      letter-spacing: -0.025em;
+      margin-block-start: var(--typeset-h2-margin-start);
+    }
+    &:where(h3) {
+      font-size: var(--typeset-h3-size);
+      letter-spacing: -0.025em;
+      margin-block-start: var(--typeset-h3-margin-start);
+    }
+    &:where(h4) {
+      font-size: var(--typeset-h4-size);
+      letter-spacing: -0.025em;
+      margin-block-start: var(--typeset-h4-margin-start);
+    }
+    /* Anchors. */
+    &:where([id]) {
+      scroll-margin-block-start: var(--typeset-flow);
+    }
+
+    /* Headings own the space below them. */
+    &:where(h1 + *, h2 + *, h3 + *, h4 + *) {
+      margin-block-start: var(--typeset-after-heading-margin-start);
+    }
+    &:where(:is(h1, h2, h3, h4) :is(code)) {
+      font-size: 0.9em;
+    }
+
+    /* Links — Registry Link treatment (gold ink + draw underline on hover). */
+    &:where(a) {
+      color: var(--typeset-link);
+      font-weight: inherit;
+      text-decoration: none;
+      box-decoration-break: clone;
+      background-image: linear-gradient(
+        var(--typeset-link-underline),
+        var(--typeset-link-underline)
+      );
+      background-position: 100% calc(100% - 0.02em);
+      background-repeat: no-repeat;
+      background-size: 0% 1.5px;
+      transition: background-size var(--motion-move, 200ms)
+        var(--ease-out-quart, cubic-bezier(0.25, 1, 0.5, 1));
+    }
+    &:where(a:hover) {
+      color: var(--typeset-link-hover);
+      background-position: 0% calc(100% - 0.02em);
+      background-size: 100% 1.5px;
+    }
+    &:where(a:active) {
+      color: var(--typeset-link-pressed);
+    }
+    &:where(a:focus-visible) {
+      outline: 4px solid
+        color-mix(
+          in oklab,
+          var(--accent, var(--color-accent, currentColor)) 55%,
+          transparent
+        );
+      outline-offset: 0;
+      border-radius: 0.125em;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      &:where(a) {
+        transition: none;
+      }
+    }
+
+    /* Inline semantics. */
+    &:where(strong, b) {
+      font-weight: 600;
+    }
+    &:where(:is(h1, h2, h3, h4) :is(strong, b)) {
+      font-weight: 600;
+    }
+    &:where(mark) {
+      background-color: color-mix(
+        in oklab,
+        var(--highlight, oklch(0.86 0.17 95)) 40%,
+        transparent
+      );
+      color: inherit;
+      padding: 0.05em 0.15em;
+      border-radius: 0.2em;
+    }
+    &:where(abbr[title]) {
+      text-decoration-line: underline;
+      text-decoration-style: dotted;
+      text-underline-offset: 0.2em;
+      cursor: help;
+    }
+    &:where(del, s) {
+      color: var(--typeset-muted);
+      text-decoration-line: line-through;
+    }
+    &:where(sup, sub) {
+      font-size: 0.75em;
+      line-height: 0;
+      position: relative;
+      vertical-align: baseline;
+    }
+    &:where(sup) {
+      top: -0.5em;
+    }
+    &:where(sub) {
+      bottom: -0.25em;
+    }
+    &:where(sup a) {
+      text-decoration-line: none;
+      font-weight: 500;
+    }
+
+    /* Lists. */
+    &:where(ul) {
+      list-style-type: disc;
+    }
+    &:where(ol) {
+      list-style-type: decimal;
+    }
+    &:where(ul ul) {
+      list-style-type: circle;
+    }
+    &:where(ul ul ul) {
+      list-style-type: square;
+    }
+    &:where(ol[type="a" i]) {
+      list-style-type: lower-alpha;
+    }
+    &:where(ol[type="i" i]) {
+      list-style-type: lower-roman;
+    }
+    &:where(ol[type="A" s]) {
+      list-style-type: upper-alpha;
+    }
+    &:where(ol[type="I" s]) {
+      list-style-type: upper-roman;
+    }
+    &:where(ul, ol) {
+      margin-block-start: var(--typeset-flow);
+      margin-block-end: 0;
+      padding-inline-start: var(--typeset-list-indent);
+    }
+    &:where(li) {
+      margin-block-start: 0.5em;
+      padding-inline-start: var(--typeset-list-item-padding-inline);
+    }
+    &:where(li > p, li > ul, li > ol) {
+      margin-block-start: 0.5em;
+    }
+    &:where(ul > li)::marker,
+    &:where(ol > li)::marker {
+      color: var(--typeset-marker);
+    }
+
+    /* GFM task lists. */
+    &:where(ul.contains-task-list) {
+      list-style-type: none;
+      padding-inline-start: 0.25em;
+    }
+    &:where(li.task-list-item > input[type="checkbox"]) {
+      margin-inline-end: 0.5em;
+      vertical-align: -0.1em;
+      accent-color: var(--color-primary, currentColor);
+    }
+
+    /* Disclosures. */
+    &:where(details) {
+      margin-block-start: var(--typeset-flow);
+      margin-block-end: 0;
+    }
+    &:where(summary) {
+      cursor: pointer;
+      font-weight: 500;
+    }
+    &:where(summary)::marker {
+      color: var(--typeset-muted);
+    }
+
+    /* Keyboard keys. */
+    &:where(kbd) {
+      font-family: inherit;
+      font-size: 0.85em;
+      font-weight: 500;
+      border: 1px solid var(--typeset-rule);
+      border-block-end-width: 2px;
+      border-radius: min(calc(var(--radius, 0.5em) * 0.6), 0.35em);
+      padding: 0.0625em 0.35em;
+    }
+
+    /* Definition lists. */
+    &:where(dl) {
+      margin-block-start: var(--typeset-flow);
+      margin-block-end: 0;
+    }
+    &:where(dt) {
+      font-weight: 500;
+      margin-block-start: 1em;
+    }
+    &:where(dt + dt) {
+      margin-block-start: 0.25em;
+    }
+    &:where(dd) {
+      margin-block-start: 0.25em;
+      margin-inline-start: 0;
+      padding-inline-start: 1em;
+      color: var(--typeset-muted);
+    }
+
+    /* Inline code — same recipe as registry `Code` / Plate CodeLeaf:
+       muted fill + hairline border + mono, em-relative padding. */
+    &:where(:not(pre) > code) {
+      background-color: var(
+        --color-muted,
+        color-mix(in oklab, currentColor 8%, transparent)
+      );
+      border: 1px solid
+        var(--color-border, color-mix(in oklab, currentColor 14%, transparent));
+      font-family: var(--typeset-font-mono);
+      font-size: 0.9em;
+      font-variant-ligatures: none;
+      border-radius: var(--radius-sm, 0.25em);
+      padding: 0.12em 0.25em;
+      white-space: pre-wrap;
+    }
+
+    /* Code blocks. */
+    &:where(pre) {
+      background-color: color-mix(
+        in oklab,
+        var(--color-muted, currentColor) 50%,
+        transparent
+      );
+      font-family: var(--typeset-font-mono);
+      font-size: 0.875em;
+      line-height: 1.5;
+      tab-size: 2;
+      direction: ltr;
+      border-radius: var(--radius, 0.5em);
+      padding: 0.75em 1em;
+      overflow-x: auto;
+      margin-block-start: var(--typeset-pre-margin-start);
+      margin-block-end: 0;
+    }
+    &:where(pre code) {
+      background-color: transparent;
+      font-family: inherit;
+      font-size: inherit;
+      padding: 0;
+      border-radius: 0;
+    }
+
+    /* Blockquote — Plate blockquote-node consumes the same tokens. */
+    &:where(blockquote) {
+      border-inline-start: var(--typeset-blockquote-border-width) solid
+        var(--typeset-rule);
+      padding-inline-start: var(--typeset-blockquote-padding-inline);
+      margin-block-start: var(--typeset-blockquote-margin-start);
+      margin-block-end: 0;
+      margin-inline: 0;
+      font-style: italic;
+    }
+
+    /* Dividers. */
+    &:where(hr) {
+      border: 0;
+      border-block-start: 1px solid var(--typeset-rule);
+      margin-block-start: var(--typeset-hr-margin-start);
+      margin-block-end: 0;
+    }
+    &:where(hr + h1, hr + h2, hr + h3, hr + h4) {
+      margin-block-start: var(--typeset-flow);
+    }
+
+    /* GFM footnotes. */
+    &:where(.footnotes, [data-footnotes]) {
+      margin-block-start: calc(var(--typeset-flow) * 2);
+      border-block-start: 1px solid var(--typeset-rule);
+      padding-block-start: var(--typeset-flow);
+      font-size: 0.875em;
+      color: var(--typeset-muted);
+    }
+
+    /* Math. */
+    &:where(math[display="block"]) {
+      margin-block-start: var(--typeset-flow);
+      margin-block-end: 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-block: 0.25em;
+    }
+
+    /* Media. */
+    &:where(img, video) {
+      border-radius: var(--radius, 0.5em);
+      max-width: 100%;
+      height: auto;
+      margin-block-start: var(--typeset-flow);
+      margin-block-end: 0;
+    }
+    &:where(p img) {
+      margin-block-start: 0;
+    }
+    &:where(figure) {
+      margin-block-start: var(--typeset-flow);
+      margin-block-end: 0;
+      margin-inline: 0;
+    }
+    &:where(figcaption, caption) {
+      color: var(--typeset-muted);
+      font-size: 0.875em;
+      text-align: center;
+      margin-block-start: calc(0.75em / 0.875);
+    }
+    &:where(caption) {
+      caption-side: bottom;
+    }
+
+    /* Tables — cell borders + padding aligned with Plate table-node. */
+    &:where(table) {
+      max-width: 100%;
+      font-size: 1em;
+      line-height: 1.5;
+      font-variant-numeric: tabular-nums;
+      border-collapse: collapse;
+      border-spacing: 0;
+      margin-block-start: var(--typeset-flow);
+      margin-block-end: 0;
+    }
+
+    /* Horizontal scroll for any wide block. Wrap it and the wrapper owns the
+       flow margin. Tables shrink to fit, so widen the table to make it scroll
+       instead of compress. */
+    &:where(.typeset-scroll) {
+      overflow-x: auto;
+      margin-block-start: var(--typeset-flow);
+    }
+    &:where(.typeset-scroll > *) {
+      margin-block-start: 0;
+    }
+    &:where(.typeset-scroll table) {
+      width: max-content;
+      max-width: none;
+    }
+    &:where(th, td) {
+      border: 1px solid var(--typeset-rule);
+      padding: var(--typeset-cell-padding-block)
+        var(--typeset-cell-padding-inline);
+      text-align: start;
+      vertical-align: top;
+    }
+    &:where(th) {
+      font-weight: var(--typeset-heading-weight);
+      background-color: transparent;
+    }
+    &:where(th[align="center"], td[align="center"]) {
+      text-align: center;
+    }
+    &:where(th[align="right"], td[align="right"]) {
+      text-align: end;
+    }
+
+    /* Blocks inside list items keep the list's tighter rhythm. */
+    &:where(li > blockquote, li > table, li > figure) {
+      margin-block-start: 0.5em;
+    }
+    &:where(li > pre) {
+      margin-block-start: calc(0.5em / 0.875);
+    }
+
+    @media print {
+      &:where(pre, table, blockquote, figure) {
+        break-inside: avoid;
+      }
+      &:where(h1, h2, h3, h4) {
+        break-after: avoid;
+      }
+    }
+
+    /* Forced colors strips the code background, so give it a border. */
+    @media (forced-colors: active) {
+      &:where(:not(pre) > code) {
+        border: 1px solid;
+      }
+    }
+  }
+
+  /* First child adds no space above. Last so it wins ties. */
+  .typeset
+    > :where(:first-child):not(
+      :where(
+        .not-typeset,
+        [data-not-typeset],
+        .not-typeset *,
+        [data-not-typeset] *
+      )
+    ),
+  .typeset
+    > :where(:first-child)
+    > :where(:first-child):not(
+      :where(
+        .not-typeset,
+        [data-not-typeset],
+        .not-typeset *,
+        [data-not-typeset] *
+      )
+    ),
+  .typeset
+    :where(
+      li > :first-child,
+      blockquote > :first-child,
+      td > :first-child,
+      th > :first-child,
+      dd > :first-child,
+      figure > :first-child,
+      figure > picture > img
+    ):not(
+      :where(
+        .not-typeset,
+        [data-not-typeset],
+        .not-typeset *,
+        [data-not-typeset] *
+      )
+    ) {
+    margin-block-start: 0;
+  }
+}
+
+
+/* ---------------------------------------------------------------------------
+ * Valon presets — layer on `.typeset` for context-specific rhythm.
+ * Size steps follow guidelines/typography-base-size.md:
+ *   docs / long-form reading → 1rem (16px)
+ *   chat / dense UI prose     → 0.875rem (14px)
+ * --------------------------------------------------------------------------- */
+@layer components {
+  .typeset-docs {
+    --typeset-size: 1rem;
+    --typeset-leading: 1.75;
+    --typeset-flow: 1.5em;
+  }
+
+  .typeset-chat {
+    --typeset-size: 0.875rem;
+    --typeset-leading: 1.6;
+    --typeset-flow: 1em;
+  }
+
+  /* Slightly looser leading on dark surfaces (optional; theme already flips ink). */
+  .dark .typeset-docs {
+    --typeset-leading: 1.85;
+  }
+}
+
+
+
+
+/* Plate edit surface — mirror typeset block gaps without wrapping in .typeset.
+ *
+ * Editable blocks are wrapped by dnd as:
+ *   .group/editor > div.relative.group > .slate-blockWrapper > (h1|p|ul|…)
+ * so sibling margins must land on those outer wrappers, not on ul/p (they are
+ * not direct children). :has() is fine here — this is the edit surface, not a
+ * streaming HTML sink.
+ */
+@layer components {
+  .group\/editor > *:has(> .slate-blockWrapper) + *:has(> .slate-blockWrapper) {
+    margin-block-start: var(--typeset-flow);
+  }
+
+  /* typeset: h* + * → --typeset-after-heading-margin-start.
+   * Heading-styled toggles render as .group/toggle > h*, not bare h* under
+   * .slate-blockWrapper — include both so they share the gap contract. */
+  .group\/editor
+    > *:has(> .slate-blockWrapper > :is(h1, h2, h3, h4))
+    + *:has(> .slate-blockWrapper),
+  .group\/editor
+    > *:has(> .slate-blockWrapper > .group\/toggle > :is(h1, h2, h3, h4))
+    + *:has(> .slate-blockWrapper) {
+    margin-block-start: var(--typeset-after-heading-margin-start);
+  }
+
+  /* One visual list = consecutive ul/ul or ol/ol wrappers; keep items tight. */
+  .group\/editor
+    > *:has(> .slate-blockWrapper ul)
+    + *:has(> .slate-blockWrapper ul),
+  .group\/editor
+    > *:has(> .slate-blockWrapper ol)
+    + *:has(> .slate-blockWrapper ol) {
+    margin-block-start: 0;
+  }
+
+  /* Heading blocks use the heading scale (mid-doc), not flow.
+   * Skip :first-child — this rule is more specific than `*:first-child` and
+   * would otherwise re-open --typeset-h1-margin-start on the doc title.
+   * Toggle titles use the same tokens via .group/toggle > h*. */
+  .group\/editor > *:not(:first-child):has(> .slate-blockWrapper > h1),
+  .group\/editor > *:not(:first-child):has(> .slate-blockWrapper > .group\/toggle > h1) {
+    margin-block-start: var(--typeset-h1-margin-start);
+  }
+  .group\/editor > *:not(:first-child):has(> .slate-blockWrapper > h2),
+  .group\/editor > *:not(:first-child):has(> .slate-blockWrapper > .group\/toggle > h2) {
+    margin-block-start: var(--typeset-h2-margin-start);
+  }
+  .group\/editor > *:not(:first-child):has(> .slate-blockWrapper > h3),
+  .group\/editor > *:not(:first-child):has(> .slate-blockWrapper > .group\/toggle > h3) {
+    margin-block-start: var(--typeset-h3-margin-start);
+  }
+  .group\/editor > *:not(:first-child):has(> .slate-blockWrapper > h4),
+  .group\/editor > *:not(:first-child):has(> .slate-blockWrapper > .group\/toggle > h4) {
+    margin-block-start: var(--typeset-h4-margin-start);
+  }
+
+  /* HR: larger than flow — must beat the general sibling rule’s specificity. */
+  .group\/editor
+    > *:has(> .slate-blockWrapper)
+    + *:has(> .slate-blockWrapper hr) {
+    margin-block-start: var(--typeset-hr-margin-start);
+  }
+
+  .group\/editor > *:first-child {
+    margin-block-start: 0;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Shared GitHub-flavored hljs theme — source of truth for syntax colors.
+ * Used by .typeset pre/code (read), Plate code-block-node + display CodeBlock
+ * (via `.typeset-code-hljs` / `code-fence`), so edit / read / snippet chrome
+ * share one token theme. Fence chrome paint lives in `code-fence.tsx`.
+ * --------------------------------------------------------------------------- */
+@layer components {
+  .typeset-code-hljs,
+  .typeset :where(pre code.hljs),
+  .typeset :where(.hljs) {
+    .hljs-addition {
+      background-color: #f0fff4;
+      color: #22863a;
+    }
+    .hljs-attr,
+    .hljs-attribute,
+    .hljs-literal,
+    .hljs-meta,
+    .hljs-number,
+    .hljs-operator,
+    .hljs-selector-attr,
+    .hljs-selector-class,
+    .hljs-selector-id,
+    .hljs-variable {
+      color: #005cc5;
+    }
+    .hljs-built_in,
+    .hljs-symbol {
+      color: #e36209;
+    }
+    .hljs-bullet {
+      color: #735c0f;
+    }
+    .hljs-comment,
+    .hljs-code,
+    .hljs-formula {
+      color: #6a737d;
+    }
+    .hljs-deletion {
+      background-color: #ffeef0;
+      color: #b31d28;
+    }
+    .hljs-emphasis {
+      font-style: italic;
+    }
+    .hljs-keyword,
+    .hljs-doctag,
+    .hljs-template-tag,
+    .hljs-template-variable,
+    .hljs-type,
+    .hljs-variable.language_ {
+      color: #d73a49;
+    }
+    .hljs-name,
+    .hljs-quote,
+    .hljs-selector-tag,
+    .hljs-selector-pseudo {
+      color: #22863a;
+    }
+    .hljs-regexp,
+    .hljs-string,
+    .hljs-meta .hljs-string {
+      color: #032f62;
+    }
+    .hljs-section {
+      color: #005cc5;
+      font-weight: 700;
+    }
+    .hljs-strong {
+      font-weight: 700;
+    }
+    .hljs-title,
+    .hljs-title.class_,
+    .hljs-title.class_.inherited__,
+    .hljs-title.function_ {
+      color: #6f42c1;
+    }
+  }
+
+  .dark .typeset-code-hljs,
+  .dark .typeset :where(pre code.hljs),
+  .dark .typeset :where(.hljs) {
+    .hljs-addition {
+      background-color: #3c5743;
+      color: #ceead5;
+    }
+    .hljs-attr,
+    .hljs-attribute,
+    .hljs-literal,
+    .hljs-meta,
+    .hljs-number,
+    .hljs-operator,
+    .hljs-selector-attr,
+    .hljs-selector-class,
+    .hljs-selector-id,
+    .hljs-variable {
+      color: #6596cf;
+    }
+    .hljs-built_in,
+    .hljs-symbol {
+      color: #c3854e;
+    }
+    .hljs-bullet {
+      color: #b3974f;
+    }
+    .hljs-comment,
+    .hljs-code,
+    .hljs-formula {
+      color: #8b949e;
+    }
+    .hljs-deletion {
+      background-color: #473235;
+      color: #e7c7cb;
+    }
+    .hljs-keyword,
+    .hljs-doctag,
+    .hljs-template-tag,
+    .hljs-template-variable,
+    .hljs-type,
+    .hljs-variable.language_ {
+      color: #ee6960;
+    }
+    .hljs-name,
+    .hljs-quote,
+    .hljs-selector-tag,
+    .hljs-selector-pseudo {
+      color: #36a84f;
+    }
+    .hljs-regexp,
+    .hljs-string,
+    .hljs-meta .hljs-string {
+      color: #3593ff;
+    }
+    .hljs-section {
+      color: #61a5f2;
+    }
+    .hljs-title,
+    .hljs-title.class_,
+    .hljs-title.class_.inherited__,
+    .hljs-title.function_ {
+      color: #a77bfa;
+    }
+  }
+}
