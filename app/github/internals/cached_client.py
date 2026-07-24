@@ -42,6 +42,7 @@ class CachingGitHubClient:
         self.search_pull_requests_query = search_pull_requests_query
         self._installation_id = 0
         self._repository = ""
+        self._permissions: dict[str, str] = {}
 
     def installation_token(
         self,
@@ -56,6 +57,7 @@ class CachingGitHubClient:
             permissions=permissions,
         )
         self._installation_id = installation_id
+        self._permissions = dict(permissions or {})
         return token
 
     def repository_installation_id(self, owner: str, repo: str) -> int:
@@ -80,7 +82,9 @@ class CachingGitHubClient:
             result = call()
             self._invalidate_after_mutation(method, path)
             return result
-        return self._read_through(policy, _rest_request(method, path), call)
+        return self._read_through(
+            policy, self._rest_request(method, path, "object"), call
+        )
 
     def github_json_value(
         self,
@@ -98,7 +102,9 @@ class CachingGitHubClient:
             result = call()
             self._invalidate_after_mutation(method, path)
             return result
-        return self._read_through(policy, _rest_request(method, path), call)
+        return self._read_through(
+            policy, self._rest_request(method, path, "value"), call
+        )
 
     def graphql_json(
         self,
@@ -119,6 +125,7 @@ class CachingGitHubClient:
             "kind": "graphql",
             "query": query,
             "variables": dict(variables or {}),
+            "permissions": dict(self._permissions),
         }
         return self._read_through(policy, request, call)
 
@@ -238,6 +245,17 @@ class CachingGitHubClient:
             self._installation_id,
         )
 
+    def _rest_request(
+        self, method: str, path: str, response_kind: str
+    ) -> dict[str, Any]:
+        return {
+            "kind": "rest",
+            "method": method.upper(),
+            "path": path,
+            "response_kind": response_kind,
+            "permissions": dict(self._permissions),
+        }
+
     def _invalidate_after_mutation(self, method: str, path: str) -> None:
         if method.upper() == "GET":
             return
@@ -329,10 +347,6 @@ def _rest_policy(method: str, path: str) -> CachePolicy | None:
         if pattern.fullmatch(normalized_path):
             return policy
     return None
-
-
-def _rest_request(method: str, path: str) -> dict[str, Any]:
-    return {"kind": "rest", "method": method.upper(), "path": path}
 
 
 def _mutation_domains(path: str) -> set[str]:

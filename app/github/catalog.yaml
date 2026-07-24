@@ -5,6 +5,23 @@ operations:
   description: Handle GitHub App webhook callbacks by delivering canonical workflow
     events
   visible: false
+- id: maintenance.reconcileCache
+  method: POST
+  description: Reconcile a bounded set of expired GitHub cache entries
+  visible: false
+  parameters:
+  - name: owner
+    type: string
+    description: Repository owner
+    required: true
+  - name: repo
+    type: string
+    description: Repository name
+    required: true
+  - name: max_entries
+    type: integer
+    description: Maximum expired cache entries to replay, from 1 through 100
+    default: 25
 - id: identity.linkSelf
   method: POST
   description: Link the current Gestalt user subject to the GitHub user proven by

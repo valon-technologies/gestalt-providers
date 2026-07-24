@@ -65,9 +65,11 @@ from internals.constants import (
     GITHUB_USER_LINKED_ACTION,
     GITHUB_USER_RESOURCE_TYPE,
     IDENTITY_LINK_SELF_OPERATION,
+    MAINTENANCE_RECONCILE_CACHE_OPERATION,
 )
 from internals.errors import GitHubAPIError, GitHubAuthorizationError, GitHubConfigError
 from internals.helpers import int_field, str_field
+from internals.reconcile import reconcile_cache
 from internals.operations import (
     GitHubAddLabelsRequest,
     GitHubAddReactionRequest,
@@ -1111,6 +1113,16 @@ class GetUserInput(gestalt.Model):
     login: str = gestalt.field(description="GitHub user login")
 
 
+class ReconcileCacheInput(gestalt.Model):
+    owner: str = gestalt.field(description="Repository owner")
+    repo: str = gestalt.field(description="Repository name")
+    max_entries: int = gestalt.field(
+        description="Maximum expired cache entries to replay, from 1 through 100",
+        default=25,
+        required=False,
+    )
+
+
 @app.configure
 def configure(_name: str, config: dict[str, Any]) -> None:
     configure_from_mapping(config, provider_name=_name)
@@ -1221,6 +1233,39 @@ def github_events_handle(
         else "",
         "workflow_provider": workflow_request.provider,
     }
+
+
+@app.operation(
+    id=MAINTENANCE_RECONCILE_CACHE_OPERATION,
+    method="POST",
+    description="Reconcile a bounded set of expired GitHub cache entries",
+    visible=False,
+)
+def maintenance_reconcile_cache(
+    input: ReconcileCacheInput, req: gestalt.Request
+) -> OperationResult:
+    result = _run_bot(
+        lambda: reconcile_cache(
+            input.owner,
+            input.repo,
+            input.max_entries,
+            **_bot_call(req),
+        ).to_dict()
+    )
+    if isinstance(result, dict):
+        logger.info(
+            "Reconciled GitHub cache",
+            extra={
+                "github_cache_outcome": "reconcile",
+                "github_cache_repository": result.get("repository", ""),
+                "github_cache_checked": result.get("checked", 0),
+                "github_cache_drifted": result.get("drifted", 0),
+                "github_cache_refreshed": result.get("refreshed", 0),
+                "github_cache_deleted": result.get("deleted", 0),
+                "github_cache_failed": result.get("failed", 0),
+            },
+        )
+    return result
 
 
 def _build_workflow_deliver_event_request(
