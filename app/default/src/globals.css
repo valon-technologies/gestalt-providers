@@ -234,7 +234,9 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    /* Page chrome uses the warm surface ramp; --background (paper) stays for
+     * cards, popovers, and explicit bg-background call sites. */
+    @apply bg-surface text-foreground;
     /* Same body weight as gestalt/docs: Instrument Sans is a variable cut,
      * so 435 renders true; static tenant faces (e.g. KMR 400/700) resolve
      * to 400 per CSS font matching. */
