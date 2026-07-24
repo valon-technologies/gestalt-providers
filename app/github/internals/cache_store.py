@@ -4,7 +4,7 @@ import math
 import threading
 import time
 from copy import deepcopy
-from typing import Any, Literal, Mapping, TypedDict
+from typing import Any, Literal, Mapping, TypedDict, cast
 
 import gestalt
 
@@ -349,18 +349,19 @@ def _put_record(
 def _cached_record(record: object) -> CachedRecord | None:
     if not isinstance(record, dict):
         return None
-    fetched_at = record.get("fetched_at")
-    source = record.get("source")
+    record_dict = cast(dict[str, Any], record)
+    fetched_at = record_dict.get("fetched_at")
+    source = record_dict.get("source")
     if (
         isinstance(fetched_at, bool)
         or not isinstance(fetched_at, (int, float))
         or not math.isfinite(float(fetched_at))
         or source not in ("live", "webhook")
-        or "data" not in record
+        or "data" not in record_dict
     ):
         return None
     return {
-        "data": deepcopy(record["data"]),
+        "data": deepcopy(record_dict["data"]),
         "fetched_at": float(fetched_at),
         "source": source,
     }
