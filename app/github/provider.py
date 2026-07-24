@@ -9,6 +9,7 @@ import gestalt
 from gestalt.authorization import RelationshipTargetSubject
 from gestalt.migrations import MigrationRunOptions
 
+from internals.cache_ingest import ingest_webhook_event
 from internals.cache_migrations import cache_migration_options
 from internals.client import DEFAULT_GITHUB_CLIENT
 from internals.config import (
@@ -1137,12 +1138,41 @@ def github_events_handle(
         input,
         event_type=event_type,
         enforce_event_allowlist=True,
+        check_bot_sender=False,
     )
     if ignored_reason:
         return {"ok": True, "ignored": ignored_reason}
 
     installation_id = installation_id_from_payload(input)
     summary = event_summary(input, installation_id, event_type=event_type)
+    try:
+        ingested = ingest_webhook_event(event_type, input, summary)
+        if ingested:
+            logger.info(
+                "Projected GitHub webhook into cache",
+                extra={
+                    "github_cache_outcome": "invalidate",
+                    "github_event": event_type,
+                    "github_repository": summary.get("repository", ""),
+                },
+            )
+    except Exception:
+        logger.exception(
+            "Failed to project GitHub webhook into cache",
+            extra={
+                "github_cache_outcome": "error",
+                "github_event": event_type,
+                "github_repository": summary.get("repository", ""),
+            },
+        )
+    ignored_reason = webhook_ignored_reason(
+        input,
+        event_type=event_type,
+        enforce_event_allowlist=True,
+    )
+    if ignored_reason:
+        return {"ok": True, "ignored": ignored_reason}
+
     workflow_request = _build_workflow_deliver_event_request(input, summary)
     try:
         logger.info(

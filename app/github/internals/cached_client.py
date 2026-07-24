@@ -231,9 +231,11 @@ class CachingGitHubClient:
     def _scope(self) -> str:
         if self._installation_id <= 0:
             return ""
-        return (
-            f"v1:{self.provider_name}:{self.api_base_url.casefold()}:"
-            f"{self.app_id}:{self._installation_id}"
+        return cache_store.cache_scope(
+            self.provider_name,
+            self.api_base_url,
+            self.app_id,
+            self._installation_id,
         )
 
     def _invalidate_after_mutation(self, method: str, path: str) -> None:

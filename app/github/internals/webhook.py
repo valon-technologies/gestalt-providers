@@ -192,6 +192,7 @@ def webhook_ignored_reason(
     *,
     event_type: str = "",
     enforce_event_allowlist: bool = True,
+    check_bot_sender: bool = True,
 ) -> str:
     if is_ping_event(payload):
         return "ping"
@@ -204,7 +205,7 @@ def webhook_ignored_reason(
     config = get_github_config()
     if enforce_event_allowlist and event_type not in config.webhook_events:
         return f"unsupported_event_type:{event_type}"
-    if config.ignore_bot_sender:
+    if check_bot_sender and config.ignore_bot_sender:
         try:
             if is_configured_bot_sender(payload):
                 return "configured_bot_sender"

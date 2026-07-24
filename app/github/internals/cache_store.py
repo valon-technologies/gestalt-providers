@@ -52,6 +52,21 @@ _client: Any | None = None
 _client_lock = threading.Lock()
 
 
+def cache_scope(
+    provider_name: str,
+    api_base_url: str,
+    app_id: str,
+    installation_id: int,
+) -> str:
+    if installation_id <= 0:
+        raise ValueError("installation_id must be positive")
+    return (
+        f"v1:{_nonempty(provider_name, 'provider_name')}:"
+        f"{_nonempty(api_base_url, 'api_base_url').casefold()}:"
+        f"{_nonempty(app_id, 'app_id')}:{installation_id}"
+    )
+
+
 def response_id(scope: str, operation: str, request: dict[str, Any]) -> str:
     digest = hashlib.sha256(_json_bytes(request)).hexdigest()
     return f"{_nonempty(scope, 'scope')}:{_nonempty(operation, 'operation')}:{digest}"
@@ -224,21 +239,50 @@ def put_entity_if_newer(
     deleted: bool = False,
     observed_at: float | None = None,
 ) -> bool:
+    updated, _ = put_entity_and_increment(
+        scope,
+        repository,
+        entity_type,
+        entity_id,
+        payload,
+        updated_at=updated_at,
+        deleted=deleted,
+        domains=set(),
+        observed_at=observed_at,
+    )
+    return updated
+
+
+def put_entity_and_increment(
+    scope: str,
+    repository: str,
+    entity_type: str,
+    entity_id: str,
+    payload: dict[str, Any],
+    *,
+    updated_at: str,
+    deleted: bool,
+    domains: set[str],
+    observed_at: float | None = None,
+) -> tuple[bool, dict[str, int]]:
     normalized_repository = _normalize_repository(repository)
     record_id = cache_entity_id(scope, repository, entity_type, entity_id)
     observed = _now(observed_at)
     db = _database()
-    with db.transaction([ENTITIES_STORE_NAME], "readwrite") as transaction:
+    generations: dict[str, int] = {}
+    with db.transaction(
+        [ENTITIES_STORE_NAME, GENERATIONS_STORE_NAME], "readwrite"
+    ) as transaction:
         store = transaction.object_store(ENTITIES_STORE_NAME)
         current = _optional_transaction_record(store, record_id)
         if current is not None:
             current_version = str(current.get("updated_at") or "")
             if current_version > updated_at:
-                return False
+                return False, {}
             if current_version == updated_at:
                 current_observed = _number(current.get("observed_at"))
                 if current_observed >= observed:
-                    return False
+                    return False, {}
         store.put(
             {
                 "id": record_id,
@@ -252,7 +296,25 @@ def put_entity_if_newer(
                 "payload_json": _json_bytes(payload),
             }
         )
-    return True
+        generation_store = transaction.object_store(GENERATIONS_STORE_NAME)
+        for domain in sorted(domains):
+            generation_record_id = generation_id(scope, repository, domain)
+            generation_record = _optional_transaction_record(
+                generation_store, generation_record_id
+            )
+            generation = _record_generation(generation_record) + 1
+            generation_store.put(
+                {
+                    "id": generation_record_id,
+                    "scope": scope,
+                    "repository": normalized_repository,
+                    "domain": domain,
+                    "generation": generation,
+                    "updated_at": observed,
+                }
+            )
+            generations[domain] = generation
+    return True, generations
 
 
 def get_entity(
