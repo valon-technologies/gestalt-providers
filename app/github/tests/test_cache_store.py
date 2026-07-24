@@ -6,6 +6,7 @@ from typing import Any
 from unittest import mock
 
 import gestalt
+from gestalt.migrations import SchemaRevision
 
 from internals import cache_store
 from internals.cache_migrations import (
@@ -153,7 +154,10 @@ class CacheStoreTests(unittest.TestCase):
         self.assertIsNotNone(options)
         assert options is not None
         self.assertEqual(options.ledger_store, CACHE_MIGRATION_LEDGER_STORE_NAME)
-        stores = options.revisions[0].schema.stores or []
+        revision = options.revisions[0]
+        self.assertIsInstance(revision, SchemaRevision)
+        assert isinstance(revision, SchemaRevision)
+        stores = revision.schema.stores or []
         self.assertEqual(
             {store.name for store in stores},
             {

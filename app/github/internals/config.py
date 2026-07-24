@@ -232,6 +232,8 @@ def config_float(
         value = config.get(key)
         if isinstance(value, bool):
             raise ValueError(f"{key} must be a number")
+        if not isinstance(value, (int, float, str)):
+            raise ValueError(f"{key} must be a number")
         try:
             parsed = float(value)
         except (TypeError, ValueError) as err:

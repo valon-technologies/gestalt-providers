@@ -7,6 +7,7 @@ import gestalt
 from gestalt.migrations import (
     ColumnSchema,
     MigrationRunOptions,
+    Revision,
     SchemaDeclaration,
     SchemaRevision,
     StoreDeclaration,
@@ -37,7 +38,7 @@ def cache_migration_options(
     )
 
 
-def cache_revisions() -> list[SchemaRevision]:
+def cache_revisions() -> list[Revision]:
     return [
         SchemaRevision(
             id=CACHE_INIT_REVISION_ID,

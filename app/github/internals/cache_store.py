@@ -5,7 +5,7 @@ import json
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import gestalt
 
@@ -434,17 +434,18 @@ def _record_generation(record: dict[str, Any] | None) -> int:
 def _response_from_record(record: object) -> CachedResponse | None:
     if not isinstance(record, dict):
         return None
+    record_data = cast(dict[str, Any], record)
     try:
         return CachedResponse(
-            id=str(record["id"]),
-            operation=str(record["operation"]),
-            repository=str(record["repository"]),
-            domain=str(record["domain"]),
-            request=_json_value(record["request_json"], expected=dict),
-            body=_json_value(record["body_json"]),
-            generation=int(record["generation"]),
-            fetched_at=float(record["fetched_at"]),
-            expires_at=float(record["expires_at"]),
+            id=str(record_data["id"]),
+            operation=str(record_data["operation"]),
+            repository=str(record_data["repository"]),
+            domain=str(record_data["domain"]),
+            request=_json_value(record_data["request_json"], expected=dict),
+            body=_json_value(record_data["body_json"]),
+            generation=int(record_data["generation"]),
+            fetched_at=float(record_data["fetched_at"]),
+            expires_at=float(record_data["expires_at"]),
         )
     except (KeyError, TypeError, ValueError, json.JSONDecodeError, UnicodeDecodeError):
         return None
@@ -453,15 +454,16 @@ def _response_from_record(record: object) -> CachedResponse | None:
 def _entity_from_record(record: object) -> CachedEntity | None:
     if not isinstance(record, dict):
         return None
+    record_data = cast(dict[str, Any], record)
     try:
         return CachedEntity(
-            entity_type=str(record["entity_type"]),
-            entity_id=str(record["entity_id"]),
-            repository=str(record["repository"]),
-            updated_at=str(record["updated_at"]),
-            observed_at=float(record["observed_at"]),
-            deleted=bool(record["deleted"]),
-            payload=_json_value(record["payload_json"], expected=dict),
+            entity_type=str(record_data["entity_type"]),
+            entity_id=str(record_data["entity_id"]),
+            repository=str(record_data["repository"]),
+            updated_at=str(record_data["updated_at"]),
+            observed_at=float(record_data["observed_at"]),
+            deleted=bool(record_data["deleted"]),
+            payload=_json_value(record_data["payload_json"], expected=dict),
         )
     except (KeyError, TypeError, ValueError, json.JSONDecodeError, UnicodeDecodeError):
         return None
