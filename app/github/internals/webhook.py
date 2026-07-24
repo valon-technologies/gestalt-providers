@@ -220,6 +220,10 @@ def is_ping_event(payload: dict[str, Any]) -> bool:
 
 
 def github_event_type(payload: dict[str, Any]) -> str:
+    if "deployment_status" in payload:
+        return "deployment_status"
+    if "deployment" in payload:
+        return "deployment"
     if "check_run" in payload:
         return "check_run"
     if "check_suite" in payload:

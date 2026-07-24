@@ -61,6 +61,8 @@ GITHUB_WEBHOOK_SUBJECT_PREFIX = "service_account:github_webhook:"
 DEFAULT_WEBHOOK_EVENTS = (
     "check_run",
     "check_suite",
+    "deployment",
+    "deployment_status",
     "issue_comment",
     "issues",
     "pull_request",

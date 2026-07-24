@@ -22,6 +22,8 @@ apps:
         - pull_request
         - check_run
       ignoreBotSender: true
+      cacheEnabled: false
+      cacheTtlSeconds: 60
 ```
 
 Supported config fields:
@@ -41,18 +43,27 @@ Supported config fields:
 - `webBaseUrl`: GitHub web URL used for generated links. Defaults to
   `https://github.com`.
 - `webhookEvents`: allowlist of GitHub event names to deliver. Defaults to
-  `check_run`, `check_suite`, `issue_comment`, `issues`, `pull_request`,
-  `pull_request_review`, `pull_request_review_comment`, and `workflow_run`.
+  `check_run`, `check_suite`, `deployment`, `deployment_status`,
+  `issue_comment`, `issues`, `pull_request`, `pull_request_review`,
+  `pull_request_review_comment`, and `workflow_run`.
   These are GitHub webhook event names, not action-qualified workflow event
   trigger types.
 - `workflow.provider`: workflow provider that receives delivered events.
 - `ignoreBotSender`: ignore events sent by the configured GitHub App bot login.
   Defaults to `true`.
+- `cacheEnabled`: enable the webhook-fed read-through cache. Defaults to
+  `false`; enabling it requires the ambient IndexedDB binding.
+- `cacheTtlSeconds`: maximum age of a cached response, from 1 through 3600
+  seconds. Defaults to `60`.
 
 ## Webhook Events
 
 `events.handle` validates generic webhook conditions and then calls
 `req.workflows().deliver_event(...)` once per accepted delivery.
+
+The GitHub App webhook subscription and any explicit environment
+`webhookEvents` lists must also include `deployment` and `deployment_status`;
+changing this provider's default does not alter the GitHub App subscription.
 
 Ignored deliveries return `{"ok": true, "ignored": "<reason>"}` for:
 

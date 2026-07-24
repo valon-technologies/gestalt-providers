@@ -9,6 +9,8 @@ import gestalt
 
 from internals import cache_ingest
 from internals.config import GitHubBotIdentity, configure_from_mapping
+from internals.constants import DEFAULT_WEBHOOK_EVENTS
+from internals.webhook import github_event_type
 import provider as provider_module
 
 
@@ -199,6 +201,33 @@ class CacheIngestTests(unittest.TestCase):
 
         self.assertTrue(result["delivered"])
         self.assertEqual(workflows.requests, [workflow_request])
+
+    def test_deployment_events_are_defaulted_and_structurally_discriminated(
+        self,
+    ) -> None:
+        self.assertIn("deployment", DEFAULT_WEBHOOK_EVENTS)
+        self.assertIn("deployment_status", DEFAULT_WEBHOOK_EVENTS)
+        self.assertEqual(
+            github_event_type(
+                {
+                    "deployment_status": {"id": 2},
+                    "deployment": {"id": 1},
+                    "repository": {},
+                    "action": "created",
+                }
+            ),
+            "deployment_status",
+        )
+        self.assertEqual(
+            github_event_type(
+                {
+                    "deployment": {"id": 1},
+                    "repository": {},
+                    "action": "created",
+                }
+            ),
+            "deployment",
+        )
 
 
 if __name__ == "__main__":
