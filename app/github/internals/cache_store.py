@@ -347,7 +347,7 @@ def _put_record(
 
 
 def _cached_record(record: object) -> CachedRecord | None:
-    if not isinstance(record, Mapping):
+    if not isinstance(record, dict):
         return None
     fetched_at = record.get("fetched_at")
     source = record.get("source")
