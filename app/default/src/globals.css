@@ -4,6 +4,7 @@
  * also crawl public/ (e.g. admin/echarts.min.js) for class candidates. */
 @import "tailwindcss" source(".");
 @import "tw-animate-css";
+@import "./styles/valon-typeset.css";
 
 /* v3 `darkMode: ["class"]` — dark: variants match descendants of `.dark`. */
 @custom-variant dark (&:is(.dark *));
@@ -297,21 +298,6 @@
   .doc-link {
     @apply text-primary underline decoration-base-300 underline-offset-4 transition-colors duration-150 hover:text-gold-600 dark:decoration-base-600;
   }
-
-  /* Code-block shell shared by the Shiki output and its plain <pre>
-   * fallback, so layout is identical before and after highlighting. */
-  .doc-code pre {
-    @apply overflow-x-auto rounded-xl border border-alpha bg-surface px-4 py-4 pr-12 font-mono text-sm leading-6 text-primary;
-  }
-}
-
-/* Shiki dual-theme output (defaultColor: false → per-token CSS vars). */
-pre.shiki span {
-  color: var(--shiki-light);
-}
-
-.dark pre.shiki span {
-  color: var(--shiki-dark);
 }
 
 @theme inline {
@@ -374,6 +360,7 @@ pre.shiki span {
   --color-accent-wash: var(--accent-wash);
   --color-accent-wash-hover: var(--accent-wash-hover);
   --color-accent-wash-pressed: var(--accent-wash-pressed);
+  --color-code-line-emphasis: var(--code-line-emphasis);
   --color-surface-hover: var(--surface-hover);
   --color-surface-pressed: var(--surface-pressed);
   --color-destructive: var(--destructive);
@@ -768,6 +755,11 @@ pre.shiki span {
   --accent-wash: var(--valon-gold-100);
   --accent-wash-hover: oklch(from var(--accent-wash) calc(l - 0.0075) c h);
   --accent-wash-pressed: oklch(from var(--accent-wash) calc(l - 0.015) c h);
+  --code-line-emphasis: color-mix(
+    in oklch,
+    var(--valon-gold-100),
+    var(--valon-gold-200)
+  );
   --scrollbar-thumb: var(--valon-neutral-300);
   --ring: var(--valon-gold-300);
   --brand: var(--valon-gold-800);
@@ -844,6 +836,11 @@ pre.shiki span {
   --accent-vivid: var(--valon-gold-dark-300);
   --accent-vivid-foreground: var(--valon-neutral-dark-950);
   --accent-wash: var(--valon-gold-dark-900);
+  --code-line-emphasis: color-mix(
+    in oklch,
+    var(--accent-wash) 50%,
+    var(--accent) 50%
+  );
   --accent-hover: color-mix(in oklab, var(--accent), var(--popover) 60%);
   --destructive: var(--valon-red-300);
   --destructive-foreground: var(--valon-neutral-dark-950);
