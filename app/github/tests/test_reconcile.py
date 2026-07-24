@@ -110,6 +110,9 @@ class ReconcileTests(unittest.TestCase):
                 return_value=[self.record],
             ),
             mock.patch.object(
+                reconcile.cache_store, "get_generation", return_value=0
+            ),
+            mock.patch.object(
                 reconcile.cache_store, "delete_cached_response"
             ) as delete,
             mock.patch.object(
