@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = "==3.14.*"
 
 [[package]]
@@ -149,7 +149,7 @@ wheels = [
 
 [[package]]
 name = "gestalt-github"
-version = "0.0.1a29"
+version = "0.0.1a30"
 source = { virtual = "." }
 dependencies = [
     { name = "cryptography" },
@@ -166,7 +166,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cryptography", specifier = "==46.0.7" },
-    { name = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&rev=7c27e618694975b5045ffa3de8ce8aeaaf9a425c" },
+    { name = "gestalt-sdk", git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&rev=c55fa7d22c5c93e07ad976f2c8ca7d359bcc0dfa" },
 ]
 
 [package.metadata.requires-dev]
@@ -179,7 +179,7 @@ dev = [
 [[package]]
 name = "gestalt-sdk"
 version = "0.0.1a2"
-source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&rev=7c27e618694975b5045ffa3de8ce8aeaaf9a425c#7c27e618694975b5045ffa3de8ce8aeaaf9a425c" }
+source = { git = "https://github.com/valon-technologies/gestalt.git?subdirectory=sdk%2Fpython&rev=c55fa7d22c5c93e07ad976f2c8ca7d359bcc0dfa#c55fa7d22c5c93e07ad976f2c8ca7d359bcc0dfa" }
 dependencies = [
     { name = "googleapis-common-protos" },
     { name = "grpcio" },

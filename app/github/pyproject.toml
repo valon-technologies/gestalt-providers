@@ -1,6 +1,6 @@
 [project]
 name = "gestalt-github"
-version = "0.0.1a29"
+version = "0.0.1a30"
 requires-python = "==3.14.*"
 dependencies = [
   "cryptography==46.0.7",
@@ -18,7 +18,7 @@ dev = [
 package = false
 
 [tool.uv.sources]
-gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", rev = "7c27e618694975b5045ffa3de8ce8aeaaf9a425c", subdirectory = "sdk/python" }
+gestalt-sdk = { git = "https://github.com/valon-technologies/gestalt.git", rev = "c55fa7d22c5c93e07ad976f2c8ca7d359bcc0dfa", subdirectory = "sdk/python" }
 
 [tool.gestalt]
 provider = "provider:app"
