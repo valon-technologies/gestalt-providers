@@ -97,6 +97,7 @@ def ingest_webhook_event(
     scope = cache_store.cache_scope(
         config.provider_name,
         config.api_base_url,
+        config.graphql_base_url,
         config.app_id,
         installation_id,
     )

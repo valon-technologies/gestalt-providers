@@ -130,7 +130,7 @@ state. Cache errors fail open to GitHub and never replace a successful GitHub
 response with an error.
 
 `maintenance.reconcileCache` is a hidden operation that replays up to 25
-expired requests by default (100 maximum), refreshes drift, and prunes entries
+expired requests per run, refreshes drift, and prunes entries
 older than 24 hours. Production rollout requires a dedicated service-account
 subject, repository allowlist, `allowedOperations` entry, and a Gestalt
 Workflow schedule every 15 minutes.

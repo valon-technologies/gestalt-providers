@@ -20,7 +20,7 @@ operations:
     required: true
   - name: max_entries
     type: integer
-    description: Maximum expired cache entries to replay, from 1 through 100
+    description: Maximum expired cache entries to replay, from 1 through 25
     default: 25
 - id: identity.linkSelf
   method: POST

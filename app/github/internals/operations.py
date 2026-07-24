@@ -3602,6 +3602,7 @@ def github_client(client: GitHubAPIClient | None) -> GitHubAPIClient:
         provider_name=config.provider_name,
         app_id=config.app_id,
         api_base_url=config.api_base_url,
+        graphql_base_url=config.graphql_base_url,
         ttl_seconds=config.cache_ttl_seconds,
         search_pull_requests_query=SEARCH_PULL_REQUESTS_QUERY,
     )

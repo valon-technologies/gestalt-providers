@@ -122,7 +122,9 @@ class InMemoryCache:
         request: dict[str, Any],
         domain: str,
     ) -> tuple[cache_store.CachedResponse | None, str]:
-        cached = self.responses.get(cache_store.response_id(scope, operation, request))
+        cached = self.responses.get(
+            cache_store.response_id(scope, repository, operation, request)
+        )
         return cached, "hit" if cached is not None else "miss"
 
     def put(
@@ -137,7 +139,9 @@ class InMemoryCache:
         expected_generation: int,
         ttl_seconds: float,
     ) -> bool:
-        record_id = cache_store.response_id(scope, operation, request)
+        record_id = cache_store.response_id(
+            scope, repository, operation, request
+        )
         self.responses[record_id] = cache_store.CachedResponse(
             id=record_id,
             operation=operation,
@@ -192,6 +196,7 @@ class CachingGitHubClientTests(unittest.TestCase):
             provider_name="github",
             app_id="123",
             api_base_url="https://api.github.com",
+            graphql_base_url="https://api.github.com/graphql",
             ttl_seconds=60,
             search_pull_requests_query="query SearchPullRequests",
         )
@@ -233,6 +238,30 @@ class CachingGitHubClientTests(unittest.TestCase):
         self.assertEqual(self.inner.calls.count(("GRAPHQL", query)), 2)
         self.assertEqual(len(self.cache.responses), 2)
 
+    def test_identical_searches_are_isolated_by_repository(self) -> None:
+        query = "query SearchPullRequests"
+        variables = {"query": "is:pr", "first": 30}
+        self.inner.response = {"data": {"repository": "acme/widgets"}}
+        first = self.client.graphql_json(query, "token", variables)
+        second_client = CachingGitHubClient(
+            self.inner,
+            provider_name="github",
+            app_id="123",
+            api_base_url="https://api.github.com",
+            graphql_base_url="https://api.github.com/graphql",
+            ttl_seconds=60,
+            search_pull_requests_query=query,
+        )
+        second_client.repository_installation_id("acme", "private")
+        second_client.installation_token(99, repositories=["private"])
+        self.inner.response = {"data": {"repository": "acme/private"}}
+
+        second = second_client.graphql_json(query, "token", variables)
+
+        self.assertEqual(first["data"]["repository"], "acme/widgets")
+        self.assertEqual(second["data"]["repository"], "acme/private")
+        self.assertEqual(self.inner.calls.count(("GRAPHQL", query)), 2)
+
     def test_unknown_read_bypasses_cache(self) -> None:
         path = "/repos/acme/widgets/contents/README.md"
 
@@ -248,6 +277,22 @@ class CachingGitHubClientTests(unittest.TestCase):
         )
 
         self.assertEqual(self.cache.incremented, [{"pull_request"}])
+
+    def test_commit_and_reaction_mutations_invalidate_cached_reads(self) -> None:
+        self.client.github_json(
+            "POST", "/repos/acme/widgets/git/commits", "token", {"message": "x"}
+        )
+        self.client.github_json(
+            "POST",
+            "/repos/acme/widgets/issues/comments/8/reactions",
+            "token",
+            {"content": "+1"},
+        )
+
+        self.assertEqual(
+            self.cache.incremented,
+            [{"pull_request"}, {"issue_comment", "pull_request"}],
+        )
 
     def test_cache_read_error_falls_back_to_live(self) -> None:
         with mock.patch.object(

@@ -1117,7 +1117,7 @@ class ReconcileCacheInput(gestalt.Model):
     owner: str = gestalt.field(description="Repository owner")
     repo: str = gestalt.field(description="Repository name")
     max_entries: int = gestalt.field(
-        description="Maximum expired cache entries to replay, from 1 through 100",
+        description="Maximum expired cache entries to replay, from 1 through 25",
         default=25,
         required=False,
     )

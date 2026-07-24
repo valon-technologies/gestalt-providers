@@ -21,6 +21,7 @@ from .cache_migrations import (
 DEFAULT_RETENTION_SECONDS = 24 * 60 * 60
 DEFAULT_MAX_RESPONSES_PER_REPOSITORY = 5_000
 DEFAULT_MAX_RESPONSES_TOTAL = 50_000
+DEFAULT_MAX_ENTITIES_TOTAL = 50_000
 _MAX_INDEX_STRING = "\uffff"
 
 
@@ -55,6 +56,7 @@ _client_lock = threading.Lock()
 def cache_scope(
     provider_name: str,
     api_base_url: str,
+    graphql_base_url: str,
     app_id: str,
     installation_id: int,
 ) -> str:
@@ -62,14 +64,23 @@ def cache_scope(
         raise ValueError("installation_id must be positive")
     return (
         f"v1:{_nonempty(provider_name, 'provider_name')}:"
-        f"{_nonempty(api_base_url, 'api_base_url').casefold()}:"
+        f"{_nonempty(api_base_url, 'api_base_url').rstrip('/')}:"
+        f"{_nonempty(graphql_base_url, 'graphql_base_url').rstrip('/')}:"
         f"{_nonempty(app_id, 'app_id')}:{installation_id}"
     )
 
 
-def response_id(scope: str, operation: str, request: dict[str, Any]) -> str:
+def response_id(
+    scope: str,
+    repository: str,
+    operation: str,
+    request: dict[str, Any],
+) -> str:
     digest = hashlib.sha256(_json_bytes(request)).hexdigest()
-    return f"{_nonempty(scope, 'scope')}:{_nonempty(operation, 'operation')}:{digest}"
+    return (
+        f"{_nonempty(scope, 'scope')}:{_normalize_repository(repository)}:"
+        f"{_nonempty(operation, 'operation')}:{digest}"
+    )
 
 
 def get_generation(scope: str, repository: str, domain: str) -> int:
@@ -147,7 +158,7 @@ def lookup_cached_response(
     now: float | None = None,
 ) -> tuple[CachedResponse | None, str]:
     current_time = _now(now)
-    record_id = response_id(scope, operation, request)
+    record_id = response_id(scope, repository, operation, request)
     db = _database()
     with db.transaction(
         [RESPONSES_STORE_NAME, GENERATIONS_STORE_NAME], "readonly"
@@ -185,7 +196,7 @@ def put_cached_response_if_generation(
     fetched_at = _now(now)
     if ttl_seconds <= 0:
         return False
-    record_id = response_id(scope, operation, request)
+    record_id = response_id(scope, repository, operation, request)
     normalized_repository = _normalize_repository(repository)
     db = _database()
     with db.transaction(
@@ -298,8 +309,8 @@ def put_entity_and_increment(
             if current_version > updated_at:
                 return False, {}
             if current_version == updated_at:
-                current_observed = _number(current.get("observed_at"))
-                if current_observed >= observed:
+                current_deleted = bool(current.get("deleted"))
+                if current_deleted or not deleted:
                     return False, {}
         store.put(
             {
@@ -464,6 +475,45 @@ def prune_responses(
     for record_id in delete_ids:
         if record_id:
             delete_cached_response(record_id)
+    return len([record_id for record_id in delete_ids if record_id])
+
+
+def prune_entities(
+    scope: str,
+    *,
+    now: float | None = None,
+    retention_seconds: float = DEFAULT_RETENTION_SECONDS,
+    max_total: int = DEFAULT_MAX_ENTITIES_TOTAL,
+) -> int:
+    current_time = _now(now)
+    store = _store(ENTITIES_STORE_NAME)
+    records = [
+        record
+        for record in store.get_all()
+        if record.get("scope") == scope
+    ]
+    delete_ids = {
+        str(record.get("id") or "")
+        for record in records
+        if _number(record.get("observed_at")) <= current_time - retention_seconds
+    }
+    retained = [
+        record
+        for record in records
+        if str(record.get("id") or "") not in delete_ids
+    ]
+    retained.sort(
+        key=lambda record: _number(record.get("observed_at")),
+        reverse=True,
+    )
+    for record in retained[max(0, max_total) :]:
+        delete_ids.add(str(record.get("id") or ""))
+    for record_id in delete_ids:
+        if record_id:
+            try:
+                store.delete(record_id)
+            except gestalt.NotFoundError:
+                pass
     return len([record_id for record_id in delete_ids if record_id])
 
 

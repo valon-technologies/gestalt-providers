@@ -43,7 +43,7 @@ def reconcile_cache(
     repository = f"{require_slug(owner, 'owner')}/{require_slug(repo, 'repo')}"
     if not config.cache_enabled:
         return ReconcileReport(repository=repository, disabled=True)
-    limit = max(1, min(int(max_entries), 100))
+    limit = max(1, min(int(max_entries), 25))
     github = client or DEFAULT_GITHUB_CLIENT
     installation_id = scoped_installation_id(
         subject,
@@ -55,12 +55,13 @@ def reconcile_cache(
     scope = cache_store.cache_scope(
         config.provider_name,
         config.api_base_url,
+        config.graphql_base_url,
         config.app_id,
         installation_id,
     )
     lease_token = uuid.uuid4().hex
     if not cache_store.claim_reconcile_lease(
-        scope, repository, lease_token, lease_seconds=300
+        scope, repository, lease_token, lease_seconds=900
     ):
         return ReconcileReport(repository=repository)
     checked = drifted = refreshed = deleted = failed = 0
@@ -70,6 +71,9 @@ def reconcile_cache(
         )
         for record in records:
             checked += 1
+            generation = cache_store.get_generation(
+                scope, repository, record.domain
+            )
             try:
                 live = _replay_response(
                     github,
@@ -89,9 +93,6 @@ def reconcile_cache(
                 continue
             if _canonical_json(live) != _canonical_json(record.body):
                 drifted += 1
-            generation = cache_store.get_generation(
-                scope, repository, record.domain
-            )
             if cache_store.put_cached_response_if_generation(
                 scope,
                 repository,
@@ -103,7 +104,8 @@ def reconcile_cache(
                 ttl_seconds=config.cache_ttl_seconds,
             ):
                 refreshed += 1
-        pruned = cache_store.prune_responses(scope, repository=repository)
+        pruned = cache_store.prune_responses(scope)
+        pruned += cache_store.prune_entities(scope)
     finally:
         cache_store.release_reconcile_lease(scope, repository, lease_token)
     return ReconcileReport(

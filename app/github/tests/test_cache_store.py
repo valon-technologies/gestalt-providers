@@ -291,6 +291,53 @@ class CacheStoreTests(unittest.TestCase):
             entities[0],
         )
 
+    def test_equal_version_duplicate_is_idempotent_with_tombstone_precedence(
+        self,
+    ) -> None:
+        arguments = (
+            "scope",
+            "acme/widgets",
+            "issue_comment",
+            "8",
+            {"id": 8},
+        )
+        first, generations = cache_store.put_entity_and_increment(
+            *arguments,
+            updated_at="2026-07-24T12:00:00Z",
+            deleted=False,
+            domains={"issue_comment"},
+            observed_at=10,
+        )
+        duplicate, duplicate_generations = cache_store.put_entity_and_increment(
+            *arguments,
+            updated_at="2026-07-24T12:00:00Z",
+            deleted=False,
+            domains={"issue_comment"},
+            observed_at=11,
+        )
+        tombstone, tombstone_generations = cache_store.put_entity_and_increment(
+            *arguments,
+            updated_at="2026-07-24T12:00:00Z",
+            deleted=True,
+            domains={"issue_comment"},
+            observed_at=12,
+        )
+        resurrection, _ = cache_store.put_entity_and_increment(
+            *arguments,
+            updated_at="2026-07-24T12:00:00Z",
+            deleted=False,
+            domains={"issue_comment"},
+            observed_at=13,
+        )
+
+        self.assertTrue(first)
+        self.assertEqual(generations, {"issue_comment": 1})
+        self.assertFalse(duplicate)
+        self.assertEqual(duplicate_generations, {})
+        self.assertTrue(tombstone)
+        self.assertEqual(tombstone_generations, {"issue_comment": 2})
+        self.assertFalse(resurrection)
+
     def test_reconcile_lease_is_exclusive_and_token_owned(self) -> None:
         self.assertTrue(
             cache_store.claim_reconcile_lease(

@@ -31,6 +31,7 @@ class CachingGitHubClient:
         provider_name: str,
         app_id: str,
         api_base_url: str,
+        graphql_base_url: str,
         ttl_seconds: float,
         search_pull_requests_query: str,
     ) -> None:
@@ -38,6 +39,7 @@ class CachingGitHubClient:
         self.provider_name = provider_name
         self.app_id = app_id
         self.api_base_url = api_base_url
+        self.graphql_base_url = graphql_base_url
         self.ttl_seconds = ttl_seconds
         self.search_pull_requests_query = search_pull_requests_query
         self._installation_id = 0
@@ -132,6 +134,7 @@ class CachingGitHubClient:
             "query": query,
             "variables": dict(variables or {}),
             "permissions": dict(self._permissions),
+            "repository": self._repository,
         }
         return self._read_through(policy, request, call)
 
@@ -191,7 +194,9 @@ class CachingGitHubClient:
         if not repository or not scope:
             _cache_log("bypass", policy, repository)
             return live_call()
-        key = cache_store.response_id(scope, policy.operation, request)
+        key = cache_store.response_id(
+            scope, repository, policy.operation, request
+        )
         lock = _key_lock(key)
         with lock:
             try:
@@ -248,6 +253,7 @@ class CachingGitHubClient:
         return cache_store.cache_scope(
             self.provider_name,
             self.api_base_url,
+            self.graphql_base_url,
             self.app_id,
             self._installation_id,
         )
@@ -358,8 +364,15 @@ def _rest_policy(method: str, path: str) -> CachePolicy | None:
 
 def _mutation_domains(path: str) -> set[str]:
     path = path.split("?", 1)[0]
+    if any(
+        segment in path
+        for segment in ("/git/refs", "/git/commits", "/git/trees", "/contents/")
+    ):
+        return {"pull_request"}
     if "/check-runs" in path:
         return {"check_run"}
+    if path.endswith("/reactions"):
+        return {"issue_comment", "pull_request"}
     if re.search(r"/issues/\d+/comments(?:/|$)", path):
         return {"issue_comment", "pull_request"}
     if "/pulls" in path or re.search(r"/issues/\d+/(?:labels|assignees)", path):
