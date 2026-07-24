@@ -1,8 +1,7 @@
 
 import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
-import { CheckIcon, CopyIcon } from "@/components/icons";
-import ShikiCode from "@/components/ShikiCode";
+import { DocsShellCode } from "@/docs/docs-shell-code";
 
 const FALLBACK_ORIGIN = "https://your-gestalt-host";
 
@@ -72,7 +71,7 @@ export function GettingStartedDocsPage() {
         <p className="doc-copy">
           The recommended way to install is the Gestalt installer script.
         </p>
-        <CodeBlock code="curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh" />
+        <DocsShellCode code="curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh" />
         <p className="doc-copy">
           If you prefer a package manager, use Homebrew. Manual archives are
           also available on the{" "}
@@ -86,7 +85,7 @@ export function GettingStartedDocsPage() {
           </a>
           .
         </p>
-        <CodeBlock
+        <DocsShellCode
           code={`brew tap valon-technologies/gestalt
 brew install valon-technologies/gestalt/gestalt`}
         />
@@ -94,7 +93,7 @@ brew install valon-technologies/gestalt/gestalt`}
           Then verify the CLI is on your{" "}
           <InlineCode>PATH</InlineCode>.
         </p>
-        <CodeBlock code="gestalt --version" />
+        <DocsShellCode code="gestalt --version" />
 
         <Subheading id="point-cli" title="Point the CLI at this workspace" />
         <p className="doc-copy">
@@ -178,7 +177,7 @@ brew install valon-technologies/gestalt/gestalt`}
           ]}
         />
         <p className="doc-copy">Then verify access:</p>
-        <CodeBlock code="gestalt apps list" />
+        <DocsShellCode code="gestalt apps list" />
 
         <Subheading id="authorization" title="Grant authorization" />
         <p className="doc-copy">
@@ -186,7 +185,7 @@ brew install valon-technologies/gestalt/gestalt`}
           access to an app. App admins can manage members for their own app;
           built-in Gestalt admins can manage grants across apps.
         </p>
-        <CodeBlock
+        <DocsShellCode
           code={`gestalt authorization apps members set <app> \\
   --email operator@example.com \\
   --role viewer
@@ -220,7 +219,7 @@ gestalt authorization subjects grants set service_account:release-bot <app> \\
           <InlineCode>gestalt workflows</InlineCode>{" "}
           to inspect recent workflow runs from the CLI.
         </p>
-        <CodeBlock
+        <DocsShellCode
           code={`gestalt workflows --help
 gestalt workflows runs list`}
         />
@@ -254,7 +253,7 @@ export function ConnectDocsPage() {
           UI. Use either surface to start the underlying OAuth or manual
           credential flow.
         </p>
-        <CodeBlock
+        <DocsShellCode
           code={`gestalt apps list
 gestalt apps connect <app>
 gestalt apps connect <app> --connection <name> --instance <instance>`}
@@ -297,7 +296,7 @@ export function TokensDocsPage() {
         description="User tokens work for both the HTTP API and the MCP endpoint."
       />
       <DocsPageBody>
-        <CodeBlock
+        <DocsShellCode
           code={`gestalt tokens create --name automation
 gestalt tokens list
 gestalt tokens revoke <token-id>`}
@@ -342,7 +341,7 @@ export function AuthorizationDocsPage() {
           , or{" "}
           <InlineCode>admin</InlineCode>.
         </p>
-        <CodeBlock
+        <DocsShellCode
           code={`gestalt authorization apps list
 gestalt authorization apps members list <app>
 
@@ -363,7 +362,7 @@ gestalt authorization apps members remove <app> user:user_123`}
           app role, connect any app credentials it needs, then mint a
           scoped token for automation.
         </p>
-        <CodeBlock
+        <DocsShellCode
           code={`gestalt authorization subjects create release-bot \\
   --display-name "Release Bot"
 
@@ -382,7 +381,7 @@ gestalt authorization subjects tokens create service_account:release-bot \\
           Built-in admins can administer the global authorization surface. Use
           this only for operators who should manage grants beyond one app.
         </p>
-        <CodeBlock
+        <DocsShellCode
           code={`gestalt authorization admins members list
 
 gestalt authorization admins members set \\
@@ -397,7 +396,7 @@ gestalt authorization admins members remove user:user_123`}
           Use provider and relationship views to confirm which authorization
           provider is active and which dynamic app grants are stored.
         </p>
-        <CodeBlock
+        <DocsShellCode
           code={`gestalt authorization provider get
 gestalt authorization models list
 gestalt authorization relationships list \\
@@ -426,7 +425,7 @@ export function WorkflowsDocsPage() {
         </p>
 
         <Subheading id="wf-help" title="Start with help" />
-        <CodeBlock code="gestalt workflows --help" />
+        <DocsShellCode code="gestalt workflows --help" />
         <p className="doc-copy">
           In this workspace, the default browser UI focuses on recent workflow
           execution history and durable per-step state.
@@ -438,7 +437,7 @@ export function WorkflowsDocsPage() {
           generation were used, which step is current, and which inputs and
           outputs were captured.
         </p>
-        <CodeBlock
+        <DocsShellCode
           code={`gestalt workflows runs list
 gestalt workflows runs list --app <app>
 gestalt workflows runs get <run-id>`}
@@ -474,7 +473,7 @@ export function McpDocsPage() {
           These examples assume the agent environment runs this startup script
           before the MCP client starts.
         </p>
-        <CodeBlock code={agentStartupScript()} />
+        <DocsShellCode code={agentStartupScript()} />
         <InfoTable
           rows={[
             ["Endpoint", `${origin}/mcp`],
@@ -652,7 +651,7 @@ function SetupMethodTabs({
                 : "hidden"
             }
           >
-            <CodeBlock code={item.code} />
+            <DocsShellCode code={item.code} />
             <p className="doc-copy">{item.description}</p>
           </section>
         );
@@ -713,7 +712,7 @@ function AuthMethodTabs({
                 : "hidden"
             }
           >
-            <CodeBlock code={item.code} />
+            <DocsShellCode code={item.code} />
             <p className="doc-copy">{item.description}</p>
           </section>
         );
@@ -773,7 +772,7 @@ function InvokeMethodTabs({ origin }: { origin: string }) {
             : "hidden"
         }
       >
-        <CodeBlock
+        <DocsShellCode
           code={`gestalt apps invoke <app>
 gestalt apps describe <app> <operation>
 gestalt apps invoke <app> <operation> -p key=value
@@ -803,7 +802,7 @@ gestalt apps invoke <app> <operation> --input-file payload.json --select data.it
           programmatic access. Use the app catalog route for discovery and the
           app-specific invoke route for operation calls.
         </p>
-        <CodeBlock
+        <DocsShellCode
           code={`curl \\
   -H "Authorization: Bearer $GESTALT_API_KEY" \\
   ${origin}/api/v1/apps
@@ -879,11 +878,11 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
           , open the cloud environment, and add these environment variables.
           Use a scoped API token for the cloud agent.
         </p>
-        <CodeBlock code={cloudEnvironmentVariables(origin)} />
+        <DocsShellCode code={cloudEnvironmentVariables(origin)} />
         <p className="doc-copy">
           Then add this to the environment setup script.
         </p>
-        <CodeBlock code={agentStartupScript()} />
+        <DocsShellCode code={agentStartupScript()} />
         <p className="doc-copy">
           Keep the values above in the cloud environment variables, not in the
           setup script. Codex secrets are only available during setup.
@@ -928,8 +927,9 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
           <InlineCode>.cursor/environment.json</InlineCode>
           .
         </p>
-        <CodeBlock
+        <DocsShellCode
           language="json"
+          filename=".cursor/environment.json"
           code={`{
   "install": "curl -fsSL https://gestaltd.ai/install-gestalt.sh | sh"
 }`}
@@ -992,11 +992,11 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
           Add environment variables in the cloud environment editor. Values use{" "}
           <InlineCode>.env</InlineCode> format.
         </p>
-        <CodeBlock code={cloudEnvironmentVariables(origin)} />
+        <DocsShellCode code={cloudEnvironmentVariables(origin)} />
         <p className="doc-copy">
           Then add this to the cloud environment setup script.
         </p>
-        <CodeBlock code={agentStartupScript()} />
+        <DocsShellCode code={agentStartupScript()} />
         <p className="doc-copy">
           Reference:{" "}
           <a
@@ -1065,8 +1065,9 @@ function McpClientTabs({ origin }: { origin: string }) {
           <InlineCode>~/.claude.json</InlineCode>{" "}
           for a private local or user-scoped config.
         </p>
-        <CodeBlock
+        <DocsShellCode
           language="json"
+          filename=".mcp.json"
           code={`{
   "mcpServers": {
     "gestalt": {
@@ -1080,7 +1081,7 @@ function McpClientTabs({ origin }: { origin: string }) {
 }`}
         />
         <p className="doc-copy">Or add it from the CLI:</p>
-        <CodeBlock
+        <DocsShellCode
           code={`claude mcp add --transport http --scope project \\
   --header "Authorization: Bearer $GESTALT_API_KEY" \\
   gestalt "$GESTALT_URL/mcp"`}
@@ -1101,7 +1102,7 @@ function McpClientTabs({ origin }: { origin: string }) {
         <p className="doc-copy">
           Codex can register the workspace directly from the CLI:
         </p>
-        <CodeBlock
+        <DocsShellCode
           code={`codex mcp add gestalt --url "$GESTALT_URL/mcp" --bearer-token-env-var GESTALT_API_KEY`}
         />
         <p className="doc-copy">
@@ -1129,8 +1130,9 @@ function McpClientTabs({ origin }: { origin: string }) {
           <InlineCode>~/.cursor/mcp.json</InlineCode>{" "}
           globally.
         </p>
-        <CodeBlock
+        <DocsShellCode
           language="json"
+          filename=".cursor/mcp.json"
           code={`{
   "mcpServers": {
     "gestalt": {
@@ -1169,8 +1171,9 @@ function McpClientTabs({ origin }: { origin: string }) {
             ["Config key", "usually mcpServers"],
           ]}
         />
-        <CodeBlock
+        <DocsShellCode
           language="json"
+          filename="mcp.json"
           code={`{
   "mcpServers": {
     "gestalt": {
@@ -1213,44 +1216,6 @@ function Subheading({ id, title }: { id?: string; title: string }) {
     >
       {title}
     </h2>
-  );
-}
-
-function CodeBlock({
-  code,
-  language = "shellscript",
-}: {
-  code: string;
-  language?: string;
-}) {
-  const [copied, setCopied] = useState(false);
-
-  async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {}
-  }
-
-  return (
-    <div className="group relative">
-      <div className="doc-code">
-        <ShikiCode language={language} text={code} />
-      </div>
-      <button
-        onClick={handleCopy}
-        className="absolute right-3 top-3 rounded-md p-1.5 text-muted opacity-0 transition-all duration-150 hover:bg-alpha-5 hover:text-primary group-hover:opacity-100"
-        title="Copy to clipboard"
-        aria-label="Copy to clipboard"
-      >
-        {copied ? (
-          <CheckIcon className="h-4 w-4 text-grove-600 dark:text-grove-200" />
-        ) : (
-          <CopyIcon className="h-4 w-4" />
-        )}
-      </button>
-    </div>
   );
 }
 
