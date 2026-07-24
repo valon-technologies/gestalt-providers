@@ -119,7 +119,6 @@ class FakeIndexedDB:
                 "updated_at",
             ],
         }
-        self.closed = False
 
     def object_store(self, name: str) -> FakeStore:
         return FakeStore(self, name)
@@ -130,7 +129,7 @@ class FakeIndexedDB:
         return FakeTransaction(self)
 
     def close(self) -> None:
-        self.closed = True
+        return None
 
 
 class CacheStoreTests(unittest.TestCase):
@@ -285,6 +284,12 @@ class CacheStoreTests(unittest.TestCase):
 
         self.assertEqual([entity.entity_id for entity in entities], ["7"])
         self.assertEqual(entities[0].payload, {"number": 7})
+        self.assertEqual(
+            cache_store.get_entity(
+                "scope", "acme/widgets", "pull_request", "7"
+            ),
+            entities[0],
+        )
 
     def test_reconcile_lease_is_exclusive_and_token_owned(self) -> None:
         self.assertTrue(

@@ -26,6 +26,7 @@ provider = "provider:app"
 [tool.gestalt.ci]
 vulture-ignore-names = [
   "configure",
+  "migration_options",
   "resolve_http_subject",
   "github_events_handle",
   "maintenance_reconcile_cache",
