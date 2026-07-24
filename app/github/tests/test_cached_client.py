@@ -121,8 +121,9 @@ class InMemoryCache:
         operation: str,
         request: dict[str, Any],
         domain: str,
-    ) -> cache_store.CachedResponse | None:
-        return self.responses.get(cache_store.response_id(scope, operation, request))
+    ) -> tuple[cache_store.CachedResponse | None, str]:
+        cached = self.responses.get(cache_store.response_id(scope, operation, request))
+        return cached, "hit" if cached is not None else "miss"
 
     def put(
         self,
@@ -167,7 +168,7 @@ class CachingGitHubClientTests(unittest.TestCase):
         self.cache = InMemoryCache()
         patches = [
             mock.patch.object(
-                cache_store, "get_cached_response", side_effect=self.cache.get
+                cache_store, "lookup_cached_response", side_effect=self.cache.get
             ),
             mock.patch.object(
                 cache_store,
@@ -250,7 +251,7 @@ class CachingGitHubClientTests(unittest.TestCase):
 
     def test_cache_read_error_falls_back_to_live(self) -> None:
         with mock.patch.object(
-            cache_store, "get_cached_response", side_effect=RuntimeError("offline")
+            cache_store, "lookup_cached_response", side_effect=RuntimeError("offline")
         ):
             result = self.client.github_json(
                 "GET", "/repos/acme/widgets/pulls/7", "token"

@@ -107,9 +107,50 @@ When a repository is absent, the subject is `installation:<id>`.
 If delivery fails, `events.handle` returns an internal server error so GitHub
 can retry delivery.
 
+## Read Cache
+
+The cache is disabled by default. When enabled, it stores exact, successful
+responses for these target operations:
+
+- `bot.getPullRequest`, `bot.getCheckRun`, and `bot.getWorkflowRun`
+- `bot.listCheckSuiteCheckRuns`, `bot.listCommitCheckRuns`,
+  `bot.listWorkflowRuns`, `bot.listIssueComments`, and
+  `bot.listPullRequestsForCommit`
+- `bot.searchPullRequests` and `bot.compareRefs`
+
+Authorization, repository-installation lookup, and installation-token minting
+remain live. A cache hit avoids the target REST or GraphQL request; it does not
+mean the operation makes no GitHub requests at all. Exact paths, filters,
+pagination parameters, GraphQL variables, API host, app ID, and installation
+ID are part of the cache key.
+
+Accepted webhooks and successful mutations invalidate affected generations.
+Webhook projections are versioned so delayed deliveries cannot overwrite newer
+state. Cache errors fail open to GitHub and never replace a successful GitHub
+response with an error.
+
+`maintenance.reconcileCache` is a hidden operation that replays up to 25
+expired requests by default (100 maximum), refreshes drift, and prunes entries
+older than 24 hours. Production rollout requires a dedicated service-account
+subject, repository allowlist, `allowedOperations` entry, and a Gestalt
+Workflow schedule every 15 minutes.
+
+Structured logs use `github_cache_outcome` values `hit`, `miss`, `stale`,
+`bypass`, `invalidate`, `reconcile`, and `error`. Logs include operation and
+repository identifiers where applicable, but never tokens or cached payloads.
+
+Roll out by deploying the provider default-off, configuring the IndexedDB
+binding and reconciliation in development, then enabling the cache in staging.
+Before production, verify IndexedDB tenant isolation/encryption, row and
+payload volume against the 5,000-per-repository and 50,000-total response caps,
+deployment webhook delivery IDs, and target-endpoint request reduction.
+Rollback is `cacheEnabled: false`, which also disables reconciliation and
+performs no cache storage calls.
+
 ## Operations
 
 - `events.handle`
+- `maintenance.reconcileCache` (hidden)
 - `identity.linkSelf`
 - `bot.getRepository`
 - `bot.searchCode`

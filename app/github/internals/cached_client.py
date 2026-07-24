@@ -79,6 +79,8 @@ class CachingGitHubClient:
             return self.inner.github_json(method, path, token, payload)
 
         if policy is None:
+            if method.upper() == "GET":
+                _bypass_log(path)
             result = call()
             self._invalidate_after_mutation(method, path)
             return result
@@ -99,6 +101,8 @@ class CachingGitHubClient:
             return self.inner.github_json_value(method, path, token, payload)
 
         if policy is None:
+            if method.upper() == "GET":
+                _bypass_log(path)
             result = call()
             self._invalidate_after_mutation(method, path)
             return result
@@ -116,6 +120,8 @@ class CachingGitHubClient:
             return self.inner.graphql_json(query, token, variables)
 
         if query != self.search_pull_requests_query:
+            if not query.lstrip().startswith("mutation"):
+                _bypass_log("graphql")
             result = call()
             if query.lstrip().startswith("mutation"):
                 self._increment_domains({"pull_request"})
@@ -183,12 +189,13 @@ class CachingGitHubClient:
         repository = self._repository
         scope = self._scope()
         if not repository or not scope:
+            _cache_log("bypass", policy, repository)
             return live_call()
         key = cache_store.response_id(scope, policy.operation, request)
         lock = _key_lock(key)
         with lock:
             try:
-                cached = cache_store.get_cached_response(
+                cached, outcome = cache_store.lookup_cached_response(
                     scope,
                     repository,
                     policy.operation,
@@ -201,7 +208,7 @@ class CachingGitHubClient:
                 generation = cache_store.get_generation(
                     scope, repository, policy.domain
                 )
-                _cache_log("miss", policy, repository)
+                _cache_log(outcome, policy, repository)
             except Exception:
                 logger.exception(
                     "GitHub cache read failed",
@@ -374,5 +381,15 @@ def _cache_log(outcome: str, policy: CachePolicy, repository: str) -> None:
             "github_cache_outcome": outcome,
             "github_cache_operation": policy.operation,
             "github_cache_repository": repository,
+        },
+    )
+
+
+def _bypass_log(target: str) -> None:
+    logger.info(
+        "Bypassed GitHub cache",
+        extra={
+            "github_cache_outcome": "bypass",
+            "github_cache_target": target,
         },
     )

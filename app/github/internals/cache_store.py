@@ -126,6 +126,26 @@ def get_cached_response(
     *,
     now: float | None = None,
 ) -> CachedResponse | None:
+    cached, _ = lookup_cached_response(
+        scope,
+        repository,
+        operation,
+        request,
+        domain,
+        now=now,
+    )
+    return cached
+
+
+def lookup_cached_response(
+    scope: str,
+    repository: str,
+    operation: str,
+    request: dict[str, Any],
+    domain: str,
+    *,
+    now: float | None = None,
+) -> tuple[CachedResponse | None, str]:
     current_time = _now(now)
     record_id = response_id(scope, operation, request)
     db = _database()
@@ -136,20 +156,18 @@ def get_cached_response(
             transaction.object_store(RESPONSES_STORE_NAME), record_id
         )
         if response_record is None:
-            return None
+            return None, "miss"
         generation_record = _optional_transaction_record(
             transaction.object_store(GENERATIONS_STORE_NAME),
             generation_id(scope, repository, domain),
         )
         current_generation = _record_generation(generation_record)
     cached = _response_from_record(response_record)
-    if (
-        cached is None
-        or cached.generation != current_generation
-        or cached.expires_at <= current_time
-    ):
-        return None
-    return cached
+    if cached is None:
+        return None, "miss"
+    if cached.generation != current_generation or cached.expires_at <= current_time:
+        return None, "stale"
+    return cached, "hit"
 
 
 def put_cached_response_if_generation(
