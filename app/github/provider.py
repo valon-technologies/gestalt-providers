@@ -7,7 +7,9 @@ from typing import Any, Callable, TypeAlias, TypeVar
 
 import gestalt
 from gestalt.authorization import RelationshipTargetSubject
+from gestalt.migrations import MigrationRunOptions
 
+from internals.cache_migrations import cache_migration_options
 from internals.client import DEFAULT_GITHUB_CLIENT
 from internals.config import (
     configure_from_mapping,
@@ -189,7 +191,16 @@ from internals.webhook import (
     webhook_subject_from_payload,
 )
 
-app = gestalt.App("github")
+
+class GitHubApp(gestalt.App):
+    def migration_options(
+        self, name: str, config: dict[str, Any]
+    ) -> MigrationRunOptions | None:
+        _ = name
+        return cache_migration_options(config)
+
+
+app = GitHubApp("github")
 logger = logging.getLogger(__name__)
 
 OperationResult: TypeAlias = dict[str, Any] | gestalt.Response[dict[str, Any]]

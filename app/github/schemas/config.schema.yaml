@@ -58,6 +58,16 @@ properties:
     description: >-
       Ignore webhook payloads sent by the derived GitHub App bot login.
       Defaults to true.
+  cacheEnabled:
+    type: boolean
+    description: >-
+      Enable the webhook-fed read-through cache. Defaults to false.
+  cacheTtlSeconds:
+    type: number
+    minimum: 1
+    maximum: 3600
+    description: >-
+      Maximum age of a cached GitHub response in seconds. Defaults to 60.
 required:
   - clientId
   - clientSecret

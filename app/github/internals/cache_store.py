@@ -1,374 +1,493 @@
 from __future__ import annotations
 
-import math
+import hashlib
+import json
 import threading
 import time
-from copy import deepcopy
-from typing import Any, Literal, Mapping, TypedDict, cast
+from dataclasses import dataclass
+from typing import Any
 
 import gestalt
 
-PULL_REQUESTS_STORE_NAME = "github_cache_pull_requests"
-CHECK_RUNS_STORE_NAME = "github_cache_check_runs"
-WORKFLOW_RUNS_STORE_NAME = "github_cache_workflow_runs"
-DEPLOYMENTS_STORE_NAME = "github_cache_deployments"
-DEPLOYMENT_STATUSES_STORE_NAME = "github_cache_deployment_statuses"
-ISSUE_COMMENTS_STORE_NAME = "github_cache_issue_comments"
+from .cache_migrations import (
+    ENTITIES_BY_UPDATED_AT_INDEX,
+    ENTITIES_STORE_NAME,
+    GENERATIONS_STORE_NAME,
+    RECONCILE_STORE_NAME,
+    RESPONSES_BY_EXPIRY_INDEX,
+    RESPONSES_STORE_NAME,
+)
 
-PULL_REQUEST_UPDATED_INDEX_NAME = "by_repository_updated_at"
+DEFAULT_RETENTION_SECONDS = 24 * 60 * 60
+DEFAULT_MAX_RESPONSES_PER_REPOSITORY = 5_000
+DEFAULT_MAX_RESPONSES_TOTAL = 50_000
 _MAX_INDEX_STRING = "\uffff"
 
-CacheSource = Literal["live", "webhook"]
 
-
-class CachedRecord(TypedDict):
-    data: Any
+@dataclass(frozen=True, slots=True)
+class CachedResponse:
+    id: str
+    operation: str
+    repository: str
+    domain: str
+    request: dict[str, Any]
+    body: Any
+    generation: int
     fetched_at: float
-    source: CacheSource
+    expires_at: float
+
+
+@dataclass(frozen=True, slots=True)
+class CachedEntity:
+    entity_type: str
+    entity_id: str
+    repository: str
+    updated_at: str
+    observed_at: float
+    deleted: bool
+    payload: dict[str, Any]
 
 
 _client: Any | None = None
-_init_lock = threading.Lock()
-_initialized = False
+_client_lock = threading.Lock()
 
 
-def get_pull_request(repo: str, number: int) -> CachedRecord | None:
-    return _get_record(PULL_REQUESTS_STORE_NAME, pull_request_key(repo, number))
+def response_id(scope: str, operation: str, request: dict[str, Any]) -> str:
+    digest = hashlib.sha256(_json_bytes(request)).hexdigest()
+    return f"{_nonempty(scope, 'scope')}:{_nonempty(operation, 'operation')}:{digest}"
 
 
-def put_pull_request(
-    repo: str,
-    number: int,
-    data: dict[str, Any],
+def get_generation(scope: str, repository: str, domain: str) -> int:
+    record_id = generation_id(scope, repository, domain)
+    record = _optional_record(_store(GENERATIONS_STORE_NAME), record_id)
+    return _record_generation(record)
+
+
+def increment_generations(
+    scope: str,
+    repository: str,
+    domains: set[str],
     *,
-    fetched_at: float,
-    source: CacheSource = "live",
-) -> None:
-    updated_at = data.get("updated_at") or data.get("updatedAt")
-    _put_record(
-        PULL_REQUESTS_STORE_NAME,
-        pull_request_key(repo, number),
-        data,
-        fetched_at=fetched_at,
-        source=source,
-        index_fields={
-            "repository": _normalize_repo(repo),
-            "updated_at": updated_at if isinstance(updated_at, str) else "",
-        },
+    now: float | None = None,
+) -> dict[str, int]:
+    if not domains:
+        return {}
+    observed_at = _now(now)
+    db = _database()
+    updated: dict[str, int] = {}
+    with db.transaction([GENERATIONS_STORE_NAME], "readwrite") as transaction:
+        store = transaction.object_store(GENERATIONS_STORE_NAME)
+        for domain in sorted(domains):
+            record_id = generation_id(scope, repository, domain)
+            current = _record_generation(_optional_transaction_record(store, record_id))
+            generation = current + 1
+            store.put(
+                {
+                    "id": record_id,
+                    "scope": scope,
+                    "repository": _normalize_repository(repository),
+                    "domain": domain,
+                    "generation": generation,
+                    "updated_at": observed_at,
+                }
+            )
+            updated[domain] = generation
+    return updated
+
+
+def generation_id(scope: str, repository: str, domain: str) -> str:
+    return (
+        f"{_nonempty(scope, 'scope')}:{_normalize_repository(repository)}:"
+        f"{_nonempty(domain, 'domain')}"
     )
 
 
-def query_pull_requests_updated_since(
-    repo: str, since_iso: str
-) -> list[CachedRecord]:
-    normalized_since = since_iso.strip()
-    if not normalized_since:
-        raise ValueError("since_iso must not be empty")
-    repository = _normalize_repo(repo)
-    query = gestalt.bound(
-        [repository, normalized_since],
-        [repository, _MAX_INDEX_STRING],
-    )
-    records = (
-        _object_store(PULL_REQUESTS_STORE_NAME)
-        .index(PULL_REQUEST_UPDATED_INDEX_NAME)
-        .get_all(query=query)
-    )
-    return [
-        cached
-        for record in records
-        if (cached := _cached_record(record)) is not None
-    ]
-
-
-def get_check_run(repo: str, check_run_id: int) -> CachedRecord | None:
-    return _get_record(CHECK_RUNS_STORE_NAME, check_run_key(repo, check_run_id))
-
-
-def put_check_run(
-    repo: str,
-    check_run_id: int,
-    data: dict[str, Any],
+def get_cached_response(
+    scope: str,
+    repository: str,
+    operation: str,
+    request: dict[str, Any],
+    domain: str,
     *,
-    fetched_at: float,
-    source: CacheSource = "live",
-) -> None:
-    _put_record(
-        CHECK_RUNS_STORE_NAME,
-        check_run_key(repo, check_run_id),
-        data,
-        fetched_at=fetched_at,
-        source=source,
-    )
-
-
-def get_check_runs_for_ref(repo: str, ref: str) -> CachedRecord | None:
-    return _get_record(CHECK_RUNS_STORE_NAME, check_runs_for_ref_key(repo, ref))
-
-
-def put_check_runs_for_ref(
-    repo: str,
-    ref: str,
-    data: Any,
-    *,
-    fetched_at: float,
-    source: CacheSource = "live",
-) -> None:
-    _put_record(
-        CHECK_RUNS_STORE_NAME,
-        check_runs_for_ref_key(repo, ref),
-        data,
-        fetched_at=fetched_at,
-        source=source,
-    )
-
-
-def get_workflow_run(repo: str, run_id: int) -> CachedRecord | None:
-    return _get_record(WORKFLOW_RUNS_STORE_NAME, workflow_run_key(repo, run_id))
-
-
-def put_workflow_run(
-    repo: str,
-    run_id: int,
-    data: dict[str, Any],
-    *,
-    fetched_at: float,
-    source: CacheSource = "live",
-) -> None:
-    _put_record(
-        WORKFLOW_RUNS_STORE_NAME,
-        workflow_run_key(repo, run_id),
-        data,
-        fetched_at=fetched_at,
-        source=source,
-    )
-
-
-def get_deployment(repo: str, deployment_id: int) -> CachedRecord | None:
-    return _get_record(DEPLOYMENTS_STORE_NAME, deployment_key(repo, deployment_id))
-
-
-def put_deployment(
-    repo: str,
-    deployment_id: int,
-    data: dict[str, Any],
-    *,
-    fetched_at: float,
-    source: CacheSource = "live",
-) -> None:
-    _put_record(
-        DEPLOYMENTS_STORE_NAME,
-        deployment_key(repo, deployment_id),
-        data,
-        fetched_at=fetched_at,
-        source=source,
-    )
-
-
-def get_deployment_statuses(
-    repo: str, deployment_id: int
-) -> CachedRecord | None:
-    return _get_record(
-        DEPLOYMENT_STATUSES_STORE_NAME,
-        deployment_statuses_key(repo, deployment_id),
-    )
-
-
-def put_deployment_statuses(
-    repo: str,
-    deployment_id: int,
-    data: Any,
-    *,
-    fetched_at: float,
-    source: CacheSource = "live",
-) -> None:
-    _put_record(
-        DEPLOYMENT_STATUSES_STORE_NAME,
-        deployment_statuses_key(repo, deployment_id),
-        data,
-        fetched_at=fetched_at,
-        source=source,
-    )
-
-
-def get_issue_comments(repo: str, issue_number: int) -> CachedRecord | None:
-    return _get_record(
-        ISSUE_COMMENTS_STORE_NAME,
-        issue_comments_key(repo, issue_number),
-    )
-
-
-def put_issue_comments(
-    repo: str,
-    issue_number: int,
-    data: Any,
-    *,
-    fetched_at: float,
-    source: CacheSource = "live",
-) -> None:
-    _put_record(
-        ISSUE_COMMENTS_STORE_NAME,
-        issue_comments_key(repo, issue_number),
-        data,
-        fetched_at=fetched_at,
-        source=source,
-    )
-
-
-def is_fresh(record: Mapping[str, Any], ttl_seconds: float) -> bool:
-    fetched_at = record.get("fetched_at")
+    now: float | None = None,
+) -> CachedResponse | None:
+    current_time = _now(now)
+    record_id = response_id(scope, operation, request)
+    db = _database()
+    with db.transaction(
+        [RESPONSES_STORE_NAME, GENERATIONS_STORE_NAME], "readonly"
+    ) as transaction:
+        response_record = _optional_transaction_record(
+            transaction.object_store(RESPONSES_STORE_NAME), record_id
+        )
+        if response_record is None:
+            return None
+        generation_record = _optional_transaction_record(
+            transaction.object_store(GENERATIONS_STORE_NAME),
+            generation_id(scope, repository, domain),
+        )
+        current_generation = _record_generation(generation_record)
+    cached = _response_from_record(response_record)
     if (
-        isinstance(fetched_at, bool)
-        or not isinstance(fetched_at, (int, float))
-        or not math.isfinite(float(fetched_at))
-        or not math.isfinite(ttl_seconds)
-        or ttl_seconds <= 0
+        cached is None
+        or cached.generation != current_generation
+        or cached.expires_at <= current_time
     ):
+        return None
+    return cached
+
+
+def put_cached_response_if_generation(
+    scope: str,
+    repository: str,
+    operation: str,
+    request: dict[str, Any],
+    domain: str,
+    body: Any,
+    *,
+    expected_generation: int,
+    ttl_seconds: float,
+    now: float | None = None,
+) -> bool:
+    fetched_at = _now(now)
+    if ttl_seconds <= 0:
         return False
-    age = time.time() - float(fetched_at)
-    return 0 <= age < ttl_seconds
+    record_id = response_id(scope, operation, request)
+    normalized_repository = _normalize_repository(repository)
+    db = _database()
+    with db.transaction(
+        [RESPONSES_STORE_NAME, GENERATIONS_STORE_NAME], "readwrite"
+    ) as transaction:
+        generation_record = _optional_transaction_record(
+            transaction.object_store(GENERATIONS_STORE_NAME),
+            generation_id(scope, repository, domain),
+        )
+        if _record_generation(generation_record) != expected_generation:
+            return False
+        transaction.object_store(RESPONSES_STORE_NAME).put(
+            {
+                "id": record_id,
+                "scope": scope,
+                "repository": normalized_repository,
+                "operation": operation,
+                "domain": domain,
+                "generation": expected_generation,
+                "request_json": _json_bytes(request),
+                "body_json": _json_bytes(body),
+                "fetched_at": fetched_at,
+                "expires_at": fetched_at + ttl_seconds,
+            }
+        )
+    return True
 
 
-def invalidate(store_name: str, key: str) -> None:
+def delete_cached_response(record_id: str) -> None:
     try:
-        _object_store(store_name).delete(key)
+        _store(RESPONSES_STORE_NAME).delete(record_id)
     except gestalt.NotFoundError:
         pass
 
 
-def pull_request_key(repo: str, number: int) -> str:
-    return f"{_normalize_repo(repo)}#{_positive_int(number, 'number')}"
-
-
-def check_run_key(repo: str, check_run_id: int) -> str:
-    normalized_id = _positive_int(check_run_id, "check_run_id")
-    return f"{_normalize_repo(repo)}#check-run:{normalized_id}"
-
-
-def check_runs_for_ref_key(repo: str, ref: str) -> str:
-    return f"{_normalize_repo(repo)}#check-runs-for-ref:{_nonempty(ref, 'ref')}"
-
-
-def workflow_run_key(repo: str, run_id: int) -> str:
-    normalized_id = _positive_int(run_id, "run_id")
-    return f"{_normalize_repo(repo)}#workflow-run:{normalized_id}"
-
-
-def deployment_key(repo: str, deployment_id: int) -> str:
-    normalized_id = _positive_int(deployment_id, "deployment_id")
-    return f"{_normalize_repo(repo)}#deployment:{normalized_id}"
-
-
-def deployment_statuses_key(repo: str, deployment_id: int) -> str:
-    return (
-        f"{_normalize_repo(repo)}#deployment-statuses:"
-        f"{_positive_int(deployment_id, 'deployment_id')}"
+def list_expired_responses(
+    scope: str,
+    repository: str,
+    *,
+    now: float | None = None,
+    limit: int = 25,
+) -> list[CachedResponse]:
+    if limit <= 0:
+        return []
+    query = gestalt.bound(
+        [_nonempty(scope, "scope"), _normalize_repository(repository), 0.0],
+        [_nonempty(scope, "scope"), _normalize_repository(repository), _now(now)],
     )
-
-
-def issue_comments_key(repo: str, issue_number: int) -> str:
-    return (
-        f"{_normalize_repo(repo)}#issue-comments:"
-        f"{_positive_int(issue_number, 'issue_number')}"
+    records = (
+        _store(RESPONSES_STORE_NAME)
+        .index(RESPONSES_BY_EXPIRY_INDEX)
+        .get_all(query=query, count=limit)
     )
+    return [
+        cached
+        for record in records
+        if (cached := _response_from_record(record)) is not None
+    ]
 
 
-def _ensure_initialized() -> None:
-    global _client, _initialized
-    if _initialized:
-        return
-    with _init_lock:
-        if _initialized:
-            return
-        client = gestalt.IndexedDB()
-        stores = (
-            (
-                PULL_REQUESTS_STORE_NAME,
-                gestalt.ObjectStoreSchema(
-                    indexes=[
-                        gestalt.IndexSchema(
-                            name=PULL_REQUEST_UPDATED_INDEX_NAME,
-                            key_path=["repository", "updated_at"],
-                        )
-                    ]
-                ),
-            ),
-            (CHECK_RUNS_STORE_NAME, None),
-            (WORKFLOW_RUNS_STORE_NAME, None),
-            (DEPLOYMENTS_STORE_NAME, None),
-            (DEPLOYMENT_STATUSES_STORE_NAME, None),
-            (ISSUE_COMMENTS_STORE_NAME, None),
+def put_entity_if_newer(
+    scope: str,
+    repository: str,
+    entity_type: str,
+    entity_id: str,
+    payload: dict[str, Any],
+    *,
+    updated_at: str,
+    deleted: bool = False,
+    observed_at: float | None = None,
+) -> bool:
+    normalized_repository = _normalize_repository(repository)
+    record_id = cache_entity_id(scope, repository, entity_type, entity_id)
+    observed = _now(observed_at)
+    db = _database()
+    with db.transaction([ENTITIES_STORE_NAME], "readwrite") as transaction:
+        store = transaction.object_store(ENTITIES_STORE_NAME)
+        current = _optional_transaction_record(store, record_id)
+        if current is not None:
+            current_version = str(current.get("updated_at") or "")
+            if current_version > updated_at:
+                return False
+            if current_version == updated_at:
+                current_observed = _number(current.get("observed_at"))
+                if current_observed >= observed:
+                    return False
+        store.put(
+            {
+                "id": record_id,
+                "scope": scope,
+                "repository": normalized_repository,
+                "entity_type": entity_type,
+                "entity_id": entity_id,
+                "updated_at": updated_at,
+                "observed_at": observed,
+                "deleted": deleted,
+                "payload_json": _json_bytes(payload),
+            }
         )
-        for object_store_name, schema in stores:
-            try:
-                client.create_object_store(object_store_name, schema)
-            except gestalt.AlreadyExistsError:
-                pass
-        _client = client
-        _initialized = True
+    return True
 
 
-def _object_store(name: str) -> Any:
-    _ensure_initialized()
-    assert _client is not None
-    return _client.object_store(name)
+def get_entity(
+    scope: str, repository: str, entity_type: str, entity_id: str
+) -> CachedEntity | None:
+    record = _optional_record(
+        _store(ENTITIES_STORE_NAME),
+        cache_entity_id(scope, repository, entity_type, entity_id),
+    )
+    return _entity_from_record(record)
 
 
-def _get_record(store_name: str, key: str) -> CachedRecord | None:
+def query_entities_updated_since(
+    scope: str,
+    repository: str,
+    entity_type: str,
+    updated_at: str,
+) -> list[CachedEntity]:
+    lower = [scope, _normalize_repository(repository), entity_type, updated_at]
+    upper = [
+        scope,
+        _normalize_repository(repository),
+        entity_type,
+        _MAX_INDEX_STRING,
+    ]
+    records = (
+        _store(ENTITIES_STORE_NAME)
+        .index(ENTITIES_BY_UPDATED_AT_INDEX)
+        .get_all(query=gestalt.bound(lower, upper))
+    )
+    return [
+        entity
+        for record in records
+        if (entity := _entity_from_record(record)) is not None
+    ]
+
+
+def cache_entity_id(
+    scope: str, repository: str, entity_type: str, entity_id: str
+) -> str:
+    return (
+        f"{_nonempty(scope, 'scope')}:{_normalize_repository(repository)}:"
+        f"{_nonempty(entity_type, 'entity_type')}:{_nonempty(entity_id, 'entity_id')}"
+    )
+
+
+def claim_reconcile_lease(
+    scope: str,
+    repository: str,
+    token: str,
+    *,
+    now: float | None = None,
+    lease_seconds: float = 300.0,
+) -> bool:
+    current_time = _now(now)
+    record_id = reconcile_id(scope, repository)
+    db = _database()
+    with db.transaction([RECONCILE_STORE_NAME], "readwrite") as transaction:
+        store = transaction.object_store(RECONCILE_STORE_NAME)
+        current = _optional_transaction_record(store, record_id)
+        if current is not None and _number(current.get("lease_until")) > current_time:
+            return False
+        store.put(
+            {
+                "id": record_id,
+                "scope": scope,
+                "repository": _normalize_repository(repository),
+                "lease_token": _nonempty(token, "token"),
+                "lease_until": current_time + lease_seconds,
+                "updated_at": current_time,
+            }
+        )
+    return True
+
+
+def release_reconcile_lease(
+    scope: str, repository: str, token: str, *, now: float | None = None
+) -> bool:
+    record_id = reconcile_id(scope, repository)
+    db = _database()
+    with db.transaction([RECONCILE_STORE_NAME], "readwrite") as transaction:
+        store = transaction.object_store(RECONCILE_STORE_NAME)
+        current = _optional_transaction_record(store, record_id)
+        if current is None or current.get("lease_token") != token:
+            return False
+        current["lease_token"] = ""
+        current["lease_until"] = 0.0
+        current["updated_at"] = _now(now)
+        store.put(current)
+    return True
+
+
+def reconcile_id(scope: str, repository: str) -> str:
+    return f"{_nonempty(scope, 'scope')}:{_normalize_repository(repository)}"
+
+
+def prune_responses(
+    scope: str,
+    *,
+    repository: str | None = None,
+    now: float | None = None,
+    retention_seconds: float = DEFAULT_RETENTION_SECONDS,
+    max_per_repository: int = DEFAULT_MAX_RESPONSES_PER_REPOSITORY,
+    max_total: int = DEFAULT_MAX_RESPONSES_TOTAL,
+) -> int:
+    current_time = _now(now)
+    records = _store(RESPONSES_STORE_NAME).get_all()
+    scoped = [
+        record
+        for record in records
+        if record.get("scope") == scope
+        and (
+            repository is None
+            or record.get("repository") == _normalize_repository(repository)
+        )
+    ]
+    delete_ids = {
+        str(record.get("id") or "")
+        for record in scoped
+        if _number(record.get("fetched_at")) <= current_time - retention_seconds
+    }
+    by_repository: dict[str, list[dict[str, Any]]] = {}
+    for record in scoped:
+        by_repository.setdefault(str(record.get("repository") or ""), []).append(record)
+    for repo_records in by_repository.values():
+        _mark_oldest_over_limit(repo_records, max_per_repository, delete_ids)
+    if repository is None:
+        _mark_oldest_over_limit(scoped, max_total, delete_ids)
+    for record_id in delete_ids:
+        if record_id:
+            delete_cached_response(record_id)
+    return len([record_id for record_id in delete_ids if record_id])
+
+
+def close_cache() -> None:
+    global _client
+    with _client_lock:
+        client = _client
+        _client = None
+    if client is not None:
+        client.close()
+
+
+def _database() -> Any:
+    global _client
+    if _client is not None:
+        return _client
+    with _client_lock:
+        if _client is None:
+            _client = gestalt.IndexedDB()
+        return _client
+
+
+def _store(name: str) -> Any:
+    return _database().object_store(name)
+
+
+def _optional_record(store: Any, record_id: str) -> dict[str, Any] | None:
     try:
-        record = _object_store(store_name).get(key)
+        return store.get(record_id)
     except gestalt.NotFoundError:
         return None
-    return _cached_record(record)
 
 
-def _put_record(
-    store_name: str,
-    key: str,
-    data: Any,
-    *,
-    fetched_at: float,
-    source: CacheSource,
-    index_fields: Mapping[str, Any] | None = None,
-) -> None:
-    if isinstance(fetched_at, bool) or not math.isfinite(fetched_at):
-        raise ValueError("fetched_at must be a finite epoch timestamp")
-    if source not in ("live", "webhook"):
-        raise ValueError("source must be 'live' or 'webhook'")
-    record = {
-        "id": key,
-        "data": deepcopy(data),
-        "fetched_at": float(fetched_at),
-        "source": source,
-    }
-    if index_fields is not None:
-        record.update(index_fields)
-    _object_store(store_name).put(record)
+def _optional_transaction_record(
+    store: Any, record_id: str
+) -> dict[str, Any] | None:
+    records = store.get_all(gestalt.only(record_id), count=1)
+    return records[0] if records else None
 
 
-def _cached_record(record: object) -> CachedRecord | None:
+def _record_generation(record: dict[str, Any] | None) -> int:
+    if record is None:
+        return 0
+    value = record.get("generation")
+    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+
+
+def _response_from_record(record: object) -> CachedResponse | None:
     if not isinstance(record, dict):
         return None
-    record_dict = cast(dict[str, Any], record)
-    fetched_at = record_dict.get("fetched_at")
-    source = record_dict.get("source")
-    if (
-        isinstance(fetched_at, bool)
-        or not isinstance(fetched_at, (int, float))
-        or not math.isfinite(float(fetched_at))
-        or source not in ("live", "webhook")
-        or "data" not in record_dict
-    ):
+    try:
+        return CachedResponse(
+            id=str(record["id"]),
+            operation=str(record["operation"]),
+            repository=str(record["repository"]),
+            domain=str(record["domain"]),
+            request=_json_value(record["request_json"], expected=dict),
+            body=_json_value(record["body_json"]),
+            generation=int(record["generation"]),
+            fetched_at=float(record["fetched_at"]),
+            expires_at=float(record["expires_at"]),
+        )
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError, UnicodeDecodeError):
         return None
-    return {
-        "data": deepcopy(record_dict["data"]),
-        "fetched_at": float(fetched_at),
-        "source": source,
-    }
 
 
-def _normalize_repo(repo: str) -> str:
-    return _nonempty(repo, "repo").casefold()
+def _entity_from_record(record: object) -> CachedEntity | None:
+    if not isinstance(record, dict):
+        return None
+    try:
+        return CachedEntity(
+            entity_type=str(record["entity_type"]),
+            entity_id=str(record["entity_id"]),
+            repository=str(record["repository"]),
+            updated_at=str(record["updated_at"]),
+            observed_at=float(record["observed_at"]),
+            deleted=bool(record["deleted"]),
+            payload=_json_value(record["payload_json"], expected=dict),
+        )
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+
+
+def _json_bytes(value: Any) -> bytes:
+    return json.dumps(
+        value,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+
+def _json_value(value: object, *, expected: type | None = None) -> Any:
+    if not isinstance(value, (bytes, bytearray)):
+        raise TypeError("cached JSON must be bytes")
+    decoded = json.loads(bytes(value).decode("utf-8"))
+    if expected is not None and not isinstance(decoded, expected):
+        raise TypeError(f"cached JSON must decode to {expected.__name__}")
+    return decoded
+
+
+def _normalize_repository(repository: str) -> str:
+    return _nonempty(repository, "repository").casefold()
 
 
 def _nonempty(value: str, name: str) -> str:
@@ -378,14 +497,27 @@ def _nonempty(value: str, name: str) -> str:
     return normalized
 
 
-def _positive_int(value: int, name: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ValueError(f"{name} must be a positive integer")
-    return value
+def _now(value: float | None) -> float:
+    current = time.time() if value is None else float(value)
+    if not current >= 0:
+        raise ValueError("timestamp must be non-negative")
+    return current
 
 
-def _reset_for_tests() -> None:
-    global _client, _initialized
-    with _init_lock:
-        _client = None
-        _initialized = False
+def _number(value: object) -> float:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    return 0.0
+
+
+def _mark_oldest_over_limit(
+    records: list[dict[str, Any]], limit: int, delete_ids: set[str]
+) -> None:
+    if limit < 0:
+        limit = 0
+    retained = [
+        record for record in records if str(record.get("id") or "") not in delete_ids
+    ]
+    retained.sort(key=lambda record: _number(record.get("fetched_at")), reverse=True)
+    for record in retained[limit:]:
+        delete_ids.add(str(record.get("id") or ""))

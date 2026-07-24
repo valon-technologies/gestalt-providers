@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import math
 import urllib.parse
 from dataclasses import dataclass
 from typing import Any
@@ -11,10 +12,12 @@ from .constants import (
     GITHUB_DEFAULT_GRAPHQL_BASE_URL,
     GITHUB_DEFAULT_WEB_BASE_URL,
 )
+from .cache_store import close_cache
 
 
 @dataclass(frozen=True, slots=True)
 class GitHubAppConfig:
+    provider_name: str = "github"
     app_id: str = ""
     private_key: str = ""
     private_key_path: str = ""
@@ -24,6 +27,8 @@ class GitHubAppConfig:
     webhook_events: tuple[str, ...] = DEFAULT_WEBHOOK_EVENTS
     workflow_provider: str = ""
     ignore_bot_sender: bool = True
+    cache_enabled: bool = False
+    cache_ttl_seconds: float = 60.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,10 +55,10 @@ _github_bot_identity: GitHubBotIdentity | None = None
 def configure_from_mapping(
     config: dict[str, Any], provider_name: str = "github"
 ) -> GitHubAppConfig:
-    _ = provider_name
     global _github_bot_identity, _github_config
 
-    _github_config = github_config_from_mapping(config)
+    close_cache()
+    _github_config = github_config_from_mapping(config, provider_name=provider_name)
     _github_bot_identity = None
     return _github_config
 
@@ -72,7 +77,9 @@ def set_cached_bot_identity(identity: GitHubBotIdentity) -> None:
     _github_bot_identity = identity
 
 
-def github_config_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
+def github_config_from_mapping(
+    config: dict[str, Any], *, provider_name: str = "github"
+) -> GitHubAppConfig:
     app_id = (
         config_string(config, "appId", "app_id")
         or os.environ.get("GITHUB_APP_ID", "").strip()
@@ -112,6 +119,7 @@ def github_config_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
     ).rstrip("/")
 
     return GitHubAppConfig(
+        provider_name=provider_name.strip() or "github",
         app_id=app_id,
         private_key=normalize_private_key(private_key),
         private_key_path=private_key_path,
@@ -129,6 +137,17 @@ def github_config_from_mapping(config: dict[str, Any]) -> GitHubAppConfig:
         workflow_provider=workflow_config_string(config, "provider"),
         ignore_bot_sender=config_bool(
             config, "ignoreBotSender", "ignore_bot_sender", default=True
+        ),
+        cache_enabled=config_bool(
+            config, "cacheEnabled", "cache_enabled", default=False
+        ),
+        cache_ttl_seconds=config_float(
+            config,
+            "cacheTtlSeconds",
+            "cache_ttl_seconds",
+            default=60.0,
+            minimum=1.0,
+            maximum=3600.0,
         ),
     )
 
@@ -197,6 +216,31 @@ def config_bool(config: dict[str, Any], *keys: str, default: bool) -> bool:
                 return True
             if normalized in {"0", "false", "no", "off"}:
                 return False
+    return default
+
+
+def config_float(
+    config: dict[str, Any],
+    *keys: str,
+    default: float,
+    minimum: float,
+    maximum: float,
+) -> float:
+    for key in keys:
+        if key not in config:
+            continue
+        value = config.get(key)
+        if isinstance(value, bool):
+            raise ValueError(f"{key} must be a number")
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError) as err:
+            raise ValueError(f"{key} must be a number") from err
+        if not math.isfinite(parsed) or not minimum <= parsed <= maximum:
+            raise ValueError(
+                f"{key} must be between {minimum:g} and {maximum:g}"
+            )
+        return parsed
     return default
 
 
