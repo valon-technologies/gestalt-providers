@@ -1,8 +1,17 @@
+/**
+ * Gestalt console vendor of Valon Registry `button`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/button.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
+ */
+
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/cn";
 
 // Hover/press feedback is an on-color state-layer overlay, not a brightness
 // filter (press-feedback.md / RES-20260617-004): the `::after` scrim paints in

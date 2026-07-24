@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createToken, getTokens, revokeToken } from "@/lib/api";
+import { createToken, getTokens, revokeToken, type APIToken } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 
 export function useTokensQuery() {
@@ -26,4 +26,9 @@ export function useRevokeTokenMutation() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: queryKeys.tokens.root }),
   });
+}
+
+/** Personal token listing for Build and legacy hooks — Identity v2 grants. */
+export async function fetchPersonalTokenList(): Promise<APIToken[]> {
+  return getTokens();
 }

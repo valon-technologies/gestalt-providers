@@ -1,4 +1,5 @@
 @import "../shared/theme.css";
+@import "./styles/typeset-code-hljs.css";
 
 /* Scan src/ only — do not crawl bundled admin vendor files for candidates. */
 @import "tailwindcss" source(".");
@@ -276,6 +277,13 @@
 }
 
 pre.shiki span {
+  color: var(--shiki-light);
+}
+
+.dark pre.shiki span {
+  color: var(--shiki-dark);
+}
+
   color: var(--shiki-light);
 }
 

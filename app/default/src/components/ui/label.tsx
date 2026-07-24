@@ -1,7 +1,16 @@
+/**
+ * Gestalt console vendor of Valon Registry `label`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/label.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
+ */
+
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/cn";
 
 // Two roles share one <label> primitive (Carbon / form a11y):
 //   inline — companion text beside checkbox/radio. Body size + foreground; the

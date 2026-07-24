@@ -1,0 +1,144 @@
+/*
+ * Syntax highlight theme for Registry CodeBlock (`.typeset-code-hljs`).
+ * Excerpted from Valon Typeset / registry code-blocks contract — do not fork
+ * colors here; refresh from valon-typeset when upstream changes.
+ */
+
+@layer components {
+  .typeset-code-hljs,
+  .typeset :where(pre code.hljs),
+  .typeset :where(.hljs) {
+    .hljs-addition {
+      background-color: #f0fff4;
+      color: #22863a;
+    }
+    .hljs-attr,
+    .hljs-attribute,
+    .hljs-literal,
+    .hljs-meta,
+    .hljs-number,
+    .hljs-operator,
+    .hljs-selector-attr,
+    .hljs-selector-class,
+    .hljs-selector-id,
+    .hljs-variable {
+      color: #005cc5;
+    }
+    .hljs-built_in,
+    .hljs-symbol {
+      color: #e36209;
+    }
+    .hljs-bullet {
+      color: #735c0f;
+    }
+    .hljs-comment,
+    .hljs-code,
+    .hljs-formula {
+      color: #6a737d;
+    }
+    .hljs-deletion {
+      background-color: #ffeef0;
+      color: #b31d28;
+    }
+    .hljs-emphasis {
+      font-style: italic;
+    }
+    .hljs-keyword,
+    .hljs-doctag,
+    .hljs-template-tag,
+    .hljs-template-variable,
+    .hljs-type,
+    .hljs-variable.language_ {
+      color: #d73a49;
+    }
+    .hljs-name,
+    .hljs-quote,
+    .hljs-selector-tag,
+    .hljs-selector-pseudo {
+      color: #22863a;
+    }
+    .hljs-regexp,
+    .hljs-string,
+    .hljs-meta .hljs-string {
+      color: #032f62;
+    }
+    .hljs-section {
+      color: #005cc5;
+      font-weight: 700;
+    }
+    .hljs-strong {
+      font-weight: 700;
+    }
+    .hljs-title,
+    .hljs-title.class_,
+    .hljs-title.class_.inherited__,
+    .hljs-title.function_ {
+      color: #6f42c1;
+    }
+  }
+
+  .dark .typeset-code-hljs,
+  .dark .typeset :where(pre code.hljs),
+  .dark .typeset :where(.hljs) {
+    .hljs-addition {
+      background-color: #3c5743;
+      color: #ceead5;
+    }
+    .hljs-attr,
+    .hljs-attribute,
+    .hljs-literal,
+    .hljs-meta,
+    .hljs-number,
+    .hljs-operator,
+    .hljs-selector-attr,
+    .hljs-selector-class,
+    .hljs-selector-id,
+    .hljs-variable {
+      color: #6596cf;
+    }
+    .hljs-built_in,
+    .hljs-symbol {
+      color: #c3854e;
+    }
+    .hljs-bullet {
+      color: #b3974f;
+    }
+    .hljs-comment,
+    .hljs-code,
+    .hljs-formula {
+      color: #8b949e;
+    }
+    .hljs-deletion {
+      background-color: #473235;
+      color: #e7c7cb;
+    }
+    .hljs-keyword,
+    .hljs-doctag,
+    .hljs-template-tag,
+    .hljs-template-variable,
+    .hljs-type,
+    .hljs-variable.language_ {
+      color: #ee6960;
+    }
+    .hljs-name,
+    .hljs-quote,
+    .hljs-selector-tag,
+    .hljs-selector-pseudo {
+      color: #36a84f;
+    }
+    .hljs-regexp,
+    .hljs-string,
+    .hljs-meta .hljs-string {
+      color: #3593ff;
+    }
+    .hljs-section {
+      color: #61a5f2;
+    }
+    .hljs-title,
+    .hljs-title.class_,
+    .hljs-title.class_.inherited__,
+    .hljs-title.function_ {
+      color: #a77bfa;
+    }
+  }
+}

@@ -1,3 +1,10 @@
+/**
+ * Gestalt console vendor of Valon Registry `menu`.
+ *
+ * Ownership: Valon Registry (`valon-tools/apps/registry/ui/src/lib/menu.ts`).
+ * Synced from toolshed origin/main — import-path adaptation only.
+ */
+
 import { cva } from "class-variance-authority";
 
 // Shared row styling for menu surfaces (DropdownMenu, Select, Command): one
