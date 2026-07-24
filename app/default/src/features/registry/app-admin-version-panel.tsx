@@ -38,8 +38,8 @@ export function AppAdminVersionPanel({
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 space-y-1">
-          <h1 className="text-2xl font-heading text-primary">{registry.app}</h1>
-          <p className="text-sm text-muted">Registry: {registry.registry}</p>
+          <h1 className="text-2xl font-heading text-foreground">{registry.app}</h1>
+          <p className="text-sm text-muted-foreground">Registry: {registry.registry}</p>
           <p className="text-sm text-faint">App management</p>
           {appMountedPath ? (
             <a
@@ -84,7 +84,7 @@ export function AppAdminVersionPanel({
         />
 
         {registry.selectionDisabled && registry.disabledReason ? (
-          <p className="text-sm text-muted" data-testid="selection-disabled-reason">
+          <p className="text-sm text-muted-foreground" data-testid="selection-disabled-reason">
             {registry.disabledReason}
           </p>
         ) : null}

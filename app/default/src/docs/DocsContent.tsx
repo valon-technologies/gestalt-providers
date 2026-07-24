@@ -62,7 +62,7 @@ export function GettingStartedDocsPage() {
           <p className="text-xs font-medium uppercase tracking-[0.16em] text-faint">
             Base URL
           </p>
-          <p className="mt-2 font-mono text-sm text-primary">{origin}</p>
+          <p className="mt-2 font-mono text-sm text-foreground">{origin}</p>
         </div>
         <Subheading id="install" title="Install" />
         <p className="doc-copy">
@@ -554,10 +554,10 @@ function DocsPageHeader({
       <p className="text-xs font-medium uppercase tracking-[0.16em] text-faint">
         {eyebrow}
       </p>
-      <h1 className="mt-5 font-heading text-4xl tracking-[-0.03em] text-primary sm:text-5xl">
+      <h1 className="mt-5 font-heading text-4xl tracking-[-0.03em] text-foreground sm:text-5xl">
         {title}
       </h1>
-      <div className="mt-6 max-w-3xl text-base leading-7 text-secondary">
+      <div className="mt-6 max-w-3xl text-base leading-7 text-muted-foreground">
         {description}
       </div>
     </header>
@@ -627,8 +627,8 @@ function SetupMethodTabs({
               onClick={() => setActiveId(item.id)}
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-gold-600 text-primary dark:border-gold-300"
-                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
+                  ? "border-gold-600 text-foreground dark:border-gold-300"
+                  : "border-transparent text-muted-foreground hover:border-base-300 hover:text-foreground dark:hover:border-base-600"
               }`}
             >
               {item.label}
@@ -688,8 +688,8 @@ function AuthMethodTabs({
               onClick={() => setActiveId(item.id)}
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-gold-600 text-primary dark:border-gold-300"
-                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
+                  ? "border-gold-600 text-foreground dark:border-gold-300"
+                  : "border-transparent text-muted-foreground hover:border-base-300 hover:text-foreground dark:hover:border-base-600"
               }`}
             >
               {item.label}
@@ -752,8 +752,8 @@ function InvokeMethodTabs({ origin }: { origin: string }) {
               }
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-gold-600 text-primary dark:border-gold-300"
-                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
+                  ? "border-gold-600 text-foreground dark:border-gold-300"
+                  : "border-transparent text-muted-foreground hover:border-base-300 hover:text-foreground dark:hover:border-base-600"
               }`}
             >
               {item.label}
@@ -845,8 +845,8 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
               onClick={() => setActiveTabId(tab.id)}
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-gold-600 text-primary dark:border-gold-300"
-                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
+                  ? "border-gold-600 text-foreground dark:border-gold-300"
+                  : "border-transparent text-muted-foreground hover:border-base-300 hover:text-foreground dark:hover:border-base-600"
               }`}
             >
               {tab.label}
@@ -1037,8 +1037,8 @@ function McpClientTabs({ origin }: { origin: string }) {
               onClick={() => setActiveTabId(tab.id)}
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-gold-600 text-primary dark:border-gold-300"
-                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
+                  ? "border-gold-600 text-foreground dark:border-gold-300"
+                  : "border-transparent text-muted-foreground hover:border-base-300 hover:text-foreground dark:hover:border-base-600"
               }`}
             >
               {tab.label}
@@ -1199,7 +1199,7 @@ function useDeploymentOrigin() {
 
 function InlineCode({ children }: { children: React.ReactNode }) {
   return (
-    <code className="rounded-sm border border-alpha bg-surface px-[0.3em] py-[0.1em] font-mono text-[0.875em] text-primary">
+    <code className="rounded-sm border border-alpha bg-surface px-[0.3em] py-[0.1em] font-mono text-[0.875em] text-foreground">
       {children}
     </code>
   );
@@ -1209,7 +1209,7 @@ function Subheading({ id, title }: { id?: string; title: string }) {
   return (
     <h2
       id={id}
-      className="scroll-mt-24 pt-2 text-lg tracking-[-0.01em] text-primary"
+      className="scroll-mt-24 pt-2 text-lg tracking-[-0.01em] text-foreground"
     >
       {title}
     </h2>
@@ -1240,7 +1240,7 @@ function CodeBlock({
       </div>
       <button
         onClick={handleCopy}
-        className="absolute right-3 top-3 rounded-md p-1.5 text-muted opacity-0 transition-all duration-150 hover:bg-alpha-5 hover:text-primary group-hover:opacity-100"
+        className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground opacity-0 transition-all duration-150 hover:bg-alpha-5 hover:text-foreground group-hover:opacity-100"
         title="Copy to clipboard"
         aria-label="Copy to clipboard"
       >
@@ -1261,10 +1261,10 @@ function InfoTable({ rows }: { rows: [string, string][] }) {
         <tbody>
           {rows.map(([label, value]) => (
             <tr key={label} className="border-t border-alpha first:border-t-0">
-              <th className="w-56 bg-base-100 px-4 py-3 align-top font-medium text-primary dark:bg-surface-raised">
+              <th className="w-56 bg-base-100 px-4 py-3 align-top font-medium text-foreground dark:bg-surface-raised">
                 {label}
               </th>
-              <td className="px-4 py-3 text-muted">{value}</td>
+              <td className="px-4 py-3 text-muted-foreground">{value}</td>
             </tr>
           ))}
         </tbody>

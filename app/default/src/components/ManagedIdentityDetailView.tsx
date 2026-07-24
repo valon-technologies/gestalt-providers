@@ -333,16 +333,16 @@ export default function ManagedIdentityDetailView({
   return (
     <Container as="main" className="py-12">
       <div className="animate-fade-in-up">
-        <Link to="/identities" className="text-sm text-muted hover:text-primary transition-colors duration-150">
+        <Link to="/identities" className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-150">
           &larr; Back to identities
         </Link>
         <span className="mt-5 block label-text">Managed Identity</span>
-        <h1 className="mt-2 text-2xl font-heading text-primary">
+        <h1 className="mt-2 text-2xl font-heading text-foreground">
           {identity?.displayName || "Loading identity"}
         </h1>
         {identity ? (
-          <p className="mt-2 text-sm text-muted">
-            You currently have <span className="font-medium text-primary">{role}</span> access.
+          <p className="mt-2 text-sm text-muted-foreground">
+            You currently have <span className="font-medium text-foreground">{role}</span> access.
           </p>
         ) : null}
       </div>
@@ -356,13 +356,13 @@ export default function ManagedIdentityDetailView({
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <span className="label-text">Overview</span>
-                <p className="mt-3 text-sm text-muted">
-                  Subject ID: <code className="font-mono text-xs text-primary">{identity.subjectId}</code>
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Subject ID: <code className="font-mono text-xs text-foreground">{identity.subjectId}</code>
                 </p>
-                <p className="mt-2 text-sm text-muted">
-                  Local ID: <code className="font-mono text-xs text-primary">{identity.id}</code>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Local ID: <code className="font-mono text-xs text-foreground">{identity.id}</code>
                 </p>
-                <p className="mt-2 text-sm text-muted">
+                <p className="mt-2 text-sm text-muted-foreground">
                   Created {new Date(identity.createdAt).toLocaleString()} · Updated {new Date(identity.updatedAt).toLocaleString()}
                 </p>
               </div>
@@ -403,7 +403,7 @@ export default function ManagedIdentityDetailView({
           <section className={SECTION_CARD}>
             <div>
               <span className="label-text">Sharing</span>
-              <h2 className="mt-2 text-lg font-heading text-primary">Members</h2>
+              <h2 className="mt-2 text-lg font-heading text-foreground">Members</h2>
             </div>
             {canAdmin ? (
               <form onSubmit={handleMemberSubmit} className="mt-6 flex flex-col gap-3 lg:flex-row lg:items-end">
@@ -453,9 +453,9 @@ export default function ManagedIdentityDetailView({
                 <tbody>
                   {members.map((member) => (
                     <tr key={member.subjectId} className="border-b border-alpha last:border-b-0">
-                      <td className="px-5 py-4 text-primary font-medium">{member.email || "-"}</td>
-                      <td className="px-5 py-4 text-muted font-mono text-xs">{member.subjectId}</td>
-                      <td className="px-5 py-4 text-muted">{member.role}</td>
+                      <td className="px-5 py-4 text-foreground font-medium">{member.email || "-"}</td>
+                      <td className="px-5 py-4 text-muted-foreground font-mono text-xs">{member.subjectId}</td>
+                      <td className="px-5 py-4 text-muted-foreground">{member.role}</td>
                       <td className="px-5 py-4">
                         {canAdmin ? (
                           <Button
@@ -476,8 +476,8 @@ export default function ManagedIdentityDetailView({
 
           <section className={SECTION_CARD}>
             <span className="label-text">Authorization</span>
-            <h2 className="mt-2 text-lg font-heading text-primary">Identity App Access</h2>
-            <p className="mt-2 text-sm text-muted">
+            <h2 className="mt-2 text-lg font-heading text-foreground">Identity App Access</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
               Grants are identity-level roles for apps that enforce authorization. API keys do not create these grants; they only authenticate as this identity.
             </p>
             {canAdmin ? (
@@ -508,7 +508,7 @@ export default function ManagedIdentityDetailView({
                         }}
                         placeholder="Choose a visible app"
                       />
-                      <ComboboxButton className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-faint transition-colors duration-150 hover:text-muted">
+                      <ComboboxButton className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-faint transition-colors duration-150 hover:text-muted-foreground">
                         <ChevronUpDownIcon className="h-4 w-4" />
                       </ComboboxButton>
                       <ComboboxOptions className="absolute left-0 top-full z-20 mt-2 max-h-80 w-full overflow-auto rounded-lg border border-alpha bg-base-white p-1 shadow-dropdown dark:bg-surface">
@@ -525,11 +525,11 @@ export default function ManagedIdentityDetailView({
                                 value={integration}
                                 className="cursor-pointer rounded-md px-3 py-2 transition-colors duration-150 data-[focus]:bg-base-100 dark:data-[focus]:bg-surface-raised"
                               >
-                                <div className="text-sm font-medium text-primary">
+                                <div className="text-sm font-medium text-foreground">
                                   {getIntegrationLabel(integration)}
                                 </div>
                                 {secondaryText ? (
-                                  <div className="mt-0.5 text-xs text-muted">
+                                  <div className="mt-0.5 text-xs text-muted-foreground">
                                     {secondaryText}
                                   </div>
                                 ) : null}
@@ -537,7 +537,7 @@ export default function ManagedIdentityDetailView({
                             );
                           })
                         ) : (
-                          <div className="px-3 py-2 text-sm text-muted">
+                          <div className="px-3 py-2 text-sm text-muted-foreground">
                             No matching apps.
                           </div>
                         )}
@@ -572,7 +572,7 @@ export default function ManagedIdentityDetailView({
               </form>
             ) : null}
             {grants.length === 0 ? (
-              <p className="mt-6 text-sm text-muted">
+              <p className="mt-6 text-sm text-muted-foreground">
                 No identity-level app access grants. Protected apps need a grant here; API keys can still be created below.
               </p>
             ) : (
@@ -589,9 +589,9 @@ export default function ManagedIdentityDetailView({
                   <tbody>
                     {grants.map((grant) => (
                       <tr key={grant.plugin} className="border-b border-alpha last:border-b-0">
-                        <td className="px-5 py-4 text-primary font-medium">{grant.plugin}</td>
-                        <td className="px-5 py-4 text-muted">{grant.role}</td>
-                        <td className="px-5 py-4 text-muted">{grant.source}</td>
+                        <td className="px-5 py-4 text-foreground font-medium">{grant.plugin}</td>
+                        <td className="px-5 py-4 text-muted-foreground">{grant.role}</td>
+                        <td className="px-5 py-4 text-muted-foreground">{grant.source}</td>
                         <td className="px-5 py-4">
                           {canAdmin && grant.mutable ? (
                             <Button
@@ -613,14 +613,14 @@ export default function ManagedIdentityDetailView({
 
           <section className={SECTION_CARD}>
             <span className="label-text">Connections</span>
-            <h2 className="mt-2 text-lg font-heading text-primary">App Connections</h2>
-            <p className="mt-2 text-sm text-muted">
+            <h2 className="mt-2 text-lg font-heading text-foreground">App Connections</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
               Connections store OAuth or manual credentials for this identity. They do not add app roles or change API-key limits.
             </p>
             {managedIntegrationError ? (
               <p className="mt-6 text-sm text-ember-500">{managedIntegrationError}</p>
             ) : managedIntegrations.length === 0 ? (
-              <p className="mt-6 text-sm text-muted">
+              <p className="mt-6 text-sm text-muted-foreground">
                 No apps are available to connect for this identity.
               </p>
             ) : (
@@ -683,8 +683,8 @@ export default function ManagedIdentityDetailView({
 
           <section className={SECTION_CARD}>
             <span className="label-text">API Access</span>
-            <h2 className="mt-2 text-lg font-heading text-primary">Identity API Keys</h2>
-            <p className="mt-2 text-sm text-muted">
+            <h2 className="mt-2 text-lg font-heading text-foreground">Identity API Keys</h2>
+            <p className="mt-2 text-sm text-muted-foreground">
               API keys authenticate as this identity. By default, a key follows managed identity app access and connector credentials at use time; token limits only narrow one key.
             </p>
             {canAdmin ? (
@@ -694,7 +694,7 @@ export default function ManagedIdentityDetailView({
                 onCreated={loadAll}
               />
             ) : (
-              <p className="mt-6 text-sm text-muted">
+              <p className="mt-6 text-sm text-muted-foreground">
                 Only identity admins can create subject-owned API tokens.
               </p>
             )}

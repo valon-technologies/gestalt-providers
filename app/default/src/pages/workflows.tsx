@@ -153,10 +153,10 @@ export default function WorkflowsPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <span className="label-text">Workflows</span>
-              <h1 className="mt-2 text-2xl font-heading text-primary">
+              <h1 className="mt-2 text-2xl font-heading text-foreground">
                 Workflows
               </h1>
-              <p className="mt-2 max-w-2xl text-sm text-muted">
+              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
                 Inspect durable workflow run history, step state, and captured
                 inputs and outputs.
               </p>
@@ -165,7 +165,7 @@ export default function WorkflowsPage() {
               type="button"
               onClick={() => setRefreshNonce((value) => value + 1)}
               disabled={refreshing}
-              className="inline-flex items-center justify-center rounded-md border border-alpha px-4 py-2 text-sm font-medium text-primary transition-colors duration-150 hover:border-alpha-strong hover:bg-alpha-5 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center rounded-md border border-alpha px-4 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:border-alpha-strong hover:bg-alpha-5 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {refreshing ? "Refreshing..." : "Refresh"}
             </button>
@@ -189,20 +189,20 @@ export default function WorkflowsPage() {
           <section className="mt-8 rounded-lg border border-alpha bg-base-100 p-4 dark:bg-surface">
             <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem]">
               <label className="block">
-                <span className="text-xs font-medium text-muted">Search runs</span>
+                <span className="text-xs font-medium text-muted-foreground">Search runs</span>
                 <input
                   value={runsQuery}
                   onChange={(event) => setRunsQuery(event.target.value)}
                   placeholder="Run ID, provider, app, step, definition, event"
-                  className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-primary outline-hidden transition-colors duration-150 placeholder:text-faint focus:border-sky-500"
+                  className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-foreground outline-hidden transition-colors duration-150 placeholder:text-faint focus:border-sky-500"
                 />
               </label>
               <label className="block">
-                <span className="text-xs font-medium text-muted">Status</span>
+                <span className="text-xs font-medium text-muted-foreground">Status</span>
                 <select
                   value={runStatus}
                   onChange={(event) => setRunStatus(event.target.value)}
-                  className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-primary outline-hidden transition-colors duration-150 focus:border-sky-500"
+                  className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-foreground outline-hidden transition-colors duration-150 focus:border-sky-500"
                 >
                   {RUN_STATUSES.map((status) => (
                     <option key={status} value={status}>
@@ -265,7 +265,7 @@ function RunsPanel({
     <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(24rem,0.95fr)]">
       <section className="rounded-lg border border-alpha bg-base-100 dark:bg-surface">
         <div className="border-b border-alpha px-5 py-4">
-          <h2 className="text-sm font-medium text-primary">Workflow Runs</h2>
+          <h2 className="text-sm font-medium text-foreground">Workflow Runs</h2>
           <p className="mt-1 text-xs text-faint">{runs.length} shown</p>
         </div>
 
@@ -291,7 +291,7 @@ function RunsPanel({
                   >
                     <div className="min-w-0">
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <span className="truncate text-sm font-medium text-primary">
+                        <span className="truncate text-sm font-medium text-foreground">
                           {targetLabel(run.target)}
                         </span>
                         <span className={runStatusClassName(run.status)}>
@@ -299,7 +299,7 @@ function RunsPanel({
                         </span>
                       </div>
                       <p className="mt-1 truncate text-xs text-faint">{run.id}</p>
-                      <p className="mt-2 text-xs text-muted">
+                      <p className="mt-2 text-xs text-muted-foreground">
                         {runTriggerLabel(run)} · {run.provider}
                       </p>
                     </div>
@@ -317,7 +317,7 @@ function RunsPanel({
       <section className="rounded-lg border border-alpha bg-base-100 p-5 dark:bg-surface">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h2 className="text-sm font-medium text-primary">Run Details</h2>
+            <h2 className="text-sm font-medium text-foreground">Run Details</h2>
             <p className="mt-1 truncate text-xs text-faint">
               {selectedRun?.id || "Select a run"}
             </p>
@@ -331,7 +331,7 @@ function RunsPanel({
 
         {selectedRunCancelable ? (
           <div className="mt-4 flex items-center justify-between gap-3 border-y border-alpha py-3">
-            <p className="text-sm text-muted">
+            <p className="text-sm text-muted-foreground">
               Canceling asks the workflow provider to stop this pending run.
             </p>
             <button
@@ -392,7 +392,7 @@ function RunDetails({ run }: { run: WorkflowRun }) {
 
       <section>
         <SectionHeading>Status Message</SectionHeading>
-        <p className="mt-3 text-sm text-primary">
+        <p className="mt-3 text-sm text-foreground">
           {run.statusMessage || "No status message"}
         </p>
       </section>
@@ -408,7 +408,7 @@ function DetailGrid({ items }: { items: Array<[string, string]> }) {
           <dt className="text-[11px] uppercase tracking-[0.18em] text-faint">
             {label}
           </dt>
-          <dd className="mt-2 break-words text-sm text-primary">{value || "-"}</dd>
+          <dd className="mt-2 break-words text-sm text-foreground">{value || "-"}</dd>
         </div>
       ))}
     </dl>
@@ -442,10 +442,10 @@ function TargetStepDetails({ step }: { step: WorkflowStepTarget }) {
     <div className="py-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-medium text-primary">{stepLabel(step)}</p>
+          <p className="text-sm font-medium text-foreground">{stepLabel(step)}</p>
           <p className="mt-1 text-xs text-faint">{step.id || "unnamed step"}</p>
         </div>
-        <span className="rounded-full bg-alpha-5 px-2 py-1 text-[11px] font-medium text-muted">
+        <span className="rounded-full bg-alpha-5 px-2 py-1 text-[11px] font-medium text-muted-foreground">
           {stepKind(step)}
         </span>
       </div>
@@ -512,7 +512,7 @@ function StepExecutions({ steps }: { steps: WorkflowStepExecution[] }) {
             <div key={`${step.stepId || "step"}-${index}`} className="py-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <p className="text-sm font-medium text-primary">
+                  <p className="text-sm font-medium text-foreground">
                     {step.stepId || `Step ${index + 1}`}
                   </p>
                   <p className="mt-1 text-xs text-faint">
@@ -555,14 +555,14 @@ function StepExecutions({ steps }: { steps: WorkflowStepExecution[] }) {
 
               {step.attempts && step.attempts.length > 0 ? (
                 <div className="mt-4 space-y-3">
-                  <p className="text-xs font-medium text-muted">Attempts</p>
+                  <p className="text-xs font-medium text-muted-foreground">Attempts</p>
                   {step.attempts.map((attempt, attemptIndex) => (
                     <div
                       key={`${attempt.id || "attempt"}-${attemptIndex}`}
                       className="border-l border-alpha pl-4"
                     >
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-medium text-primary">
+                        <p className="text-sm font-medium text-foreground">
                           {attempt.id || `Attempt ${attemptIndex + 1}`}
                         </p>
                         <span className={stepStatusClassName(attempt.status)}>
@@ -612,9 +612,9 @@ function JSONSection({
 }) {
   return (
     <section>
-      <p className="text-xs font-medium text-muted">{title}</p>
+      <p className="text-xs font-medium text-muted-foreground">{title}</p>
       {hasJSONValue(value) ? (
-        <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-alpha bg-background/70 p-3 text-xs text-primary dark:bg-background/20">
+        <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-alpha bg-background/70 p-3 text-xs text-foreground dark:bg-background/20">
           {prettyJSON(value)}
         </pre>
       ) : (
@@ -636,7 +636,7 @@ function DetailLine({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <p className="text-[11px] uppercase tracking-[0.18em] text-faint">{label}</p>
-      <p className="mt-1 break-words text-sm text-primary">{value || "-"}</p>
+      <p className="mt-1 break-words text-sm text-foreground">{value || "-"}</p>
     </div>
   );
 }
@@ -651,7 +651,7 @@ function SummaryCard({
   tone: "default" | "sky" | "grove" | "ember";
 }) {
   const toneClassName = {
-    default: "text-primary",
+    default: "text-foreground",
     sky: "text-sky-700 dark:text-sky-200",
     grove: "text-grove-700 dark:text-grove-200",
     ember: "text-ember-700 dark:text-ember-200",
@@ -801,9 +801,9 @@ function runStatusClassName(status?: string): string {
     case "pending":
       return "rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-700 dark:bg-amber-700/20 dark:text-amber-200";
     case "canceled":
-      return "rounded-full bg-alpha-10 px-2 py-1 text-[11px] font-medium text-muted";
+      return "rounded-full bg-alpha-10 px-2 py-1 text-[11px] font-medium text-muted-foreground";
     default:
-      return "rounded-full bg-alpha-5 px-2 py-1 text-[11px] font-medium text-muted";
+      return "rounded-full bg-alpha-5 px-2 py-1 text-[11px] font-medium text-muted-foreground";
   }
 }
 
@@ -818,9 +818,9 @@ function stepStatusClassName(status?: string): string {
     case "pending":
       return "rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-700 dark:bg-amber-700/20 dark:text-amber-200";
     case "skipped":
-      return "rounded-full bg-alpha-10 px-2 py-1 text-[11px] font-medium text-muted";
+      return "rounded-full bg-alpha-10 px-2 py-1 text-[11px] font-medium text-muted-foreground";
     default:
-      return "rounded-full bg-alpha-5 px-2 py-1 text-[11px] font-medium text-muted";
+      return "rounded-full bg-alpha-5 px-2 py-1 text-[11px] font-medium text-muted-foreground";
   }
 }
 

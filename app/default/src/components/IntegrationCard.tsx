@@ -501,15 +501,15 @@ export default function IntegrationCard({
       )}
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-base-100 text-muted [&>svg]:h-5 [&>svg]:w-5 dark:bg-surface-raised">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-base-100 text-muted-foreground [&>svg]:h-5 [&>svg]:w-5 dark:bg-surface-raised">
             {iconNode ?? <DefaultIcon />}
           </div>
           <div>
-            <h3 className="text-base font-heading text-primary">
+            <h3 className="text-base font-heading text-foreground">
               {integration.displayName || integration.name}
             </h3>
             {integration.description && (
-              <p className="mt-1 line-clamp-2 text-sm text-muted">
+              <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
                 {integration.description}
               </p>
             )}
@@ -530,7 +530,7 @@ export default function IntegrationCard({
                 event.stopPropagation();
                 setSettingsOpen(true);
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-faint transition-all duration-150 hover:bg-alpha-5 hover:text-muted"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-faint transition-all duration-150 hover:bg-alpha-5 hover:text-muted-foreground"
               aria-label={`${integration.displayName || integration.name} settings`}
             >
               <GearIcon className="h-4 w-4" />

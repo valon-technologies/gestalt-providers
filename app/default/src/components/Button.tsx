@@ -6,7 +6,7 @@ const variantStyles: Record<Variant, string> = {
   primary:
     "bg-base-950 text-white hover:bg-base-900 dark:bg-base-100 dark:text-base-950 dark:hover:bg-base-200",
   secondary:
-    "bg-alpha-10 text-primary hover:bg-base-200 dark:hover:bg-base-800",
+    "bg-alpha-10 text-foreground hover:bg-base-200 dark:hover:bg-base-800",
   danger:
     "bg-ember-600 text-white hover:bg-ember-700 dark:bg-ember-500 dark:hover:bg-ember-600",
 };

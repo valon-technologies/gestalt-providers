@@ -63,7 +63,7 @@ function statusBadgeClasses(tone: NormalizedIntegrationStatus["tone"]): string {
     case "danger":
       return "border-ember-200 bg-ember-50 text-ember-700 dark:border-ember-600 dark:bg-ember-700/20 dark:text-ember-200";
     case "neutral":
-      return "border-alpha bg-base-100 text-muted dark:bg-surface-raised";
+      return "border-alpha bg-base-100 text-muted-foreground dark:bg-surface-raised";
   }
 }
 
@@ -390,7 +390,7 @@ export default function IntegrationSettingsModal({
                 <CheckCircleIcon className="h-4 w-4 shrink-0 text-grove-500" />
               ) : null}
               <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-primary">
+                <div className="truncate text-sm font-medium text-foreground">
                   {connection.label}
                 </div>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-faint">
@@ -402,7 +402,7 @@ export default function IntegrationSettingsModal({
             </div>
 
             {actionCopy ? (
-              <p className="mt-3 text-xs text-muted">{actionCopy}</p>
+              <p className="mt-3 text-xs text-muted-foreground">{actionCopy}</p>
             ) : null}
 
             {connection.instances.length > 0 ? (
@@ -413,7 +413,7 @@ export default function IntegrationSettingsModal({
                     className="flex items-center justify-between gap-3 rounded-md bg-base-100 px-3 py-2 dark:bg-surface-raised"
                   >
                     <div>
-                      <div className="text-sm text-primary">{instance.name}</div>
+                      <div className="text-sm text-foreground">{instance.name}</div>
                       {instance.connection ? (
                         <div className="text-xs text-faint">
                           {instance.connection}
@@ -464,11 +464,11 @@ export default function IntegrationSettingsModal({
           <>
             <h2
               id={headingId}
-              className="text-lg font-heading text-primary"
+              className="text-lg font-heading text-foreground"
             >
               Disconnect {displayName}?
             </h2>
-            <p className="mt-3 text-sm text-muted">
+            <p className="mt-3 text-sm text-muted-foreground">
               {disconnectCopy(displayName, connectionContext)}
             </p>
             {error && <p className="mt-3 text-sm text-ember-500">{error}</p>}
@@ -498,7 +498,7 @@ export default function IntegrationSettingsModal({
           <form onSubmit={handleInstanceSubmit}>
             <h2
               id={headingId}
-              className="text-lg font-heading text-primary"
+              className="text-lg font-heading text-foreground"
             >
               Add Connection
             </h2>
@@ -551,19 +551,19 @@ export default function IntegrationSettingsModal({
               <div>
                 <h2
                   id={headingId}
-                  className="text-lg font-heading text-primary"
+                  className="text-lg font-heading text-foreground"
                 >
                   {displayName}
                 </h2>
                 {shouldShowIntegrationSummary(normalizedStatus) ? (
-                  <p className="mt-2 text-sm text-muted">
+                  <p className="mt-2 text-sm text-muted-foreground">
                     {normalizedStatus.summaryLabel}
                   </p>
                 ) : null}
               </div>
               <button
                 onClick={closeDialog}
-                className="rounded-md p-1.5 text-faint transition-colors duration-150 hover:bg-alpha-5 hover:text-muted"
+                className="rounded-md p-1.5 text-faint transition-colors duration-150 hover:bg-alpha-5 hover:text-muted-foreground"
                 aria-label="Close"
               >
                 <CloseIcon className="h-4 w-4" />
@@ -619,7 +619,7 @@ function TokenForm({
     <form onSubmit={onSubmit}>
       <h2
         id={headingId}
-        className="text-lg font-heading text-primary"
+        className="text-lg font-heading text-foreground"
       >
         {heading}
       </h2>
