@@ -357,6 +357,15 @@ spec:
           type: string
           in: query
           required: true
+      - name: users.lookupByEmail
+        description: Find a Slack user by their email address
+        method: GET
+        path: /api/users.lookupByEmail
+        parameters:
+        - name: email
+          type: string
+          in: query
+          required: true
       - name: files.info
         description: Get Slack file metadata
         method: GET
