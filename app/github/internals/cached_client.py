@@ -72,7 +72,10 @@ class CachingGitHubClient:
         payload: JsonPayload | None = None,
     ) -> JsonObject:
         policy = _rest_policy(method, path)
-        call = lambda: self.inner.github_json(method, path, token, payload)
+
+        def call() -> JsonObject:
+            return self.inner.github_json(method, path, token, payload)
+
         if policy is None:
             result = call()
             self._invalidate_after_mutation(method, path)
@@ -87,7 +90,10 @@ class CachingGitHubClient:
         payload: JsonPayload | None = None,
     ) -> Any:
         policy = _rest_policy(method, path)
-        call = lambda: self.inner.github_json_value(method, path, token, payload)
+
+        def call() -> Any:
+            return self.inner.github_json_value(method, path, token, payload)
+
         if policy is None:
             result = call()
             self._invalidate_after_mutation(method, path)
@@ -100,7 +106,9 @@ class CachingGitHubClient:
         token: str | None,
         variables: JsonPayload | None = None,
     ) -> JsonObject:
-        call = lambda: self.inner.graphql_json(query, token, variables)
+        def call() -> JsonObject:
+            return self.inner.graphql_json(query, token, variables)
+
         if query != self.search_pull_requests_query:
             result = call()
             if query.lstrip().startswith("mutation"):
