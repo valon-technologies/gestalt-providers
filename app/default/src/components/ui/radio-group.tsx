@@ -1,6 +1,9 @@
+"use client";
+
 import * as React from "react";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
 import { cva, type VariantProps } from "class-variance-authority";
+
 import { cn } from "@/lib/cn";
 
 /**
@@ -12,29 +15,9 @@ import { cn } from "@/lib/cn";
  * size variants, `focusRing`). Choice-card layouts compose via
  * `@/lib/choice-card-chrome`.
  *
- * @see app/default/src/components/ui/PORTING.md
+ * @see src/components/ui/PORTING.md
  * @see valon-tools/apps/registry/ui/src/ui/radio-group.stories.tsx
  */
-
-export {
-  choiceCardBelowMediaClassName,
-  choiceCardClassName,
-  choiceCardContentClassName,
-  choiceCardFormFieldsClassName,
-  choiceCardFormShellClassName,
-  choiceCardForcedColorsClassName,
-  choiceCardFocusRingClassName,
-  choiceCardHoverClassName,
-  choiceCardMediaAboveClassName,
-  choiceCardMediaClassName,
-  choiceCardRadioClassName,
-  choiceCardRadioEyebrowClassName,
-  choiceCardSelectionShadowClassName,
-  choiceCardSelectionTransition,
-  radioLabelWrappedDisabledClassName,
-  radioRowClassName,
-  radioSelectableHoverClassName,
-} from "@/lib/choice-card-chrome";
 
 const RADIO_RING_TRANSITION =
   "transition-[box-shadow] duration-[var(--duration-100)] ease-out-expo motion-reduce:transition-none";

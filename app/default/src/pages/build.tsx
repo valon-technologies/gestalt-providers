@@ -5,15 +5,14 @@ import {
   useNavigate,
   useParams,
 } from "@tanstack/react-router";
-import { Badge } from "@/components/Badge";
+import { Badge } from "@/components/ui/badge";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import { InvokeOperationReference } from "@/components/InvokeOperationReference";
 import IntegrationIcon from "@/components/IntegrationIcon";
-import { Link as UiLink } from "@/components/Link";
+import { Link as UiLink } from "@/components/ui/link";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
-  RadioGroup,
-  RadioGroupItem,
   choiceCardClassName,
   choiceCardContentClassName,
   choiceCardFormFieldsClassName,
@@ -22,7 +21,7 @@ import {
   choiceCardRadioClassName,
   choiceCardRadioEyebrowClassName,
   radioLabelWrappedDisabledClassName,
-} from "@/components/RadioGroup";
+} from "@/lib/choice-card-chrome";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import { Label } from "@/components/ui/label";
 import {

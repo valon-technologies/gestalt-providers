@@ -1,5 +1,11 @@
 # Porting shared UI kit components
 
+Registry primitives live in `src/components/ui/` (kebab-case filenames matching
+Registry: `badge.tsx`, `link.tsx`, `radio-group.tsx`, `tooltip.tsx`, …).
+Composition recipes that are not standalone components (e.g. choice-card chrome)
+live in `src/lib/`. Console-specific composed UI (`Nav`, `IntegrationCard`,
+`TokenCreateForm`) stays in `src/components/`.
+
 When lifting a shared UI kit control into `src/components/ui/`:
 
 1. **Keep semantic class names** (`bg-accent-subtle`, `text-accent-foreground`,
@@ -41,7 +47,7 @@ Compose labeled controls with `Field` + `FieldLabel` (+ `FieldDescription` /
 ## Choice cards (RadioGroup)
 
 Do not fork tile chrome at call sites. Import helpers from
-`@/lib/choice-card-chrome` (re-exported by `@/components/RadioGroup`):
+`@/lib/choice-card-chrome`. Primitives come from `@/components/ui/radio-group`:
 
 - `choiceCardClassName` + `choiceCardHoverClassName` — simple tiles
 - `choiceCardFormShellClassName` + `choiceCardFormFieldsClassName` — nested fields

@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Link as UiLink } from "@/components/Link";
+import { Link as UiLink } from "@/components/ui/link";
 import { Code } from "@/components/ui/code";
 import {
   HoverCard,

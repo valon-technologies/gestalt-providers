@@ -47,7 +47,7 @@ import {
   Alert,
   AlertDescription,
 } from "@/components/ui/alert";
-import { RadioGroup, RadioGroupItem } from "@/components/RadioGroup";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   CalendarIcon,
   CheckIcon,
