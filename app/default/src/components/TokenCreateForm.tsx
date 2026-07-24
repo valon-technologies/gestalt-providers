@@ -108,7 +108,7 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
           <p className="text-sm font-medium text-gold-800 dark:text-gold-300">
             Copy this token now. It will not be shown again.
           </p>
-          <code className="mt-3 block break-all rounded-sm bg-base-white p-3 font-mono text-sm text-primary border border-alpha dark:bg-surface">
+          <code className="mt-3 block break-all rounded-sm bg-base-white p-3 font-mono text-sm text-foreground border border-alpha dark:bg-surface">
             {plaintext}
           </code>
         </div>

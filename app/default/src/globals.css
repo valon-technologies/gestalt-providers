@@ -118,15 +118,10 @@
 /* The v3 config's per-property color namespaces (textColor / borderColor /
  * backgroundColor extensions) have no v4 theme equivalent — recreated as
  * utilities with the exact same values. */
-@utility text-primary {
-  color: var(--alpha-dark);
-}
-@utility text-secondary {
-  color: color-mix(in oklab, var(--alpha-dark) 80%, transparent);
-}
-@utility text-muted {
-  color: color-mix(in oklab, var(--alpha-dark) 60%, transparent);
-}
+/* Console ink ladder: captions use text-muted-foreground; tertiary chrome
+ * (icons, placeholders) uses text-faint. Do not add text-primary / text-muted /
+ * text-secondary utilities — those names are Registry fill tokens (bg-primary,
+ * bg-muted, bg-secondary) in the second @theme block below. */
 @utility text-faint {
   color: color-mix(in oklab, var(--alpha-dark) 40%, transparent);
 }
@@ -234,9 +229,7 @@
   }
 
   body {
-    /* Page chrome uses the warm surface ramp; --background (paper) stays for
-     * cards, popovers, and explicit bg-background call sites. */
-    @apply bg-surface text-foreground;
+    @apply bg-background text-foreground;
     /* Same body weight as gestalt/docs: Instrument Sans is a variable cut,
      * so 435 renders true; static tenant faces (e.g. KMR 400/700) resolve
      * to 400 per CSS font matching. */
@@ -293,17 +286,17 @@
 
 @layer components {
   .doc-copy {
-    @apply text-base leading-7 text-secondary;
+    @apply text-base leading-7 text-muted-foreground;
   }
 
   .doc-link {
-    @apply text-primary underline decoration-base-300 underline-offset-4 transition-colors duration-150 hover:text-gold-600 dark:decoration-base-600;
+    @apply text-foreground underline decoration-base-300 underline-offset-4 transition-colors duration-150 hover:text-gold-600 dark:decoration-base-600;
   }
 
   /* Code-block shell shared by the Shiki output and its plain <pre>
    * fallback, so layout is identical before and after highlighting. */
   .doc-code pre {
-    @apply overflow-x-auto rounded-xl border border-alpha bg-surface px-4 py-4 pr-12 font-mono text-sm leading-6 text-primary;
+    @apply overflow-x-auto rounded-xl border border-alpha bg-surface px-4 py-4 pr-12 font-mono text-sm leading-6 text-foreground;
   }
 }
 

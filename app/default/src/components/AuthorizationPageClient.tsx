@@ -45,10 +45,10 @@ export default function AuthorizationPageClient() {
         <Container as="main" className="py-12">
           <div className="animate-fade-in-up">
             <span className="label-text">Security</span>
-            <h1 className="mt-2 text-2xl font-heading text-primary">
+            <h1 className="mt-2 text-2xl font-heading text-foreground">
               Authorization
             </h1>
-            <p className="mt-3 max-w-3xl text-sm text-muted">
+            <p className="mt-3 max-w-3xl text-sm text-muted-foreground">
               Create personal API tokens for local tooling, scripts, and
               integrations. These act as your current signed-in identity.
             </p>
@@ -89,7 +89,7 @@ export default function AuthorizationPageClient() {
             />
             <Link
               to="/identities"
-              className="mt-6 inline-flex rounded-md border border-alpha px-4 py-2 text-sm font-medium text-primary transition-colors duration-150 hover:border-alpha-strong hover:bg-base-100 dark:hover:bg-surface-raised"
+              className="mt-6 inline-flex rounded-md border border-alpha px-4 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:border-alpha-strong hover:bg-base-100 dark:hover:bg-surface-raised"
             >
               Manage identities
             </Link>
@@ -112,8 +112,8 @@ function AuthorizationSectionIntro({
   return (
     <div>
       <span className="label-text">{eyebrow}</span>
-      <h2 className="mt-2 text-xl font-heading text-primary">{title}</h2>
-      <p className="mt-2 max-w-3xl text-sm text-muted">{description}</p>
+      <h2 className="mt-2 text-xl font-heading text-foreground">{title}</h2>
+      <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{description}</p>
     </div>
   );
 }

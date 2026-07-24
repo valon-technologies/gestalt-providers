@@ -52,7 +52,7 @@ export function PublishedVersionDetail({
 
   return (
     <div
-      className="space-y-2 text-sm text-muted"
+      className="space-y-2 text-sm text-muted-foreground"
       data-testid="published-version-detail"
     >
       <p data-testid="published-version-summary">

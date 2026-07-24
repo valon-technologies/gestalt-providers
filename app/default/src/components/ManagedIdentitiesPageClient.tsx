@@ -124,15 +124,15 @@ export default function ManagedIdentitiesPageClient() {
             <div className="mx-auto max-w-3xl">
               <div className="animate-fade-in-up">
                 <span className="label-text">Workspace</span>
-                <h1 className="mt-2 text-2xl font-heading text-primary">
+                <h1 className="mt-2 text-2xl font-heading text-foreground">
                   Agent Identities
                 </h1>
-                <p className="mt-4 text-sm text-muted">
+                <p className="mt-4 text-sm text-muted-foreground">
                   Managed identities require platform auth and are unavailable when auth is disabled.
                 </p>
                 <Link
                   to="/"
-                  className="mt-6 inline-flex text-sm text-muted transition-colors duration-150 hover:text-primary"
+                  className="mt-6 inline-flex text-sm text-muted-foreground transition-colors duration-150 hover:text-foreground"
                 >
                   &larr; Back to dashboard
                 </Link>
@@ -145,10 +145,10 @@ export default function ManagedIdentitiesPageClient() {
           <Container as="main" className="py-12">
             <div className="animate-fade-in-up">
               <span className="label-text">Workspace</span>
-              <h1 className="mt-2 text-2xl font-heading text-primary">
+              <h1 className="mt-2 text-2xl font-heading text-foreground">
                 Agent Identities
               </h1>
-              <p className="mt-2 text-sm text-muted">
+              <p className="mt-2 text-sm text-muted-foreground">
                 Create and manage shared non-human identities for tokens and app authorization.
               </p>
             </div>
@@ -198,7 +198,7 @@ export default function ManagedIdentitiesPageClient() {
                       setIdentityIDEdited(true);
                       setIdentityLocalID(event.target.value);
                     }}
-                    className="min-w-0 flex-1 bg-transparent px-4 py-3 text-primary placeholder:text-faint focus:outline-hidden"
+                    className="min-w-0 flex-1 bg-transparent px-4 py-3 text-foreground placeholder:text-faint focus:outline-hidden"
                   />
                 </div>
                 <p className="mt-2 text-xs text-faint">

@@ -593,15 +593,15 @@ export default function AgentsPage() {
         >
           <h1 className="sr-only">Agent Sessions</h1>
           <div className="flex items-center justify-between border-b border-alpha px-5 py-2.5">
-            <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.22em] text-muted">
+            <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
               <span className="tui-glyph text-grove-600 dark:text-grove-200">●</span>
               <span>agents</span>
               <span className="text-faint">/</span>
-              <span className="text-primary">sessions</span>
+              <span className="text-foreground">sessions</span>
               {selectedSession ? (
                 <>
                   <span className="text-faint">/</span>
-                  <span className="truncate text-primary">
+                  <span className="truncate text-foreground">
                     {selectedSession.clientRef || sessionShortID}
                   </span>
                 </>
@@ -611,14 +611,14 @@ export default function AgentsPage() {
               <button
                 type="button"
                 onClick={() => selectSession(null)}
-                className="rounded-sm border border-alpha bg-transparent px-2.5 py-1 uppercase tracking-[0.16em] text-muted transition-colors duration-150 hover:border-alpha-strong hover:text-primary"
+                className="rounded-sm border border-alpha bg-transparent px-2.5 py-1 uppercase tracking-[0.16em] text-muted-foreground transition-colors duration-150 hover:border-alpha-strong hover:text-foreground"
               >
                 + new
               </button>
               <button
                 type="button"
                 onClick={() => setRefreshNonce((value) => value + 1)}
-                className="rounded-sm border border-alpha bg-transparent px-2.5 py-1 uppercase tracking-[0.16em] text-muted transition-colors duration-150 hover:border-alpha-strong hover:text-primary"
+                className="rounded-sm border border-alpha bg-transparent px-2.5 py-1 uppercase tracking-[0.16em] text-muted-foreground transition-colors duration-150 hover:border-alpha-strong hover:text-foreground"
               >
                 {refreshing ? "↻ refreshing" : "↻ refresh"}
               </button>
@@ -722,7 +722,7 @@ export default function AgentsPage() {
             </div>
           )}
 
-          <div className="flex items-center justify-between border-t border-alpha px-5 py-2 font-mono text-[11px] text-muted">
+          <div className="flex items-center justify-between border-t border-alpha px-5 py-2 font-mono text-[11px] text-muted-foreground">
             <div className="flex items-center gap-3">
               <span
                 className={`tui-glyph ${footerStatusColor(footerStatus)}${turnLive ? " tui-pulse" : ""}`}
@@ -828,13 +828,13 @@ function SessionSidebar({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="filter sessions…"
-              className="w-full bg-transparent text-primary outline-hidden placeholder:text-faint"
+              className="w-full bg-transparent text-foreground outline-hidden placeholder:text-faint"
             />
           </div>
           <select
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value)}
-            className="w-full border border-alpha bg-background/50 px-2 py-1.5 font-mono text-xs uppercase tracking-[0.16em] text-muted outline-hidden transition-colors duration-150 focus:border-alpha-strong"
+            className="w-full border border-alpha bg-background/50 px-2 py-1.5 font-mono text-xs uppercase tracking-[0.16em] text-muted-foreground outline-hidden transition-colors duration-150 focus:border-alpha-strong"
           >
             <option value="all">all states</option>
             <option value="active">active</option>
@@ -866,13 +866,13 @@ function SessionSidebar({
                 onClick={() => onSelect(session.id)}
                 className={`relative flex w-full items-start gap-2.5 px-4 py-2 text-left font-mono transition-colors duration-150 ${
                   active
-                    ? "bg-alpha-10 text-primary before:absolute before:left-0 before:top-0 before:h-full before:w-[2px] before:bg-grove-500 dark:before:bg-grove-200"
-                    : "text-muted hover:bg-alpha-5"
+                    ? "bg-alpha-10 text-foreground before:absolute before:left-0 before:top-0 before:h-full before:w-[2px] before:bg-grove-500 dark:before:bg-grove-200"
+                    : "text-muted-foreground hover:bg-alpha-5"
                 }`}
               >
                 <span className={`tui-glyph mt-1 text-[10px] ${dotClass}`}>●</span>
                 <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-sm text-primary">
+                  <span className="truncate text-sm text-foreground">
                     {session.clientRef || shortID}
                   </span>
                   <span className="truncate text-[11px] text-faint">
@@ -924,11 +924,11 @@ function ConsoleHeader({
       <div className="flex flex-wrap items-center gap-3 font-mono text-xs">
         <span className="tui-section-label">session</span>
         <span className="tui-glyph text-faint">›</span>
-        <h2 className="truncate text-sm font-normal text-primary">
+        <h2 className="truncate text-sm font-normal text-foreground">
           {session?.clientRef || session?.id?.slice(0, 8) || "new"}
         </h2>
         <span className="text-faint">·</span>
-        <span className="text-muted">
+        <span className="text-muted-foreground">
           {session ? `${session.provider || "default"} / ${session.model || "—"}` : "first message creates a cloud session"}
         </span>
         <div className="ml-auto flex items-center gap-2">
@@ -959,8 +959,8 @@ function ConsoleHeader({
                 onClick={() => onSelectTurn(item.id)}
                 className={`flex shrink-0 items-center gap-2 border px-2 py-1 text-left transition-colors duration-150 ${
                   active
-                    ? "border-alpha-strong bg-alpha-10 text-primary"
-                    : "border-alpha text-muted hover:border-alpha-strong hover:text-primary"
+                    ? "border-alpha-strong bg-alpha-10 text-foreground"
+                    : "border-alpha text-muted-foreground hover:border-alpha-strong hover:text-foreground"
                 }`}
               >
                 <span
@@ -1074,7 +1074,7 @@ function ThinkingRow() {
         <div className="flex items-center gap-2">
           <span className="tui-section-label">thinking</span>
         </div>
-        <p className="mt-1 tui-thinking-dots font-mono text-sm text-muted">
+        <p className="mt-1 tui-thinking-dots font-mono text-sm text-muted-foreground">
           <span>●</span>
           <span>●</span>
           <span>●</span>
@@ -1099,7 +1099,7 @@ function TranscriptBubble({ item }: { item: TranscriptItem }) {
             <span className="ml-auto tui-status-line text-sky-500">streaming</span>
           ) : null}
         </div>
-        <pre className="mt-1.5 whitespace-pre-wrap break-words font-mono text-sm leading-6 text-primary">
+        <pre className="mt-1.5 whitespace-pre-wrap break-words font-mono text-sm leading-6 text-foreground">
           {item.text}
         </pre>
       </div>
@@ -1126,8 +1126,8 @@ function TranscriptBubble({ item }: { item: TranscriptItem }) {
     item.kind === "error"
       ? "text-ember-500"
       : item.kind === "system" || item.kind === "event"
-        ? "text-muted"
-        : "text-primary";
+        ? "text-muted-foreground"
+        : "text-foreground";
 
   const isStreamingAssistant = item.kind === "assistant" && Boolean(item.streaming);
 
@@ -1174,7 +1174,7 @@ function ToolTranscriptCard({ item }: { item: TranscriptItem }) {
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-sm text-primary">{item.title}</span>
+          <span className="font-mono text-sm text-foreground">{item.title}</span>
           <span className="tui-status-line">
             {event?.seq ? `#${event.seq} ` : ""}
             {phase || "tool"}
@@ -1185,7 +1185,7 @@ function ToolTranscriptCard({ item }: { item: TranscriptItem }) {
         </div>
 
         {showSummary ? (
-          <pre className="mt-1 whitespace-pre-wrap break-words font-sans text-sm leading-6 text-muted">
+          <pre className="mt-1 whitespace-pre-wrap break-words font-sans text-sm leading-6 text-muted-foreground">
             {item.text}
           </pre>
         ) : null}
@@ -1243,13 +1243,13 @@ function TranscriptDetail({
 }) {
   return (
     <details className="block">
-      <summary className="cursor-pointer list-none font-mono text-[11px] uppercase tracking-[0.14em] text-faint hover:text-muted">
+      <summary className="cursor-pointer list-none font-mono text-[11px] uppercase tracking-[0.14em] text-faint hover:text-muted-foreground">
         <span className="tui-glyph mr-1">{glyph}</span>
         {label}
       </summary>
       <pre
         className={`ml-4 mt-1 max-h-56 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 font-mono text-[11px] leading-5 ${
-          muted ? "text-muted" : "text-primary"
+          muted ? "text-muted-foreground" : "text-foreground"
         }`}
       >
         {value}
@@ -1278,7 +1278,7 @@ function InteractionPanel({
 
   return (
     <section className="mt-5 rounded-md border border-alpha bg-alpha-5 p-4">
-      <h3 className="text-sm font-medium text-primary">Waiting For Input</h3>
+      <h3 className="text-sm font-medium text-foreground">Waiting For Input</h3>
       <div className="mt-4 space-y-4">
         {interactions.map((interaction) => {
           const resolving = resolvingID === interaction.id;
@@ -1303,7 +1303,7 @@ function InteractionPanel({
                     onClick={() =>
                       void onResolve(interaction, { approved: false })
                     }
-                    className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-surface"
+                    className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-foreground transition-colors duration-150 hover:bg-alpha-5 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-surface"
                   >
                     Reject
                   </button>
@@ -1338,7 +1338,7 @@ function InteractionPanel({
                       [interaction.id]: event.target.value,
                     }))
                   }
-                  className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-hidden transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+                  className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-foreground outline-hidden transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
                 />
                 <button
                   type="submit"
@@ -1380,7 +1380,7 @@ function InteractionPanel({
                   }))
                 }
                 rows={4}
-                className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 font-mono text-sm text-primary outline-hidden transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+                className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 font-mono text-sm text-foreground outline-hidden transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
               />
               <button
                 type="submit"
@@ -1400,11 +1400,11 @@ function InteractionPanel({
 function InteractionPrompt({ interaction }: { interaction: AgentInteraction }) {
   return (
     <div>
-      <p className="text-sm font-medium text-primary">
+      <p className="text-sm font-medium text-foreground">
         {interaction.title || interaction.type || "Interaction"}
       </p>
       {interaction.prompt ? (
-        <p className="mt-1 whitespace-pre-wrap text-sm text-muted">
+        <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
           {interaction.prompt}
         </p>
       ) : null}
@@ -1475,7 +1475,7 @@ function AgentComposer({
               rows={3}
               required
               placeholder="Message agent..."
-              className="min-h-24 w-full resize-y border-0 bg-transparent p-0 font-mono text-sm leading-6 text-primary outline-hidden placeholder:text-faint"
+              className="min-h-24 w-full resize-y border-0 bg-transparent p-0 font-mono text-sm leading-6 text-foreground outline-hidden placeholder:text-faint"
             />
           </label>
 
@@ -1483,7 +1483,7 @@ function AgentComposer({
             <button
               type="submit"
               disabled={submitting}
-              className="shrink-0 border border-alpha bg-transparent px-3 py-1 font-mono text-[11px] uppercase tracking-[0.18em] text-primary transition-colors duration-150 hover:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60"
+              className="shrink-0 border border-alpha bg-transparent px-3 py-1 font-mono text-[11px] uppercase tracking-[0.18em] text-foreground transition-colors duration-150 hover:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60"
             >
               {submitting ? "↵ sending…" : "↵ send turn"}
             </button>
@@ -1527,7 +1527,7 @@ function AgentComposer({
             rows={4}
             required
             placeholder="Message agent…"
-            className="min-h-28 w-full resize-y border-0 bg-transparent p-0 font-mono text-sm leading-6 text-primary outline-hidden placeholder:text-faint"
+            className="min-h-28 w-full resize-y border-0 bg-transparent p-0 font-mono text-sm leading-6 text-foreground outline-hidden placeholder:text-faint"
           />
         </label>
         <div className="mt-3 flex items-center justify-between border-t border-alpha pt-3 font-mono text-[11px] text-faint">
@@ -1535,7 +1535,7 @@ function AgentComposer({
           <button
             type="submit"
             disabled={submitting}
-            className="shrink-0 border border-alpha bg-transparent px-3 py-1 uppercase tracking-[0.18em] text-primary transition-colors duration-150 hover:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60"
+            className="shrink-0 border border-alpha bg-transparent px-3 py-1 uppercase tracking-[0.18em] text-foreground transition-colors duration-150 hover:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? "↵ creating…" : "↵ create session"}
           </button>
@@ -1566,7 +1566,7 @@ function ProviderField({
         value={value || providers.find((p) => p.default)?.name || providers[0]?.name || ""}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
-        className="border border-alpha bg-background/50 px-2 py-1 text-xs uppercase tracking-[0.16em] text-primary outline-hidden transition-colors duration-150 focus:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60"
+        className="border border-alpha bg-background/50 px-2 py-1 text-xs uppercase tracking-[0.16em] text-foreground outline-hidden transition-colors duration-150 focus:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60"
       >
         {providers.map((provider) => (
           <option key={provider.name} value={provider.name}>
@@ -1653,7 +1653,7 @@ function ActivityEvent({ event }: { event: AgentTurnEvent }) {
         <div className="flex items-start gap-2 font-mono text-[11px]">
           <span className={`tui-glyph mt-[2px] ${dotClass}`}>●</span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-primary">{title}</p>
+            <p className="truncate text-foreground">{title}</p>
             <p className="tui-status-line">
               #{event.seq} {phase || event.display?.kind || event.source || "event"}
             </p>
@@ -1662,16 +1662,16 @@ function ActivityEvent({ event }: { event: AgentTurnEvent }) {
       </summary>
       <div className="ml-4 mt-1 space-y-1 tui-tree">
         {input ? (
-          <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-primary">
+          <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-foreground">
             {input}
           </pre>
         ) : null}
         {detail ? (
-          <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-primary">
+          <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-foreground">
             {detail}
           </pre>
         ) : null}
-        <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-muted">
+        <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-muted-foreground">
           {JSON.stringify(event, null, 2)}
         </pre>
       </div>
@@ -1736,7 +1736,7 @@ function InspectorRow({
   return (
     <div className="flex items-baseline gap-2">
       <dt className="w-16 shrink-0 uppercase tracking-[0.16em] text-faint">{label}</dt>
-      <dd className="min-w-0 flex-1 truncate text-primary">{value || "—"}</dd>
+      <dd className="min-w-0 flex-1 truncate text-foreground">{value || "—"}</dd>
     </div>
   );
 }
@@ -1752,13 +1752,13 @@ function JsonTextarea({
 }) {
   return (
     <label className="block space-y-2 text-sm">
-      <span className="text-muted">{label}</span>
+      <span className="text-muted-foreground">{label}</span>
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
         rows={3}
         spellCheck={false}
-        className="w-full resize-y rounded-md border border-alpha bg-base-100 px-3 py-2 font-mono text-sm text-primary outline-hidden transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+        className="w-full resize-y rounded-md border border-alpha bg-base-100 px-3 py-2 font-mono text-sm text-foreground outline-hidden transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
       />
     </label>
   );
@@ -1924,7 +1924,7 @@ function statusClassName(status?: string): string {
     case "failed":
       return `${base} border-ember-500/50 text-ember-500`;
     case "canceled":
-      return `${base} border-alpha text-muted`;
+      return `${base} border-alpha text-muted-foreground`;
     case "waiting_for_input":
       return `${base} border-amber-500/40 text-amber-600 dark:text-amber-200`;
     case "pending":

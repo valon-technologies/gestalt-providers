@@ -112,21 +112,21 @@ export default function AppAdminPageClient({ appName }: { appName: string }) {
           <div className="mb-8 animate-fade-in-up">
             <Link
               to={APPS_PATH}
-              className="text-sm text-muted transition-colors hover:text-primary"
+              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
               ← Back to apps
             </Link>
           </div>
 
           {loading ? (
-            <p className="text-sm text-muted">Loading app registry…</p>
+            <p className="text-sm text-muted-foreground">Loading app registry…</p>
           ) : forbidden ? (
             <div
               className="animate-fade-in-up rounded-2xl border border-alpha bg-base-white p-6 dark:bg-surface"
               data-testid="app-admin-access-denied"
             >
-              <h1 className="text-2xl font-heading text-primary">Access denied</h1>
-              <p className="mt-3 text-sm text-muted">
+              <h1 className="text-2xl font-heading text-foreground">Access denied</h1>
+              <p className="mt-3 text-sm text-muted-foreground">
                 You do not have permission to manage this app.
               </p>
             </div>

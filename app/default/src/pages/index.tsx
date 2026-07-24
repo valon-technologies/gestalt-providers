@@ -112,10 +112,10 @@ export default function DashboardPage() {
         <Container as="main" className="py-12">
           <div className="animate-fade-in-up">
             <span className="label-text">Overview</span>
-            <h1 className="mt-2 text-2xl font-heading text-primary">
+            <h1 className="mt-2 text-2xl font-heading text-foreground">
               Dashboard
             </h1>
-            <p className="mt-2 text-sm text-muted">
+            <p className="mt-2 text-sm text-muted-foreground">
               Manage the client-facing app workspace from one place.
             </p>
           </div>
@@ -130,10 +130,10 @@ export default function DashboardPage() {
               className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
             >
               <span className="label-text">Authorization</span>
-              <p className="mt-3 text-3xl font-heading font-bold text-primary">
+              <p className="mt-3 text-3xl font-heading font-bold text-foreground">
                 {data.tokens ?? "--"}
               </p>
-              <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
+              <p className="mt-3 text-sm text-muted-foreground group-hover:text-foreground transition-colors duration-150">
                 Manage API tokens
                 <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
                   &rarr;
@@ -145,10 +145,10 @@ export default function DashboardPage() {
               className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
             >
               <span className="label-text">Apps</span>
-              <p className="mt-3 text-3xl font-heading font-bold text-primary">
+              <p className="mt-3 text-3xl font-heading font-bold text-foreground">
                 {data.integrations ?? "--"}
               </p>
-              <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
+              <p className="mt-3 text-sm text-muted-foreground group-hover:text-foreground transition-colors duration-150">
                 Manage apps
                 <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
                   &rarr;
@@ -160,10 +160,10 @@ export default function DashboardPage() {
               className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
             >
               <span className="label-text">Workflows</span>
-              <p className="mt-3 text-3xl font-heading font-bold text-primary">
+              <p className="mt-3 text-3xl font-heading font-bold text-foreground">
                 {data.workflowResources ?? "--"}
               </p>
-              <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
+              <p className="mt-3 text-sm text-muted-foreground group-hover:text-foreground transition-colors duration-150">
                 Inspect workflow runs
                 <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
                   &rarr;
@@ -176,10 +176,10 @@ export default function DashboardPage() {
                 className="group rounded-lg border border-alpha bg-base-100 p-8 transition-all duration-150 hover:border-alpha-strong hover:shadow-card dark:bg-surface"
               >
                 <span className="label-text">Agents</span>
-                <p className="mt-3 text-3xl font-heading font-bold text-primary">
+                <p className="mt-3 text-3xl font-heading font-bold text-foreground">
                   {data.agentSessions ?? "--"}
                 </p>
-                <p className="mt-3 text-sm text-muted group-hover:text-primary transition-colors duration-150">
+                <p className="mt-3 text-sm text-muted-foreground group-hover:text-foreground transition-colors duration-150">
                   View agent sessions
                   <span className="inline-block ml-1 transition-transform duration-150 group-hover:translate-x-0.5">
                     &rarr;

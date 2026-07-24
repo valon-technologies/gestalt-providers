@@ -63,7 +63,7 @@ export default function PluginSearchBar({
           />
           {trimmedQuery.length > 0 && !disabled && (
             <ComboboxButton
-              className="absolute right-2 top-1/2 z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-faint transition-colors duration-150 hover:bg-alpha-5 hover:text-muted"
+              className="absolute right-2 top-1/2 z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-faint transition-colors duration-150 hover:bg-alpha-5 hover:text-muted-foreground"
               aria-label="Clear app search"
               onMouseDown={(event) => {
                 event.preventDefault();
@@ -92,11 +92,11 @@ export default function PluginSearchBar({
                       value={integration}
                       className="cursor-pointer rounded-md px-3 py-2 transition-colors duration-150 data-[focus]:bg-base-100 dark:data-[focus]:bg-surface-raised"
                     >
-                      <div className="text-sm font-medium text-primary">
+                      <div className="text-sm font-medium text-foreground">
                         {label}
                       </div>
                       {secondaryText && (
-                        <div className="mt-0.5 text-xs text-muted">
+                        <div className="mt-0.5 text-xs text-muted-foreground">
                           {secondaryText}
                         </div>
                       )}
@@ -104,7 +104,7 @@ export default function PluginSearchBar({
                   );
                 })
               ) : (
-                <div className="px-3 py-2 text-sm text-muted">
+                <div className="px-3 py-2 text-sm text-muted-foreground">
                   No matching apps.
                 </div>
               )}
