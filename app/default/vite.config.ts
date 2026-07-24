@@ -23,12 +23,25 @@ const themeTarget = devThemeSource
   ? path.resolve(devThemeMirror)
   : path.resolve(projectDir, "src/theme.stub.css");
 
+// Local/prod-dev: browser stays same-origin; Vite forwards `/api` to the stack
+// cookie-proxy (GESTALT_API_PROXY_TARGET). Never bake an API origin into bundles.
+const apiOrigin =
+  process.env.GESTALT_API_PROXY_TARGET?.trim() || "http://127.0.0.1:8080";
+
 export default defineConfig({
   plugins: [react(), tailwindcss(), gestalt()],
   resolve: {
     alias: {
       "@": path.resolve(projectDir, "src"),
       "@theme.css": themeTarget,
+    },
+  },
+  server: {
+    proxy: {
+      "/api": {
+        target: apiOrigin.replace(/\/+$/, ""),
+        changeOrigin: true,
+      },
     },
   },
 });
