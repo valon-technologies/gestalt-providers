@@ -12,6 +12,7 @@ from typing import Any
 
 import gestalt
 
+from .cached_client import CachingGitHubClient
 from .client import (
     DEFAULT_GITHUB_CLIENT,
     GitHubAPIClient,
@@ -3591,7 +3592,19 @@ def bounded_connection_size(
 
 
 def github_client(client: GitHubAPIClient | None) -> GitHubAPIClient:
-    return client if client is not None else DEFAULT_GITHUB_CLIENT
+    if client is not None:
+        return client
+    config = get_github_config()
+    if not config.cache_enabled:
+        return DEFAULT_GITHUB_CLIENT
+    return CachingGitHubClient(
+        DEFAULT_GITHUB_CLIENT,
+        provider_name=config.provider_name,
+        app_id=config.app_id,
+        api_base_url=config.api_base_url,
+        ttl_seconds=config.cache_ttl_seconds,
+        search_pull_requests_query=SEARCH_PULL_REQUESTS_QUERY,
+    )
 
 
 def _compact_dict(value: dict[str, Any]) -> dict[str, Any]:
