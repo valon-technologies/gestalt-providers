@@ -6,13 +6,16 @@ import {
   readStoredApiToken,
   readStoredSelectedTokenId,
   readStoredTokenName,
+  readStoredInstallAgent,
   writeActiveExemplarId,
   writeIntroSeenFlag,
   writeMcpInstalledFlag,
   writeStoredApiToken,
   writeStoredSelectedTokenId,
   writeStoredTokenName,
+  writeStoredInstallAgent,
   type BuildExemplarId,
+  type BuildInstallAgentId,
 } from "@/lib/buildPaths";
 
 export type BuildSession = {
@@ -22,6 +25,8 @@ export type BuildSession = {
   setTokenName: (name: string) => void;
   selectedTokenId: string;
   setSelectedTokenId: (id: string) => void;
+  selectedInstallAgent: BuildInstallAgentId | "";
+  setSelectedInstallAgent: (id: BuildInstallAgentId | "") => void;
   mcpInstalled: boolean;
   markMcpInstalled: () => void;
   activeExemplarId: BuildExemplarId;
@@ -37,6 +42,9 @@ export function useBuildSession(): BuildSession {
   const [selectedTokenId, setSelectedTokenIdState] = useState(
     readStoredSelectedTokenId,
   );
+  const [selectedInstallAgent, setSelectedInstallAgentState] = useState<
+    BuildInstallAgentId | ""
+  >(readStoredInstallAgent);
   const [mcpInstalled, setMcpInstalled] = useState(readMcpInstalledFlag);
   const [activeExemplarId, setActiveExemplarIdState] =
     useState(readActiveExemplarId);
@@ -55,6 +63,11 @@ export function useBuildSession(): BuildSession {
   const setSelectedTokenId = useCallback((id: string) => {
     writeStoredSelectedTokenId(id);
     setSelectedTokenIdState(id);
+  }, []);
+
+  const setSelectedInstallAgent = useCallback((id: BuildInstallAgentId | "") => {
+    writeStoredInstallAgent(id);
+    setSelectedInstallAgentState(id);
   }, []);
 
   const markMcpInstalled = useCallback(() => {
@@ -79,6 +92,8 @@ export function useBuildSession(): BuildSession {
     setTokenName,
     selectedTokenId,
     setSelectedTokenId,
+    selectedInstallAgent,
+    setSelectedInstallAgent,
     mcpInstalled,
     markMcpInstalled,
     activeExemplarId,

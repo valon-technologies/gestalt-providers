@@ -108,6 +108,7 @@ export interface APIToken {
   permissions?: AccessPermission[];
   createdAt: string;
   expiresAt?: string;
+  lastUsedAt?: string;
 }
 
 export interface CreateTokenResponse {
@@ -352,8 +353,10 @@ type IdentityGetGrantResponse = {
   scopes?: IdentityGrantScope[];
   createdAt?: string | number;
   expiresAt?: string | number;
+  lastUsedAt?: string | number;
   created_at?: string | number;
   expires_at?: string | number;
+  last_used_at?: string | number;
   name?: string;
 };
 
@@ -385,6 +388,9 @@ function apiTokenFromGrant(
     .filter((scope): scope is string => Boolean(scope));
   const createdAt = grantUnixToIso(detail.createdAt ?? detail.created_at) ?? "";
   const expiresAt = grantUnixToIso(detail.expiresAt ?? detail.expires_at);
+  const lastUsedAt = grantUnixToIso(
+    detail.lastUsedAt ?? detail.last_used_at,
+  );
   const name = detail.name?.trim();
   return {
     id,
@@ -392,6 +398,7 @@ function apiTokenFromGrant(
     scopes,
     createdAt,
     ...(expiresAt ? { expiresAt } : {}),
+    ...(lastUsedAt ? { lastUsedAt } : {}),
   };
 }
 

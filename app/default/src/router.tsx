@@ -112,15 +112,22 @@ const appAdminRoute = createRoute({
   path: "/apps/$appName",
   validateSearch: (search: Record<string, unknown>): {
     section?: AppAdminSectionSearch;
+    operation?: string;
   } => {
     const raw = search.section;
+    let section: AppAdminSectionSearch | undefined;
     if (
       typeof raw === "string" &&
       (APP_ADMIN_SECTIONS as readonly string[]).includes(raw)
     ) {
-      return { section: raw as AppAdminSectionSearch };
+      section = raw as AppAdminSectionSearch;
     }
-    return {};
+    const operationRaw = search.operation;
+    const operation =
+      typeof operationRaw === "string" && operationRaw.trim()
+        ? operationRaw.trim()
+        : undefined;
+    return { section, operation };
   },
   component: AppAdminPage,
 });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
   Navigate,
@@ -8,6 +8,7 @@ import {
 import { Badge } from "@/components/Badge";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
+import { InvokeOperationReference } from "@/components/InvokeOperationReference";
 import IntegrationIcon from "@/components/IntegrationIcon";
 import { Link as UiLink } from "@/components/Link";
 import { RadioGroup, RadioGroupItem, choiceCardClassName } from "@/components/RadioGroup";
@@ -18,33 +19,24 @@ import {
   PageHeaderContent,
   PageHeaderDescription,
   PageHeaderTitle,
+  pageHeaderTitleVariants,
 } from "@/components/ui/page-header";
-import {
-  SectionHeader,
-  SectionHeaderContent,
-  SectionHeaderDescription,
-  SectionHeaderTitle,
-} from "@/components/ui/section-header";
-import { CodeBlock, LanguageTabsCodeBlock } from "@/components/ui/code-block";
-import { Code } from "@/components/ui/code";
+import { Separator } from "@/components/ui/separator";
+import { CodeBlock } from "@/components/ui/code-block";
+import { CopyableCode } from "@/components/ui/copyable-code";
 import { cardVariants } from "@/components/ui/card";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupInput,
-} from "@/components/ui/input-group";
-import {
-  Field,
-  FieldDescription,
-  FieldLabel,
-} from "@/components/ui/field";
 import {
   Stepper,
   StepperIndicator,
@@ -76,15 +68,13 @@ import {
   AgentConsoleWindowTitle,
   type AgentConsoleTheme,
 } from "@/components/ui/agent-console";
-import TokenCreateForm from "@/components/TokenCreateForm";
+import TokenCreateForm, {
+  type TokenCreateFormHandle,
+} from "@/components/TokenCreateForm";
 import {
-  CheckIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  CopyIcon,
-  EyeIcon,
-  EyeOffIcon,
 } from "@/components/icons";
 import { useBuildSession } from "@/hooks/use-build-session";
 import { useDocumentTitle } from "@/hooks/use-document-title";
@@ -100,6 +90,8 @@ import {
 } from "@/lib/api";
 import {
   BUILD_CREATE_NEW_TOKEN_ID,
+  BUILD_USE_EXISTING_TOKEN_ID,
+  buildInstallAgentSelected,
   BUILD_EXEMPLARS,
   BUILD_STEPS,
   buildAuthorizeSelectionReady,
@@ -112,6 +104,7 @@ import {
   resolveExemplarOpenPath,
   type BuildExemplar,
   type BuildExemplarId,
+  type BuildInstallAgentId,
   type BuildStep,
   type BuildStepId,
   type BuildWorkspaceSnapshot,
@@ -279,6 +272,8 @@ export default function BuildStepPage() {
           onTokenName={session.setTokenName}
           selectedTokenId={session.selectedTokenId}
           onSelectedTokenId={session.setSelectedTokenId}
+          selectedInstallAgent={session.selectedInstallAgent}
+          onSelectedInstallAgent={session.setSelectedInstallAgent}
           onRefreshTokens={refreshTokens}
           onMarkMcpInstalled={session.markMcpInstalled}
           onMarkIntroSeen={session.markIntroSeen}
@@ -709,9 +704,13 @@ function IntroStepActions({
 
 function McpInstallPanel({
   apiToken,
+  selectedAgent,
+  onSelectedAgent,
   onMarkMcpInstalled,
 }: {
   apiToken: string;
+  selectedAgent: BuildInstallAgentId | "";
+  onSelectedAgent: (id: BuildInstallAgentId) => void;
   onMarkMcpInstalled: () => void;
 }) {
   const mcpBase = gestaltMcpBaseUrl();
@@ -741,84 +740,172 @@ function McpInstallPanel({
 codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
 
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        Install Gestalt in your AI client. See{" "}
-        <UiLink asChild className="text-sm">
-          <Link to={`${DOCS_PATH}/mcp`}>Use with MCP</Link>
-        </UiLink>{" "}
-        for full setup notes.
-      </p>
-
-      <div className="space-y-3">
-        <p className="text-sm text-muted-foreground">
-          In Cursor, one-click install adds this workspace as an MCP server
-          using your API token.
-        </p>
-        {cursorInstallHref ? (
-          <Button asChild>
-            <a
-              href={cursorInstallHref}
-              data-testid="build-add-to-cursor"
-              onClick={() => onMarkMcpInstalled()}
-            >
-              Add to Cursor
-            </a>
-          </Button>
-        ) : (
-          <Button type="button" disabled data-testid="build-add-to-cursor">
-            Add to Cursor
-          </Button>
-        )}
-        <details
-          className="group rounded-md border border-alpha bg-base-white dark:bg-surface"
-          data-testid="build-cursor-manual-config"
+    <div className="max-w-xl">
+      <RadioGroup
+        value={selectedAgent || undefined}
+        onValueChange={(value) => onSelectedAgent(value as BuildInstallAgentId)}
+        className="flex flex-col gap-2"
+        data-testid="build-install-radio"
+        aria-label="Choose how to install Gestalt"
+      >
+        <Label
+          htmlFor="build-install-cursor"
+          className={cn(choiceCardClassName)}
         >
-          <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">
-            <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform duration-hover-out ease-out-quart group-open:rotate-180" />
-            <span>
-              Or paste into{" "}
-              <code className="font-mono text-xs">.cursor/mcp.json</code>
-            </span>
-          </summary>
-          <div className="space-y-2 border-t border-alpha px-3 py-3">
-            <p className="text-sm text-muted-foreground">
-              Skip one-click and add this MCP server block to your project’s
-              Cursor config, then reload MCP in Cursor.
-            </p>
-            <CodeBlock
-              code={cursorConfig}
-              language="json"
-              filename=".cursor/mcp.json"
-            />
-          </div>
-        </details>
-      </div>
+          <RadioGroupItem
+            value="cursor"
+            id="build-install-cursor"
+            className="absolute end-3 top-3"
+            aria-label="Cursor"
+          />
+          <span
+            data-choice-title
+            className="text-sm font-medium text-foreground"
+          >
+            Cursor
+          </span>
+          <Collapsible open={selectedAgent === "cursor"}>
+            <CollapsibleContent className="space-y-3 pt-3">
+              <p className="text-sm text-muted-foreground">
+                One-click install adds this workspace as an MCP server using your
+                API token.
+              </p>
+              {cursorInstallHref ? (
+                <Button asChild>
+                  <a
+                    href={cursorInstallHref}
+                    data-testid="build-add-to-cursor"
+                    onClick={() => onMarkMcpInstalled()}
+                  >
+                    Add to Cursor
+                  </a>
+                </Button>
+              ) : (
+                <Button type="button" disabled data-testid="build-add-to-cursor">
+                  Add to Cursor
+                </Button>
+              )}
+              <details
+                className="group rounded-md border border-alpha bg-base-white dark:bg-surface"
+                data-testid="build-cursor-manual-config"
+              >
+                <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium text-foreground marker:content-none [&::-webkit-details-marker]:hidden">
+                  <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform duration-hover-out ease-out-quart group-open:rotate-180" />
+                  <span>
+                    Or paste into{" "}
+                    <code className="font-mono text-xs">.cursor/mcp.json</code>
+                  </span>
+                </summary>
+                <div className="space-y-2 border-t border-alpha px-3 py-3">
+                  <p className="text-sm text-muted-foreground">
+                    Skip one-click and add this MCP server block to your
+                    project’s Cursor config, then reload MCP in Cursor.
+                  </p>
+                  <CodeBlock
+                    code={cursorConfig}
+                    language="json"
+                    filename=".cursor/mcp.json"
+                  />
+                </div>
+              </details>
+            </CollapsibleContent>
+          </Collapsible>
+        </Label>
 
-      {/* Registry LanguageTabsCodeBlock — Tabs over syntax fence; do not fork. */}
-      <div className="space-y-2" data-testid="build-mcp-install-tabs">
-        <p className="text-sm text-muted-foreground">
-          Or copy a snippet for Claude Code or Codex:
-        </p>
-        <LanguageTabsCodeBlock
-          tabs={[
-            {
-              id: "claude",
-              label: "Claude Code",
-              filename: "Terminal",
-              language: "bash",
-              code: claudeCommand,
-            },
-            {
-              id: "codex",
-              label: "Codex",
-              filename: "Terminal",
-              language: "bash",
-              code: codexCommand,
-            },
-          ]}
-        />
-      </div>
+        <Label
+          htmlFor="build-install-claude"
+          className={cn(choiceCardClassName)}
+        >
+          <RadioGroupItem
+            value="claude"
+            id="build-install-claude"
+            className="absolute end-3 top-3"
+            aria-label="Claude Code"
+          />
+          <span
+            data-choice-title
+            className="text-sm font-medium text-foreground"
+          >
+            Claude Code
+          </span>
+          <Collapsible open={selectedAgent === "claude"}>
+            <CollapsibleContent
+              className="pt-3"
+              data-testid="build-install-claude-snippet"
+            >
+              <CodeBlock
+                code={claudeCommand}
+                language="bash"
+                filename="Terminal"
+              />
+            </CollapsibleContent>
+          </Collapsible>
+        </Label>
+
+        <Label
+          htmlFor="build-install-codex"
+          className={cn(choiceCardClassName)}
+        >
+          <RadioGroupItem
+            value="codex"
+            id="build-install-codex"
+            className="absolute end-3 top-3"
+            aria-label="Codex"
+          />
+          <span
+            data-choice-title
+            className="text-sm font-medium text-foreground"
+          >
+            Codex
+          </span>
+          <Collapsible open={selectedAgent === "codex"}>
+            <CollapsibleContent
+              className="pt-3"
+              data-testid="build-install-codex-snippet"
+            >
+              <CodeBlock
+                code={codexCommand}
+                language="bash"
+                filename="Terminal"
+              />
+            </CollapsibleContent>
+          </Collapsible>
+        </Label>
+
+        <Label
+          htmlFor="build-install-other"
+          className={cn(choiceCardClassName)}
+        >
+          <RadioGroupItem
+            value="other"
+            id="build-install-other"
+            className="absolute end-3 top-3"
+            aria-label="Using a different agent?"
+          />
+          <span
+            data-choice-title
+            className="text-sm font-medium text-foreground"
+          >
+            Using a different agent?
+          </span>
+          <Collapsible open={selectedAgent === "other"}>
+            <CollapsibleContent className="pt-3">
+              <p className="text-sm text-muted-foreground">
+                Point any HTTP MCP client at{" "}
+                <code className="font-mono text-xs">{mcpUrl}</code> with{" "}
+                <code className="font-mono text-xs">
+                  Authorization: Bearer {tokenForSnippets}
+                </code>
+                . See{" "}
+                <UiLink asChild className="text-sm">
+                  <Link to={`${DOCS_PATH}/mcp`}>Use with MCP</Link>
+                </UiLink>{" "}
+                for full setup notes.
+              </p>
+            </CollapsibleContent>
+          </Collapsible>
+        </Label>
+      </RadioGroup>
     </div>
   );
 }
@@ -839,6 +926,8 @@ function BuildStepPanel({
   onTokenName,
   selectedTokenId,
   onSelectedTokenId,
+  selectedInstallAgent,
+  onSelectedInstallAgent,
   onRefreshTokens,
   onMarkMcpInstalled,
   onMarkIntroSeen,
@@ -859,6 +948,8 @@ function BuildStepPanel({
   onTokenName: (name: string) => void;
   selectedTokenId: string;
   onSelectedTokenId: (id: string) => void;
+  selectedInstallAgent: BuildInstallAgentId | "";
+  onSelectedInstallAgent: (id: BuildInstallAgentId | "") => void;
   onRefreshTokens: () => void | Promise<void>;
   onMarkMcpInstalled: () => void;
   onMarkIntroSeen: () => void;
@@ -867,8 +958,28 @@ function BuildStepPanel({
   const authorizeReady = buildAuthorizeSelectionReady({
     apiToken,
     selectedTokenId,
+    tokenName,
     tokens,
   });
+  const installReady = buildInstallAgentSelected(selectedInstallAgent);
+  const tokenCreateFormRef = useRef<TokenCreateFormHandle>(null);
+
+  async function handleAuthorizeNext(id: BuildStepId) {
+    if (
+      step.id === "authorize" &&
+      selectedTokenId === BUILD_CREATE_NEW_TOKEN_ID &&
+      !apiToken.trim()
+    ) {
+      const created = (await tokenCreateFormRef.current?.create()) ?? false;
+      if (!created) return;
+    }
+    if (step.id === "install") {
+      const from = BUILD_STEPS.findIndex((s) => s.id === step.id);
+      const to = BUILD_STEPS.findIndex((s) => s.id === id);
+      if (to > from) onMarkMcpInstalled();
+    }
+    onGoToStep(id);
+  }
 
   return (
     <section
@@ -895,21 +1006,21 @@ function BuildStepPanel({
           description={step.description}
           tokens={tokens}
           tokensLoaded={tokensReady}
-          integrations={integrations}
-          apiToken={apiToken}
-          onApiToken={onApiToken}
           tokenName={tokenName}
           onTokenName={onTokenName}
           selectedTokenId={selectedTokenId}
           onSelectedTokenId={onSelectedTokenId}
+          onApiToken={onApiToken}
           onTokensChanged={onRefreshTokens}
+          createFormRef={tokenCreateFormRef}
         />
       ) : null}
 
       {step.id === "install" ? (
         <InstallStepActions
           apiToken={apiToken}
-          onApiToken={onApiToken}
+          selectedInstallAgent={selectedInstallAgent}
+          onSelectedInstallAgent={onSelectedInstallAgent}
           onMarkMcpInstalled={onMarkMcpInstalled}
         />
       ) : null}
@@ -934,15 +1045,16 @@ function BuildStepPanel({
         <BuildStepPager
           stepId={step.id}
           onGoToStep={(id) => {
-            if (step.id === "install") {
-              const from = BUILD_STEPS.findIndex((s) => s.id === step.id);
-              const to = BUILD_STEPS.findIndex((s) => s.id === id);
-              if (to > from) onMarkMcpInstalled();
-            }
-            onGoToStep(id);
+            void handleAuthorizeNext(id);
           }}
+          terminalNext={
+            step.id === "invoke"
+              ? { label: "See all apps", to: "/apps" }
+              : undefined
+          }
           nextDisabled={
             (step.id === "authorize" && !authorizeReady) ||
+            (step.id === "install" && !installReady) ||
             (step.id === "connect" &&
               activeExemplar.companionAppIds.some(
                 (appId) => !connected.has(appId),
@@ -950,10 +1062,12 @@ function BuildStepPanel({
           }
           nextDisabledTitle={
             step.id === "authorize"
-              ? "Pick an existing token or create a new one before continuing"
-              : step.id === "connect"
-                ? "Connect every required app before continuing"
-                : undefined
+              ? "Pick a token or finish the new token form before continuing"
+              : step.id === "install"
+                ? "Choose how you will install Gestalt before continuing"
+                : step.id === "connect"
+                  ? "Connect every required app before continuing"
+                  : undefined
           }
         />
       ) : null}
@@ -964,11 +1078,14 @@ function BuildStepPanel({
 function BuildStepPager({
   stepId,
   onGoToStep,
+  terminalNext,
   nextDisabled = false,
   nextDisabledTitle,
 }: {
   stepId: BuildStepId;
   onGoToStep: (id: BuildStepId) => void;
+  /** Last-step exit CTA in the Next slot when there is no following build step. */
+  terminalNext?: { label: string; to: string };
   /** When true, the Next control is shown but not actionable. */
   nextDisabled?: boolean;
   nextDisabledTitle?: string;
@@ -979,11 +1096,28 @@ function BuildStepPager({
     index >= 0 && index < BUILD_STEPS.length - 1
       ? BUILD_STEPS[index + 1]
       : null;
-  if (!prev && !next) return null;
+  if (!prev && !next && !terminalNext) return null;
 
   const cardClass =
     // Registry Card solid (bg-secondary ≈ neutral-hover) + Neutral dark hover/press.
     "group flex w-fit max-w-xs flex-col gap-1 rounded-xl bg-neutral-hover px-5 py-5 text-left transition-[background-color] duration-hover-out ease-out-quart hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed focus-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-neutral-hover disabled:active:bg-neutral-hover";
+
+  const nextCardClassName = cn(cardClass, "ms-auto items-end text-right");
+  const nextEyebrow = (
+    <span className="text-2xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+      Next
+    </span>
+  );
+  const nextTitle = (title: string) => (
+    <span className="mt-1 flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground flex-row-reverse">
+      <ChevronRightIcon
+        tight
+        strokeWidth={1.5}
+        className="size-[1ex] shrink-0 text-muted-foreground transition-colors duration-hover-out group-hover:text-foreground"
+      />
+      {title}
+    </span>
+  );
 
   return (
     <nav
@@ -1021,20 +1155,20 @@ function BuildStepPager({
           disabled={nextDisabled}
           aria-disabled={nextDisabled}
           title={nextDisabled ? nextDisabledTitle : undefined}
-          className={cn(cardClass, "ms-auto items-end text-right")}
+          className={nextCardClassName}
         >
-          <span className="text-2xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
-            Next
-          </span>
-          <span className="mt-1 flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground flex-row-reverse">
-            <ChevronRightIcon
-              tight
-              strokeWidth={1.5}
-              className="size-[1ex] shrink-0 text-muted-foreground transition-colors duration-hover-out group-hover:text-foreground"
-            />
-            {next.title}
-          </span>
+          {nextEyebrow}
+          {nextTitle(next.title)}
         </button>
+      ) : terminalNext ? (
+        <Link
+          to={terminalNext.to}
+          data-testid="build-step-next"
+          className={nextCardClassName}
+        >
+          {nextEyebrow}
+          {nextTitle(terminalNext.label)}
+        </Link>
       ) : null}
     </nav>
   );
@@ -1046,30 +1180,77 @@ function tokenChoiceTitle(token: APIToken): string {
   return token.id;
 }
 
-function scopeAppId(scope: string): string {
-  const [appId] = scope.split(":");
-  return appId.trim();
+function tokenAddedOnLabel(createdAt: string): string {
+  const formatted = new Date(createdAt).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  return `Added on ${formatted}`;
 }
 
-function appScopeDisplayName(
-  appId: string,
-  integrations: Integration[],
-): string {
-  const match = integrations.find((item) => item.name === appId);
-  if (match?.displayName?.trim()) return match.displayName.trim();
-  return companionAppLabel(appId);
+function tokenLastUsedLabel(lastUsedAt?: string): string | null {
+  if (!lastUsedAt) return null;
+  const used = new Date(lastUsedAt);
+  if (Number.isNaN(used.getTime())) return null;
+  const elapsed = Date.now() - used.getTime();
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  if (elapsed < weekMs) return "Last used within the last week";
+  const monthMs = 30 * 24 * 60 * 60 * 1000;
+  if (elapsed < monthMs) return "Last used within the last month";
+  const formatted = used.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  return `Last used on ${formatted}`;
 }
 
-function tokenScopeLabel(token: APIToken, integrations: Integration[]): string {
-  if (!token.scopes?.length) return "Scope: all";
-  const labels = [
-    ...new Set(
-      token.scopes.map((scope) =>
-        appScopeDisplayName(scopeAppId(scope), integrations),
-      ),
-    ),
-  ];
-  return `Scope: ${labels.join(", ")}`;
+function tokenRecencyMs(token: APIToken): number {
+  const stamp = token.lastUsedAt ?? token.createdAt;
+  const ms = Date.parse(stamp);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function sortTokensByRecency(tokens: APIToken[]): APIToken[] {
+  return [...tokens].sort((a, b) => tokenRecencyMs(b) - tokenRecencyMs(a));
+}
+
+const BUILD_EXISTING_TOKEN_PREVIEW = 5;
+const BUILD_MORE_TOKENS_ACCORDION_VALUE = "more-tokens";
+
+function ExistingTokenRadioRow({ token }: { token: APIToken }) {
+  const inputId = `build-token-${token.id}`;
+  const created = token.createdAt ? tokenAddedOnLabel(token.createdAt) : null;
+  const lastUsed = tokenLastUsedLabel(token.lastUsedAt);
+
+  return (
+    <label
+      htmlFor={inputId}
+      className="flex cursor-pointer items-start gap-3"
+    >
+      <RadioGroupItem
+        value={token.id}
+        id={inputId}
+        className="mt-0.5"
+        aria-label={token.id}
+      />
+      <span className="min-w-0">
+        <span
+          className="block truncate font-mono text-sm text-foreground"
+          title={token.id}
+        >
+          {token.id}
+        </span>
+        {created ? (
+          <span className="block text-xs text-muted-foreground">{created}</span>
+        ) : null}
+        {lastUsed ? (
+          <span className="block text-xs text-muted-foreground">{lastUsed}</span>
+        ) : null}
+      </span>
+    </label>
+  );
 }
 
 function AuthorizeStepActions({
@@ -1077,36 +1258,68 @@ function AuthorizeStepActions({
   description,
   tokens,
   tokensLoaded,
-  integrations,
-  apiToken,
   onApiToken,
   tokenName,
   onTokenName,
   selectedTokenId,
   onSelectedTokenId,
   onTokensChanged,
+  createFormRef,
 }: {
   title: string;
   description: string;
   tokens: APIToken[];
   tokensLoaded: boolean;
-  integrations: Integration[];
-  apiToken: string;
   onApiToken: (token: string) => void;
   tokenName: string;
   onTokenName: (name: string) => void;
   selectedTokenId: string;
   onSelectedTokenId: (id: string) => void;
   onTokensChanged: () => void | Promise<void>;
+  createFormRef: React.RefObject<TokenCreateFormHandle | null>;
 }) {
+  const [moreTokensOpen, setMoreTokensOpen] = useState<string | undefined>(
+    undefined,
+  );
   const hasTokens = tokens.length > 0;
-  const createSelected =
-    !hasTokens || selectedTokenId === BUILD_CREATE_NEW_TOKEN_ID;
+  const sortedTokens = useMemo(() => sortTokensByRecency(tokens), [tokens]);
+  const previewTokens = useMemo(
+    () => sortedTokens.slice(0, BUILD_EXISTING_TOKEN_PREVIEW),
+    [sortedTokens],
+  );
+  const overflowTokens = useMemo(
+    () => sortedTokens.slice(BUILD_EXISTING_TOKEN_PREVIEW),
+    [sortedTokens],
+  );
 
-  // When the account has no tokens yet, treat authorize as the create path.
-  const radioValue = hasTokens
-    ? selectedTokenId || undefined
-    : BUILD_CREATE_NEW_TOKEN_ID;
+  const authorizeMode =
+    selectedTokenId === BUILD_CREATE_NEW_TOKEN_ID
+      ? BUILD_CREATE_NEW_TOKEN_ID
+      : selectedTokenId === BUILD_USE_EXISTING_TOKEN_ID ||
+          tokens.some((token) => token.id === selectedTokenId)
+        ? BUILD_USE_EXISTING_TOKEN_ID
+        : undefined;
+
+  const selectedExistingTokenId = tokens.some(
+    (token) => token.id === selectedTokenId,
+  )
+    ? selectedTokenId
+    : undefined;
+
+  useEffect(() => {
+    if (authorizeMode !== BUILD_USE_EXISTING_TOKEN_ID) {
+      setMoreTokensOpen(undefined);
+    }
+  }, [authorizeMode]);
+
+  useEffect(() => {
+    if (
+      selectedExistingTokenId &&
+      overflowTokens.some((token) => token.id === selectedExistingTokenId)
+    ) {
+      setMoreTokensOpen(BUILD_MORE_TOKENS_ACCORDION_VALUE);
+    }
+  }, [selectedExistingTokenId, overflowTokens]);
 
   async function handleTokenCreated(
     plaintext: string,
@@ -1118,222 +1331,186 @@ function AuthorizeStepActions({
     await onTokensChanged();
   }
 
+  function selectExistingMode() {
+    const first = sortedTokens[0];
+    if (first) {
+      selectExistingToken(first);
+      return;
+    }
+    onSelectedTokenId(BUILD_USE_EXISTING_TOKEN_ID);
+  }
+
+  function selectCreateMode() {
+    onSelectedTokenId(BUILD_CREATE_NEW_TOKEN_ID);
+    if (!tokenName.trim()) {
+      onTokenName(DEFAULT_BUILD_TOKEN_NAME);
+    }
+  }
+
   function selectExistingToken(token: APIToken) {
     onSelectedTokenId(token.id);
     onTokenName(tokenChoiceTitle(token));
   }
 
-  function selectCreateNew() {
-    const wasCreating =
-      selectedTokenId === BUILD_CREATE_NEW_TOKEN_ID || !hasTokens;
-    onSelectedTokenId(BUILD_CREATE_NEW_TOKEN_ID);
-    if (!wasCreating || !tokenName.trim()) {
-      onTokenName(DEFAULT_BUILD_TOKEN_NAME);
-    }
-  }
-
   return (
-    <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_min(100%,360px)] lg:items-start">
-      <div className="min-w-0 space-y-4">
-        <PageHeader>
-          <PageHeaderContent size="lg">
-            <PageHeaderTitle>{title}</PageHeaderTitle>
-            <PageHeaderDescription>{description}</PageHeaderDescription>
-          </PageHeaderContent>
-        </PageHeader>
+    <div className="space-y-8">
+      <PageHeader>
+        <PageHeaderContent size="lg">
+          <PageHeaderTitle>{title}</PageHeaderTitle>
+          <PageHeaderDescription>{description}</PageHeaderDescription>
+        </PageHeaderContent>
+      </PageHeader>
 
-        {!tokensLoaded ? (
-          <p className="text-sm text-faint">Loading tokens…</p>
-        ) : null}
-
-        {tokensLoaded && createSelected ? (
-          <div className="space-y-2">
-            {hasTokens ? null : (
-              <p className="text-sm text-muted-foreground">
-                Name this token for the rest of Build — you can change it before
-                creating.
-              </p>
-            )}
-            <TokenCreateForm
-              name={tokenName}
-              onNameChange={onTokenName}
-              defaultName={DEFAULT_BUILD_TOKEN_NAME}
-              onCreated={handleTokenCreated}
-            />
-          </div>
-        ) : null}
-      </div>
-
-      {tokensLoaded && hasTokens ? (
-        <div className="w-full max-w-[360px] space-y-2 lg:justify-self-end">
+      {!tokensLoaded ? (
+        <p className="text-sm text-faint">Loading tokens…</p>
+      ) : (
+        <div className="max-w-xl">
           <RadioGroup
-            value={radioValue}
+            value={authorizeMode}
             onValueChange={(value) => {
               if (value === BUILD_CREATE_NEW_TOKEN_ID) {
-                selectCreateNew();
+                selectCreateMode();
                 return;
               }
-              const token = tokens.find((item) => item.id === value);
-              if (token) selectExistingToken(token);
+              selectExistingMode();
             }}
-            className="gap-2"
+            className="flex flex-col gap-2"
             data-testid="build-token-radio"
-            aria-label="Choose an API token"
+            aria-label="Choose how to authorize"
           >
-            {tokens.map((token) => {
-              const inputId = `build-token-${token.id}`;
-              const tokenTitle = tokenChoiceTitle(token);
-              const showMonospace = tokenTitle === token.id;
-              const created = token.createdAt
-                ? new Date(token.createdAt).toLocaleDateString()
-                : null;
-              return (
-                <Label
-                  key={token.id}
-                  htmlFor={inputId}
-                  className={cn(choiceCardClassName)}
-                >
-                  <RadioGroupItem
-                    value={token.id}
-                    id={inputId}
-                    className="absolute end-3 top-3"
-                    aria-label={tokenTitle}
-                  />
-                  <span
-                    data-choice-title
-                    className={cn(
-                      "text-sm font-medium text-foreground",
-                      showMonospace && "truncate font-mono font-normal",
-                    )}
-                    title={showMonospace ? tokenTitle : undefined}
-                  >
-                    {tokenTitle}
-                  </span>
-                  <span
-                    data-choice-desc
-                    className="text-sm font-normal text-muted-foreground"
-                  >
-                    {tokenScopeLabel(token, integrations)}
-                    {created ? ` · Created ${created}` : null}
-                  </span>
-                </Label>
-              );
-            })}
-
             <Label
-              htmlFor="build-token-create"
+              htmlFor="build-authorize-existing"
               className={cn(choiceCardClassName)}
             >
               <RadioGroupItem
-                value={BUILD_CREATE_NEW_TOKEN_ID}
-                id="build-token-create"
+                value={BUILD_USE_EXISTING_TOKEN_ID}
+                id="build-authorize-existing"
                 className="absolute end-3 top-3"
-                aria-label="Create a new token"
+                aria-label="Use existing token"
+                disabled={!hasTokens}
               />
               <span
                 data-choice-title
                 className="text-sm font-medium text-foreground"
               >
-                Create a new token
+                Use existing token
               </span>
-              <span
-                data-choice-desc
-                className="text-sm font-normal text-muted-foreground"
+              <Collapsible
+                open={authorizeMode === BUILD_USE_EXISTING_TOKEN_ID}
               >
-                Name it for this Build path — the secret is only shown once.
+                <CollapsibleContent className="pt-3">
+                  {hasTokens ? (
+                    <div className="space-y-2">
+                      <RadioGroup
+                        value={selectedExistingTokenId}
+                        onValueChange={(value) => {
+                          const token = tokens.find((item) => item.id === value);
+                          if (token) selectExistingToken(token);
+                        }}
+                        className="flex flex-col gap-2"
+                        data-testid="build-existing-token-list"
+                        aria-label="Existing tokens"
+                      >
+                        {previewTokens.map((token) => (
+                          <ExistingTokenRadioRow key={token.id} token={token} />
+                        ))}
+                        {overflowTokens.length > 0 ? (
+                          <Accordion
+                            type="single"
+                            collapsible
+                            value={moreTokensOpen}
+                            onValueChange={setMoreTokensOpen}
+                            className="w-full"
+                          >
+                            <AccordionItem
+                              value={BUILD_MORE_TOKENS_ACCORDION_VALUE}
+                              className="border-none"
+                            >
+                              <AccordionTrigger
+                                className="px-0 py-1 text-sm font-normal text-muted-foreground hover:text-foreground"
+                                data-testid="build-existing-token-expand"
+                              >
+                                Show {overflowTokens.length} more token
+                                {overflowTokens.length === 1 ? "" : "s"}
+                              </AccordionTrigger>
+                              <AccordionContent className="flex flex-col gap-2 px-0 pb-0">
+                                {overflowTokens.map((token) => (
+                                  <ExistingTokenRadioRow
+                                    key={token.id}
+                                    token={token}
+                                  />
+                                ))}
+                              </AccordionContent>
+                            </AccordionItem>
+                          </Accordion>
+                        ) : null}
+                      </RadioGroup>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      No tokens yet — create one below.
+                    </p>
+                  )}
+                </CollapsibleContent>
+              </Collapsible>
+            </Label>
+
+            <Label
+              htmlFor="build-authorize-create"
+              className={cn(choiceCardClassName)}
+            >
+              <RadioGroupItem
+                value={BUILD_CREATE_NEW_TOKEN_ID}
+                id="build-authorize-create"
+                className="absolute end-3 top-3"
+                aria-label="Create new token"
+              />
+              <span
+                data-choice-title
+                className="text-sm font-medium text-foreground"
+              >
+                Create new token
               </span>
+              <Collapsible open={authorizeMode === BUILD_CREATE_NEW_TOKEN_ID}>
+                <CollapsibleContent className="w-full min-w-0 pt-3">
+                  <TokenCreateForm
+                    ref={createFormRef}
+                    name={tokenName}
+                    onNameChange={onTokenName}
+                    defaultName={DEFAULT_BUILD_TOKEN_NAME}
+                    onCreated={handleTokenCreated}
+                    showSubmit={false}
+                    showPlaintextResult={false}
+                    fieldOrientation="horizontal"
+                  />
+                </CollapsibleContent>
+              </Collapsible>
             </Label>
           </RadioGroup>
-
-          <UiLink asChild className="text-sm">
-            <Link to="/settings" hash="authorization">
-              Manage tokens
-            </Link>
-          </UiLink>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
 
 function InstallStepActions({
   apiToken,
-  onApiToken,
+  selectedInstallAgent,
+  onSelectedInstallAgent,
   onMarkMcpInstalled,
 }: {
   apiToken: string;
-  onApiToken: (token: string) => void;
+  selectedInstallAgent: BuildInstallAgentId | "";
+  onSelectedInstallAgent: (id: BuildInstallAgentId | "") => void;
   onMarkMcpInstalled: () => void;
 }) {
-  const [secretVisible, setSecretVisible] = useState(false);
-  const [secretCopied, setSecretCopied] = useState(false);
-
   return (
-    <div className="space-y-4">
-      <Field className="max-w-xl">
-        <FieldLabel htmlFor="build-api-token">
-          {apiToken
-            ? "API token secret"
-            : "Paste an API token secret"}
-        </FieldLabel>
-        <InputGroup>
-          <InputGroupInput
-            id="build-api-token"
-            type={secretVisible ? "text" : "password"}
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="gst_api_…"
-            value={apiToken}
-            onChange={(event) => onApiToken(event.target.value.trim())}
-            className="font-mono text-sm"
-          />
-          <InputGroupAddon align="inline-end">
-            <InputGroupButton
-              size="icon-xs"
-              aria-label={secretVisible ? "Hide token" : "Show token"}
-              title={secretVisible ? "Hide" : "Show"}
-              aria-pressed={secretVisible}
-              onClick={() => setSecretVisible((prev) => !prev)}
-            >
-              {secretVisible ? (
-                <EyeOffIcon className="size-3.5" />
-              ) : (
-                <EyeIcon className="size-3.5" />
-              )}
-            </InputGroupButton>
-            <InputGroupButton
-              size="icon-xs"
-              aria-label={secretCopied ? "Copied" : "Copy token"}
-              title={secretCopied ? "Copied" : "Copy"}
-              disabled={!apiToken}
-              onClick={() => {
-                if (!apiToken) return;
-                void navigator.clipboard.writeText(apiToken).then(() => {
-                  setSecretCopied(true);
-                  window.setTimeout(() => setSecretCopied(false), 2000);
-                });
-              }}
-            >
-              {secretCopied ? (
-                <CheckIcon className="size-3.5" />
-              ) : (
-                <CopyIcon className="size-3.5" />
-              )}
-            </InputGroupButton>
-          </InputGroupAddon>
-        </InputGroup>
-        <FieldDescription>
-          {apiToken
-            ? "Token ready — install Gestalt below, or paste a different secret."
-            : "Secrets aren't shown again after create. Paste a token secret to unlock one-click install."}
-        </FieldDescription>
-      </Field>
-
-      <McpInstallPanel
-        apiToken={apiToken}
-        onMarkMcpInstalled={onMarkMcpInstalled}
-      />
-    </div>
+    <McpInstallPanel
+      apiToken={apiToken}
+      selectedAgent={selectedInstallAgent}
+      onSelectedAgent={onSelectedInstallAgent}
+      onMarkMcpInstalled={onMarkMcpInstalled}
+    />
   );
 }
 
@@ -1347,40 +1524,18 @@ function InvokeStepActions({
   const integration = integrations.find((item) => item.name === exemplar.id);
   const open = resolveExemplarOpenPath(exemplar, integration);
   const displayName = integration?.displayName?.trim() || exemplar.label;
-  const invokeOp = `${exemplar.invokeAppId}.${exemplar.operationId}`;
-  const [agentSkin] = useState<BuildAgentSkin>(() =>
-    pickBuildAgentSkin("claude"),
-  );
-  const [promptCopied, setPromptCopied] = useState(false);
+  const invokeAppLabel =
+    integrations.find((item) => item.name === exemplar.invokeAppId)
+      ?.displayName?.trim() || exemplar.invokeAppId;
+  const agentSkin: BuildAgentSkin = "claude";
   const cwd = `~/${exemplar.department.toLowerCase().replace(/\s+/g, "-")}`;
 
   return (
-    <div className="space-y-5" data-testid="build-first-call">
+    <div className="space-y-16" data-testid="build-first-call">
       <div className="space-y-5" data-testid="build-golden-prompt">
-        <p className="text-sm text-muted-foreground text-pretty">
+        <p className="text-body-lg font-normal text-muted-foreground text-pretty">
           Prompt your favorite LLM with{" "}
-          <span className="inline-flex max-w-full items-center gap-1 align-middle">
-            <Code>{exemplar.llmPrompt}</Code>
-            <Button
-              type="button"
-              size="icon-xs"
-              variant="ghost"
-              className="shrink-0 text-muted-foreground"
-              aria-label={promptCopied ? "Copied prompt" : "Copy prompt"}
-              onClick={() => {
-                void navigator.clipboard.writeText(exemplar.llmPrompt).then(() => {
-                  setPromptCopied(true);
-                  window.setTimeout(() => setPromptCopied(false), 2000);
-                });
-              }}
-            >
-              {promptCopied ? (
-                <CheckIcon className="size-3.5" />
-              ) : (
-                <CopyIcon className="size-3.5" />
-              )}
-            </Button>
-          </span>{" "}
+          <CopyableCode value={exemplar.llmPrompt} tooltip="Copy prompt" />{" "}
           and it should reply like in this example below.
         </p>
 
@@ -1396,9 +1551,14 @@ function InvokeStepActions({
           />
         </div>
 
-        <p className="text-sm text-muted-foreground text-pretty">
+        <p className="text-body-lg font-normal text-muted-foreground text-pretty">
           Behind the scenes this calls{" "}
-          <Code>{invokeOp}</Code>.
+          <InvokeOperationReference
+            appId={exemplar.invokeAppId}
+            operationId={exemplar.operationId}
+            appLabel={invokeAppLabel}
+          />
+          .
         </p>
 
         {/* Registry Card Collapsible — compose cardVariants; do not restyle chrome. */}
@@ -1412,7 +1572,7 @@ function InvokeStepActions({
             <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform duration-overshoot ease-out-back" />
           </CollapsibleTrigger>
           <CollapsibleContent className="space-y-3 rounded-b-xl border-t border-border px-4 py-3">
-            <p className="text-sm text-muted-foreground text-pretty">
+            <p className="text-body-lg font-normal text-muted-foreground text-pretty">
               If you want to use the CLI instead, do it this way:
             </p>
             <CodeBlock
@@ -1424,18 +1584,22 @@ function InvokeStepActions({
         </Collapsible>
       </div>
 
-      <div className="space-y-3" data-testid="build-shipped-app">
-        <SectionHeader>
-          <SectionHeaderContent>
-            <SectionHeaderTitle size="sm">Already shipped</SectionHeaderTitle>
-            <SectionHeaderDescription>
-              <span className="text-foreground">{exemplar.builderNote}</span>{" "}
-              already shipped{" "}
-              <span className="text-foreground">{displayName}</span>. It&apos;s a
-              custom App that answers just what you asked and more.
-            </SectionHeaderDescription>
-          </SectionHeaderContent>
-        </SectionHeader>
+      <div className="space-y-6" data-testid="build-shipped-app">
+        <PageHeaderContent size="lg">
+          <h2
+            className={cn(
+              pageHeaderTitleVariants({ size: "lg", display: true }),
+            )}
+          >
+            Already shipped
+          </h2>
+          <PageHeaderDescription>
+            <span className="text-foreground">{exemplar.builderNote}</span>{" "}
+            already shipped{" "}
+            <span className="text-foreground">{displayName}</span>. It&apos;s a
+            custom App that answers just what you asked and more.
+          </PageHeaderDescription>
+        </PageHeaderContent>
         <div className="max-w-md">
           <BuildStoreAppCard
             name={exemplar.id}
@@ -1451,16 +1615,19 @@ function InvokeStepActions({
         </div>
       </div>
 
-      <div className="space-y-3" data-testid="build-related-apps">
-        <SectionHeader>
-          <SectionHeaderContent>
-            <SectionHeaderTitle size="sm">Related apps</SectionHeaderTitle>
-            <SectionHeaderDescription>
-              More apps that fit this outcome — open one, or browse the full
-              store.
-            </SectionHeaderDescription>
-          </SectionHeaderContent>
-        </SectionHeader>
+      <div className="space-y-6" data-testid="build-related-apps">
+        <PageHeaderContent size="lg">
+          <h2
+            className={cn(
+              pageHeaderTitleVariants({ size: "lg", display: true }),
+            )}
+          >
+            Related apps
+          </h2>
+          <PageHeaderDescription>
+            More apps that fit this outcome — open one, or browse the full store.
+          </PageHeaderDescription>
+        </PageHeaderContent>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {exemplar.relatedAppIds.map((appId) => {
             const related = integrations.find((item) => item.name === appId);
@@ -1484,9 +1651,6 @@ function InvokeStepActions({
             );
           })}
         </div>
-        <UiLink asChild className="inline-flex w-fit text-sm">
-          <Link to="/apps">See all apps</Link>
-        </UiLink>
       </div>
     </div>
   );

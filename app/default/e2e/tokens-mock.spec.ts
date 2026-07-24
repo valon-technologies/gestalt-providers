@@ -100,7 +100,7 @@ test.describe("Token Management", () => {
     await page.goto("/settings");
     await page.getByLabel("Token name").fill("audit-label");
     await page.getByRole("radio", { name: /Only select apps/ }).click();
-    await page.getByRole("checkbox", { name: "Select My App" }).click();
+    await page.getByRole("checkbox", { name: "My App" }).click();
     await page.getByRole("button", { name: "Create Token" }).click();
 
     await expect(page.getByLabel("API token")).toHaveValue(
@@ -208,7 +208,7 @@ test.describe("Token Management", () => {
     await page.goto("/settings");
     await page.getByLabel("Token name").fill("race-token");
     await page.getByRole("radio", { name: /Only select apps/ }).click();
-    await page.getByRole("checkbox", { name: "Select Other App" }).click();
+    await page.getByRole("checkbox", { name: "Other App" }).click();
     await page.getByRole("button", { name: "Create Token" }).click();
 
     await expect(page.getByLabel("API token")).toHaveValue(

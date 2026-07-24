@@ -4,7 +4,8 @@ import {
   ListboxOption,
   ListboxOptions,
 } from "@headlessui/react";
-import { useId, useMemo, useState } from "react";
+import * as React from "react";
+import { useId, useImperativeHandle, useMemo, useState } from "react";
 import {
   createToken,
   getIntegrationOperations,
@@ -23,13 +24,13 @@ import {
   useInvalidateTokens,
 } from "@/hooks/use-server-queries";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   CheckboxTree,
   type CheckboxTreeNode,
 } from "@/components/ui/checkbox-tree";
 import {
   Field,
+  FieldContent,
   FieldDescription,
   FieldError,
   FieldGroup,
@@ -55,11 +56,7 @@ import {
   SearchIcon,
 } from "@/components/icons";
 import { Info } from "lucide-react";
-import { HighlightMatch } from "@/components/HighlightMatch";
-import {
-  filterIntegrations,
-  getIntegrationLabel,
-} from "@/lib/integrationSearch";
+import { filterIntegrations } from "@/lib/integrationSearch";
 import { cn } from "@/lib/cn";
 
 interface TokenCreateFormProps {
@@ -76,7 +73,17 @@ interface TokenCreateFormProps {
   onNameChange?: (name: string) => void;
   /** Uncontrolled initial name when `name` is omitted. */
   defaultName?: string;
+  /** When false, omit the submit button (caller creates on its own schedule). */
+  showSubmit?: boolean;
+  /** Settings stacks labels; Build authorize uses inline label + control rows. */
+  fieldOrientation?: "vertical" | "horizontal";
+  /** When false, skip the post-create plaintext copy block (Build advances on Next). */
+  showPlaintextResult?: boolean;
 }
+
+export type TokenCreateFormHandle = {
+  create: () => Promise<boolean>;
+};
 
 type DayPreset = 7 | 30 | 60 | 90;
 
@@ -117,11 +124,6 @@ type SelectedAppState = {
   operationIds: Set<string>;
 };
 
-/** Collapse display label vs machine id for “same app?” (GitHub ≈ github). */
-function normalizeAppIdKey(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
-}
-
 /** Scope grammar leaf: `app:operation` — matches encodeTokenScopes. */
 function operationLeafId(appName: string, operationId: string): string {
   return `${appName}:${operationId}`;
@@ -144,32 +146,26 @@ function listedOperations(
   return Array.isArray(opsState) && opsState.length > 0 ? opsState : null;
 }
 
-/** Build CheckboxTree nodes: app parents → operation leaves (Registry Nested tree). */
-function buildAppAccessTree(
-  selectedAppNames: readonly string[],
-  selectedApps: Record<string, SelectedAppState>,
+/** Build CheckboxTree nodes for the searchable app catalog. */
+function buildCatalogAccessTree(
+  filteredApps: readonly { name: string; displayName?: string }[],
   opsByApp: Record<string, IntegrationOperation[] | "loading" | "error">,
-  integrations: { name: string; displayName?: string }[] | null,
 ): CheckboxTreeNode[] {
-  return selectedAppNames
-    .map((appName) => {
-      const app = integrations?.find((item) => item.name === appName);
-      const label = app?.displayName?.trim() || appName;
-      const ops = listedOperations(opsByApp[appName]);
-      if (!ops) {
-        // Loading / error / empty — app is a leaf (bare app scope = all ops).
-        return { id: appName, label };
-      }
-      return {
-        id: appName,
-        label,
-        children: ops.map((op) => ({
-          id: operationLeafId(appName, op.id),
-          label: op.title?.trim() || op.id,
-        })),
-      };
-    })
-    .filter((node) => selectedApps[node.id] != null);
+  return filteredApps.map((app) => {
+    const label = app.displayName?.trim() || app.name;
+    const ops = listedOperations(opsByApp[app.name]);
+    if (!ops) {
+      return { id: app.name, label };
+    }
+    return {
+      id: app.name,
+      label,
+      children: ops.map((op) => ({
+        id: operationLeafId(app.name, op.id),
+        label: op.title?.trim() || op.id,
+      })),
+    };
+  });
 }
 
 /** Derive CheckboxTree leaf value from SelectedAppState + loaded ops. */
@@ -248,12 +244,21 @@ function selectedAppsFromLeafValue(
   return next;
 }
 
-export default function TokenCreateForm({
-  onCreated,
-  name: nameProp,
-  onNameChange,
-  defaultName = "",
-}: TokenCreateFormProps) {
+const TokenCreateForm = React.forwardRef<
+  TokenCreateFormHandle,
+  TokenCreateFormProps
+>(function TokenCreateForm(
+  {
+    onCreated,
+    name: nameProp,
+    onNameChange,
+    defaultName = "",
+    showSubmit = true,
+    fieldOrientation = "vertical",
+    showPlaintextResult = true,
+  },
+  ref,
+) {
   const idPrefix = useId();
   const nameId = `${idPrefix}-name`;
   const expirationId = `${idPrefix}-expiration`;
@@ -327,21 +332,6 @@ export default function TokenCreateForm({
       });
   }
 
-  function toggleApp(appName: string, checked: boolean) {
-    setSelectedApps((prev) => {
-      if (!checked) {
-        const next = { ...prev };
-        delete next[appName];
-        return next;
-      }
-      ensureOpsLoaded(appName);
-      return {
-        ...prev,
-        [appName]: { allOperations: true, operationIds: new Set() },
-      };
-    });
-  }
-
   function buildSelections() {
     return Object.entries(selectedApps).map(([appId, state]) => ({
       appId,
@@ -364,15 +354,14 @@ export default function TokenCreateForm({
     return { kind: "custom", date: customDate };
   }
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  async function runCreate(): Promise<boolean> {
     const trimmedName = name.trim();
-    if (!trimmedName) return;
+    if (!trimmedName) return false;
 
     const selections = buildSelections();
     if (!hasEffectiveScopes(scopeMode, selections)) {
       setFieldError("Select at least one app.");
-      return;
+      return false;
     }
 
     if (
@@ -380,21 +369,25 @@ export default function TokenCreateForm({
       expiresInFromChoice({ kind: "custom", date: customDate }) == null
     ) {
       setFieldError("Choose a future expiration date.");
-      return;
+      return false;
     }
 
     setFieldError(null);
     setCreating(true);
     setError(null);
-    setPlaintext(null);
+    if (showPlaintextResult) {
+      setPlaintext(null);
+    }
 
     const scopes = encodeTokenScopes(scopeMode, selections);
     const expiresIn = expiresInFromChoice(buildExpirationChoice());
 
     try {
       const result = await createToken(trimmedName, scopes, expiresIn);
-      setPlaintext(result.token);
-      setTokenCopied(false);
+      if (showPlaintextResult) {
+        setPlaintext(result.token);
+        setTokenCopied(false);
+      }
       if (!isNameControlled) {
         setName("");
       }
@@ -408,11 +401,34 @@ export default function TokenCreateForm({
         id: result.id,
         name: trimmedName,
       });
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create token");
+      return false;
     } finally {
       setCreating(false);
     }
+  }
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      create: runCreate,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runCreate closes over latest draft state
+    [
+      name,
+      scopeMode,
+      selectedApps,
+      selectedExpiration,
+      customDate,
+      showPlaintextResult,
+    ],
+  );
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    await runCreate();
   }
 
   const filteredApps = useMemo(
@@ -423,14 +439,8 @@ export default function TokenCreateForm({
   const selectedAppNames = Object.keys(selectedApps);
 
   const accessTree = useMemo(
-    () =>
-      buildAppAccessTree(
-        selectedAppNames,
-        selectedApps,
-        opsByApp,
-        integrations,
-      ),
-    [selectedAppNames, selectedApps, opsByApp, integrations],
+    () => buildCatalogAccessTree(filteredApps, opsByApp),
+    [filteredApps, opsByApp],
   );
 
   const accessTreeValue = useMemo(
@@ -474,103 +484,110 @@ export default function TokenCreateForm({
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="flex max-w-xl flex-col gap-4">
+      <form onSubmit={handleSubmit} className="flex w-full flex-col gap-4">
         <FieldGroup className="gap-5">
-          <Field>
+          <Field orientation={fieldOrientation}>
             <FieldLabel htmlFor={nameId}>Token name</FieldLabel>
-            <Input
-              id={nameId}
-              name="name"
-              type="text"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. ci-pipeline"
-              autoComplete="off"
-            />
+            <FieldContent>
+              <Input
+                id={nameId}
+                name="name"
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. ci-pipeline"
+                autoComplete="off"
+              />
+            </FieldContent>
           </Field>
 
-          <Field>
+          <Field orientation={fieldOrientation}>
             <FieldLabel id={expirationId}>Expiration</FieldLabel>
-            <Listbox
-              value={selectedExpiration}
-              onChange={(option: ExpirationOption) => {
-                setExpirationIdSelected(option.id);
-                setFieldError(null);
-              }}
-            >
-              <div className="relative">
-                <ListboxButton
-                  aria-labelledby={expirationId}
-                  className={cn(
-                    "relative flex w-full items-center gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-left text-sm text-foreground shadow-xs",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-base-950/10",
-                    "dark:focus-visible:ring-base-200/10",
-                  )}
-                >
-                  <CalendarIcon className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate">
-                    {expirationOptionLabel(selectedExpiration, now)}
-                  </span>
-                  <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
-                </ListboxButton>
-                <ListboxOptions
-                  anchor="bottom start"
-                  className="z-50 mt-1 max-h-72 w-[var(--button-width)] overflow-auto rounded-md border border-alpha bg-base-white p-1 shadow-dropdown dark:bg-surface"
-                >
-                  {expirationOptions.map((option) => (
-                    <ListboxOption
-                      key={option.id}
-                      value={option}
-                      className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground data-focus:bg-alpha-5 data-selected:font-medium"
-                    >
-                      {({ selected }) => (
-                        <>
-                          <span className="flex size-4 shrink-0 items-center justify-center">
-                            {selected ? (
-                              <CheckIcon className="size-3.5" />
-                            ) : null}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate">
-                            {expirationOptionLabel(option, now)}
-                          </span>
-                        </>
-                      )}
-                    </ListboxOption>
-                  ))}
-                </ListboxOptions>
-              </div>
-            </Listbox>
-            {selectedExpiration.kind === "custom" ? (
-              <Input
-                id={customDateId}
-                type="date"
-                value={customDate}
-                onChange={(e) => {
-                  setCustomDate(e.target.value);
+            <FieldContent>
+              <Listbox
+                value={selectedExpiration}
+                onChange={(option: ExpirationOption) => {
+                  setExpirationIdSelected(option.id);
                   setFieldError(null);
                 }}
-                className="mt-2"
-                aria-label="Custom expiration date"
-              />
-            ) : null}
-            <FieldDescription>
-              Tokens expire at the end of the selected day. Choose no expiration
-              only for long-lived automation you will rotate yourself.
-            </FieldDescription>
+              >
+                <div className="relative">
+                  <ListboxButton
+                    aria-labelledby={expirationId}
+                    className={cn(
+                      "relative flex w-full items-center gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-left text-sm text-foreground shadow-xs",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-base-950/10",
+                      "dark:focus-visible:ring-base-200/10",
+                    )}
+                  >
+                    <CalendarIcon className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {expirationOptionLabel(selectedExpiration, now)}
+                    </span>
+                    <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
+                  </ListboxButton>
+                  <ListboxOptions
+                    anchor="bottom start"
+                    className="z-50 mt-1 max-h-72 w-[var(--button-width)] overflow-auto rounded-md border border-alpha bg-base-white p-1 shadow-dropdown dark:bg-surface"
+                  >
+                    {expirationOptions.map((option) => (
+                      <ListboxOption
+                        key={option.id}
+                        value={option}
+                        className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground data-focus:bg-alpha-5 data-selected:font-medium"
+                      >
+                        {({ selected }) => (
+                          <>
+                            <span className="flex size-4 shrink-0 items-center justify-center">
+                              {selected ? (
+                                <CheckIcon className="size-3.5" />
+                              ) : null}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate">
+                              {expirationOptionLabel(option, now)}
+                            </span>
+                          </>
+                        )}
+                      </ListboxOption>
+                    ))}
+                  </ListboxOptions>
+                </div>
+              </Listbox>
+              {selectedExpiration.kind === "custom" ? (
+                <Input
+                  id={customDateId}
+                  type="date"
+                  value={customDate}
+                  onChange={(e) => {
+                    setCustomDate(e.target.value);
+                    setFieldError(null);
+                  }}
+                  className="mt-2"
+                  aria-label="Custom expiration date"
+                />
+              ) : null}
+              {fieldOrientation === "vertical" ? (
+                <FieldDescription>
+                  Tokens expire at the end of the selected day. Choose no expiration
+                  only for long-lived automation you will rotate yourself.
+                </FieldDescription>
+              ) : null}
+            </FieldContent>
           </Field>
 
-          <Field>
+          <Field orientation={fieldOrientation}>
             <FieldLabel id={appAccessId}>App access</FieldLabel>
-            <RadioGroup
-              aria-labelledby={appAccessId}
-              value={scopeMode}
-              onValueChange={(value) => {
-                setScopeMode(value as TokenScopeMode);
-                setFieldError(null);
-              }}
-              className="gap-3"
-            >
+            <FieldContent>
+              <RadioGroup
+                aria-labelledby={appAccessId}
+                value={scopeMode}
+                onValueChange={(value) => {
+                  setScopeMode(value as TokenScopeMode);
+                  setFieldError(null);
+                }}
+                className="gap-3"
+              >
               <label className="flex cursor-pointer items-start gap-3">
                 <RadioGroupItem value="all" className="mt-0.5" aria-label="All apps" />
                 <span className="min-w-0">
@@ -622,49 +639,7 @@ export default function TokenCreateForm({
                 ) : filteredApps.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No apps found.</p>
                 ) : (
-                  <ul className="max-h-56 space-y-1 overflow-auto">
-                    {filteredApps.map((app) => {
-                      const checked = selectedApps[app.name] != null;
-                      const label = getIntegrationLabel(app);
-                      // Show machine id only when it adds info beyond the label
-                      // (e.g. "Jira Cloud" → jira), not GitHub/github twins.
-                      const showAppId =
-                        normalizeAppIdKey(label) !== normalizeAppIdKey(app.name);
-                      return (
-                        <li key={app.name}>
-                          <label className="flex cursor-pointer items-center gap-2 rounded-sm px-1.5 py-1.5 hover:bg-alpha-5">
-                            <Checkbox
-                              checked={checked}
-                              onCheckedChange={(value) =>
-                                toggleApp(app.name, value === true)
-                              }
-                              aria-label={`Select ${label}`}
-                            />
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-sm font-medium text-foreground">
-                                <HighlightMatch text={label} query={appQuery} />
-                              </span>
-                              {showAppId ? (
-                                <span className="block truncate text-xs text-muted-foreground">
-                                  <HighlightMatch
-                                    text={app.name}
-                                    query={appQuery}
-                                  />
-                                </span>
-                              ) : null}
-                            </span>
-                          </label>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-
-                {selectedAppNames.length > 0 ? (
-                  <div className="space-y-3 border-t border-alpha pt-3">
-                    <p className="text-xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                      Selected apps & permissions
-                    </p>
+                  <div className="space-y-3">
                     {accessTreeStatusNotes.length > 0 ? (
                       <ul className="space-y-1">
                         {accessTreeStatusNotes.map((note) => (
@@ -684,34 +659,38 @@ export default function TokenCreateForm({
                     <CheckboxTree
                       tree={accessTree}
                       value={accessTreeValue}
+                      density="condensed"
                       onValueChange={(nextLeaves) => {
-                        setSelectedApps((prev) =>
-                          selectedAppsFromLeafValue(
-                            nextLeaves,
-                            prev,
-                            opsByApp,
-                          ),
+                        const next = selectedAppsFromLeafValue(
+                          nextLeaves,
+                          selectedApps,
+                          opsByApp,
                         );
+                        setSelectedApps(next);
+                        for (const appName of Object.keys(next)) {
+                          ensureOpsLoaded(appName);
+                        }
                         setFieldError(null);
                       }}
-                      showIcons={false}
-                      className="max-h-72 max-w-none overflow-auto"
                     />
                   </div>
-                ) : null}
+                )}
               </div>
             ) : null}
 
-            {fieldError ? <FieldError>{fieldError}</FieldError> : null}
+              {fieldError ? <FieldError>{fieldError}</FieldError> : null}
+            </FieldContent>
           </Field>
         </FieldGroup>
 
-        <Button type="submit" disabled={creating} className="w-fit">
-          {creating ? "Creating..." : "Create Token"}
-        </Button>
+        {showSubmit ? (
+          <Button type="submit" disabled={creating} className="w-fit">
+            {creating ? "Creating..." : "Create Token"}
+          </Button>
+        ) : null}
       </form>
 
-      {plaintext && (
+      {showPlaintextResult && plaintext ? (
         <div className="mt-6 space-y-2">
           <InputGroup>
             <InputGroupInput
@@ -749,9 +728,11 @@ export default function TokenCreateForm({
             </AlertDescription>
           </Alert>
         </div>
-      )}
+      ) : null}
 
       {error && <p className="mt-4 text-sm text-ember-500">{error}</p>}
     </>
   );
-}
+});
+
+export default TokenCreateForm;

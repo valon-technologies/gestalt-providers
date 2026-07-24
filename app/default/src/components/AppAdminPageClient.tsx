@@ -22,6 +22,8 @@ import { getAppPromptExamples } from "@/lib/appPromptExamples";
 import { DOCS_PATH } from "@/lib/constants";
 import { normalizeIntegrationStatus, shouldShowIntegrationSettings } from "@/lib/integrationStatus";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
+import { appOperationElementId } from "@/lib/appAdminPaths";
+import { cn } from "@/lib/cn";
 import {
   useIntegrationsQuery,
   useInvalidateIntegrations,
@@ -91,7 +93,9 @@ function memberMeta(member: AppAuthorizationMember): string {
 
 export default function AppAdminPageClient() {
   const { appName: rawAppName } = useParams({ from: "/apps/$appName" });
-  const { section: sectionSearch } = useSearch({ from: "/apps/$appName" });
+  const { section: sectionSearch, operation: operationSearch } = useSearch({
+    from: "/apps/$appName",
+  });
   const navigate = useNavigate({ from: "/apps/$appName" });
   const appName = decodeURIComponent(rawAppName);
   const section: AppAdminSection = sectionSearch ?? "overview";
@@ -101,6 +105,7 @@ export default function AppAdminPageClient() {
       search: (prev) => ({
         ...prev,
         section: next === "overview" ? undefined : next,
+        operation: next === "operations" ? prev.operation : undefined,
       }),
       replace: true,
     });
@@ -132,6 +137,9 @@ export default function AppAdminPageClient() {
   const [operations, setOperations] = useState<IntegrationOperation[]>([]);
   const [operationsLoading, setOperationsLoading] = useState(false);
   const [operationsError, setOperationsError] = useState<string | null>(null);
+  const [highlightedOperationId, setHighlightedOperationId] = useState<
+    string | null
+  >(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const label = integration ? getIntegrationLabel(integration) : appName;
@@ -329,6 +337,42 @@ export default function AppAdminPageClient() {
       ),
     [operations],
   );
+
+  useEffect(() => {
+    if (!operationSearch || section === "operations") return;
+    void navigate({
+      search: (prev) => ({
+        ...prev,
+        section: "operations",
+        operation: operationSearch,
+      }),
+      replace: true,
+    });
+  }, [operationSearch, section, navigate]);
+
+  useEffect(() => {
+    if (!operationSearch || section !== "operations" || operationsLoading) {
+      return;
+    }
+    if (!visibleOperations.some((op) => op.id === operationSearch)) {
+      return;
+    }
+
+    const el = document.querySelector(
+      `[data-operation-id="${CSS.escape(operationSearch)}"]`,
+    );
+    if (!el) return;
+
+    el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    setHighlightedOperationId(operationSearch);
+    const timer = window.setTimeout(() => setHighlightedOperationId(null), 2500);
+    return () => window.clearTimeout(timer);
+  }, [
+    operationSearch,
+    section,
+    operationsLoading,
+    visibleOperations,
+  ]);
 
   return (
     <Container as="main" className="py-12">
@@ -907,7 +951,16 @@ export default function AppAdminPageClient() {
                     data-testid="app-operations-list"
                   >
                     {visibleOperations.map((operation) => (
-                      <li key={operation.id} className="px-4 py-3">
+                      <li
+                        key={operation.id}
+                        id={appOperationElementId(operation.id)}
+                        data-operation-id={operation.id}
+                        className={cn(
+                          "px-4 py-3 transition-[background-color,box-shadow] duration-reveal",
+                          highlightedOperationId === operation.id &&
+                            "bg-accent-subtle ring-2 ring-inset ring-accent-solid",
+                        )}
+                      >
                         <div className="flex flex-wrap items-center gap-2">
                           <code className="font-mono text-sm text-foreground">
                             {operation.id}

@@ -25,13 +25,8 @@ import { cn } from "@/lib/cn";
 export const choiceCardClassName = [
   "relative flex cursor-pointer flex-col gap-1 rounded-lg border border-border bg-card p-4 pe-10 leading-normal",
   "hover:bg-neutral-hover active:bg-neutral-pressed",
-  "has-[[data-state=checked]]:border-accent-vivid has-[[data-state=checked]]:bg-accent-vivid",
-  "has-[[data-state=checked]]:hover:bg-accent-vivid-hover",
-  "has-[[data-state=checked]]:active:bg-accent-vivid-pressed",
-  "has-[[data-state=checked]]:[&_[data-choice-title]]:text-accent-vivid-foreground",
-  "has-[[data-state=checked]]:[&_[data-choice-desc]]:text-accent-vivid-foreground/70",
-  "has-[[data-state=checked]]:[&_[data-slot=eyebrow]]:text-accent-vivid-foreground/70",
-  "has-[[data-state=checked]]:[&_[role=radio]]:border-transparent",
+  "has-[[data-state=checked]]:border-accent-vivid has-[[data-state=checked]]:ring-2 has-[[data-state=checked]]:ring-accent-vivid/30",
+  "has-[[data-state=checked]]:hover:bg-neutral-hover has-[[data-state=checked]]:active:bg-neutral-pressed",
 ].join(" ");
 
 const radioGroupItemVariants = cva(

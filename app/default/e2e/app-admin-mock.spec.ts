@@ -249,4 +249,26 @@ test.describe("App admin", () => {
     await expect(page.getByText("chat.postMessage")).toBeVisible();
     await expect(page.getByText("Post message")).toBeVisible();
   });
+
+  test("highlights a deep-linked operation", async ({ authenticatedPage: page }) => {
+    await mockIntegrationOperations(page, {
+      slack: [
+        {
+          id: "chat.postMessage",
+          title: "Post message",
+          description: "Send a message to a channel.",
+          tags: ["chat"],
+        },
+      ],
+    });
+
+    await page.goto(
+      "/apps/slack?section=operations&operation=chat.postMessage",
+    );
+    await expect(page).toHaveURL(/section=operations/);
+    await expect(page.getByTestId("app-operations-list")).toBeVisible();
+    await expect(
+      page.locator('[data-operation-id="chat.postMessage"]'),
+    ).toBeVisible();
+  });
 });

@@ -3,6 +3,7 @@ import {
   expect,
   mockAuthInfo,
   mockIntegrations,
+  mockIntegrationOperations,
   mockManagedIdentities,
   mockTokens,
 } from "./fixtures";
@@ -168,6 +169,14 @@ test.describe("Build page", () => {
     await page.goto("/build/intro");
     await page.getByTestId("build-intro-continue").click();
     await expect(page).toHaveURL(/\/build\/authorize$/);
+    await expect(
+      page.getByRole("radio", { name: "Use existing token" }),
+    ).not.toBeChecked();
+    await expect(
+      page.getByRole("radio", { name: "Create new token" }),
+    ).not.toBeChecked();
+    await expect(page.getByLabel("Token name")).toHaveCount(0);
+    await page.getByRole("radio", { name: "Create new token" }).click();
     await expect(page.getByLabel("Token name")).toBeVisible();
     await expect(page.getByText("Expiration", { exact: true })).toBeVisible();
     await expect(page.getByTestId("build-step-next")).toContainText(
@@ -181,26 +190,32 @@ test.describe("Build page", () => {
     await mockTokens(page, [defaultToken]);
     await page.addInitScript(() => {
       sessionStorage.setItem("gestalt.build.introSeen", "1");
+      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
+      sessionStorage.setItem(
+        "gestalt.build.apiToken",
+        "gst_api_test_token_for_install",
+      );
     });
 
     await page.goto("/build");
 
     await expect(page).toHaveURL(/\/build\/install$/);
-    await expect(page.getByTestId("build-add-to-cursor")).toBeDisabled();
-    await expect(page.getByTestId("build-mark-mcp-installed")).toBeVisible();
-
-    await page
-      .getByLabel("Paste an API token secret")
-      .fill("gst_api_test_token_for_install");
+    await expect(
+      page.getByRole("radio", { name: "Cursor" }),
+    ).not.toBeChecked();
+    await page.getByRole("radio", { name: "Cursor" }).click();
     await expect(page.getByTestId("build-add-to-cursor")).toBeEnabled();
+    await expect(page.getByLabel("Paste an API token secret")).toHaveCount(0);
     await expect(page.getByTestId("build-add-to-cursor")).toHaveAttribute(
       "href",
       /cursor:\/\/anysphere\.cursor-deeplink\/mcp\/install/,
     );
 
     await page.getByRole("radio", { name: "Claude Code" }).click();
+    await expect(page.getByTestId("build-install-claude-snippet")).toBeVisible();
     await expect(page.getByText(/claude mcp add --transport http/)).toBeVisible();
     await page.getByRole("radio", { name: "Codex" }).click();
+    await expect(page.getByTestId("build-install-codex-snippet")).toBeVisible();
     await expect(page.getByText(/codex mcp add gestalt/)).toBeVisible();
   });
 
@@ -240,21 +255,21 @@ test.describe("Build page", () => {
 
     await page.goto("/build/authorize");
 
+    await page.getByRole("radio", { name: "Create new token" }).click();
     await page.getByLabel("Token name").fill("ci-pipeline");
-    await page.getByRole("button", { name: "Create Token" }).click();
-
-    await expect(page.getByLabel("API token")).toHaveValue(
-      "gst_api_created_once_secret",
+    await expect(page.getByRole("button", { name: "Create Token" })).toHaveCount(
+      0,
     );
-    await expect(page.getByTestId("build-step-next")).toBeVisible();
+    await expect(page.getByTestId("build-step-next")).toBeEnabled();
 
     await page.getByTestId("build-step-next").click();
 
     await expect(page).toHaveURL(/\/build\/install$/);
+    await expect(page.getByTestId("build-step-next")).toBeDisabled();
+    await page.getByRole("radio", { name: "Cursor" }).click();
     await expect(page.getByTestId("build-add-to-cursor")).toBeEnabled();
-    await expect(page.getByLabel("API token secret")).toHaveValue(
-      "gst_api_created_once_secret",
-    );
+    await expect(page.getByLabel("API token secret")).toHaveCount(0);
+    await expect(page.getByTestId("build-step-next")).toBeEnabled();
     await expect(page.getByTestId("build-step-prev")).toContainText(
       "Choose a token",
     );
@@ -266,6 +281,7 @@ test.describe("Build page", () => {
     await mockTokens(page, [defaultToken]);
     await page.addInitScript(() => {
       sessionStorage.setItem("gestalt.build.introSeen", "1");
+      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
       sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
       sessionStorage.setItem("gestalt.build.activeExemplarId", "oncall");
     });
@@ -287,6 +303,7 @@ test.describe("Build page", () => {
     await mockTokens(page, [defaultToken]);
     await page.addInitScript(() => {
       sessionStorage.setItem("gestalt.build.introSeen", "1");
+      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
       sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
       sessionStorage.setItem("gestalt.build.activeExemplarId", "ashby");
     });
@@ -317,8 +334,19 @@ test.describe("Build page", () => {
       catalogFixtures[7],
     ]);
     await mockTokens(page, [defaultToken]);
+    await mockIntegrationOperations(page, {
+      aiSpendTracker: [
+        {
+          id: "getMyUsage",
+          title: "Get my usage",
+          description: "Returns personal AI coding spend for a time window.",
+          readOnly: true,
+        },
+      ],
+    });
     await page.addInitScript(() => {
       sessionStorage.setItem("gestalt.build.introSeen", "1");
+      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
       sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
       sessionStorage.setItem(
         "gestalt.build.activeExemplarId",
@@ -333,7 +361,9 @@ test.describe("Build page", () => {
     await expect(
       page.getByText(/Prompt your favorite LLM with/),
     ).toBeVisible();
-    await expect(page.getByText("aiSpendTracker.getMyUsage")).toBeVisible();
+    await expect(page.getByTestId("build-invoke-operation")).toContainText(
+      "aiSpendTracker.getMyUsage",
+    );
     await expect(page.getByTestId("build-cli-alert")).toBeVisible();
     await expect(
       page.getByText(/If you want to use the CLI instead/),
@@ -348,9 +378,13 @@ test.describe("Build page", () => {
       "_blank",
     );
     await expect(page.getByTestId("build-related-apps")).toBeVisible();
-    await expect(
-      page.getByRole("link", { name: "See all apps" }),
-    ).toBeVisible();
+    await expect(page.getByTestId("build-step-next")).toHaveAttribute(
+      "href",
+      "/apps",
+    );
+    await expect(page.getByTestId("build-step-next")).toContainText(
+      "See all apps",
+    );
     await expect(page.getByTestId("build-step-panel")).toBeVisible();
     await expect(page.getByTestId("build-nav-intro")).toHaveAttribute(
       "data-state",
@@ -361,7 +395,12 @@ test.describe("Build page", () => {
   test("authorize step lists tokens as radios and supports create new", async ({
     authenticatedPage: page,
   }) => {
-    await mockTokens(page, [defaultToken]);
+    await mockTokens(page, [
+      {
+        ...defaultToken,
+        lastUsedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      },
+    ]);
     await page.addInitScript(() => {
       sessionStorage.setItem("gestalt.build.introSeen", "1");
       sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
@@ -371,16 +410,32 @@ test.describe("Build page", () => {
     await page.goto("/build/authorize");
 
     await expect(page.getByTestId("build-token-radio")).toBeVisible();
-    await expect(page.getByText("Default token")).toBeVisible();
-    await expect(page.getByText("Scope: api")).toBeVisible();
     await expect(
-      page.getByRole("radio", { name: "Create a new token" }),
+      page.getByRole("radio", { name: "Use existing token" }),
+    ).not.toBeChecked();
+    await expect(
+      page.getByRole("radio", { name: "Create new token" }),
+    ).not.toBeChecked();
+    await page.getByRole("radio", { name: "Use existing token" }).click();
+    await expect(
+      page.getByRole("radio", { name: "Use existing token" }),
+    ).toBeChecked();
+    await expect(page.getByTestId("build-existing-token-list")).toBeVisible();
+    await expect(page.getByText("tok_123")).toBeVisible();
+    await expect(page.getByText("Added on Apr 12, 2026")).toBeVisible();
+    await expect(
+      page.getByText("Last used within the last week"),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("radio", { name: "Create new token" }),
     ).toBeVisible();
     await expect(page.getByLabel("Token name")).toHaveCount(0);
-    await page.getByRole("radio", { name: "Create a new token" }).click();
+    await page.getByRole("radio", { name: "Create new token" }).click();
     await expect(page.getByLabel("Token name")).toBeVisible();
+    await expect(page.getByText("Expiration", { exact: true })).toBeVisible();
+    await expect(page.getByText("App access", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Create Token" })).toHaveCount(
-      1,
+      0,
     );
   });
 });

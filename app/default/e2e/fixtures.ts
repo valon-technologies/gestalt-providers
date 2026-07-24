@@ -147,10 +147,12 @@ function identityGrantDetailJson(token: APIToken): {
   scopes: { scope: string; resource: string[] }[];
   createdAt: string;
   expiresAt: string;
+  lastUsedAt?: string;
   name?: string;
 } {
   const createdMs = Date.parse(token.createdAt);
   const expiresMs = token.expiresAt ? Date.parse(token.expiresAt) : NaN;
+  const lastUsedMs = token.lastUsedAt ? Date.parse(token.lastUsedAt) : NaN;
   return {
     scopes: (token.scopes ?? []).map((scope) => ({ scope, resource: [] })),
     createdAt: Number.isFinite(createdMs)
@@ -159,6 +161,9 @@ function identityGrantDetailJson(token: APIToken): {
     expiresAt: Number.isFinite(expiresMs)
       ? String(Math.floor(expiresMs / 1000))
       : "0",
+    ...(Number.isFinite(lastUsedMs)
+      ? { lastUsedAt: String(Math.floor(lastUsedMs / 1000)) }
+      : {}),
     ...(token.name?.trim() ? { name: token.name.trim() } : {}),
   };
 }

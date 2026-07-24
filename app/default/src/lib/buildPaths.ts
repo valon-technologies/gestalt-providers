@@ -187,7 +187,7 @@ export const BUILD_STEPS: BuildStep[] = [
     id: "connect",
     title: "Connect apps",
     description:
-      "Link the apps this path needs before you make your first call.",
+      "Connect the apps below so your agent can use them.",
     ctaLabel: "See all apps",
     to: "/build/connect",
     isComplete: (snapshot) => exemplarCompanionsConnected(snapshot),
@@ -206,6 +206,9 @@ export const BUILD_STEPS: BuildStep[] = [
   },
 ];
 
+/** Radio value for “use an existing token” on the authorize step. */
+export const BUILD_USE_EXISTING_TOKEN_ID = "existing";
+
 /** Radio value for “create a new token” on the authorize step. */
 export const BUILD_CREATE_NEW_TOKEN_ID = "new";
 
@@ -216,15 +219,25 @@ export const DEFAULT_BUILD_TOKEN_NAME = "Gestalt Build";
  * Authorize is ready when the user picked an existing token or created/pasted
  * a secret for this session — not merely because tokens exist in the account.
  */
+export function buildAuthorizeCreateDraftReady(
+  snapshot: Pick<BuildWorkspaceSnapshot, "tokenName" | "selectedTokenId">,
+): boolean {
+  if (snapshot.selectedTokenId !== BUILD_CREATE_NEW_TOKEN_ID) return false;
+  return snapshot.tokenName.trim().length > 0;
+}
+
 export function buildAuthorizeSelectionReady(
   snapshot: Pick<
     BuildWorkspaceSnapshot,
-    "apiToken" | "selectedTokenId" | "tokens"
+    "apiToken" | "selectedTokenId" | "tokenName" | "tokens"
   >,
 ): boolean {
   if (snapshot.apiToken.trim().length > 0) return true;
   const selected = snapshot.selectedTokenId.trim();
-  if (!selected || selected === BUILD_CREATE_NEW_TOKEN_ID) return false;
+  if (!selected || selected === BUILD_USE_EXISTING_TOKEN_ID) return false;
+  if (selected === BUILD_CREATE_NEW_TOKEN_ID) {
+    return buildAuthorizeCreateDraftReady(snapshot);
+  }
   return snapshot.tokens.some((token) => token.id === selected);
 }
 
@@ -336,6 +349,26 @@ export const BUILD_API_TOKEN_STORAGE_KEY = "gestalt.build.apiToken";
 export const BUILD_TOKEN_NAME_STORAGE_KEY = "gestalt.build.tokenName";
 export const BUILD_SELECTED_TOKEN_ID_STORAGE_KEY =
   "gestalt.build.selectedTokenId";
+export const BUILD_INSTALL_AGENT_STORAGE_KEY = "gestalt.build.installAgent";
+
+export type BuildInstallAgentId = "cursor" | "claude" | "codex" | "other";
+
+const BUILD_INSTALL_AGENT_IDS = new Set<string>([
+  "cursor",
+  "claude",
+  "codex",
+  "other",
+]);
+
+export function isBuildInstallAgentId(
+  value: string,
+): value is BuildInstallAgentId {
+  return BUILD_INSTALL_AGENT_IDS.has(value);
+}
+
+export function buildInstallAgentSelected(installAgentId: string): boolean {
+  return isBuildInstallAgentId(installAgentId);
+}
 
 export function readMcpInstalledFlag(): boolean {
   return readSessionFlag(MCP_INSTALLED_STORAGE_KEY);
@@ -435,6 +468,30 @@ export function writeStoredSelectedTokenId(id: string): void {
       window.sessionStorage.setItem(BUILD_SELECTED_TOKEN_ID_STORAGE_KEY, id);
     } else {
       window.sessionStorage.removeItem(BUILD_SELECTED_TOKEN_ID_STORAGE_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readStoredInstallAgent(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw =
+      window.sessionStorage.getItem(BUILD_INSTALL_AGENT_STORAGE_KEY) ?? "";
+    return isBuildInstallAgentId(raw) ? raw : "";
+  } catch {
+    return "";
+  }
+}
+
+export function writeStoredInstallAgent(id: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (id && isBuildInstallAgentId(id)) {
+      window.sessionStorage.setItem(BUILD_INSTALL_AGENT_STORAGE_KEY, id);
+    } else {
+      window.sessionStorage.removeItem(BUILD_INSTALL_AGENT_STORAGE_KEY);
     }
   } catch {
     /* ignore */
