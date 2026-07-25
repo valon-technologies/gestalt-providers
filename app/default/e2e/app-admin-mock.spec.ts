@@ -36,6 +36,40 @@ const PUBLISHED_LEGACY: AppAdminRegistryResponse["publishedVersions"][number] = 
     "https://github.com/valon-technologies/valon-tools/commit/abc123abc123abc123abc123abc123abc123ab",
 };
 
+const PENDING_VERSION: NonNullable<AppAdminRegistryResponse["pendingVersions"]>[number] = {
+  version: "0.0.0-snapshot.gpending01",
+  startedAt: "2026-07-23T14:56:00Z",
+  updatedAt: "2026-07-23T14:56:00Z",
+  phase: "publishing",
+  publishingForSeconds: 240,
+  publication: {
+    workflowRunUrl:
+      "https://github.com/valon-technologies/valon-tools/actions/runs/223456789",
+    triggerPullRequest: {
+      number: 3740,
+      url: "https://github.com/valon-technologies/valon-tools/pull/3740",
+      title: "Publish pending snapshot",
+    },
+  },
+};
+
+const FAILED_VERSION: NonNullable<AppAdminRegistryResponse["failedVersions"]>[number] = {
+  version: "0.0.0-snapshot.gfailed01",
+  startedAt: "2026-07-24T18:00:00Z",
+  failedAt: "2026-07-24T18:35:00Z",
+  reason: "stale",
+  publishDurationSeconds: 2100,
+  publication: {
+    workflowRunUrl:
+      "https://github.com/valon-technologies/valon-tools/actions/runs/323456789",
+    triggerPullRequest: {
+      number: 3788,
+      url: "https://github.com/valon-technologies/valon-tools/pull/3788",
+      title: "Retry registry publish",
+    },
+  },
+};
+
 const MANAGED_INTEGRATION: Integration = {
   name: APP,
   displayName: "G Issues",
@@ -92,6 +126,53 @@ test.describe("app admin registry UI", () => {
 
     await expect(page.getByTestId(`manage-app-${APP}`)).toBeVisible();
     await expect(page.getByTestId("manage-app-slack")).toHaveCount(0);
+  });
+
+  test("renders publishing and failed snapshot rows with duration labels", async ({ page }) => {
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      pendingVersions: [PENDING_VERSION],
+      failedVersions: [FAILED_VERSION],
+    });
+    await page.goto(`/apps/${APP}/admin`);
+
+    const pendingRow = page.getByTestId("snapshot-row-pending");
+    await expect(pendingRow).toContainText(PENDING_VERSION.version.slice(0, 20));
+    await expect(pendingRow).toContainText("Publishing");
+    await expect(pendingRow).toContainText("for 4m");
+    await expect(pendingRow).toContainText("PR #3740");
+    await expect(pendingRow.getByTestId(`deploy-version-${PENDING_VERSION.version}`)).toHaveCount(0);
+
+    const failedRow = page.getByTestId("snapshot-row-failed");
+    await expect(failedRow).toContainText(FAILED_VERSION.version.slice(0, 20));
+    await expect(failedRow).toContainText("Failed");
+    await expect(failedRow).toContainText("after 35m");
+    await expect(failedRow).toContainText("stale");
+    await expect(failedRow.getByTestId(`deploy-version-${FAILED_VERSION.version}`)).toHaveCount(0);
+  });
+
+  test("prefers published rows over pending and failed for the same version", async ({
+    page,
+  }) => {
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      publishedVersions: [
+        {
+          ...PUBLISHED_NEW,
+          publishStartedAt: "2026-07-22T14:55:28Z",
+          publishDurationSeconds: 272,
+        },
+        PUBLISHED_LEGACY,
+      ],
+      pendingVersions: [{ ...PENDING_VERSION, version: PUBLISHED_NEW.version }],
+      failedVersions: [{ ...FAILED_VERSION, version: PUBLISHED_LEGACY.version }],
+    });
+    await page.goto(`/apps/${APP}/admin`);
+
+    await expect(page.getByTestId("snapshot-row-pending")).toHaveCount(0);
+    await expect(page.getByTestId("snapshot-row-failed")).toHaveCount(0);
+    await expect(page.getByTestId("snapshot-row-published")).toHaveCount(2);
+    await expect(page.getByText("in 4m 32s")).toBeVisible();
   });
 
   test("renders published snapshots newest first with PR titles", async ({ page }) => {

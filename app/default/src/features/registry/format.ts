@@ -14,6 +14,35 @@ const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, {
   numeric: "auto",
 });
 
+export function formatDurationSeconds(totalSeconds: number): string {
+  const seconds = Math.max(0, Math.round(totalSeconds));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  if (minutes < 60) {
+    return remainder > 0 ? `${minutes}m ${remainder}s` : `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  return remMinutes > 0 ? `${hours}h ${remMinutes}m` : `${hours}h`;
+}
+
+export function durationSecondsBetween(
+  start?: string | null,
+  end?: string | number | Date | null,
+): number | null {
+  if (!start || end === null || end === undefined) return null;
+  const startMs = Date.parse(start);
+  const endMs =
+    typeof end === "number"
+      ? end
+      : end instanceof Date
+        ? end.getTime()
+        : Date.parse(end);
+  if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs <= startMs) return null;
+  return Math.round((endMs - startMs) / 1000);
+}
+
 export function formatRegistryTime(value?: string | null): string {
   if (!value) return "—";
   const date = new Date(value);

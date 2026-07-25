@@ -1,13 +1,16 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  formatRegistryTimeAgo,
-  isActiveRegistryRollout,
-  sortPublishedVersionsNewestFirst,
-} from "@/features/registry/format";
+import { isActiveRegistryRollout } from "@/features/registry/format";
 import { RegistryCode } from "@/features/registry/registry-code";
+import {
+  buildAppAdminSnapshotRows,
+  snapshotPublishedPrimaryLabel,
+  snapshotPublishedSecondaryLabel,
+} from "@/features/registry/snapshot-rows";
 import type {
-  AppAdminPublishedVersion,
+  AppAdminPublication,
+  AppAdminRegistryResponse,
+  AppAdminSnapshotRow,
   RegistryAppSummary,
 } from "@/features/registry/types";
 
@@ -27,23 +30,31 @@ function pullRequestLabel(
   return `PR #${pullRequest.number}`;
 }
 
+function rowPublication(row: AppAdminSnapshotRow): AppAdminPublication | undefined {
+  if (row.kind === "published") return row.published.publication;
+  if (row.kind === "pending") return row.pending.publication;
+  return row.failed.publication;
+}
+
 function snapshotStatus({
-  version,
+  row,
   desiredVersion,
   rollout,
 }: {
-  version: string;
+  row: AppAdminSnapshotRow;
   desiredVersion?: string;
   rollout?: RegistryAppSummary["rollout"];
-}): { label: string; variant: "success" | "warning" | "secondary" } {
-  if (version === desiredVersion) {
+}): { label: string; variant: "success" | "warning" | "secondary" | "destructive" } {
+  if (row.kind === "pending") {
+    return { label: "Publishing", variant: "warning" };
+  }
+  if (row.kind === "failed") {
+    return { label: "Failed", variant: "destructive" };
+  }
+  if (row.version === desiredVersion) {
     return { label: "Deployed", variant: "success" };
   }
-  if (
-    rollout &&
-    rollout.version === version &&
-    isActiveRegistryRollout(rollout.state)
-  ) {
+  if (rollout && rollout.version === row.version && isActiveRegistryRollout(rollout.state)) {
     return { label: "Rolling out", variant: "warning" };
   }
   return { label: "Available", variant: "secondary" };
@@ -55,18 +66,22 @@ export function AppAdminSnapshotsTable({
   deployingVersion,
   onDeployVersion,
 }: {
-  registry: RegistryAppSummary & {
-    publishedVersions: AppAdminPublishedVersion[];
-    desiredVersion?: string;
-    selectionDisabled: boolean;
-  };
+  registry: Pick<
+    AppAdminRegistryResponse,
+    | "publishedVersions"
+    | "pendingVersions"
+    | "failedVersions"
+    | "desiredVersion"
+    | "rollout"
+    | "selectionDisabled"
+  >;
   controlsDisabled: boolean;
   deployingVersion: string | null;
   onDeployVersion: (version: string) => void;
 }) {
-  const publishedVersions = sortPublishedVersionsNewestFirst(registry.publishedVersions);
+  const rows = buildAppAdminSnapshotRows(registry);
 
-  if (publishedVersions.length === 0) {
+  if (rows.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">No published versions are available.</p>
     );
@@ -85,21 +100,28 @@ export function AppAdminSnapshotsTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-alpha bg-base-white dark:bg-surface">
-          {publishedVersions.map((version) => {
-            const pullRequest = version.publication?.triggerPullRequest;
+          {rows.map((row) => {
+            const publication = rowPublication(row);
+            const pullRequest = publication?.triggerPullRequest;
             const status = snapshotStatus({
-              version: version.version,
+              row,
               desiredVersion: registry.desiredVersion,
               rollout: registry.rollout,
             });
-            const isDeploying = deployingVersion === version.version;
+            const isDeployable = row.kind === "published";
+            const isDeploying = deployingVersion === row.version;
             const deployDisabled =
+              !isDeployable ||
               controlsDisabled ||
               isDeploying ||
-              version.version === registry.desiredVersion;
+              row.version === registry.desiredVersion;
+            const publishedSecondary = snapshotPublishedSecondaryLabel(row);
 
             return (
-              <tr key={version.version} data-testid="snapshot-row-published">
+              <tr
+                key={`${row.kind}:${row.version}`}
+                data-testid={`snapshot-row-${row.kind}`}
+              >
                 <td className="px-4 py-3 align-top">
                   {pullRequest?.url ? (
                     <a
@@ -110,17 +132,29 @@ export function AppAdminSnapshotsTable({
                     >
                       {pullRequestLabel(pullRequest)}
                     </a>
+                  ) : publication?.workflowRunUrl ? (
+                    <a
+                      href={publication.workflowRunUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium text-gold-700 underline decoration-gold-300 underline-offset-2 hover:text-gold-800 dark:text-gold-300"
+                    >
+                      workflow
+                    </a>
                   ) : (
                     <span className="text-muted-foreground">—</span>
                   )}
                 </td>
                 <td className="px-4 py-3 align-top">
-                  <RegistryCode title={version.version}>
-                    {shortenSnapshotVersion(version.version)}
+                  <RegistryCode title={row.version}>
+                    {shortenSnapshotVersion(row.version)}
                   </RegistryCode>
                 </td>
                 <td className="px-4 py-3 align-top text-muted-foreground">
-                  {formatRegistryTimeAgo(version.publishedAt) || "—"}
+                  <div>{snapshotPublishedPrimaryLabel(row)}</div>
+                  {publishedSecondary ? (
+                    <div className="mt-1 text-xs text-muted-foreground">{publishedSecondary}</div>
+                  ) : null}
                 </td>
                 <td className="px-4 py-3 align-top">
                   <Badge variant={status.variant} data-testid="snapshot-status">
@@ -128,15 +162,19 @@ export function AppAdminSnapshotsTable({
                   </Badge>
                 </td>
                 <td className="px-4 py-3 align-top text-right">
-                  <Button
-                    type="button"
-                    size="sm"
-                    data-testid={`deploy-version-${version.version}`}
-                    disabled={deployDisabled}
-                    onClick={() => onDeployVersion(version.version)}
-                  >
-                    {isDeploying ? "Deploying..." : "Deploy"}
-                  </Button>
+                  {isDeployable ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      data-testid={`deploy-version-${row.version}`}
+                      disabled={deployDisabled}
+                      onClick={() => onDeployVersion(row.version)}
+                    >
+                      {isDeploying ? "Deploying..." : "Deploy"}
+                    </Button>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
                 </td>
               </tr>
             );

@@ -107,7 +107,31 @@ export interface AppAdminPublication {
 export interface AppAdminPublishedVersion {
   version: string;
   publishedAt: string;
+  publishStartedAt?: string;
+  publishDurationSeconds?: number;
   platforms?: string[];
+  sourceRef?: string;
+  sourceUrl?: string;
+  publication?: AppAdminPublication;
+}
+
+export interface AppAdminPendingVersion {
+  version: string;
+  startedAt: string;
+  updatedAt: string;
+  phase: string;
+  publishingForSeconds?: number;
+  sourceRef?: string;
+  sourceUrl?: string;
+  publication?: AppAdminPublication;
+}
+
+export interface AppAdminFailedVersion {
+  version: string;
+  startedAt: string;
+  failedAt: string;
+  reason: string;
+  publishDurationSeconds?: number;
   sourceRef?: string;
   sourceUrl?: string;
   publication?: AppAdminPublication;
@@ -123,6 +147,8 @@ export interface AppAdminRegistryResponse {
     installedBy?: string;
   }>;
   publishedVersions: AppAdminPublishedVersion[];
+  pendingVersions?: AppAdminPendingVersion[];
+  failedVersions?: AppAdminFailedVersion[];
   rollout?: {
     version: string;
     state: string;
