@@ -4,6 +4,7 @@ import { isActiveRegistryRollout } from "@/features/registry/format";
 import { RegistryCode } from "@/features/registry/registry-code";
 import {
   buildAppAdminSnapshotRows,
+  formatPublicationLabel,
   snapshotPublishedPrimaryLabel,
   snapshotPublishedSecondaryLabel,
 } from "@/features/registry/snapshot-rows";
@@ -24,10 +25,7 @@ function pullRequestLabel(
   pullRequest?: { number: number; title?: string | null },
 ): string {
   if (!pullRequest?.number) return "—";
-  if (pullRequest.title?.trim()) {
-    return `PR #${pullRequest.number} · ${pullRequest.title.trim()}`;
-  }
-  return `PR #${pullRequest.number}`;
+  return formatPublicationLabel({ triggerPullRequest: pullRequest }) ?? `PR #${pullRequest.number}`;
 }
 
 function rowPublication(row: AppAdminSnapshotRow): AppAdminPublication | undefined {

@@ -8,9 +8,31 @@ import {
 import type {
   AppAdminFailedVersion,
   AppAdminPendingVersion,
+  AppAdminPublication,
   AppAdminPublishedVersion,
   AppAdminSnapshotRow,
 } from "@/features/registry/types";
+
+export function formatPublicationLabel(
+  publication?: AppAdminPublication,
+): string | null {
+  const pullRequest = publication?.triggerPullRequest;
+  if (pullRequest?.number) {
+    if (pullRequest.title?.trim()) {
+      return `PR #${pullRequest.number} · ${pullRequest.title.trim()}`;
+    }
+    return `PR #${pullRequest.number}`;
+  }
+  if (publication?.workflowRunUrl) return "workflow";
+  return null;
+}
+
+function joinPublicationParts(
+  ...parts: Array<string | null | undefined>
+): string | null {
+  const filtered = parts.filter((part): part is string => Boolean(part?.trim()));
+  return filtered.length > 0 ? filtered.join(" · ") : null;
+}
 
 export function buildAppAdminSnapshotRows(registry: {
   publishedVersions: AppAdminPublishedVersion[];
@@ -70,10 +92,10 @@ export function snapshotPublishedPrimaryLabel(
   now: number | Date = Date.now(),
 ): string {
   if (row.kind === "pending") {
-    const seconds =
-      row.pending.publishingForSeconds ??
-      durationSecondsBetween(row.pending.startedAt, now);
-    return seconds !== null ? `for ${formatDurationSeconds(seconds)}` : "—";
+    return (
+      formatRegistryTimeAgo(row.pending.startedAt, now) ||
+      formatRegistryTime(row.pending.startedAt)
+    );
   }
   if (row.kind === "failed") {
     return formatRegistryTimeAgo(row.failed.failedAt, now) || formatRegistryTime(row.failed.failedAt);
@@ -83,29 +105,49 @@ export function snapshotPublishedPrimaryLabel(
 
 export function snapshotPublishedSecondaryLabel(
   row: AppAdminSnapshotRow,
+  now: number | Date = Date.now(),
 ): string | null {
+  const publication =
+    row.kind === "published"
+      ? row.published.publication
+      : row.kind === "pending"
+        ? row.pending.publication
+        : row.failed.publication;
+  const publicationLabel = formatPublicationLabel(publication);
+
   if (row.kind === "published") {
     const duration =
       row.published.publishDurationSeconds ??
       (row.published.publishStartedAt
         ? durationSecondsBetween(row.published.publishStartedAt, row.published.publishedAt)
         : null);
-    if (duration === null) return null;
-    return `in ${formatDurationSeconds(duration)}`;
+    return joinPublicationParts(
+      duration !== null ? `in ${formatDurationSeconds(duration)}` : null,
+      publicationLabel,
+    );
   }
-  if (row.kind === "failed") {
-    const duration =
-      row.failed.publishDurationSeconds ??
-      durationSecondsBetween(row.failed.startedAt, row.failed.failedAt);
-    const parts: string[] = [];
-    if (duration !== null) {
-      parts.push(`after ${formatDurationSeconds(duration)}`);
-    }
-    const reason = row.failed.reason?.trim();
-    if (reason) {
-      parts.push(reason);
-    }
-    return parts.length > 0 ? parts.join(" · ") : null;
+  if (row.kind === "pending") {
+    const seconds =
+      row.pending.publishingForSeconds ??
+      durationSecondsBetween(row.pending.startedAt, now);
+    return joinPublicationParts(
+      seconds !== null ? `Publishing for ${formatDurationSeconds(seconds)}` : null,
+      publicationLabel,
+    );
   }
-  return null;
+  const duration =
+    row.failed.publishDurationSeconds ??
+    durationSecondsBetween(row.failed.startedAt, row.failed.failedAt);
+  const parts: string[] = [];
+  if (duration !== null) {
+    parts.push(`after ${formatDurationSeconds(duration)}`);
+  }
+  const reason = row.failed.reason?.trim();
+  if (reason) {
+    parts.push(reason);
+  }
+  if (publicationLabel) {
+    parts.push(publicationLabel);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
