@@ -11,6 +11,7 @@ import {
 } from "@/features/registry/snapshot-rows";
 import type {
   AppAdminPublication,
+  AppAdminPublicationPullRequest,
   AppAdminRegistryResponse,
   AppAdminSnapshotRow,
   RegistryAppSummary,
@@ -23,9 +24,7 @@ function shortenSnapshotVersion(version: string): string {
   return `${trimmed.slice(0, 20)}…`;
 }
 
-function pullRequestLabel(
-  pullRequest?: { number: number; title?: string | null },
-): string {
+function pullRequestLabel(pullRequest?: AppAdminPublicationPullRequest): string {
   if (!pullRequest?.number) return "—";
   return formatPublicationLabel({ triggerPullRequest: pullRequest }) ?? `PR #${pullRequest.number}`;
 }
