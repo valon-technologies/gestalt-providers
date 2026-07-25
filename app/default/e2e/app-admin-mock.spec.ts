@@ -138,17 +138,17 @@ test.describe("app admin registry UI", () => {
 
     const pendingRow = page.getByTestId("snapshot-row-pending");
     await expect(pendingRow).toContainText(PENDING_VERSION.version.slice(0, 20));
-    await expect(pendingRow).toContainText("Publishing");
-    await expect(pendingRow).toContainText("4 minutes ago");
-    await expect(pendingRow).toContainText("Publishing for 4m");
+    await expect(pendingRow.getByTestId("snapshot-status-spinner")).toBeVisible();
+    await expect(pendingRow.getByTestId("snapshot-status")).toHaveText("Publishing");
+    await expect(pendingRow).toContainText("for 4m");
     await expect(pendingRow).toContainText("PR #3740");
     await expect(pendingRow).toContainText("Publish pending snapshot");
     await expect(pendingRow.getByTestId(`deploy-version-${PENDING_VERSION.version}`)).toHaveCount(0);
 
     const failedRow = page.getByTestId("snapshot-row-failed");
     await expect(failedRow).toContainText(FAILED_VERSION.version.slice(0, 20));
-    await expect(failedRow).toContainText("Failed");
-    await expect(failedRow).toContainText("after 35m");
+    await expect(failedRow.getByTestId("snapshot-status")).toHaveText("Failed");
+    await expect(failedRow).toContainText("Failed after 35m");
     await expect(failedRow).toContainText("stale");
     await expect(failedRow).toContainText("Retry registry publish");
     await expect(failedRow.getByTestId(`deploy-version-${FAILED_VERSION.version}`)).toHaveCount(0);
@@ -176,8 +176,7 @@ test.describe("app admin registry UI", () => {
     await expect(page.getByTestId("snapshot-row-failed")).toHaveCount(0);
     await expect(page.getByTestId("snapshot-row-published")).toHaveCount(2);
     const publishedRow = page.getByTestId("snapshot-row-published").first();
-    await expect(publishedRow).toContainText("in 4m 32s");
-    await expect(publishedRow).toContainText("Add registry deploy banner");
+    await expect(publishedRow).toContainText("Published in 4m 32s");
   });
 
   test("renders published snapshots newest first with PR titles", async ({ page }) => {

@@ -27,13 +27,6 @@ export function formatPublicationLabel(
   return null;
 }
 
-function joinPublicationParts(
-  ...parts: Array<string | null | undefined>
-): string | null {
-  const filtered = parts.filter((part): part is string => Boolean(part?.trim()));
-  return filtered.length > 0 ? filtered.join(" · ") : null;
-}
-
 export function buildAppAdminSnapshotRows(registry: {
   publishedVersions: AppAdminPublishedVersion[];
   pendingVersions?: AppAdminPendingVersion[];
@@ -87,67 +80,47 @@ export function buildAppAdminSnapshotRows(registry: {
   });
 }
 
-export function snapshotPublishedPrimaryLabel(
-  row: AppAdminSnapshotRow,
-  now: number | Date = Date.now(),
-): string {
-  if (row.kind === "pending") {
-    return (
-      formatRegistryTimeAgo(row.pending.startedAt, now) ||
-      formatRegistryTime(row.pending.startedAt)
-    );
-  }
-  if (row.kind === "failed") {
-    return formatRegistryTimeAgo(row.failed.failedAt, now) || formatRegistryTime(row.failed.failedAt);
-  }
-  return formatRegistryTimeAgo(row.published.publishedAt, now) || formatRegistryTime(row.published.publishedAt);
-}
-
-export function snapshotPublishedSecondaryLabel(
+export function snapshotStatusTimer(
   row: AppAdminSnapshotRow,
   now: number | Date = Date.now(),
 ): string | null {
-  const publication =
-    row.kind === "published"
-      ? row.published.publication
-      : row.kind === "pending"
-        ? row.pending.publication
-        : row.failed.publication;
-  const publicationLabel = formatPublicationLabel(publication);
-
+  if (row.kind === "pending") {
+    const seconds =
+      row.pending.publishingForSeconds ??
+      durationSecondsBetween(row.pending.startedAt, now);
+    return seconds !== null ? `for ${formatDurationSeconds(seconds)}` : null;
+  }
   if (row.kind === "published") {
     const duration =
       row.published.publishDurationSeconds ??
       (row.published.publishStartedAt
         ? durationSecondsBetween(row.published.publishStartedAt, row.published.publishedAt)
         : null);
-    return joinPublicationParts(
-      duration !== null ? `in ${formatDurationSeconds(duration)}` : null,
-      publicationLabel,
-    );
-  }
-  if (row.kind === "pending") {
-    const seconds =
-      row.pending.publishingForSeconds ??
-      durationSecondsBetween(row.pending.startedAt, now);
-    return joinPublicationParts(
-      seconds !== null ? `Publishing for ${formatDurationSeconds(seconds)}` : null,
-      publicationLabel,
-    );
+    return duration !== null ? `Published in ${formatDurationSeconds(duration)}` : null;
   }
   const duration =
     row.failed.publishDurationSeconds ??
     durationSecondsBetween(row.failed.startedAt, row.failed.failedAt);
-  const parts: string[] = [];
-  if (duration !== null) {
-    parts.push(`after ${formatDurationSeconds(duration)}`);
+  return duration !== null ? `Failed after ${formatDurationSeconds(duration)}` : null;
+}
+
+export function snapshotStatusTimestamp(
+  row: AppAdminSnapshotRow,
+  now: number | Date = Date.now(),
+): string | null {
+  if (row.kind === "pending" || snapshotStatusTimer(row, now)) return null;
+  if (row.kind === "failed") {
+    return (
+      formatRegistryTimeAgo(row.failed.failedAt, now) || formatRegistryTime(row.failed.failedAt)
+    );
   }
-  const reason = row.failed.reason?.trim();
-  if (reason) {
-    parts.push(reason);
-  }
-  if (publicationLabel) {
-    parts.push(publicationLabel);
-  }
-  return parts.length > 0 ? parts.join(" · ") : null;
+  return (
+    formatRegistryTimeAgo(row.published.publishedAt, now) ||
+    formatRegistryTime(row.published.publishedAt)
+  );
+}
+
+export function snapshotFailedReason(row: AppAdminSnapshotRow): string | null {
+  if (row.kind !== "failed") return null;
+  return row.failed.reason?.trim() || null;
 }

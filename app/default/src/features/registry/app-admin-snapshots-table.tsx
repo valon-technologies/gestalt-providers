@@ -5,8 +5,9 @@ import { RegistryCode } from "@/features/registry/registry-code";
 import {
   buildAppAdminSnapshotRows,
   formatPublicationLabel,
-  snapshotPublishedPrimaryLabel,
-  snapshotPublishedSecondaryLabel,
+  snapshotFailedReason,
+  snapshotStatusTimer,
+  snapshotStatusTimestamp,
 } from "@/features/registry/snapshot-rows";
 import type {
   AppAdminPublication,
@@ -14,6 +15,7 @@ import type {
   AppAdminSnapshotRow,
   RegistryAppSummary,
 } from "@/features/registry/types";
+import { Loader2 } from "lucide-react";
 
 function shortenSnapshotVersion(version: string): string {
   const trimmed = version.trim();
@@ -92,7 +94,6 @@ export function AppAdminSnapshotsTable({
           <tr>
             <th className="px-4 py-3 font-medium">Pull request</th>
             <th className="px-4 py-3 font-medium">Snapshot</th>
-            <th className="px-4 py-3 font-medium">Published</th>
             <th className="px-4 py-3 font-medium">Status</th>
             <th className="px-4 py-3 font-medium text-right">Action</th>
           </tr>
@@ -113,7 +114,9 @@ export function AppAdminSnapshotsTable({
               controlsDisabled ||
               isDeploying ||
               row.version === registry.desiredVersion;
-            const publishedSecondary = snapshotPublishedSecondaryLabel(row);
+            const statusTimer = snapshotStatusTimer(row);
+            const statusTimestamp = snapshotStatusTimestamp(row);
+            const failedReason = snapshotFailedReason(row);
 
             return (
               <tr
@@ -148,16 +151,33 @@ export function AppAdminSnapshotsTable({
                     {shortenSnapshotVersion(row.version)}
                   </RegistryCode>
                 </td>
-                <td className="px-4 py-3 align-top text-muted-foreground">
-                  <div>{snapshotPublishedPrimaryLabel(row)}</div>
-                  {publishedSecondary ? (
-                    <div className="mt-1 text-xs text-muted-foreground">{publishedSecondary}</div>
-                  ) : null}
-                </td>
                 <td className="px-4 py-3 align-top">
-                  <Badge variant={status.variant} data-testid="snapshot-status">
-                    {status.label}
-                  </Badge>
+                  <div className="flex flex-col gap-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {row.kind === "pending" ? (
+                        <Loader2
+                          className="size-3.5 shrink-0 animate-spin text-warning"
+                          aria-hidden="true"
+                          data-testid="snapshot-status-spinner"
+                        />
+                      ) : null}
+                      <Badge variant={status.variant} data-testid="snapshot-status">
+                        {status.label}
+                      </Badge>
+                      {row.kind === "pending" && statusTimer ? (
+                        <span className="text-muted-foreground">{statusTimer}</span>
+                      ) : null}
+                    </div>
+                    {row.kind !== "pending" && statusTimer ? (
+                      <div className="text-xs text-muted-foreground">{statusTimer}</div>
+                    ) : null}
+                    {statusTimestamp ? (
+                      <div className="text-xs text-muted-foreground">{statusTimestamp}</div>
+                    ) : null}
+                    {failedReason ? (
+                      <div className="text-xs text-muted-foreground">{failedReason}</div>
+                    ) : null}
+                  </div>
                 </td>
                 <td className="px-4 py-3 align-top text-right">
                   {isDeployable ? (
