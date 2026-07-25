@@ -299,6 +299,31 @@ test.describe("app admin registry UI", () => {
     await expect(page.getByTestId(`deploy-version-${PUBLISHED_LEGACY.version}`)).toBeDisabled();
   });
 
+  test("polls for pending publish without manual refresh", async ({ page }) => {
+    let registryCalls = 0;
+
+    await page.route(`**/api/v1/apps/${APP}/admin/registry`, (route, request) => {
+      if (request.method() !== "GET") {
+        void route.fallback();
+        return;
+      }
+      registryCalls += 1;
+      const responseState =
+        registryCalls >= 2
+          ? {
+              ...installedRegistryState(),
+              pendingVersions: [PENDING_VERSION],
+            }
+          : installedRegistryState();
+      void route.fulfill({ json: responseState });
+    });
+    await page.goto(`/apps/${APP}/admin`);
+
+    await expect(page.getByTestId("snapshot-row-pending")).toHaveCount(0);
+    await expect(page.getByTestId("snapshot-row-pending")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("Publishing")).toBeVisible();
+  });
+
   test("403 renders access denied without registry metadata", async ({ page }) => {
     await page.route(`**/api/v1/apps/${APP}/admin/registry`, (route) => {
       route.fulfill({ status: 403, json: { error: "app access denied" } });

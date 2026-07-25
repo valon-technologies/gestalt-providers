@@ -4,7 +4,10 @@ import AuthGuard from "@/components/AuthGuard";
 import Container from "@/components/Container";
 import Nav from "@/components/Nav";
 import { AppAdminVersionPanel } from "@/features/registry/app-admin-version-panel";
-import { isActiveRegistryRollout } from "@/features/registry/format";
+import {
+  APP_ADMIN_BOOTSTRAP_POLL_MS,
+  shouldPollAppAdminRegistry,
+} from "@/features/registry/polling";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import {
   getAppAdminRegistry,
@@ -26,6 +29,7 @@ export default function AppAdminPageClient({ appName }: { appName: string }) {
   const [forbidden, setForbidden] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const loadRequestIdRef = useRef(0);
+  const bootstrapPollUntilRef = useRef(0);
 
   const loadRegistry = useCallback(async () => {
     const requestId = loadRequestIdRef.current + 1;
@@ -64,6 +68,7 @@ export default function AppAdminPageClient({ appName }: { appName: string }) {
   }, [appName]);
 
   useEffect(() => {
+    bootstrapPollUntilRef.current = Date.now() + APP_ADMIN_BOOTSTRAP_POLL_MS;
     setLoading(true);
     setForbidden(false);
     setRegistry(null);
@@ -74,11 +79,7 @@ export default function AppAdminPageClient({ appName }: { appName: string }) {
 
   useEffect(() => {
     if (!registry) return undefined;
-    const shouldPoll =
-      registry.selectionDisabled ||
-      (registry.rollout ? isActiveRegistryRollout(registry.rollout.state) : false) ||
-      (registry.pendingVersions?.length ?? 0) > 0;
-    if (!shouldPoll) return undefined;
+    if (!shouldPollAppAdminRegistry(registry, bootstrapPollUntilRef.current)) return undefined;
 
     const timer = window.setTimeout(() => {
       void loadRegistry();
