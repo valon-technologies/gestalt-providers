@@ -5,11 +5,10 @@ import {
   SectionHeaderTitle,
 } from "@/components/ui/section-header";
 import { AppAdminSnapshotsTable } from "@/features/registry/app-admin-snapshots-table";
-import type { AppAdminPublishedVersion } from "@/features/registry/types";
 import { isActiveRegistryRollout } from "@/features/registry/format";
 import { RegistryCode } from "@/features/registry/registry-code";
 import { RolloutBadge } from "@/features/registry/rollout-badge";
-import type { RegistryAppSummary } from "@/features/registry/types";
+import type { AppAdminRegistryResponse } from "@/features/registry/types";
 
 export function AppAdminVersionPanel({
   registry,
@@ -18,12 +17,7 @@ export function AppAdminVersionPanel({
   onDeployVersion,
   error,
 }: {
-  registry: RegistryAppSummary & {
-    publishedVersions: AppAdminPublishedVersion[];
-    selectionDisabled: boolean;
-    disabledReason?: string;
-    desiredVersion?: string;
-  };
+  registry: AppAdminRegistryResponse;
   appMountedPath?: string;
   deployingVersion: string | null;
   onDeployVersion: (version: string) => void;

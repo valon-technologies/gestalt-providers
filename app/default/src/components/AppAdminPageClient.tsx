@@ -76,7 +76,8 @@ export default function AppAdminPageClient({ appName }: { appName: string }) {
     if (!registry) return undefined;
     const shouldPoll =
       registry.selectionDisabled ||
-      (registry.rollout ? isActiveRegistryRollout(registry.rollout.state) : false);
+      (registry.rollout ? isActiveRegistryRollout(registry.rollout.state) : false) ||
+      (registry.pendingVersions?.length ?? 0) > 0;
     if (!shouldPoll) return undefined;
 
     const timer = window.setTimeout(() => {
