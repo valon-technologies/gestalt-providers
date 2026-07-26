@@ -1,9 +1,13 @@
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatPublicationLabel } from "@/features/registry/snapshot-rows";
-import { formatRegistryTime } from "@/features/registry/format";
+import { formatRegistryTime, formatRegistryTimeAgo } from "@/features/registry/format";
 import { RegistryCode } from "@/features/registry/registry-code";
 import type { AppAdminRegistryRevision } from "@/features/registry/types";
 import { Loader2 } from "lucide-react";
+
+const TABLE_LINK_CLASS =
+  "font-medium text-gold-700 underline decoration-gold-300 underline-offset-2 hover:text-gold-800 dark:text-gold-300";
 
 function shortenVersion(version: string): string {
   const trimmed = version.trim();
@@ -18,17 +22,38 @@ function transitionLabel(revision: AppAdminRegistryRevision): string {
   return `${shortenVersion(revision.previousVersion)} → ${shortenVersion(revision.version)}`;
 }
 
-function availabilityLabel(revision: AppAdminRegistryRevision): string {
+function fullTransitionLabel(revision: AppAdminRegistryRevision): string {
+  if (!revision.previousVersion) {
+    return `First deployment → ${revision.version}`;
+  }
+  return `${revision.previousVersion} → ${revision.version}`;
+}
+
+function availabilityStatus(revision: AppAdminRegistryRevision): {
+  label: string;
+  variant: "success" | "warning" | "secondary" | "destructive";
+} {
   switch (revision.deploymentState) {
     case "desired":
-      return "Current";
+      return { label: "Current", variant: "success" };
     case "redeployable":
-      return "Redeployable";
+      return { label: "Redeployable", variant: "secondary" };
     case "locked":
-      return "Locked";
+      return { label: "Locked", variant: "secondary" };
     default:
-      return revision.deploymentState || "—";
+      return { label: revision.deploymentState || "—", variant: "secondary" };
   }
+}
+
+function deployedAtLabel(
+  deployedAt?: string,
+  now: number | Date = Date.now(),
+): { relative: string; absolute: string; dateTime: string } | null {
+  if (!deployedAt) return null;
+  const relative = formatRegistryTimeAgo(deployedAt, now) || formatRegistryTime(deployedAt);
+  const absolute = formatRegistryTime(deployedAt);
+  if (!relative || relative === "—") return null;
+  return { relative, absolute, dateTime: deployedAt };
 }
 
 function deployedByLabel(actor?: string): string {
@@ -56,7 +81,7 @@ export function AppAdminHistoryTable({
   hasMore: boolean;
 }) {
   if (loading) {
-    return <p className="text-sm text-muted">Loading revision history…</p>;
+    return <p className="text-sm text-muted-foreground">Loading revision history…</p>;
   }
 
   if (error) {
@@ -65,7 +90,7 @@ export function AppAdminHistoryTable({
 
   if (revisions.length === 0) {
     return (
-      <p className="text-sm text-muted" data-testid="revision-history-empty">
+      <p className="text-sm text-muted-foreground" data-testid="revision-history-empty">
         No deployments yet
       </p>
     );
@@ -73,67 +98,78 @@ export function AppAdminHistoryTable({
 
   return (
     <div className="space-y-4">
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-sm" data-testid="revision-history-table">
-          <thead className="border-b border-alpha text-faint">
+      <div className="overflow-x-auto rounded-xl border border-alpha">
+        <table className="min-w-full divide-y divide-alpha text-sm" data-testid="revision-history-table">
+          <thead className="bg-foreground/[0.03] text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
             <tr>
-              <th className="px-3 py-2 font-medium">Deployed at</th>
-              <th className="px-3 py-2 font-medium">Transition</th>
-              <th className="px-3 py-2 font-medium">Availability</th>
-              <th className="px-3 py-2 font-medium">Deployed by</th>
+              <th className="px-4 py-3 font-medium">Deployed at</th>
+              <th className="px-4 py-3 font-medium">Transition</th>
+              <th className="px-4 py-3 font-medium">Availability</th>
+              <th className="px-4 py-3 font-medium">Deployed by</th>
             </tr>
           </thead>
-          <tbody>
-            {revisions.map((revision) => (
-              <tr
-                key={revision.id}
-                className="border-b border-alpha/60 align-top"
-                data-testid="revision-history-row"
-              >
-                <td className="px-3 py-3 whitespace-nowrap text-muted">
-                  {formatRegistryTime(revision.deployedAt)}
-                </td>
-                <td className="px-3 py-3">
-                  <div className="space-y-1">
-                    <p className="text-primary">
-                      <RegistryCode>{transitionLabel(revision)}</RegistryCode>
-                    </p>
-                    {revision.sourceUrl ? (
-                      <a
-                        href={revision.sourceUrl}
-                        className="text-xs text-gold-700 hover:text-gold-800 dark:text-gold-300 dark:hover:text-gold-200"
-                        target="_blank"
-                        rel="noreferrer"
+          <tbody className="divide-y divide-alpha bg-base-white dark:bg-surface">
+            {revisions.map((revision) => {
+              const deployedAt = deployedAtLabel(revision.deployedAt);
+              const availability = availabilityStatus(revision);
+              const publicationLabel = formatPublicationLabel(revision.publication);
+              const publicationUrl = revision.publication?.triggerPullRequest?.url;
+
+              return (
+                <tr key={revision.id} data-testid="revision-history-row">
+                  <td className="px-4 py-3 align-top text-muted-foreground">
+                    {deployedAt ? (
+                      <time
+                        dateTime={deployedAt.dateTime}
+                        title={deployedAt.absolute}
+                        data-testid="revision-deployed-at"
                       >
-                        {revision.sourceRef?.slice(0, 12) ?? "source"}
-                      </a>
-                    ) : null}
-                    {formatPublicationLabel(revision.publication) ? (
-                      <p className="text-xs text-muted">
-                        {revision.publication?.triggerPullRequest?.url ? (
+                        {deployedAt.relative}
+                      </time>
+                    ) : (
+                      <span>—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 align-top">
+                    <div className="flex flex-col gap-1">
+                      <RegistryCode title={fullTransitionLabel(revision)}>
+                        {transitionLabel(revision)}
+                      </RegistryCode>
+                      {revision.sourceUrl ? (
+                        <a
+                          href={revision.sourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={TABLE_LINK_CLASS}
+                        >
+                          {revision.sourceRef?.slice(0, 12) ?? "source"}
+                        </a>
+                      ) : null}
+                      {publicationLabel ? (
+                        publicationUrl ? (
                           <a
-                            href={revision.publication.triggerPullRequest.url}
-                            className="hover:text-primary"
+                            href={publicationUrl}
                             target="_blank"
                             rel="noreferrer"
+                            className={TABLE_LINK_CLASS}
                           >
-                            {formatPublicationLabel(revision.publication)}
+                            {publicationLabel}
                           </a>
                         ) : (
-                          formatPublicationLabel(revision.publication)
-                        )}
-                      </p>
-                    ) : null}
-                  </div>
-                </td>
-                <td className="px-3 py-3 whitespace-nowrap text-muted">
-                  {availabilityLabel(revision)}
-                </td>
-                <td className="px-3 py-3 whitespace-nowrap text-muted">
-                  {deployedByLabel(revision.deployedBy)}
-                </td>
-              </tr>
-            ))}
+                          <span className="text-xs text-muted-foreground">{publicationLabel}</span>
+                        )
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 align-top">
+                    <Badge variant={availability.variant}>{availability.label}</Badge>
+                  </td>
+                  <td className="px-4 py-3 align-top text-muted-foreground">
+                    {deployedByLabel(revision.deployedBy)}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
