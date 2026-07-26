@@ -92,11 +92,11 @@ export function AppAdminVersionPanel({
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 space-y-1">
-          <h1 className="text-2xl font-heading text-primary">{registry.app}</h1>
-          <p className="text-sm text-muted">Registry: {registry.registry}</p>
-          <p className="text-sm text-faint">App management</p>
+          <h1 className="text-2xl font-heading text-foreground">{registry.app}</h1>
+          <p className="text-sm text-muted-foreground">Registry: {registry.registry}</p>
+          <p className="text-sm text-muted-foreground-soft">App management</p>
           {registry.desiredVersion ? (
-            <p className="text-sm text-muted">
+            <p className="text-sm text-muted-foreground">
               Desired version: <RegistryCode>{registry.desiredVersion}</RegistryCode>
             </p>
           ) : null}
@@ -128,8 +128,8 @@ export function AppAdminVersionPanel({
           type="button"
           className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
             activeTab === "snapshots"
-              ? "border-gold-600 text-primary"
-              : "border-transparent text-muted hover:text-primary"
+              ? "border-gold-600 text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
           onClick={() => setActiveTab("snapshots")}
           data-testid="app-admin-tab-snapshots"
@@ -140,8 +140,8 @@ export function AppAdminVersionPanel({
           type="button"
           className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
             activeTab === "history"
-              ? "border-gold-600 text-primary"
-              : "border-transparent text-muted hover:text-primary"
+              ? "border-gold-600 text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
           onClick={() => setActiveTab("history")}
           data-testid="app-admin-tab-history"
@@ -171,7 +171,7 @@ export function AppAdminVersionPanel({
           />
 
           {registry.selectionDisabled && registry.disabledReason ? (
-            <p className="text-sm text-muted" data-testid="selection-disabled-reason">
+            <p className="text-sm text-muted-foreground" data-testid="selection-disabled-reason">
               {registry.disabledReason}
             </p>
           ) : null}
