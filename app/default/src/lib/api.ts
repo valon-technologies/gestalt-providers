@@ -168,6 +168,26 @@ export interface AppAdminRegistryVersionResponse {
   };
 }
 
+export interface AppAdminRegistryRevision {
+  id: string;
+  version: string;
+  previousVersion?: string;
+  deployedAt: string;
+  deployedBy?: string;
+  sourceRef?: string;
+  sourceUrl?: string;
+  publication?: AppAdminPublication;
+  deploymentState?: string;
+  deployableUntil?: string;
+  current?: boolean;
+}
+
+export interface AppAdminRegistryHistoryResponse {
+  app: string;
+  revisions: AppAdminRegistryRevision[];
+  nextCursor?: string;
+}
+
 export interface IntegrationOperation {
   id: string;
   title?: string;
@@ -895,6 +915,19 @@ export async function selectAppAdminRegistryVersion(
       method: "POST",
       body: JSON.stringify({ version }),
     },
+  );
+}
+
+export async function getAppAdminRegistryHistory(
+  app: string,
+  options?: { limit?: number; cursor?: string },
+): Promise<AppAdminRegistryHistoryResponse> {
+  const params = new URLSearchParams();
+  if (options?.limit) params.set("limit", String(options.limit));
+  if (options?.cursor) params.set("cursor", options.cursor);
+  const query = params.toString();
+  return fetchAPI<AppAdminRegistryHistoryResponse>(
+    `/api/v1/apps/${encodeURIComponent(app)}/admin/registry/history${query ? `?${query}` : ""}`,
   );
 }
 

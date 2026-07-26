@@ -9,6 +9,7 @@ import type {
   APIToken,
   AppAdminRegistryResponse,
   AppAdminRegistryVersionResponse,
+  AppAdminRegistryHistoryResponse,
   Integration,
   IntegrationOperation,
   ManagedIdentity,
@@ -214,6 +215,11 @@ export async function mockAppAdminRegistry(
   let state = initialState;
 
   await page.route(`**/api/v1/apps/${app}/admin/registry`, (route: Route, request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (pathname.endsWith("/history")) {
+      route.fallback();
+      return;
+    }
     if (request.method() === "GET") {
       route.fulfill({ json: state });
       return;
@@ -289,6 +295,35 @@ export async function mockAppAdminRegistry(
     setState: (nextState) => {
       state = nextState;
     },
+  };
+}
+
+export async function mockAppAdminRegistryHistory(
+  page: Page,
+  app: string,
+  initialState: AppAdminRegistryHistoryResponse,
+  opts?: {
+    onRequest?: (cursor: string | null) => AppAdminRegistryHistoryResponse;
+  },
+): Promise<{ getState: () => AppAdminRegistryHistoryResponse }> {
+  let state = initialState;
+
+  await page.route(`**/api/v1/apps/${app}/admin/registry/history**`, (route: Route, request) => {
+    if (request.method() === "GET") {
+      const url = new URL(request.url());
+      const cursor = url.searchParams.get("cursor");
+      if (opts?.onRequest) {
+        route.fulfill({ json: opts.onRequest(cursor) });
+        return;
+      }
+      route.fulfill({ json: state });
+      return;
+    }
+    route.fallback();
+  });
+
+  return {
+    getState: () => state,
   };
 }
 
