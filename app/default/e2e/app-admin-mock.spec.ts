@@ -248,7 +248,7 @@ test.describe("app admin registry UI", () => {
     await page.goto(`/apps/${APP}/admin`);
 
     await expect(page.getByTestId("rollout-active-banner")).toContainText(
-      "Rollout enrolling",
+      "Rollout Enrolling",
     );
     await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toBeDisabled();
     await expect(page.getByTestId(`deploy-version-${PUBLISHED_LEGACY.version}`)).toBeDisabled();
@@ -278,7 +278,7 @@ test.describe("app admin registry UI", () => {
       PUBLISHED_NEW.version,
     );
     await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toBeDisabled();
-    await expect(page.getByTestId("rollout-badge")).toHaveText("enrolling");
+    await expect(page.getByTestId("rollout-badge")).toHaveText("Enrolling");
   });
 
   test("409 after stale page disables controls after refresh", async ({ page }) => {

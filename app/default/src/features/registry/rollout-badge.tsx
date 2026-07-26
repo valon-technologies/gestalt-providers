@@ -1,10 +1,15 @@
 import { Badge } from "@/components/ui/badge";
+import { formatRolloutStateLabel } from "@/features/registry/format";
 import type { RegistryAppSummary } from "@/features/registry/types";
 
 type BadgeVariant = "success" | "warning" | "destructive" | "muted";
 
-export function rolloutBadgeLabel(app: RegistryAppSummary): string {
+export function rolloutState(app: RegistryAppSummary): string {
   return app.rollout?.state || (app.desiredVersion ? "not started" : "not installed");
+}
+
+export function rolloutBadgeLabel(app: RegistryAppSummary): string {
+  return formatRolloutStateLabel(rolloutState(app));
 }
 
 export function rolloutBadgeVariant(state: string): BadgeVariant {
@@ -22,8 +27,9 @@ export function rolloutBadgeVariant(state: string): BadgeVariant {
 }
 
 export function RolloutBadge({ app }: { app: RegistryAppSummary }) {
-  const label = rolloutBadgeLabel(app);
-  const variant = rolloutBadgeVariant(label);
+  const state = rolloutState(app);
+  const label = formatRolloutStateLabel(state);
+  const variant = rolloutBadgeVariant(state);
   return (
     <Badge
       data-testid="rollout-badge"

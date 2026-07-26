@@ -120,3 +120,9 @@ export function shortenSourceRef(sourceRef?: string): string {
 export function isActiveRegistryRollout(state?: string): boolean {
   return state === "enrolling" || state === "restarting";
 }
+
+export function formatRolloutStateLabel(state: string): string {
+  const trimmed = state.trim();
+  if (!trimmed) return trimmed;
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
