@@ -141,6 +141,7 @@ test.describe("app admin registry UI", () => {
     await expect(pendingRow.getByTestId("snapshot-status-spinner")).toBeVisible();
     await expect(pendingRow.getByTestId("snapshot-status")).toHaveText("Publishing");
     await expect(pendingRow).toContainText("for 4m");
+    await expect(pendingRow.getByTestId("snapshot-last-updated-at")).toHaveText("4 minutes ago");
     await expect(pendingRow).toContainText("PR #3740");
     await expect(pendingRow).toContainText("Publish pending snapshot");
     await expect(pendingRow.getByTestId(`deploy-version-${PENDING_VERSION.version}`)).toHaveCount(0);
@@ -189,7 +190,7 @@ test.describe("app admin registry UI", () => {
     await expect(rows.nth(0)).toContainText(PUBLISHED_NEW.version.slice(0, 20));
     await expect(rows.nth(0)).toContainText("PR #3251");
     await expect(rows.nth(0)).toContainText("Add registry deploy banner");
-    await expect(rows.nth(0)).toContainText("yesterday");
+    await expect(rows.nth(0).getByTestId("snapshot-last-updated-at")).toHaveText("yesterday");
     await expect(rows.nth(1)).toContainText(PUBLISHED_LEGACY.version.slice(0, 20));
     await expect(rows.nth(1)).toContainText("Deployed");
   });

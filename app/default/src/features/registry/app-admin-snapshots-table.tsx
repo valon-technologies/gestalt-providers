@@ -6,8 +6,9 @@ import {
   buildAppAdminSnapshotRows,
   formatPublicationLabel,
   snapshotFailedReason,
+  snapshotLastUpdatedAt,
+  snapshotLastUpdatedLabel,
   snapshotStatusTimer,
-  snapshotStatusTimestamp,
 } from "@/features/registry/snapshot-rows";
 import type {
   AppAdminPublication,
@@ -94,6 +95,7 @@ export function AppAdminSnapshotsTable({
             <th className="px-4 py-3 font-medium">Pull request</th>
             <th className="px-4 py-3 font-medium">Snapshot</th>
             <th className="px-4 py-3 font-medium">Status</th>
+            <th className="px-4 py-3 font-medium">Last update</th>
             <th className="px-4 py-3 font-medium text-right">Action</th>
           </tr>
         </thead>
@@ -114,7 +116,7 @@ export function AppAdminSnapshotsTable({
               isDeploying ||
               row.version === registry.desiredVersion;
             const statusTimer = snapshotStatusTimer(row);
-            const statusTimestamp = snapshotStatusTimestamp(row);
+            const lastUpdated = snapshotLastUpdatedLabel(row);
             const failedReason = snapshotFailedReason(row);
 
             return (
@@ -153,10 +155,14 @@ export function AppAdminSnapshotsTable({
                 <td className="px-4 py-3 align-top">
                   <div className="flex flex-col gap-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={status.variant} data-testid="snapshot-status">
+                      <Badge
+                        variant={status.variant}
+                        data-testid="snapshot-status"
+                        className="relative"
+                      >
                         {row.kind === "pending" ? (
                           <Loader2
-                            className="animate-spin"
+                            className="absolute top-1/2 right-full mr-1.5 size-3.5 -translate-y-1/2 animate-spin text-warning-foreground"
                             aria-hidden="true"
                             data-testid="snapshot-status-spinner"
                           />
@@ -170,13 +176,23 @@ export function AppAdminSnapshotsTable({
                     {row.kind !== "pending" && statusTimer ? (
                       <div className="text-xs text-muted-foreground">{statusTimer}</div>
                     ) : null}
-                    {statusTimestamp ? (
-                      <div className="text-xs text-muted-foreground">{statusTimestamp}</div>
-                    ) : null}
                     {failedReason ? (
                       <div className="text-xs text-muted-foreground">{failedReason}</div>
                     ) : null}
                   </div>
+                </td>
+                <td className="px-4 py-3 align-top text-muted-foreground">
+                  {lastUpdated ? (
+                    <time
+                      dateTime={snapshotLastUpdatedAt(row) ?? undefined}
+                      title={lastUpdated.absolute}
+                      data-testid="snapshot-last-updated-at"
+                    >
+                      {lastUpdated.relative}
+                    </time>
+                  ) : (
+                    <span>—</span>
+                  )}
                 </td>
                 <td className="px-4 py-3 align-top text-right">
                   {isDeployable ? (
