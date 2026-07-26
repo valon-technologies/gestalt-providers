@@ -1,10 +1,13 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { isActiveRegistryRollout } from "@/features/registry/format";
+import {
+  PublicationPullRequestLabel,
+  REGISTRY_TABLE_LINK_CLASS,
+} from "@/features/registry/publication-pull-request-label";
 import { RegistryCode } from "@/features/registry/registry-code";
 import {
   buildAppAdminSnapshotRows,
-  formatPublicationLabel,
   snapshotFailedReason,
   snapshotLastUpdatedAt,
   snapshotLastUpdatedLabel,
@@ -12,7 +15,6 @@ import {
 } from "@/features/registry/snapshot-rows";
 import type {
   AppAdminPublication,
-  AppAdminPublicationPullRequest,
   AppAdminRegistryResponse,
   AppAdminSnapshotRow,
   RegistryAppSummary,
@@ -23,11 +25,6 @@ function shortenSnapshotVersion(version: string): string {
   const trimmed = version.trim();
   if (trimmed.length <= 24) return trimmed;
   return `${trimmed.slice(0, 20)}…`;
-}
-
-function pullRequestLabel(pullRequest?: AppAdminPublicationPullRequest): string {
-  if (!pullRequest?.number) return "—";
-  return formatPublicationLabel({ triggerPullRequest: pullRequest }) ?? `PR #${pullRequest.number}`;
 }
 
 function rowPublication(row: AppAdminSnapshotRow): AppAdminPublication | undefined {
@@ -125,21 +122,14 @@ export function AppAdminSnapshotsTable({
                 data-testid={`snapshot-row-${row.kind}`}
               >
                 <td className="px-4 py-3 align-top">
-                  {pullRequest?.url ? (
-                    <a
-                      href={pullRequest.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-medium text-gold-700 underline decoration-gold-300 underline-offset-2 hover:text-gold-800 dark:text-gold-300"
-                    >
-                      {pullRequestLabel(pullRequest)}
-                    </a>
+                  {pullRequest?.number ? (
+                    <PublicationPullRequestLabel pullRequest={pullRequest} />
                   ) : publication?.workflowRunUrl ? (
                     <a
                       href={publication.workflowRunUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="font-medium text-gold-700 underline decoration-gold-300 underline-offset-2 hover:text-gold-800 dark:text-gold-300"
+                      className={REGISTRY_TABLE_LINK_CLASS}
                     >
                       workflow
                     </a>
