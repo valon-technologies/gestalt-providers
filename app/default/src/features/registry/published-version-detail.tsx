@@ -5,6 +5,7 @@ import {
   formatRegistryTimeAgo,
   shortenSourceRef,
 } from "@/features/registry/format";
+import { PublicationPullRequestLabel } from "@/features/registry/publication-pull-request-label";
 
 function ExternalLink({
   href,
@@ -70,10 +71,7 @@ export function PublishedVersionDetail({
       <p className="flex flex-wrap gap-x-3 gap-y-1">
         {pullRequest ? (
           <span>
-            <ExternalLink href={pullRequest.url}>
-              PR #{pullRequest.number}
-              {pullRequest.title ? ` · ${pullRequest.title}` : ""}
-            </ExternalLink>
+            <PublicationPullRequestLabel pullRequest={pullRequest} />
           </span>
         ) : (
           <span data-testid="published-version-pr">PR: not recorded</span>

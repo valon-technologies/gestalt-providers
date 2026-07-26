@@ -1,13 +1,13 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatPublicationLabel } from "@/features/registry/snapshot-rows";
 import { formatRegistryTime, formatRegistryTimeAgo } from "@/features/registry/format";
+import {
+  PublicationPullRequestLabel,
+  REGISTRY_TABLE_LINK_CLASS,
+} from "@/features/registry/publication-pull-request-label";
 import { RegistryCode } from "@/features/registry/registry-code";
 import type { AppAdminRegistryRevision } from "@/features/registry/types";
 import { Loader2 } from "lucide-react";
-
-const TABLE_LINK_CLASS =
-  "font-medium text-gold-700 underline decoration-gold-300 underline-offset-2 hover:text-gold-800 dark:text-gold-300";
 
 function shortenVersion(version: string): string {
   const trimmed = version.trim();
@@ -58,11 +58,7 @@ function deployedAtLabel(
 
 function deployedByLabel(actor?: string): string {
   const trimmed = actor?.trim();
-  if (!trimmed) return "—";
-  if (trimmed.startsWith("user:")) {
-    return trimmed.slice("user:".length);
-  }
-  return trimmed;
+  return trimmed || "—";
 }
 
 export function AppAdminHistoryTable({
@@ -112,8 +108,7 @@ export function AppAdminHistoryTable({
             {revisions.map((revision) => {
               const deployedAt = deployedAtLabel(revision.deployedAt);
               const availability = availabilityStatus(revision);
-              const publicationLabel = formatPublicationLabel(revision.publication);
-              const publicationUrl = revision.publication?.triggerPullRequest?.url;
+              const pullRequest = revision.publication?.triggerPullRequest;
 
               return (
                 <tr key={revision.id} data-testid="revision-history-row">
@@ -140,24 +135,25 @@ export function AppAdminHistoryTable({
                           href={revision.sourceUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className={TABLE_LINK_CLASS}
+                          className={REGISTRY_TABLE_LINK_CLASS}
                         >
                           {revision.sourceRef?.slice(0, 12) ?? "source"}
                         </a>
                       ) : null}
-                      {publicationLabel ? (
-                        publicationUrl ? (
-                          <a
-                            href={publicationUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className={TABLE_LINK_CLASS}
-                          >
-                            {publicationLabel}
-                          </a>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">{publicationLabel}</span>
-                        )
+                      {pullRequest?.number ? (
+                        <PublicationPullRequestLabel
+                          pullRequest={pullRequest}
+                          titleClassName="text-xs text-muted-foreground"
+                        />
+                      ) : revision.publication?.workflowRunUrl ? (
+                        <a
+                          href={revision.publication.workflowRunUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={REGISTRY_TABLE_LINK_CLASS}
+                        >
+                          workflow
+                        </a>
                       ) : null}
                     </div>
                   </td>
