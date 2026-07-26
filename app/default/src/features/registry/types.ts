@@ -123,3 +123,23 @@ export type AppAdminRegistryVersionResponse = {
   desiredVersion: string;
   rollout: RegistryRollout;
 };
+
+export type AppAdminRegistryRevision = {
+  id: string;
+  version: string;
+  previousVersion?: string;
+  deployedAt: string;
+  deployedBy?: string;
+  sourceRef?: string;
+  sourceUrl?: string;
+  publication?: AppAdminPublication;
+  deploymentState?: string;
+  deployableUntil?: string;
+  current?: boolean;
+};
+
+export type AppAdminRegistryHistoryResponse = {
+  app: string;
+  revisions: AppAdminRegistryRevision[];
+  nextCursor?: string;
+};

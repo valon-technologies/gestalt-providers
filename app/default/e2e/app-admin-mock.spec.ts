@@ -1,11 +1,12 @@
 import {
   expect,
   mockAppAdminRegistry,
+  mockAppAdminRegistryHistory,
   mockAuthSession,
   mockIntegrations,
   test,
 } from "./fixtures";
-import type { AppAdminRegistryResponse, Integration } from "../src/lib/api";
+import type { AppAdminRegistryHistoryResponse, AppAdminRegistryResponse, Integration } from "../src/lib/api";
 
 const APP = "g-issues";
 
@@ -341,5 +342,73 @@ test.describe("app admin registry UI", () => {
     await expect(page.getByText("Access denied")).toBeVisible();
     await expect(page.getByTestId("snapshots-table")).toHaveCount(0);
     await expect(page.getByText("toolshed")).toHaveCount(0);
+  });
+
+  test("loads revision history lazily and paginates older rows", async ({ page }) => {
+    const firstPageRevision = {
+      id: "rev-3",
+      version: PUBLISHED_NEW.version,
+      previousVersion: PUBLISHED_LEGACY.version,
+      deployedAt: "2026-07-25T09:10:00Z",
+      deployedBy: "user:alice@valon.com",
+      deploymentState: "desired",
+      current: true,
+      publication: PUBLISHED_NEW.publication,
+    };
+    const olderRevisions = [
+      {
+        id: "rev-2",
+        version: PUBLISHED_LEGACY.version,
+        previousVersion: PUBLISHED_NEW.version,
+        deployedAt: "2026-07-24T16:42:00Z",
+        deployedBy: "user:alice@valon.com",
+        deploymentState: "redeployable",
+        publication: PUBLISHED_LEGACY.publication,
+      },
+      {
+        id: "rev-1",
+        version: PUBLISHED_LEGACY.version,
+        deployedAt: "2026-07-21T12:00:00Z",
+        deployedBy: "user:bob@valon.com",
+        deploymentState: "redeployable",
+      },
+    ];
+
+    await mockAppAdminRegistry(page, APP, installedRegistryState());
+    await mockAppAdminRegistryHistory(
+      page,
+      APP,
+      { app: APP, revisions: [firstPageRevision], nextCursor: "cursor-1" },
+      {
+        onRequest: (cursor) =>
+          cursor
+            ? { app: APP, revisions: olderRevisions }
+            : { app: APP, revisions: [firstPageRevision], nextCursor: "cursor-1" },
+      },
+    );
+    await page.goto(`/apps/${APP}/admin`);
+
+    await expect(page.getByTestId("revision-history-table")).toHaveCount(0);
+    await page.getByTestId("app-admin-tab-history").click();
+
+    const rows = page.getByTestId("revision-history-row");
+    await expect(rows).toHaveCount(1);
+    await expect(rows.first()).toContainText(PUBLISHED_NEW.version.slice(0, 20));
+    await expect(rows.first()).toContainText("alice@valon.com");
+    await expect(rows.first()).toContainText("Current");
+
+    await page.getByTestId("revision-history-load-more").click();
+    await expect(rows).toHaveCount(3);
+    await expect(rows.nth(2)).toContainText("First deployment");
+    await expect(rows.nth(2)).toContainText("bob@valon.com");
+  });
+
+  test("renders empty revision history state", async ({ page }) => {
+    await mockAppAdminRegistry(page, APP, installedRegistryState());
+    await mockAppAdminRegistryHistory(page, APP, { app: APP, revisions: [] });
+    await page.goto(`/apps/${APP}/admin`);
+
+    await page.getByTestId("app-admin-tab-history").click();
+    await expect(page.getByTestId("revision-history-empty")).toHaveText("No deployments yet");
   });
 });
