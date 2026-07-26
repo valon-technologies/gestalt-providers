@@ -155,10 +155,14 @@ export function AppAdminSnapshotsTable({
                 <td className="px-4 py-3 align-top">
                   <div className="flex flex-col gap-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={status.variant} data-testid="snapshot-status">
+                      <Badge
+                        variant={status.variant}
+                        data-testid="snapshot-status"
+                        className="relative"
+                      >
                         {row.kind === "pending" ? (
                           <Loader2
-                            className="animate-spin"
+                            className="absolute top-1/2 right-full mr-1.5 size-3.5 -translate-y-1/2 animate-spin text-warning-foreground"
                             aria-hidden="true"
                             data-testid="snapshot-status-spinner"
                           />
