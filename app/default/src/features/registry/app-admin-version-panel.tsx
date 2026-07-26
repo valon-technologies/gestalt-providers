@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/section-header";
 import { AppAdminHistoryTable } from "@/features/registry/app-admin-history-table";
 import { AppAdminSnapshotsTable } from "@/features/registry/app-admin-snapshots-table";
-import { isActiveRegistryRollout } from "@/features/registry/format";
+import { isActiveRegistryRollout, formatRolloutStateLabel } from "@/features/registry/format";
 import { RegistryCode } from "@/features/registry/registry-code";
 import { RolloutBadge } from "@/features/registry/rollout-badge";
 import type {
@@ -118,7 +118,7 @@ export function AppAdminVersionPanel({
           className="rounded-lg border border-gold-200 bg-gold-50 px-4 py-3 text-sm text-gold-900 dark:border-gold-800 dark:bg-gold-950/40 dark:text-gold-100"
           data-testid="rollout-active-banner"
         >
-          Rollout {registry.rollout.state}:{" "}
+          Rollout {formatRolloutStateLabel(registry.rollout.state)}:{" "}
           <RegistryCode>{registry.rollout.version}</RegistryCode>
         </p>
       ) : null}
