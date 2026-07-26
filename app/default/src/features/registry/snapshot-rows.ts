@@ -80,6 +80,26 @@ export function buildAppAdminSnapshotRows(registry: {
   });
 }
 
+export function snapshotLastUpdatedAt(
+  row: AppAdminSnapshotRow,
+): string | null {
+  if (row.kind === "pending") return row.pending.updatedAt;
+  if (row.kind === "failed") return row.failed.failedAt;
+  return row.published.publishedAt;
+}
+
+export function snapshotLastUpdatedLabel(
+  row: AppAdminSnapshotRow,
+  now: number | Date = Date.now(),
+): { relative: string; absolute: string } | null {
+  const value = snapshotLastUpdatedAt(row);
+  if (!value) return null;
+  const relative = formatRegistryTimeAgo(value, now) || formatRegistryTime(value);
+  const absolute = formatRegistryTime(value);
+  if (!relative || relative === "—") return null;
+  return { relative, absolute };
+}
+
 export function snapshotStatusTimer(
   row: AppAdminSnapshotRow,
   now: number | Date = Date.now(),
@@ -102,22 +122,6 @@ export function snapshotStatusTimer(
     row.failed.publishDurationSeconds ??
     durationSecondsBetween(row.failed.startedAt, row.failed.failedAt);
   return duration !== null ? `Failed after ${formatDurationSeconds(duration)}` : null;
-}
-
-export function snapshotStatusTimestamp(
-  row: AppAdminSnapshotRow,
-  now: number | Date = Date.now(),
-): string | null {
-  if (row.kind === "pending" || snapshotStatusTimer(row, now)) return null;
-  if (row.kind === "failed") {
-    return (
-      formatRegistryTimeAgo(row.failed.failedAt, now) || formatRegistryTime(row.failed.failedAt)
-    );
-  }
-  return (
-    formatRegistryTimeAgo(row.published.publishedAt, now) ||
-    formatRegistryTime(row.published.publishedAt)
-  );
 }
 
 export function snapshotFailedReason(row: AppAdminSnapshotRow): string | null {
