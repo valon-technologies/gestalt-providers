@@ -7,6 +7,14 @@ import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import PluginSearchBar from "@/components/PluginSearchBar";
 import { SpinnerIcon } from "@/components/icons";
+import { Eyebrow } from "@/components/ui/eyebrow";
+import {
+  PageHeader,
+  PageHeaderActions,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 
 const APPS_PATH = "/apps";
 const LEGACY_INTEGRATIONS_PATH = "/integrations";
@@ -77,24 +85,22 @@ export default function AppsPage() {
             </div>
           )}
 
-          <div className="animate-fade-in-up flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
-            <div>
-              <span className="label-text">Catalog</span>
-              <h1 className="mt-2 text-2xl font-heading text-primary">
-                Apps
-              </h1>
-              <p className="mt-2 text-sm text-muted-foreground">
+          <PageHeader className="animate-fade-in-up">
+            <PageHeaderContent size="lg">
+              <Eyebrow>Catalog</Eyebrow>
+              <PageHeaderTitle>Apps</PageHeaderTitle>
+              <PageHeaderDescription>
                 Browse and connect apps.
-              </p>
-            </div>
-            <div className="w-full md:w-auto">
+              </PageHeaderDescription>
+            </PageHeaderContent>
+            <PageHeaderActions className="w-full max-w-md sm:w-auto">
               <PluginSearchBar
                 query={query}
                 onQueryChange={setQuery}
                 disabled={loading || !!error || integrations.length === 0}
               />
-            </div>
-          </div>
+            </PageHeaderActions>
+          </PageHeader>
 
           {loading && (
             <p className="mt-10 flex items-center gap-1.5 text-sm text-muted-foreground-soft">

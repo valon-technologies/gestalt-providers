@@ -2,6 +2,13 @@ import { Link } from "@tanstack/react-router";
 import Container from "@/components/Container";
 import TokenCreateForm from "@/components/TokenCreateForm";
 import TokenTable from "@/components/TokenTable";
+import { Eyebrow } from "@/components/ui/eyebrow";
+import {
+  PageHeader,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 import { useTokensQuery } from "@/lib/queries";
 
 export default function SettingsPage() {
@@ -15,14 +22,16 @@ export default function SettingsPage() {
 
   return (
     <Container as="main" className="py-12">
-      <div>
-        <span className="label-text">Account</span>
-        <h1 className="mt-2 text-2xl font-heading text-foreground">Settings</h1>
-        <p className="mt-3 max-w-3xl text-sm text-muted-foreground">
-          Manage authorization for your account — personal API tokens and
-          shared service identities.
-        </p>
-      </div>
+      <PageHeader>
+        <PageHeaderContent size="lg">
+          <Eyebrow>Account</Eyebrow>
+          <PageHeaderTitle>Settings</PageHeaderTitle>
+          <PageHeaderDescription>
+            Manage authorization for your account — personal API tokens and
+            shared service identities.
+          </PageHeaderDescription>
+        </PageHeaderContent>
+      </PageHeader>
 
       <section
         id="authorization"
