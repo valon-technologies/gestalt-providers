@@ -28,8 +28,9 @@
   --state-overlay-press: 0.14;
 
   /* ── Core surfaces (Registry: neutral + paper) ─────────────────────────── */
+  --valon-neutral-900: oklch(21.867% 0.0213 76.13);
   --background: oklch(100% 0 0);
-  --foreground: oklch(21.867% 0.0213 76.13);
+  --foreground: var(--valon-neutral-900);
   --card: oklch(100% 0 0);
   --card-foreground: var(--foreground);
   --popover: oklch(100% 0 0);
@@ -45,6 +46,9 @@
 
   /* ── Supporting UI ───────────────────────────────────────────────────── */
   --muted: oklch(97.384% 0.0045 78.3);
+  /* Ink-alpha text hierarchy (registry/theme/theme.css, color.md): secondary
+   * text is foreground at opacity so the warm undertone holds at every level.
+   * 60% = descriptions / placeholders; 40% = eyebrows / captions. */
   --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
   --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
   --border: oklch(92.323% 0.0129 63.91);
@@ -113,6 +117,33 @@
   --code-line-emphasis: color-mix(in oklch, var(--accent-wash), var(--accent-highlight));
   --scrollbar-thumb: oklch(86.851% 0.0197 72.55);
 
+  /* Brand type scale — valon.ai/style / Registry theme. Display roles are
+   * 44px+; Heading / Body LG are product chrome. Consumed by PageHeader /
+   * SectionHeader via @theme aliases in globals.css. */
+  --valon-text-body-lg: 1.125rem; /* 18px */
+  --valon-text-body-lg--line-height: 1.5rem; /* 24px */
+  --valon-text-heading-sm: 1.125rem; /* 18px */
+  --valon-text-heading-sm--line-height: 1.5rem; /* 24px */
+  --valon-text-heading-md: 1.25rem; /* 20px */
+  --valon-text-heading-md--line-height: 1.75rem; /* 28px */
+  --valon-text-heading-lg: 1.5rem; /* 24px */
+  --valon-text-heading-lg--line-height: 2rem; /* 32px */
+  --valon-text-heading-xl: 2rem; /* 32px */
+  --valon-text-heading-xl--line-height: 2.5rem; /* 40px */
+  --valon-text-display-sm: 2.75rem; /* 44px — display floor */
+  --valon-text-display-sm--line-height: 3.125rem; /* 50px */
+  --valon-text-display-md: 3.25rem; /* 52px */
+  --valon-text-display-md--line-height: 3.625rem; /* 58px */
+  --valon-text-display-lg: 3.75rem; /* 60px */
+  --valon-text-display-lg--line-height: 4rem; /* 64px */
+  --valon-text-display-xl: 4.25rem; /* 68px */
+  --valon-text-display-xl--line-height: 4.25rem; /* 68px */
+  /* Display / heading tracking — valon.ai/style (−0.5px / −0.8px / −1px). */
+  --valon-tracking-display: -0.03125rem; /* −0.5px */
+  --valon-tracking-display-tight: -0.0625rem; /* −1px */
+  --valon-tracking-heading: -0.03125rem; /* −0.5px · Heading LG */
+  --valon-tracking-heading-tight: -0.05rem; /* −0.8px · Heading XL */
+
   /* Geometry and type — tenant customization seams. */
   --radius: 0.5rem;
   --ui-font-sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
@@ -153,6 +184,7 @@
   --destructive-foreground: oklch(19.494% 0.0088 52);
 
   --muted: oklch(27.009% 0.0106 54);
+  /* Same ink-alpha model as light — derives from cream --foreground (registry). */
   --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
   --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
   --border: oklch(32.208% 0.0111 56);

@@ -7,7 +7,6 @@ import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import PluginSearchBar from "@/components/PluginSearchBar";
 import { SpinnerIcon } from "@/components/icons";
-import { Eyebrow } from "@/components/ui/eyebrow";
 import {
   PageHeader,
   PageHeaderActions,
@@ -87,7 +86,6 @@ export default function AppsPage() {
 
           <PageHeader className="animate-fade-in-up">
             <PageHeaderContent size="lg">
-              <Eyebrow>Catalog</Eyebrow>
               <PageHeaderTitle>Apps</PageHeaderTitle>
               <PageHeaderDescription>
                 Browse and connect apps.

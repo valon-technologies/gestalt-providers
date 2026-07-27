@@ -19,7 +19,6 @@ import {
   useWorkflowRunsQuery,
 } from "@/lib/queries";
 import Container from "@/components/Container";
-import { Eyebrow } from "@/components/ui/eyebrow";
 import {
   PageHeader,
   PageHeaderActions,
@@ -92,7 +91,6 @@ export default function WorkflowsPage() {
     <Container as="main" className="py-10">
           <PageHeader>
             <PageHeaderContent size="lg">
-              <Eyebrow>Workflows</Eyebrow>
               <PageHeaderTitle>Workflows</PageHeaderTitle>
               <PageHeaderDescription>
                 Inspect durable workflow run history, step state, and captured
