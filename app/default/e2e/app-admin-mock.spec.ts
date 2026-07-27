@@ -326,7 +326,7 @@ test.describe("app admin registry UI", () => {
     await page.goto(`/apps/${APP}/admin`);
 
     await expect(page.getByTestId("snapshot-row-pending")).toHaveCount(0);
-    await expect(page.getByTestId("snapshot-row-pending")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("snapshot-row-pending")).toBeVisible({ timeout: 6_000 });
     await expect(page.getByTestId("snapshot-row-pending").getByTestId("snapshot-status")).toHaveText(
       "Publishing",
     );

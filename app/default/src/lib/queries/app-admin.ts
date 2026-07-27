@@ -7,6 +7,7 @@ import {
 import { useEffect, useRef } from "react";
 import {
   APP_ADMIN_BOOTSTRAP_POLL_MS,
+  APP_ADMIN_POLL_INTERVAL_MS,
   shouldPollAppAdminRegistry,
 } from "@/features/registry/polling";
 import {
@@ -16,8 +17,6 @@ import {
   selectAppAdminRegistryVersion,
 } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
-
-const APP_ADMIN_POLL_INTERVAL_MS = 12_000;
 
 export function useAppAdminRegistryQuery(appName: string) {
   const bootstrapPollUntilRef = useRef(0);
