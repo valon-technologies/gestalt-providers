@@ -40,6 +40,13 @@ import {
 import Button from "./Button";
 import Container from "./Container";
 import IntegrationCard from "./IntegrationCard";
+import { Eyebrow } from "@/components/ui/eyebrow";
+import {
+  PageHeader,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 import IdentityTokenCreateForm from "./IdentityTokenCreateForm";
 import IdentityTokenTable from "./IdentityTokenTable";
 import { SearchIcon } from "./icons";
@@ -293,15 +300,20 @@ export default function ManagedIdentityDetailView({
         <Link to="/identities" className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-150">
           &larr; Back to identities
         </Link>
-        <span className="mt-5 block label-text">Managed Identity</span>
-        <h1 className="mt-2 text-2xl font-heading text-foreground">
-          {identity?.displayName || "Loading identity"}
-        </h1>
-        {identity ? (
-          <p className="mt-2 text-sm text-muted-foreground">
-            You currently have <span className="font-medium text-foreground">{role}</span> access.
-          </p>
-        ) : null}
+        <PageHeader className="mt-5">
+          <PageHeaderContent size="entity">
+            <Eyebrow>Managed Identity</Eyebrow>
+            <PageHeaderTitle>
+              {identity?.displayName || "Loading identity"}
+            </PageHeaderTitle>
+            {identity ? (
+              <PageHeaderDescription>
+                You currently have{" "}
+                <span className="font-medium text-foreground">{role}</span> access.
+              </PageHeaderDescription>
+            ) : null}
+          </PageHeaderContent>
+        </PageHeader>
       </div>
 
       {loadError && <p className="mt-6 text-sm text-destructive">{loadError}</p>}

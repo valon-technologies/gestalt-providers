@@ -5,6 +5,14 @@ import {
   SectionHeaderDescription,
   SectionHeaderTitle,
 } from "@/components/ui/section-header";
+import { Eyebrow } from "@/components/ui/eyebrow";
+import {
+  PageHeader,
+  PageHeaderActions,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 import { AppAdminHistoryTable } from "@/features/registry/app-admin-history-table";
 import { AppAdminSnapshotsTable } from "@/features/registry/app-admin-snapshots-table";
 import { RolloutPhaseStepper } from "@/features/registry/rollout-phase-stepper";
@@ -49,28 +57,34 @@ export function AppAdminVersionPanel({
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0 space-y-1">
-          <h1 className="text-2xl font-heading text-foreground">{registry.app}</h1>
-          <p className="text-sm text-muted-foreground">Registry: {registry.registry}</p>
-          <p className="text-sm text-muted-foreground/70">App management</p>
-          {registry.desiredVersion ? (
-            <p className="text-sm text-muted-foreground">
-              Desired version: <RegistryCode>{registry.desiredVersion}</RegistryCode>
-            </p>
-          ) : null}
+      <PageHeader>
+        <PageHeaderContent size="entity">
+          <Eyebrow>App management</Eyebrow>
+          <PageHeaderTitle>{registry.app}</PageHeaderTitle>
+          <PageHeaderDescription>
+            Registry: {registry.registry}
+            {registry.desiredVersion ? (
+              <>
+                {" "}
+                · Desired version:{" "}
+                <RegistryCode>{registry.desiredVersion}</RegistryCode>
+              </>
+            ) : null}
+          </PageHeaderDescription>
           {appMountedPath ? (
             <a
               href={appMountedPath}
-              className="inline-flex text-sm font-medium text-primary transition-colors hover:text-primary"
+              className="mt-2 inline-flex text-sm font-medium text-primary transition-colors hover:text-primary"
               data-testid="open-app-link"
             >
               Open app →
             </a>
           ) : null}
-        </div>
-        <RolloutBadge app={registry} />
-      </div>
+        </PageHeaderContent>
+        <PageHeaderActions>
+          <RolloutBadge app={registry} />
+        </PageHeaderActions>
+      </PageHeader>
 
       <RolloutPhaseStepper rollout={registry.rollout} />
 
