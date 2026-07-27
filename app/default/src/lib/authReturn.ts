@@ -41,6 +41,9 @@ export function sanitizeAuthReturnPath(raw: string | null | undefined): string {
 }
 
 export function currentAuthReturnPath(): string {
+  if (typeof window === "undefined") {
+    return DEFAULT_RETURN_PATH;
+  }
   return sanitizeAuthReturnPath(
     `${window.location.pathname}${window.location.search}${window.location.hash}`,
   );

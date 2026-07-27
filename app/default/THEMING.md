@@ -3,7 +3,7 @@
 This UI ships with a **generic theme** and is re-skinned per tenant without
 rebuilding the bundle. A theme is a set of CSS custom properties; the config
 that selects and provides those properties belongs to the tenant's Gestalt
-deployment repo, not to this one. Delivery is **serve-time**: `index.html`
+deployment repo, not to this one. Delivery is **serve-time**: the root layout
 always links `<link rel="stylesheet" href="theme.css">`, and gestaltd serves
 the deployment-configured stylesheet there (an empty `200 text/css` when no
 theme is configured, so the generic theme renders by default — no FOUC, no
@@ -77,7 +77,7 @@ A Gestalt deployment mounts this bundle as an app static bundle
 (`apps.<name>.static`), pinned to an immutable release. Because the artifact
 is immutable and environment-agnostic, tenant theming is applied at serve time:
 
-1. `index.html` links `theme.css` after the bundled styles; gestaltd
+1. This app's root layout links `theme.css` after its own styles; gestaltd
    intercepts that path on the mount and serves the configured stylesheet
    (empty `200` when unconfigured).
 2. The app mount in the deployment repo points its `theme` at the tenant
@@ -116,17 +116,27 @@ Alternatives considered and rejected (full record in RES-20260612-002):
 
 ## Local development against a live tenant theme
 
-`index.html` links `theme.css` on the same origin as the SPA. In Vite
-development, `/theme.css` and `/theme/*` proxy to `GESTALT_API_PROXY_TARGET`
-(see `vite.config.ts`), so a local `gestaltd serve` stack exercises the same
-delivery path as production.
+The root layout imports `@theme.css`, which resolves to the empty
+`src/theme.stub.css` by default. Two dev loops:
 
-Point the proxy at a deployment whose app mount has a tenant theme configured,
-then reload to see the skin. There is no separate theme mirror script — the
-stylesheet always comes from the backend mount, matching production.
+**Mirror loop (HMR, primary).** Point `GESTALT_THEME_FILE` at the stylesheet
+(e.g. in `.env.local`, which is gitignored):
 
-Production is unaffected: `npm run build` ships the generic bundled CSS, and
-tenant themes arrive at serve time via `/theme.css`.
+```bash
+GESTALT_THEME_FILE=/path/to/deployment-repo/deploy/ui/theme.css
+```
+
+Run `npm run dev:theme` alongside `gestaltd serve`. It copies the source into
+`.dev/theme.css` (gitignored) whenever it changes, and the Vite dev server
+hot-applies the CSS.
+
+**Served loop (prod parity, secondary).** With `gestaltd serve`, `theme.css`
+is served by gestaltd on the mount, so the layout's link exercises the real
+serve path — configure the theme on the local deployment and reload. No HMR,
+but bit-exact with production delivery.
+
+Production is unaffected by any of this: `npm run build` always bundles the
+empty stub, and tenant themes arrive at serve time via `theme.css`.
 
 ## Known gaps (follow-ups before the generic theme is truly generic)
 
