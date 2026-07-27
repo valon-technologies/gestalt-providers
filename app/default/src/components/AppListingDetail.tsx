@@ -2,13 +2,14 @@ import { useEffect, useRef } from "react";
 import type { MouseEvent, SyntheticEvent } from "react";
 import type { Integration } from "@/lib/api";
 import {
+  appOpenPath,
   badgeVariantFromTone,
+  canManageApp,
   getAppSurfaces,
   primaryConnectLabel,
 } from "@/lib/catalogFilters";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
-import { Badge } from "@/components/Badge";
 import Button from "@/components/Button";
 import IntegrationIcon from "@/components/IntegrationIcon";
 import { CloseIcon } from "@/components/icons";
@@ -34,8 +35,9 @@ export default function AppListingDetail({
   const status = normalizeIntegrationStatus(integration);
   const surfaces = getAppSurfaces(integration);
   const connectLabel = primaryConnectLabel(integration);
-  const mountedPath = integration.mountedPath?.trim();
-  const showOpenApp = status.connected || !connectLabel;
+  const mountedPath = appOpenPath(integration);
+  const isAppAdmin = canManageApp(integration);
+  const showOpenApp = Boolean(mountedPath) && (status.connected || !connectLabel);
 
   useEffect(() => {
     dialogRef.current?.showModal();
@@ -82,6 +84,11 @@ export default function AppListingDetail({
                   App
                 </Badge>
               ) : null}
+              {isAppAdmin ? (
+                <Badge size="sm" variant="info">
+                  Admin
+                </Badge>
+              ) : null}
             </div>
           </div>
         </div>
@@ -104,7 +111,7 @@ export default function AppListingDetail({
 
         {mountedPath ? (
           <p className="text-sm text-muted-foreground">
-            Has an app page. Open it from App admin after you connect.
+            Has an app page. Open it after you connect.
           </p>
         ) : null}
 
@@ -119,7 +126,7 @@ export default function AppListingDetail({
           <Button type="button" variant="secondary" onClick={onOpenApp}>
             Open app
           </Button>
-        ) : (
+        ) : isAppAdmin ? (
           <button
             type="button"
             onClick={onOpenApp}
@@ -127,7 +134,7 @@ export default function AppListingDetail({
           >
             Open App admin
           </button>
-        )}
+        ) : null}
         {!readOnly && connectLabel ? (
           <Button type="button" onClick={onConnect}>
             {connectLabel}

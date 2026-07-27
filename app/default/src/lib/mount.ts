@@ -55,3 +55,23 @@ export function appPath(path: string): string {
   }
   return appBasepath === "/" ? path : `${appBasepath}${path}`;
 }
+
+/**
+ * Mounted apps are separate gestaltd-served UIs (not console routes).
+ * Local Vite only bundles the console — without a public origin, same-origin
+ * navigation would reload this SPA (navbar + Not Found). Prod-dev sets
+ * VITE_GESTALT_PUBLIC_ORIGIN to the deployment host.
+ */
+export function resolveMountedAppHref(mountedPath: string): string {
+  const trimmed = mountedPath.trim();
+  if (!trimmed) return trimmed;
+  const path = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+
+  const configured = import.meta.env.VITE_GESTALT_PUBLIC_ORIGIN?.trim();
+  const publicOrigin = configured?.replace(/\/+$/, "");
+  if (publicOrigin) {
+    return `${publicOrigin}${path}`;
+  }
+
+  return path;
+}

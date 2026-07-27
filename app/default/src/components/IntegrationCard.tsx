@@ -10,16 +10,20 @@ import {
   disconnectIntegration,
 } from "@/lib/api";
 import {
+  appOpenPath,
   badgeVariantFromTone,
+  canManageApp,
   catalogCardActivateTarget,
   connectionSetupBucket,
   getAppSurfaces,
 } from "@/lib/catalogFilters";
+import { shouldShowIntegrationSettings } from "@/lib/integrationStatus";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import {
   normalizeIntegrationStatus,
   type ConnectionContext,
 } from "@/lib/integrationStatus";
+import { resolveMountedAppHref } from "@/lib/mount";
 import { cn } from "@/lib/cn";
 import { Badge } from "./Badge";
 import AppListingDetail from "./AppListingDetail";
@@ -157,6 +161,12 @@ export default function IntegrationCard({
   const surfaces = getAppSurfaces(integration);
   const setupBucket = connectionSetupBucket(integration, connectionContext);
   const isConnected = setupBucket === "ready";
+  const isAppAdmin = canManageApp(integration);
+  const mountedPath = appOpenPath(integration);
+  const settingsAvailable = shouldShowIntegrationSettings(
+    normalizedStatus,
+    readOnly,
+  );
   /** Attention chip only — Ready is a check beside the options menu. */
   const statusBadgeLabel =
     setupBucket === "needs_attention" ? normalizedStatus.summaryLabel : null;
@@ -277,10 +287,14 @@ export default function IntegrationCard({
     setError(null);
   }
 
-  function openManage() {
+  function openSettings() {
     setSettingsInitialView("default");
     setDestructiveActionLabel("Disconnect");
     setSettingsOpen(true);
+  }
+
+  function openManage() {
+    navigateToAdmin();
   }
 
   function openUninstall() {
@@ -301,7 +315,18 @@ export default function IntegrationCard({
 
   function handleListingOpenApp() {
     setListingOpen(false);
-    navigateToAdmin();
+    if (mountedPath) {
+      navigateToApp();
+      return;
+    }
+    if (isAppAdmin) {
+      navigateToAdmin();
+    }
+  }
+
+  function navigateToApp() {
+    if (!mountedPath) return;
+    window.location.assign(resolveMountedAppHref(mountedPath));
   }
 
   function navigateToAdmin() {
@@ -316,7 +341,7 @@ export default function IntegrationCard({
       setListingOpen(true);
       return;
     }
-    navigateToAdmin();
+    navigateToApp();
   }
 
   function handleCardClick(e: MouseEvent<HTMLDivElement>) {
@@ -338,7 +363,7 @@ export default function IntegrationCard({
   const cardAriaLabel =
     cardActivateTarget === "listing"
       ? `View details for ${label}`
-      : `Open ${label}`;
+      : `Open ${label} app`;
 
   return (
     <div
@@ -392,7 +417,7 @@ export default function IntegrationCard({
                 />
               </p>
             )}
-            {(statusBadgeLabel || surfaces.hasUi) && (
+            {(statusBadgeLabel || surfaces.hasUi || isAppAdmin) && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
                 {statusBadgeLabel ? (
                   <Badge
@@ -406,6 +431,11 @@ export default function IntegrationCard({
                 {surfaces.hasUi ? (
                   <Badge size="sm" variant="secondary">
                     App
+                  </Badge>
+                ) : null}
+                {isAppAdmin ? (
+                  <Badge size="sm" variant="info">
+                    Admin
                   </Badge>
                 ) : null}
               </div>
@@ -423,13 +453,13 @@ export default function IntegrationCard({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span
-                    className="flex size-8 items-center justify-center"
+                    className="flex size-8 items-center justify-center text-success"
                     aria-label="Installed"
                   >
                     {/* Registry SelectionCheck — stroke-draw / bounce. */}
                     <SelectionCheck
                       checked
-                      tone="solid"
+                      tone="current"
                       density="default"
                     />
                   </span>
@@ -458,13 +488,26 @@ export default function IntegrationCard({
                   <TooltipContent side="top">More</TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuItem onClick={openManage}>
-                    <SlidersIcon />
-                    Manage
-                  </DropdownMenuItem>
+                  {isAppAdmin ? (
+                    <DropdownMenuItem
+                      onClick={openManage}
+                      data-testid={`manage-app-${integration.name}`}
+                    >
+                      <SlidersIcon />
+                      Manage
+                    </DropdownMenuItem>
+                  ) : null}
+                  {settingsAvailable ? (
+                    <DropdownMenuItem onClick={openSettings}>
+                      <SlidersIcon />
+                      Settings
+                    </DropdownMenuItem>
+                  ) : null}
                   {!readOnly ? (
                     <>
-                      <DropdownMenuSeparator />
+                      {isAppAdmin || settingsAvailable ? (
+                        <DropdownMenuSeparator />
+                      ) : null}
                       <DropdownMenuItem
                         onClick={openUninstall}
                         className="text-destructive"
@@ -487,7 +530,7 @@ export default function IntegrationCard({
                       variant="ghost"
                       size="icon-sm"
                       aria-label={`Add ${label}`}
-                      onClick={openManage}
+                      onClick={openSettings}
                     >
                       <PlusIcon />
                     </Button>

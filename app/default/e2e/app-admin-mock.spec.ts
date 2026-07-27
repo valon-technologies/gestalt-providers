@@ -76,6 +76,18 @@ const MANAGED_INTEGRATION: Integration = {
   displayName: "G Issues",
   mountedPath: `/${APP}`,
   managementPath: `/apps/${APP}/admin`,
+  status: "ready",
+  credentialState: "connected",
+  connections: [
+    {
+      name: "plugin",
+      authTypes: ["oauth"],
+      status: "ready",
+      credentialState: "connected",
+      actions: ["disconnect"],
+      instances: [{ name: "default", connection: "plugin" }],
+    },
+  ],
 };
 
 const UNMANAGED_INTEGRATION: Integration = {
@@ -121,10 +133,11 @@ test.describe("app admin registry UI", () => {
     await mockAuthSession(page);
   });
 
-  test("shows Manage app only when managementPath is returned", async ({ page }) => {
+  test("shows Manage only when managementPath is returned", async ({ page }) => {
     await mockIntegrations(page, [MANAGED_INTEGRATION, UNMANAGED_INTEGRATION]);
     await page.goto("/apps");
 
+    await page.getByRole("button", { name: "G Issues options" }).click();
     await expect(page.getByTestId(`manage-app-${APP}`)).toBeVisible();
     await expect(page.getByTestId("manage-app-slack")).toHaveCount(0);
   });

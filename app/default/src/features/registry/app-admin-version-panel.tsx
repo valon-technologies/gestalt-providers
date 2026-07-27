@@ -22,6 +22,7 @@ import { RegistryCode } from "@/features/registry/registry-code";
 import { RolloutBadge } from "@/features/registry/rollout-badge";
 import type { AppAdminRegistryResponse } from "@/features/registry/types";
 import { useAppAdminRegistryHistoryQuery } from "@/lib/queries";
+import { resolveMountedAppHref } from "@/lib/mount";
 import { Loader2 } from "lucide-react";
 
 type AppAdminTab = "snapshots" | "history";
@@ -80,7 +81,7 @@ export function AppAdminVersionPanel({
           </PageHeaderDescription>
           {appMountedPath ? (
             <a
-              href={appMountedPath}
+              href={resolveMountedAppHref(appMountedPath)}
               className="mt-2 inline-flex text-sm font-medium text-primary transition-colors hover:text-primary"
               data-testid="open-app-link"
             >

@@ -7,6 +7,38 @@ import { defineConfig, loadEnv } from "vite";
 
 const projectDir = path.dirname(fileURLToPath(import.meta.url));
 
+/** prod-dev cookie-proxy ports — disjoint from /local-dev (see prod-dev skill). */
+const PROD_DEV_PROXY_PORT_MIN = 8100;
+const PROD_DEV_PROXY_PORT_MAX = 8199;
+
+function resolveGestaltPublicOrigin(
+  env: Record<string, string>,
+  backendOrigin: string,
+): string {
+  const configured = env.VITE_GESTALT_PUBLIC_ORIGIN?.trim();
+  if (configured) {
+    return configured.replace(/\/+$/, "");
+  }
+  try {
+    const url = new URL(backendOrigin);
+    const port = Number(url.port);
+    const isLoopback =
+      url.hostname === "127.0.0.1" || url.hostname === "localhost";
+    // Local Vite only bundles the console; prod-dev proxies API to production.
+    if (
+      isLoopback &&
+      port >= PROD_DEV_PROXY_PORT_MIN &&
+      port <= PROD_DEV_PROXY_PORT_MAX
+    ) {
+      const prodHost = env.GESTALT_PROD_HOST?.trim().replace(/\/+$/, "");
+      return prodHost ? `https://${prodHost}` : "https://valon.tools";
+    }
+  } catch {
+    // ignore
+  }
+  return "";
+}
+
 export default defineConfig(({ mode }) => {
   // Keep direct Vite development same-origin. Gestaltd remains the only
   // authority that selects and serves a tenant theme and its assets.
@@ -14,12 +46,18 @@ export default defineConfig(({ mode }) => {
   const backendOrigin =
     env.GESTALT_API_PROXY_TARGET?.trim().replace(/\/+$/, "") ||
     "http://127.0.0.1:8080";
+  const gestaltPublicOrigin = resolveGestaltPublicOrigin(env, backendOrigin);
 
   return {
     // Production artifacts are mount-relative. The Gestalt Vite plugin
     // overrides this with GESTALT_DEV_BASE_PATH for native UI development.
     base: "./",
     plugins: [react(), tailwindcss(), gestalt()],
+    define: {
+      "import.meta.env.VITE_GESTALT_PUBLIC_ORIGIN": JSON.stringify(
+        gestaltPublicOrigin,
+      ),
+    },
     resolve: {
       alias: {
         "@": path.resolve(projectDir, "src"),

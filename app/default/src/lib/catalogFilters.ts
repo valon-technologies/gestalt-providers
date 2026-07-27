@@ -214,15 +214,26 @@ export function primaryConnectLabel(
   return null;
 }
 
+/** User can administer this app (server omits managementPath otherwise). */
+export function canManageApp(integration: Integration): boolean {
+  return Boolean(integration.managementPath?.trim());
+}
+
+export function appOpenPath(integration: Integration): string | undefined {
+  const mountedPath = integration.mountedPath?.trim();
+  return mountedPath || undefined;
+}
+
 /**
- * Whole-card activate target — listing (connect funnel) vs admin.
+ * Whole-card activate target — listing (connect funnel) vs mounted app.
  * The tile has no separate face CTA; the card itself is the hit target.
  */
 export function catalogCardActivateTarget(
   integration: Integration,
   context: ConnectionContext = "current_user",
-): "listing" | "admin" {
-  return connectionSetupBucket(integration, context) === "needs_connection"
-    ? "listing"
-    : "admin";
+): "listing" | "app" {
+  if (connectionSetupBucket(integration, context) === "needs_connection") {
+    return "listing";
+  }
+  return appOpenPath(integration) ? "app" : "listing";
 }
