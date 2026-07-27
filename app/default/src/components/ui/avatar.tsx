@@ -1,10 +1,4 @@
-import {
-  type ComponentPropsWithoutRef,
-  type ElementRef,
-  forwardRef,
-  useEffect,
-  useState,
-} from "react";
+import { type ComponentPropsWithoutRef, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 
 const sizeClass = {
@@ -19,14 +13,11 @@ const variantClass = {
   outline: "border border-border bg-background",
 } as const;
 
-export type AvatarSize = keyof typeof sizeClass;
-export type AvatarVariant = keyof typeof variantClass;
-
 export const Avatar = forwardRef<
   HTMLSpanElement,
   ComponentPropsWithoutRef<"span"> & {
-    size?: AvatarSize;
-    variant?: AvatarVariant;
+    size?: keyof typeof sizeClass;
+    variant?: keyof typeof variantClass;
   }
 >(function Avatar(
   { className, size = "default", variant = "solid", ...props },
@@ -42,31 +33,6 @@ export const Avatar = forwardRef<
         variantClass[variant],
         className,
       )}
-      {...props}
-    />
-  );
-});
-
-export const AvatarImage = forwardRef<
-  HTMLImageElement,
-  ComponentPropsWithoutRef<"img">
->(function AvatarImage({ className, src, onError, ...props }, ref) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [src]);
-  if (!src || failed) return null;
-  return (
-    <img
-      ref={ref}
-      data-slot="avatar-image"
-      src={src}
-      className={cn(
-        "absolute inset-0 size-full rounded-full object-cover",
-        className,
-      )}
-      onError={(event) => {
-        setFailed(true);
-        onError?.(event);
-      }}
       {...props}
     />
   );
@@ -88,10 +54,3 @@ export const AvatarFallback = forwardRef<
     />
   );
 });
-
-export type AvatarProps = ComponentPropsWithoutRef<typeof Avatar>;
-export type AvatarImageProps = ComponentPropsWithoutRef<typeof AvatarImage>;
-export type AvatarFallbackProps = ComponentPropsWithoutRef<
-  typeof AvatarFallback
->;
-export type AvatarRef = ElementRef<typeof Avatar>;

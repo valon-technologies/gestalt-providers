@@ -132,12 +132,11 @@ test.describe("Theme", () => {
     );
     await mockIntegrations(page, []);
     await mockTokens(page, []);
-    await mockWorkflowRuns(page, []);
 
     await page.goto("/settings#authorization");
 
     const bodyCopy = page.getByText(
-      /Create personal API tokens for local tooling/,
+      /Create personal tokens for local tooling/,
     );
     await expect(bodyCopy).toHaveClass(/text-muted-foreground/);
     await expect(bodyCopy).not.toHaveCSS("color", "rgb(241, 238, 233)");
