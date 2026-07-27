@@ -557,6 +557,16 @@ export function isAPIErrorStatus(error: unknown, status: number): boolean {
   return error instanceof APIError && error.status === status;
 }
 
+export function redirectToLogin(returnPath?: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  clearSession();
+  if (!window.location.pathname.startsWith("/api/v1/auth/login")) {
+    window.location.assign(serverLoginURL(returnPath));
+  }
+}
+
 export const PENDING_CONNECTION_PATH = "/api/v1/auth/pending-connection";
 
 /**
@@ -594,10 +604,7 @@ export async function fetchAPI<T>(
   });
 
   if (res.status === HTTP_UNAUTHORIZED) {
-    clearSession();
-    if (!window.location.pathname.startsWith("/api/v1/auth/login")) {
-      window.location.href = serverLoginURL();
-    }
+    redirectToLogin();
     throw new APIError(HTTP_UNAUTHORIZED, "Session expired");
   }
 

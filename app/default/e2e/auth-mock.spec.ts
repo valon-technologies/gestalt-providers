@@ -33,7 +33,12 @@ test.describe("Authentication", () => {
     });
     await mockAuthSessionUnauthorized(page);
 
-    await page.goto("/identities?id=agent-1#profile");
+    await page.goto("/identities?id=agent-1#profile", { waitUntil: "networkidle" });
+    await page.waitForFunction(
+      () => window.location.pathname === "/api/v1/auth/login",
+      null,
+      { timeout: 15000 },
+    );
     await expect(page).toHaveURL((url) => {
       return (
         url.pathname === "/api/v1/auth/login" &&
@@ -164,8 +169,15 @@ test.describe("Authentication", () => {
   test("401 response clears session and redirects to server login", async ({
     page,
   }) => {
-    await page.goto("/");
-    await page.evaluate(() => {
+    await mockAuthInfo(page, {
+      provider: "test-sso",
+      displayName: "Test SSO",
+    });
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem("expired-session-test-seeded") === "1") {
+        return;
+      }
+      sessionStorage.setItem("expired-session-test-seeded", "1");
       localStorage.setItem(
         "gestalt.auth.session",
         JSON.stringify({
@@ -191,7 +203,12 @@ test.describe("Authentication", () => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
 
-    await page.goto("/workflows?range=week#runs");
+    await page.goto("/workflows?range=week#runs", { waitUntil: "networkidle" });
+    await page.waitForFunction(
+      () => window.location.pathname === "/api/v1/auth/login",
+      null,
+      { timeout: 15000 },
+    );
     await expect(page).toHaveURL((url) => {
       return (
         url.pathname === "/api/v1/auth/login" &&
