@@ -32,14 +32,6 @@ function relativeLuminance(hex: string): number {
   return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
 }
 
-/** Soft-wash a fill (hex or CSS `var(--token)`) toward white with dark ink. */
-function badgeSoftWashPresentation(fill: string): React.CSSProperties {
-  return {
-    backgroundColor: `color-mix(in oklch, ${fill} 50%, white)`,
-    color: BADGE_CUSTOM_COLOR_INK,
-  };
-}
-
 /**
  * Fill + ink for Badge `color`. Pale identities soft-mix toward white with dark
  * ink; deep identities keep the solid hex with light ink.
@@ -49,7 +41,10 @@ export function badgeCustomColorStyle(color: string): React.CSSProperties {
     return { backgroundColor: color, color: BADGE_CUSTOM_COLOR_INK };
   }
   if (relativeLuminance(color) > BADGE_CUSTOM_COLOR_SOFT_LUMINANCE) {
-    return badgeSoftWashPresentation(color);
+    return {
+      backgroundColor: `color-mix(in oklch, ${color} 50%, white)`,
+      color: BADGE_CUSTOM_COLOR_INK,
+    };
   }
   return {
     backgroundColor: color,
@@ -57,22 +52,9 @@ export function badgeCustomColorStyle(color: string): React.CSSProperties {
   };
 }
 
-const SEMANTIC_STATUS_VARIANTS = ["success", "warning", "info", "destructive"] as const;
-type SemanticStatusVariant = (typeof SEMANTIC_STATUS_VARIANTS)[number];
-
-/**
- * Status badges read semantic fill tokens (`--success`, `--warning`, …). Tenant
- * themes may override a fill without its paired foreground (issue-181). Luminance
- * is not known at build time, so always use the pale soft-wash presentation —
- * the same path issue-171 uses for light custom label colors.
- */
-function semanticStatusBadgeStyle(variant: SemanticStatusVariant): React.CSSProperties {
-  return badgeSoftWashPresentation(`var(--${variant})`);
-}
-
 const badgeVariants = cva(
   // Badges are single-line soft-rects (`rounded-sm` / --radius-sm ≈ 4px) — squarer
-  // than a capsule, tighter than Button's `rounded-md`, matching compact status
+  // than a capsule, tighter than Button's `rounded-md`, matching valon.ai status
   // chips. Without nowrap, label text wraps inside narrow table/sidebar cells.
   "inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-sm text-xs font-normal transition-colors [&>svg]:size-3 [&>svg]:shrink-0",
   {
@@ -83,11 +65,12 @@ const badgeVariants = cva(
         muted: "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground",
         outline: "border border-border text-foreground",
         ghost: "bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-        // Fill/ink applied via semanticStatusBadgeStyle — see issue-181.
-        success: "",
-        warning: "",
-        info: "",
-        destructive: "",
+        // Valon registry Badge — uses --badge-* status surfaces (shared/theme.css)
+        // so legacy gestalt-shell --success grove overrides do not affect chips.
+        success: "bg-badge-success text-badge-success-foreground",
+        warning: "bg-badge-warning text-badge-warning-foreground",
+        info: "bg-badge-info text-badge-info-foreground",
+        destructive: "bg-badge-destructive text-badge-destructive-foreground",
         // Internal: reached only via the `color` prop. No token fill/hover so the
         // soft wash + dark ink fully own the look.
         custom: "",
@@ -110,10 +93,6 @@ const badgeVariants = cva(
 // `custom` is internal — selected only by passing `color`, never by a consumer.
 type BadgeVariant = Exclude<NonNullable<VariantProps<typeof badgeVariants>["variant"]>, "custom">;
 
-function isSemanticStatusVariant(variant?: BadgeVariant): variant is SemanticStatusVariant {
-  return variant != null && (SEMANTIC_STATUS_VARIANTS as readonly string[]).includes(variant);
-}
-
 export interface BadgeProps extends Omit<React.HTMLAttributes<HTMLSpanElement>, "color"> {
   variant?: BadgeVariant;
   size?: VariantProps<typeof badgeVariants>["size"];
@@ -134,13 +113,7 @@ function Badge({ className, variant, size, color, asChild = false, style, ...pro
       data-slot="badge"
       data-variant={custom ? "custom" : variant}
       className={cn(badgeVariants({ variant: custom ? "custom" : variant, size }), className)}
-      style={
-        custom
-          ? { ...badgeCustomColorStyle(color), ...style }
-          : isSemanticStatusVariant(variant)
-            ? { ...semanticStatusBadgeStyle(variant), ...style }
-            : style
-      }
+      style={custom ? { ...badgeCustomColorStyle(color), ...style } : style}
       {...props}
     />
   );

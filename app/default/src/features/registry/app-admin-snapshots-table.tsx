@@ -50,7 +50,7 @@ function snapshotStatus({
   row: AppAdminSnapshotRow;
   desiredVersion?: string;
   rollout?: RegistryAppSummary["rollout"];
-}): { label: string; variant: "success" | "warning" | "secondary" | "destructive" } {
+}): { label: string; variant: "success" | "warning" | "info" | "destructive" } {
   if (row.kind === "pending") {
     return { label: "Publishing", variant: "warning" };
   }
@@ -64,7 +64,10 @@ function snapshotStatus({
   if (row.version === desiredVersion && !rolloutTargetActive) {
     return { label: "Deployed", variant: "success" };
   }
-  return { label: "Available", variant: "secondary" };
+  if (rollout && rollout.version === row.version && isActiveRegistryRollout(rollout.state)) {
+    return { label: "Rolling out", variant: "warning" };
+  }
+  return { label: "Available", variant: "info" };
 }
 
 function PendingPublishDuration({ statusTimer }: { statusTimer: string }) {
