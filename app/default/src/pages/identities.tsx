@@ -91,7 +91,7 @@ export default function ManagedIdentitiesPage() {
             <div className="mx-auto max-w-3xl">
               <PageHeader className="animate-fade-in-up">
                 <PageHeaderContent size="lg">
-                  <Eyebrow>Workspace</Eyebrow>
+                  <Eyebrow tone="brand">Workspace</Eyebrow>
                   <PageHeaderTitle>Agent Identities</PageHeaderTitle>
                   <PageHeaderDescription>
                     Managed identities require platform auth and are unavailable when auth is disabled.
@@ -112,7 +112,7 @@ export default function ManagedIdentitiesPage() {
           <Container as="main" className="py-12">
             <PageHeader className="animate-fade-in-up">
               <PageHeaderContent size="lg">
-                <Eyebrow>Workspace</Eyebrow>
+                <Eyebrow tone="brand">Workspace</Eyebrow>
                 <PageHeaderTitle>Agent Identities</PageHeaderTitle>
                 <PageHeaderDescription>
                   Create and manage shared non-human identities for tokens and app authorization.

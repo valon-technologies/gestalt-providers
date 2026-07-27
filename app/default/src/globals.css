@@ -158,6 +158,35 @@
   --color-link-hover: var(--link-hover);
   --color-link-pressed: var(--link-pressed);
 
+  --tracking-display: var(--valon-tracking-display);
+  --tracking-display-tight: var(--valon-tracking-display-tight);
+  --tracking-heading: var(--valon-tracking-heading);
+  --tracking-heading-tight: var(--valon-tracking-heading-tight);
+
+  /* Brand type scale utilities — text-display-sm, text-heading-md, text-body-lg. */
+  --text-body-lg: var(--valon-text-body-lg);
+  --text-body-lg--line-height: var(--valon-text-body-lg--line-height);
+  --text-heading-sm: var(--valon-text-heading-sm);
+  --text-heading-sm--line-height: var(--valon-text-heading-sm--line-height);
+  --text-heading-md: var(--valon-text-heading-md);
+  --text-heading-md--line-height: var(--valon-text-heading-md--line-height);
+  --text-heading-lg: var(--valon-text-heading-lg);
+  --text-heading-lg--line-height: var(--valon-text-heading-lg--line-height);
+  --text-heading-xl: var(--valon-text-heading-xl);
+  --text-heading-xl--line-height: var(--valon-text-heading-xl--line-height);
+  --text-display-sm: var(--valon-text-display-sm);
+  --text-display-sm--line-height: var(--valon-text-display-sm--line-height);
+  --text-display-md: var(--valon-text-display-md);
+  --text-display-md--line-height: var(--valon-text-display-md--line-height);
+  --text-display-lg: var(--valon-text-display-lg);
+  --text-display-lg--line-height: var(--valon-text-display-lg--line-height);
+  --text-display-xl: var(--valon-text-display-xl);
+  --text-display-xl--line-height: var(--valon-text-display-xl--line-height);
+
+  /* Console-only until registry Eyebrow ships native 2xs (10px). */
+  --text-2xs: 0.625rem;
+  --text-2xs--line-height: 0.875rem;
+
   --font-sans: var(--ui-font-sans);
   --font-heading: var(--ui-font-display);
   --font-display: var(--ui-font-display);
@@ -324,6 +353,17 @@
 }
 
 @layer base {
+  /* Re-bind caption ink after tenant theme.css sets --foreground (registry parity). */
+  :root {
+    --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
+    --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
+  }
+
+  .dark {
+    --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
+    --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .animate-fade-in-up {
       opacity: 1 !important;

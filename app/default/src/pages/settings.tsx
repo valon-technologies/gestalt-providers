@@ -24,7 +24,7 @@ export default function SettingsPage() {
     <Container as="main" className="py-12">
       <PageHeader>
         <PageHeaderContent size="lg">
-          <Eyebrow>Account</Eyebrow>
+          <Eyebrow tone="brand">Account</Eyebrow>
           <PageHeaderTitle>Settings</PageHeaderTitle>
           <PageHeaderDescription>
             Manage authorization for your account — personal API tokens and

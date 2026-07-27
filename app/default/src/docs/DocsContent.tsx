@@ -43,7 +43,6 @@ export function GettingStartedDocsPage() {
   return (
     <>
       <DocsPageHeader
-        eyebrow="Getting Started"
         title="Getting Started"
         description={
           <>
@@ -244,7 +243,6 @@ export function ConnectDocsPage() {
   return (
     <>
       <DocsPageHeader
-        eyebrow="Connect Apps"
         title="Connect Apps"
         description="Inspect available apps first, then connect the ones you need."
       />
@@ -277,7 +275,6 @@ export function InvokeDocsPage() {
   return (
     <>
       <DocsPageHeader
-        eyebrow="Invoke Operations"
         title="Invoke Operations"
         description="Use the catalog built into Gestalt to discover an app's operations before making requests."
       />
@@ -292,7 +289,6 @@ export function TokensDocsPage() {
   return (
     <>
       <DocsPageHeader
-        eyebrow="Manage API Tokens"
         title="Manage API Tokens"
         description="User tokens work for both the HTTP API and the MCP endpoint."
       />
@@ -319,7 +315,6 @@ export function AuthorizationDocsPage() {
   return (
     <>
       <DocsPageHeader
-        eyebrow="Grant Authorization"
         title="Grant Authorization"
         description="Grant users and service accounts access to app operations from the Gestalt CLI."
       />
@@ -461,7 +456,6 @@ export function McpDocsPage() {
   return (
     <>
       <DocsPageHeader
-        eyebrow="Use With MCP"
         title="Use With MCP"
         description="Gestalt exposes a single MCP endpoint that gives AI tools access to all your connected apps. If authentication is enabled, create an API token on the API Tokens page first."
       />
@@ -498,7 +492,6 @@ export function TroubleshootingDocsPage() {
   return (
     <>
       <DocsPageHeader
-        eyebrow="Troubleshooting"
         title="Troubleshooting"
         description="Most user-facing problems come down to the wrong URL, expired auth, or ambiguous connection selection."
       />
@@ -545,16 +538,26 @@ function DocsPageHeader({
   title,
   description,
 }: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   description: ReactNode;
 }) {
+  const showEyebrow = eyebrow != null && eyebrow !== title;
+
   return (
     <header className="scroll-mt-24 border-b border-alpha pb-10">
-      <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground-foreground-soft">
-        {eyebrow}
-      </p>
-      <h1 className="mt-5 font-heading text-4xl tracking-[-0.03em] text-primary sm:text-5xl">
+      {showEyebrow ? (
+        <p className="text-2xs font-normal uppercase tracking-eyebrow text-muted-foreground-soft leading-none">
+          {eyebrow}
+        </p>
+      ) : null}
+      <h1
+        className={
+          showEyebrow
+            ? "mt-5 font-heading text-3xl tracking-[-0.03em] text-primary sm:text-4xl"
+            : "font-heading text-3xl tracking-[-0.03em] text-primary sm:text-4xl"
+        }
+      >
         {title}
       </h1>
       <div className="mt-6 max-w-3xl text-base leading-7 text-muted-foreground">

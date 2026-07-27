@@ -277,7 +277,7 @@ export default function BuildStepPage() {
         >
           <PageHeaderContent size="lg">
             {currentStep.eyebrow ? (
-              <Eyebrow>{currentStep.eyebrow}</Eyebrow>
+              <Eyebrow tone="brand">{currentStep.eyebrow}</Eyebrow>
             ) : null}
             <PageHeaderTitle>{currentStep.title}</PageHeaderTitle>
             <PageHeaderDescription>
@@ -680,7 +680,6 @@ function IntroStepActions({
                   />
                   <div className={choiceCardContentNoIndicatorClassName}>
                     <Eyebrow
-                      size="sm"
                       data-testid={
                         item.id === activeExemplarId
                           ? "build-outcome-department"
@@ -725,7 +724,7 @@ function IntroStepActions({
           onClick={handleContinue}
           className={cn(buildStepPagerCardClassName, "sm:items-end sm:text-right")}
         >
-          <span className={buildStepPagerEyebrowClassName}>Next</span>
+          <Eyebrow tone="secondary">Next</Eyebrow>
           <span className="flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground sm:flex-row-reverse">
             <ChevronRightIcon
               tight
@@ -1182,9 +1181,6 @@ function BuildStepPanel({
   );
 }
 
-const buildStepPagerEyebrowClassName =
-  "text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground leading-none";
-
 const buildStepPagerCardClassName =
   "group flex w-fit max-w-xs flex-col gap-2.5 rounded-xl bg-neutral-hover px-5 py-5 text-left transition-[background-color] duration-hover-out ease-out-quart hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed focus-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-neutral-hover disabled:active:bg-neutral-hover";
 
@@ -1214,9 +1210,7 @@ function BuildStepPager({
   const cardClass = buildStepPagerCardClassName;
 
   const nextCardClassName = cn(cardClass, "ms-auto items-end text-right");
-  const nextEyebrow = (
-    <span className={buildStepPagerEyebrowClassName}>Next</span>
-  );
+  const nextEyebrow = <Eyebrow tone="secondary">Next</Eyebrow>;
   const nextTitle = (title: string) => (
     <span className="flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground flex-row-reverse">
       <ChevronRightIcon
@@ -1241,7 +1235,7 @@ function BuildStepPager({
           onClick={() => onGoToStep(prev.id)}
           className={cardClass}
         >
-          <span className={buildStepPagerEyebrowClassName}>Previous</span>
+          <Eyebrow tone="secondary">Previous</Eyebrow>
           <span className="flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground">
             <ChevronLeftIcon
               tight

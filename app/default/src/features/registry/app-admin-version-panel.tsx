@@ -66,7 +66,7 @@ export function AppAdminVersionPanel({
     <div className="space-y-8">
       <PageHeader>
         <PageHeaderContent size="entity">
-          <Eyebrow>App management</Eyebrow>
+          <Eyebrow tone="brand">App management</Eyebrow>
           <PageHeaderTitle>{registry.app}</PageHeaderTitle>
           <PageHeaderDescription>
             Registry: {registry.registry}

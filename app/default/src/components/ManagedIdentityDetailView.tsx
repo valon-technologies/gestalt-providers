@@ -302,7 +302,7 @@ export default function ManagedIdentityDetailView({
         </Link>
         <PageHeader className="mt-5">
           <PageHeaderContent size="entity">
-            <Eyebrow>Managed Identity</Eyebrow>
+            <Eyebrow tone="brand">Managed Identity</Eyebrow>
             <PageHeaderTitle>
               {identity?.displayName || "Loading identity"}
             </PageHeaderTitle>
