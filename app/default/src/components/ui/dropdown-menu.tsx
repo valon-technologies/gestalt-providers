@@ -14,7 +14,7 @@ import {
   isValidElement,
 } from "react";
 import { menuItemVariants } from "@/lib/menu";
-import { cn } from "@/lib/cn";
+import { cn } from "@/lib/utils";
 
 /**
  * Action-menu flyout: trigger + portaled panel.

@@ -51,7 +51,6 @@ export function gestaltDevMockApi() {
             provider: "local",
             displayName: "Local Dev",
             loginSupported: false,
-            features: { agent: false },
           });
           return;
         }
@@ -69,21 +68,6 @@ export function gestaltDevMockApi() {
             path === "/api/v1/authorization/subjects")
         ) {
           json(200, []);
-          return;
-        }
-
-        if (method === "GET" && path === "/api/v1/agent/providers") {
-          json(200, { providers: [] });
-          return;
-        }
-
-        if (method === "GET" && path.startsWith("/api/v1/agent/sessions")) {
-          json(200, []);
-          return;
-        }
-
-        if (method === "GET" && path.startsWith("/api/v1/agent/")) {
-          json(412, { error: "agent not available in mock auth" });
           return;
         }
 

@@ -6,7 +6,7 @@ import {
   mockIntegrations,
   test,
 } from "./fixtures";
-import type { AppAdminRegistryHistoryResponse, AppAdminRegistryResponse, Integration } from "../src/lib/api";
+import type { AppAdminRegistryResponse, Integration } from "../src/lib/api";
 
 const APP = "g-issues";
 

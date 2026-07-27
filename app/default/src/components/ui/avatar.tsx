@@ -5,7 +5,7 @@ import {
   useEffect,
   useState,
 } from "react";
-import { cn } from "@/lib/cn";
+import { cn } from "@/lib/utils";
 
 const sizeClass = {
   sm: "size-6 text-[0.625rem]",

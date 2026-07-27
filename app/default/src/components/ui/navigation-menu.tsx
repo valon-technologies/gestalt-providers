@@ -6,7 +6,7 @@ import {
   cloneElement,
   isValidElement,
 } from "react";
-import { cn } from "@/lib/cn";
+import { cn } from "@/lib/utils";
 
 const sizeClass = {
   sm: "h-8 px-2.5 text-sm",
