@@ -64,7 +64,7 @@ interface TokenCreateFormProps {
    * Called with the one-time plaintext token after a successful create.
    * `created` carries the durable id + name for session persistence.
    */
-  onCreated: (
+  onCreated?: (
     plaintext: string,
     created: { id: string; name: string },
   ) => void | Promise<void>;
@@ -397,7 +397,7 @@ const TokenCreateForm = React.forwardRef<
       setExpirationIdSelected("30d");
       setCustomDate("");
       await invalidateTokens();
-      await onCreated(result.token, {
+      await onCreated?.(result.token, {
         id: result.id,
         name: trimmedName,
       });
