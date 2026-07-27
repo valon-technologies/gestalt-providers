@@ -17,13 +17,16 @@ When lifting a shared UI kit control into `src/components/ui/`:
    - accent-vivid → gold-300 bright fill/stroke
    - accent-solid → gold-400 mid control fill (Switch checked)
    - accent\*-foreground → ink (`--foreground`)
-3. **Forbidden on selected chrome:** `data-active:text-brand`,
+3. **Body / secondary copy:** use `text-muted-foreground` (and
+   `text-muted-foreground-soft` for tertiary). Never `text-muted` or
+   `text-secondary` for ink — Tailwind v4 maps those names to surface tokens.
+4. **Forbidden on selected chrome:** `data-active:text-brand`,
    `data-[selected]:text-brand`, `data-active:text-gold-*`, and the same for
    `data-[state=active]`. Selected rows use ink on an accent fill.
-4. Adapt motion / focus / sizing to local tokens (`focus-ring`,
+5. Adapt motion / focus / sizing to local tokens (`focus-ring`,
    `duration-select-*`, control heights) — not color roles.
 
-`oxlint` enforces (3) via `home/no-brand-text-on-selected`
+`oxlint` enforces (4) via `home/no-brand-text-on-selected`
 (`oxlint-plugin-home.mjs`, scoped to `src/components/ui/**`).
 
 ## Button / Input / Field / Label

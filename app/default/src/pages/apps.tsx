@@ -83,7 +83,7 @@ export default function AppsPage() {
               <h1 className="mt-2 text-2xl font-heading text-primary">
                 Apps
               </h1>
-              <p className="mt-2 text-sm text-muted">
+              <p className="mt-2 text-sm text-muted-foreground">
                 Browse and connect apps.
               </p>
             </div>
@@ -97,7 +97,7 @@ export default function AppsPage() {
           </div>
 
           {loading && (
-            <p className="mt-10 flex items-center gap-1.5 text-sm text-faint">
+            <p className="mt-10 flex items-center gap-1.5 text-sm text-muted-foreground-soft">
               <SpinnerIcon className="size-4 animate-spin" aria-hidden />
               Loading...
             </p>
@@ -106,13 +106,13 @@ export default function AppsPage() {
           {error && <p className="mt-10 text-sm text-ember-500">{error}</p>}
 
           {!loading && !error && integrations.length === 0 && (
-            <p className="mt-10 text-sm text-faint">
+            <p className="mt-10 text-sm text-muted-foreground-soft">
               No apps registered.
             </p>
           )}
 
           {!loading && !error && integrations.length > 0 && filteredIntegrations.length === 0 && hasSearchQuery && (
-            <p className="mt-10 text-sm text-faint">
+            <p className="mt-10 text-sm text-muted-foreground-soft">
               No apps match <span>{`"${query.trim()}"`}</span>.
             </p>
           )}

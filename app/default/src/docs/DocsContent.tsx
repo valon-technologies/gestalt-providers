@@ -59,7 +59,7 @@ export function GettingStartedDocsPage() {
       />
       <DocsPageBody>
         <div className="rounded-xl border border-alpha bg-base-100 p-5 dark:bg-surface">
-          <p className="text-xs font-medium uppercase tracking-[0.16em] text-faint">
+          <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground-foreground-soft">
             Base URL
           </p>
           <p className="mt-2 font-mono text-sm text-primary">{origin}</p>
@@ -551,13 +551,13 @@ function DocsPageHeader({
 }) {
   return (
     <header className="scroll-mt-24 border-b border-alpha pb-10">
-      <p className="text-xs font-medium uppercase tracking-[0.16em] text-faint">
+      <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground-foreground-soft">
         {eyebrow}
       </p>
       <h1 className="mt-5 font-heading text-4xl tracking-[-0.03em] text-primary sm:text-5xl">
         {title}
       </h1>
-      <div className="mt-6 max-w-3xl text-base leading-7 text-secondary">
+      <div className="mt-6 max-w-3xl text-base leading-7 text-muted-foreground">
         {description}
       </div>
     </header>
@@ -628,7 +628,7 @@ function SetupMethodTabs({
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
                   ? "border-gold-600 text-primary dark:border-gold-300"
-                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
+                  : "border-transparent text-muted-foreground hover:border-base-300 hover:text-foreground dark:hover:border-base-600"
               }`}
             >
               {item.label}
@@ -689,7 +689,7 @@ function AuthMethodTabs({
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
                   ? "border-gold-600 text-primary dark:border-gold-300"
-                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
+                  : "border-transparent text-muted-foreground hover:border-base-300 hover:text-foreground dark:hover:border-base-600"
               }`}
             >
               {item.label}
@@ -753,7 +753,7 @@ function InvokeMethodTabs({ origin }: { origin: string }) {
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
                   ? "border-gold-600 text-primary dark:border-gold-300"
-                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
+                  : "border-transparent text-muted-foreground hover:border-base-300 hover:text-foreground dark:hover:border-base-600"
               }`}
             >
               {item.label}
@@ -846,7 +846,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
                   ? "border-gold-600 text-primary dark:border-gold-300"
-                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
+                  : "border-transparent text-muted-foreground hover:border-base-300 hover:text-foreground dark:hover:border-base-600"
               }`}
             >
               {tab.label}
@@ -1038,7 +1038,7 @@ function McpClientTabs({ origin }: { origin: string }) {
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
                   ? "border-gold-600 text-primary dark:border-gold-300"
-                  : "border-transparent text-muted hover:border-base-300 hover:text-primary dark:hover:border-base-600"
+                  : "border-transparent text-muted-foreground hover:border-base-300 hover:text-foreground dark:hover:border-base-600"
               }`}
             >
               {tab.label}
@@ -1240,7 +1240,7 @@ function CodeBlock({
       </div>
       <button
         onClick={handleCopy}
-        className="absolute right-3 top-3 rounded-md p-1.5 text-muted opacity-0 transition-all duration-150 hover:bg-alpha-5 hover:text-primary group-hover:opacity-100"
+        className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground opacity-0 transition-all duration-150 hover:bg-alpha-5 hover:text-foreground group-hover:opacity-100"
         title="Copy to clipboard"
         aria-label="Copy to clipboard"
       >
@@ -1264,7 +1264,7 @@ function InfoTable({ rows }: { rows: [string, string][] }) {
               <th className="w-56 bg-base-100 px-4 py-3 align-top font-medium text-primary dark:bg-surface-raised">
                 {label}
               </th>
-              <td className="px-4 py-3 text-muted">{value}</td>
+              <td className="px-4 py-3 text-muted-foreground">{value}</td>
             </tr>
           ))}
         </tbody>

@@ -17,8 +17,8 @@ export default function SettingsPageClient() {
     <Container as="main" className="py-12">
       <div>
         <span className="label-text">Account</span>
-        <h1 className="mt-2 text-2xl font-heading text-primary">Settings</h1>
-        <p className="mt-3 max-w-3xl text-sm text-muted">
+        <h1 className="mt-2 text-2xl font-heading text-foreground">Settings</h1>
+        <p className="mt-3 max-w-3xl text-sm text-muted-foreground">
           Manage authorization for your account — personal API tokens and
           shared service identities.
         </p>
@@ -26,7 +26,7 @@ export default function SettingsPageClient() {
 
       <section
         id="authorization"
-        className="mt-12 rounded-2xl border border-alpha bg-base-white p-6 dark:bg-surface"
+        className="mt-12 rounded-2xl border border-border bg-card p-6"
       >
         <SettingsSectionIntro
           eyebrow="Authorization"
@@ -35,15 +35,15 @@ export default function SettingsPageClient() {
         />
 
         <div className="mt-8">
-          <div className="rounded-xl border border-alpha bg-base-white p-5 dark:bg-surface-raised">
+          <div className="rounded-xl border border-border bg-background p-5">
             <TokenCreateForm />
           </div>
         </div>
 
-        {tokensError && <p className="mt-4 text-sm text-ember-500">{tokensError}</p>}
+        {tokensError && <p className="mt-4 text-sm text-destructive">{tokensError}</p>}
 
         {tokensQuery.isPending ? (
-          <p className="mt-10 text-sm text-faint">Loading...</p>
+          <p className="mt-10 text-sm text-muted-foreground-soft">Loading...</p>
         ) : !tokensError ? (
           <div className="mt-8">
             <TokenTable tokens={tokens} />
@@ -51,7 +51,7 @@ export default function SettingsPageClient() {
         ) : null}
       </section>
 
-      <section className="mt-6 rounded-2xl border border-alpha bg-base-white p-6 dark:bg-surface">
+      <section className="mt-6 rounded-2xl border border-border bg-card p-6">
         <SettingsSectionIntro
           eyebrow="Authorization"
           title="Managed Identities"
@@ -59,7 +59,7 @@ export default function SettingsPageClient() {
         />
         <Link
           to="/identities"
-          className="mt-6 inline-flex rounded-md border border-alpha px-4 py-2 text-sm font-medium text-primary transition-colors duration-150 hover:border-alpha-strong hover:bg-base-100 dark:hover:bg-surface-raised"
+          className="mt-6 inline-flex rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:border-border hover:bg-muted"
         >
           Manage identities
         </Link>
@@ -80,8 +80,8 @@ function SettingsSectionIntro({
   return (
     <div>
       <span className="label-text">{eyebrow}</span>
-      <h2 className="mt-2 text-xl font-heading text-primary">{title}</h2>
-      <p className="mt-2 max-w-3xl text-sm text-muted">{description}</p>
+      <h2 className="mt-2 text-xl font-heading text-foreground">{title}</h2>
+      <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{description}</p>
     </div>
   );
 }
