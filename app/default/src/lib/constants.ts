@@ -1,6 +1,5 @@
 export const DOCS_PATH = "/docs";
 export const HTTP_UNAUTHORIZED = 401;
-export const DEFAULT_LOCAL_EMAIL = "anonymous@gestalt";
 export const CONNECTION_RETURN_PATH_STORAGE_KEY =
   "gestalt.connection.returnPath";
 

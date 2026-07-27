@@ -17,20 +17,6 @@ export const queryKeys = {
     list: () => ["workflows", "list"] as const,
     detail: (id: string) => ["workflows", "detail", id] as const,
   },
-  agents: {
-    root: ["agents"] as const,
-    providers: () => ["agents", "providers"] as const,
-    sessions: (opts?: { view?: string; limit?: number }) =>
-      ["agents", "sessions", opts ?? {}] as const,
-    session: (id: string, provider: string) =>
-      ["agents", "session", id, provider] as const,
-    turns: (sessionId: string, provider: string, status?: string) =>
-      ["agents", "turns", sessionId, provider, status ?? "all"] as const,
-    turn: (id: string, provider: string) =>
-      ["agents", "turn", id, provider] as const,
-    interactions: (turnId: string, provider: string) =>
-      ["agents", "interactions", turnId, provider] as const,
-  },
   managedIdentities: {
     root: ["managed-identities"] as const,
     list: () => ["managed-identities", "list"] as const,

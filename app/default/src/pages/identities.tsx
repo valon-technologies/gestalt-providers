@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { INPUT_CLASSES } from "@/lib/constants";
+import { appPath } from "@/lib/mount";
 import {
   useAuthInfoQuery,
   useCreateManagedIdentityMutation,
@@ -94,10 +95,10 @@ export default function ManagedIdentitiesPage() {
                   Managed identities require platform auth and are unavailable when auth is disabled.
                 </p>
                 <Link
-                  to="/"
+                  to={appPath("/apps")}
                   className="mt-6 inline-flex text-sm text-muted transition-colors duration-150 hover:text-primary"
                 >
-                  &larr; Back to dashboard
+                  &larr; Back to apps
                 </Link>
               </div>
             </div>

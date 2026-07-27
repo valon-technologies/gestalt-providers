@@ -33,7 +33,12 @@ test.describe("Authentication", () => {
     });
     await mockAuthSessionUnauthorized(page);
 
-    await page.goto("/identities?id=agent-1#profile");
+    await page.goto("/identities?id=agent-1#profile", { waitUntil: "networkidle" });
+    await page.waitForFunction(
+      () => window.location.pathname === "/api/v1/auth/login",
+      null,
+      { timeout: 15000 },
+    );
     await expect(page).toHaveURL((url) => {
       return (
         url.pathname === "/api/v1/auth/login" &&
@@ -42,7 +47,7 @@ test.describe("Authentication", () => {
     });
   });
 
-  test("no-auth server redirects to dashboard without showing logout", async ({
+  test("no-auth server redirects to apps without showing logout", async ({
     page,
   }) => {
     await mockAuthInfo(page, {
@@ -59,7 +64,7 @@ test.describe("Authentication", () => {
     await mockWorkflowRuns(page, []);
 
     await page.goto("/");
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL(/\/apps/);
     await expect(page.getByText("anonymous@gestalt")).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Authorization", exact: true }),
@@ -77,7 +82,7 @@ test.describe("Authentication", () => {
     ).toBeVisible();
   });
 
-  test("authenticated user sees dashboard", async ({ authenticatedPage }) => {
+  test("authenticated user sees apps home", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await page.route("**/api/v1/auth/info", (route) => {
       route.abort();
@@ -90,8 +95,9 @@ test.describe("Authentication", () => {
     await mockWorkflowRuns(page, []);
 
     await page.goto("/");
+    await expect(page).toHaveURL(/\/apps/);
     await expect(
-      page.getByRole("heading", { name: "Dashboard" }),
+      page.getByRole("heading", { name: "Apps" }),
     ).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Apps", exact: true }),
@@ -144,12 +150,12 @@ test.describe("Authentication", () => {
       });
     });
 
-    await page.goto("/");
+    await page.goto("/apps");
     await page.getByRole("button", { name: /Logout/i }).click();
     await expect(page).toHaveURL((url) => {
       return (
         url.pathname === "/api/v1/auth/login" &&
-        url.searchParams.get("next") === "/"
+        url.searchParams.get("next") === "/apps"
       );
     });
     await expect(
@@ -163,8 +169,15 @@ test.describe("Authentication", () => {
   test("401 response clears session and redirects to server login", async ({
     page,
   }) => {
-    await page.goto("/");
-    await page.evaluate(() => {
+    await mockAuthInfo(page, {
+      provider: "test-sso",
+      displayName: "Test SSO",
+    });
+    await page.addInitScript(() => {
+      if (sessionStorage.getItem("expired-session-test-seeded") === "1") {
+        return;
+      }
+      sessionStorage.setItem("expired-session-test-seeded", "1");
       localStorage.setItem(
         "gestalt.auth.session",
         JSON.stringify({
@@ -190,7 +203,12 @@ test.describe("Authentication", () => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
 
-    await page.goto("/workflows?range=week#runs");
+    await page.goto("/workflows?range=week#runs", { waitUntil: "networkidle" });
+    await page.waitForFunction(
+      () => window.location.pathname === "/api/v1/auth/login",
+      null,
+      { timeout: 15000 },
+    );
     await expect(page).toHaveURL((url) => {
       return (
         url.pathname === "/api/v1/auth/login" &&

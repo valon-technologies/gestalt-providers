@@ -1,8 +1,8 @@
 import type { ElementType, ReactNode } from "react";
 
 // Pages and the nav share one stable, app-owned content column. width="full"
-// is the explicit opt-out for surfaces that own the whole viewport (e.g.
-// /agents); tenant themes do not change layout density.
+// is the explicit opt-out for surfaces that own the whole viewport; tenant
+// themes do not change layout density.
 export type ContainerWidth = "content" | "full";
 
 export default function Container({

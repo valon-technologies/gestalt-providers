@@ -1,5 +1,5 @@
 import { test, expect, mockAuthInfo, mockWorkflowRuns } from "./fixtures";
-import type { WorkflowAppTarget, WorkflowRun, WorkflowTarget } from "../src/lib/api";
+import type { WorkflowAppTarget, WorkflowTarget } from "../src/lib/api";
 
 function workflowAppTarget(
   name: string,
