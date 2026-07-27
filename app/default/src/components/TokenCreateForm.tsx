@@ -22,7 +22,7 @@ import {
 import {
   useIntegrationsQuery,
   useInvalidateTokens,
-} from "@/hooks/use-server-queries";
+} from "@/lib/queries";
 import { Button } from "@/components/ui/button";
 import {
   CheckboxTree,

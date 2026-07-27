@@ -72,10 +72,6 @@ export const radioRowClassName = [
 export const choiceCardRadioClassName =
   "col-start-1 self-start mt-[calc((1.25rem-1rem)/2)]";
 
-/** Optical center with Eyebrow (`text-xs` / `leading-none`) on a 16px radio disk. */
-export const choiceCardRadioEyebrowClassName =
-  "col-start-1 self-start mt-[calc((0.75rem-1rem)/2)]";
-
 /** Row 2 placement when row 1 is full-width media (`choiceCardMediaAboveClassName`). */
 export const choiceCardBelowMediaClassName = "row-start-2";
 

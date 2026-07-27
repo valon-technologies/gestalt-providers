@@ -98,7 +98,7 @@ import {
   useInvalidateIntegrations,
   useInvalidateTokens,
   useTokensQuery,
-} from "@/hooks/use-server-queries";
+} from "@/lib/queries";
 import {
   type APIToken,
   type Integration,

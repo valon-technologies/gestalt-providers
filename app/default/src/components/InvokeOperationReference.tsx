@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/hover-card";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import { SpinnerIcon } from "@/components/icons";
-import { useIntegrationOperationsQuery } from "@/hooks/use-server-queries";
+import { useIntegrationOperationsQuery } from "@/lib/queries";
 import { cn } from "@/lib/cn";
 
 type InvokeOperationReferenceProps = {

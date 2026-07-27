@@ -7,6 +7,8 @@ export const queryKeys = {
   integrations: {
     root: ["integrations"] as const,
     list: () => ["integrations", "list"] as const,
+    operations: (appName: string) =>
+      ["integrations", appName, "operations"] as const,
   },
   tokens: {
     root: ["tokens"] as const,

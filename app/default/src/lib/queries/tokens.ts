@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createToken, getTokens, revokeToken, type APIToken } from "@/lib/api";
+import { getTokens, revokeToken } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 
 export function useTokensQuery() {
@@ -9,14 +9,10 @@ export function useTokensQuery() {
   });
 }
 
-export function useCreateTokenMutation() {
+export function useInvalidateTokens() {
   const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: { name: string; scopes: string; expiresIn?: number }) =>
-      createToken(input.name, input.scopes, input.expiresIn),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.tokens.root }),
-  });
+  return () =>
+    queryClient.invalidateQueries({ queryKey: queryKeys.tokens.root });
 }
 
 export function useRevokeTokenMutation() {
@@ -26,9 +22,4 @@ export function useRevokeTokenMutation() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: queryKeys.tokens.root }),
   });
-}
-
-/** Personal token listing for Build and legacy hooks — Identity v2 grants. */
-export async function fetchPersonalTokenList(): Promise<APIToken[]> {
-  return getTokens();
 }

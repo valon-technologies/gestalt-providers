@@ -11,7 +11,7 @@ type PluginSearchBarProps = {
 
 /**
  * Plain filter field for the apps catalog — no suggestion flyout.
- * Typing filters the apps catalog grid in AppsPage.
+ * Typing filters the apps grid on AppsPage.
  */
 export default function PluginSearchBar({
   query,
