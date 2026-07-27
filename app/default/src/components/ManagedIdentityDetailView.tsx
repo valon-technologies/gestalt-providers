@@ -319,7 +319,6 @@ export default function ManagedIdentityDetailView({
   }
 
   function rememberConnectionReturnPath() {
-    if (typeof window === "undefined") return;
     window.sessionStorage.setItem(
       CONNECTION_RETURN_PATH_STORAGE_KEY,
       connectionReturnPath,
@@ -327,7 +326,6 @@ export default function ManagedIdentityDetailView({
   }
 
   function forgetConnectionReturnPath() {
-    if (typeof window === "undefined") return;
     window.sessionStorage.removeItem(CONNECTION_RETURN_PATH_STORAGE_KEY);
   }
 

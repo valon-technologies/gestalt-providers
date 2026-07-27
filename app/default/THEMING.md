@@ -167,3 +167,14 @@ The static admin shell under `public/admin/` has its own legacy stylesheet and
 is not yet part of this runtime theme contract. It should be migrated as a
 separate, visual-regression-tested change rather than coupled to this core
 cutover.
+
+## Local development
+
+`index.html` links `theme.css` on the same origin as the SPA. In Vite
+development, `/theme.css` and `/theme/*` proxy to `GESTALT_API_PROXY_TARGET`
+(see `vite.config.ts`), so a local `gestaltd serve` stack exercises the same
+delivery path as production.
+
+Point the proxy at a deployment whose app mount has a tenant theme configured,
+then reload to see the skin. There is no separate theme mirror script — the
+stylesheet always comes from the backend mount, matching production.
