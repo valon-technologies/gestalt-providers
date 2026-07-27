@@ -812,14 +812,27 @@ export function isAPIErrorStatus(error: unknown, status: number): boolean {
   return error instanceof APIError && error.status === status;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 export const PENDING_CONNECTION_PATH = "/api/v1/auth/pending-connection";
 
+/**
+ * Resolve a request URL at the browser/host boundary.
+ *
+ * The browser owns only same-origin navigation: production gestaltd serves
+ * `/api/*` itself, while Vite development proxies that same path to the
+ * configured backend. The upstream target is therefore host configuration,
+ * never a public client environment variable. Absolute URLs are preserved
+ * for server-provided OAuth and connection-selection redirects.
+ */
 export function resolveAPIPath(path: string): string {
   if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(path)) {
     return path;
   }
-  return `${API_BASE}${path}`;
+  if (!path.startsWith("/")) {
+    throw new Error(
+      `API path must be absolute (got ${JSON.stringify(path)})`,
+    );
+  }
+  return path;
 }
 
 export async function fetchAPI<T>(
