@@ -1,4 +1,5 @@
 import { Fragment } from "react";
+import { isActiveRegistryRollout } from "@/features/registry/format";
 import {
   buildRolloutStepperModel,
   type RolloutStepperModel,
@@ -51,11 +52,16 @@ export function RolloutPhaseStepper({
   rollout?: RegistryRollout;
 }) {
   const model = buildRolloutStepperModel(rollout);
+  const isActiveRollout = rollout ? isActiveRegistryRollout(rollout.state) : false;
 
   return (
     <div
-      className="flex w-full max-w-md items-start"
+      className={cn(
+        "mx-auto flex w-fit max-w-md items-start",
+        isActiveRollout && "motion-safe:animate-pulse",
+      )}
       data-testid="rollout-phase-stepper"
+      data-rollout-active={isActiveRollout ? "true" : undefined}
       aria-label="Rollout progress"
     >
       {model.phases.map((phase, index) => {
