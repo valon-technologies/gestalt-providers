@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 export type Theme = "light" | "dark" | "system";
 
 function readTheme(): Theme {
+  if (typeof window === "undefined") return "system";
   const stored = localStorage.getItem("theme");
   return stored === "light" || stored === "dark" || stored === "system"
     ? stored
@@ -10,6 +11,7 @@ function readTheme(): Theme {
 }
 
 function applyTheme(theme: Theme) {
+  if (typeof window === "undefined") return;
   const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
   document.documentElement.classList.toggle(
     "dark",

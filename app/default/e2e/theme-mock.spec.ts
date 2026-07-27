@@ -3,7 +3,6 @@ import {
   expect,
   mockIntegrations,
   mockTokens,
-  mockWorkflowRuns,
 } from "./fixtures";
 
 const hasBackend =
@@ -51,19 +50,15 @@ test.describe("Theme", () => {
     );
     await mockIntegrations(page, []);
     await mockTokens(page, []);
-    await mockWorkflowRuns(page, []);
 
-    await page.goto("/authorization");
+    await page.goto("/settings");
 
     const body = page.locator("body");
-    const heading = page.getByRole("heading", {
-      name: "Authorization",
-      exact: true,
-    });
+    const heading = page.getByRole("heading", { name: "Settings", exact: true });
     const bodyCopy = page.getByText(
-      /Create personal API tokens for local tooling/,
+      /Create personal tokens for local tooling/,
     );
-    const card = page.locator("#tokens");
+    const card = page.locator("#authorization");
     const primaryButton = page.getByRole("button", { name: "Create Token" });
 
     async function expectSemanticColors(colors: {
@@ -98,7 +93,7 @@ test.describe("Theme", () => {
       primaryForeground: "rgb(22, 23, 24)",
     });
 
-    await page.getByRole("button", { name: "Toggle theme" }).click();
+    await page.getByRole("radio", { name: "Dark" }).click();
     await expectSemanticColors({
       background: "rgb(25, 26, 27)",
       foreground: "rgb(28, 29, 30)",
@@ -111,7 +106,7 @@ test.describe("Theme", () => {
     });
   });
 
-  test("authorization subhead never uses the muted surface fill as text color", async ({
+  test("settings authorization subhead never uses the muted surface fill as text color", async ({
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
@@ -137,18 +132,17 @@ test.describe("Theme", () => {
     );
     await mockIntegrations(page, []);
     await mockTokens(page, []);
-    await mockWorkflowRuns(page, []);
 
-    await page.goto("/authorization");
+    await page.goto("/settings#authorization");
 
     const bodyCopy = page.getByText(
-      /Create personal API tokens for local tooling/,
+      /Create personal tokens for local tooling/,
     );
     await expect(bodyCopy).toHaveClass(/text-muted-foreground/);
     await expect(bodyCopy).not.toHaveCSS("color", "rgb(241, 238, 233)");
   });
 
-  test("toggle enables dark mode and persists the selection", async ({
+  test("theme switcher enables dark mode and persists the selection", async ({
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
@@ -157,13 +151,14 @@ test.describe("Theme", () => {
     });
     await mockIntegrations(page, []);
     await mockTokens(page, []);
-    await mockWorkflowRuns(page, []);
 
-    await page.goto("/");
+    await page.goto("/apps");
 
-    const toggle = page.getByRole("button", { name: "Toggle theme" });
-    await expect(toggle).toHaveAttribute("title", "Light mode");
-    await toggle.click();
+    await expect(page.getByRole("radio", { name: "Light" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await page.getByRole("radio", { name: "Dark" }).click();
 
     await expect
       .poll(async () => page.evaluate(() => localStorage.getItem("theme")))

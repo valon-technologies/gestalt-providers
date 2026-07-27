@@ -72,10 +72,10 @@ test.describe("Navigation", () => {
     ).toBeVisible();
   });
 
-  test("authorization page renders", async ({ authenticatedPage: page }) => {
-    await page.goto("/authorization");
+  test("settings page renders", async ({ authenticatedPage: page }) => {
+    await page.goto("/settings");
     await expect(
-      page.getByRole("heading", { name: "Authorization" }),
+      page.getByRole("heading", { name: "Settings" }),
     ).toBeVisible();
   });
 
@@ -83,6 +83,22 @@ test.describe("Navigation", () => {
     await page.goto("/workflows");
     await expect(
       page.getByRole("heading", { name: "Workflows" }),
+    ).toBeVisible();
+  });
+
+  test("authorization redirects to settings", async ({ authenticatedPage: page }) => {
+    await page.goto("/authorization");
+    await expect(page).toHaveURL(/\/settings/);
+    await expect(
+      page.getByRole("heading", { name: "Settings" }),
+    ).toBeVisible();
+  });
+
+  test("tokens redirects to settings", async ({ authenticatedPage: page }) => {
+    await page.goto("/tokens");
+    await expect(page).toHaveURL(/\/settings/);
+    await expect(
+      page.getByRole("heading", { name: "Settings" }),
     ).toBeVisible();
   });
 
@@ -110,10 +126,11 @@ test.describe("Navigation", () => {
 
   test("nav links work", async ({ authenticatedPage: page }) => {
     await page.goto("/apps");
-    await page.getByRole("link", { name: "Authorization" }).click();
-    await expect(page).toHaveURL(/authorization/);
+    await page.getByRole("button", { name: "Open user menu" }).click();
+    await page.getByRole("menuitem", { name: "Settings" }).click();
+    await expect(page).toHaveURL(/\/settings/);
     await expect(
-      page.getByRole("heading", { name: "Authorization" }),
+      page.getByRole("heading", { name: "Settings" }),
     ).toBeVisible();
     await page.getByRole("link", { name: "Workflows" }).click();
     await expect(page).toHaveURL(/workflows/);

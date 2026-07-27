@@ -58,11 +58,11 @@ export function GettingStartedDocsPage() {
         }
       />
       <DocsPageBody>
-        <div className="rounded-xl border border-border bg-card p-5 text-card-foreground">
-          <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground/70">
+        <div className="rounded-xl border border-alpha bg-base-100 p-5 dark:bg-surface">
+          <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground-foreground-soft">
             Base URL
           </p>
-          <p className="mt-2 font-mono text-sm text-foreground">{origin}</p>
+          <p className="mt-2 font-mono text-sm text-primary">{origin}</p>
         </div>
         <Subheading id="install" title="Install" />
         <p className="doc-copy">
@@ -304,8 +304,8 @@ gestalt tokens revoke <token-id>`}
         />
         <p className="doc-copy">
           Tokens can also be created from{" "}
-          <Link to="/authorization" className="doc-link">
-            Authorization
+          <Link to="/settings" className="doc-link">
+            Settings
           </Link>
           . The raw token value is shown once, so store it immediately in your
           secret manager or shell environment.
@@ -550,14 +550,14 @@ function DocsPageHeader({
   description: ReactNode;
 }) {
   return (
-    <header className="scroll-mt-24 border-b border-border pb-10 animate-fade-in-up">
-      <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground/70">
+    <header className="scroll-mt-24 border-b border-alpha pb-10">
+      <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground-foreground-soft">
         {eyebrow}
       </p>
-      <h1 className="mt-5 font-heading text-4xl tracking-[-0.03em] text-foreground sm:text-5xl">
+      <h1 className="mt-5 font-heading text-4xl tracking-[-0.03em] text-primary sm:text-5xl">
         {title}
       </h1>
-      <div className="mt-6 max-w-3xl text-base leading-7 text-foreground/80">
+      <div className="mt-6 max-w-3xl text-base leading-7 text-muted-foreground">
         {description}
       </div>
     </header>
@@ -566,7 +566,7 @@ function DocsPageHeader({
 
 function DocsPageBody({ children }: { children: ReactNode }) {
   return (
-    <div className="mt-8 space-y-5 animate-fade-in-up [animation-delay:60ms]">
+    <div className="mt-8 space-y-5">
       {children}
     </div>
   );
@@ -612,7 +612,7 @@ function SetupMethodTabs({
       <div
         role="tablist"
         aria-label="CLI setup methods"
-        className="flex flex-wrap gap-5 border-b border-border"
+        className="flex flex-wrap gap-5 border-b border-alpha"
       >
         {items.map((item) => {
           const isActive = item.id === activeId;
@@ -627,8 +627,8 @@ function SetupMethodTabs({
               onClick={() => setActiveId(item.id)}
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:border-ring hover:text-foreground"
+                  ? "border-gold-600 text-primary dark:border-gold-300"
+                  : "border-transparent text-muted-foreground hover:border-base-300 hover:text-foreground dark:hover:border-base-600"
               }`}
             >
               {item.label}
@@ -648,7 +648,7 @@ function SetupMethodTabs({
             hidden={!isActive}
             className={
               isActive
-                ? "space-y-4 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
+                ? "space-y-4 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
                 : "hidden"
             }
           >
@@ -673,7 +673,7 @@ function AuthMethodTabs({
       <div
         role="tablist"
         aria-label="Authentication methods"
-        className="flex flex-wrap gap-5 border-b border-border"
+        className="flex flex-wrap gap-5 border-b border-alpha"
       >
         {items.map((item) => {
           const isActive = item.id === activeId;
@@ -688,8 +688,8 @@ function AuthMethodTabs({
               onClick={() => setActiveId(item.id)}
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:border-ring hover:text-foreground"
+                  ? "border-gold-600 text-primary dark:border-gold-300"
+                  : "border-transparent text-muted-foreground hover:border-base-300 hover:text-foreground dark:hover:border-base-600"
               }`}
             >
               {item.label}
@@ -709,7 +709,7 @@ function AuthMethodTabs({
             hidden={!isActive}
             className={
               isActive
-                ? "space-y-4 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
+                ? "space-y-4 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
                 : "hidden"
             }
           >
@@ -732,7 +732,7 @@ function InvokeMethodTabs({ origin }: { origin: string }) {
       <div
         role="tablist"
         aria-label="Invocation methods"
-        className="flex flex-wrap gap-5 border-b border-border"
+        className="flex flex-wrap gap-5 border-b border-alpha"
       >
         {[
           { id: "invoke-cli", label: "CLI" },
@@ -752,8 +752,8 @@ function InvokeMethodTabs({ origin }: { origin: string }) {
               }
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:border-ring hover:text-foreground"
+                  ? "border-gold-600 text-primary dark:border-gold-300"
+                  : "border-transparent text-muted-foreground hover:border-base-300 hover:text-foreground dark:hover:border-base-600"
               }`}
             >
               {item.label}
@@ -769,7 +769,7 @@ function InvokeMethodTabs({ origin }: { origin: string }) {
         hidden={activeId !== "invoke-cli"}
         className={
           activeId === "invoke-cli"
-            ? "space-y-4 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
+            ? "space-y-4 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
             : "hidden"
         }
       >
@@ -794,7 +794,7 @@ gestalt apps invoke <app> <operation> --input-file payload.json --select data.it
         hidden={activeId !== "invoke-http"}
         className={
           activeId === "invoke-http"
-            ? "space-y-4 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
+            ? "space-y-4 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
             : "hidden"
         }
       >
@@ -830,7 +830,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
       <div
         role="tablist"
         aria-label="Cloud environment configuration"
-        className="flex flex-wrap gap-5 border-b border-border"
+        className="flex flex-wrap gap-5 border-b border-alpha"
       >
         {agentEnvironmentTabs.map((tab) => {
           const isActive = tab.id === activeTabId;
@@ -845,8 +845,8 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
               onClick={() => setActiveTabId(tab.id)}
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:border-ring hover:text-foreground"
+                  ? "border-gold-600 text-primary dark:border-gold-300"
+                  : "border-transparent text-muted-foreground hover:border-base-300 hover:text-foreground dark:hover:border-base-600"
               }`}
             >
               {tab.label}
@@ -862,7 +862,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         hidden={activeTabId !== "agent-codex"}
         className={
           activeTabId === "agent-codex"
-            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
+            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
             : "hidden"
         }
       >
@@ -909,7 +909,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         hidden={activeTabId !== "agent-cursor"}
         className={
           activeTabId === "agent-cursor"
-            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
+            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
             : "hidden"
         }
       >
@@ -965,7 +965,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         hidden={activeTabId !== "agent-claude-code"}
         className={
           activeTabId === "agent-claude-code"
-            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
+            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
             : "hidden"
         }
       >
@@ -986,7 +986,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
           alt="Claude Code web environment picker with the settings control highlighted"
           width={1170}
           height={558}
-          className="w-full rounded-lg border border-border"
+          className="w-full rounded-lg border border-alpha"
         />
         <p className="doc-copy">
           Add environment variables in the cloud environment editor. Values use{" "}
@@ -1022,7 +1022,7 @@ function McpClientTabs({ origin }: { origin: string }) {
       <div
         role="tablist"
         aria-label="MCP client configuration"
-        className="flex flex-wrap gap-5 border-b border-border"
+        className="flex flex-wrap gap-5 border-b border-alpha"
       >
         {mcpTabs.map((tab) => {
           const isActive = tab.id === activeTabId;
@@ -1037,8 +1037,8 @@ function McpClientTabs({ origin }: { origin: string }) {
               onClick={() => setActiveTabId(tab.id)}
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:border-ring hover:text-foreground"
+                  ? "border-gold-600 text-primary dark:border-gold-300"
+                  : "border-transparent text-muted-foreground hover:border-base-300 hover:text-foreground dark:hover:border-base-600"
               }`}
             >
               {tab.label}
@@ -1054,7 +1054,7 @@ function McpClientTabs({ origin }: { origin: string }) {
         hidden={activeTabId !== "mcp-claude-code"}
         className={
           activeTabId === "mcp-claude-code"
-            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
+            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
             : "hidden"
         }
       >
@@ -1094,7 +1094,7 @@ function McpClientTabs({ origin }: { origin: string }) {
         hidden={activeTabId !== "mcp-codex"}
         className={
           activeTabId === "mcp-codex"
-            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
+            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
             : "hidden"
         }
       >
@@ -1118,7 +1118,7 @@ function McpClientTabs({ origin }: { origin: string }) {
         hidden={activeTabId !== "mcp-cursor"}
         className={
           activeTabId === "mcp-cursor"
-            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
+            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
             : "hidden"
         }
       >
@@ -1151,7 +1151,7 @@ function McpClientTabs({ origin }: { origin: string }) {
         hidden={activeTabId !== "mcp-other"}
         className={
           activeTabId === "mcp-other"
-            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
+            ? "space-y-5 rounded-b-xl border-x border-b border-alpha bg-base-100 px-5 py-5 dark:bg-surface"
             : "hidden"
         }
       >
@@ -1199,7 +1199,7 @@ function useDeploymentOrigin() {
 
 function InlineCode({ children }: { children: React.ReactNode }) {
   return (
-    <code className="rounded-sm border border-border bg-muted px-[0.3em] py-[0.1em] font-mono text-[0.875em] text-foreground">
+    <code className="rounded-sm border border-alpha bg-surface px-[0.3em] py-[0.1em] font-mono text-[0.875em] text-primary">
       {children}
     </code>
   );
@@ -1209,7 +1209,7 @@ function Subheading({ id, title }: { id?: string; title: string }) {
   return (
     <h2
       id={id}
-      className="scroll-mt-24 pt-2 text-lg tracking-[-0.01em] text-foreground"
+      className="scroll-mt-24 pt-2 text-lg tracking-[-0.01em] text-primary"
     >
       {title}
     </h2>
@@ -1240,12 +1240,12 @@ function CodeBlock({
       </div>
       <button
         onClick={handleCopy}
-        className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground/70 opacity-0 transition-all duration-150 hover:bg-accent hover:text-accent-foreground group-hover:opacity-100"
+        className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground opacity-0 transition-all duration-150 hover:bg-alpha-5 hover:text-foreground group-hover:opacity-100"
         title="Copy to clipboard"
         aria-label="Copy to clipboard"
       >
         {copied ? (
-          <CheckIcon className="h-4 w-4 text-success-foreground" />
+          <CheckIcon className="h-4 w-4 text-grove-600 dark:text-grove-200" />
         ) : (
           <CopyIcon className="h-4 w-4" />
         )}
@@ -1256,12 +1256,12 @@ function CodeBlock({
 
 function InfoTable({ rows }: { rows: [string, string][] }) {
   return (
-    <div className="overflow-hidden rounded-xl border border-border">
-      <table className="w-full border-collapse bg-card text-left text-sm text-card-foreground">
+    <div className="overflow-hidden rounded-xl border border-alpha">
+      <table className="w-full border-collapse bg-base-white text-left text-sm dark:bg-surface">
         <tbody>
           {rows.map(([label, value]) => (
-            <tr key={label} className="border-t border-border first:border-t-0">
-              <th className="w-56 bg-muted px-4 py-3 align-top font-medium text-foreground">
+            <tr key={label} className="border-t border-alpha first:border-t-0">
+              <th className="w-56 bg-base-100 px-4 py-3 align-top font-medium text-primary dark:bg-surface-raised">
                 {label}
               </th>
               <td className="px-4 py-3 text-muted-foreground">{value}</td>

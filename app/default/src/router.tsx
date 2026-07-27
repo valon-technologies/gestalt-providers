@@ -1,12 +1,9 @@
-import type { ReactNode } from "react";
 import {
   Outlet,
   createRoute,
   createRouter,
   redirect,
 } from "@tanstack/react-router";
-import AuthGuard from "@/components/AuthGuard";
-import Nav from "@/components/Nav";
 import DocsShell from "@/docs/DocsShell";
 import {
   AuthorizationDocsPage,
@@ -21,10 +18,10 @@ import {
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import AppAdminPage from "@/pages/app-admin";
 import AppsPage from "@/pages/apps";
-import AuthorizationPage from "@/pages/authorization";
 import BuildPage, { BuildIndexRedirect } from "@/pages/build";
 import IdentitiesPage from "@/pages/identities";
 import IntegrationsPage from "@/pages/integrations";
+import SettingsPage from "@/pages/settings";
 import WorkflowsPage from "@/pages/workflows";
 import { appBasepath } from "@/lib/mount";
 import { rootRoute } from "./routes/__root";
@@ -77,33 +74,6 @@ function DocsTroubleshootingRoute() {
   return <TroubleshootingDocsPage />;
 }
 
-function BuildLayout({ children }: { children: ReactNode }) {
-  return (
-    <AuthGuard>
-      <div className="min-h-screen">
-        <Nav />
-        {children}
-      </div>
-    </AuthGuard>
-  );
-}
-
-function BuildIndexRoute() {
-  return (
-    <BuildLayout>
-      <BuildIndexRedirect />
-    </BuildLayout>
-  );
-}
-
-function BuildStepRoute() {
-  return (
-    <BuildLayout>
-      <BuildPage />
-    </BuildLayout>
-  );
-}
-
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
@@ -129,13 +99,13 @@ const appsRoute = createRoute({
 const buildIndexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/build",
-  component: BuildIndexRoute,
+  component: BuildIndexRedirect,
 });
 
 const buildStepRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/build/$stepId",
-  component: BuildStepRoute,
+  component: BuildPage,
 });
 
 const appAdminRoute = createRoute({
@@ -144,10 +114,18 @@ const appAdminRoute = createRoute({
   component: AppAdminPage,
 });
 
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings",
+  component: SettingsPage,
+});
+
 const authorizationRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/authorization",
-  component: AuthorizationPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/settings", hash: "authorization" });
+  },
 });
 
 const identitiesRoute = createRoute({
@@ -166,7 +144,7 @@ const tokensRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/tokens",
   beforeLoad: () => {
-    throw redirect({ to: "/authorization" });
+    throw redirect({ to: "/settings", hash: "authorization" });
   },
 });
 
@@ -243,6 +221,7 @@ const routeTree = rootRoute.addChildren([
   buildIndexRoute,
   buildStepRoute,
   appAdminRoute,
+  settingsRoute,
   authorizationRoute,
   identitiesRoute,
   integrationsRoute,

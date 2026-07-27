@@ -172,6 +172,8 @@
 @utility text-secondary {
   color: color-mix(in oklab, var(--alpha-dark) 80%, transparent);
 }
+/* Prefer text-muted-foreground for body copy — Tailwind v4 also emits text-muted
+ * from --color-muted (a surface token) which is invisible as ink on white. */
 @utility text-muted {
   color: color-mix(in oklab, var(--alpha-dark) 60%, transparent);
 }

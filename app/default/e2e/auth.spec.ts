@@ -24,8 +24,9 @@ test.describe("Authentication", () => {
       page.getByRole("heading", { name: "Apps" }),
     ).toBeVisible();
     await page.goto("/authorization");
+    await expect(page).toHaveURL(/\/settings#authorization/);
     await expect(
-      page.getByRole("heading", { name: "Authorization" }),
+      page.getByRole("heading", { name: "Settings" }),
     ).toBeVisible();
   });
 });

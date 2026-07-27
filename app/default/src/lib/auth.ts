@@ -13,6 +13,7 @@ function trimOptional(value: string | undefined): string | undefined {
 }
 
 export function getCachedSession(): CachedAuthSession | null {
+  if (typeof window === "undefined") return null;
   const raw = localStorage.getItem(AUTH_SESSION_KEY);
   if (!raw) return null;
   try {
@@ -29,6 +30,7 @@ export function getCachedSession(): CachedAuthSession | null {
 }
 
 export function setCachedSession(session: CachedAuthSession): void {
+  if (typeof window === "undefined") return;
   const subjectId = session.subjectId?.trim();
   if (!subjectId) return;
   const stored: CachedAuthSession = { subjectId };
@@ -40,6 +42,7 @@ export function setCachedSession(session: CachedAuthSession): void {
 }
 
 export function clearSession(): void {
+  if (typeof window === "undefined") return;
   localStorage.removeItem(AUTH_SESSION_KEY);
   localStorage.removeItem(USER_EMAIL_KEY);
 }
@@ -59,4 +62,20 @@ export function sessionDisplayLabel(
   const subjectId = session.subjectId?.trim();
   if (subjectId) return subjectId;
   return null;
+}
+
+/** One or two initials for the nav avatar (GitHub-style). */
+export function sessionInitials(session: CachedAuthSession | null): string {
+  const label = sessionDisplayLabel(session);
+  if (!label) return "?";
+  const emailLocal = label.includes("@") ? label.split("@")[0] : label;
+  const parts = emailLocal
+    .replace(/[._-]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return emailLocal.slice(0, 2).toUpperCase();
 }

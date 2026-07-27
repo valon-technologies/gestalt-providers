@@ -1,8 +1,6 @@
 import { useMemo } from "react";
 import { Link, useParams } from "@tanstack/react-router";
-import AuthGuard from "@/components/AuthGuard";
 import Container from "@/components/Container";
-import Nav from "@/components/Nav";
 import { AppAdminVersionPanel } from "@/features/registry/app-admin-version-panel";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import {
@@ -49,10 +47,7 @@ export default function AppAdminPage() {
           : null;
 
   return (
-    <AuthGuard>
-      <div className="min-h-screen">
-        <Nav />
-        <Container as="main" className="py-12">
+    <Container as="main" className="py-12">
           <div className="mb-8 animate-fade-in-up">
             <Link
               to={APPS_PATH}
@@ -90,7 +85,5 @@ export default function AppAdminPage() {
             </div>
           ) : null}
         </Container>
-      </div>
-    </AuthGuard>
   );
 }

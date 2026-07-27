@@ -7,12 +7,10 @@ import {
   useCreateManagedIdentityMutation,
   useManagedIdentitiesQuery,
 } from "@/lib/queries";
-import AuthGuard from "@/components/AuthGuard";
 import Button from "@/components/Button";
 import Container from "@/components/Container";
 import IdentitySummaryCard from "@/components/IdentitySummaryCard";
 import ManagedIdentityDetailView from "@/components/ManagedIdentityDetailView";
-import Nav from "@/components/Nav";
 
 function managedIdentityLocalIDFromName(value: string): string {
   return value
@@ -76,12 +74,10 @@ export default function ManagedIdentitiesPage() {
   }
 
   return (
-    <AuthGuard>
-      <div className="min-h-screen">
-        <Nav />
+    <>
         {identitiesAvailable === null ? (
           <Container as="main" className="py-12">
-            <p className="text-sm text-faint">Loading...</p>
+            <p className="text-sm text-muted-foreground-soft">Loading...</p>
           </Container>
         ) : identitiesAvailable === false ? (
           <Container as="main" className="py-12">
@@ -91,12 +87,12 @@ export default function ManagedIdentitiesPage() {
                 <h1 className="mt-2 text-2xl font-heading text-primary">
                   Agent Identities
                 </h1>
-                <p className="mt-4 text-sm text-muted">
+                <p className="mt-4 text-sm text-muted-foreground">
                   Managed identities require platform auth and are unavailable when auth is disabled.
                 </p>
                 <Link
                   to={appPath("/apps")}
-                  className="mt-6 inline-flex text-sm text-muted transition-colors duration-150 hover:text-primary"
+                  className="mt-6 inline-flex text-sm text-muted-foreground transition-colors duration-150 hover:text-foreground"
                 >
                   &larr; Back to apps
                 </Link>
@@ -112,7 +108,7 @@ export default function ManagedIdentitiesPage() {
               <h1 className="mt-2 text-2xl font-heading text-primary">
                 Agent Identities
               </h1>
-              <p className="mt-2 text-sm text-muted">
+              <p className="mt-2 text-sm text-muted-foreground">
                 Create and manage shared non-human identities for tokens and app authorization.
               </p>
             </div>
@@ -147,7 +143,7 @@ export default function ManagedIdentitiesPage() {
                   Identity ID
                 </label>
                 <div className="mt-2 flex rounded-md border border-alpha bg-base-white transition-all duration-150 focus-within:border-alpha-strong focus-within:ring-2 focus-within:ring-foreground/10 dark:bg-surface">
-                  <span className="flex items-center border-r border-alpha px-3 font-mono text-sm text-faint">
+                  <span className="flex items-center border-r border-alpha px-3 font-mono text-sm text-muted-foreground-soft">
                     service_account:
                   </span>
                   <input
@@ -162,10 +158,10 @@ export default function ManagedIdentitiesPage() {
                       setIdentityIDEdited(true);
                       setIdentityLocalID(event.target.value);
                     }}
-                    className="min-w-0 flex-1 bg-transparent px-4 py-3 text-primary placeholder:text-faint focus:outline-hidden"
+                    className="min-w-0 flex-1 bg-transparent px-4 py-3 text-primary placeholder:text-muted-foreground-soft focus:outline-hidden"
                   />
                 </div>
-                <p className="mt-2 text-xs text-faint">
+                <p className="mt-2 text-xs text-muted-foreground-soft">
                   Letters, numbers, dots, underscores, and hyphens.
                 </p>
               </div>
@@ -180,9 +176,9 @@ export default function ManagedIdentitiesPage() {
             {error && <p className="mt-6 text-sm text-ember-500">{error}</p>}
 
             {loading ? (
-              <p className="mt-10 text-sm text-faint">Loading...</p>
+              <p className="mt-10 text-sm text-muted-foreground-soft">Loading...</p>
             ) : !error && identities.length === 0 ? (
-              <p className="mt-10 text-sm text-faint">
+              <p className="mt-10 text-sm text-muted-foreground-soft">
                 No managed identities yet.
               </p>
             ) : !error ? (
@@ -194,7 +190,6 @@ export default function ManagedIdentitiesPage() {
             ) : null}
           </Container>
         )}
-      </div>
-    </AuthGuard>
+    </>
   );
 }

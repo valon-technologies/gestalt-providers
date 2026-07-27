@@ -1,16 +1,30 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { logout } from "@/lib/api";
-import { clearSession, sessionDisplayLabel } from "@/lib/auth";
+import { clearSession, sessionDisplayLabel, sessionInitials } from "@/lib/auth";
 import { BUILD_PATH, DOCS_PATH } from "@/lib/constants";
 import { serverLoginURL } from "@/lib/authReturn";
 import { appPath } from "@/lib/mount";
 import { useAuthInfoQuery, useAuthSessionQuery } from "@/lib/queries";
-import { useTheme } from "@/hooks/use-theme";
 import Container from "./Container";
-import { MoonIcon, SunIcon, SunMoonIcon } from "./icons";
+import { Avatar, AvatarFallback } from "./ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuLinkItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
+import {
+  NavigationMenu,
+  NavigationMenuItem,
+  NavigationMenuLink,
+  NavigationMenuList,
+} from "./ui/navigation-menu";
+import { ThemeToggle } from "./ui/theme-toggle";
 
 const links = [
-  { href: "/authorization", label: "Authorization" },
   { href: "/apps", label: "Apps" },
   { href: BUILD_PATH, label: "Build" },
   { href: "/workflows", label: "Workflows" },
@@ -22,10 +36,9 @@ export default function Nav() {
   const sessionQuery = useAuthSessionQuery();
   const session = sessionQuery.data ?? null;
   const displayLabel = sessionDisplayLabel(session);
+  const initials = sessionInitials(session);
   const authInfoQuery = useAuthInfoQuery(!!displayLabel);
   const loginSupported = authInfoQuery.data?.loginSupported ?? false;
-  const { theme, setTheme } = useTheme();
-  const ThemeIcon = theme === "light" ? SunIcon : theme === "dark" ? MoonIcon : SunMoonIcon;
 
   async function handleLogout() {
     await logout().catch(() => {});
@@ -34,59 +47,70 @@ export default function Nav() {
   }
 
   return (
-    <nav className="border-b border-border py-3 bg-background/80 backdrop-blur-xs sticky top-0 z-50">
-      <Container className="flex items-center justify-between">
-        <div className="flex items-center gap-8">
-          <Link to={appPath("/apps")} className="text-lg font-heading font-bold text-foreground">
+    <header className="border-b border-border py-3 bg-background/80 backdrop-blur-xs sticky top-0 z-50">
+      <Container className="grid grid-cols-[1fr_auto_1fr] items-baseline gap-x-4">
+        <div className="justify-self-start">
+          <Link
+            to="/apps"
+            className="font-heading text-2xl font-bold leading-none text-foreground"
+          >
             Gestalt
           </Link>
-          <div className="flex gap-5">
+        </div>
+
+        <NavigationMenu
+          viewport={false}
+          size="lg"
+          aria-label="Primary"
+          className="max-w-none flex-none justify-self-center"
+        >
+          <NavigationMenuList>
             {links.map((link) => {
               const isActive =
-                pathname === link.href ||
-                (link.href === "/authorization" && pathname === "/tokens") ||
-                (link.href !== "/" && pathname.startsWith(link.href + "/"));
-              const className = `text-sm transition-colors duration-150 ${
-                isActive
-                  ? "text-foreground font-medium"
-                  : "text-muted-foreground hover:text-foreground/80"
-              }`;
+                pathname === link.href || pathname.startsWith(link.href + "/");
               return (
-                <Link key={link.href} to={link.href} className={className}>
-                  {link.label}
-                </Link>
+                <NavigationMenuItem key={link.href}>
+                  <NavigationMenuLink asChild active={isActive}>
+                    <Link to={link.href}>{link.label}</Link>
+                  </NavigationMenuLink>
+                </NavigationMenuItem>
               );
             })}
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => {
-              if (theme === "light") setTheme("dark");
-              else if (theme === "dark") setTheme("system");
-              else setTheme("light");
-            }}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-all duration-150 hover:bg-accent hover:text-accent-foreground"
-            title={theme === "light" ? "Light mode" : theme === "dark" ? "Dark mode" : "System preference"}
-            aria-label="Toggle theme"
-          >
-            <ThemeIcon className="h-[18px] w-[18px]" />
-          </button>
+          </NavigationMenuList>
+        </NavigationMenu>
+
+        <div className="flex items-center justify-self-end gap-3 self-center">
+          <ThemeToggle size="sm" />
           {displayLabel && (
-            <>
-              <span className="text-sm text-muted-foreground/70">{displayLabel}</span>
-              {loginSupported && (
-                <button
-                  onClick={() => void handleLogout()}
-                  className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-150"
-                >
-                  Logout
-                </button>
-              )}
-            </>
+            <DropdownMenu>
+              <DropdownMenuTrigger aria-label="Open user menu">
+                <Avatar size="xl" variant="solid" aria-hidden>
+                  <AvatarFallback>{initials}</AvatarFallback>
+                </Avatar>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-56">
+                <DropdownMenuLabel>
+                  <p className="truncate font-semibold">{displayLabel}</p>
+                  {session?.email && session.email !== displayLabel && (
+                    <p className="mt-0.5 truncate text-xs font-normal text-muted-foreground">
+                      {session.email}
+                    </p>
+                  )}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuLinkItem>
+                  <Link to="/settings">Settings</Link>
+                </DropdownMenuLinkItem>
+                {loginSupported && (
+                  <DropdownMenuItem onClick={() => void handleLogout()}>
+                    Log out
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       </Container>
-    </nav>
+    </header>
   );
 }
