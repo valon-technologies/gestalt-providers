@@ -1,4 +1,3 @@
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatRegistryTime, formatRegistryTimeAgo } from "@/features/registry/format";
 import {
@@ -27,25 +26,6 @@ function fullTransitionLabel(revision: AppAdminRegistryRevision): string {
     return `First deployment → ${revision.version}`;
   }
   return `${revision.previousVersion} → ${revision.version}`;
-}
-
-function availabilityStatus(revision: AppAdminRegistryRevision): {
-  label: string;
-  variant: "success" | "warning" | "secondary" | "destructive";
-} {
-  switch (revision.deploymentState) {
-    case "desired":
-      return { label: "Current", variant: "success" };
-    case "redeployable":
-    case "available":
-      return { label: "Redeployable", variant: "secondary" };
-    case "locked":
-      return { label: "Locked", variant: "secondary" };
-    case "expired":
-      return { label: "Expired", variant: "destructive" };
-    default:
-      return { label: "—", variant: "secondary" };
-  }
 }
 
 function deployedAtLabel(
@@ -103,14 +83,12 @@ export function AppAdminHistoryTable({
             <tr>
               <th className="px-4 py-3 font-medium">Deployed at</th>
               <th className="px-4 py-3 font-medium">Transition</th>
-              <th className="px-4 py-3 font-medium">Availability</th>
               <th className="px-4 py-3 font-medium">Deployed by</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border bg-card text-card-foreground">
             {revisions.map((revision) => {
               const deployedAt = deployedAtLabel(revision.deployedAt);
-              const availability = availabilityStatus(revision);
               const pullRequest = revision.publication?.triggerPullRequest;
 
               return (
@@ -159,9 +137,6 @@ export function AppAdminHistoryTable({
                         </a>
                       ) : null}
                     </div>
-                  </td>
-                  <td className="px-4 py-3 align-top">
-                    <Badge variant={availability.variant}>{availability.label}</Badge>
                   </td>
                   <td className="px-4 py-3 align-top text-muted-foreground">
                     {deployedByLabel(revision.deployedBy)}

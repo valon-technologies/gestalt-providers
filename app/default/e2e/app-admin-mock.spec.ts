@@ -463,35 +463,11 @@ test.describe("app admin registry UI", () => {
     await expect(rows).toHaveCount(1);
     await expect(rows.first()).toContainText(PUBLISHED_NEW.version.slice(0, 20));
     await expect(rows.first()).toContainText("alice@valon.com");
-    await expect(rows.first()).toContainText("Current");
 
     await page.getByTestId("revision-history-load-more").click();
     await expect(rows).toHaveCount(3);
     await expect(rows.nth(2)).toContainText("First deployment");
     await expect(rows.nth(2)).toContainText("bob@valon.com");
-  });
-
-  test("maps available deployment state to Redeployable in revision history", async ({ page }) => {
-    await mockAppAdminRegistry(page, APP, installedRegistryState());
-    await mockAppAdminRegistryHistory(page, APP, {
-      app: APP,
-      revisions: [
-        {
-          id: "rev-available",
-          version: PUBLISHED_LEGACY.version,
-          previousVersion: PUBLISHED_NEW.version,
-          deployedAt: "2026-07-24T16:42:00Z",
-          deployedBy: "user:alice@valon.com",
-          deploymentState: "available",
-        },
-      ],
-    });
-    await page.goto(`/apps/${APP}/admin`);
-    await page.getByTestId("app-admin-tab-history").click();
-
-    const row = page.getByTestId("revision-history-row");
-    await expect(row).toContainText("Redeployable");
-    await expect(row).not.toContainText("available");
   });
 
   test("renders empty revision history state", async ({ page }) => {
