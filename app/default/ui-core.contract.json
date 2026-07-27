@@ -47,7 +47,10 @@
     "src/components/ui/badge.tsx",
     "src/components/ui/button.tsx",
     "src/components/ui/label.tsx",
+    "src/components/ui/segmented-control.tsx",
     "src/components/ui/select.tsx",
-    "src/components/ui/selection-check.tsx"
+    "src/components/ui/selection-check.tsx",
+    "src/components/ui/tabs.tsx",
+    "src/components/ui/tooltip.tsx"
   ]
 }

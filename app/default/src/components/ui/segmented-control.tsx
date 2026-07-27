@@ -162,7 +162,7 @@ export function SegmentedControl<V extends string>({
         style={pill ? { left: pill.left, top: pill.top, width: pill.width, height: pill.height } : { opacity: 0 }}
         className={cn(
           "pointer-events-none absolute rounded-md bg-background shadow-sm",
-          animate && "transition-[left,top,width,height] duration-overshoot ease-out-back-soft",
+          animate && "transition-[left,top,width,height] duration-overshoot ease-out-back",
         )}
       />
       {options.map((option, index) => {
@@ -182,7 +182,7 @@ export function SegmentedControl<V extends string>({
             className={cn(
               "focus-ring relative z-10 inline-flex items-center justify-center gap-1.5 rounded-md font-medium text-muted-foreground transition-colors duration-hover-out ease-out-quart hover:duration-hover-in hover:text-foreground aria-checked:text-foreground",
               !checked &&
-                "hover:bg-neutral-dark-hover active:bg-neutral-dark-pressed",
+                "hover:bg-accent active:bg-accent/80",
               styles.text,
               showLabels ? styles.labelled : styles.square,
               isVertical && showLabels && "w-full",

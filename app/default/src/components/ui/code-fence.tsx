@@ -4,7 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 // One code-fence surface for Plate fences and display CodeBlock.
-// Highlight colors stay in valon-typeset `.typeset-code-hljs` — this file owns
+// Highlight colors stay in generic `.typeset-code-hljs` — this file owns
 // only the shared chrome paint (shell / header / pre body), so the two
 // presenters cannot drift by copy-pasting Tailwind strings.
 
@@ -36,18 +36,18 @@ export const codeFenceHeaderClass =
 export const codeFencePreClass =
   "overflow-x-auto px-4 py-3 font-mono text-sm leading-[normal] [tab-size:2]";
 
-/** Token theme host class — colors come from valon-typeset. */
+/** Token theme host class — colors come from generic typeset styles. */
 export const codeFenceHighlightClass = "typeset-code-hljs";
 
-/** Left edge for a highlighted source line — pairs with --code-line-emphasis wash. */
-export const codeLineEmphasisEdgeClass = "border-l-2 border-accent-vivid";
+/** Left edge for a highlighted source line — pairs with the accent wash. */
+export const codeLineEmphasisEdgeClass = "border-l-2 border-primary";
 
 /** Inset edge for gutter rows — paints the accent stroke without shifting code columns. */
 export const codeLineEmphasisInsetEdgeClass =
-  "shadow-[inset_2px_0_0_0_var(--color-accent-vivid)]";
+  "shadow-[inset_2px_0_0_0_var(--primary)]";
 
-/** Wash fill for a highlighted source line (`--code-line-emphasis` in theme). */
-export const codeLineEmphasisWashClass = "bg-code-line-emphasis";
+/** Wash fill for a highlighted source line. */
+export const codeLineEmphasisWashClass = "bg-accent";
 
 /**
  * Highlighted line row inside the pre body. With a line-number gutter, keep the

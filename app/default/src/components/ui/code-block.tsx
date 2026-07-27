@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 
 // Display CodeBlock for install snippets / docs / AI messages — not the Plate
 // editor fence. Highlighting uses the same lowlight → hljs class pipeline as
-// markdown-editor, styled by valon-typeset's `.typeset-code-hljs`. Surface
+// markdown-editor, styled by generic `.typeset-code-hljs`. Surface
 // paint comes from `code-fence` (shared with Plate code-block-node). Chrome
 // (filename, copy, line numbers, tabs) is modeled on shadcnspace's CodeBlock.
 

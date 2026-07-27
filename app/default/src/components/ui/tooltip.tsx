@@ -58,7 +58,7 @@ function TooltipContent({
         sideOffset={sideOffset}
         className={cn(
           "z-50 w-fit origin-(--radix-tooltip-content-transform-origin) rounded-md bg-foreground px-3 py-1.5 text-xs text-balance text-background",
-          // blur + spring spawn (after beui), on Valon motion tokens: grows from the
+          // blur + spring spawn (after beui), using app-owned motion tokens: grows from the
           // trigger edge with an ease-out-back overshoot as the blur clears.
           // NOTE: Radix tooltip's open state is "instant-open"/"delayed-open" (never
           // "open"), so the ENTER classes are unconditional — the content only mounts
