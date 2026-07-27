@@ -53,6 +53,7 @@ export function formatRegistryTime(value?: string | null): string {
 export function formatRegistryTimeAgo(
   value?: string | null,
   now: number | Date = Date.now(),
+  options?: { minUnit?: "second" | "minute" },
 ): string {
   if (!value) return "";
   const date = new Date(value);
@@ -60,8 +61,10 @@ export function formatRegistryTimeAgo(
   const nowMs = typeof now === "number" ? now : now.getTime();
   const deltaSeconds = Math.round((date.getTime() - nowMs) / 1000);
   const absSeconds = Math.abs(deltaSeconds);
+  const minUnit = options?.minUnit ?? "second";
 
   for (const { unit, seconds } of TIME_AGO_UNITS) {
+    if (minUnit === "minute" && unit === "second") continue;
     if (absSeconds >= seconds || unit === "second") {
       return relativeTimeFormatter.format(Math.round(deltaSeconds / seconds), unit);
     }
