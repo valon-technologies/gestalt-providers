@@ -1,6 +1,7 @@
 import { clearSession } from "./auth";
 import { HTTP_UNAUTHORIZED } from "./constants";
 import { serverLoginURL } from "./authReturn";
+import { workflowRunMatchesApp } from "./workflowActivity";
 
 export interface ConnectionParamDef {
   required?: boolean;
@@ -805,11 +806,24 @@ export async function getTokens(): Promise<APIToken[]> {
   return listPersonalAPITokens(fetchAPI);
 }
 
-export async function getWorkflowRuns(): Promise<WorkflowRun[]> {
+export async function getWorkflowRuns(opts?: {
+  /** Step-target app filter (`?app=` → TargetApp). */
+  app?: string;
+  /** @deprecated Prefer `app` — kept as alias for older call sites. */
+  targetApp?: string;
+}): Promise<WorkflowRun[]> {
+  const appName = (opts?.app ?? opts?.targetApp)?.trim();
+  const query = new URLSearchParams();
+  if (appName) {
+    query.set("app", appName);
+  }
+  const params = query.toString();
   const response = await fetchAPI<WorkflowRunListResponse>(
-    "/api/v1/workflow/runs",
+    `/api/v1/workflow/runs${params ? `?${params}` : ""}`,
   );
-  return response.runs.map(normalizeWorkflowRun);
+  const runs = response.runs.map(normalizeWorkflowRun);
+  if (!appName) return runs;
+  return runs.filter((run) => workflowRunMatchesApp(run, appName));
 }
 
 export async function getWorkflowRun(id: string): Promise<WorkflowRun> {

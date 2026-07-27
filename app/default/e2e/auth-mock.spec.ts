@@ -205,11 +205,16 @@ test.describe("Authentication", () => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
 
-    await page.goto("/apps?view=catalog#list");
+    await page.goto("/apps/slack/admin/workflows", { waitUntil: "networkidle" });
+    await page.waitForFunction(
+      () => window.location.pathname === "/api/v1/auth/login",
+      null,
+      { timeout: 15000 },
+    );
     await expect(page).toHaveURL((url) => {
       return (
         url.pathname === "/api/v1/auth/login" &&
-        url.searchParams.get("next") === "/apps?view=catalog#list"
+        url.searchParams.get("next") === "/apps/slack/admin/workflows"
       );
     });
     await expect(

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import AppWorkflowRunsPanel from "@/components/AppWorkflowRunsPanel";
 import Container from "@/components/Container";
 import { AppAdminVersionPanel } from "@/features/registry/app-admin-version-panel";
 import { useDocumentTitle } from "@/hooks/use-document-title";
@@ -19,8 +20,17 @@ import { isAPIErrorStatus } from "@/lib/api";
 
 const APPS_PATH = "/apps";
 
+type AppAdminSection = "registry" | "workflows";
+
+const SECTION_OPTIONS: Array<{ value: AppAdminSection; label: string }> = [
+  { value: "registry", label: "Registry" },
+  { value: "workflows", label: "Workflows" },
+];
+
 export default function AppAdminPage() {
   const { app: appName } = useParams({ from: "/apps/$app/admin" });
+  const { section } = useSearch({ from: "/apps/$app/admin" });
+  const navigate = useNavigate({ from: "/apps/$app/admin" });
   useDocumentTitle(`${appName} · App management`);
   const integrationsQuery = useIntegrationsQuery();
   const registryQuery = useAppAdminRegistryQuery(appName);
@@ -76,7 +86,7 @@ export default function AppAdminPage() {
             <p className="text-sm text-muted-foreground">Loading app registry…</p>
           ) : forbidden ? (
             <div
-              className="animate-fade-in-up rounded-2xl border border-alpha bg-base-white p-6 dark:bg-surface"
+              className="animate-fade-in-up rounded-2xl border border-border bg-card p-6 text-card-foreground"
               data-testid="app-admin-access-denied"
             >
               <PageHeader>
@@ -89,23 +99,65 @@ export default function AppAdminPage() {
               </PageHeader>
             </div>
           ) : error && !registry ? (
-            <p className="text-sm text-ember-500">{error}</p>
+            <p className="text-sm text-destructive">{error}</p>
           ) : registry ? (
-            <div className="animate-fade-in-up [animation-delay:60ms]">
-              <AppAdminVersionPanel
-                registry={registry}
-                appMountedPath={appMountedPath}
-                deployingVersion={
-                  deployMutation.isPending ? deployMutation.variables : null
-                }
-                onDeployVersion={(version) => deployMutation.mutate(version)}
-                onCheckForNewVersions={registryQuery.checkForNewVersions}
-                isCheckingForNewVersions={registryQuery.isCheckingForNewVersions}
-                onAutoDeployChange={(enabled) => autoDeployMutation.mutate(enabled)}
-                isUpdatingAutoDeploy={autoDeployMutation.isPending}
-                autoDeployError={autoDeployError}
-                error={error}
-              />
+            <div className="animate-fade-in-up space-y-8 [animation-delay:60ms]">
+              <div>
+                <h1 className="text-2xl font-heading text-foreground">{appName}</h1>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Manage registry versions and workflow runs for this app.
+                </p>
+              </div>
+
+              <div
+                className="inline-flex rounded-lg border border-border bg-card p-1"
+                role="radiogroup"
+                aria-label="App admin section"
+              >
+                {SECTION_OPTIONS.map((option) => {
+                  const active = section === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() =>
+                        navigate({
+                          search: { section: option.value },
+                          replace: true,
+                        })
+                      }
+                      className={`rounded-md px-4 py-2 text-sm font-medium transition-colors duration-150 ${
+                        active
+                          ? "bg-accent text-accent-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {section === "workflows" ? (
+                <AppWorkflowRunsPanel appName={appName} />
+              ) : (
+                <AppAdminVersionPanel
+                  registry={registry}
+                  appMountedPath={appMountedPath}
+                  deployingVersion={
+                    deployMutation.isPending ? deployMutation.variables : null
+                  }
+                  onDeployVersion={(version) => deployMutation.mutate(version)}
+                  onCheckForNewVersions={registryQuery.checkForNewVersions}
+                  isCheckingForNewVersions={registryQuery.isFetching}
+                  onAutoDeployChange={(enabled) => autoDeployMutation.mutate(enabled)}
+                  isUpdatingAutoDeploy={autoDeployMutation.isPending}
+                  autoDeployError={autoDeployError}
+                  error={error}
+                />
+              )}
             </div>
           ) : null}
         </Container>

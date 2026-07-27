@@ -1,0 +1,7 @@
+name: default
+displayName: Home
+operations:
+  - id: health
+    method: GET
+    description: Local dev placeholder operation for the console shell.
+    visible: false

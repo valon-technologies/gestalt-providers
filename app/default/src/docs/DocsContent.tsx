@@ -229,11 +229,8 @@ gestalt workflows runs list`}
           <Link to="/docs/workflows" className="doc-link">
             Workflows
           </Link>
-          . If you prefer the browser, the same workflow surfaces are also available on{" "}
-          <Link to="/workflows" className="doc-link">
-            Workflows
-          </Link>
-          .
+          . If you prefer the browser, open an app&apos;s admin page and use the{" "}
+          <strong>Workflows</strong> tab to inspect runs for that app.
         </p>
       </DocsPageBody>
     </>
@@ -440,11 +437,9 @@ gestalt workflows runs list --app <app>
 gestalt workflows runs get <run-id>`}
         />
         <p className="doc-copy">
-          The browser surface at{" "}
-          <Link to="/workflows" className="doc-link">
-            Workflows
-          </Link>{" "}
-          shows recent runs and durable step state if you want a UI for inspection.
+          In the browser, open an app&apos;s admin page at{" "}
+          <InlineCode>/apps/&lt;app&gt;/admin?section=workflows</InlineCode>{" "}
+          to inspect runs scoped to that app.
         </p>
       </DocsPageBody>
     </>

@@ -116,6 +116,11 @@ const buildStepRoute = createRoute({
 const appAdminRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/apps/$app/admin",
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { section: "registry" | "workflows" } => ({
+    section: search.section === "workflows" ? "workflows" : "registry",
+  }),
   component: AppAdminPage,
 });
 
@@ -201,12 +206,6 @@ const tokensRoute = createRoute({
   },
 });
 
-const workflowsRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/workflows",
-  component: WorkflowsPage,
-});
-
 const docsLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/docs",
@@ -284,7 +283,6 @@ const routeTree = rootRoute.addChildren([
   identitiesRoute,
   integrationsRoute,
   tokensRoute,
-  workflowsRoute,
   docsLayoutRoute.addChildren([
     docsIndexRoute,
     docsGettingStartedRoute,

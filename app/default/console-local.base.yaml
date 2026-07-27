@@ -1,0 +1,81 @@
+# Local providers console: default UI + g-issues registry admin (reads public GCS index).
+apiVersion: gestaltd.config/v8
+
+appRegistries:
+  toolshed:
+    kind: gcs
+    gcs:
+      bucket: gs://gitlab-peach-street-gestalt-app-registry
+
+authorization:
+  models:
+    default:
+      resourceTypes:
+        app:
+          defaultRole: viewer
+          relations:
+            viewer:
+              subjectTypes: [subject]
+            admin:
+              subjectTypes: [subject]
+          actions:
+            "*":
+              relations: [viewer, admin]
+  relationships:
+    - resource:
+        type: app
+        id: g-issues
+      relation: admin
+      subject:
+        type: subject
+        id: user:b4310193-c032-461a-bf22-b722d20598b0
+
+server:
+  public:
+    port: 8080
+  baseUrl: http://127.0.0.1:8080/
+  artifactsDir: .gestaltd
+  encryptionKey: local-dev-encryption-key
+  providers:
+    identity: local
+    indexeddb: main
+    authorization: indexeddb
+    externalCredentials: default
+
+apps:
+  default:
+    source:
+      path: /Users/giovanni/Work/gestalt-providers/.claude/worktrees/giovanni-app-admin-workflows/app/default/manifest.yaml
+    indexeddb:
+      provider: main
+      db: default
+    config:
+      appBasePath: /.
+  g-issues:
+    source:
+      registry: toolshed
+    static:
+      mount: /g-issues
+
+providers:
+  identity:
+    local:
+      source:
+        path: /Users/giovanni/Work/toolshed/valon-tools/identity/local/manifest.yaml
+  authorization:
+    indexeddb:
+      default: true
+      source:
+        path: /Users/giovanni/Work/gestalt-providers/.claude/worktrees/giovanni-app-admin-workflows/authorization/indexeddb/manifest.yaml
+      config:
+        indexeddb: main
+  indexeddb:
+    main:
+      source:
+        path: /Users/giovanni/Work/gestalt-providers/.claude/worktrees/giovanni-app-admin-workflows/indexeddb/relationaldb/manifest.yaml
+      config:
+        dsn: file:/Users/giovanni/Work/gestalt-providers/.claude/worktrees/giovanni-app-admin-workflows/app/default/.local/default.db
+  externalCredentials:
+    default:
+      source:
+        path: /Users/giovanni/Work/gestalt-providers/.claude/worktrees/giovanni-app-admin-workflows/externalcredentials/default/manifest.yaml

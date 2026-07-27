@@ -9,7 +9,7 @@ import { queryKeys } from "@/lib/query-keys";
 export function useWorkflowRunsQuery() {
   return useQuery({
     queryKey: queryKeys.workflows.list(),
-    queryFn: getWorkflowRuns,
+    queryFn: () => getWorkflowRuns(),
   });
 }
 

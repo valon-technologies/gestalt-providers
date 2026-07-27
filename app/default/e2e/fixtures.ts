@@ -9,6 +9,7 @@ import type {
   ManagedIdentity,
   WorkflowRun,
 } from "../src/lib/api";
+import { workflowRunMatchesApp } from "../src/lib/workflowActivity";
 import {
   apiTokenToIdentityGrantWire,
   parseIdentityGrantIdFromUrl,
@@ -411,9 +412,14 @@ export async function mockWorkflowRuns(
 ): Promise<MockWorkflowRunsController> {
   let currentRuns = runs.map((run) => structuredClone(run));
 
-  await page.route("**/api/v1/workflow/runs", (route: Route, request) => {
+  await page.route(/\/api\/v1\/workflow\/runs(?:\?.*)?$/, (route: Route, request) => {
     if (request.method() === "GET") {
-      route.fulfill({ json: { runs: currentRuns, nextPageToken: "" } });
+      const url = new URL(request.url());
+      const appName = url.searchParams.get("app")?.trim();
+      const runs = appName
+        ? currentRuns.filter((run) => workflowRunMatchesApp(run, appName))
+        : currentRuns;
+      route.fulfill({ json: { runs, nextPageToken: "" } });
     } else {
       route.fallback();
     }
