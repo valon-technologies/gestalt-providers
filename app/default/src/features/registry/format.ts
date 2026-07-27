@@ -70,6 +70,10 @@ export function formatRegistryTimeAgo(
     }
   }
 
+  if (minUnit === "minute" && absSeconds < 60) {
+    return relativeTimeFormatter.format(deltaSeconds < 0 ? -1 : 0, "minute");
+  }
+
   return "";
 }
 

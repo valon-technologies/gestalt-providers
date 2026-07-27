@@ -156,6 +156,26 @@ test.describe("app admin registry UI", () => {
     await expect(failedRow.getByTestId(`deploy-version-${FAILED_VERSION.version}`)).toHaveCount(0);
   });
 
+  test("shows relative last update for pending rows younger than one minute", async ({
+    page,
+  }) => {
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      pendingVersions: [
+        {
+          ...PENDING_VERSION,
+          startedAt: "2026-07-23T14:59:43Z",
+          updatedAt: "2026-07-23T14:59:43Z",
+        },
+      ],
+    });
+    await page.goto(`/apps/${APP}/admin`);
+
+    await expect(
+      page.getByTestId("snapshot-row-pending").getByTestId("snapshot-last-updated-at"),
+    ).toHaveText("1 minute ago");
+  });
+
   test("prefers published rows over pending and failed for the same version", async ({
     page,
   }) => {
