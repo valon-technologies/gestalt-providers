@@ -45,6 +45,10 @@ import {
   type TranscriptItem,
   type TranscriptState,
 } from "@/lib/agentTranscript";
+import {
+  useAgentProvidersQuery,
+  useAgentSessionsQuery,
+} from "@/lib/queries";
 import AuthGuard from "@/components/AuthGuard";
 import Container from "@/components/Container";
 import Nav from "@/components/Nav";
@@ -71,6 +75,8 @@ export default function AgentsPage() {
   const lastSeqRef = useRef<Record<string, number>>({});
   const blockedTurnRef = useRef<string | null>(null);
 
+  const providersQuery = useAgentProvidersQuery();
+  const sessionsQuery = useAgentSessionsQuery({ view: "summary", limit: 100 });
   const [providers, setProviders] = useState<AgentProvider[]>([]);
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [selectedSessionID, setSelectedSessionID] = useState<string | null>(
@@ -92,7 +98,9 @@ export default function AgentsPage() {
   );
   const [transcriptReady, setTranscriptReady] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const refreshing =
+    (providersQuery.isFetching || sessionsQuery.isFetching) &&
+    !(providersQuery.isPending || sessionsQuery.isPending);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [streamNonce, setStreamNonce] = useState(0);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
@@ -133,55 +141,54 @@ export default function AgentsPage() {
   }, []);
 
   useEffect(() => {
-    let active = true;
-    const initial = refreshNonce === 0;
-    if (initial) setLoading(true);
-    else setRefreshing(true);
+    if (providersQuery.isSuccess) {
+      setProviders(providersQuery.data);
+      setProvidersError(null);
+      const fallback =
+        providersQuery.data.find((provider) => provider.default) ??
+        providersQuery.data[0];
+      if (fallback) {
+        setComposer((current) =>
+          current.provider ? current : { ...current, provider: fallback.name },
+        );
+      }
+    } else if (providersQuery.isError) {
+      setProvidersError(
+        errorMessage(providersQuery.error, "Failed to load agent providers"),
+      );
+    }
+  }, [providersQuery.data, providersQuery.isError, providersQuery.isSuccess, providersQuery.error]);
 
-    withLoadTimeout(getAgentProviders(), "Loading agent providers")
-      .then((value) => {
-        if (!active) return;
-        setProviders(value);
-        setProvidersError(null);
-        const fallback = value.find((p) => p.default) ?? value[0];
-        if (fallback) {
-          setComposer((current) =>
-            current.provider ? current : { ...current, provider: fallback.name },
-          );
-        }
-      })
-      .catch((err) => {
-        if (!active) return;
-        setProvidersError(errorMessage(err, "Failed to load agent providers"));
-      });
+  useEffect(() => {
+    if (sessionsQuery.isSuccess) {
+      setSessions(sessionsQuery.data);
+      setSessionsError(null);
+      setLoading(false);
+      return;
+    }
+    if (sessionsQuery.isError) {
+      if (isAPIErrorStatus(sessionsQuery.error, 412)) {
+        navigate({ to: "/" });
+        return;
+      }
+      setSessionsError(
+        errorMessage(sessionsQuery.error, "Failed to load agent sessions"),
+      );
+      setLoading(false);
+    }
+  }, [
+    navigate,
+    sessionsQuery.data,
+    sessionsQuery.error,
+    sessionsQuery.isError,
+    sessionsQuery.isSuccess,
+  ]);
 
-    withLoadTimeout(
-      getAgentSessions({ view: "summary", limit: 100 }),
-      "Loading agent sessions",
-    )
-      .then((value) => {
-        if (!active) return;
-        setSessions(value);
-        setSessionsError(null);
-      })
-      .catch((err) => {
-        if (!active) return;
-        if (isAPIErrorStatus(err, 412)) {
-          navigate({ to: "/" });
-          return;
-        }
-        setSessionsError(errorMessage(err, "Failed to load agent sessions"));
-      })
-      .finally(() => {
-        if (!active) return;
-        setLoading(false);
-        setRefreshing(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [refreshNonce, navigate]);
+  useEffect(() => {
+    if (refreshNonce === 0) return;
+    void providersQuery.refetch();
+    void sessionsQuery.refetch();
+  }, [refreshNonce, providersQuery, sessionsQuery]);
 
   useEffect(() => {
     setSelectedSessionID((current) => {

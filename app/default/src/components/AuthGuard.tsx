@@ -1,26 +1,9 @@
-
-import { useEffect, useState } from "react";
-import { getAuthSession } from "@/lib/api";
-import { setCachedSession } from "@/lib/auth";
+import { useAuthSessionQuery } from "@/lib/queries";
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
-  const [checked, setChecked] = useState(false);
-  const [authenticated, setAuthenticated] = useState(false);
+  const { isPending, isError } = useAuthSessionQuery();
 
-  useEffect(() => {
-    getAuthSession()
-      .then((session) => {
-        setCachedSession(session);
-        setAuthenticated(true);
-        setChecked(true);
-      })
-      .catch(() => {
-        setAuthenticated(false);
-        setChecked(true);
-      });
-  }, []);
-
-  if (!checked || !authenticated) return null;
+  if (isPending || isError) return null;
 
   return <>{children}</>;
 }

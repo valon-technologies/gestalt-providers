@@ -1,6 +1,6 @@
 
-import { useState } from "react";
-import { revokeManagedIdentityToken, type APIToken } from "@/lib/api";
+import { type APIToken } from "@/lib/api";
+import { useRevokeManagedIdentityTokenMutation } from "@/lib/queries";
 import Button from "./Button";
 
 function formatPermissions(token: APIToken): string {
@@ -29,26 +29,23 @@ export default function IdentityTokenTable({
   identityID,
   tokens,
   canRevoke,
-  onRevoked,
 }: {
   identityID: string;
   tokens: APIToken[];
   canRevoke: boolean;
-  onRevoked: () => void | Promise<void>;
 }) {
-  const [revoking, setRevoking] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const revokeToken = useRevokeManagedIdentityTokenMutation(identityID);
+  const error = revokeToken.error
+    ? revokeToken.error instanceof Error
+      ? revokeToken.error.message
+      : "Failed to revoke token"
+    : null;
 
   async function handleRevoke(id: string) {
-    setRevoking(id);
-    setError(null);
     try {
-      await revokeManagedIdentityToken(identityID, id);
-      await onRevoked();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to revoke token");
-    } finally {
-      setRevoking(null);
+      await revokeToken.mutateAsync(id);
+    } catch {
+      // surfaced via mutation error state
     }
   }
 
@@ -90,10 +87,12 @@ export default function IdentityTokenTable({
                 {canRevoke ? (
                   <Button
                     variant="danger"
-                    onClick={() => handleRevoke(token.id)}
-                    disabled={revoking === token.id}
+                    onClick={() => void handleRevoke(token.id)}
+                    disabled={revokeToken.isPending && revokeToken.variables === token.id}
                   >
-                    {revoking === token.id ? "Revoking..." : "Revoke"}
+                    {revokeToken.isPending && revokeToken.variables === token.id
+                      ? "Revoking..."
+                      : "Revoke"}
                   </Button>
                 ) : null}
               </td>

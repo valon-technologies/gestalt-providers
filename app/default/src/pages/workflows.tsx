@@ -3,7 +3,6 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -13,12 +12,12 @@ import type {
   WorkflowStepTarget,
   WorkflowTarget,
 } from "@/lib/api";
+import { workflowTargetApp } from "@/lib/api";
 import {
-  cancelWorkflowRun,
-  getWorkflowRun,
-  getWorkflowRuns,
-  workflowTargetApp,
-} from "@/lib/api";
+  useCancelWorkflowRunMutation,
+  useWorkflowRunQuery,
+  useWorkflowRunsQuery,
+} from "@/lib/queries";
 import AuthGuard from "@/components/AuthGuard";
 import Container from "@/components/Container";
 import Nav from "@/components/Nav";
@@ -26,54 +25,31 @@ import Nav from "@/components/Nav";
 const RUN_STATUSES = ["all", "pending", "running", "succeeded", "failed", "canceled"];
 
 export default function WorkflowsPage() {
-  const [runs, setRuns] = useState<WorkflowRun[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshNonce, setRefreshNonce] = useState(0);
-  const [runsError, setRunsError] = useState<string | null>(null);
+  const runsQuery = useWorkflowRunsQuery();
+  const runs = useMemo(() => runsQuery.data ?? [], [runsQuery.data]);
+  const loading = runsQuery.isPending;
+  const refreshing = runsQuery.isFetching && !runsQuery.isPending;
+  const runsError = runsQuery.error
+    ? errorMessage(runsQuery.error, "Failed to load workflow runs")
+    : null;
 
   const [selectedRunID, setSelectedRunID] = useState<string | null>(null);
-  const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
+  const selectedRunDetailQuery = useWorkflowRunQuery(selectedRunID);
+  const selectedRun =
+    selectedRunDetailQuery.data ??
+    runs.find((run) => run.id === selectedRunID) ??
+    null;
+  const detailLoading = !!selectedRunID && selectedRunDetailQuery.isPending;
+  const detailError = selectedRunDetailQuery.error
+    ? errorMessage(selectedRunDetailQuery.error, "Failed to load workflow run")
+    : null;
   const [actionError, setActionError] = useState<string | null>(null);
-  const [canceling, setCanceling] = useState(false);
+  const cancelRun = useCancelWorkflowRunMutation();
+  const canceling = cancelRun.isPending;
 
-  const [runsQuery, setRunsQuery] = useState("");
+  const [runsQueryText, setRunsQuery] = useState("");
   const [runStatus, setRunStatus] = useState("all");
-  const deferredRunsQuery = useDeferredValue(runsQuery);
-  const runsRef = useRef<WorkflowRun[]>([]);
-
-  useEffect(() => {
-    runsRef.current = runs;
-  }, [runs]);
-
-  useEffect(() => {
-    let active = true;
-    if (refreshNonce > 0) {
-      setRefreshing(true);
-    }
-
-    getWorkflowRuns()
-      .then((value) => {
-        if (!active) return;
-        setRuns(value);
-        setRunsError(null);
-      })
-      .catch((err) => {
-        if (!active) return;
-        setRunsError(errorMessage(err, "Failed to load workflow runs"));
-      })
-      .finally(() => {
-        if (!active) return;
-        setLoading(false);
-        setRefreshing(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [refreshNonce]);
+  const deferredRunsQuery = useDeferredValue(runsQueryText);
 
   const filteredRuns = useMemo(
     () => filterRuns(runs, deferredRunsQuery, runStatus),
@@ -90,56 +66,17 @@ export default function WorkflowsPage() {
     }
   }, [filteredRuns, selectedRunID]);
 
-  useEffect(() => {
-    if (!selectedRunID) {
-      setSelectedRun(null);
-      setDetailError(null);
-      return;
-    }
-
-    const existing = runsRef.current.find((run) => run.id === selectedRunID) ?? null;
-    setSelectedRun(existing);
-    setDetailLoading(true);
-    setDetailError(null);
-    setActionError(null);
-
-    let active = true;
-    getWorkflowRun(selectedRunID)
-      .then((run) => {
-        if (!active) return;
-        setSelectedRun(run);
-        setRuns((current) => upsertRun(current, run));
-      })
-      .catch((err) => {
-        if (!active) return;
-        setDetailError(errorMessage(err, "Failed to load workflow run"));
-      })
-      .finally(() => {
-        if (!active) return;
-        setDetailLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [selectedRunID]);
-
   async function handleCancelSelectedRun() {
     if (!selectedRun || canceling) return;
-    setCanceling(true);
     setActionError(null);
 
     try {
-      const canceled = await cancelWorkflowRun(
-        selectedRun.id,
-        "Canceled from Gestalt UI",
-      );
-      setSelectedRun(canceled);
-      setRuns((current) => upsertRun(current, canceled));
+      await cancelRun.mutateAsync({
+        id: selectedRun.id,
+        reason: "Canceled from Gestalt UI",
+      });
     } catch (err) {
       setActionError(errorMessage(err, "Failed to cancel workflow run"));
-    } finally {
-      setCanceling(false);
     }
   }
 
@@ -163,7 +100,7 @@ export default function WorkflowsPage() {
             </div>
             <button
               type="button"
-              onClick={() => setRefreshNonce((value) => value + 1)}
+              onClick={() => void runsQuery.refetch()}
               disabled={refreshing}
               className="inline-flex items-center justify-center rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:border-input hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -191,7 +128,7 @@ export default function WorkflowsPage() {
               <label className="block">
                 <span className="text-xs font-medium text-muted-foreground">Search runs</span>
                 <input
-                  value={runsQuery}
+                  value={runsQueryText}
                   onChange={(event) => setRunsQuery(event.target.value)}
                   placeholder="Run ID, provider, app, step, definition, event"
                   className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-hidden transition-colors duration-150 placeholder:text-muted-foreground/70 focus:border-info-foreground"
@@ -730,12 +667,6 @@ function workflowRunCounts(runs: WorkflowRun[]) {
     },
     { running: 0, succeeded: 0, failed: 0 },
   );
-}
-
-function upsertRun(runs: WorkflowRun[], run: WorkflowRun): WorkflowRun[] {
-  const index = runs.findIndex((item) => item.id === run.id);
-  if (index < 0) return [run, ...runs];
-  return runs.map((item) => (item.id === run.id ? run : item));
 }
 
 function formatDate(value?: string): string {
