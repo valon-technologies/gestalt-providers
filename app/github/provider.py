@@ -8,7 +8,7 @@ from typing import Any, Callable, TypeAlias, TypeVar
 import gestalt
 from gestalt.authorization import RelationshipTargetSubject
 
-from internals.client import DEFAULT_GITHUB_CLIENT
+from internals.client import DEFAULT_GITHUB_CLIENT, latest_rate_limit_snapshot
 from internals.config import (
     configure_from_mapping,
     get_github_config,
@@ -1110,6 +1110,16 @@ def resolve_http_subject(request: gestalt.HTTPSubjectRequest) -> gestalt.Subject
     if subject is None:
         return None
     return gestalt.Subject(id=subject.id)
+
+
+@app.operation(
+    id="runtime.rateLimit",
+    method="GET",
+    description="Return the most recent GitHub rate-limit response headers observed by this provider process",
+    visible=False,
+)
+def runtime_rate_limit(_input: dict[str, Any], _req: gestalt.Request) -> OperationResult:
+    return {"rate_limit": latest_rate_limit_snapshot()}
 
 
 @app.operation(

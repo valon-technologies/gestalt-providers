@@ -8,6 +8,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from http.client import HTTPMessage
 from http import HTTPStatus
 from typing import Any, IO, Protocol, TypeAlias
@@ -29,6 +30,60 @@ from .constants import (
 )
 from .errors import GitHubAPIError, GitHubConfigError
 from .helpers import int_field, nested_str, str_field
+
+_installation_token_cache: dict[tuple[Any, ...], tuple[str, float]] = {}
+_latest_rate_limit: dict[str, str] = {}
+_TOKEN_EXPIRY_BUFFER_SECONDS = 60
+
+
+def clear_installation_token_cache_for_tests() -> None:
+    _installation_token_cache.clear()
+
+
+def latest_rate_limit_snapshot() -> dict[str, str]:
+    return dict(_latest_rate_limit)
+
+
+def _installation_cache_key(
+    installation_id: int,
+    repositories: Sequence[str] | None,
+    permissions: GitHubPermissions | None,
+) -> tuple[Any, ...]:
+    repos = tuple(sorted(repositories or []))
+    perms = tuple(sorted(dict(permissions or {}).items()))
+    return (installation_id, repos, perms)
+
+
+def _parse_expires_at(value: Any) -> float | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = value.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def _record_rate_limit_headers(headers: Any) -> None:
+    keys = (
+        "x-ratelimit-limit",
+        "x-ratelimit-remaining",
+        "x-ratelimit-reset",
+        "x-ratelimit-used",
+        "x-ratelimit-resource",
+        "retry-after",
+    )
+    snapshot: dict[str, str] = {}
+    for key in keys:
+        value = headers.get(key) if hasattr(headers, "get") else None
+        if value:
+            snapshot[key] = str(value)
+    if snapshot:
+        _latest_rate_limit.clear()
+        _latest_rate_limit.update(snapshot)
 
 JsonObject: TypeAlias = dict[str, Any]
 JsonPayload: TypeAlias = Mapping[str, Any]
@@ -232,6 +287,12 @@ def installation_token(
 ) -> str:
     if installation_id <= 0:
         raise ValueError("installation_id is required")
+    cache_key = _installation_cache_key(installation_id, repositories, permissions)
+    now = time.time()
+    cached = _installation_token_cache.get(cache_key)
+    if cached and cached[1] > now + _TOKEN_EXPIRY_BUFFER_SECONDS:
+        return cached[0]
+
     payload: JsonObject = {}
     if repositories:
         payload["repositories"] = list(repositories)
@@ -247,6 +308,9 @@ def installation_token(
     token = str_field(response, "token")
     if not token:
         raise GitHubAPIError(502, "GitHub access token response did not include token")
+    expires_at = _parse_expires_at(response.get("expires_at"))
+    expiry = expires_at if expires_at is not None else now + 50 * 60
+    _installation_token_cache[cache_key] = (token, expiry)
     return token
 
 
@@ -351,8 +415,10 @@ def github_json_value(
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
+            _record_rate_limit_headers(response.headers)
             body = response.read()
     except urllib.error.HTTPError as err:
+        _record_rate_limit_headers(err.headers)
         body = err.read().decode("utf-8", errors="replace")
         err.close()
         message, details = github_error_message_and_details(body, err.code)
@@ -394,8 +460,10 @@ def graphql_json(
     )
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
+            _record_rate_limit_headers(response.headers)
             body = response.read()
     except urllib.error.HTTPError as err:
+        _record_rate_limit_headers(err.headers)
         body = err.read().decode("utf-8", errors="replace")
         err.close()
         message, details = github_error_message_and_details(body, err.code)

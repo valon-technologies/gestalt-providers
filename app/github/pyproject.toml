@@ -71,4 +71,6 @@ vulture-ignore-names = [
   "bot_list_org_members",
   "bot_list_repo_contributors",
   "bot_get_user",
+  "runtime_rate_limit",
+  "clear_installation_token_cache_for_tests",
 ]

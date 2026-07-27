@@ -126,3 +126,22 @@ can retry delivery.
 - `bot.listCheckRunAnnotations`
 - `bot.getWorkflowRun`
 - `bot.listWorkflowRunJobs`
+
+## Fixture capture
+
+`scripts/capture_webhook_fixtures.py` captures real GitHub App webhook deliveries
+as JSON fixtures for downstream consumers (for example, toolshed ci-cd replay
+tests). Fixtures are not stored in this repo; pass an output directory explicitly.
+
+Requires `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` (or provider config env
+vars used by `internals.client`).
+
+```bash
+cd app/github
+uv run python -m scripts.capture_webhook_fixtures \
+  --output-dir ~/Code/toolshed/valon-tools/apps/ci-cd/tests/fixtures/webhooks \
+  --dry-run
+```
+
+Omit `--dry-run` to write missing fixture files. Existing files are skipped.
+Fixtures are replayed in toolshed via `valon-tools/apps/ci-cd/scripts/replay-webhook.sh`.

@@ -203,6 +203,17 @@ packages:
           - "linux/arm64"
           - "linux/arm"
           - "generic"
+      "0.0.1-alpha.3":
+        metadata: "https://github.com/valon-technologies/gestalt-providers/releases/download/app/github/v0.0.1-alpha.3/provider-release.yaml"
+        kind: "app"
+        runtime: "executable"
+        platforms:
+          - "darwin/amd64"
+          - "darwin/arm64"
+          - "linux/amd64"
+          - "linux/arm64"
+          - "linux/arm"
+          - "generic"
   github.com/valon-technologies/gestalt-providers/app/gitlab:
     displayName: "GitLab"
     description: "Repository, issue, merge request, and pipeline operations."
