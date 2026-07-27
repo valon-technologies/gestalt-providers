@@ -5,12 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "dev:theme": "node --env-file-if-exists=.env.local scripts/dev-theme-watch.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm run lint && node scripts/verify-admin-assets.mjs",
+    "check": "npm run typecheck && npm run lint && node scripts/verify-admin-assets.mjs && node scripts/verify-theme-contract.mjs",
     "test:e2e": "npm run build && rm -rf out && cp -R dist out && playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:ui": "playwright test --ui"

@@ -107,7 +107,7 @@ function SelectItem({
       className={cn(
         menuItemVariants({ indicator: "trailing" }),
         // Popup-menu selection matches Combobox: blank selected row + solid
-        // check. Idle/highlight hover-press stay Neutral via menuItemVariants.
+        // check. Idle/highlight hover-press stay on the semantic accent surface.
         // Accent vivid fill is for persistent list surfaces (Listbox), not
         // transient flyout options (selection-indicators.md / flyout.md).
         "w-full *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",

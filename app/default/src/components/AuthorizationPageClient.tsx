@@ -45,10 +45,10 @@ export default function AuthorizationPageClient() {
         <Container as="main" className="py-12">
           <div className="animate-fade-in-up">
             <span className="label-text">Security</span>
-            <h1 className="mt-2 text-2xl font-heading text-primary">
+            <h1 className="mt-2 text-2xl font-heading text-foreground">
               Authorization
             </h1>
-            <p className="mt-3 max-w-3xl text-sm text-muted">
+            <p className="mt-3 max-w-3xl text-sm text-muted-foreground">
               Create personal API tokens for local tooling, scripts, and
               integrations. These act as your current signed-in identity.
             </p>
@@ -56,7 +56,7 @@ export default function AuthorizationPageClient() {
 
           <section
             id="tokens"
-            className="mt-12 animate-fade-in-up rounded-2xl border border-alpha bg-base-white p-6 [animation-delay:120ms] dark:bg-surface"
+            className="mt-12 animate-fade-in-up rounded-2xl border border-border bg-card p-6 [animation-delay:120ms] dark:bg-card"
           >
             <AuthorizationSectionIntro
               eyebrow="Current User"
@@ -65,15 +65,15 @@ export default function AuthorizationPageClient() {
             />
 
             <div className="mt-8">
-              <div className="rounded-xl border border-alpha bg-base-white p-5 dark:bg-surface-raised">
+              <div className="rounded-xl border border-border bg-card p-5 dark:bg-muted">
                 <TokenCreateForm onCreated={loadTokens} />
               </div>
             </div>
 
-            {tokensError && <p className="mt-4 text-sm text-ember-500">{tokensError}</p>}
+            {tokensError && <p className="mt-4 text-sm text-destructive">{tokensError}</p>}
 
             {tokensLoading ? (
-              <p className="mt-10 text-sm text-faint">Loading...</p>
+              <p className="mt-10 text-sm text-muted-foreground/70">Loading...</p>
             ) : !tokensError ? (
               <div className="mt-8">
                 <TokenTable tokens={tokens} onRevoked={loadTokens} />
@@ -81,7 +81,7 @@ export default function AuthorizationPageClient() {
             ) : null}
           </section>
 
-          <section className="mt-6 animate-fade-in-up rounded-2xl border border-alpha bg-base-white p-6 [animation-delay:180ms] dark:bg-surface">
+          <section className="mt-6 animate-fade-in-up rounded-2xl border border-border bg-card p-6 [animation-delay:180ms] dark:bg-card">
             <AuthorizationSectionIntro
               eyebrow="Service Accounts"
               title="Managed Identities"
@@ -89,7 +89,7 @@ export default function AuthorizationPageClient() {
             />
             <Link
               to="/identities"
-              className="mt-6 inline-flex rounded-md border border-alpha px-4 py-2 text-sm font-medium text-primary transition-colors duration-150 hover:border-alpha-strong hover:bg-base-100 dark:hover:bg-surface-raised"
+              className="mt-6 inline-flex rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:border-input hover:bg-muted dark:hover:bg-muted"
             >
               Manage identities
             </Link>
@@ -112,8 +112,8 @@ function AuthorizationSectionIntro({
   return (
     <div>
       <span className="label-text">{eyebrow}</span>
-      <h2 className="mt-2 text-xl font-heading text-primary">{title}</h2>
-      <p className="mt-2 max-w-3xl text-sm text-muted">{description}</p>
+      <h2 className="mt-2 text-xl font-heading text-foreground">{title}</h2>
+      <p className="mt-2 max-w-3xl text-sm text-muted-foreground">{description}</p>
     </div>
   );
 }

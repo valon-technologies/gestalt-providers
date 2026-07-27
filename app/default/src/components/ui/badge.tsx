@@ -51,7 +51,7 @@ export function badgeCustomColorStyle(color: string): React.CSSProperties {
 
 const badgeVariants = cva(
   // Badges are single-line soft-rects (`rounded-sm` / --radius-sm ≈ 4px) — squarer
-  // than a capsule, tighter than Button's `rounded-md`, matching valon.ai status
+  // than a capsule, tighter than Button's `rounded-md`, matching compact status
   // chips. Without nowrap, label text wraps inside narrow table/sidebar cells.
   "inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-sm text-xs font-normal transition-colors [&>svg]:size-3 [&>svg]:shrink-0",
   {

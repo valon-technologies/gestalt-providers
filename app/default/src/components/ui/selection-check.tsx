@@ -4,7 +4,7 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-// Canonical Valon selection checkmark — stroke-draw glyph shared by Checkbox,
+// Shared selection checkmark — stroke-draw glyph used by Checkbox,
 // Combobox, Select, and Listbox. Two paths (down into the vertex, then up out
 // of it) with pathLength=1 dashoffset draw-in; bounce finishes after both enter
 // strokes. Bounce (self-drawn only): celebrates unchecked → checked while
@@ -18,11 +18,11 @@ import { cn } from "@/lib/utils";
 //
 // Density:
 // - `default` — menu/list indicators (Select / Combobox / Listbox): thinner
-//   stroke, wider mark so the check reads open on a blank or gold row
+//   stroke, wider mark so the check reads open on an unfilled row
 // - `condensed` — Checkbox: tighter mark + heavier stroke that fits the box
 //
 // Tone (self-drawn only):
-// - `solid` — blank-row indicators (Select / Combobox flyouts): --accent-solid ink
+// - `solid` — blank-row indicators (Select / Combobox flyouts): primary ink
 // - `current` — filled-row indicators (Listbox): currentColor
 
 type CheckDensity = "default" | "condensed";
@@ -136,10 +136,10 @@ export function SelectionCheck({
       className={cn(
         drawFrom === "self" && "group/selection-check",
         "flex size-4 shrink-0 items-center justify-center",
-        tone === "solid" ? "text-accent-solid" : "text-current",
+        tone === "solid" ? "text-primary" : "text-current",
         drawFrom === "self" &&
           bounce &&
-          "animate-[valon-check-bounce_var(--duration-200)_var(--ease-out-quart)_calc(2*var(--duration-200))]",
+          "animate-[selection-check-bounce_var(--duration-200)_var(--ease-out-quart)_calc(2*var(--duration-200))]",
         className,
       )}
       aria-hidden

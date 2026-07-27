@@ -18,6 +18,7 @@ import {
 } from "@/lib/auth";
 import { DOCS_PATH } from "@/lib/constants";
 import { serverLoginURL } from "@/lib/authReturn";
+import { appPath } from "@/lib/mount";
 import { useTheme } from "@/hooks/use-theme";
 import Container from "./Container";
 import { MoonIcon, SunIcon, SunMoonIcon } from "./icons";
@@ -99,14 +100,14 @@ export default function Nav() {
     sessionRefreshGeneration.current++;
     await logout().catch(() => {});
     clearSession();
-    window.location.href = serverLoginURL("/");
+    window.location.href = serverLoginURL(appPath("/"));
   }
 
   return (
-    <nav className="border-b border-alpha py-3 bg-background/80 backdrop-blur-xs sticky top-0 z-50">
+    <nav className="border-b border-border py-3 bg-background/80 backdrop-blur-xs sticky top-0 z-50">
       <Container className="flex items-center justify-between">
         <div className="flex items-center gap-8">
-          <Link to="/" className="text-lg font-heading font-bold text-primary">
+          <Link to="/" className="text-lg font-heading font-bold text-foreground">
             Gestalt
           </Link>
           <div className="flex gap-5">
@@ -117,8 +118,8 @@ export default function Nav() {
                 (link.href !== "/" && pathname.startsWith(link.href + "/"));
               const className = `text-sm transition-colors duration-150 ${
                 isActive
-                  ? "text-primary font-medium"
-                  : "text-muted hover:text-secondary"
+                  ? "text-foreground font-medium"
+                  : "text-muted-foreground hover:text-foreground/80"
               }`;
               return (
                 <Link key={link.href} to={link.href} className={className}>
@@ -135,7 +136,7 @@ export default function Nav() {
               else if (theme === "dark") setTheme("system");
               else setTheme("light");
             }}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-muted transition-all duration-150 hover:bg-alpha-5"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-all duration-150 hover:bg-accent"
             title={theme === "light" ? "Light mode" : theme === "dark" ? "Dark mode" : "System preference"}
             aria-label="Toggle theme"
           >
@@ -143,11 +144,11 @@ export default function Nav() {
           </button>
           {displayLabel && (
             <>
-              <span className="text-sm text-faint">{displayLabel}</span>
+              <span className="text-sm text-muted-foreground/70">{displayLabel}</span>
               {loginSupported && (
                 <button
                   onClick={handleLogout}
-                  className="text-sm text-muted hover:text-primary transition-colors duration-150"
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-150"
                 >
                   Logout
                 </button>

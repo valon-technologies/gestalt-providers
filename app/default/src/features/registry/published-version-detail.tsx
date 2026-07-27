@@ -19,7 +19,7 @@ function ExternalLink({
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="text-gold-700 underline decoration-gold-300 underline-offset-2 hover:text-gold-800 dark:text-gold-300 dark:hover:text-gold-200"
+      className="text-primary underline decoration-primary underline-offset-2 hover:text-primary dark:text-primary dark:hover:text-primary"
     >
       {children}
     </a>
@@ -53,7 +53,7 @@ export function PublishedVersionDetail({
 
   return (
     <div
-      className="space-y-2 text-sm text-muted"
+      className="space-y-2 text-sm text-muted-foreground"
       data-testid="published-version-detail"
     >
       <p data-testid="published-version-summary">
@@ -61,7 +61,7 @@ export function PublishedVersionDetail({
         {publishedAgo ? (
           <>
             {publishedAgo}
-            <span className="text-faint"> ({formatRegistryTime(version.publishedAt)})</span>
+            <span className="text-muted-foreground/70"> ({formatRegistryTime(version.publishedAt)})</span>
           </>
         ) : (
           formatRegistryTime(version.publishedAt)

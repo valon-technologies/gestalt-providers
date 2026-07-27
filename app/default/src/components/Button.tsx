@@ -4,11 +4,11 @@ type Variant = "primary" | "secondary" | "danger";
 
 const variantStyles: Record<Variant, string> = {
   primary:
-    "bg-base-950 text-white hover:bg-base-900 dark:bg-base-100 dark:text-base-950 dark:hover:bg-base-200",
+    "bg-primary text-primary-foreground hover:bg-primary/90",
   secondary:
-    "bg-alpha-10 text-primary hover:bg-base-200 dark:hover:bg-base-800",
+    "bg-accent text-accent-foreground hover:bg-accent/80",
   danger:
-    "bg-ember-600 text-white hover:bg-ember-700 dark:bg-ember-500 dark:hover:bg-ember-600",
+    "bg-destructive text-destructive-foreground hover:bg-destructive/90",
 };
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

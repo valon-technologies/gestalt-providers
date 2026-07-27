@@ -42,7 +42,7 @@ export default function PluginSearchBar({
   return (
     <div className="w-full max-w-sm">
       <div className="relative">
-        <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint" />
+        <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
         <Combobox
           value={selectedIntegration}
           onChange={selectIntegration}
@@ -63,7 +63,7 @@ export default function PluginSearchBar({
           />
           {trimmedQuery.length > 0 && !disabled && (
             <ComboboxButton
-              className="absolute right-2 top-1/2 z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-faint transition-colors duration-150 hover:bg-alpha-5 hover:text-muted"
+              className="absolute right-2 top-1/2 z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-muted-foreground"
               aria-label="Clear app search"
               onMouseDown={(event) => {
                 event.preventDefault();
@@ -77,7 +77,7 @@ export default function PluginSearchBar({
             </ComboboxButton>
           )}
           {trimmedQuery.length > 0 && !disabled && (
-            <ComboboxOptions className="absolute left-0 top-full z-20 mt-2 max-h-80 w-full overflow-auto rounded-lg border border-alpha bg-base-white p-1 shadow-dropdown dark:bg-surface">
+            <ComboboxOptions className="absolute left-0 top-full z-20 mt-2 max-h-80 w-full overflow-auto rounded-lg border border-border bg-card p-1 shadow-dropdown dark:bg-card">
               {matchingIntegrations.length > 0 ? (
                 matchingIntegrations.map((integration) => {
                   const label = getIntegrationLabel(integration);
@@ -90,13 +90,13 @@ export default function PluginSearchBar({
                     <ComboboxOption
                       key={integration.name}
                       value={integration}
-                      className="cursor-pointer rounded-md px-3 py-2 transition-colors duration-150 data-[focus]:bg-base-100 dark:data-[focus]:bg-surface-raised"
+                      className="cursor-pointer rounded-md px-3 py-2 transition-colors duration-150 data-[focus]:bg-muted dark:data-[focus]:bg-muted"
                     >
-                      <div className="text-sm font-medium text-primary">
+                      <div className="text-sm font-medium text-foreground">
                         {label}
                       </div>
                       {secondaryText && (
-                        <div className="mt-0.5 text-xs text-muted">
+                        <div className="mt-0.5 text-xs text-muted-foreground">
                           {secondaryText}
                         </div>
                       )}
@@ -104,7 +104,7 @@ export default function PluginSearchBar({
                   );
                 })
               ) : (
-                <div className="px-3 py-2 text-sm text-muted">
+                <div className="px-3 py-2 text-sm text-muted-foreground">
                   No matching apps.
                 </div>
               )}

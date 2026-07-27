@@ -33,6 +33,7 @@ import {
   resolveAgentInteraction,
 } from "@/lib/api";
 import { agentSessionHref } from "@/lib/agentLinks";
+import { appPath } from "@/lib/mount";
 import {
   appendInteraction,
   appendOptimisticUserMessage,
@@ -438,11 +439,11 @@ export default function AgentsPage() {
   ]);
 
   useEffect(() => {
-    const next = agentSessionHref({
+    const next = appPath(agentSessionHref({
       sessionID: selectedSessionID,
       turnID: selectedTurnID,
       provider: selectedSessionProvider,
-    });
+    }));
     if (window.location.pathname + window.location.search !== next) {
       window.history.replaceState(null, "", next);
     }
@@ -592,16 +593,16 @@ export default function AgentsPage() {
           className="flex h-[calc(100vh-5rem)] flex-col overflow-hidden"
         >
           <h1 className="sr-only">Agent Sessions</h1>
-          <div className="flex items-center justify-between border-b border-alpha px-5 py-2.5">
-            <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.22em] text-muted">
-              <span className="tui-glyph text-grove-600 dark:text-grove-200">●</span>
+          <div className="flex items-center justify-between border-b border-border px-5 py-2.5">
+            <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
+              <span className="tui-glyph text-success-foreground dark:text-success-foreground">●</span>
               <span>agents</span>
-              <span className="text-faint">/</span>
-              <span className="text-primary">sessions</span>
+              <span className="text-muted-foreground/70">/</span>
+              <span className="text-foreground">sessions</span>
               {selectedSession ? (
                 <>
-                  <span className="text-faint">/</span>
-                  <span className="truncate text-primary">
+                  <span className="text-muted-foreground/70">/</span>
+                  <span className="truncate text-foreground">
                     {selectedSession.clientRef || sessionShortID}
                   </span>
                 </>
@@ -611,14 +612,14 @@ export default function AgentsPage() {
               <button
                 type="button"
                 onClick={() => selectSession(null)}
-                className="rounded-sm border border-alpha bg-transparent px-2.5 py-1 uppercase tracking-[0.16em] text-muted transition-colors duration-150 hover:border-alpha-strong hover:text-primary"
+                className="rounded-sm border border-border bg-transparent px-2.5 py-1 uppercase tracking-[0.16em] text-muted-foreground transition-colors duration-150 hover:border-input hover:text-foreground"
               >
                 + new
               </button>
               <button
                 type="button"
                 onClick={() => setRefreshNonce((value) => value + 1)}
-                className="rounded-sm border border-alpha bg-transparent px-2.5 py-1 uppercase tracking-[0.16em] text-muted transition-colors duration-150 hover:border-alpha-strong hover:text-primary"
+                className="rounded-sm border border-border bg-transparent px-2.5 py-1 uppercase tracking-[0.16em] text-muted-foreground transition-colors duration-150 hover:border-input hover:text-foreground"
               >
                 {refreshing ? "↻ refreshing" : "↻ refresh"}
               </button>
@@ -626,8 +627,8 @@ export default function AgentsPage() {
           </div>
 
           {loading ? (
-            <div className="flex flex-1 items-center justify-center font-mono text-xs uppercase tracking-[0.22em] text-faint">
-              <span className="tui-glyph mr-2 text-sky-500">●</span>
+            <div className="flex flex-1 items-center justify-center font-mono text-xs uppercase tracking-[0.22em] text-muted-foreground/70">
+              <span className="tui-glyph mr-2 text-info-foreground">●</span>
               connecting to runtime…
             </div>
           ) : (
@@ -643,7 +644,7 @@ export default function AgentsPage() {
                 onSelect={selectSession}
               />
 
-              <section className="flex min-w-0 flex-col overflow-hidden border-x border-alpha lg:border-x">
+              <section className="flex min-w-0 flex-col overflow-hidden border-x border-border lg:border-x">
                 <ConsoleHeader
                   session={selectedSession}
                   turn={selectedTurn}
@@ -654,21 +655,21 @@ export default function AgentsPage() {
                 />
 
                 {notice || actionError || detailError ? (
-                  <div className="border-t border-alpha px-5 py-2 font-mono text-[11px]">
+                  <div className="border-t border-border px-5 py-2 font-mono text-[11px]">
                     {notice ? (
-                      <p className="text-grove-700 dark:text-grove-200">
+                      <p className="text-success-foreground dark:text-success-foreground">
                         <span className="tui-glyph mr-2">●</span>
                         {notice}
                       </p>
                     ) : null}
                     {actionError ? (
-                      <p className="text-ember-500">
+                      <p className="text-destructive">
                         <span className="tui-glyph mr-2">✗</span>
                         {actionError}
                       </p>
                     ) : null}
                     {detailError ? (
-                      <p className="text-ember-500">
+                      <p className="text-destructive">
                         <span className="tui-glyph mr-2">✗</span>
                         {detailError}
                       </p>
@@ -676,7 +677,7 @@ export default function AgentsPage() {
                   </div>
                 ) : null}
 
-                <div className="min-h-0 flex-1 overflow-y-auto border-t border-alpha px-5 py-5">
+                <div className="min-h-0 flex-1 overflow-y-auto border-t border-border px-5 py-5">
                   <TranscriptView
                     loading={!transcriptReady}
                     items={transcript.items}
@@ -699,7 +700,7 @@ export default function AgentsPage() {
                   />
                 </div>
 
-                <div className="max-h-[45vh] overflow-y-auto border-t border-alpha bg-background/40 px-5 py-4 dark:bg-background/30">
+                <div className="max-h-[45vh] overflow-y-auto border-t border-border bg-background/40 px-5 py-4 dark:bg-background/30">
                   <AgentComposer
                     composer={composer}
                     selectedSession={selectedSession}
@@ -722,7 +723,7 @@ export default function AgentsPage() {
             </div>
           )}
 
-          <div className="flex items-center justify-between border-t border-alpha px-5 py-2 font-mono text-[11px] text-muted">
+          <div className="flex items-center justify-between border-t border-border px-5 py-2 font-mono text-[11px] text-muted-foreground">
             <div className="flex items-center gap-3">
               <span
                 className={`tui-glyph ${footerStatusColor(footerStatus)}${turnLive ? " tui-pulse" : ""}`}
@@ -734,16 +735,16 @@ export default function AgentsPage() {
               >
                 {turnLive ? footerStatus : `state ${footerStatus}`}
               </span>
-              <span className="text-faint">│</span>
+              <span className="text-muted-foreground/70">│</span>
               <span>{selectedSession?.provider || "default"}</span>
-              <span className="text-faint">·</span>
+              <span className="text-muted-foreground/70">·</span>
               <span>{selectedSession?.model || "—"}</span>
-              <span className="text-faint">│</span>
+              <span className="text-muted-foreground/70">│</span>
               <span>session {sessionShortID}</span>
-              <span className="text-faint">·</span>
+              <span className="text-muted-foreground/70">·</span>
               <span>turn {turnShortID}</span>
             </div>
-            <div className="hidden items-center gap-3 text-faint md:flex">
+            <div className="hidden items-center gap-3 text-muted-foreground/70 md:flex">
               <span>↵ send</span>
               <span>·</span>
               <span>⌘K commands</span>
@@ -759,8 +760,8 @@ export default function AgentsPage() {
 
 function footerStatusColor(status?: string): string {
   const normalized = (status ?? "").toLowerCase();
-  if (normalized === "succeeded") return "text-grove-600 dark:text-grove-200";
-  if (normalized === "failed") return "text-ember-500";
+  if (normalized === "succeeded") return "text-success-foreground dark:text-success-foreground";
+  if (normalized === "failed") return "text-destructive";
   if (
     normalized === "running" ||
     normalized === "pending" ||
@@ -768,11 +769,11 @@ function footerStatusColor(status?: string): string {
     normalized === "writing" ||
     normalized.startsWith("running ")
   ) {
-    return "text-sky-500";
+    return "text-info-foreground";
   }
-  if (normalized === "waiting_for_input") return "text-amber-500";
-  if (normalized === "canceled") return "text-faint";
-  return "text-faint";
+  if (normalized === "waiting_for_input") return "text-warning-foreground";
+  if (normalized === "canceled") return "text-muted-foreground/70";
+  return "text-muted-foreground/70";
 }
 
 function liveActivityLabel(items: TranscriptItem[]): string {
@@ -813,28 +814,28 @@ function SessionSidebar({
 }) {
   return (
     <aside className="flex min-h-[16rem] flex-col overflow-hidden bg-background/30 lg:min-h-0">
-      <div className="border-b border-alpha px-4 py-3">
+      <div className="border-b border-border px-4 py-3">
         <div className="tui-section-label flex items-center gap-2">
-          <span className="tui-glyph text-faint">◇</span>
+          <span className="tui-glyph text-muted-foreground/70">◇</span>
           <span>Sessions</span>
-          <span className="ml-auto text-faint normal-case tracking-normal">
+          <span className="ml-auto text-muted-foreground/70 normal-case tracking-normal">
             {sessions.length}
           </span>
         </div>
         <div className="mt-3 space-y-1.5">
-          <div className="flex items-center gap-2 border border-alpha bg-background/50 px-2 py-1.5 font-mono text-xs">
-            <span className="tui-glyph text-faint">⌕</span>
+          <div className="flex items-center gap-2 border border-border bg-background/50 px-2 py-1.5 font-mono text-xs">
+            <span className="tui-glyph text-muted-foreground/70">⌕</span>
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder="filter sessions…"
-              className="w-full bg-transparent text-primary outline-hidden placeholder:text-faint"
+              className="w-full bg-transparent text-foreground outline-hidden placeholder:text-muted-foreground/70"
             />
           </div>
           <select
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value)}
-            className="w-full border border-alpha bg-background/50 px-2 py-1.5 font-mono text-xs uppercase tracking-[0.16em] text-muted outline-hidden transition-colors duration-150 focus:border-alpha-strong"
+            className="w-full border border-border bg-background/50 px-2 py-1.5 font-mono text-xs uppercase tracking-[0.16em] text-muted-foreground outline-hidden transition-colors duration-150 focus:border-input"
           >
             <option value="all">all states</option>
             <option value="active">active</option>
@@ -844,12 +845,12 @@ function SessionSidebar({
       </div>
 
       {error ? (
-        <p className="px-4 py-3 font-mono text-xs text-ember-500">
+        <p className="px-4 py-3 font-mono text-xs text-destructive">
           <span className="tui-glyph mr-2">✗</span>
           {error}
         </p>
       ) : sessions.length === 0 ? (
-        <p className="px-4 py-3 font-mono text-xs text-faint">
+        <p className="px-4 py-3 font-mono text-xs text-muted-foreground/70">
           <span className="tui-glyph mr-2">·</span>
           No agent sessions yet.
         </p>
@@ -866,19 +867,19 @@ function SessionSidebar({
                 onClick={() => onSelect(session.id)}
                 className={`relative flex w-full items-start gap-2.5 px-4 py-2 text-left font-mono transition-colors duration-150 ${
                   active
-                    ? "bg-alpha-10 text-primary before:absolute before:left-0 before:top-0 before:h-full before:w-[2px] before:bg-grove-500 dark:before:bg-grove-200"
-                    : "text-muted hover:bg-alpha-5"
+                    ? "bg-accent text-foreground before:absolute before:left-0 before:top-0 before:h-full before:w-[2px] before:bg-success dark:before:bg-success"
+                    : "text-muted-foreground hover:bg-accent"
                 }`}
               >
                 <span className={`tui-glyph mt-1 text-[10px] ${dotClass}`}>●</span>
                 <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-sm text-primary">
+                  <span className="truncate text-sm text-foreground">
                     {session.clientRef || shortID}
                   </span>
-                  <span className="truncate text-[11px] text-faint">
+                  <span className="truncate text-[11px] text-muted-foreground/70">
                     {session.provider || "default"} · {session.model || "—"}
                   </span>
-                  <span className="text-[10px] uppercase tracking-[0.16em] text-faint">
+                  <span className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
                     {shortID} · {formatDate(session.lastTurnAt || session.updatedAt)}
                   </span>
                 </span>
@@ -896,11 +897,11 @@ function sessionDotClass(session: AgentSession): string {
   switch (status) {
     case "active":
     case "running":
-      return "text-sky-500";
+      return "text-info-foreground";
     case "archived":
-      return "text-faint";
+      return "text-muted-foreground/70";
     default:
-      return "text-grove-600 dark:text-grove-200";
+      return "text-success-foreground dark:text-success-foreground";
   }
 }
 
@@ -923,12 +924,12 @@ function ConsoleHeader({
     <div className="px-5 py-3">
       <div className="flex flex-wrap items-center gap-3 font-mono text-xs">
         <span className="tui-section-label">session</span>
-        <span className="tui-glyph text-faint">›</span>
-        <h2 className="truncate text-sm font-normal text-primary">
+        <span className="tui-glyph text-muted-foreground/70">›</span>
+        <h2 className="truncate text-sm font-normal text-foreground">
           {session?.clientRef || session?.id?.slice(0, 8) || "new"}
         </h2>
-        <span className="text-faint">·</span>
-        <span className="text-muted">
+        <span className="text-muted-foreground/70">·</span>
+        <span className="text-muted-foreground">
           {session ? `${session.provider || "default"} / ${session.model || "—"}` : "first message creates a cloud session"}
         </span>
         <div className="ml-auto flex items-center gap-2">
@@ -939,7 +940,7 @@ function ConsoleHeader({
               aria-label="Cancel turn"
               onClick={() => void onCancelTurn(turn)}
               disabled={cancelingTurnID === turn.id}
-              className="border border-ember-500 bg-transparent px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.16em] text-ember-500 transition-colors duration-150 hover:bg-ember-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="border border-destructive bg-transparent px-2.5 py-1 font-mono text-[11px] uppercase tracking-[0.16em] text-destructive transition-colors duration-150 hover:bg-destructive hover:text-destructive-foreground disabled:cursor-not-allowed disabled:opacity-60"
             >
               {cancelingTurnID === turn.id ? "✗ canceling" : "✗ cancel"}
             </button>
@@ -959,8 +960,8 @@ function ConsoleHeader({
                 onClick={() => onSelectTurn(item.id)}
                 className={`flex shrink-0 items-center gap-2 border px-2 py-1 text-left transition-colors duration-150 ${
                   active
-                    ? "border-alpha-strong bg-alpha-10 text-primary"
-                    : "border-alpha text-muted hover:border-alpha-strong hover:text-primary"
+                    ? "border-input bg-accent text-foreground"
+                    : "border-border text-muted-foreground hover:border-input hover:text-foreground"
                 }`}
               >
                 <span
@@ -971,7 +972,7 @@ function ConsoleHeader({
                   ●
                 </span>
                 <span className="block max-w-40 truncate">{turnLabel(item)}</span>
-                <span className="block text-faint">{formatDate(item.createdAt)}</span>
+                <span className="block text-muted-foreground/70">{formatDate(item.createdAt)}</span>
               </button>
             );
           })}
@@ -984,18 +985,18 @@ function ConsoleHeader({
 function turnDotColor(status?: string): string {
   switch (status) {
     case "succeeded":
-      return "text-grove-600 dark:text-grove-200";
+      return "text-success-foreground dark:text-success-foreground";
     case "failed":
-      return "text-ember-500";
+      return "text-destructive";
     case "running":
     case "pending":
-      return "text-sky-500";
+      return "text-info-foreground";
     case "waiting_for_input":
-      return "text-amber-500";
+      return "text-warning-foreground";
     case "canceled":
-      return "text-faint";
+      return "text-muted-foreground/70";
     default:
-      return "text-faint";
+      return "text-muted-foreground/70";
   }
 }
 
@@ -1028,15 +1029,15 @@ function TranscriptView({
 
   if (loading) {
     return (
-      <p className="font-mono text-xs text-faint">
-        <span className="tui-glyph mr-2 text-sky-500">●</span>
+      <p className="font-mono text-xs text-muted-foreground/70">
+        <span className="tui-glyph mr-2 text-info-foreground">●</span>
         loading transcript…
       </p>
     );
   }
   if (items.length === 0 && !showThinking) {
     return (
-      <div className="border border-dashed border-alpha bg-background/40 px-5 py-6 font-mono text-xs text-faint">
+      <div className="border border-dashed border-border bg-background/40 px-5 py-6 font-mono text-xs text-muted-foreground/70">
         <span className="tui-glyph mr-2">·</span>
         {emptyMessage}
       </div>
@@ -1069,12 +1070,12 @@ function hasInFlightActivity(items: TranscriptItem[]): boolean {
 function ThinkingRow() {
   return (
     <article className="flex gap-3 px-1 py-1" aria-live="polite">
-      <span className="tui-glyph mt-1 text-sky-500 tui-pulse">●</span>
+      <span className="tui-glyph mt-1 text-info-foreground tui-pulse">●</span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="tui-section-label">thinking</span>
         </div>
-        <p className="mt-1 tui-thinking-dots font-mono text-sm text-muted">
+        <p className="mt-1 tui-thinking-dots font-mono text-sm text-muted-foreground">
           <span>●</span>
           <span>●</span>
           <span>●</span>
@@ -1091,15 +1092,15 @@ function TranscriptBubble({ item }: { item: TranscriptItem }) {
 
   if (item.kind === "user") {
     return (
-      <div className="tui-user-bar border-l-2 border-l-grove-500 px-3 py-2 dark:border-l-grove-200">
+      <div className="tui-user-bar border-l-2 border-l-success-foreground px-3 py-2 dark:border-l-success-foreground">
         <div className="flex items-center gap-2 text-[11px]">
-          <span className="tui-user-bar-prompt text-grove-700 dark:text-grove-200">›</span>
+          <span className="tui-user-bar-prompt text-success-foreground dark:text-success-foreground">›</span>
           <span className="tui-section-label">{item.title}</span>
           {item.streaming ? (
-            <span className="ml-auto tui-status-line text-sky-500">streaming</span>
+            <span className="ml-auto tui-status-line text-info-foreground">streaming</span>
           ) : null}
         </div>
-        <pre className="mt-1.5 whitespace-pre-wrap break-words font-mono text-sm leading-6 text-primary">
+        <pre className="mt-1.5 whitespace-pre-wrap break-words font-mono text-sm leading-6 text-foreground">
           {item.text}
         </pre>
       </div>
@@ -1116,18 +1117,18 @@ function TranscriptBubble({ item }: { item: TranscriptItem }) {
           : "·";
   const glyphClass =
     item.kind === "assistant"
-      ? "text-grove-600 dark:text-grove-200"
+      ? "text-success-foreground dark:text-success-foreground"
       : item.kind === "error"
-        ? "text-ember-500"
+        ? "text-destructive"
         : item.kind === "interaction"
-          ? "text-amber-500"
-          : "text-faint";
+          ? "text-warning-foreground"
+          : "text-muted-foreground/70";
   const textClass =
     item.kind === "error"
-      ? "text-ember-500"
+      ? "text-destructive"
       : item.kind === "system" || item.kind === "event"
-        ? "text-muted"
-        : "text-primary";
+        ? "text-muted-foreground"
+        : "text-foreground";
 
   const isStreamingAssistant = item.kind === "assistant" && Boolean(item.streaming);
 
@@ -1145,7 +1146,7 @@ function TranscriptBubble({ item }: { item: TranscriptItem }) {
         <pre className={`mt-1 whitespace-pre-wrap break-words font-sans text-sm leading-6 ${textClass}`}>
           {item.text}
           {isStreamingAssistant ? (
-            <span className="tui-caret text-sky-500">▍</span>
+            <span className="tui-caret text-info-foreground">▍</span>
           ) : null}
         </pre>
       </div>
@@ -1174,7 +1175,7 @@ function ToolTranscriptCard({ item }: { item: TranscriptItem }) {
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-sm text-primary">{item.title}</span>
+          <span className="font-mono text-sm text-foreground">{item.title}</span>
           <span className="tui-status-line">
             {event?.seq ? `#${event.seq} ` : ""}
             {phase || "tool"}
@@ -1185,7 +1186,7 @@ function ToolTranscriptCard({ item }: { item: TranscriptItem }) {
         </div>
 
         {showSummary ? (
-          <pre className="mt-1 whitespace-pre-wrap break-words font-sans text-sm leading-6 text-muted">
+          <pre className="mt-1 whitespace-pre-wrap break-words font-sans text-sm leading-6 text-muted-foreground">
             {item.text}
           </pre>
         ) : null}
@@ -1193,7 +1194,7 @@ function ToolTranscriptCard({ item }: { item: TranscriptItem }) {
         <div className="mt-1.5 tui-tree">
           {input ? <TranscriptDetail glyph="├─" label="Input" value={input} /> : null}
           {isRunning ? (
-            <p className="font-mono text-[11px] text-faint">
+            <p className="font-mono text-[11px] text-muted-foreground/70">
               <span className="tui-glyph mr-1">└─</span>running…
             </p>
           ) : (
@@ -1219,15 +1220,15 @@ function ToolTranscriptCard({ item }: { item: TranscriptItem }) {
 function toolPhaseDotColor(phase?: string | null): string {
   const normalized = phase?.toLowerCase() ?? "";
   if (normalized.includes("failed") || normalized.includes("error")) {
-    return "text-ember-500";
+    return "text-destructive";
   }
   if (normalized.includes("completed") || normalized.includes("succeeded")) {
-    return "text-grove-600 dark:text-grove-200";
+    return "text-success-foreground dark:text-success-foreground";
   }
   if (normalized.includes("started") || normalized.includes("running")) {
-    return "text-sky-500";
+    return "text-info-foreground";
   }
-  return "text-faint";
+  return "text-muted-foreground/70";
 }
 
 function TranscriptDetail({
@@ -1243,13 +1244,13 @@ function TranscriptDetail({
 }) {
   return (
     <details className="block">
-      <summary className="cursor-pointer list-none font-mono text-[11px] uppercase tracking-[0.14em] text-faint hover:text-muted">
+      <summary className="cursor-pointer list-none font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground/70 hover:text-muted-foreground">
         <span className="tui-glyph mr-1">{glyph}</span>
         {label}
       </summary>
       <pre
-        className={`ml-4 mt-1 max-h-56 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 font-mono text-[11px] leading-5 ${
-          muted ? "text-muted" : "text-primary"
+        className={`ml-4 mt-1 max-h-56 overflow-auto whitespace-pre-wrap break-words border-l border-border bg-background/40 p-2 font-mono text-[11px] leading-5 ${
+          muted ? "text-muted-foreground" : "text-foreground"
         }`}
       >
         {value}
@@ -1277,8 +1278,8 @@ function InteractionPanel({
   if (interactions.length === 0) return null;
 
   return (
-    <section className="mt-5 rounded-md border border-alpha bg-alpha-5 p-4">
-      <h3 className="text-sm font-medium text-primary">Waiting For Input</h3>
+    <section className="mt-5 rounded-md border border-border bg-accent p-4">
+      <h3 className="text-sm font-medium text-foreground">Waiting For Input</h3>
       <div className="mt-4 space-y-4">
         {interactions.map((interaction) => {
           const resolving = resolvingID === interaction.id;
@@ -1303,7 +1304,7 @@ function InteractionPanel({
                     onClick={() =>
                       void onResolve(interaction, { approved: false })
                     }
-                    className="rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary transition-colors duration-150 hover:bg-alpha-5 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-surface"
+                    className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground transition-colors duration-150 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60 dark:bg-card"
                   >
                     Reject
                   </button>
@@ -1338,7 +1339,7 @@ function InteractionPanel({
                       [interaction.id]: event.target.value,
                     }))
                   }
-                  className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 text-sm text-primary outline-hidden transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+                  className="w-full rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground outline-hidden transition-colors duration-150 focus:border-input dark:bg-card"
                 />
                 <button
                   type="submit"
@@ -1380,7 +1381,7 @@ function InteractionPanel({
                   }))
                 }
                 rows={4}
-                className="w-full rounded-md border border-alpha bg-base-100 px-3 py-2 font-mono text-sm text-primary outline-hidden transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+                className="w-full rounded-md border border-border bg-muted px-3 py-2 font-mono text-sm text-foreground outline-hidden transition-colors duration-150 focus:border-input dark:bg-card"
               />
               <button
                 type="submit"
@@ -1400,11 +1401,11 @@ function InteractionPanel({
 function InteractionPrompt({ interaction }: { interaction: AgentInteraction }) {
   return (
     <div>
-      <p className="text-sm font-medium text-primary">
+      <p className="text-sm font-medium text-foreground">
         {interaction.title || interaction.type || "Interaction"}
       </p>
       {interaction.prompt ? (
-        <p className="mt-1 whitespace-pre-wrap text-sm text-muted">
+        <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
           {interaction.prompt}
         </p>
       ) : null}
@@ -1446,9 +1447,9 @@ function AgentComposer({
   const errorBlock =
     formError || providersError ? (
       <div className="space-y-1 font-mono text-[11px]">
-        {formError ? <p className="text-ember-500">{formError}</p> : null}
+        {formError ? <p className="text-destructive">{formError}</p> : null}
         {providersError ? (
-          <p className="text-ember-500">{providersError}</p>
+          <p className="text-destructive">{providersError}</p>
         ) : null}
       </div>
     ) : null;
@@ -1458,7 +1459,7 @@ function AgentComposer({
       <form className="space-y-3" onSubmit={onSubmit}>
         {errorBlock}
 
-        <div className="border border-alpha bg-background/50 p-3">
+        <div className="border border-border bg-background/50 p-3">
           <label className="block">
             <span className="sr-only">User message</span>
             <textarea
@@ -1475,15 +1476,15 @@ function AgentComposer({
               rows={3}
               required
               placeholder="Message agent..."
-              className="min-h-24 w-full resize-y border-0 bg-transparent p-0 font-mono text-sm leading-6 text-primary outline-hidden placeholder:text-faint"
+              className="min-h-24 w-full resize-y border-0 bg-transparent p-0 font-mono text-sm leading-6 text-foreground outline-hidden placeholder:text-muted-foreground/70"
             />
           </label>
 
-          <div className="mt-3 flex flex-col gap-3 border-t border-alpha pt-3 sm:flex-row sm:items-center sm:justify-end">
+          <div className="mt-3 flex flex-col gap-3 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-end">
             <button
               type="submit"
               disabled={submitting}
-              className="shrink-0 border border-alpha bg-transparent px-3 py-1 font-mono text-[11px] uppercase tracking-[0.18em] text-primary transition-colors duration-150 hover:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60"
+              className="shrink-0 border border-border bg-transparent px-3 py-1 font-mono text-[11px] uppercase tracking-[0.18em] text-foreground transition-colors duration-150 hover:border-input disabled:cursor-not-allowed disabled:opacity-60"
             >
               {submitting ? "↵ sending…" : "↵ send turn"}
             </button>
@@ -1497,7 +1498,7 @@ function AgentComposer({
     <form className="space-y-3" onSubmit={onSubmit}>
       <div className="flex flex-wrap items-center gap-3">
         <span className="tui-section-label">new session</span>
-        <span className="tui-glyph text-faint">›</span>
+        <span className="tui-glyph text-muted-foreground/70">›</span>
         <ProviderField
           providers={providers}
           value={composer.provider}
@@ -1510,7 +1511,7 @@ function AgentComposer({
 
       {errorBlock}
 
-      <div className="border border-alpha bg-background/50 p-3">
+      <div className="border border-border bg-background/50 p-3">
         <label className="block">
           <span className="sr-only">User message</span>
           <textarea
@@ -1527,15 +1528,15 @@ function AgentComposer({
             rows={4}
             required
             placeholder="Message agent…"
-            className="min-h-28 w-full resize-y border-0 bg-transparent p-0 font-mono text-sm leading-6 text-primary outline-hidden placeholder:text-faint"
+            className="min-h-28 w-full resize-y border-0 bg-transparent p-0 font-mono text-sm leading-6 text-foreground outline-hidden placeholder:text-muted-foreground/70"
           />
         </label>
-        <div className="mt-3 flex items-center justify-between border-t border-alpha pt-3 font-mono text-[11px] text-faint">
+        <div className="mt-3 flex items-center justify-between border-t border-border pt-3 font-mono text-[11px] text-muted-foreground/70">
           <span>The first message creates a cloud agent session.</span>
           <button
             type="submit"
             disabled={submitting}
-            className="shrink-0 border border-alpha bg-transparent px-3 py-1 uppercase tracking-[0.18em] text-primary transition-colors duration-150 hover:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60"
+            className="shrink-0 border border-border bg-transparent px-3 py-1 uppercase tracking-[0.18em] text-foreground transition-colors duration-150 hover:border-input disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? "↵ creating…" : "↵ create session"}
           </button>
@@ -1566,7 +1567,7 @@ function ProviderField({
         value={value || providers.find((p) => p.default)?.name || providers[0]?.name || ""}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
-        className="border border-alpha bg-background/50 px-2 py-1 text-xs uppercase tracking-[0.16em] text-primary outline-hidden transition-colors duration-150 focus:border-alpha-strong disabled:cursor-not-allowed disabled:opacity-60"
+        className="border border-border bg-background/50 px-2 py-1 text-xs uppercase tracking-[0.16em] text-foreground outline-hidden transition-colors duration-150 focus:border-input disabled:cursor-not-allowed disabled:opacity-60"
       >
         {providers.map((provider) => (
           <option key={provider.name} value={provider.name}>
@@ -1596,11 +1597,11 @@ function EventInspector({
 
   return (
     <aside className="flex min-h-[16rem] flex-col overflow-hidden bg-background/30 lg:min-h-0">
-      <div className="border-b border-alpha px-4 py-3">
+      <div className="border-b border-border px-4 py-3">
         <div className="tui-section-label flex items-center gap-2">
-          <span className="tui-glyph text-faint">◇</span>
+          <span className="tui-glyph text-muted-foreground/70">◇</span>
           <h2 className="font-normal tracking-[0.22em]">Activity</h2>
-          <span className="ml-auto text-faint normal-case tracking-normal">
+          <span className="ml-auto text-muted-foreground/70 normal-case tracking-normal">
             {activityEvents.length}
           </span>
         </div>
@@ -1617,11 +1618,11 @@ function EventInspector({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         <div className="tui-section-label mb-2 flex items-center gap-2">
-          <span className="tui-glyph text-faint">◇</span>
+          <span className="tui-glyph text-muted-foreground/70">◇</span>
           <h3 className="font-normal tracking-[0.22em]">Public Activity</h3>
         </div>
         {activityEvents.length === 0 ? (
-          <p className="font-mono text-xs text-faint">
+          <p className="font-mono text-xs text-muted-foreground/70">
             <span className="tui-glyph mr-2">·</span>
             no public activity
           </p>
@@ -1648,12 +1649,12 @@ function ActivityEvent({ event }: { event: AgentTurnEvent }) {
   const dotClass = toolPhaseDotColor(phase);
 
   return (
-    <details className="group block border-l border-transparent pl-1 hover:border-alpha-strong">
+    <details className="group block border-l border-transparent pl-1 hover:border-input">
       <summary className="cursor-pointer list-none py-1">
         <div className="flex items-start gap-2 font-mono text-[11px]">
           <span className={`tui-glyph mt-[2px] ${dotClass}`}>●</span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-primary">{title}</p>
+            <p className="truncate text-foreground">{title}</p>
             <p className="tui-status-line">
               #{event.seq} {phase || event.display?.kind || event.source || "event"}
             </p>
@@ -1662,16 +1663,16 @@ function ActivityEvent({ event }: { event: AgentTurnEvent }) {
       </summary>
       <div className="ml-4 mt-1 space-y-1 tui-tree">
         {input ? (
-          <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-primary">
+          <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words border-l border-border bg-background/40 p-2 text-[11px] text-foreground">
             {input}
           </pre>
         ) : null}
         {detail ? (
-          <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-primary">
+          <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words border-l border-border bg-background/40 p-2 text-[11px] text-foreground">
             {detail}
           </pre>
         ) : null}
-        <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words border-l border-alpha bg-background/40 p-2 text-[11px] text-muted">
+        <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words border-l border-border bg-background/40 p-2 text-[11px] text-muted-foreground">
           {JSON.stringify(event, null, 2)}
         </pre>
       </div>
@@ -1735,8 +1736,8 @@ function InspectorRow({
 }) {
   return (
     <div className="flex items-baseline gap-2">
-      <dt className="w-16 shrink-0 uppercase tracking-[0.16em] text-faint">{label}</dt>
-      <dd className="min-w-0 flex-1 truncate text-primary">{value || "—"}</dd>
+      <dt className="w-16 shrink-0 uppercase tracking-[0.16em] text-muted-foreground/70">{label}</dt>
+      <dd className="min-w-0 flex-1 truncate text-foreground">{value || "—"}</dd>
     </div>
   );
 }
@@ -1752,13 +1753,13 @@ function JsonTextarea({
 }) {
   return (
     <label className="block space-y-2 text-sm">
-      <span className="text-muted">{label}</span>
+      <span className="text-muted-foreground">{label}</span>
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
         rows={3}
         spellCheck={false}
-        className="w-full resize-y rounded-md border border-alpha bg-base-100 px-3 py-2 font-mono text-sm text-primary outline-hidden transition-colors duration-150 focus:border-alpha-strong dark:bg-surface"
+        className="w-full resize-y rounded-md border border-border bg-muted px-3 py-2 font-mono text-sm text-foreground outline-hidden transition-colors duration-150 focus:border-input dark:bg-card"
       />
     </label>
   );
@@ -1920,18 +1921,18 @@ function statusClassName(status?: string): string {
     "inline-flex shrink-0 items-center gap-1.5 border px-2 py-0.5 font-mono text-[11px] uppercase tracking-[0.16em]";
   switch (status) {
     case "succeeded":
-      return `${base} border-grove-500/40 text-grove-700 dark:text-grove-200`;
+      return `${base} border-success-foreground/40 text-success-foreground dark:text-success-foreground`;
     case "failed":
-      return `${base} border-ember-500/50 text-ember-500`;
+      return `${base} border-destructive/50 text-destructive`;
     case "canceled":
-      return `${base} border-alpha text-muted`;
+      return `${base} border-border text-muted-foreground`;
     case "waiting_for_input":
-      return `${base} border-amber-500/40 text-amber-600 dark:text-amber-200`;
+      return `${base} border-warning-foreground/40 text-warning-foreground dark:text-warning-foreground`;
     case "pending":
     case "running":
-      return `${base} border-sky-500/40 text-sky-600 dark:text-sky-200 tui-pulse`;
+      return `${base} border-info-foreground/40 text-info-foreground dark:text-info-foreground tui-pulse`;
     default:
-      return `${base} border-alpha text-faint`;
+      return `${base} border-border text-muted-foreground/70`;
   }
 }
 
@@ -1940,15 +1941,15 @@ function toolPhaseClassName(phase?: string | null): string {
     "shrink-0 border px-2 py-0.5 font-mono text-[11px] uppercase tracking-[0.16em]";
   const normalized = phase?.toLowerCase() ?? "";
   if (normalized.includes("failed") || normalized.includes("error")) {
-    return `${base} border-ember-500/50 text-ember-500`;
+    return `${base} border-destructive/50 text-destructive`;
   }
   if (normalized.includes("completed") || normalized.includes("succeeded")) {
-    return `${base} border-grove-500/40 text-grove-700 dark:text-grove-200`;
+    return `${base} border-success-foreground/40 text-success-foreground dark:text-success-foreground`;
   }
   if (normalized.includes("started") || normalized.includes("running")) {
-    return `${base} border-sky-500/40 text-sky-600 dark:text-sky-200`;
+    return `${base} border-info-foreground/40 text-info-foreground dark:text-info-foreground`;
   }
-  return `${base} border-alpha text-faint`;
+  return `${base} border-border text-muted-foreground/70`;
 }
 
 function providerSourceLabel(

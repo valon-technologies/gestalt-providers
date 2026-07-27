@@ -88,7 +88,7 @@ export default function IdentityTokenCreateForm({
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="mt-6 rounded-lg border border-alpha bg-base-white p-5 dark:bg-surface">
+      <form onSubmit={handleSubmit} className="mt-6 rounded-lg border border-border bg-card p-5 dark:bg-card">
         <div className="flex flex-col gap-4">
           <div>
             <label htmlFor="identity-token-name" className="label-text block">
@@ -106,11 +106,11 @@ export default function IdentityTokenCreateForm({
 
           <fieldset>
             <legend className="label-text">Token access</legend>
-            <p className="mt-2 text-sm text-faint">
+            <p className="mt-2 text-sm text-muted-foreground/70">
               Token limits only narrow what this API key can use. App grants and connector credentials stay on the managed identity.
             </p>
             <div className="mt-3 space-y-3">
-              <label className="flex items-start gap-3 rounded-md border border-alpha bg-base-50 p-4 text-sm text-muted dark:bg-surface-raised">
+              <label className="flex items-start gap-3 rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground dark:bg-muted">
                 <input
                   type="radio"
                   name="scope_mode"
@@ -123,14 +123,14 @@ export default function IdentityTokenCreateForm({
                   className="mt-0.5 h-4 w-4"
                 />
                 <span>
-                  <span className="block font-medium text-primary">All authorized access</span>
-                  <span className="mt-1 block text-faint">
+                  <span className="block font-medium text-foreground">All authorized access</span>
+                  <span className="mt-1 block text-muted-foreground/70">
                     The token follows managed identity app authorization and connector credentials at use time.
                   </span>
                 </span>
               </label>
 
-              <label className="flex items-start gap-3 rounded-md border border-alpha bg-base-50 p-4 text-sm text-muted dark:bg-surface-raised">
+              <label className="flex items-start gap-3 rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground dark:bg-muted">
                 <input
                   type="radio"
                   name="scope_mode"
@@ -143,8 +143,8 @@ export default function IdentityTokenCreateForm({
                   className="mt-0.5 h-4 w-4"
                 />
                 <span>
-                  <span className="block font-medium text-primary">Restrict this token</span>
-                  <span className="mt-1 block text-faint">
+                  <span className="block font-medium text-foreground">Restrict this token</span>
+                  <span className="mt-1 block text-muted-foreground/70">
                     Limit this API key to selected apps or operations.
                   </span>
                 </span>
@@ -156,7 +156,7 @@ export default function IdentityTokenCreateForm({
             <div>
               <p className="label-text">Token limits</p>
               {grants.length === 0 ? (
-                <p className="mt-2 text-sm text-faint">
+                <p className="mt-2 text-sm text-muted-foreground/70">
                   This identity has no visible app grants to choose from. Use all authorized access or add an app grant first.
                 </p>
               ) : (
@@ -165,15 +165,15 @@ export default function IdentityTokenCreateForm({
                     return (
                       <div
                         key={grant.plugin}
-                        className="rounded-md border border-alpha bg-base-50 p-4 dark:bg-surface-raised"
+                        className="rounded-md border border-border bg-muted p-4 dark:bg-muted"
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-sm font-medium text-primary">{grant.plugin}</p>
-                          <span className="rounded-full border border-alpha px-2.5 py-1 text-xs text-faint">
+                          <p className="text-sm font-medium text-foreground">{grant.plugin}</p>
+                          <span className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground/70">
                             {grant.role}
                           </span>
                         </div>
-                        <label className="mt-3 flex items-center gap-2 text-sm text-muted">
+                        <label className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
                           <input
                             type="checkbox"
                             name={`plugin_${grant.plugin}`}
@@ -195,7 +195,7 @@ export default function IdentityTokenCreateForm({
                             placeholder="Optional, comma-separated"
                             className={`mt-2 w-full ${INPUT_CLASSES}`}
                           />
-                          <p className="mt-2 text-xs text-faint">
+                          <p className="mt-2 text-xs text-muted-foreground/70">
                             Enter operation names for operation-level limits, or check all authorized operations for this app.
                           </p>
                         </div>
@@ -216,17 +216,17 @@ export default function IdentityTokenCreateForm({
       </form>
 
       {plaintext && (
-        <div className="mt-6 rounded-lg border border-gold-300 bg-gold-50 p-5 dark:border-gold-700 dark:bg-gold-950/30">
-          <p className="text-sm font-medium text-gold-800 dark:text-gold-300">
+        <div className="mt-6 rounded-lg border border-primary bg-accent p-5 dark:border-primary dark:bg-accent">
+          <p className="text-sm font-medium text-primary dark:text-primary">
             Copy this token now. It will not be shown again.
           </p>
-          <code className="mt-3 block break-all rounded-sm bg-base-white p-3 font-mono text-sm text-primary border border-alpha dark:bg-surface">
+          <code className="mt-3 block break-all rounded-sm border border-border bg-card p-3 font-mono text-sm text-foreground dark:bg-card">
             {plaintext}
           </code>
         </div>
       )}
 
-      {error && <p className="mt-4 text-sm text-ember-500">{error}</p>}
+      {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
     </>
   );
 }

@@ -124,7 +124,7 @@ export default function AppAdminPageClient({ appName }: { appName: string }) {
             <p className="text-sm text-muted-foreground">Loading app registry…</p>
           ) : forbidden ? (
             <div
-              className="animate-fade-in-up rounded-2xl border border-alpha bg-base-white p-6 dark:bg-surface"
+              className="animate-fade-in-up rounded-2xl border border-border bg-card p-6 dark:bg-card"
               data-testid="app-admin-access-denied"
             >
               <h1 className="text-2xl font-heading text-foreground">Access denied</h1>
@@ -133,7 +133,7 @@ export default function AppAdminPageClient({ appName }: { appName: string }) {
               </p>
             </div>
           ) : error && !registry ? (
-            <p className="text-sm text-ember-500">{error}</p>
+            <p className="text-sm text-destructive">{error}</p>
           ) : registry ? (
             <div className="animate-fade-in-up [animation-delay:60ms]">
               <AppAdminVersionPanel

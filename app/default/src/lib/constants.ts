@@ -5,4 +5,4 @@ export const CONNECTION_RETURN_PATH_STORAGE_KEY =
   "gestalt.connection.returnPath";
 
 export const INPUT_CLASSES =
-  "rounded-sm border border-alpha bg-base-white px-3 py-2 text-sm text-primary placeholder:text-faint focus:border-base-950 focus:outline-hidden focus:ring-2 focus:ring-base-950/10 dark:bg-surface dark:focus:border-base-200 dark:focus:ring-base-200/10";
+  "rounded-sm border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/70 focus:border-ring focus:outline-hidden focus:ring-2 focus:ring-ring dark:bg-card dark:focus:border-ring dark:focus:ring-ring";

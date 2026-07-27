@@ -57,13 +57,13 @@ interface IntegrationSettingsModalProps {
 function statusBadgeClasses(tone: NormalizedIntegrationStatus["tone"]): string {
   switch (tone) {
     case "success":
-      return "border-grove-200 bg-grove-50 text-grove-700 dark:border-grove-600 dark:bg-grove-700/20 dark:text-grove-200";
+      return "border-success-foreground bg-success text-success-foreground dark:border-success-foreground dark:bg-success/20 dark:text-success-foreground";
     case "warning":
-      return "border-gold-200 bg-gold-50 text-gold-700 dark:border-gold-600 dark:bg-gold-700/20 dark:text-gold-200";
+      return "border-primary bg-accent text-primary dark:border-primary dark:bg-accent dark:text-primary";
     case "danger":
-      return "border-ember-200 bg-ember-50 text-ember-700 dark:border-ember-600 dark:bg-ember-700/20 dark:text-ember-200";
+      return "border-destructive bg-destructive/10 text-destructive dark:border-destructive dark:bg-destructive/20 dark:text-destructive";
     case "neutral":
-      return "border-alpha bg-base-100 text-muted dark:bg-surface-raised";
+      return "border-border bg-muted text-muted-foreground dark:bg-muted";
   }
 }
 
@@ -367,7 +367,7 @@ export default function IntegrationSettingsModal({
               setView("disconnect");
             }}
             disabled={disconnecting}
-            className="text-sm text-ember-500 transition-colors duration-150 hover:text-ember-600"
+            className="text-sm text-destructive transition-colors duration-150 hover:text-destructive"
           >
             Disconnect
           </button>
@@ -381,19 +381,19 @@ export default function IntegrationSettingsModal({
     return (
       <div
         key={connection.key}
-        className="rounded-md border border-alpha px-4 py-3"
+        className="rounded-md border border-border px-4 py-3"
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <div className="flex items-center gap-2.5">
               {connection.connected ? (
-                <CheckCircleIcon className="h-4 w-4 shrink-0 text-grove-500" />
+                <CheckCircleIcon className="h-4 w-4 shrink-0 text-success-foreground" />
               ) : null}
               <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-primary">
+                <div className="truncate text-sm font-medium text-foreground">
                   {connection.label}
                 </div>
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-faint">
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground/70">
                   {connection.detailLines.map((line) => (
                     <span key={line}>{line}</span>
                   ))}
@@ -402,7 +402,7 @@ export default function IntegrationSettingsModal({
             </div>
 
             {actionCopy ? (
-              <p className="mt-3 text-xs text-muted">{actionCopy}</p>
+              <p className="mt-3 text-xs text-muted-foreground">{actionCopy}</p>
             ) : null}
 
             {connection.instances.length > 0 ? (
@@ -410,12 +410,12 @@ export default function IntegrationSettingsModal({
                 {connection.instances.map((instance) => (
                   <div
                     key={`${connection.key}:${instance.name}`}
-                    className="flex items-center justify-between gap-3 rounded-md bg-base-100 px-3 py-2 dark:bg-surface-raised"
+                    className="flex items-center justify-between gap-3 rounded-md bg-muted px-3 py-2 dark:bg-muted"
                   >
                     <div>
-                      <div className="text-sm text-primary">{instance.name}</div>
+                      <div className="text-sm text-foreground">{instance.name}</div>
                       {instance.connection ? (
-                        <div className="text-xs text-faint">
+                        <div className="text-xs text-muted-foreground/70">
                           {instance.connection}
                         </div>
                       ) : null}
@@ -431,7 +431,7 @@ export default function IntegrationSettingsModal({
                           setView("disconnect");
                         }}
                         disabled={disconnecting}
-                        className="text-xs text-ember-500 transition-colors duration-150 hover:text-ember-600"
+                        className="text-xs text-destructive transition-colors duration-150 hover:text-destructive"
                       >
                         Disconnect
                       </button>
@@ -457,21 +457,21 @@ export default function IntegrationSettingsModal({
       onCancel={handleCancel}
       onClose={onClose}
       onClick={handleBackdropClick}
-      className="m-auto w-full max-w-lg rounded-lg border border-alpha bg-base-white p-0 shadow-dropdown dark:bg-surface"
+      className="m-auto w-full max-w-lg rounded-lg border border-border bg-card p-0 shadow-dropdown dark:bg-card"
     >
       <div className="p-7">
         {view === "disconnect" ? (
           <>
             <h2
               id={headingId}
-              className="text-lg font-heading text-primary"
+              className="text-lg font-heading text-foreground"
             >
               Disconnect {displayName}?
             </h2>
-            <p className="mt-3 text-sm text-muted">
+            <p className="mt-3 text-sm text-muted-foreground">
               {disconnectCopy(displayName, connectionContext)}
             </p>
-            {error && <p className="mt-3 text-sm text-ember-500">{error}</p>}
+            {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
             <div className="mt-6 flex gap-3">
               <Button
                 variant="secondary"
@@ -498,11 +498,11 @@ export default function IntegrationSettingsModal({
           <form onSubmit={handleInstanceSubmit}>
             <h2
               id={headingId}
-              className="text-lg font-heading text-primary"
+              className="text-lg font-heading text-foreground"
             >
               Add Connection
             </h2>
-            {error && <p className="mt-3 text-sm text-ember-500">{error}</p>}
+            {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
             <label
               htmlFor={`instance-name-${integration.name}`}
               className="mt-5 label-text block"
@@ -551,26 +551,26 @@ export default function IntegrationSettingsModal({
               <div>
                 <h2
                   id={headingId}
-                  className="text-lg font-heading text-primary"
+                  className="text-lg font-heading text-foreground"
                 >
                   {displayName}
                 </h2>
                 {shouldShowIntegrationSummary(normalizedStatus) ? (
-                  <p className="mt-2 text-sm text-muted">
+                  <p className="mt-2 text-sm text-muted-foreground">
                     {normalizedStatus.summaryLabel}
                   </p>
                 ) : null}
               </div>
               <button
                 onClick={closeDialog}
-                className="rounded-md p-1.5 text-faint transition-colors duration-150 hover:bg-alpha-5 hover:text-muted"
+                className="rounded-md p-1.5 text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-muted-foreground"
                 aria-label="Close"
               >
                 <CloseIcon className="h-4 w-4" />
               </button>
             </div>
 
-            {error && <p className="mt-3 text-sm text-ember-500">{error}</p>}
+            {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
 
             <div className="mt-5 space-y-3">
               {normalizedStatus.connections.map(renderConnectionRow)}
@@ -589,7 +589,7 @@ function renderLinkedText(text: string): ReactNode[] {
   return text.split(LINK_RE).map((seg, i) => {
     const m = seg.match(LINK_MATCH_RE);
     if (!m) return seg;
-    return <a key={i} href={m[2]} target="_blank" rel="noopener noreferrer" className="text-gold-600 hover:underline dark:text-gold-400">{m[1]}</a>;
+    return <a key={i} href={m[2]} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline dark:text-primary">{m[1]}</a>;
   });
 }
 
@@ -619,7 +619,7 @@ function TokenForm({
     <form onSubmit={onSubmit}>
       <h2
         id={headingId}
-        className="text-lg font-heading text-primary"
+        className="text-lg font-heading text-foreground"
       >
         {heading}
       </h2>
@@ -651,7 +651,7 @@ function TokenForm({
             {field.label || field.name}
           </label>
           {field.description && (
-            <p className="mt-1 text-xs text-faint normal-case tracking-normal">{renderLinkedText(field.description)}</p>
+            <p className="mt-1 text-xs text-muted-foreground/70 normal-case tracking-normal">{renderLinkedText(field.description)}</p>
           )}
           <input
             id={`cred_${field.name}-${integrationName}`}
@@ -664,7 +664,7 @@ function TokenForm({
           />
         </div>
       ))}
-      {error && <p className="mt-3 text-sm text-ember-500">{error}</p>}
+      {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
       <div className="mt-6 flex gap-3">
         <Button
           type="button"

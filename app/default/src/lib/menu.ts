@@ -5,10 +5,9 @@ import { cva } from "class-variance-authority";
 // sizing, and disabled treatment. shadcn duplicates these per primitive, which
 // is what lets them drift apart; sharing keeps every menu row identical.
 //
-// Idle hover/press use selectable-rows Neutral roles (`neutral-hover` /
-// `neutral-pressed`). Popup selection (Select / Combobox) stays on a blank
-// row with a solid trailing check — Accent vivid fill is for persistent list
-// surfaces (Listbox / listItemInteraction), not flyout options.
+// Idle hover/press use the semantic accent surface. Popup selection
+// (Select / Combobox) stays on a blank row with a primary-ink trailing check;
+// persistent list surfaces may use the primary fill instead.
 //
 // Active state is keyed off both `focus` (Radix) and `aria-selected` (cmdk) so
 // the same class works across primitives; disabled likewise keys off
@@ -27,7 +26,7 @@ import { cva } from "class-variance-authority";
 // exclusive, so the press wins with no specificity hack. (Table rows don't need
 // this — their competitor is `:hover`, which `:active` already beats.)
 export const menuItemVariants = cva(
-  "relative flex cursor-default select-none items-center gap-2 rounded-md py-1.5 text-sm outline-none transition-colors duration-select-out ease-out-quart focus:not-active:bg-neutral-hover focus:text-foreground focus:duration-select-in aria-selected:not-active:bg-neutral-hover aria-selected:text-foreground aria-selected:duration-select-in active:bg-neutral-pressed active:text-foreground active:duration-press aria-disabled:pointer-events-none aria-disabled:opacity-50 aria-disabled:text-disabled-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "relative flex cursor-default select-none items-center gap-2 rounded-md py-1.5 text-sm outline-none transition-colors duration-select-out ease-out-quart focus:not-active:bg-accent focus:text-foreground focus:duration-select-in aria-selected:not-active:bg-accent aria-selected:text-foreground aria-selected:duration-select-in active:bg-accent/80 active:text-foreground active:duration-press aria-disabled:pointer-events-none aria-disabled:opacity-50 aria-disabled:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       indicator: {

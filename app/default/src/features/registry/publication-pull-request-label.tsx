@@ -1,7 +1,7 @@
 import type { AppAdminPublicationPullRequest } from "@/features/registry/types";
 
 export const REGISTRY_TABLE_LINK_CLASS =
-  "font-medium text-gold-700 underline decoration-gold-300 underline-offset-2 hover:text-gold-800 dark:text-gold-300";
+  "font-medium text-primary underline decoration-primary underline-offset-2 hover:text-primary dark:text-primary";
 
 export function PublicationPullRequestLabel({
   pullRequest,

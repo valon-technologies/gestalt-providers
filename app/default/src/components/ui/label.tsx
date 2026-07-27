@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 // Presence selector (not =true) — matches bare `data-invalid` and
 // `data-invalid={!!error}` per fields.md; =true misses empty-string flags.
 const labelVariants = cva(
-  "font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:text-disabled-foreground group-data-[disabled]/field:cursor-not-allowed group-data-[disabled]/field:text-disabled-foreground group-data-[invalid]/field:text-destructive",
+  "font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:text-muted-foreground group-data-[disabled]/field:cursor-not-allowed group-data-[disabled]/field:text-muted-foreground group-data-[invalid]/field:text-destructive",
   {
     variants: {
       variant: {

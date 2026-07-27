@@ -8,6 +8,7 @@ import {
   type ManagedIdentity,
 } from "@/lib/api";
 import { INPUT_CLASSES } from "@/lib/constants";
+import { appPath } from "@/lib/mount";
 import AuthGuard from "@/components/AuthGuard";
 import Button from "@/components/Button";
 import Container from "@/components/Container";
@@ -103,7 +104,7 @@ export default function ManagedIdentitiesPageClient() {
     setCreateError(null);
     try {
       const identity = await createManagedIdentity(id, displayName);
-      window.location.href = `/identities?id=${encodeURIComponent(identity.subjectId)}`;
+      window.location.href = appPath(`/identities?id=${encodeURIComponent(identity.subjectId)}`);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "Failed to create identity");
     } finally {
@@ -117,22 +118,22 @@ export default function ManagedIdentitiesPageClient() {
         <Nav />
         {identitiesAvailable === null ? (
           <Container as="main" className="py-12">
-            <p className="text-sm text-faint">Loading...</p>
+            <p className="text-sm text-muted-foreground/70">Loading...</p>
           </Container>
         ) : identitiesAvailable === false ? (
           <Container as="main" className="py-12">
             <div className="mx-auto max-w-3xl">
               <div className="animate-fade-in-up">
                 <span className="label-text">Workspace</span>
-                <h1 className="mt-2 text-2xl font-heading text-primary">
+                <h1 className="mt-2 text-2xl font-heading text-foreground">
                   Agent Identities
                 </h1>
-                <p className="mt-4 text-sm text-muted">
+                <p className="mt-4 text-sm text-muted-foreground">
                   Managed identities require platform auth and are unavailable when auth is disabled.
                 </p>
                 <Link
                   to="/"
-                  className="mt-6 inline-flex text-sm text-muted transition-colors duration-150 hover:text-primary"
+                  className="mt-6 inline-flex text-sm text-muted-foreground transition-colors duration-150 hover:text-foreground"
                 >
                   &larr; Back to dashboard
                 </Link>
@@ -145,17 +146,17 @@ export default function ManagedIdentitiesPageClient() {
           <Container as="main" className="py-12">
             <div className="animate-fade-in-up">
               <span className="label-text">Workspace</span>
-              <h1 className="mt-2 text-2xl font-heading text-primary">
+              <h1 className="mt-2 text-2xl font-heading text-foreground">
                 Agent Identities
               </h1>
-              <p className="mt-2 text-sm text-muted">
+              <p className="mt-2 text-sm text-muted-foreground">
                 Create and manage shared non-human identities for tokens and app authorization.
               </p>
             </div>
 
             <form
               onSubmit={handleCreate}
-              className="mt-8 grid gap-3 rounded-lg border border-alpha bg-base-white p-5 dark:bg-surface lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end"
+              className="mt-8 grid gap-3 rounded-lg border border-border bg-card p-5 dark:bg-card lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end"
             >
               <div>
                 <label htmlFor="identity-display-name" className="label-text block">
@@ -182,8 +183,8 @@ export default function ManagedIdentitiesPageClient() {
                 <label htmlFor="identity-id" className="label-text block">
                   Identity ID
                 </label>
-                <div className="mt-2 flex rounded-md border border-alpha bg-base-white transition-all duration-150 focus-within:border-alpha-strong focus-within:ring-2 focus-within:ring-foreground/10 dark:bg-surface">
-                  <span className="flex items-center border-r border-alpha px-3 font-mono text-sm text-faint">
+                <div className="mt-2 flex rounded-md border border-border bg-card transition-all duration-150 focus-within:border-input focus-within:ring-2 focus-within:ring-foreground/10 dark:bg-card">
+                  <span className="flex items-center border-r border-border px-3 font-mono text-sm text-muted-foreground/70">
                     service_account:
                   </span>
                   <input
@@ -198,10 +199,10 @@ export default function ManagedIdentitiesPageClient() {
                       setIdentityIDEdited(true);
                       setIdentityLocalID(event.target.value);
                     }}
-                    className="min-w-0 flex-1 bg-transparent px-4 py-3 text-primary placeholder:text-faint focus:outline-hidden"
+                    className="min-w-0 flex-1 bg-transparent px-4 py-3 text-foreground placeholder:text-muted-foreground/70 focus:outline-hidden"
                   />
                 </div>
-                <p className="mt-2 text-xs text-faint">
+                <p className="mt-2 text-xs text-muted-foreground/70">
                   Letters, numbers, dots, underscores, and hyphens.
                 </p>
               </div>
@@ -212,13 +213,13 @@ export default function ManagedIdentitiesPageClient() {
               </div>
             </form>
 
-            {createError && <p className="mt-4 text-sm text-ember-500">{createError}</p>}
-            {error && <p className="mt-6 text-sm text-ember-500">{error}</p>}
+            {createError && <p className="mt-4 text-sm text-destructive">{createError}</p>}
+            {error && <p className="mt-6 text-sm text-destructive">{error}</p>}
 
             {loading ? (
-              <p className="mt-10 text-sm text-faint">Loading...</p>
+              <p className="mt-10 text-sm text-muted-foreground/70">Loading...</p>
             ) : !error && identities.length === 0 ? (
-              <p className="mt-10 text-sm text-faint">
+              <p className="mt-10 text-sm text-muted-foreground/70">
                 No managed identities yet.
               </p>
             ) : !error ? (
