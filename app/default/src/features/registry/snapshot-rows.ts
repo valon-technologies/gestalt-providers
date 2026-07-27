@@ -90,11 +90,14 @@ export function snapshotLastUpdatedAt(
 
 export function snapshotLastUpdatedLabel(
   row: AppAdminSnapshotRow,
-  now: number | Date = Date.now(),
+  options?: { now?: number | Date; minRelativeUnit?: "second" | "minute" },
 ): { relative: string; absolute: string } | null {
   const value = snapshotLastUpdatedAt(row);
   if (!value) return null;
-  const relative = formatRegistryTimeAgo(value, now) || formatRegistryTime(value);
+  const relative =
+    formatRegistryTimeAgo(value, options?.now, {
+      minUnit: options?.minRelativeUnit,
+    }) || formatRegistryTime(value);
   const absolute = formatRegistryTime(value);
   if (!relative || relative === "—") return null;
   return { relative, absolute };
@@ -102,10 +105,10 @@ export function snapshotLastUpdatedLabel(
 
 export function snapshotStatusTimer(
   row: AppAdminSnapshotRow,
-  now: number | Date = Date.now(),
+  now?: number | Date,
 ): string | null {
   if (row.kind === "pending") {
-    const seconds = durationSecondsBetween(row.pending.startedAt, now);
+    const seconds = durationSecondsBetween(row.pending.startedAt, now ?? Date.now());
     return seconds !== null ? `for ${formatDurationSeconds(seconds)}` : null;
   }
   if (row.kind === "published") {
