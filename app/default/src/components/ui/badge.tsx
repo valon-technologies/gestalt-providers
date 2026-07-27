@@ -53,6 +53,22 @@ export function badgeCustomColorStyle(color: string): React.CSSProperties {
   };
 }
 
+const SEMANTIC_STATUS_VARIANTS = ["success", "warning", "info", "destructive"] as const;
+type SemanticStatusVariant = (typeof SEMANTIC_STATUS_VARIANTS)[number];
+
+/**
+ * Status badges read semantic fill tokens (`--success`, `--warning`, …). Tenant
+ * themes may override a fill without its paired foreground (issue-181). Use the
+ * same pale soft-wash + dark ink path as badgeCustomColorStyle so label text
+ * stays readable regardless of whether the deployment supplied both tokens.
+ */
+export function semanticStatusBadgeStyle(variant: SemanticStatusVariant): React.CSSProperties {
+  return {
+    backgroundColor: `color-mix(in oklch, var(--${variant}) 50%, white)`,
+    color: BADGE_CUSTOM_COLOR_INK,
+  };
+}
+
 const badgeVariants = cva(
   // Badges are single-line soft-rects (`rounded-sm` / --radius-sm ≈ 4px) — squarer
   // than a capsule, tighter than Button's `rounded-md`, matching compact status
@@ -66,10 +82,11 @@ const badgeVariants = cva(
         muted: "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground",
         outline: "border border-border text-foreground",
         ghost: "bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-        success: "bg-success text-success-foreground",
-        warning: "bg-warning text-warning-foreground",
-        info: "bg-info text-info-foreground",
-        destructive: "bg-destructive text-destructive-foreground",
+        // Fill/ink applied via semanticStatusBadgeStyle — see issue-181.
+        success: "",
+        warning: "",
+        info: "",
+        destructive: "",
         // Internal: reached only via the `color` prop. No token fill/hover so the
         // soft wash + dark ink fully own the look.
         custom: "",
@@ -92,6 +109,10 @@ const badgeVariants = cva(
 // `custom` is internal — selected only by passing `color`, never by a consumer.
 type BadgeVariant = Exclude<NonNullable<VariantProps<typeof badgeVariants>["variant"]>, "custom">;
 
+function isSemanticStatusVariant(variant?: BadgeVariant): variant is SemanticStatusVariant {
+  return variant != null && (SEMANTIC_STATUS_VARIANTS as readonly string[]).includes(variant);
+}
+
 export interface BadgeProps extends Omit<React.HTMLAttributes<HTMLSpanElement>, "color"> {
   variant?: BadgeVariant;
   size?: VariantProps<typeof badgeVariants>["size"];
@@ -112,7 +133,13 @@ function Badge({ className, variant, size, color, asChild = false, style, ...pro
       data-slot="badge"
       data-variant={custom ? "custom" : variant}
       className={cn(badgeVariants({ variant: custom ? "custom" : variant, size }), className)}
-      style={custom ? { ...badgeCustomColorStyle(color), ...style } : style}
+      style={
+        custom
+          ? { ...badgeCustomColorStyle(color), ...style }
+          : isSemanticStatusVariant(variant)
+            ? { ...semanticStatusBadgeStyle(variant), ...style }
+            : style
+      }
       {...props}
     />
   );

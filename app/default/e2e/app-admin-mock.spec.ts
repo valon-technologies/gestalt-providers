@@ -176,6 +176,44 @@ test.describe("app admin registry UI", () => {
     ).toHaveText("1 minute ago");
   });
 
+  test("snapshot status badges stay readable when tenant theme overrides success fill only", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem("theme", "dark");
+    });
+    await page.route("**/theme.css", (route) =>
+      route.fulfill({
+        contentType: "text/css",
+        body: `
+          .dark {
+            --success: oklch(86.526% 0.0672 144.97);
+            --success-foreground: oklch(85% 0.09 150);
+            --warning: oklch(30% 0.075 85);
+            --warning-foreground: oklch(88% 0.09 85);
+          }
+        `,
+      }),
+    );
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      desiredVersion: PUBLISHED_NEW.version,
+      pendingVersions: [PENDING_VERSION],
+    });
+    await page.goto(`/apps/${APP}/admin`);
+
+    const deployedBadge = page
+      .getByTestId(`snapshot-row-published`)
+      .filter({ hasText: PUBLISHED_NEW.version.slice(0, 20) })
+      .getByTestId("snapshot-status");
+    await expect(deployedBadge).toHaveText("Deployed");
+    await expect(deployedBadge).toHaveCSS("color", "rgb(10, 10, 10)");
+
+    const publishingBadge = page.getByTestId("snapshot-row-pending").getByTestId("snapshot-status");
+    await expect(publishingBadge).toHaveText("Publishing");
+    await expect(publishingBadge).toHaveCSS("color", "rgb(10, 10, 10)");
+  });
+
   test("prefers published rows over pending and failed for the same version", async ({
     page,
   }) => {
