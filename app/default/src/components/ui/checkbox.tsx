@@ -1,13 +1,7 @@
 "use client";
 
-
 /**
- * Gestalt console vendor of Valon Registry `checkbox`.
- *
- * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/checkbox.tsx`).
- * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
- * Do not restyle chrome at call sites; change Registry first.
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
 import * as React from "react";
@@ -70,7 +64,7 @@ const INDETERMINATE_EXIT_CLIP =
 
 // Bounce on checked; suppress during minus→check handoff so it fires with the draw.
 const CHECK_BOUNCE =
-  "group-data-[state=checked]/checkbox:animate-[valon-check-bounce_var(--duration-200)_var(--ease-out-quart)_calc(2*var(--duration-200))] group-data-[state=checked]/checkbox:group-data-[check-draw=pending]/checkbox:[animation:none]";
+  "group-data-[state=checked]/checkbox:animate-[selection-check-bounce_var(--duration-200)_var(--ease-out-quart)_calc(2*var(--duration-200))] group-data-[state=checked]/checkbox:group-data-[check-draw=pending]/checkbox:[animation:none]";
 
 function markHandoffMs(el: Element): number {
   if (

@@ -1,10 +1,5 @@
 /**
- * Gestalt console vendor of Valon Registry `separator`.
- *
- * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/separator.tsx`).
- * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
- * Do not restyle chrome at call sites; change Registry first.
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
 'use client';

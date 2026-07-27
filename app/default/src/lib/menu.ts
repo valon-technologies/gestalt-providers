@@ -1,8 +1,5 @@
 /**
- * Gestalt console vendor of Valon Registry `menu`.
- *
- * Ownership: Valon Registry (`valon-tools/apps/registry/ui/src/lib/menu.ts`).
- * Synced from toolshed origin/main — import-path adaptation only.
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
 import { cva } from "class-variance-authority";

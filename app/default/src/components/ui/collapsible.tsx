@@ -1,13 +1,7 @@
 "use client";
 
-
 /**
- * Gestalt console vendor of Valon Registry `collapsible`.
- *
- * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/collapsible.tsx`).
- * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
- * Do not restyle chrome at call sites; change Registry first.
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
 import * as React from "react";
@@ -16,7 +10,7 @@ import * as CollapsiblePrimitive from "@radix-ui/react-collapsible";
 import { listItemInteraction } from "@/lib/list-item-interaction";
 import { cn } from "@/lib/cn";
 
-// shadcn Collapsible on Radix, in the Valon house style: canonical focus-ring on
+// shadcn Collapsible on Radix, in the shared house style: canonical focus-ring on
 // the trigger, Neutral idle hover/press from listItemInteraction
 // (selectable-rows.md — same ladder as List Item / table rows; not accent-wash),
 // and the same pure-CSS height drawer as Accordion (`interpolate-size` + theme

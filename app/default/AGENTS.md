@@ -3,9 +3,9 @@
 Portable contract for coding agents (Cursor, Claude Code, Codex, Gemini CLI, etc.).
 Human porting notes: [`src/components/ui/PORTING.md`](src/components/ui/PORTING.md).
 
-## Valon Registry UI
+## Gestalt UI registry
 
-**SoT:** `valon-tools/apps/registry` (+ `valon-tools/registry/guidelines`).
+**Source of truth:** upstream design-system registry (vendored under `src/components/ui/`).
 
 When using a Registry component or pattern (RadioGroup choice cards, Field,
 Button, Checkbox, Eyebrow, AgentConsole, Stepper, …):

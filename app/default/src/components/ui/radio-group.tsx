@@ -1,23 +1,14 @@
 "use client";
 
+/**
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ */
+
 import * as React from "react";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
 import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/cn";
-
-/**
- * Gestalt console vendor of Valon Registry `radio-group`.
- *
- * Ownership: Valon Registry is the canonical source of truth
- * (`valon-tools/apps/registry/ui/src/ui/radio-group.tsx`).
- * Token adaptation only — same public API (`RadioGroup`, `RadioGroupItem`,
- * size variants, `focusRing`). Choice-card layouts compose via
- * `@/lib/choice-card-chrome`.
- *
- * @see src/components/ui/PORTING.md
- * @see valon-tools/apps/registry/ui/src/ui/radio-group.stories.tsx
- */
 
 const RADIO_RING_TRANSITION =
   "transition-[box-shadow] duration-[var(--duration-100)] ease-out-expo motion-reduce:transition-none";

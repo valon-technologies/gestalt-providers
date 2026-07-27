@@ -1,17 +1,12 @@
+/**
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ */
+
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/cn";
-
-/**
- * Gestalt console vendor of Valon Registry `badge`.
- *
- * Ownership: Valon Registry (`valon-tools/apps/registry/ui/src/ui/badge.tsx`).
- * Token adaptation only — Registry semantic status classes (`bg-success`,
- * `text-success-foreground`, etc.); `cn` import path. Custom `color` uses the
- * inlined luminance helper (no extra package).
- */
 
 // User-chosen Badge `color` (entity labels) is a *hue identity*. Presentation
 // splits on relative luminance: pale → soft wash toward white + dark ink;

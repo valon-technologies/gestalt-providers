@@ -1,13 +1,7 @@
 "use client";
 
-
 /**
- * Gestalt console vendor of Valon Registry `tooltip`.
- *
- * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/tooltip.tsx`).
- * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
- * Do not restyle chrome at call sites; change Registry first.
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
 import * as React from "react";
@@ -68,7 +62,7 @@ function TooltipContent({
         sideOffset={sideOffset}
         className={cn(
           "z-50 w-fit origin-(--radix-tooltip-content-transform-origin) rounded-md bg-foreground px-3 py-1.5 text-xs text-balance text-background",
-          // blur + spring spawn (after beui), on Valon motion tokens: grows from the
+          // blur + spring spawn (after beui), on shared motion tokens: grows from the
           // trigger edge with an ease-out-back overshoot as the blur clears.
           // NOTE: Radix tooltip's open state is "instant-open"/"delayed-open" (never
           // "open"), so the ENTER classes are unconditional — the content only mounts

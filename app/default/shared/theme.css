@@ -5,7 +5,7 @@
  * may override any variable via the runtime `theme.css` endpoint.
  *
  * Defaults use :where() (zero specificity) so tenant `:root` / `.dark` wins.
- * Fallback oklch values mirror Valon Registry `registry/theme/theme.css` so
+ * Fallback oklch values mirror the shared Gestalt UI theme contract so
  * vendored UI primitives render correctly without a tenant palette.
  */
 

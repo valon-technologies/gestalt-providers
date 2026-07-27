@@ -1,10 +1,5 @@
 /**
- * Gestalt console vendor of Valon Registry `code-fence`.
- *
- * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/code-fence.tsx`).
- * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
- * Do not restyle chrome at call sites; change Registry first.
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
 import * as React from "react";
@@ -13,7 +8,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/cn";
 
 // One code-fence surface for Plate fences and display CodeBlock.
-// Highlight colors stay in valon-typeset `.typeset-code-hljs` — this file owns
+// Highlight colors stay in typeset `.typeset-code-hljs` — this file owns
 // only the shared chrome paint (shell / header / pre body), so the two
 // presenters cannot drift by copy-pasting Tailwind strings.
 
@@ -45,7 +40,7 @@ export const codeFenceHeaderClass =
 export const codeFencePreClass =
   "overflow-x-auto px-4 py-3 font-mono text-sm leading-[normal] [tab-size:2]";
 
-/** Token theme host class — colors come from valon-typeset. */
+/** Token theme host class — colors come from typeset. */
 export const codeFenceHighlightClass = "typeset-code-hljs";
 
 /** Left edge for a highlighted source line — pairs with --code-line-emphasis wash. */

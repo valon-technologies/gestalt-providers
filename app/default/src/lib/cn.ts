@@ -1,9 +1,5 @@
 /**
- * Gestalt console vendor of Valon Registry `utils` (`cn`).
- *
- * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/lib/utils.ts`).
- * Synced from toolshed origin/main — exported as `@/lib/cn` (console path).
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
 import { clsx, type ClassValue } from "clsx";

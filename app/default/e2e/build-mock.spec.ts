@@ -75,10 +75,10 @@ const catalogFixtures = [
     status: "ready" as const,
   },
   {
-    name: "valonSats",
-    displayName: "Valon SATs",
+    name: "servicingQuiz",
+    displayName: "Servicing Quiz",
     description: "SATs",
-    mountedPath: "/valon-sats",
+    mountedPath: "/servicing-quiz",
     iconSvg:
       '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12"/></svg>',
     credentialState: "connected" as const,
@@ -119,7 +119,7 @@ test.describe("Build page", () => {
     await expect(page.getByTestId("build-outcome-card-aiSpendTracker")).toBeVisible();
     await expect(page.getByTestId("build-outcome-card-oncall")).toBeVisible();
     await expect(page.getByTestId("build-outcome-card-ashby")).toBeVisible();
-    await expect(page.getByTestId("build-outcome-card-valonSats")).toBeVisible();
+    await expect(page.getByTestId("build-outcome-card-servicingQuiz")).toBeVisible();
 
     await expect(
       page.getByTestId("build-outcome-card-aiSpendTracker").getByText("Engineering"),
@@ -127,7 +127,7 @@ test.describe("Build page", () => {
     await expect(
       page.getByRole("radio", { name: "Monitor spending" }),
     ).toBeChecked();
-    await expect(page.getByText("Already built at Valon")).toHaveCount(0);
+    await expect(page.getByText("Already built at Acme")).toHaveCount(0);
     await expect(page.getByRole("radio", { name: "AI Spend Tracker" })).toHaveCount(
       0,
     );
@@ -405,7 +405,7 @@ test.describe("Build page", () => {
     await page.addInitScript(() => {
       sessionStorage.setItem("gestalt.build.introSeen", "1");
       sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
-      sessionStorage.setItem("gestalt.build.activeExemplarId", "valonSats");
+      sessionStorage.setItem("gestalt.build.activeExemplarId", "servicingQuiz");
     });
 
     await page.goto("/build/authorize");

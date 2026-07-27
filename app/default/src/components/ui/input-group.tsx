@@ -1,15 +1,7 @@
 "use client";
 
-
 /**
- * Gestalt console vendor of Valon Registry `input-group`.
- *
- * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/input-group.tsx`).
- * Synced from toolshed origin/main — adaptations:
- *   - `@/lib/cn` path
- *   - `InputGroupInput` forwards ref (PluginSearchBar); consider upstreaming
- * Do not restyle chrome at call sites; change Registry first.
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
 import * as React from "react";

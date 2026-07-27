@@ -12,10 +12,10 @@ export type BuildExemplarId =
   | "aiSpendTracker"
   | "oncall"
   | "ashby"
-  | "valonSats";
+  | "servicingQuiz";
 
 /**
- * Access-safe mounted Valon app behind a Build journey.
+ * Access-safe mounted app behind a Build journey.
  * Intro faces a **department + outcome**; invoke reveals the **app**.
  */
 export type BuildExemplar = {
@@ -113,7 +113,7 @@ Eng percentile: top 40%
     expectedResult: `On call now: Alex (primary), Sam (secondary)
 Open queue: 3 pages
 Next rotation: Thu 09:00`,
-    builderNote: "Valon Engineering",
+    builderNote: "Platform team",
     knownMountPath: "/oncall",
     relatedAppIds: ["incident_io", "datadog"],
   },
@@ -138,22 +138,22 @@ Next rotation: Thu 09:00`,
     relatedAppIds: ["rippling", "talentTeam"],
   },
   {
-    id: "valonSats",
-    label: "Valon SATs",
-    department: "Default Servicing",
+    id: "servicingQuiz",
+    label: "Servicing Quiz",
+    department: "Training",
     outcomeTitle: "Practice servicing knowledge",
     need: "Self-check mortgage servicing knowledge.",
     llmPrompt: "Am I ready for another servicing quiz?",
     companionAppIds: ["slack"],
-    invokeAppId: "valonSats",
+    invokeAppId: "servicingQuiz",
     operationId: "getHistory",
-    invokeRecipe: "gestalt apps invoke valonSats getHistory",
+    invokeRecipe: "gestalt apps invoke servicingQuiz getHistory",
     expectedResult: `Last attempt: 78% (passed)
 Topics to review: ETD timing, MI cancellation
 Ready for a new attempt when you are.`,
-    builderNote: "Valon Servicing",
-    knownMountPath: "/valon-sats",
-    relatedAppIds: ["valonLearn", "trainingCurriculum"],
+    builderNote: "Training team",
+    knownMountPath: "/servicing-quiz",
+    relatedAppIds: ["learnPortal", "trainingCurriculum"],
   },
 ];
 
@@ -333,10 +333,10 @@ export function companionAppLabel(appId: string): string {
       return "AI Spend Tracker";
     case "oncall":
       return "Oncall";
-    case "valonSats":
-      return "Valon SATs";
-    case "valonLearn":
-      return "Valon Learn";
+    case "servicingQuiz":
+      return "Servicing Quiz";
+    case "learnPortal":
+      return "Learn Portal";
     case "trainingCurriculum":
       return "Training Curriculum";
     case "modelProviderBillingMetrics":

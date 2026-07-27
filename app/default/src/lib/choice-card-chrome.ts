@@ -1,25 +1,9 @@
+/**
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ */
+
 import { cva, type VariantProps } from "class-variance-authority";
 
-/**
- * Choice-card tile chrome (stories / composition).
- *
- * Gestalt console vendor of Valon Registry `choice-card-chrome`.
- * Canonical: `valon-tools/apps/registry/ui/src/lib/choice-card-chrome.ts`
- *
- * Invariant: layout never changes on select — `border-0` always. Idle hairline
- * and selected accent ring are decorative inset box-shadows on the same outer
- * edge. Keyboard focus adds focus-ring via outline when the radio is
- * :focus-visible (not mouse click). Radio disk uses default RadioGroupItem
- * chrome; card owns keyboard focus chrome.
- *
- * Pointer affordance (neutral hover/press) is opt-in — compose
- * `choiceCardClassName` + `choiceCardHoverClassName`. Form variants disclose
- * nested fields via controlled `Collapsible` + `CollapsibleContent`.
- *
- * `indicator` variant: `radio` shows the disk column; `none` hides it (`sr-only`)
- * and selection reads from inset card ring only — Chakra “No Indicator”.
- * Still `RadioGroup` semantics either way.
- */
 export const choiceCardSelectionTransition =
   "transition-[box-shadow] duration-[var(--duration-100)] ease-out-expo motion-reduce:transition-none";
 

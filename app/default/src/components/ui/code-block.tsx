@@ -1,14 +1,8 @@
 "use client";
 
 /**
- * Gestalt console vendor of Valon Registry `code-block`.
- *
- * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/code-block.tsx`).
- * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
- * Do not restyle chrome at call sites; change Registry first.
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
-
 
 import * as React from "react";
 
@@ -35,7 +29,7 @@ import { cn } from "@/lib/cn";
 
 // Display CodeBlock for install snippets / docs / AI messages — not the Plate
 // editor fence. Highlighting uses the same lowlight → hljs class pipeline as
-// markdown-editor, styled by valon-typeset's `.typeset-code-hljs`. Surface
+// markdown-editor, styled by typeset's `.typeset-code-hljs`. Surface
 // paint comes from `code-fence` (shared with Plate code-block-node). Chrome
 // (filename, copy, line numbers, tabs) is modeled on shadcnspace's CodeBlock.
 

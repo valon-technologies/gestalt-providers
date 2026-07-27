@@ -55,8 +55,7 @@ Do not fork tile chrome at call sites. Import helpers from
 - `choiceCardRadioClassName` / `choiceCardRadioEyebrowClassName` — radio placement
 - Pass `focusRing="none"` on `RadioGroupItem` inside choice cards
 
-Canonical: `valon-tools/apps/registry/ui/src/lib/choice-card-chrome.ts` +
-`radio-group.stories.tsx`. Requires `--accent-solid` in theme (gold-400).
+Canonical: upstream `choice-card-chrome` + `radio-group` stories. Requires `--accent-solid` in theme (gold-400).
 
 ## Code (inline)
 
@@ -67,8 +66,8 @@ Do not hand-roll `bg-muted font-mono` at call sites.
 ## Brand type scale
 
 Registry PageHeader / SectionHeader consume `text-heading-*`, `text-display-*`,
-`tracking-heading`, `tracking-display` (valon.ai/style). Bridge those tokens in
-`shared/theme.css` (`--valon-text-*`, `--valon-tracking-*`) and expose them via
+`tracking-heading`, `tracking-display` (brand type scale). Bridge heading tokens in
+`shared/theme.css` and expose them via
 `globals.css` `@theme inline`. Do not invent freestyle `tracking-*` /
 `text-*` sizes at call sites.
 
@@ -90,7 +89,7 @@ indicator). Use for content navigation; mode switching stays on
 
 Registry `code-block` + `code-fence` are vendored here for display snippets
 (Build MCP install, etc.). Keep highlighting on lowlight → `.typeset-code-hljs`
-(`src/styles/typeset-code-hljs.css` from valon-typeset). Do not reintroduce
+(`src/styles/typeset-code-hljs.css`). Do not reintroduce
 Shiki for these surfaces. Shell paint maps Registry `bg-muted/50` /
 `border-border/50` to console `bg-alpha-5` / `border-alpha`. Multi-file /
 language-tab recipes (`MultiFileCodeBlock`, `LanguageTabsCodeBlock`) use

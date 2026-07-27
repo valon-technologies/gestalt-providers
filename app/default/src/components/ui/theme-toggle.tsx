@@ -1,20 +1,15 @@
 "use client";
 
+/**
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ */
+
 import { MonitorIcon, MoonIcon, SunIcon } from "@/components/icons";
 import { useTheme, type Theme } from "@/hooks/use-theme";
 import {
   SegmentedControl,
   type SegmentedControlOption,
 } from "@/components/ui/segmented-control";
-
-/**
- * Gestalt console vendor of Valon Registry `ThemeToggle`.
- *
- * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/theme-toggle.tsx`). Theme state stays on
- * console `@/hooks/use-theme` (owns `.dark` + `localStorage`) so main.tsx
- * bootstrap is unchanged; public props match Registry (`tooltips` default true).
- */
 
 const THEME_OPTIONS: ReadonlyArray<SegmentedControlOption<Theme>> = [
   { value: "light", label: "Light", icon: SunIcon },

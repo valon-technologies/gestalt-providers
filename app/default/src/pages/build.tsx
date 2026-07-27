@@ -339,10 +339,12 @@ function isStepDone(
 }
 
 function gestaltMcpBaseUrl(): string {
+  const configured = import.meta.env.VITE_GESTALT_PUBLIC_ORIGIN?.trim();
+  if (configured) return configured.replace(/\/$/, "");
   if (typeof window === "undefined") return "https://your-gestalt-host";
   const { origin, hostname } = window.location;
   if (hostname === "localhost" || hostname === "127.0.0.1") {
-    return "https://valon.tools";
+    return "https://your-gestalt-host";
   }
   return origin;
 }

@@ -1,9 +1,5 @@
 /**
- * Gestalt console vendor of Valon Registry `link`.
- *
- * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/link.tsx`).
- * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
 import * as React from "react";
@@ -11,7 +7,7 @@ import { Slot } from "@radix-ui/react-slot";
 
 import { cn } from "@/lib/cn";
 
-// The one Valon link treatment, owned here so every link (Link, BreadcrumbLink,
+// The shared link treatment, owned here so every link (Link, BreadcrumbLink,
 // Plate markdown links, app-level entity links) stays in sync. Link text uses --link
 // (gold-500); the draw underline uses --accent-solid (gold-400).
 type LinkUnderlineVariant = "hover" | "always";

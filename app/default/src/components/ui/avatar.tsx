@@ -1,17 +1,13 @@
 "use client";
 
+/**
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ */
+
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/cn";
-
-/**
- * Gestalt console vendor of Valon Registry `avatar`.
- *
- * Ownership: Valon Registry is canonical
- * (`valon-tools/apps/registry/ui/src/ui/avatar.tsx`). Local keeps an extra `xl`
- * size for the nav user chip; recipes otherwise match Registry muted/border tokens.
- */
 
 // Dependency-free: the only consumer renders initials (no image URL from the
 // backend), so there is nothing to gain from a load-status library. The image,
