@@ -214,4 +214,37 @@ test.describe("Authentication", () => {
       await page.evaluate(() => localStorage.getItem("gestalt.auth.session")),
     ).toBeNull();
   });
+
+  test("cached session keeps chrome visible when session refetch fails", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem(
+        "gestalt.auth.session",
+        JSON.stringify({
+          subjectId: "user:test@gestalt.dev",
+          email: "test@gestalt.dev",
+        }),
+      );
+    });
+    await mockAuthInfo(page, {
+      provider: "test-sso",
+      displayName: "Test SSO",
+    });
+    await page.route("**/api/v1/auth/session", (route) => {
+      route.fulfill({ status: 500, json: { error: "upstream unavailable" } });
+    });
+    await mockIntegrations(page, []);
+    await mockTokens(page, []);
+
+    await page.goto("/apps");
+    await expect(
+      page.getByRole("link", { name: "Apps", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Open user menu" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Open user menu" }).click();
+    await expect(page.getByText("test@gestalt.dev")).toBeVisible();
+  });
 });
