@@ -332,6 +332,9 @@ spec:
         - name: inclusive
           type: bool
           in: query
+        - name: include_all_metadata
+          type: bool
+          in: query
       - name: search.messages
         description: Search messages across the workspace
         method: GET

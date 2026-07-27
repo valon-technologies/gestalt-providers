@@ -1225,6 +1225,12 @@ class SlackProviderTests(unittest.TestCase):
             )
             self.assertIn("actor", _manifest_parameter_names(operation))
 
+        self.assertEqual(
+            _manifest_parameter_types(
+                rest_ops["conversations.history"], "include_all_metadata"
+            ),
+            ["bool"],
+        )
         self.assertNotIn("chat.postMessage", rest_ops)
 
         self.assertEqual(rest_ops["search.messages"]["connection"], "default")
