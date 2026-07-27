@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 import {
   SectionHeader,
+  SectionHeaderActions,
   SectionHeaderContent,
   SectionHeaderDescription,
   SectionHeaderTitle,
@@ -12,6 +14,7 @@ import { RegistryCode } from "@/features/registry/registry-code";
 import { RolloutBadge } from "@/features/registry/rollout-badge";
 import type { AppAdminRegistryResponse } from "@/features/registry/types";
 import { useAppAdminRegistryHistoryQuery } from "@/lib/queries";
+import { Loader2 } from "lucide-react";
 
 type AppAdminTab = "snapshots" | "history";
 
@@ -20,12 +23,16 @@ export function AppAdminVersionPanel({
   appMountedPath,
   deployingVersion,
   onDeployVersion,
+  onCheckForNewVersions,
+  isCheckingForNewVersions = false,
   error,
 }: {
   registry: AppAdminRegistryResponse;
   appMountedPath?: string;
   deployingVersion: string | null;
   onDeployVersion: (version: string) => void;
+  onCheckForNewVersions: () => void;
+  isCheckingForNewVersions?: boolean;
   error: string | null;
 }) {
   const [activeTab, setActiveTab] = useState<AppAdminTab>("snapshots");
@@ -112,6 +119,25 @@ export function AppAdminVersionPanel({
                   : "No version is installed yet. Deploy a published snapshot to install this app across the fleet."}
               </SectionHeaderDescription>
             </SectionHeaderContent>
+            <SectionHeaderActions>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onCheckForNewVersions}
+                disabled={isCheckingForNewVersions}
+                data-testid="check-for-new-versions"
+              >
+                {isCheckingForNewVersions ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                    Checking…
+                  </>
+                ) : (
+                  "Check for new versions"
+                )}
+              </Button>
+            </SectionHeaderActions>
           </SectionHeader>
 
           <AppAdminSnapshotsTable

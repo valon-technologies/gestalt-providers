@@ -80,6 +80,8 @@ export default function AppAdminPage() {
                   deployMutation.isPending ? deployMutation.variables : null
                 }
                 onDeployVersion={(version) => deployMutation.mutate(version)}
+                onCheckForNewVersions={registryQuery.checkForNewVersions}
+                isCheckingForNewVersions={registryQuery.isFetching}
                 error={error}
               />
             </div>

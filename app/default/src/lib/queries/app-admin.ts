@@ -4,7 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   APP_ADMIN_BOOTSTRAP_POLL_MS,
   APP_ADMIN_POLL_INTERVAL_MS,
@@ -20,17 +20,20 @@ import { queryKeys } from "@/lib/query-keys";
 
 export function useAppAdminRegistryQuery(appName: string) {
   const bootstrapPollUntilRef = useRef(0);
+  const [bootstrapPollEpoch, setBootstrapPollEpoch] = useState(0);
 
   useEffect(() => {
     bootstrapPollUntilRef.current = Date.now() + APP_ADMIN_BOOTSTRAP_POLL_MS;
+    setBootstrapPollEpoch((epoch) => epoch + 1);
   }, [appName]);
 
-  return useQuery({
+  const query = useQuery({
     queryKey: queryKeys.appAdmin.registry(appName),
     queryFn: () => getAppAdminRegistry(appName),
     retry: (failureCount, error) =>
       !isAPIErrorStatus(error, 403) && failureCount < 1,
     refetchInterval: (query) => {
+      void bootstrapPollEpoch;
       const registry = query.state.data;
       if (!registry) return false;
       if (
@@ -41,6 +44,17 @@ export function useAppAdminRegistryQuery(appName: string) {
       return false;
     },
   });
+
+  const checkForNewVersions = useCallback(() => {
+    bootstrapPollUntilRef.current = Date.now() + APP_ADMIN_BOOTSTRAP_POLL_MS;
+    setBootstrapPollEpoch((epoch) => epoch + 1);
+    void query.refetch();
+  }, [query]);
+
+  return {
+    ...query,
+    checkForNewVersions,
+  };
 }
 
 export function useAppAdminRegistryHistoryQuery(app: string, enabled: boolean) {

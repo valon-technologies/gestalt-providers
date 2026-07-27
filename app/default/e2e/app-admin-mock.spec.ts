@@ -378,6 +378,28 @@ test.describe("app admin registry UI", () => {
     );
   });
 
+  test("check for new versions refetches registry and resumes polling", async ({ page }) => {
+    let registryCalls = 0;
+
+    await page.route(`**/api/v1/apps/${APP}/admin/registry`, (route, request) => {
+      if (request.method() !== "GET") {
+        void route.fallback();
+        return;
+      }
+      registryCalls += 1;
+      void route.fulfill({ json: installedRegistryState() });
+    });
+    await page.goto(`/apps/${APP}/admin`);
+
+    await expect(page.getByTestId("check-for-new-versions")).toBeVisible();
+    const callsBeforeClick = registryCalls;
+    await page.getByTestId("check-for-new-versions").click();
+    await expect.poll(() => registryCalls).toBeGreaterThan(callsBeforeClick);
+    await expect(page.getByTestId("check-for-new-versions")).toHaveText(
+      "Check for new versions",
+    );
+  });
+
   test("403 renders access denied without registry metadata", async ({ page }) => {
     await page.route(`**/api/v1/apps/${APP}/admin/registry`, (route) => {
       route.fulfill({ status: 403, json: { error: "app access denied" } });
