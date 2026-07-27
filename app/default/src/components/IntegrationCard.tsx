@@ -473,21 +473,18 @@ export default function IntegrationCard({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="inline-flex">
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`${label} options`}
-                        >
-                          <MoreHorizontalIcon />
-                        </Button>
+                      <DropdownMenuTrigger
+                        type="button"
+                        className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-neutral-hover hover:text-foreground"
+                        aria-label={`${label} options`}
+                      >
+                        <MoreHorizontalIcon />
                       </DropdownMenuTrigger>
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="top">More</TooltipContent>
                 </Tooltip>
-                <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuContent className="w-44">
                   {isAppAdmin ? (
                     <DropdownMenuItem
                       onClick={openManage}

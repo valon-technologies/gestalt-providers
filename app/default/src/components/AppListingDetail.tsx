@@ -10,6 +10,7 @@ import {
 } from "@/lib/catalogFilters";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import { normalizeIntegrationStatus } from "@/lib/integrationStatus";
+import { Badge } from "@/components/Badge";
 import Button from "@/components/Button";
 import IntegrationIcon from "@/components/IntegrationIcon";
 import { CloseIcon } from "@/components/icons";

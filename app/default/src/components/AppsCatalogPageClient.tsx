@@ -14,6 +14,7 @@ import {
   filterCatalogIntegrations,
 } from "@/lib/catalogFilters";
 import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "@/lib/constants";
+import { appPath } from "@/lib/mount";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import PluginSearchBar from "@/components/PluginSearchBar";
@@ -37,8 +38,8 @@ import {
   useInvalidateIntegrations,
 } from "@/lib/queries";
 
-const APPS_PATH = "/apps";
-const LEGACY_INTEGRATIONS_PATH = "/integrations";
+const APPS_PATH = appPath("/apps");
+const LEGACY_INTEGRATIONS_PATH = appPath("/integrations");
 /** Offset below the viewport top for TOC scroll-spy + scroll-margin on headings. */
 /** Must sit below `scroll-mt-24` (96px) so a clicked heading still counts as
  *  crossed after `scrollIntoView` parks it on the scroll-margin. */

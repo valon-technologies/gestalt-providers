@@ -31,7 +31,7 @@ function resolveGestaltPublicOrigin(
       port <= PROD_DEV_PROXY_PORT_MAX
     ) {
       const prodHost = env.GESTALT_PROD_HOST?.trim().replace(/\/+$/, "");
-      return prodHost ? `https://${prodHost}` : "https://valon.tools";
+      return prodHost ? `https://${prodHost}` : "";
     }
   } catch {
     // ignore

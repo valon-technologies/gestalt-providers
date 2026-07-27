@@ -3,7 +3,7 @@ import { connectionSetupBucket } from "@/lib/catalogFilters";
 
 /**
  * Catalog browse taxonomy for /apps — ChatGPT Plugins–style layout
- * (Installed first, then discovery categories), with Valon-relevant buckets.
+ * (Installed first, then discovery categories).
  *
  * No team/category on `/api/v1/apps` yet; this curated map is the interim SoT
  * until category lands on the manifest → API.
@@ -47,7 +47,7 @@ export const CATALOG_BUCKETS: readonly CatalogBucket[] = [
   {
     id: "business-operations",
     label: "Business & operations",
-    description: "Valon workspace apps and internal ops tooling.",
+    description: "Workspace apps and internal operations tooling.",
   },
   {
     id: "data-analytics",
@@ -108,53 +108,27 @@ const APP_BUCKET: Readonly<Record<string, CatalogBucketId>> = {
   teams: "communication",
 
   // Developer tools
-  aiSpendTracker: "developer-tools",
   ciCd: "developer-tools",
-  ciWorkqueue: "developer-tools",
   datadog: "developer-tools",
-  delta: "developer-tools",
-  deploymentViewer: "developer-tools",
-  deployos: "developer-tools",
-  entityDiff: "developer-tools",
   gcp_batch: "developer-tools",
   github: "developer-tools",
   gitlab: "developer-tools",
   incident_io: "developer-tools",
   launchdarkly: "developer-tools",
-  modelProviderBillingMetrics: "developer-tools",
-  oncall: "developer-tools",
   pagerduty: "developer-tools",
-  tokenPile: "developer-tools",
-  trafficCop: "developer-tools",
   trunk: "developer-tools",
-  valkey: "developer-tools",
   vercel: "developer-tools",
 
-  // Business & operations (Valon internal + ops)
-  gIssues: "business-operations",
-  glinks: "business-operations",
-  helloWorld: "business-operations",
-  jarvis: "business-operations",
-  paConfigurationRegistry: "business-operations",
-  registry: "business-operations",
-  valonProfile: "business-operations",
-  vmStyleGuide: "business-operations",
-  workplaceHub: "business-operations",
+  // Business & operations
 
   // Data & analytics
   bigquery: "data-analytics",
   clickhouse: "data-analytics",
-  copilotReports: "data-analytics",
-  dataSchemaExplorer: "data-analytics",
   dbt_cloud: "data-analytics",
   gcs: "data-analytics",
   hex: "data-analytics",
-  loanPopulationDashboard: "data-analytics",
   looker: "data-analytics",
   planetscale: "data-analytics",
-  sdtPipeline: "data-analytics",
-  standardReporting: "data-analytics",
-  vdsForge: "data-analytics",
 
   // Finance
   modern_treasury: "finance",
@@ -163,18 +137,9 @@ const APP_BUCKET: Readonly<Record<string, CatalogBucketId>> = {
   // People
   ashby: "people",
   gong: "people",
-  itAccountOnboarding: "people",
   rippling: "people",
-  talentTeam: "people",
-  trainingCurriculum: "people",
-  valonLearn: "people",
-  valonSats: "people",
 
   // Customer
-  customerRoadmapReview: "customer",
-  dealHub: "customer",
-  frontPorch: "customer",
-  frontPorchRestApi: "customer",
   intercom: "customer",
   nice_incontact: "customer",
   zendesk: "customer",
