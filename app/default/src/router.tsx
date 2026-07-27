@@ -24,6 +24,7 @@ import DashboardPage from "@/pages/index";
 import IdentitiesPage from "@/pages/identities";
 import IntegrationsPage from "@/pages/integrations";
 import WorkflowsPage from "@/pages/workflows";
+import { appBasepath } from "@/lib/mount";
 import { rootRoute } from "./routes/__root";
 
 function DocsLayout() {
@@ -213,7 +214,7 @@ const routeTree = rootRoute.addChildren([
   ]),
 ]);
 
-export const router = createRouter({ routeTree });
+export const router = createRouter({ routeTree, basepath: appBasepath });
 
 declare module "@tanstack/react-router" {
   interface Register {

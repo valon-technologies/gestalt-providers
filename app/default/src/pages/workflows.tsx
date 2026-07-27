@@ -153,10 +153,10 @@ export default function WorkflowsPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <span className="label-text">Workflows</span>
-              <h1 className="mt-2 text-2xl font-heading text-primary">
+              <h1 className="mt-2 text-2xl font-heading text-foreground">
                 Workflows
               </h1>
-              <p className="mt-2 max-w-2xl text-sm text-muted">
+              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
                 Inspect durable workflow run history, step state, and captured
                 inputs and outputs.
               </p>
@@ -165,7 +165,7 @@ export default function WorkflowsPage() {
               type="button"
               onClick={() => setRefreshNonce((value) => value + 1)}
               disabled={refreshing}
-              className="inline-flex items-center justify-center rounded-md border border-alpha px-4 py-2 text-sm font-medium text-primary transition-colors duration-150 hover:border-alpha-strong hover:bg-alpha-5 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:border-input hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-60"
             >
               {refreshing ? "Refreshing..." : "Refresh"}
             </button>
@@ -176,33 +176,33 @@ export default function WorkflowsPage() {
             <SummaryCard
               label="Running"
               value={String(counts.running)}
-              tone="sky"
+              tone="info"
             />
             <SummaryCard
               label="Succeeded"
               value={String(counts.succeeded)}
-              tone="grove"
+              tone="success"
             />
-            <SummaryCard label="Failed" value={String(counts.failed)} tone="ember" />
+            <SummaryCard label="Failed" value={String(counts.failed)} tone="destructive" />
           </div>
 
-          <section className="mt-8 rounded-lg border border-alpha bg-base-100 p-4 dark:bg-surface">
+          <section className="mt-8 rounded-lg border border-border bg-card p-4 text-card-foreground">
             <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem]">
               <label className="block">
-                <span className="text-xs font-medium text-muted">Search runs</span>
+                <span className="text-xs font-medium text-muted-foreground">Search runs</span>
                 <input
                   value={runsQuery}
                   onChange={(event) => setRunsQuery(event.target.value)}
                   placeholder="Run ID, provider, app, step, definition, event"
-                  className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-primary outline-hidden transition-colors duration-150 placeholder:text-faint focus:border-sky-500"
+                  className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-hidden transition-colors duration-150 placeholder:text-muted-foreground/70 focus:border-info-foreground"
                 />
               </label>
               <label className="block">
-                <span className="text-xs font-medium text-muted">Status</span>
+                <span className="text-xs font-medium text-muted-foreground">Status</span>
                 <select
                   value={runStatus}
                   onChange={(event) => setRunStatus(event.target.value)}
-                  className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-primary outline-hidden transition-colors duration-150 focus:border-sky-500"
+                  className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-hidden transition-colors duration-150 focus:border-info-foreground"
                 >
                   {RUN_STATUSES.map((status) => (
                     <option key={status} value={status}>
@@ -215,7 +215,7 @@ export default function WorkflowsPage() {
           </section>
 
           {loading ? (
-            <p className="mt-8 text-sm text-faint">Loading workflow runs...</p>
+            <p className="mt-8 text-sm text-muted-foreground/70">Loading workflow runs...</p>
           ) : (
             <RunsPanel
               runs={filteredRuns}
@@ -263,18 +263,18 @@ function RunsPanel({
 
   return (
     <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(24rem,0.95fr)]">
-      <section className="rounded-lg border border-alpha bg-base-100 dark:bg-surface">
-        <div className="border-b border-alpha px-5 py-4">
-          <h2 className="text-sm font-medium text-primary">Workflow Runs</h2>
-          <p className="mt-1 text-xs text-faint">{runs.length} shown</p>
+      <section className="rounded-lg border border-border bg-card text-card-foreground">
+        <div className="border-b border-border px-5 py-4">
+          <h2 className="text-sm font-medium text-foreground">Workflow Runs</h2>
+          <p className="mt-1 text-xs text-muted-foreground/70">{runs.length} shown</p>
         </div>
 
         {runsError ? (
-          <p className="px-5 py-8 text-sm text-ember-500">{runsError}</p>
+          <p className="px-5 py-8 text-sm text-destructive">{runsError}</p>
         ) : (
-          <div className="divide-y divide-alpha">
+          <div className="divide-y divide-border">
             {runs.length === 0 ? (
-              <div className="px-5 py-8 text-sm text-faint">
+              <div className="px-5 py-8 text-sm text-muted-foreground/70">
                 No workflow runs yet.
               </div>
             ) : (
@@ -286,24 +286,26 @@ function RunsPanel({
                     type="button"
                     onClick={() => onSelectRun(run.id)}
                     className={`flex w-full items-start justify-between gap-4 px-5 py-4 text-left transition-colors duration-150 ${
-                      isActive ? "bg-alpha-5" : "hover:bg-alpha-5"
+                      isActive
+                        ? "bg-accent text-accent-foreground"
+                        : "text-foreground hover:bg-accent hover:text-accent-foreground"
                     }`}
                   >
                     <div className="min-w-0">
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <span className="truncate text-sm font-medium text-primary">
+                        <span className="truncate text-sm font-medium text-current">
                           {targetLabel(run.target)}
                         </span>
                         <span className={runStatusClassName(run.status)}>
                           {run.status || "unknown"}
                         </span>
                       </div>
-                      <p className="mt-1 truncate text-xs text-faint">{run.id}</p>
-                      <p className="mt-2 text-xs text-muted">
+                      <p className="mt-1 truncate text-xs text-current opacity-70">{run.id}</p>
+                      <p className="mt-2 text-xs text-current opacity-80">
                         {runTriggerLabel(run)} · {run.provider}
                       </p>
                     </div>
-                    <div className="shrink-0 text-right text-xs text-faint">
+                    <div className="shrink-0 text-right text-xs text-current opacity-70">
                       {formatDate(run.startedAt || run.completedAt || run.createdAt)}
                     </div>
                   </button>
@@ -314,11 +316,11 @@ function RunsPanel({
         )}
       </section>
 
-      <section className="rounded-lg border border-alpha bg-base-100 p-5 dark:bg-surface">
+      <section className="rounded-lg border border-border bg-card p-5 text-card-foreground">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <h2 className="text-sm font-medium text-primary">Run Details</h2>
-            <p className="mt-1 truncate text-xs text-faint">
+            <h2 className="text-sm font-medium text-foreground">Run Details</h2>
+            <p className="mt-1 truncate text-xs text-muted-foreground/70">
               {selectedRun?.id || "Select a run"}
             </p>
           </div>
@@ -330,30 +332,30 @@ function RunsPanel({
         </div>
 
         {selectedRunCancelable ? (
-          <div className="mt-4 flex items-center justify-between gap-3 border-y border-alpha py-3">
-            <p className="text-sm text-muted">
+          <div className="mt-4 flex items-center justify-between gap-3 border-y border-border py-3">
+            <p className="text-sm text-muted-foreground">
               Canceling asks the workflow provider to stop this pending run.
             </p>
             <button
               type="button"
               onClick={() => void onCancelSelectedRun()}
               disabled={canceling}
-              className="shrink-0 rounded-md bg-ember-500 px-3 py-2 text-sm font-medium text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              className="shrink-0 rounded-md bg-destructive px-3 py-2 text-sm font-medium text-destructive-foreground transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {canceling ? "Canceling..." : "Cancel run"}
             </button>
           </div>
         ) : null}
 
-        {detailError && <p className="mt-4 text-sm text-ember-500">{detailError}</p>}
-        {actionError && <p className="mt-4 text-sm text-ember-500">{actionError}</p>}
+        {detailError && <p className="mt-4 text-sm text-destructive">{detailError}</p>}
+        {actionError && <p className="mt-4 text-sm text-destructive">{actionError}</p>}
 
         {detailLoading && !selectedRun ? (
-          <p className="mt-6 text-sm text-faint">Loading details...</p>
+          <p className="mt-6 text-sm text-muted-foreground/70">Loading details...</p>
         ) : selectedRun ? (
           <RunDetails run={selectedRun} />
         ) : (
-          <p className="mt-6 text-sm text-faint">
+          <p className="mt-6 text-sm text-muted-foreground/70">
             Select a workflow run to inspect it.
           </p>
         )}
@@ -392,7 +394,7 @@ function RunDetails({ run }: { run: WorkflowRun }) {
 
       <section>
         <SectionHeading>Status Message</SectionHeading>
-        <p className="mt-3 text-sm text-primary">
+        <p className="mt-3 text-sm text-foreground">
           {run.statusMessage || "No status message"}
         </p>
       </section>
@@ -404,11 +406,11 @@ function DetailGrid({ items }: { items: Array<[string, string]> }) {
   return (
     <dl className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
       {items.map(([label, value]) => (
-        <div key={label} className="border-b border-alpha pb-3">
-          <dt className="text-[11px] uppercase tracking-[0.18em] text-faint">
+        <div key={label} className="border-b border-border pb-3">
+          <dt className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
             {label}
           </dt>
-          <dd className="mt-2 break-words text-sm text-primary">{value || "-"}</dd>
+          <dd className="mt-2 break-words text-sm text-foreground">{value || "-"}</dd>
         </div>
       ))}
     </dl>
@@ -420,7 +422,7 @@ function TargetDetails({ target }: { target: WorkflowTarget }) {
     return (
       <section>
         <SectionHeading>Target</SectionHeading>
-        <p className="mt-3 text-sm text-faint">No workflow target captured.</p>
+        <p className="mt-3 text-sm text-muted-foreground/70">No workflow target captured.</p>
       </section>
     );
   }
@@ -428,7 +430,7 @@ function TargetDetails({ target }: { target: WorkflowTarget }) {
   return (
     <section>
       <SectionHeading>Target Steps</SectionHeading>
-      <div className="mt-3 divide-y divide-alpha border-y border-alpha">
+      <div className="mt-3 divide-y divide-border border-y border-border">
         {target.steps.map((step, index) => (
           <TargetStepDetails key={`${step.id || "step"}-${index}`} step={step} />
         ))}
@@ -442,10 +444,10 @@ function TargetStepDetails({ step }: { step: WorkflowStepTarget }) {
     <div className="py-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-medium text-primary">{stepLabel(step)}</p>
-          <p className="mt-1 text-xs text-faint">{step.id || "unnamed step"}</p>
+          <p className="text-sm font-medium text-foreground">{stepLabel(step)}</p>
+          <p className="mt-1 text-xs text-muted-foreground/70">{step.id || "unnamed step"}</p>
         </div>
-        <span className="rounded-full bg-alpha-5 px-2 py-1 text-[11px] font-medium text-muted">
+        <span className="rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
           {stepKind(step)}
         </span>
       </div>
@@ -505,17 +507,17 @@ function StepExecutions({ steps }: { steps: WorkflowStepExecution[] }) {
     <section>
       <SectionHeading>Step Executions</SectionHeading>
       {steps.length === 0 ? (
-        <p className="mt-3 text-sm text-faint">No step state captured.</p>
+        <p className="mt-3 text-sm text-muted-foreground/70">No step state captured.</p>
       ) : (
-        <div className="mt-3 divide-y divide-alpha border-y border-alpha">
+        <div className="mt-3 divide-y divide-border border-y border-border">
           {steps.map((step, index) => (
             <div key={`${step.stepId || "step"}-${index}`} className="py-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <p className="text-sm font-medium text-primary">
+                  <p className="text-sm font-medium text-foreground">
                     {step.stepId || `Step ${index + 1}`}
                   </p>
-                  <p className="mt-1 text-xs text-faint">
+                  <p className="mt-1 text-xs text-muted-foreground/70">
                     {step.startedAt ? formatDate(step.startedAt) : "Not started"}
                     {step.completedAt ? ` - ${formatDate(step.completedAt)}` : ""}
                   </p>
@@ -555,14 +557,14 @@ function StepExecutions({ steps }: { steps: WorkflowStepExecution[] }) {
 
               {step.attempts && step.attempts.length > 0 ? (
                 <div className="mt-4 space-y-3">
-                  <p className="text-xs font-medium text-muted">Attempts</p>
+                  <p className="text-xs font-medium text-muted-foreground">Attempts</p>
                   {step.attempts.map((attempt, attemptIndex) => (
                     <div
                       key={`${attempt.id || "attempt"}-${attemptIndex}`}
-                      className="border-l border-alpha pl-4"
+                      className="border-l border-border pl-4"
                     >
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-medium text-primary">
+                        <p className="text-sm font-medium text-foreground">
                           {attempt.id || `Attempt ${attemptIndex + 1}`}
                         </p>
                         <span className={stepStatusClassName(attempt.status)}>
@@ -612,13 +614,13 @@ function JSONSection({
 }) {
   return (
     <section>
-      <p className="text-xs font-medium text-muted">{title}</p>
+      <p className="text-xs font-medium text-muted-foreground">{title}</p>
       {hasJSONValue(value) ? (
-        <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-alpha bg-background/70 p-3 text-xs text-primary dark:bg-background/20">
+        <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-border bg-background/70 p-3 text-xs text-foreground dark:bg-background/20">
           {prettyJSON(value)}
         </pre>
       ) : (
-        <p className="mt-2 text-xs text-faint">{emptyText}</p>
+        <p className="mt-2 text-xs text-muted-foreground/70">{emptyText}</p>
       )}
     </section>
   );
@@ -626,7 +628,7 @@ function JSONSection({
 
 function SectionHeading({ children }: { children: ReactNode }) {
   return (
-    <h3 className="text-xs font-medium uppercase tracking-[0.18em] text-faint">
+    <h3 className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground/70">
       {children}
     </h3>
   );
@@ -635,8 +637,8 @@ function SectionHeading({ children }: { children: ReactNode }) {
 function DetailLine({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-[11px] uppercase tracking-[0.18em] text-faint">{label}</p>
-      <p className="mt-1 break-words text-sm text-primary">{value || "-"}</p>
+      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">{label}</p>
+      <p className="mt-1 break-words text-sm text-foreground">{value || "-"}</p>
     </div>
   );
 }
@@ -648,18 +650,18 @@ function SummaryCard({
 }: {
   label: string;
   value: string;
-  tone: "default" | "sky" | "grove" | "ember";
+  tone: "default" | "info" | "success" | "destructive";
 }) {
   const toneClassName = {
-    default: "text-primary",
-    sky: "text-sky-700 dark:text-sky-200",
-    grove: "text-grove-700 dark:text-grove-200",
-    ember: "text-ember-700 dark:text-ember-200",
+    default: "text-card-foreground",
+    info: "text-info-foreground",
+    success: "text-success-foreground",
+    destructive: "text-destructive",
   }[tone];
 
   return (
-    <div className="rounded-lg border border-alpha bg-base-100 px-5 py-4 dark:bg-surface">
-      <p className="text-[11px] uppercase tracking-[0.18em] text-faint">{label}</p>
+    <div className="rounded-lg border border-border bg-card px-5 py-4 text-card-foreground">
+      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">{label}</p>
       <p className={`mt-3 text-2xl font-heading font-bold ${toneClassName}`}>
         {value}
       </p>
@@ -793,34 +795,34 @@ function prettyJSON(value: unknown): string {
 function runStatusClassName(status?: string): string {
   switch (status) {
     case "succeeded":
-      return "rounded-full bg-grove-100 px-2 py-1 text-[11px] font-medium text-grove-700 dark:bg-grove-700/20 dark:text-grove-200";
+      return "rounded-full bg-success px-2 py-1 text-[11px] font-medium text-success-foreground";
     case "failed":
-      return "rounded-full bg-ember-100 px-2 py-1 text-[11px] font-medium text-ember-700 dark:bg-ember-700/20 dark:text-ember-200";
+      return "rounded-full bg-destructive/10 px-2 py-1 text-[11px] font-medium text-destructive";
     case "running":
-      return "rounded-full bg-sky-100 px-2 py-1 text-[11px] font-medium text-sky-700 dark:bg-sky-700/20 dark:text-sky-200";
+      return "rounded-full bg-info px-2 py-1 text-[11px] font-medium text-info-foreground";
     case "pending":
-      return "rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-700 dark:bg-amber-700/20 dark:text-amber-200";
+      return "rounded-full bg-warning px-2 py-1 text-[11px] font-medium text-warning-foreground";
     case "canceled":
-      return "rounded-full bg-alpha-10 px-2 py-1 text-[11px] font-medium text-muted";
+      return "rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground";
     default:
-      return "rounded-full bg-alpha-5 px-2 py-1 text-[11px] font-medium text-muted";
+      return "rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground";
   }
 }
 
 function stepStatusClassName(status?: string): string {
   switch (status) {
     case "succeeded":
-      return "rounded-full bg-grove-100 px-2 py-1 text-[11px] font-medium text-grove-700 dark:bg-grove-700/20 dark:text-grove-200";
+      return "rounded-full bg-success px-2 py-1 text-[11px] font-medium text-success-foreground";
     case "failed":
-      return "rounded-full bg-ember-100 px-2 py-1 text-[11px] font-medium text-ember-700 dark:bg-ember-700/20 dark:text-ember-200";
+      return "rounded-full bg-destructive/10 px-2 py-1 text-[11px] font-medium text-destructive";
     case "running":
-      return "rounded-full bg-sky-100 px-2 py-1 text-[11px] font-medium text-sky-700 dark:bg-sky-700/20 dark:text-sky-200";
+      return "rounded-full bg-info px-2 py-1 text-[11px] font-medium text-info-foreground";
     case "pending":
-      return "rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-700 dark:bg-amber-700/20 dark:text-amber-200";
+      return "rounded-full bg-warning px-2 py-1 text-[11px] font-medium text-warning-foreground";
     case "skipped":
-      return "rounded-full bg-alpha-10 px-2 py-1 text-[11px] font-medium text-muted";
+      return "rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground";
     default:
-      return "rounded-full bg-alpha-5 px-2 py-1 text-[11px] font-medium text-muted";
+      return "rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground";
   }
 }
 

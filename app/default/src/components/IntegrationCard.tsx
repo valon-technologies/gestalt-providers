@@ -470,10 +470,10 @@ export default function IntegrationCard({
   return (
     <div
       data-testid={`integration-card-${integration.name}`}
-      className={`rounded-lg border border-alpha bg-base-white p-6 transition-all duration-150 dark:bg-surface ${
+      className={`rounded-lg border border-border bg-card p-6 text-card-foreground transition-all duration-150 ${
         cardNavigationEnabled
-          ? "cursor-pointer hover:border-alpha-strong hover:shadow-card focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold-400 focus-visible:ring-offset-2 focus-visible:ring-offset-base-white dark:focus-visible:ring-offset-surface"
-          : "hover:border-alpha-strong hover:shadow-card"
+          ? "cursor-pointer hover:border-input hover:shadow-card focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
+          : "hover:border-input hover:shadow-card"
       }`}
       onClick={handleCardClick}
       onKeyDown={handleCardKeyDown}
@@ -501,15 +501,15 @@ export default function IntegrationCard({
       )}
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-base-100 text-muted [&>svg]:h-5 [&>svg]:w-5 dark:bg-surface-raised">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground [&>svg]:h-5 [&>svg]:w-5">
             {iconNode ?? <DefaultIcon />}
           </div>
           <div>
-            <h3 className="text-base font-heading text-primary">
+            <h3 className="text-base font-heading text-foreground">
               {integration.displayName || integration.name}
             </h3>
             {integration.description && (
-              <p className="mt-1 line-clamp-2 text-sm text-muted">
+              <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
                 {integration.description}
               </p>
             )}
@@ -519,7 +519,7 @@ export default function IntegrationCard({
           {normalizedStatus.connected && normalizedStatus.status === "ready" ? (
             <span
               aria-label="Connected"
-              className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-grove-500"
+              className="inline-flex h-5 w-5 shrink-0 items-center justify-center text-success-foreground"
             >
               <CheckCircleIcon className="h-5 w-5" />
             </span>
@@ -530,7 +530,7 @@ export default function IntegrationCard({
                 event.stopPropagation();
                 setSettingsOpen(true);
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-faint transition-all duration-150 hover:bg-alpha-5 hover:text-muted"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground/70 transition-all duration-150 hover:bg-accent hover:text-accent-foreground"
               aria-label={`${integration.displayName || integration.name} settings`}
             >
               <GearIcon className="h-4 w-4" />
@@ -543,7 +543,7 @@ export default function IntegrationCard({
           <Link
             to="/apps/$app/admin"
             params={{ app: integration.name }}
-            className="text-sm font-medium text-gold-700 transition-colors hover:text-gold-800 dark:text-gold-300 dark:hover:text-gold-200"
+            className="text-sm font-medium text-primary transition-colors hover:text-primary"
             onClick={(event) => event.stopPropagation()}
             data-testid={`manage-app-${integration.name}`}
           >
@@ -552,7 +552,7 @@ export default function IntegrationCard({
         </div>
       ) : null}
       {error && !settingsOpen && (
-        <p className="mt-3 text-sm text-ember-500">{error}</p>
+        <p className="mt-3 text-sm text-destructive">{error}</p>
       )}
       {showParamForm && (
         <form onSubmit={handleParamSubmit} className="mt-4">

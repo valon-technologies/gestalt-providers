@@ -81,7 +81,7 @@ export function AppAdminHistoryTable({
   }
 
   if (error) {
-    return <p className="text-sm text-ember-500">{error}</p>;
+    return <p className="text-sm text-destructive">{error}</p>;
   }
 
   if (revisions.length === 0) {
@@ -94,8 +94,8 @@ export function AppAdminHistoryTable({
 
   return (
     <div className="space-y-4">
-      <div className="overflow-x-auto rounded-xl border border-alpha">
-        <table className="min-w-full divide-y divide-alpha text-sm" data-testid="revision-history-table">
+      <div className="overflow-x-auto rounded-xl border border-border">
+        <table className="min-w-full divide-y divide-border text-sm" data-testid="revision-history-table">
           <thead className="bg-foreground/[0.03] text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
             <tr>
               <th className="px-4 py-3 font-medium">Deployed at</th>
@@ -104,7 +104,7 @@ export function AppAdminHistoryTable({
               <th className="px-4 py-3 font-medium">Deployed by</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-alpha bg-base-white dark:bg-surface">
+          <tbody className="divide-y divide-border bg-card text-card-foreground">
             {revisions.map((revision) => {
               const deployedAt = deployedAtLabel(revision.deployedAt);
               const availability = availabilityStatus(revision);

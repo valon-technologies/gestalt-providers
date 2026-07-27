@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 // Icon glyphs scale per size via --control-icon-* (control-sizing.md /
 // RES-20260701-002). Icons with an explicit size-* class opt out of the default.
 const buttonVariants = cva(
-  "relative inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-sm font-medium transition-[color,background-color,border-color] duration-hover-out ease-out-quart hover:duration-hover-in focus-ring after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:bg-current after:opacity-0 after:transition-none hover:after:opacity-[var(--state-overlay-hover,0.08)] active:after:opacity-[var(--state-overlay-press,0.14)] disabled:cursor-not-allowed disabled:border-border disabled:bg-disabled disabled:text-disabled-foreground disabled:shadow-none disabled:after:hidden [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-[length:var(--control-icon-default)]",
+  "relative inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-sm font-medium transition-[color,background-color,border-color] duration-hover-out ease-out-quart hover:duration-hover-in focus-ring after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:bg-current after:opacity-0 after:transition-none hover:after:opacity-[0.08] active:after:opacity-[0.14] disabled:cursor-not-allowed disabled:border-border disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none disabled:after:hidden [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-[length:var(--control-icon-default)]",
   {
     variants: {
       variant: {
@@ -30,14 +30,13 @@ const buttonVariants = cva(
         destructive: "bg-destructive text-destructive-foreground",
         success: "border border-success-foreground/30 bg-success/40 text-success-foreground hover:border-success-foreground/50 hover:bg-success hover:text-success-foreground",
         danger: "border border-destructive/30 bg-destructive/5 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground",
-        outline: "border border-input bg-background hover:bg-neutral-hover active:bg-neutral-pressed hover:after:opacity-0 active:after:opacity-0 disabled:bg-transparent",
+        outline: "border border-input bg-background text-foreground hover:bg-accent hover:text-accent-foreground active:bg-accent/80 active:text-accent-foreground hover:after:opacity-0 active:after:opacity-0 disabled:bg-transparent",
         secondary: "bg-secondary text-secondary-foreground",
-        // Ghost is transparent chrome: hover/press use the base ::after on-color scrim only
-        // (RES-20260617-004), so it composites on neutral and tinted parents alike — not
-        // --accent-hover, which is reserved for dropdown items and breadcrumb triggers.
+        // Ghost is transparent chrome: hover/press use the base ::after
+        // on-color scrim only, so it composes on any semantic surface.
         ghost: "text-muted-foreground hover:text-foreground aria-checked:bg-foreground aria-checked:text-background disabled:bg-transparent",
-        ghostSuccess: "text-muted-foreground hover:bg-success hover:text-success-foreground active:bg-success/70 disabled:bg-transparent",
-        ghostDestructive: "text-muted-foreground hover:bg-destructive hover:text-destructive-foreground active:bg-destructive/70 disabled:bg-transparent",
+        ghostSuccess: "text-muted-foreground hover:bg-success hover:text-success-foreground active:bg-success/70 active:text-success-foreground disabled:bg-transparent",
+        ghostDestructive: "text-muted-foreground hover:bg-destructive hover:text-destructive-foreground active:bg-destructive/70 active:text-destructive-foreground disabled:bg-transparent",
       },
       size: {
         xs: "h-control-xs gap-1 rounded-md px-2 text-control-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-[length:var(--control-icon-xs)]",

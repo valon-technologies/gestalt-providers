@@ -3,6 +3,7 @@ import { useDeferredValue, useEffect, useState } from "react";
 import { getIntegrations, Integration } from "@/lib/api";
 import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "@/lib/constants";
 import { filterIntegrations } from "@/lib/integrationSearch";
+import { appPath } from "@/lib/mount";
 import Nav from "@/components/Nav";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
@@ -29,13 +30,13 @@ export default function AppsCatalogPageClient() {
   const hasSearchQuery = query.trim().length > 0;
 
   useEffect(() => {
-    if (window.location.pathname !== LEGACY_INTEGRATIONS_PATH) {
+    if (window.location.pathname !== appPath(LEGACY_INTEGRATIONS_PATH)) {
       return;
     }
     window.history.replaceState(
       null,
       "",
-      `${APPS_PATH}${window.location.search}${window.location.hash}`,
+      `${appPath(APPS_PATH)}${window.location.search}${window.location.hash}`,
     );
   }, []);
 
@@ -57,7 +58,7 @@ export default function AppsCatalogPageClient() {
       }
     }
 
-    window.history.replaceState(null, "", APPS_PATH);
+    window.history.replaceState(null, "", appPath(APPS_PATH));
   }, [toast]);
 
   function loadIntegrations() {
@@ -77,11 +78,11 @@ export default function AppsCatalogPageClient() {
         <Nav />
         <Container as="main" className="py-12">
           {toast && (
-            <div className="mb-8 flex items-center justify-between rounded-lg border border-grove-200 bg-grove-50 px-5 py-3.5 text-sm text-grove-700 dark:border-grove-600 dark:bg-grove-700/20 dark:text-grove-200">
+            <div className="mb-8 flex items-center justify-between rounded-lg border border-success-foreground bg-success px-5 py-3.5 text-sm text-success-foreground">
               <span>{toast}</span>
               <button
                 onClick={() => setToast(null)}
-                className="ml-4 text-grove-400 hover:text-grove-600 dark:text-grove-500 dark:hover:text-grove-200 transition-colors duration-150"
+                className="ml-4 text-success-foreground transition-colors duration-150 hover:text-success-foreground"
                 aria-label="Dismiss"
               >
                 &times;
@@ -92,10 +93,10 @@ export default function AppsCatalogPageClient() {
           <div className="animate-fade-in-up flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
             <div>
               <span className="label-text">Catalog</span>
-              <h1 className="mt-2 text-2xl font-heading text-primary">
+              <h1 className="mt-2 text-2xl font-heading text-foreground">
                 Apps
               </h1>
-              <p className="mt-2 text-sm text-muted">
+              <p className="mt-2 text-sm text-muted-foreground">
                 Browse and connect apps.
               </p>
             </div>
@@ -110,19 +111,19 @@ export default function AppsCatalogPageClient() {
           </div>
 
           {loading && (
-            <p className="mt-10 text-sm text-faint">Loading...</p>
+            <p className="mt-10 text-sm text-muted-foreground/70">Loading...</p>
           )}
 
-          {error && <p className="mt-10 text-sm text-ember-500">{error}</p>}
+          {error && <p className="mt-10 text-sm text-destructive">{error}</p>}
 
           {!loading && !error && integrations.length === 0 && (
-            <p className="mt-10 text-sm text-faint">
+            <p className="mt-10 text-sm text-muted-foreground/70">
               No apps registered.
             </p>
           )}
 
           {!loading && !error && integrations.length > 0 && filteredIntegrations.length === 0 && hasSearchQuery && (
-            <p className="mt-10 text-sm text-faint">
+            <p className="mt-10 text-sm text-muted-foreground/70">
               No apps match <span>{`"${query.trim()}"`}</span>.
             </p>
           )}
@@ -138,7 +139,7 @@ export default function AppsCatalogPageClient() {
                   integration={integration}
                   onConnected={loadIntegrations}
                   onDisconnected={loadIntegrations}
-                  returnPath={APPS_PATH}
+                  returnPath={appPath(APPS_PATH)}
                 />
               ))}
             </div>

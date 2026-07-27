@@ -94,7 +94,7 @@ export function AppAdminVersionPanel({
         <div className="min-w-0 space-y-1">
           <h1 className="text-2xl font-heading text-foreground">{registry.app}</h1>
           <p className="text-sm text-muted-foreground">Registry: {registry.registry}</p>
-          <p className="text-sm text-muted-foreground-soft">App management</p>
+          <p className="text-sm text-muted-foreground/70">App management</p>
           {registry.desiredVersion ? (
             <p className="text-sm text-muted-foreground">
               Desired version: <RegistryCode>{registry.desiredVersion}</RegistryCode>
@@ -103,7 +103,7 @@ export function AppAdminVersionPanel({
           {appMountedPath ? (
             <a
               href={appMountedPath}
-              className="inline-flex text-sm font-medium text-gold-700 transition-colors hover:text-gold-800 dark:text-gold-300 dark:hover:text-gold-200"
+              className="inline-flex text-sm font-medium text-primary transition-colors hover:text-primary"
               data-testid="open-app-link"
             >
               Open app →
@@ -115,7 +115,7 @@ export function AppAdminVersionPanel({
 
       {rolloutActive && registry.rollout ? (
         <p
-          className="rounded-lg border border-gold-200 bg-gold-50 px-4 py-3 text-sm text-gold-900 dark:border-gold-800 dark:bg-gold-950/40 dark:text-gold-100"
+          className="rounded-lg border border-info-foreground/40 bg-info px-4 py-3 text-sm text-info-foreground"
           data-testid="rollout-active-banner"
         >
           Rollout {formatRolloutStateLabel(registry.rollout.state)}:{" "}
@@ -123,12 +123,12 @@ export function AppAdminVersionPanel({
         </p>
       ) : null}
 
-      <div className="flex gap-2 border-b border-alpha">
+      <div className="flex gap-2 border-b border-border">
         <button
           type="button"
           className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
             activeTab === "snapshots"
-              ? "border-gold-600 text-foreground"
+              ? "border-primary text-foreground"
               : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
           onClick={() => setActiveTab("snapshots")}
@@ -140,7 +140,7 @@ export function AppAdminVersionPanel({
           type="button"
           className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
             activeTab === "history"
-              ? "border-gold-600 text-foreground"
+              ? "border-primary text-foreground"
               : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
           onClick={() => setActiveTab("history")}
@@ -151,7 +151,7 @@ export function AppAdminVersionPanel({
       </div>
 
       {activeTab === "snapshots" ? (
-        <section className="space-y-4 rounded-2xl border border-alpha bg-base-white p-6 dark:bg-surface">
+        <section className="space-y-4 rounded-2xl border border-border bg-card p-6 text-card-foreground">
           <SectionHeader>
             <SectionHeaderContent>
               <SectionHeaderTitle>Published snapshots</SectionHeaderTitle>
@@ -176,10 +176,10 @@ export function AppAdminVersionPanel({
             </p>
           ) : null}
 
-          {error ? <p className="text-sm text-ember-500">{error}</p> : null}
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
         </section>
       ) : (
-        <section className="space-y-4 rounded-2xl border border-alpha bg-base-white p-6 dark:bg-surface">
+        <section className="space-y-4 rounded-2xl border border-border bg-card p-6 text-card-foreground">
           <SectionHeader>
             <SectionHeaderContent>
               <SectionHeaderTitle>Revision history</SectionHeaderTitle>

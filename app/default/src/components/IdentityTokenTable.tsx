@@ -54,18 +54,18 @@ export default function IdentityTokenTable({
 
   if (tokens.length === 0) {
     return (
-      <p className="py-12 text-center text-sm text-faint">
+      <p className="py-12 text-center text-sm text-muted-foreground/70">
         No API tokens yet.
       </p>
     );
   }
 
   return (
-    <div className="rounded-lg border border-alpha bg-base-white overflow-x-auto dark:bg-surface">
-      {error && <p className="mb-4 px-5 pt-4 text-sm text-ember-500">{error}</p>}
+    <div className="overflow-x-auto rounded-lg border border-border bg-card text-card-foreground">
+      {error && <p className="mb-4 px-5 pt-4 text-sm text-destructive">{error}</p>}
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-alpha text-left">
+          <tr className="border-b border-border text-left">
             <th className="px-5 py-3.5 label-text">Name</th>
             <th className="px-5 py-3.5 label-text">Permissions</th>
             <th className="px-5 py-3.5 label-text">Created</th>
@@ -75,13 +75,13 @@ export default function IdentityTokenTable({
         </thead>
         <tbody>
           {tokens.map((token) => (
-            <tr key={token.id} className="border-b border-alpha last:border-b-0">
-              <td className="px-5 py-4 text-primary font-medium">{token.name}</td>
-              <td className="px-5 py-4 text-muted">{formatPermissions(token)}</td>
-              <td className="px-5 py-4 text-muted font-mono text-xs">
+            <tr key={token.id} className="border-b border-border last:border-b-0">
+              <td className="px-5 py-4 text-foreground font-medium">{token.name}</td>
+              <td className="px-5 py-4 text-muted-foreground">{formatPermissions(token)}</td>
+              <td className="px-5 py-4 text-muted-foreground font-mono text-xs">
                 {new Date(token.createdAt).toLocaleDateString()}
               </td>
-              <td className="px-5 py-4 text-muted font-mono text-xs">
+              <td className="px-5 py-4 text-muted-foreground font-mono text-xs">
                 {token.expiresAt
                   ? new Date(token.expiresAt).toLocaleDateString()
                   : "Never"}

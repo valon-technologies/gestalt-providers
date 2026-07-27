@@ -27,18 +27,18 @@ export default function TokenTable({ tokens, onRevoked }: TokenTableProps) {
 
   if (tokens.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-alpha p-8">
-        <p className="text-center text-sm text-faint">No API tokens yet.</p>
+      <div className="rounded-lg border border-dashed border-border p-8">
+        <p className="text-center text-sm text-muted-foreground/70">No API tokens yet.</p>
       </div>
     );
   }
 
   return (
-    <div className="rounded-lg border border-alpha bg-base-white overflow-x-auto dark:bg-surface">
-      {error && <p className="mb-4 px-5 pt-4 text-sm text-ember-500">{error}</p>}
+    <div className="overflow-x-auto rounded-lg border border-border bg-card text-card-foreground">
+      {error && <p className="mb-4 px-5 pt-4 text-sm text-destructive">{error}</p>}
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-alpha text-left">
+          <tr className="border-b border-border text-left">
             <th className="px-5 py-3.5 label-text">ID</th>
             <th className="px-5 py-3.5 label-text">Scopes</th>
             <th className="px-5 py-3.5 label-text">Created</th>
@@ -48,15 +48,15 @@ export default function TokenTable({ tokens, onRevoked }: TokenTableProps) {
         </thead>
         <tbody>
           {tokens.map((token) => (
-            <tr key={token.id} className="border-b border-alpha last:border-b-0">
-              <td className="px-5 py-4 text-primary font-mono text-xs">{token.id}</td>
-              <td className="px-5 py-4 text-muted">
+            <tr key={token.id} className="border-b border-border last:border-b-0">
+              <td className="px-5 py-4 text-foreground font-mono text-xs">{token.id}</td>
+              <td className="px-5 py-4 text-muted-foreground">
                 {token.scopes?.length ? token.scopes.join(" ") : "all"}
               </td>
-              <td className="px-5 py-4 text-muted font-mono text-xs">
+              <td className="px-5 py-4 text-muted-foreground font-mono text-xs">
                 {new Date(token.createdAt).toLocaleDateString()}
               </td>
-              <td className="px-5 py-4 text-muted font-mono text-xs">
+              <td className="px-5 py-4 text-muted-foreground font-mono text-xs">
                 {token.expiresAt
                   ? new Date(token.expiresAt).toLocaleDateString()
                   : "Never"}
