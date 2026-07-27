@@ -56,20 +56,18 @@ export default function AppAdminPage() {
       : autoDeployFailed
         ? "Failed to update auto-deploy"
         : null;
-  const error =
+  const registryError =
     registryQuery.isError && !forbidden
       ? registryQuery.error instanceof Error
         ? registryQuery.error.message
         : "Failed to load app registry"
-      : deployFailed && !registry
-        ? deployMutation.error instanceof Error
-          ? deployMutation.error.message
-          : "Failed to deploy version"
-        : deployFailed
-          ? deployMutation.error instanceof Error
-            ? deployMutation.error.message
-            : "Failed to deploy version"
-          : null;
+      : null;
+  const deployError =
+    deployFailed && registry
+      ? deployMutation.error instanceof Error
+        ? deployMutation.error.message
+        : "Failed to deploy version"
+      : null;
 
   return (
     <Container as="main" className="py-12">
@@ -98,9 +96,7 @@ export default function AppAdminPage() {
                 </PageHeaderContent>
               </PageHeader>
             </div>
-          ) : error && !registry ? (
-            <p className="text-sm text-destructive">{error}</p>
-          ) : registry ? (
+          ) : (
             <div className="animate-fade-in-up space-y-8 [animation-delay:60ms]">
               <div>
                 <h1 className="text-2xl font-heading text-foreground">{appName}</h1>
@@ -141,8 +137,8 @@ export default function AppAdminPage() {
               </div>
 
               {section === "workflows" ? (
-                <AppWorkflowRunsPanel appName={appName} />
-              ) : (
+                <AppWorkflowRunsPanel key={appName} appName={appName} />
+              ) : registry ? (
                 <AppAdminVersionPanel
                   registry={registry}
                   appMountedPath={appMountedPath}
@@ -154,12 +150,20 @@ export default function AppAdminPage() {
                   isCheckingForNewVersions={registryQuery.isFetching}
                   onAutoDeployChange={(enabled) => autoDeployMutation.mutate(enabled)}
                   isUpdatingAutoDeploy={autoDeployMutation.isPending}
+<<<<<<< HEAD
                   autoDeployError={autoDeployError}
                   error={error}
+=======
+                  error={deployError}
+>>>>>>> b653d26d (Harden app-scoped workflow admin and remove dead query layer.)
                 />
+              ) : (
+                <p className="text-sm text-destructive">
+                  {registryError ?? "Failed to load app registry"}
+                </p>
               )}
             </div>
-          ) : null}
+          )}
         </Container>
   );
 }

@@ -206,6 +206,14 @@ const tokensRoute = createRoute({
   },
 });
 
+const workflowsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/workflows",
+  beforeLoad: () => {
+    throw redirect({ to: "/apps" });
+  },
+});
+
 const docsLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/docs",
@@ -283,6 +291,7 @@ const routeTree = rootRoute.addChildren([
   identitiesRoute,
   integrationsRoute,
   tokensRoute,
+  workflowsRoute,
   docsLayoutRoute.addChildren([
     docsIndexRoute,
     docsGettingStartedRoute,

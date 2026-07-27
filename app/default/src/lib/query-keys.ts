@@ -14,11 +14,6 @@ export const queryKeys = {
     root: ["tokens"] as const,
     list: () => ["tokens", "list"] as const,
   },
-  workflows: {
-    root: ["workflows"] as const,
-    list: () => ["workflows", "list"] as const,
-    detail: (id: string) => ["workflows", "detail", id] as const,
-  },
   managedIdentities: {
     root: ["managed-identities"] as const,
     list: () => ["managed-identities", "list"] as const,

@@ -809,10 +809,8 @@ export async function getTokens(): Promise<APIToken[]> {
 export async function getWorkflowRuns(opts?: {
   /** Step-target app filter (`?app=` → TargetApp). */
   app?: string;
-  /** @deprecated Prefer `app` — kept as alias for older call sites. */
-  targetApp?: string;
 }): Promise<WorkflowRun[]> {
-  const appName = (opts?.app ?? opts?.targetApp)?.trim();
+  const appName = opts?.app?.trim();
   const query = new URLSearchParams();
   if (appName) {
     query.set("app", appName);

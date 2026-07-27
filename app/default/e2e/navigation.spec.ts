@@ -136,6 +136,11 @@ test.describe("Navigation", () => {
     ).toBeVisible();
   });
 
+  test("legacy workflows route redirects to apps", async ({ authenticatedPage: page }) => {
+    await page.goto("/workflows");
+    await expect(page).toHaveURL(/\/apps/);
+  });
+
   test("docs page renders", async ({ authenticatedPage: page }) => {
     await page.goto("/docs");
     await expect(page.getByRole("heading", { name: "Getting Started" })).toBeVisible();

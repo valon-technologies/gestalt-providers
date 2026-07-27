@@ -20,6 +20,7 @@ import { Link } from "@tanstack/react-router";
 import {
   collectAutomationSubjects,
   summarizeWorkflowDefinitionsFromRuns,
+  workflowRunMatchesApp,
 } from "@/lib/workflowActivity";
 
 const RUN_STATUSES = [
@@ -117,8 +118,13 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
     getWorkflowRun(selectedRunID)
       .then((run) => {
         if (!active) return;
+        if (!workflowRunMatchesApp(run, appName)) {
+          setDetailError("This workflow run does not belong to this app.");
+          setSelectedRun(null);
+          return;
+        }
         setSelectedRun(run);
-        setRuns((current) => upsertRun(current, run));
+        setRuns((current) => upsertScopedRun(current, run, appName));
       })
       .catch((err) => {
         if (!active) return;
@@ -132,7 +138,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
     return () => {
       active = false;
     };
-  }, [selectedRunID]);
+  }, [selectedRunID, appName]);
 
   async function handleCancelSelectedRun() {
     if (!selectedRun || canceling) return;
@@ -144,8 +150,12 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
         selectedRun.id,
         "Canceled from Gestalt UI",
       );
+      if (!workflowRunMatchesApp(canceled, appName)) {
+        setActionError("This workflow run does not belong to this app.");
+        return;
+      }
       setSelectedRun(canceled);
-      setRuns((current) => upsertRun(current, canceled));
+      setRuns((current) => upsertScopedRun(current, canceled, appName));
     } catch (err) {
       setActionError(errorMessage(err, "Failed to cancel workflow run"));
     } finally {
@@ -801,6 +811,15 @@ function workflowRunCounts(runs: WorkflowRun[]) {
     succeeded: runs.filter((run) => run.status === "succeeded").length,
     failed: runs.filter((run) => run.status === "failed").length,
   };
+}
+
+function upsertScopedRun(
+  runs: WorkflowRun[],
+  run: WorkflowRun,
+  appName: string,
+): WorkflowRun[] {
+  if (!workflowRunMatchesApp(run, appName)) return runs;
+  return upsertRun(runs, run);
 }
 
 function upsertRun(runs: WorkflowRun[], run: WorkflowRun): WorkflowRun[] {
