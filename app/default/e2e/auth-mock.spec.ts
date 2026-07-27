@@ -9,6 +9,7 @@ import {
   mockTokens,
   mockWorkflowRuns,
 } from "./fixtures";
+import { PERSONAL_IDENTITY_GRANTS_PATH } from "../src/lib/personalGrants";
 
 const hasBackend =
   !!process.env.PLAYWRIGHT_BASE_URL || !!process.env.GESTALT_BASE_URL;
@@ -182,7 +183,7 @@ test.describe("Authentication", () => {
     await page.route("**/api/v1/apps", (route) => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
-    await page.route("**/api/v2/identity/grants", (route) => {
+    await page.route(`**${PERSONAL_IDENTITY_GRANTS_PATH}`, (route) => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
     await page.route("**/api/v1/workflow/runs", (route) => {

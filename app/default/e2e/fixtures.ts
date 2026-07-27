@@ -15,6 +15,11 @@ import type {
   ManagedIdentity,
   WorkflowRun,
 } from "../src/lib/api";
+import {
+  apiTokenToIdentityGrantWire,
+  parseIdentityGrantIdFromUrl,
+  PERSONAL_IDENTITY_GRANTS_PATH,
+} from "../src/lib/personalGrants";
 
 type MockAgentRunsOptions = {
   onCreate?: (
@@ -327,48 +332,101 @@ export async function mockAppAdminRegistryHistory(
   };
 }
 
-function tokenToIdentityGrant(token: APIToken) {
-  return {
-    scopes: (token.scopes ?? []).map((scope) => ({ scope, resource: [] })),
-    createdAt: Math.floor(new Date(token.createdAt).getTime() / 1000),
-    expiresAt: token.expiresAt
-      ? Math.floor(new Date(token.expiresAt).getTime() / 1000)
-      : 0,
-  };
+export interface MockTokensController {
+  setTokens(tokens: APIToken[]): void;
+  getTokens(): APIToken[];
 }
 
-export async function mockTokens(page: Page, tokens: APIToken[]) {
-  let currentTokens = [...tokens];
+export async function mockTokens(
+  page: Page,
+  initialTokens: APIToken[],
+  options?: {
+    delayFirstListMs?: number;
+  },
+): Promise<MockTokensController> {
+  let currentTokens = [...initialTokens];
+  let listCount = 0;
 
-  await page.route("**/api/v2/identity/grants", (route: Route, request) => {
+  await page.route(`**${PERSONAL_IDENTITY_GRANTS_PATH}`, async (route: Route, request) => {
     if (request.method() === "GET") {
-      route.fulfill({
+      listCount += 1;
+      if (options?.delayFirstListMs && listCount === 1) {
+        await new Promise((resolve) => setTimeout(resolve, options.delayFirstListMs));
+        await route.fulfill({ json: { grantIds: [] } });
+        return;
+      }
+      await route.fulfill({
         json: { grantIds: currentTokens.map((token) => token.id) },
       });
       return;
     }
-    route.fallback();
+    await route.fallback();
   });
 
-  await page.route("**/api/v2/identity/grants/*", (route: Route, request) => {
-    const grantId = decodeURIComponent(
-      request.url().split("/api/v2/identity/grants/")[1]?.split("?")[0] ?? "",
-    );
+  await page.route(`**${PERSONAL_IDENTITY_GRANTS_PATH}/*`, async (route: Route, request) => {
+    const grantId = parseIdentityGrantIdFromUrl(request.url());
     if (request.method() === "GET") {
       const token = currentTokens.find((entry) => entry.id === grantId);
       if (!token) {
-        route.fulfill({ status: 404, json: { error: "grant not found" } });
+        await route.fulfill({ status: 404, json: { error: "grant not found" } });
         return;
       }
-      route.fulfill({ json: tokenToIdentityGrant(token) });
+      await route.fulfill({ json: apiTokenToIdentityGrantWire(token) });
       return;
     }
     if (request.method() === "DELETE") {
       currentTokens = currentTokens.filter((entry) => entry.id !== grantId);
-      route.fulfill({ json: {} });
+      await route.fulfill({ json: {} });
       return;
     }
-    route.fallback();
+    await route.fallback();
+  });
+
+  return {
+    setTokens(tokens: APIToken[]) {
+      currentTokens = [...tokens];
+    },
+    getTokens() {
+      return [...currentTokens];
+    },
+  };
+}
+
+type CreatePersonalTokenBody = {
+  name?: string;
+  scopes?: string;
+  expiresIn?: number;
+};
+
+export async function mockPersonalTokenCreate(
+  page: Page,
+  tokens: MockTokensController,
+  handler: (
+    body: CreatePersonalTokenBody,
+  ) => Promise<{
+    token: APIToken;
+    plaintext: string;
+    expiresAt?: string;
+    status?: number;
+  }>,
+) {
+  await page.route("**/api/v1/tokens", async (route: Route, request) => {
+    if (request.method() === "POST") {
+      const body = request.postDataJSON() as CreatePersonalTokenBody;
+      const result = await handler(body);
+      tokens.setTokens([result.token]);
+      await route.fulfill({
+        status: result.status ?? 201,
+        json: {
+          id: result.token.id,
+          token: result.plaintext,
+          scopes: result.token.scopes,
+          expiresAt: result.expiresAt,
+        },
+      });
+      return;
+    }
+    await route.fallback();
   });
 }
 
