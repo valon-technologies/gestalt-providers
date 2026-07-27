@@ -310,9 +310,11 @@ const CheckboxTree = React.forwardRef<HTMLDivElement, CheckboxTreeProps>(
             );
             const inputId = `${idPrefix}-${id}`;
 
+            const rowSoft = state === true || state === "indeterminate";
+
             return (
               <TreeItem key={id} item={item}>
-                <TreeItemLabel>
+                <TreeItemLabel data-soft={rowSoft || undefined}>
                   <span
                     className={cn(
                       "flex min-w-0 items-center",

@@ -1,51 +1,119 @@
 /*
  * Public theme contract
  *
- * This file is the complete styling API for a tenant.  It deliberately uses
- * semantic roles rather than a palette: components may ask for `primary` or
- * `muted`, never for a brand colour or a tenant font.  A deployment supplies
- * an optional stylesheet at `theme.css` that re-declares these variables.
+ * Semantic roles only — components never ask for palette names. A deployment
+ * may override any variable via the runtime `theme.css` endpoint.
  *
- * Defaults use :where() so a tenant's ordinary :root / .dark declarations
- * always win, regardless of stylesheet order.  Do not add !important here or
- * in a tenant theme.
+ * Defaults use :where() (zero specificity) so tenant `:root` / `.dark` wins.
+ * Fallback oklch values mirror Valon Registry `registry/theme/theme.css` so
+ * vendored UI primitives render correctly without a tenant palette.
  */
 
 :where(:root) {
   color-scheme: light;
 
-  /* shadcn-compatible semantic colours */
+  /* Interaction Step Model — role hovers/presses derive from these only. */
+  --interaction-step-pale-hover: 0.012;
+  --interaction-step-pale-press: 0.024;
+  --interaction-step-light-hover: 0.012;
+  --interaction-step-light-press: 0.024;
+  --interaction-step-light-chroma-hover: 0.02;
+  --interaction-step-light-chroma-press: 0.04;
+  --interaction-step-muted-chrome-hover: 0.025;
+  --interaction-step-muted-chrome-press: 0.015;
+  --interaction-step-ink-confirm-hover: 0.02;
+  --interaction-step-ink-confirm-press: 0.04;
+
+  --state-overlay-hover: 0.08;
+  --state-overlay-press: 0.14;
+
+  /* ── Core surfaces (Registry: neutral + paper) ─────────────────────────── */
   --background: oklch(100% 0 0);
-  --foreground: oklch(21% 0.02 264);
+  --foreground: oklch(21.867% 0.0213 76.13);
   --card: oklch(100% 0 0);
-  --card-foreground: oklch(21% 0.02 264);
+  --card-foreground: var(--foreground);
   --popover: oklch(100% 0 0);
-  --popover-foreground: oklch(21% 0.02 264);
-  --primary: oklch(30% 0.07 264);
-  --primary-foreground: oklch(100% 0 0);
-  --secondary: oklch(97% 0.006 264);
-  --secondary-foreground: oklch(25% 0.02 264);
-  --muted: oklch(96% 0.008 264);
-  /* Derive secondary copy from the active ink so tenants that only set
-   * --foreground still get readable muted body text. */
-  --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
-  --accent: oklch(94% 0.024 264);
-  --accent-foreground: oklch(25% 0.02 264);
-  --destructive: oklch(58% 0.22 27);
+  --popover-foreground: var(--foreground);
+
+  /* ── Actions (Registry: ink primary, neutral secondary) ──────────────── */
+  --primary: var(--foreground);
+  --primary-foreground: var(--background);
+  --secondary: oklch(97.384% 0.0045 78.3);
+  --secondary-foreground: var(--foreground);
+  --destructive: oklch(58.766% 0.1526 23);
   --destructive-foreground: oklch(100% 0 0);
-  --border: oklch(90% 0.01 264);
-  --input: oklch(82% 0.01 264);
-  --ring: oklch(58% 0.17 258);
 
-  /* Status extensions used by the public UI. */
-  --success: oklch(94% 0.055 150);
-  --success-foreground: oklch(39% 0.11 150);
-  --warning: oklch(95% 0.065 85);
-  --warning-foreground: oklch(43% 0.11 68);
-  --info: oklch(94% 0.035 250);
-  --info-foreground: oklch(42% 0.12 250);
+  /* ── Supporting UI ───────────────────────────────────────────────────── */
+  --muted: oklch(97.384% 0.0045 78.3);
+  --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
+  --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
+  --border: oklch(92.323% 0.0129 63.91);
+  --input: oklch(82% 0 0);
+  --ring: oklch(85.9% 0.112 82.4);
 
-  /* Geometry and type are intentionally small, explicit customization seams. */
+  /* ── Accent ladder (Registry gold wash → vivid → solid → strong) ───────── */
+  --accent: oklch(93.6% 0.053 81.8);
+  --accent-foreground: var(--foreground);
+  --accent-fill-hover: oklch(from var(--accent) calc(l - var(--interaction-step-light-hover)) c h);
+  --accent-fill-pressed: oklch(from var(--accent) calc(l - var(--interaction-step-light-press)) c h);
+  --accent-hover: oklch(97.9% 0.02 81.8);
+  --accent-pressed: oklch(from var(--accent-hover) calc(l - var(--interaction-step-pale-press)) c h);
+  --accent-subtle: color-mix(in oklab, var(--accent), var(--popover) 30%);
+  --accent-vivid: oklch(85.9% 0.112 82.4);
+  --accent-vivid-foreground: var(--foreground);
+  --accent-vivid-hover: oklch(from var(--accent-vivid) calc(l - var(--interaction-step-light-chroma-hover)) c h);
+  --accent-vivid-pressed: oklch(from var(--accent-vivid) calc(l - var(--interaction-step-light-chroma-press)) c h);
+  --accent-wash: oklch(97.9% 0.02 81.8);
+  --accent-wash-hover: oklch(from var(--accent-wash) calc(l - var(--interaction-step-pale-hover)) c h);
+  --accent-wash-pressed: oklch(from var(--accent-wash) calc(l - var(--interaction-step-pale-press)) c h);
+  --accent-solid: oklch(79.3% 0.144 80.3);
+  --accent-solid-hover: oklch(from var(--accent-solid) calc(l - var(--interaction-step-ink-confirm-hover)) c h);
+  --accent-solid-pressed: oklch(from var(--accent-solid) calc(l - var(--interaction-step-ink-confirm-press)) c h);
+  --accent-strong: oklch(73.1% 0.152 72.6);
+  --accent-strong-hover: oklch(from var(--accent-strong) calc(l - var(--interaction-step-ink-confirm-hover)) c h);
+  --accent-strong-pressed: oklch(from var(--accent-strong) calc(l - var(--interaction-step-ink-confirm-press)) c h);
+  --accent-highlight: oklch(93.6% 0.053 81.8);
+
+  --link: var(--accent-strong);
+  --link-hover: var(--accent-strong-hover);
+  --link-pressed: var(--accent-strong-pressed);
+
+  --brand: oklch(46.522% 0.0933 70.48);
+  --brand-foreground: oklch(100% 0 0);
+
+  /* ── Neutral interaction (selectable rows, menus) ────────────────────── */
+  --neutral-hover: oklch(97.384% 0.0045 78.3);
+  --neutral-pressed: oklch(from var(--neutral-hover) calc(l - var(--interaction-step-pale-press)) c h);
+  --neutral-dark-hover: oklch(from var(--neutral-hover) calc(l - var(--interaction-step-muted-chrome-hover)) c h);
+  --neutral-dark-pressed: oklch(from var(--neutral-dark-hover) calc(l - var(--interaction-step-muted-chrome-press)) c h);
+  --list-item-hover: var(--neutral-hover);
+  --list-item-pressed: var(--neutral-pressed);
+
+  /* ── Surface / disabled ──────────────────────────────────────────────── */
+  --surface-hover: oklch(98.829% 0.0029 84.56);
+  --surface-pressed: oklch(from var(--surface-hover) calc(l - var(--interaction-step-pale-press)) c h);
+  --disabled: oklch(from oklch(97.384% 0.0045 78.3) l 0 h);
+  --disabled-foreground: oklch(from oklch(71.063% 0.035 74.65) l 0 h);
+
+  /* ── Status (surface tints + action destructive above) ───────────────── */
+  --success: oklch(92.8% 0.045 144);
+  --success-foreground: oklch(40.8% 0.105 144);
+  --warning: oklch(92.8% 0.045 82);
+  --warning-foreground: oklch(40.8% 0.082 82);
+  --error: oklch(92.8% 0.035 25);
+  --error-foreground: oklch(40.8% 0.105 25);
+  --info: oklch(92.8% 0.035 248);
+  --info-foreground: oklch(40.8% 0.105 248);
+
+  /* ── Registry UI extensions ──────────────────────────────────────────── */
+  --alpha-dark: var(--foreground);
+  --surface: var(--card);
+  --surface-raised: var(--card);
+  --base-white: var(--background);
+  --code-line-emphasis: color-mix(in oklch, var(--accent-wash), var(--accent-highlight));
+  --scrollbar-thumb: oklch(86.851% 0.0197 72.55);
+
+  /* Geometry and type — tenant customization seams. */
   --radius: 0.5rem;
   --ui-font-sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
   --ui-font-display: Newsreader, ui-serif, Georgia, serif;
@@ -56,30 +124,95 @@
 :where(.dark) {
   color-scheme: dark;
 
-  --background: oklch(17% 0.018 264);
-  --foreground: oklch(96% 0.008 264);
-  --card: oklch(21% 0.018 264);
-  --card-foreground: oklch(96% 0.008 264);
-  --popover: oklch(21% 0.018 264);
-  --popover-foreground: oklch(96% 0.008 264);
-  --primary: oklch(96% 0.008 264);
-  --primary-foreground: oklch(19% 0.018 264);
-  --secondary: oklch(27% 0.018 264);
-  --secondary-foreground: oklch(96% 0.008 264);
-  --muted: oklch(27% 0.018 264);
-  --muted-foreground: color-mix(in oklab, var(--foreground) 65%, transparent);
-  --accent: oklch(29% 0.032 264);
-  --accent-foreground: oklch(96% 0.008 264);
-  --destructive: oklch(73% 0.18 27);
-  --destructive-foreground: oklch(19% 0.018 264);
-  --border: oklch(34% 0.018 264);
-  --input: oklch(38% 0.018 264);
-  --ring: oklch(76% 0.14 258);
+  --interaction-step-pale-hover: 0.012;
+  --interaction-step-pale-press: 0.024;
+  --interaction-step-light-hover: 0.012;
+  --interaction-step-light-press: 0.024;
+  --interaction-step-light-chroma-hover: 0.02;
+  --interaction-step-light-chroma-press: 0.04;
+  --interaction-step-muted-chrome-hover: 0.025;
+  --interaction-step-muted-chrome-press: 0.015;
+  --interaction-step-ink-confirm-hover: 0.02;
+  --interaction-step-ink-confirm-press: 0.04;
 
-  --success: oklch(29% 0.075 150);
-  --success-foreground: oklch(85% 0.09 150);
-  --warning: oklch(30% 0.075 85);
-  --warning-foreground: oklch(88% 0.09 85);
-  --info: oklch(29% 0.052 250);
-  --info-foreground: oklch(86% 0.065 250);
+  --state-overlay-hover: 0.08;
+  --state-overlay-press: 0.14;
+
+  --background: oklch(19.494% 0.0088 52);
+  --foreground: oklch(92.718% 0.0097 72.66);
+  --card: oklch(22.685% 0.0097 53);
+  --card-foreground: var(--foreground);
+  --popover: oklch(22.685% 0.0097 53);
+  --popover-foreground: var(--foreground);
+
+  --primary: var(--foreground);
+  --primary-foreground: var(--background);
+  --secondary: oklch(27.009% 0.0106 54);
+  --secondary-foreground: var(--foreground);
+  --destructive: oklch(77.8% 0.108 25);
+  --destructive-foreground: oklch(19.494% 0.0088 52);
+
+  --muted: oklch(27.009% 0.0106 54);
+  --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
+  --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
+  --border: oklch(32.208% 0.0111 56);
+  --input: oklch(32.208% 0.0111 56);
+  --ring: oklch(85.935% 0.1118 82.45);
+
+  --accent: oklch(38.46% 0.075 71.86);
+  --accent-foreground: var(--foreground);
+  --accent-fill-hover: oklch(from var(--accent) calc(l - var(--interaction-step-light-hover)) c h);
+  --accent-fill-pressed: oklch(from var(--accent) calc(l - var(--interaction-step-light-press)) c h);
+  --accent-hover: color-mix(in oklab, var(--accent), var(--popover) 60%);
+  --accent-pressed: oklch(from var(--accent-hover) calc(l - var(--interaction-step-pale-press)) c h);
+  --accent-subtle: color-mix(in oklab, var(--accent), var(--popover) 30%);
+  --accent-vivid: oklch(77% 0.125 80);
+  --accent-vivid-foreground: var(--background);
+  --accent-vivid-hover: oklch(from var(--accent-vivid) calc(l - var(--interaction-step-light-chroma-hover)) c h);
+  --accent-vivid-pressed: oklch(from var(--accent-vivid) calc(l - var(--interaction-step-light-chroma-press)) c h);
+  --accent-wash: oklch(31% 0.06 71);
+  --accent-wash-hover: oklch(from var(--accent-wash) calc(l - var(--interaction-step-pale-hover)) c h);
+  --accent-wash-pressed: oklch(from var(--accent-wash) calc(l - var(--interaction-step-pale-press)) c h);
+  --accent-solid: oklch(67% 0.135 78);
+  --accent-solid-hover: oklch(from var(--accent-solid) calc(l - var(--interaction-step-ink-confirm-hover)) c h);
+  --accent-solid-pressed: oklch(from var(--accent-solid) calc(l - var(--interaction-step-ink-confirm-press)) c h);
+  --accent-strong: oklch(57% 0.1198 76);
+  --accent-strong-hover: oklch(from var(--accent-strong) calc(l - var(--interaction-step-ink-confirm-hover)) c h);
+  --accent-strong-pressed: oklch(from var(--accent-strong) calc(l - var(--interaction-step-ink-confirm-press)) c h);
+  --accent-highlight: oklch(38.46% 0.075 71.86);
+
+  --link: var(--accent-strong);
+  --link-hover: var(--accent-strong-hover);
+  --link-pressed: var(--accent-strong-pressed);
+
+  --brand: oklch(85.935% 0.1118 82.45);
+  --brand-foreground: oklch(19.494% 0.0088 52);
+
+  --neutral-hover: oklch(27.009% 0.0106 54);
+  --neutral-pressed: oklch(from var(--neutral-hover) calc(l - var(--interaction-step-pale-press)) c h);
+  --neutral-dark-hover: oklch(from var(--neutral-hover) calc(l - var(--interaction-step-muted-chrome-hover)) c h);
+  --neutral-dark-pressed: oklch(from var(--neutral-dark-hover) calc(l - var(--interaction-step-muted-chrome-press)) c h);
+  --list-item-hover: var(--neutral-hover);
+  --list-item-pressed: var(--neutral-pressed);
+
+  --surface-hover: oklch(27.009% 0.0106 54);
+  --surface-pressed: oklch(from var(--surface-hover) calc(l - var(--interaction-step-pale-press)) c h);
+  --disabled: oklch(from oklch(27.009% 0.0106 54) l 0 h);
+  --disabled-foreground: oklch(from oklch(51% 0.013 61) l 0 h);
+
+  --success: oklch(28.2% 0.058 144);
+  --success-foreground: oklch(85.8% 0.075 144);
+  --warning: oklch(28.2% 0.058 82);
+  --warning-foreground: oklch(85.8% 0.075 82);
+  --error: oklch(28.2% 0.058 25);
+  --error-foreground: oklch(85.8% 0.073 25);
+  --info: oklch(28.2% 0.058 248);
+  --info-foreground: oklch(85.8% 0.07 248);
+
+  --alpha-dark: var(--foreground);
+  --surface: var(--card);
+  --surface-raised: var(--card);
+  --base-white: var(--background);
+  --code-line-emphasis: color-mix(in oklch, var(--accent-wash), var(--accent-highlight));
+  --scrollbar-thumb: oklch(41% 0.012 58);
 }

@@ -91,8 +91,14 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-muted-foreground-soft: var(--muted-foreground-soft);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-accent-fill-hover: var(--accent-fill-hover);
+  --color-accent-fill-pressed: var(--accent-fill-pressed);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-pressed: var(--accent-pressed);
+  --color-accent-subtle: var(--accent-subtle);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
@@ -104,6 +110,45 @@
   --color-warning-foreground: var(--warning-foreground);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
+
+  /* Registry UI extensions — see shared/theme.css for runtime fallbacks. */
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-base-white: var(--base-white);
+  --color-muted-foreground-soft: var(--muted-foreground-soft);
+  --color-disabled: var(--disabled);
+  --color-disabled-foreground: var(--disabled-foreground);
+  --color-accent-vivid: var(--accent-vivid);
+  --color-accent-vivid-foreground: var(--accent-vivid-foreground);
+  --color-accent-vivid-hover: var(--accent-vivid-hover);
+  --color-accent-vivid-pressed: var(--accent-vivid-pressed);
+  --color-accent-solid: var(--accent-solid);
+  --color-accent-solid-hover: var(--accent-solid-hover);
+  --color-accent-solid-pressed: var(--accent-solid-pressed);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-strong-hover: var(--accent-strong-hover);
+  --color-accent-strong-pressed: var(--accent-strong-pressed);
+  --color-accent-highlight: var(--accent-highlight);
+  --color-accent-wash: var(--accent-wash);
+  --color-accent-wash-hover: var(--accent-wash-hover);
+  --color-accent-wash-pressed: var(--accent-wash-pressed);
+  --color-neutral-hover: var(--neutral-hover);
+  --color-neutral-pressed: var(--neutral-pressed);
+  --color-neutral-dark-hover: var(--neutral-dark-hover);
+  --color-neutral-dark-pressed: var(--neutral-dark-pressed);
+  --color-list-item-hover: var(--list-item-hover);
+  --color-list-item-pressed: var(--list-item-pressed);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-pressed: var(--surface-pressed);
+  --color-error: var(--error);
+  --color-error-foreground: var(--error-foreground);
+  --color-code-line-emphasis: var(--code-line-emphasis);
+
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-link: var(--link);
+  --color-link-hover: var(--link-hover);
+  --color-link-pressed: var(--link-pressed);
 
   --font-sans: var(--ui-font-sans);
   --font-heading: var(--ui-font-display);
@@ -118,6 +163,42 @@
 
   --shadow-dropdown: 0 4px 12px color-mix(in oklab, var(--foreground) 16%, transparent);
   --shadow-card: 0 1px 3px color-mix(in oklab, var(--foreground) 10%, transparent);
+}
+
+/* Registry console alpha utilities (v3 parity). */
+@utility text-primary {
+  color: var(--alpha-dark);
+}
+@utility text-secondary {
+  color: color-mix(in oklab, var(--alpha-dark) 80%, transparent);
+}
+@utility text-muted {
+  color: color-mix(in oklab, var(--alpha-dark) 60%, transparent);
+}
+@utility text-faint {
+  color: color-mix(in oklab, var(--alpha-dark) 40%, transparent);
+}
+@utility border-alpha {
+  border-color: color-mix(in oklab, var(--alpha-dark) 10%, transparent);
+}
+@utility border-alpha-strong {
+  border-color: color-mix(in oklab, var(--alpha-dark) 20%, transparent);
+}
+@utility bg-alpha-10 {
+  background-color: color-mix(in oklab, var(--alpha-dark) 10%, transparent);
+}
+@utility bg-alpha-5 {
+  background-color: color-mix(in oklab, var(--alpha-dark) 5%, transparent);
+}
+@utility divide-alpha {
+  :where(& > :not(:last-child)) {
+    border-color: color-mix(in oklab, var(--alpha-dark) 10%, transparent);
+  }
+}
+
+/* Trim font metric leading so flex/grid centering matches visible glyphs (all fonts). */
+@utility text-box-cap-trim {
+  text-box: trim-both cap alphabetic;
 }
 
 @font-face {
@@ -162,7 +243,6 @@
 
 @layer base {
   html {
-    --scrollbar-thumb: color-mix(in oklab, var(--foreground) 28%, transparent);
     scroll-behavior: smooth;
   }
 
@@ -284,20 +364,13 @@ pre.shiki span {
   color: var(--shiki-dark);
 }
 
-  color: var(--shiki-light);
-}
-
-.dark pre.shiki span {
-  color: var(--shiki-dark);
-}
-
 .focus-ring:focus-visible {
-  outline: 3px solid var(--ring);
+  outline: 3px solid var(--accent-solid);
   outline-offset: 2px;
 }
 
 .focus-ring-inset:focus-visible {
-  outline: 3px solid var(--ring);
+  outline: 3px solid var(--accent-solid);
   outline-offset: -3px;
 }
 

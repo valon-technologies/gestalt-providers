@@ -531,9 +531,7 @@ function StepperIndicator({ className, size, children, ...props }: StepperIndica
           {/* Number stays mounted under the check so layout never shifts. */}
           <span
             className={cn(
-              "col-start-1 row-start-1 tabular-nums",
-              // Season italic cap figures read low/left in a geometric circle.
-              "translate-x-[0.06em] -translate-y-[0.07em]",
+              "col-start-1 row-start-1 tabular-nums text-box-cap-trim",
               !numberVisible && "invisible",
             )}
             aria-hidden={!numberVisible}

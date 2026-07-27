@@ -13,13 +13,12 @@ import IntegrationIcon from "@/components/IntegrationIcon";
 import { Link as UiLink } from "@/components/ui/link";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
-  choiceCardClassName,
-  choiceCardContentClassName,
+  choiceCardContentNoIndicatorClassName,
   choiceCardFormFieldsClassName,
   choiceCardFormShellClassName,
   choiceCardHoverClassName,
-  choiceCardRadioClassName,
-  choiceCardRadioEyebrowClassName,
+  choiceCardNoIndicatorClassName,
+  choiceCardRadioHiddenClassName,
   radioLabelWrappedDisabledClassName,
 } from "@/lib/choice-card-chrome";
 import { Eyebrow } from "@/components/ui/eyebrow";
@@ -615,7 +614,7 @@ function BuildAgentConsolePreview({
   );
 }
 
-/** Registry ChoiceCards — vertical rail (features-14 spine); use {@link choiceCardClassName} only. */
+/** Registry ChoiceCards — vertical rail (features-14 spine); no-indicator tiles. */
 
 function IntroStepActions({
   activeExemplarId,
@@ -664,18 +663,22 @@ function IntroStepActions({
                 <Label
                   key={item.id}
                   htmlFor={inputId}
-                  className={cn(choiceCardClassName, choiceCardHoverClassName)}
+                  className={cn(
+                    choiceCardNoIndicatorClassName,
+                    choiceCardHoverClassName,
+                  )}
                   data-testid={`build-outcome-card-${item.id}`}
                 >
                   <RadioGroupItem
                     focusRing="none"
                     value={item.id}
                     id={inputId}
-                    className={choiceCardRadioEyebrowClassName}
+                    className={choiceCardRadioHiddenClassName}
                     aria-label={item.outcomeTitle}
                   />
-                  <div className={choiceCardContentClassName}>
+                  <div className={choiceCardContentNoIndicatorClassName}>
                     <Eyebrow
+                      size="sm"
                       data-testid={
                         item.id === activeExemplarId
                           ? "build-outcome-department"
@@ -790,7 +793,7 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
           <Label
             htmlFor="build-install-cursor"
             className={cn(
-              "grid cursor-pointer grid-cols-[auto_1fr] gap-x-3 p-4 leading-normal",
+              "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
               radioLabelWrappedDisabledClassName,
             )}
           >
@@ -798,10 +801,10 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
               focusRing="none"
               value="cursor"
               id="build-install-cursor"
-              className={choiceCardRadioClassName}
+              className={choiceCardRadioHiddenClassName}
               aria-label="Cursor"
             />
-            <div className={choiceCardContentClassName}>
+            <div className={choiceCardContentNoIndicatorClassName}>
               <span
                 data-choice-title
                 className="text-sm font-medium text-foreground"
@@ -870,7 +873,7 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
           <Label
             htmlFor="build-install-claude"
             className={cn(
-              "grid cursor-pointer grid-cols-[auto_1fr] gap-x-3 p-4 leading-normal",
+              "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
               radioLabelWrappedDisabledClassName,
             )}
           >
@@ -878,10 +881,10 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
               focusRing="none"
               value="claude"
               id="build-install-claude"
-              className={choiceCardRadioClassName}
+              className={choiceCardRadioHiddenClassName}
               aria-label="Claude Code"
             />
-            <div className={choiceCardContentClassName}>
+            <div className={choiceCardContentNoIndicatorClassName}>
               <span
                 data-choice-title
                 className="text-sm font-medium text-foreground"
@@ -914,7 +917,7 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
           <Label
             htmlFor="build-install-codex"
             className={cn(
-              "grid cursor-pointer grid-cols-[auto_1fr] gap-x-3 p-4 leading-normal",
+              "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
               radioLabelWrappedDisabledClassName,
             )}
           >
@@ -922,10 +925,10 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
               focusRing="none"
               value="codex"
               id="build-install-codex"
-              className={choiceCardRadioClassName}
+              className={choiceCardRadioHiddenClassName}
               aria-label="Codex"
             />
-            <div className={choiceCardContentClassName}>
+            <div className={choiceCardContentNoIndicatorClassName}>
               <span
                 data-choice-title
                 className="text-sm font-medium text-foreground"
@@ -958,7 +961,7 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
           <Label
             htmlFor="build-install-other"
             className={cn(
-              "grid cursor-pointer grid-cols-[auto_1fr] gap-x-3 p-4 leading-normal",
+              "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
               radioLabelWrappedDisabledClassName,
             )}
           >
@@ -966,10 +969,10 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
               focusRing="none"
               value="other"
               id="build-install-other"
-              className={choiceCardRadioClassName}
+              className={choiceCardRadioHiddenClassName}
               aria-label="Using a different agent?"
             />
-            <div className={choiceCardContentClassName}>
+            <div className={choiceCardContentNoIndicatorClassName}>
               <span
                 data-choice-title
                 className="text-sm font-medium text-foreground"
@@ -1484,7 +1487,7 @@ function AuthorizeStepActions({
               <Label
                 htmlFor="build-authorize-existing"
                 className={cn(
-                  "grid cursor-pointer grid-cols-[auto_1fr] gap-x-3 p-4 leading-normal",
+                  "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
                   radioLabelWrappedDisabledClassName,
                 )}
               >
@@ -1492,11 +1495,11 @@ function AuthorizeStepActions({
                   focusRing="none"
                   value={BUILD_USE_EXISTING_TOKEN_ID}
                   id="build-authorize-existing"
-                  className={choiceCardRadioClassName}
+                  className={choiceCardRadioHiddenClassName}
                   aria-label="Use existing token"
                   disabled={!hasTokens}
                 />
-                <div className={choiceCardContentClassName}>
+                <div className={choiceCardContentNoIndicatorClassName}>
                   <span
                     data-choice-title
                     className="text-sm font-medium text-foreground"
@@ -1570,7 +1573,7 @@ function AuthorizeStepActions({
               <Label
                 htmlFor="build-authorize-create"
                 className={cn(
-                  "grid cursor-pointer grid-cols-[auto_1fr] gap-x-3 p-4 leading-normal",
+                  "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
                   radioLabelWrappedDisabledClassName,
                 )}
               >
@@ -1578,10 +1581,10 @@ function AuthorizeStepActions({
                   focusRing="none"
                   value={BUILD_CREATE_NEW_TOKEN_ID}
                   id="build-authorize-create"
-                  className={choiceCardRadioClassName}
+                  className={choiceCardRadioHiddenClassName}
                   aria-label="Create new token"
                 />
-                <div className={choiceCardContentClassName}>
+                <div className={choiceCardContentNoIndicatorClassName}>
                   <span
                     data-choice-title
                     className="text-sm font-medium text-foreground"
@@ -1800,7 +1803,7 @@ function BuildStoreAppCard({
         "flex items-start gap-4 rounded-xl bg-neutral-hover p-4 text-foreground",
         "transition-[background-color] duration-hover-out ease-out-quart",
         "hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed",
-        "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold-400 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        "focus-ring rounded-xl",
       )}
     >
       <IntegrationIcon iconSvg={iconSvg} size="xl" />

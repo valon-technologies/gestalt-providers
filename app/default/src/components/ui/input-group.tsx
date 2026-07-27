@@ -59,7 +59,7 @@ const inputGroupVariants = cva(
     "has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-end]]:items-stretch has-[>[data-align=block-end]]:[&>[data-slot=input-group-control]]:pt-3",
 
     // Focus on the control → ring on the shell (not ring-[3px] / border-ring).
-    "has-[[data-slot=input-group-control]:focus-visible]:outline-3 has-[[data-slot=input-group-control]:focus-visible]:outline-offset-2 has-[[data-slot=input-group-control]:focus-visible]:outline-ring",
+    "has-[[data-slot=input-group-control]:focus-visible]:outline-3 has-[[data-slot=input-group-control]:focus-visible]:outline-offset-2 has-[[data-slot=input-group-control]:focus-visible]:outline-accent-solid",
 
     // Invalid / disabled — control owns aria-invalid + disabled; shell paints.
     "has-[[data-slot=input-group-control][aria-invalid=true]]:border-destructive",

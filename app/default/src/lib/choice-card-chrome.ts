@@ -1,3 +1,5 @@
+import { cva, type VariantProps } from "class-variance-authority";
+
 /**
  * Choice-card tile chrome (stories / composition).
  *
@@ -13,6 +15,10 @@
  * Pointer affordance (neutral hover/press) is opt-in — compose
  * `choiceCardClassName` + `choiceCardHoverClassName`. Form variants disclose
  * nested fields via controlled `Collapsible` + `CollapsibleContent`.
+ *
+ * `indicator` variant: `radio` shows the disk column; `none` hides it (`sr-only`)
+ * and selection reads from inset card ring only — Chakra “No Indicator”.
+ * Still `RadioGroup` semantics either way.
  */
 export const choiceCardSelectionTransition =
   "transition-[box-shadow] duration-[var(--duration-100)] ease-out-expo motion-reduce:transition-none";
@@ -31,11 +37,11 @@ export const choiceCardForcedColorsClassName = [
   "has-[[data-slot=radio-group-item]:disabled]:forced-colors:border-[GrayText]",
 ].join(" ");
 
-/** Parent-owned keyboard focus — matches shared `focus-ring` recipe (outline-2). */
+/** Parent-owned keyboard focus — accent-solid outline on the card (keyboard only). */
 export const choiceCardFocusRingClassName = [
   "has-[[data-slot=radio-group-item]:focus-visible]:outline-2",
   "has-[[data-slot=radio-group-item]:focus-visible]:outline-offset-2",
-  "has-[[data-slot=radio-group-item]:focus-visible]:outline-ring",
+  "has-[[data-slot=radio-group-item]:focus-visible]:outline-accent-solid",
 ].join(" ");
 
 /** Neutral List Item hover/press for label-wrapped radio rows and choice cards. */
@@ -73,9 +79,6 @@ export const choiceCardRadioEyebrowClassName =
 /** Row 2 placement when row 1 is full-width media (`choiceCardMediaAboveClassName`). */
 export const choiceCardBelowMediaClassName = "row-start-2";
 
-export const choiceCardContentClassName =
-  "col-start-2 flex min-w-0 flex-col gap-1";
-
 export const choiceCardMediaClassName = "col-span-2";
 
 /** Media spans the card width on row 1; pair radio/copy with `choiceCardBelowMediaClassName`. */
@@ -88,18 +91,75 @@ export const choiceCardFormFieldsClassName =
 /** Choice-card hover — neutral wash plus outline-card suppress for nested controls. */
 export const choiceCardHoverClassName = [
   radioSelectableHoverClassName,
-  "[&:hover:has(a:not([data-row-link]):hover,button:hover,input:hover,select:hover,textarea:hover,[role=button]:hover,[role=checkbox]:hover,[role=combobox]:hover,[data-no-row-click]:hover)]:bg-card [&:active:has(a:not([data-row-link]):active,button:active,input:active,select:active,textarea:active,[role=button]:active,[role=checkbox]:active,[role=combobox]:active,[data-no-row-click]:active)]:bg-card",
+  "[&:hover:has(a:not([data-row-link]):hover,button:not([data-slot=radio-group-item]):hover,input:hover,select:hover,textarea:hover,[role=button]:not([data-slot=radio-group-item]):hover,[role=checkbox]:hover,[role=combobox]:hover,[data-no-row-click]:hover)]:bg-card [&:active:has(a:not([data-row-link]):active,button:not([data-slot=radio-group-item]):active,input:active,select:active,textarea:active,[role=button]:not([data-slot=radio-group-item]):active,[role=checkbox]:active,[role=combobox]:active,[data-no-row-click]:active)]:bg-card",
 ].join(" ");
 
-/** Choice-card base — selection, focus, layout. Compose hover when needed. */
-export const choiceCardClassName = [
-  "relative grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 cursor-pointer rounded-lg border-0 bg-card p-4 leading-normal",
+const choiceCardSharedClassName = [
+  "relative cursor-pointer rounded-lg border-0 bg-card p-4 leading-normal",
   radioLabelWrappedDisabledClassName,
   choiceCardSelectionTransition,
   choiceCardSelectionShadowClassName,
   choiceCardForcedColorsClassName,
   choiceCardFocusRingClassName,
 ].join(" ");
+
+/** Tile chrome — `indicator: "radio"` (disk column) or `"none"` (borderless card). */
+export const choiceCardVariants = cva(choiceCardSharedClassName, {
+  variants: {
+    indicator: {
+      radio: "grid grid-cols-[auto_1fr] gap-x-3 gap-y-1",
+      none: "flex flex-col gap-1",
+    },
+  },
+  defaultVariants: { indicator: "radio" },
+});
+
+/** Copy column inside a choice-card tile. */
+export const choiceCardContentVariants = cva("flex min-w-0 flex-col gap-1", {
+  variants: {
+    indicator: {
+      radio: "col-start-2",
+      none: "",
+    },
+  },
+  defaultVariants: { indicator: "radio" },
+});
+
+/** Radio disk placement — visible column vs sr-only hidden input. */
+export const choiceCardRadioVariants = cva("", {
+  variants: {
+    indicator: {
+      radio: choiceCardRadioClassName,
+      none: "sr-only",
+    },
+  },
+  defaultVariants: { indicator: "radio" },
+});
+
+export type ChoiceCardIndicator = NonNullable<
+  VariantProps<typeof choiceCardVariants>["indicator"]
+>;
+
+/** Choice-card with visible radio disk column (default). */
+export const choiceCardClassName = choiceCardVariants({ indicator: "radio" });
+
+/** Choice-card without a visible radio disk — pair with `choiceCardRadioHiddenClassName`. */
+export const choiceCardNoIndicatorClassName = choiceCardVariants({
+  indicator: "none",
+});
+
+export const choiceCardContentClassName = choiceCardContentVariants({
+  indicator: "radio",
+});
+
+export const choiceCardContentNoIndicatorClassName = choiceCardContentVariants({
+  indicator: "none",
+});
+
+/** Visually hide the radio disk — keep `RadioGroupItem` for radiogroup a11y. */
+export const choiceCardRadioHiddenClassName = choiceCardRadioVariants({
+  indicator: "none",
+});
 
 /** Shell for choice cards that host nested fields (header in Label; drawer outside). */
 export const choiceCardFormShellClassName = [

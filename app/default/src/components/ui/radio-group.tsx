@@ -44,7 +44,7 @@ const radioGroupItemVariants = cva(
       },
       focusRing: {
         item: "focus-ring",
-        none: "",
+        none: "outline-none focus-visible:outline-none",
       },
     },
     defaultVariants: { size: "default", focusRing: "item" },
