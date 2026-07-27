@@ -1016,8 +1016,13 @@ export async function disconnectIntegration(
   );
 }
 
+import {
+  listPersonalAPITokens,
+  revokePersonalAPIToken,
+} from "./personalGrants";
+
 export async function getTokens(): Promise<APIToken[]> {
-  return fetchAPI("/api/v1/tokens");
+  return listPersonalAPITokens(fetchAPI);
 }
 
 export async function getWorkflowRuns(): Promise<WorkflowRun[]> {
@@ -1402,7 +1407,7 @@ export async function createToken(
 }
 
 export async function revokeToken(id: string): Promise<void> {
-  await fetchAPI(`/api/v1/tokens/${id}`, { method: "DELETE" });
+  return revokePersonalAPIToken(fetchAPI, id);
 }
 
 const MANAGED_SUBJECTS_PATH = "/api/v1/authorization/subjects";

@@ -15,6 +15,11 @@ import type {
   ManagedIdentity,
   WorkflowRun,
 } from "../src/lib/api";
+import {
+  apiTokenToIdentityGrantWire,
+  parseIdentityGrantIdFromUrl,
+  PERSONAL_IDENTITY_GRANTS_PATH,
+} from "../src/lib/personalGrants";
 
 type MockAgentRunsOptions = {
   onCreate?: (
@@ -327,13 +332,101 @@ export async function mockAppAdminRegistryHistory(
   };
 }
 
-export async function mockTokens(page: Page, tokens: APIToken[]) {
-  await page.route("**/api/v1/tokens", (route: Route, request) => {
+export interface MockTokensController {
+  setTokens(tokens: APIToken[]): void;
+  getTokens(): APIToken[];
+}
+
+export async function mockTokens(
+  page: Page,
+  initialTokens: APIToken[],
+  options?: {
+    delayFirstListMs?: number;
+  },
+): Promise<MockTokensController> {
+  let currentTokens = [...initialTokens];
+  let listCount = 0;
+
+  await page.route(`**${PERSONAL_IDENTITY_GRANTS_PATH}`, async (route: Route, request) => {
     if (request.method() === "GET") {
-      route.fulfill({ json: tokens });
-    } else {
-      route.fallback();
+      listCount += 1;
+      if (options?.delayFirstListMs && listCount === 1) {
+        await new Promise((resolve) => setTimeout(resolve, options.delayFirstListMs));
+        await route.fulfill({ json: { grantIds: [] } });
+        return;
+      }
+      await route.fulfill({
+        json: { grantIds: currentTokens.map((token) => token.id) },
+      });
+      return;
     }
+    await route.fallback();
+  });
+
+  await page.route(`**${PERSONAL_IDENTITY_GRANTS_PATH}/*`, async (route: Route, request) => {
+    const grantId = parseIdentityGrantIdFromUrl(request.url());
+    if (request.method() === "GET") {
+      const token = currentTokens.find((entry) => entry.id === grantId);
+      if (!token) {
+        await route.fulfill({ status: 404, json: { error: "grant not found" } });
+        return;
+      }
+      await route.fulfill({ json: apiTokenToIdentityGrantWire(token) });
+      return;
+    }
+    if (request.method() === "DELETE") {
+      currentTokens = currentTokens.filter((entry) => entry.id !== grantId);
+      await route.fulfill({ json: {} });
+      return;
+    }
+    await route.fallback();
+  });
+
+  return {
+    setTokens(tokens: APIToken[]) {
+      currentTokens = [...tokens];
+    },
+    getTokens() {
+      return [...currentTokens];
+    },
+  };
+}
+
+type CreatePersonalTokenBody = {
+  name?: string;
+  scopes?: string;
+  expiresIn?: number;
+};
+
+export async function mockPersonalTokenCreate(
+  page: Page,
+  tokens: MockTokensController,
+  handler: (
+    body: CreatePersonalTokenBody,
+  ) => Promise<{
+    token: APIToken;
+    plaintext: string;
+    expiresAt?: string;
+    status?: number;
+  }>,
+) {
+  await page.route("**/api/v1/tokens", async (route: Route, request) => {
+    if (request.method() === "POST") {
+      const body = request.postDataJSON() as CreatePersonalTokenBody;
+      const result = await handler(body);
+      tokens.setTokens([result.token]);
+      await route.fulfill({
+        status: result.status ?? 201,
+        json: {
+          id: result.token.id,
+          token: result.plaintext,
+          scopes: result.token.scopes,
+          expiresAt: result.expiresAt,
+        },
+      });
+      return;
+    }
+    await route.fallback();
   });
 }
 

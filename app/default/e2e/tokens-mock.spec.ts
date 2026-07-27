@@ -2,6 +2,7 @@ import {
   test,
   expect,
   mockTokens,
+  mockPersonalTokenCreate,
   mockIntegrations,
 } from "./fixtures";
 import type { APIToken } from "../src/lib/api";
@@ -49,34 +50,22 @@ test.describe("Token Management", () => {
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
-    let tokens: APIToken[] = [];
-    await page.route("**/api/v1/tokens", async (route, request) => {
-      if (request.method() === "GET") {
-        await route.fulfill({ json: tokens });
-        return;
-      }
-      if (request.method() === "POST") {
-        const body = request.postDataJSON() as { name?: string; scopes?: string; expiresIn?: number };
-        expect(body).toEqual({ name: "audit-label", scopes: "my-app", expiresIn: 30 * 24 * 60 * 60 });
-        tokens = [
-          {
-            id: "tok-new",
-            scopes: body.scopes ? [body.scopes] : [],
-            createdAt: "2026-03-01T12:00:00Z",
-          },
-        ];
-        await route.fulfill({
-          status: 201,
-          json: {
-            id: "tok-new",
-            token: "gestalt_abc123secret",
-            scopes: ["my-app"],
-            expiresAt: "2027-03-01T12:00:00Z",
-          },
-        });
-        return;
-      }
-      await route.continue();
+    const tokens = await mockTokens(page, []);
+    await mockPersonalTokenCreate(page, tokens, async (body) => {
+      expect(body).toEqual({
+        name: "audit-label",
+        scopes: "my-app",
+        expiresIn: 30 * 24 * 60 * 60,
+      });
+      return {
+        token: {
+          id: "tok-new",
+          scopes: body.scopes ? [body.scopes] : [],
+          createdAt: "2026-03-01T12:00:00Z",
+        },
+        plaintext: "gestalt_abc123secret",
+        expiresAt: "2027-03-01T12:00:00Z",
+      };
     });
     await mockIntegrations(page, []);
 
@@ -95,43 +84,17 @@ test.describe("Token Management", () => {
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
-    let tokens: APIToken[] = [];
-    let getCount = 0;
-
-    await page.route("**/api/v1/tokens", async (route, request) => {
-      if (request.method() === "GET") {
-        getCount += 1;
-        if (getCount === 1) {
-          await new Promise((resolve) => setTimeout(resolve, 250));
-          await route.fulfill({ json: [] });
-          return;
-        }
-        await route.fulfill({ json: tokens });
-        return;
-      }
-
-      if (request.method() === "POST") {
-        const body = request.postDataJSON() as { name?: string; scopes?: string };
-        expect(body.scopes).toBe("other-app");
-        tokens = [
-          {
-            id: "tok-race",
-            scopes: body.scopes ? [body.scopes] : [],
-            createdAt: "2026-03-01T12:00:00Z",
-          },
-        ];
-        await route.fulfill({
-          status: 201,
-          json: {
-            id: "tok-race",
-            token: "gestalt_race_secret",
-            scopes: ["other-app"],
-          },
-        });
-        return;
-      }
-
-      await route.continue();
+    const tokens = await mockTokens(page, [], { delayFirstListMs: 250 });
+    await mockPersonalTokenCreate(page, tokens, async (body) => {
+      expect(body.scopes).toBe("other-app");
+      return {
+        token: {
+          id: "tok-race",
+          scopes: body.scopes ? [body.scopes] : [],
+          createdAt: "2026-03-01T12:00:00Z",
+        },
+        plaintext: "gestalt_race_secret",
+      };
     });
     await mockIntegrations(page, []);
 
@@ -147,22 +110,7 @@ test.describe("Token Management", () => {
 
   test("revokes a token by grant ID", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
-    let tokens = [...sampleTokens];
-    await page.route("**/api/v1/tokens", (route, request) => {
-      if (request.method() === "GET") {
-        route.fulfill({ json: tokens });
-      } else {
-        route.continue();
-      }
-    });
-    await page.route("**/api/v1/tokens/*", (route, request) => {
-      if (request.method() === "DELETE") {
-        tokens = tokens.filter((t) => !request.url().includes(t.id));
-        route.fulfill({ json: { status: "revoked" } });
-      } else {
-        route.continue();
-      }
-    });
+    await mockTokens(page, sampleTokens);
     await mockIntegrations(page, []);
 
     await page.goto("/authorization");
