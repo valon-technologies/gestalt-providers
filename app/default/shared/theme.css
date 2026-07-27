@@ -26,7 +26,9 @@
   --secondary: oklch(97% 0.006 264);
   --secondary-foreground: oklch(25% 0.02 264);
   --muted: oklch(96% 0.008 264);
-  --muted-foreground: oklch(47% 0.02 264);
+  /* Derive secondary copy from the active ink so tenants that only set
+   * --foreground still get readable muted body text. */
+  --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
   --accent: oklch(94% 0.024 264);
   --accent-foreground: oklch(25% 0.02 264);
   --destructive: oklch(58% 0.22 27);
@@ -65,7 +67,7 @@
   --secondary: oklch(27% 0.018 264);
   --secondary-foreground: oklch(96% 0.008 264);
   --muted: oklch(27% 0.018 264);
-  --muted-foreground: oklch(72% 0.018 264);
+  --muted-foreground: color-mix(in oklab, var(--foreground) 65%, transparent);
   --accent: oklch(29% 0.032 264);
   --accent-foreground: oklch(96% 0.008 264);
   --destructive: oklch(73% 0.18 27);
