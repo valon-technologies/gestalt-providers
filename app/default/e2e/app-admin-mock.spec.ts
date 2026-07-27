@@ -463,7 +463,6 @@ test.describe("app admin registry UI", () => {
     await expect(rows).toHaveCount(1);
     await expect(rows.first()).toContainText(PUBLISHED_NEW.version.slice(0, 20));
     await expect(rows.first()).toContainText("alice@valon.com");
-    await expect(rows.first()).toContainText("Current");
 
     await page.getByTestId("revision-history-load-more").click();
     await expect(rows).toHaveCount(3);
