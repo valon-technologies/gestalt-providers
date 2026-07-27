@@ -1,6 +1,6 @@
-import { appBasepath } from "./mount";
+import { appPath } from "./mount";
 
-const DEFAULT_RETURN_PATH = appBasepath === "/" ? "/" : `${appBasepath}/`;
+const DEFAULT_RETURN_PATH = appPath("/apps");
 const LOGIN_CALLBACK_PATH = "/api/v1/auth/login/callback";
 const AUTH_LOGIN_PATH = "/api/v1/auth/login";
 const API_PATH = "/api";

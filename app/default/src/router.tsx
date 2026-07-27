@@ -81,6 +81,14 @@ const indexRoute = createRoute({
   },
 });
 
+const agentsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/agents",
+  beforeLoad: () => {
+    throw redirect({ to: "/apps" });
+  },
+});
+
 const appsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/apps",
@@ -187,6 +195,7 @@ const docsTroubleshootingRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  agentsRoute,
   appsRoute,
   appAdminRoute,
   authorizationRoute,
