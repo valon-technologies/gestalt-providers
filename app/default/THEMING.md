@@ -14,8 +14,9 @@ fallback renders normally.
 
 ## Public contract
 
-The contract is defined by [`shared/theme.css`](shared/theme.css). It is
-deliberately shadcn-shaped:
+The contract is defined by [`shared/theme.css`](shared/theme.css) and mirrored
+as machine-readable names in [`ui-core.contract.json`](ui-core.contract.json).
+It is deliberately shadcn-shaped:
 
 | Group | Tokens |
 | --- | --- |
@@ -214,15 +215,13 @@ mounted theme assets. This app intentionally does not emulate those cases in
 Vite; use a server version with that parity fix when validating the native UI
 package locally.
 
-## Registry compatibility
+## Component synchronization
 
-A private component Registry may use this same semantic contract and add
-tenant-only extensions, but this public bundle neither imports nor synchronizes
-with it. If a component becomes genuinely shared later, move it through an
-explicit, reviewed public package boundary rather than treating the whole
-`components/ui` directory as shared. The contract check in `npm run check`
-prevents private token namespaces and raw palette utilities from leaking into
-this bundle.
+The companion private Registry may own tenant-specific theme values and
+extensions, but public-safe components must be exported against this contract.
+See [`UI_CORE_SYNC.md`](UI_CORE_SYNC.md) for the compatibility and export
+boundary. The contract check runs in `npm run check` to prevent private token
+namespaces and raw palette utilities from leaking back into this bundle.
 
 ## Follow-up boundary
 

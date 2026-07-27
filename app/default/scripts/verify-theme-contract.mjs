@@ -4,6 +4,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const projectDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const contract = JSON.parse(
+  fs.readFileSync(path.join(projectDir, "ui-core.contract.json"), "utf8"),
+);
 const themeCss = fs.readFileSync(path.join(projectDir, "shared", "theme.css"), "utf8");
 const globalsCss = fs.readFileSync(path.join(projectDir, "src", "globals.css"), "utf8");
 const mainSource = fs.readFileSync(path.join(projectDir, "src", "main.tsx"), "utf8");
@@ -12,38 +15,7 @@ const mountSource = fs.readFileSync(path.join(projectDir, "src", "lib", "mount.t
 const viteSource = fs.readFileSync(path.join(projectDir, "vite.config.ts"), "utf8");
 const indexHtml = fs.readFileSync(path.join(projectDir, "index.html"), "utf8");
 
-const requiredThemeTokens = [
-  "background",
-  "foreground",
-  "card",
-  "card-foreground",
-  "popover",
-  "popover-foreground",
-  "primary",
-  "primary-foreground",
-  "secondary",
-  "secondary-foreground",
-  "muted",
-  "muted-foreground",
-  "accent",
-  "accent-foreground",
-  "destructive",
-  "destructive-foreground",
-  "border",
-  "input",
-  "ring",
-  "success",
-  "success-foreground",
-  "warning",
-  "warning-foreground",
-  "info",
-  "info-foreground",
-  "radius",
-  "ui-font-sans",
-  "ui-font-display",
-  "ui-font-mono",
-  "heading-weight",
-];
+const requiredThemeTokens = contract.theme.required;
 const geometryAndTypeTokens = new Set([
   "radius",
   "ui-font-sans",
