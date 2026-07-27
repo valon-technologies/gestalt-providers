@@ -103,7 +103,7 @@ export function AppAdminVersionPanel({
           {appMountedPath ? (
             <a
               href={appMountedPath}
-              className="inline-flex text-sm font-medium text-primary transition-colors hover:text-primary dark:text-primary dark:hover:text-primary"
+              className="inline-flex text-sm font-medium text-primary transition-colors hover:text-primary"
               data-testid="open-app-link"
             >
               Open app →
@@ -115,7 +115,7 @@ export function AppAdminVersionPanel({
 
       {rolloutActive && registry.rollout ? (
         <p
-          className="rounded-lg border border-primary bg-accent px-4 py-3 text-sm text-primary dark:border-primary dark:bg-accent dark:text-primary"
+          className="rounded-lg border border-info-foreground/40 bg-info px-4 py-3 text-sm text-info-foreground"
           data-testid="rollout-active-banner"
         >
           Rollout {formatRolloutStateLabel(registry.rollout.state)}:{" "}
@@ -151,7 +151,7 @@ export function AppAdminVersionPanel({
       </div>
 
       {activeTab === "snapshots" ? (
-        <section className="space-y-4 rounded-2xl border border-border bg-card p-6 dark:bg-card">
+        <section className="space-y-4 rounded-2xl border border-border bg-card p-6 text-card-foreground">
           <SectionHeader>
             <SectionHeaderContent>
               <SectionHeaderTitle>Published snapshots</SectionHeaderTitle>
@@ -179,7 +179,7 @@ export function AppAdminVersionPanel({
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
         </section>
       ) : (
-        <section className="space-y-4 rounded-2xl border border-border bg-card p-6 dark:bg-card">
+        <section className="space-y-4 rounded-2xl border border-border bg-card p-6 text-card-foreground">
           <SectionHeader>
             <SectionHeaderContent>
               <SectionHeaderTitle>Revision history</SectionHeaderTitle>

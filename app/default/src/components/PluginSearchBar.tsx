@@ -63,7 +63,7 @@ export default function PluginSearchBar({
           />
           {trimmedQuery.length > 0 && !disabled && (
             <ComboboxButton
-              className="absolute right-2 top-1/2 z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-muted-foreground"
+              className="absolute right-2 top-1/2 z-30 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-accent-foreground"
               aria-label="Clear app search"
               onMouseDown={(event) => {
                 event.preventDefault();
@@ -77,7 +77,7 @@ export default function PluginSearchBar({
             </ComboboxButton>
           )}
           {trimmedQuery.length > 0 && !disabled && (
-            <ComboboxOptions className="absolute left-0 top-full z-20 mt-2 max-h-80 w-full overflow-auto rounded-lg border border-border bg-card p-1 shadow-dropdown dark:bg-card">
+            <ComboboxOptions className="absolute left-0 top-full z-20 mt-2 max-h-80 w-full overflow-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-dropdown">
               {matchingIntegrations.length > 0 ? (
                 matchingIntegrations.map((integration) => {
                   const label = getIntegrationLabel(integration);
@@ -90,13 +90,13 @@ export default function PluginSearchBar({
                     <ComboboxOption
                       key={integration.name}
                       value={integration}
-                      className="cursor-pointer rounded-md px-3 py-2 transition-colors duration-150 data-[focus]:bg-muted dark:data-[focus]:bg-muted"
+                      className="cursor-pointer rounded-md px-3 py-2 transition-colors duration-150 data-[focus]:bg-accent data-[focus]:text-accent-foreground"
                     >
-                      <div className="text-sm font-medium text-foreground">
+                      <div className="text-sm font-medium text-current">
                         {label}
                       </div>
                       {secondaryText && (
-                        <div className="mt-0.5 text-xs text-muted-foreground">
+                        <div className="mt-0.5 text-xs text-current opacity-70">
                           {secondaryText}
                         </div>
                       )}

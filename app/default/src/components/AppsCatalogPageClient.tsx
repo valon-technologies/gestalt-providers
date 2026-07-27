@@ -78,11 +78,11 @@ export default function AppsCatalogPageClient() {
         <Nav />
         <Container as="main" className="py-12">
           {toast && (
-            <div className="mb-8 flex items-center justify-between rounded-lg border border-success-foreground bg-success px-5 py-3.5 text-sm text-success-foreground dark:border-success-foreground dark:bg-success/20 dark:text-success-foreground">
+            <div className="mb-8 flex items-center justify-between rounded-lg border border-success-foreground bg-success px-5 py-3.5 text-sm text-success-foreground">
               <span>{toast}</span>
               <button
                 onClick={() => setToast(null)}
-                className="ml-4 text-success-foreground hover:text-success-foreground dark:text-success-foreground dark:hover:text-success-foreground transition-colors duration-150"
+                className="ml-4 text-success-foreground transition-colors duration-150 hover:text-success-foreground"
                 aria-label="Dismiss"
               >
                 &times;

@@ -11,7 +11,7 @@ export default function IdentitySummaryCard({
     <Link
       to="/identities"
       search={{ id: identity.subjectId }}
-      className="group rounded-lg border border-border bg-muted p-6 transition-all duration-150 hover:border-input hover:shadow-card dark:bg-card"
+      className="group rounded-lg border border-border bg-card p-6 text-card-foreground transition-all duration-150 hover:border-input hover:shadow-card"
     >
       <div className="flex items-start justify-between gap-4">
         <div>

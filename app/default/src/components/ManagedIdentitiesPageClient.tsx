@@ -156,7 +156,7 @@ export default function ManagedIdentitiesPageClient() {
 
             <form
               onSubmit={handleCreate}
-              className="mt-8 grid gap-3 rounded-lg border border-border bg-card p-5 dark:bg-card lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end"
+              className="mt-8 grid gap-3 rounded-lg border border-border bg-card p-5 text-card-foreground lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-end"
             >
               <div>
                 <label htmlFor="identity-display-name" className="label-text block">
@@ -183,7 +183,7 @@ export default function ManagedIdentitiesPageClient() {
                 <label htmlFor="identity-id" className="label-text block">
                   Identity ID
                 </label>
-                <div className="mt-2 flex rounded-md border border-border bg-card transition-all duration-150 focus-within:border-input focus-within:ring-2 focus-within:ring-foreground/10 dark:bg-card">
+                <div className="mt-2 flex rounded-md border border-border bg-background transition-all duration-150 focus-within:border-input focus-within:ring-2 focus-within:ring-foreground/10">
                   <span className="flex items-center border-r border-border px-3 font-mono text-sm text-muted-foreground/70">
                     service_account:
                   </span>

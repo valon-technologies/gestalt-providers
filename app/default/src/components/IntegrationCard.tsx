@@ -470,7 +470,7 @@ export default function IntegrationCard({
   return (
     <div
       data-testid={`integration-card-${integration.name}`}
-      className={`rounded-lg border border-border bg-card p-6 transition-all duration-150 dark:bg-card ${
+      className={`rounded-lg border border-border bg-card p-6 text-card-foreground transition-all duration-150 ${
         cardNavigationEnabled
           ? "cursor-pointer hover:border-input hover:shadow-card focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card"
           : "hover:border-input hover:shadow-card"
@@ -501,7 +501,7 @@ export default function IntegrationCard({
       )}
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground [&>svg]:h-5 [&>svg]:w-5 dark:bg-muted">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground [&>svg]:h-5 [&>svg]:w-5">
             {iconNode ?? <DefaultIcon />}
           </div>
           <div>
@@ -530,7 +530,7 @@ export default function IntegrationCard({
                 event.stopPropagation();
                 setSettingsOpen(true);
               }}
-              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground/70 transition-all duration-150 hover:bg-accent hover:text-muted-foreground"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground/70 transition-all duration-150 hover:bg-accent hover:text-accent-foreground"
               aria-label={`${integration.displayName || integration.name} settings`}
             >
               <GearIcon className="h-4 w-4" />
@@ -543,7 +543,7 @@ export default function IntegrationCard({
           <Link
             to="/apps/$app/admin"
             params={{ app: integration.name }}
-            className="text-sm font-medium text-primary transition-colors hover:text-primary dark:text-primary dark:hover:text-primary"
+            className="text-sm font-medium text-primary transition-colors hover:text-primary"
             onClick={(event) => event.stopPropagation()}
             data-testid={`manage-app-${integration.name}`}
           >

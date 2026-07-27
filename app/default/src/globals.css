@@ -3,6 +3,7 @@
 /* Scan src/ only — do not crawl bundled admin vendor files for candidates. */
 @import "tailwindcss" source(".");
 @import "tw-animate-css";
+@import "./styles/tui.css";
 
 /* Dark mode follows the class set by useTheme. */
 @custom-variant dark (&:is(.dark *));
@@ -160,6 +161,11 @@
 }
 
 @layer base {
+  html {
+    --scrollbar-thumb: color-mix(in oklab, var(--foreground) 28%, transparent);
+    scroll-behavior: smooth;
+  }
+
   * {
     border-color: var(--border);
   }
@@ -237,6 +243,14 @@
 }
 
 @layer components {
+  .label-text {
+    color: var(--muted-foreground);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
   .doc-copy {
     @apply text-base leading-7 text-muted-foreground;
   }

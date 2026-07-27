@@ -19,7 +19,7 @@ function ExternalLink({
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="text-primary underline decoration-primary underline-offset-2 hover:text-primary dark:text-primary dark:hover:text-primary"
+      className="text-primary underline decoration-primary underline-offset-2 hover:text-primary"
     >
       {children}
     </a>

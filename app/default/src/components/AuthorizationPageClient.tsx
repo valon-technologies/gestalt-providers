@@ -56,7 +56,7 @@ export default function AuthorizationPageClient() {
 
           <section
             id="tokens"
-            className="mt-12 animate-fade-in-up rounded-2xl border border-border bg-card p-6 [animation-delay:120ms] dark:bg-card"
+            className="mt-12 animate-fade-in-up rounded-2xl border border-border bg-card p-6 text-card-foreground [animation-delay:120ms]"
           >
             <AuthorizationSectionIntro
               eyebrow="Current User"
@@ -65,7 +65,7 @@ export default function AuthorizationPageClient() {
             />
 
             <div className="mt-8">
-              <div className="rounded-xl border border-border bg-card p-5 dark:bg-muted">
+              <div className="rounded-xl border border-border bg-muted p-5">
                 <TokenCreateForm onCreated={loadTokens} />
               </div>
             </div>
@@ -81,7 +81,7 @@ export default function AuthorizationPageClient() {
             ) : null}
           </section>
 
-          <section className="mt-6 animate-fade-in-up rounded-2xl border border-border bg-card p-6 [animation-delay:180ms] dark:bg-card">
+          <section className="mt-6 animate-fade-in-up rounded-2xl border border-border bg-card p-6 text-card-foreground [animation-delay:180ms]">
             <AuthorizationSectionIntro
               eyebrow="Service Accounts"
               title="Managed Identities"
@@ -89,7 +89,7 @@ export default function AuthorizationPageClient() {
             />
             <Link
               to="/identities"
-              className="mt-6 inline-flex rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:border-input hover:bg-muted dark:hover:bg-muted"
+              className="mt-6 inline-flex rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:border-input hover:bg-muted"
             >
               Manage identities
             </Link>

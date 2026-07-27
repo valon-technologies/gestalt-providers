@@ -57,13 +57,13 @@ interface IntegrationSettingsModalProps {
 function statusBadgeClasses(tone: NormalizedIntegrationStatus["tone"]): string {
   switch (tone) {
     case "success":
-      return "border-success-foreground bg-success text-success-foreground dark:border-success-foreground dark:bg-success/20 dark:text-success-foreground";
+      return "border-success-foreground/40 bg-success text-success-foreground";
     case "warning":
-      return "border-primary bg-accent text-primary dark:border-primary dark:bg-accent dark:text-primary";
+      return "border-warning-foreground/40 bg-warning text-warning-foreground";
     case "danger":
-      return "border-destructive bg-destructive/10 text-destructive dark:border-destructive dark:bg-destructive/20 dark:text-destructive";
+      return "border-destructive bg-destructive/10 text-destructive";
     case "neutral":
-      return "border-border bg-muted text-muted-foreground dark:bg-muted";
+      return "border-border bg-muted text-muted-foreground";
   }
 }
 
@@ -410,7 +410,7 @@ export default function IntegrationSettingsModal({
                 {connection.instances.map((instance) => (
                   <div
                     key={`${connection.key}:${instance.name}`}
-                    className="flex items-center justify-between gap-3 rounded-md bg-muted px-3 py-2 dark:bg-muted"
+                    className="flex items-center justify-between gap-3 rounded-md bg-muted px-3 py-2"
                   >
                     <div>
                       <div className="text-sm text-foreground">{instance.name}</div>
@@ -457,7 +457,7 @@ export default function IntegrationSettingsModal({
       onCancel={handleCancel}
       onClose={onClose}
       onClick={handleBackdropClick}
-      className="m-auto w-full max-w-lg rounded-lg border border-border bg-card p-0 shadow-dropdown dark:bg-card"
+      className="m-auto w-full max-w-lg rounded-lg border border-border bg-card p-0 text-card-foreground shadow-dropdown"
     >
       <div className="p-7">
         {view === "disconnect" ? (
@@ -563,7 +563,7 @@ export default function IntegrationSettingsModal({
               </div>
               <button
                 onClick={closeDialog}
-                className="rounded-md p-1.5 text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-muted-foreground"
+                className="rounded-md p-1.5 text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-accent-foreground"
                 aria-label="Close"
               >
                 <CloseIcon className="h-4 w-4" />
@@ -589,7 +589,7 @@ function renderLinkedText(text: string): ReactNode[] {
   return text.split(LINK_RE).map((seg, i) => {
     const m = seg.match(LINK_MATCH_RE);
     if (!m) return seg;
-    return <a key={i} href={m[2]} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline dark:text-primary">{m[1]}</a>;
+    return <a key={i} href={m[2]} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{m[1]}</a>;
   });
 }
 

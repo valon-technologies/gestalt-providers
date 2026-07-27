@@ -165,7 +165,7 @@ export default function WorkflowsPage() {
               type="button"
               onClick={() => setRefreshNonce((value) => value + 1)}
               disabled={refreshing}
-              className="inline-flex items-center justify-center rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:border-input hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:border-input hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-60"
             >
               {refreshing ? "Refreshing..." : "Refresh"}
             </button>
@@ -186,7 +186,7 @@ export default function WorkflowsPage() {
             <SummaryCard label="Failed" value={String(counts.failed)} tone="destructive" />
           </div>
 
-          <section className="mt-8 rounded-lg border border-border bg-muted p-4 dark:bg-card">
+          <section className="mt-8 rounded-lg border border-border bg-card p-4 text-card-foreground">
             <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem]">
               <label className="block">
                 <span className="text-xs font-medium text-muted-foreground">Search runs</span>
@@ -263,7 +263,7 @@ function RunsPanel({
 
   return (
     <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(24rem,0.95fr)]">
-      <section className="rounded-lg border border-border bg-muted dark:bg-card">
+      <section className="rounded-lg border border-border bg-card text-card-foreground">
         <div className="border-b border-border px-5 py-4">
           <h2 className="text-sm font-medium text-foreground">Workflow Runs</h2>
           <p className="mt-1 text-xs text-muted-foreground/70">{runs.length} shown</p>
@@ -286,24 +286,26 @@ function RunsPanel({
                     type="button"
                     onClick={() => onSelectRun(run.id)}
                     className={`flex w-full items-start justify-between gap-4 px-5 py-4 text-left transition-colors duration-150 ${
-                      isActive ? "bg-accent" : "hover:bg-accent"
+                      isActive
+                        ? "bg-accent text-accent-foreground"
+                        : "text-foreground hover:bg-accent hover:text-accent-foreground"
                     }`}
                   >
                     <div className="min-w-0">
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <span className="truncate text-sm font-medium text-foreground">
+                        <span className="truncate text-sm font-medium text-current">
                           {targetLabel(run.target)}
                         </span>
                         <span className={runStatusClassName(run.status)}>
                           {run.status || "unknown"}
                         </span>
                       </div>
-                      <p className="mt-1 truncate text-xs text-muted-foreground/70">{run.id}</p>
-                      <p className="mt-2 text-xs text-muted-foreground">
+                      <p className="mt-1 truncate text-xs text-current opacity-70">{run.id}</p>
+                      <p className="mt-2 text-xs text-current opacity-80">
                         {runTriggerLabel(run)} · {run.provider}
                       </p>
                     </div>
-                    <div className="shrink-0 text-right text-xs text-muted-foreground/70">
+                    <div className="shrink-0 text-right text-xs text-current opacity-70">
                       {formatDate(run.startedAt || run.completedAt || run.createdAt)}
                     </div>
                   </button>
@@ -314,7 +316,7 @@ function RunsPanel({
         )}
       </section>
 
-      <section className="rounded-lg border border-border bg-muted p-5 dark:bg-card">
+      <section className="rounded-lg border border-border bg-card p-5 text-card-foreground">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h2 className="text-sm font-medium text-foreground">Run Details</h2>
@@ -445,7 +447,7 @@ function TargetStepDetails({ step }: { step: WorkflowStepTarget }) {
           <p className="text-sm font-medium text-foreground">{stepLabel(step)}</p>
           <p className="mt-1 text-xs text-muted-foreground/70">{step.id || "unnamed step"}</p>
         </div>
-        <span className="rounded-full bg-accent px-2 py-1 text-[11px] font-medium text-muted-foreground">
+        <span className="rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
           {stepKind(step)}
         </span>
       </div>
@@ -651,14 +653,14 @@ function SummaryCard({
   tone: "default" | "info" | "success" | "destructive";
 }) {
   const toneClassName = {
-    default: "text-foreground",
+    default: "text-card-foreground",
     info: "text-info-foreground",
     success: "text-success-foreground",
     destructive: "text-destructive",
   }[tone];
 
   return (
-    <div className="rounded-lg border border-border bg-muted px-5 py-4 dark:bg-card">
+    <div className="rounded-lg border border-border bg-card px-5 py-4 text-card-foreground">
       <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">{label}</p>
       <p className={`mt-3 text-2xl font-heading font-bold ${toneClassName}`}>
         {value}
@@ -793,34 +795,34 @@ function prettyJSON(value: unknown): string {
 function runStatusClassName(status?: string): string {
   switch (status) {
     case "succeeded":
-      return "rounded-full bg-success px-2 py-1 text-[11px] font-medium text-success-foreground dark:bg-success/20 dark:text-success-foreground";
+      return "rounded-full bg-success px-2 py-1 text-[11px] font-medium text-success-foreground";
     case "failed":
-      return "rounded-full bg-destructive/10 px-2 py-1 text-[11px] font-medium text-destructive dark:bg-destructive/20 dark:text-destructive";
+      return "rounded-full bg-destructive/10 px-2 py-1 text-[11px] font-medium text-destructive";
     case "running":
-      return "rounded-full bg-info px-2 py-1 text-[11px] font-medium text-info-foreground dark:bg-info/20 dark:text-info-foreground";
+      return "rounded-full bg-info px-2 py-1 text-[11px] font-medium text-info-foreground";
     case "pending":
-      return "rounded-full bg-warning px-2 py-1 text-[11px] font-medium text-warning-foreground dark:bg-warning/20 dark:text-warning-foreground";
+      return "rounded-full bg-warning px-2 py-1 text-[11px] font-medium text-warning-foreground";
     case "canceled":
-      return "rounded-full bg-accent px-2 py-1 text-[11px] font-medium text-muted-foreground";
+      return "rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground";
     default:
-      return "rounded-full bg-accent px-2 py-1 text-[11px] font-medium text-muted-foreground";
+      return "rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground";
   }
 }
 
 function stepStatusClassName(status?: string): string {
   switch (status) {
     case "succeeded":
-      return "rounded-full bg-success px-2 py-1 text-[11px] font-medium text-success-foreground dark:bg-success/20 dark:text-success-foreground";
+      return "rounded-full bg-success px-2 py-1 text-[11px] font-medium text-success-foreground";
     case "failed":
-      return "rounded-full bg-destructive/10 px-2 py-1 text-[11px] font-medium text-destructive dark:bg-destructive/20 dark:text-destructive";
+      return "rounded-full bg-destructive/10 px-2 py-1 text-[11px] font-medium text-destructive";
     case "running":
-      return "rounded-full bg-info px-2 py-1 text-[11px] font-medium text-info-foreground dark:bg-info/20 dark:text-info-foreground";
+      return "rounded-full bg-info px-2 py-1 text-[11px] font-medium text-info-foreground";
     case "pending":
-      return "rounded-full bg-warning px-2 py-1 text-[11px] font-medium text-warning-foreground dark:bg-warning/20 dark:text-warning-foreground";
+      return "rounded-full bg-warning px-2 py-1 text-[11px] font-medium text-warning-foreground";
     case "skipped":
-      return "rounded-full bg-accent px-2 py-1 text-[11px] font-medium text-muted-foreground";
+      return "rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground";
     default:
-      return "rounded-full bg-accent px-2 py-1 text-[11px] font-medium text-muted-foreground";
+      return "rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground";
   }
 }
 

@@ -2,8 +2,7 @@
 
 `app/default` is a public, tenant-neutral bundle. It ships a complete generic
 fallback and receives an optional tenant stylesheet at runtime; it never
-imports a tenant palette, font, component registry, filesystem path, or build
-dependency.
+imports a tenant palette, font, filesystem path, or build dependency.
 
 The browser always requests the relative URL `theme.css`. At a root mount that
 is `/theme.css`; at `/portal/` it is `/portal/theme.css`. This is a delivery
@@ -14,9 +13,8 @@ fallback renders normally.
 
 ## Public contract
 
-The contract is defined by [`shared/theme.css`](shared/theme.css) and mirrored
-as machine-readable names in [`ui-core.contract.json`](ui-core.contract.json).
-It is deliberately shadcn-shaped:
+The contract is defined by [`shared/theme.css`](shared/theme.css). It is
+deliberately shadcn-shaped:
 
 | Group | Tokens |
 | --- | --- |
@@ -34,6 +32,11 @@ Components consume only semantic Tailwind utilities such as `bg-card`,
 `text-muted-foreground`, `border-border`, `bg-primary`, and
 `text-destructive`. Raw palette utilities do not belong in public component
 code.
+
+Filled surfaces use their matching foreground role: `bg-card` with
+`text-card-foreground`, `bg-primary` with `text-primary-foreground`, and so on.
+Do not mix fill and foreground roles merely because the default colors happen
+to contrast; deployments may override every pair independently.
 
 ## Tenant stylesheet
 
@@ -128,100 +131,35 @@ Use a relative asset URL such as `theme/fonts/tenant-sans.woff2`, not an
 absolute `/theme/...` URL. Relative resolution preserves non-root app mounts.
 Never use `!important`: it defeats the low-specificity fallback contract.
 
-## Delivery prerequisite
+## Delivery
 
-The current `app/default` manifest is a legacy `kind: app` package. Gestaltd's
-native theme endpoint belongs to a `kind: ui` mount, so this package must not
-be configured directly under `providers.ui` yet. The clean platform migration
-is to ship this static bundle as a native UI artifact with an `assetRoot` and
-route policy, then configure that artifact as the mounted UI. It is a packaging
-and deployment migration, not a tenant-theme concern.
-
-The target package has a native UI manifest separate from this legacy app
-manifest:
+`app/default` is a unified `kind: app` package. A deployment mounts its prepared
+static assets and optionally supplies the theme stylesheet and asset directory:
 
 ```yaml
-kind: ui
-source: github.com/acme/home-ui
-version: 1.0.0
-install:
-  command: [npm, ci]
-  inputs: [package-lock.json]
-build:
-  command: [npm, run, build]
-  inputs: [package.json, package-lock.json, src, shared, index.html]
-dev:
-  command: [npm, run, dev]
-spec:
-  assetRoot: dist
-  routes:
-    - path: /*
-      allowedRoles: [viewer]
+apps:
+  home:
+    source: ./path/to/app/default/manifest.yaml
+    static:
+      mount: /portal
+      theme:
+        stylesheet: ./themes/tenant/theme.css
+        assetsDir: ./themes/tenant/assets
 ```
 
-Choose the actual source, inputs, and route policy for the deployment. The
-important boundary is `kind: ui` plus `spec.assetRoot: dist`; do not overload
-the theme configuration onto a legacy app-static block.
+Theme paths are relative to the deployment configuration. Gestalt serves the
+stylesheet at `{mount}/theme.css` and the asset directory below
+`{mount}/theme/`. When no stylesheet is configured, the stylesheet endpoint
+still returns an empty `text/css` response so the generic fallback remains
+usable.
 
-Once that native UI artifact exists, the deployment owns the stylesheet and
-assets directory. Its config has this shape:
+The static host injects the mount as the document base. Consequently, the
+relative `theme.css` link and theme asset URLs such as
+`theme/fonts/tenant-sans.woff2` work at both `/` and non-root mounts.
 
-```yaml
-apiVersion: gestaltd.config/v8
-providers:
-  ui:
-    home:
-      path: /portal
-      source:
-        path: ./home-ui
-      config:
-        theme:
-          stylesheet: ./themes/tenant/theme.css
-          assetsDir: ./themes/tenant/assets
-```
-
-Gestaltd then serves the stylesheet at `/portal/theme.css` and assets below
-`/portal/theme/`. The Vite build uses relative asset URLs and detects the
-mount path for client routing, so the future UI artifact can run at either the
-root or a non-root mount on canonical client routes such as `/portal/apps`.
-
-The native UI host should also either inject `<base href="/portal/">` into the
-returned index document or redirect trailing-slash deep links such as
-`/portal/apps/` to their canonical form. That is a generic static-hosting
-requirement: without it, browser-relative assets resolve below the deep route
-instead of the mount. It belongs in Gestaltd's mount renderer, not in a
-tenant theme or this bundle.
-
-## Development
-
-Run Vite against the local Gestaltd or cookie-proxy origin. Vite proxies
-`/api`, `/theme.css`, and `/theme/*` to that same origin, so the native UI
-package uses the identical endpoint shape as production. When Gestaltd starts
-a native UI in dev mode, it provides `GESTALT_DEV_BASE_PATH`; the Vite config
-uses that path for its module and HMR URLs. Direct `npm run dev` continues to
-serve at the root.
-
-```bash
-GESTALT_API_PROXY_TARGET=http://127.0.0.1:8080 npm run dev
-```
-
-Configure the theme in the local deployment; do not point this public project
-at a tenant stylesheet on disk. There is one theme delivery path, not a Vite
-mirror or a second development-only asset server.
-
-The current Gestaltd development handler needs a server follow-up to match the
-production contract for an unconfigured stylesheet endpoint and non-root
-mounted theme assets. This app intentionally does not emulate those cases in
-Vite; use a server version with that parity fix when validating the native UI
-package locally.
-
-## Component synchronization
-
-The companion private Registry may own tenant-specific theme values and
-extensions, but public-safe components must be exported against this contract.
-See [`UI_CORE_SYNC.md`](UI_CORE_SYNC.md) for the compatibility and export
-boundary. The contract check runs in `npm run check` to prevent private token
-namespaces and raw palette utilities from leaking back into this bundle.
+This repository owns its app-local components. A deployment owns its theme
+values and assets. Their interoperability boundary is only the semantic custom
+properties documented here.
 
 ## Follow-up boundary
 

@@ -30,13 +30,13 @@ const buttonVariants = cva(
         destructive: "bg-destructive text-destructive-foreground",
         success: "border border-success-foreground/30 bg-success/40 text-success-foreground hover:border-success-foreground/50 hover:bg-success hover:text-success-foreground",
         danger: "border border-destructive/30 bg-destructive/5 text-destructive hover:border-destructive hover:bg-destructive hover:text-destructive-foreground",
-        outline: "border border-input bg-background hover:bg-accent active:bg-accent/80 hover:after:opacity-0 active:after:opacity-0 disabled:bg-transparent",
+        outline: "border border-input bg-background text-foreground hover:bg-accent hover:text-accent-foreground active:bg-accent/80 active:text-accent-foreground hover:after:opacity-0 active:after:opacity-0 disabled:bg-transparent",
         secondary: "bg-secondary text-secondary-foreground",
         // Ghost is transparent chrome: hover/press use the base ::after
         // on-color scrim only, so it composes on any semantic surface.
         ghost: "text-muted-foreground hover:text-foreground aria-checked:bg-foreground aria-checked:text-background disabled:bg-transparent",
-        ghostSuccess: "text-muted-foreground hover:bg-success hover:text-success-foreground active:bg-success/70 disabled:bg-transparent",
-        ghostDestructive: "text-muted-foreground hover:bg-destructive hover:text-destructive-foreground active:bg-destructive/70 disabled:bg-transparent",
+        ghostSuccess: "text-muted-foreground hover:bg-success hover:text-success-foreground active:bg-success/70 active:text-success-foreground disabled:bg-transparent",
+        ghostDestructive: "text-muted-foreground hover:bg-destructive hover:text-destructive-foreground active:bg-destructive/70 active:text-destructive-foreground disabled:bg-transparent",
       },
       size: {
         xs: "h-control-xs gap-1 rounded-md px-2 text-control-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-[length:var(--control-icon-xs)]",

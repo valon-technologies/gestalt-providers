@@ -45,7 +45,7 @@ import IdentityTokenTable from "./IdentityTokenTable";
 import { SearchIcon } from "./icons";
 
 const SECTION_CARD =
-  "rounded-lg border border-border bg-card p-6 dark:bg-card";
+  "rounded-lg border border-border bg-card p-6 text-card-foreground";
 
 function mergeGrantPluginOptions(
   visibleIntegrations: Integration[],
@@ -512,7 +512,7 @@ export default function ManagedIdentityDetailView({
                       <ComboboxButton className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground/70 transition-colors duration-150 hover:text-muted-foreground">
                         <ChevronUpDownIcon className="h-4 w-4" />
                       </ComboboxButton>
-                      <ComboboxOptions className="absolute left-0 top-full z-20 mt-2 max-h-80 w-full overflow-auto rounded-lg border border-border bg-card p-1 shadow-dropdown dark:bg-card">
+                      <ComboboxOptions className="absolute left-0 top-full z-20 mt-2 max-h-80 w-full overflow-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-dropdown">
                         {filteredGrantPluginOptions.length > 0 ? (
                           filteredGrantPluginOptions.map((integration) => {
                             const secondaryText =
@@ -524,13 +524,13 @@ export default function ManagedIdentityDetailView({
                               <ComboboxOption
                                 key={integration.name}
                                 value={integration}
-                                className="cursor-pointer rounded-md px-3 py-2 transition-colors duration-150 data-[focus]:bg-muted dark:data-[focus]:bg-muted"
+                                className="cursor-pointer rounded-md px-3 py-2 transition-colors duration-150 data-[focus]:bg-accent data-[focus]:text-accent-foreground"
                               >
-                                <div className="text-sm font-medium text-foreground">
+                                <div className="text-sm font-medium text-current">
                                   {getIntegrationLabel(integration)}
                                 </div>
                                 {secondaryText ? (
-                                  <div className="mt-0.5 text-xs text-muted-foreground">
+                                  <div className="mt-0.5 text-xs text-current opacity-70">
                                     {secondaryText}
                                   </div>
                                 ) : null}

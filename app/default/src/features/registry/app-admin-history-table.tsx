@@ -104,7 +104,7 @@ export function AppAdminHistoryTable({
               <th className="px-4 py-3 font-medium">Deployed by</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border bg-card dark:bg-card">
+          <tbody className="divide-y divide-border bg-card text-card-foreground">
             {revisions.map((revision) => {
               const deployedAt = deployedAtLabel(revision.deployedAt);
               const availability = availabilityStatus(revision);

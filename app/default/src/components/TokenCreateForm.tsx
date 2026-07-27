@@ -104,11 +104,11 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
       </form>
 
       {plaintext && (
-        <div className="mt-6 rounded-lg border border-primary bg-accent p-5 dark:border-primary dark:bg-accent">
-          <p className="text-sm font-medium text-primary dark:text-primary">
+        <div className="mt-6 rounded-lg border border-warning-foreground/40 bg-warning p-5 text-warning-foreground">
+          <p className="text-sm font-medium">
             Copy this token now. It will not be shown again.
           </p>
-          <code className="mt-3 block break-all rounded-sm bg-card p-3 font-mono text-sm text-foreground border border-border dark:bg-card">
+          <code className="mt-3 block break-all rounded-sm border border-border bg-background p-3 font-mono text-sm text-foreground">
             {plaintext}
           </code>
         </div>

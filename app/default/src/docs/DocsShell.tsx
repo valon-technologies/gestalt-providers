@@ -28,7 +28,7 @@ export default function DocsShell({
                       to={item.href}
                       className={`block rounded-md px-3 py-2 text-sm transition-colors duration-150 ${
                         isActive
-                          ? "bg-accent font-medium text-foreground"
+                          ? "bg-accent font-medium text-accent-foreground"
                           : "text-muted-foreground hover:text-foreground"
                       }`}
                     >
@@ -54,7 +54,7 @@ export default function DocsShell({
                       <a
                         key={subsection.id}
                         href={`#${subsection.id}`}
-                        className="block border-l-2 border-transparent py-1.5 pl-3 text-sm text-muted-foreground transition-colors duration-150 hover:border-ring hover:text-foreground dark:hover:border-ring"
+                        className="block border-l-2 border-transparent py-1.5 pl-3 text-sm text-muted-foreground transition-colors duration-150 hover:border-ring hover:text-foreground"
                       >
                         {subsection.label}
                       </a>

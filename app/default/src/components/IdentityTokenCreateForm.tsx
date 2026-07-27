@@ -88,7 +88,7 @@ export default function IdentityTokenCreateForm({
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="mt-6 rounded-lg border border-border bg-card p-5 dark:bg-card">
+      <form onSubmit={handleSubmit} className="mt-6 rounded-lg border border-border bg-card p-5 text-card-foreground">
         <div className="flex flex-col gap-4">
           <div>
             <label htmlFor="identity-token-name" className="label-text block">
@@ -110,7 +110,7 @@ export default function IdentityTokenCreateForm({
               Token limits only narrow what this API key can use. App grants and connector credentials stay on the managed identity.
             </p>
             <div className="mt-3 space-y-3">
-              <label className="flex items-start gap-3 rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground dark:bg-muted">
+              <label className="flex items-start gap-3 rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
                 <input
                   type="radio"
                   name="scope_mode"
@@ -130,7 +130,7 @@ export default function IdentityTokenCreateForm({
                 </span>
               </label>
 
-              <label className="flex items-start gap-3 rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground dark:bg-muted">
+              <label className="flex items-start gap-3 rounded-md border border-border bg-muted p-4 text-sm text-muted-foreground">
                 <input
                   type="radio"
                   name="scope_mode"
@@ -165,7 +165,7 @@ export default function IdentityTokenCreateForm({
                     return (
                       <div
                         key={grant.plugin}
-                        className="rounded-md border border-border bg-muted p-4 dark:bg-muted"
+                        className="rounded-md border border-border bg-muted p-4"
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="text-sm font-medium text-foreground">{grant.plugin}</p>
@@ -216,11 +216,11 @@ export default function IdentityTokenCreateForm({
       </form>
 
       {plaintext && (
-        <div className="mt-6 rounded-lg border border-primary bg-accent p-5 dark:border-primary dark:bg-accent">
-          <p className="text-sm font-medium text-primary dark:text-primary">
+        <div className="mt-6 rounded-lg border border-warning-foreground/40 bg-warning p-5 text-warning-foreground">
+          <p className="text-sm font-medium">
             Copy this token now. It will not be shown again.
           </p>
-          <code className="mt-3 block break-all rounded-sm border border-border bg-card p-3 font-mono text-sm text-foreground dark:bg-card">
+          <code className="mt-3 block break-all rounded-sm border border-border bg-background p-3 font-mono text-sm text-foreground">
             {plaintext}
           </code>
         </div>

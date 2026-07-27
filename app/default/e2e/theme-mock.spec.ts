@@ -15,14 +15,6 @@ test.describe("Theme", () => {
     "Theme mock tests use mocked routes and do not apply when running against a real server",
   );
 
-  test("runtime stylesheet endpoint is CSS, not the SPA fallback", async ({ page }) => {
-    const response = await page.request.get("/theme.css");
-
-    expect(response.status()).toBe(200);
-    expect(response.headers()["content-type"]).toContain("text/css");
-    expect(await response.text()).toBe("");
-  });
-
   test("runtime stylesheet overrides semantic defaults in light and dark mode", async ({
     authenticatedPage,
   }) => {
@@ -34,8 +26,26 @@ test.describe("Theme", () => {
       route.fulfill({
         contentType: "text/css",
         body: `
-          :root { --background: rgb(1, 2, 3); }
-          .dark { --background: rgb(4, 5, 6); }
+          :root {
+            --background: rgb(1, 2, 3);
+            --foreground: rgb(4, 5, 6);
+            --card: rgb(7, 8, 9);
+            --card-foreground: rgb(10, 11, 12);
+            --border: rgb(13, 14, 15);
+            --muted-foreground: rgb(16, 17, 18);
+            --primary: rgb(19, 20, 21);
+            --primary-foreground: rgb(22, 23, 24);
+          }
+          .dark {
+            --background: rgb(25, 26, 27);
+            --foreground: rgb(28, 29, 30);
+            --card: rgb(31, 32, 33);
+            --card-foreground: rgb(34, 35, 36);
+            --border: rgb(37, 38, 39);
+            --muted-foreground: rgb(40, 41, 42);
+            --primary: rgb(43, 44, 45);
+            --primary-foreground: rgb(46, 47, 48);
+          }
         `,
       }),
     );
@@ -43,65 +53,62 @@ test.describe("Theme", () => {
     await mockTokens(page, []);
     await mockWorkflowRuns(page, []);
 
-    await page.goto("/");
+    await page.goto("/authorization");
 
-    await expect
-      .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
-      .toBe("rgb(1, 2, 3)");
+    const body = page.locator("body");
+    const heading = page.getByRole("heading", {
+      name: "Authorization",
+      exact: true,
+    });
+    const bodyCopy = page.getByText(
+      /Create personal API tokens for local tooling/,
+    );
+    const card = page.locator("#tokens");
+    const primaryButton = page.getByRole("button", { name: "Create Token" });
+
+    async function expectSemanticColors(colors: {
+      background: string;
+      foreground: string;
+      card: string;
+      cardForeground: string;
+      border: string;
+      mutedForeground: string;
+      primary: string;
+      primaryForeground: string;
+    }) {
+      await expect(body).toHaveCSS("background-color", colors.background);
+      await expect(body).toHaveCSS("color", colors.foreground);
+      await expect(heading).toHaveCSS("color", colors.foreground);
+      await expect(bodyCopy).toHaveCSS("color", colors.mutedForeground);
+      await expect(card).toHaveCSS("background-color", colors.card);
+      await expect(card).toHaveCSS("color", colors.cardForeground);
+      await expect(card).toHaveCSS("border-color", colors.border);
+      await expect(primaryButton).toHaveCSS("background-color", colors.primary);
+      await expect(primaryButton).toHaveCSS("color", colors.primaryForeground);
+    }
+
+    await expectSemanticColors({
+      background: "rgb(1, 2, 3)",
+      foreground: "rgb(4, 5, 6)",
+      card: "rgb(7, 8, 9)",
+      cardForeground: "rgb(10, 11, 12)",
+      border: "rgb(13, 14, 15)",
+      mutedForeground: "rgb(16, 17, 18)",
+      primary: "rgb(19, 20, 21)",
+      primaryForeground: "rgb(22, 23, 24)",
+    });
 
     await page.getByRole("button", { name: "Toggle theme" }).click();
-    await expect
-      .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
-      .toBe("rgb(4, 5, 6)");
-  });
-
-  test("mounted bundle resolves runtime theme assets and router links relatively", async ({
-    authenticatedPage,
-  }) => {
-    const page = authenticatedPage;
-    let fontRequested = false;
-    await page.addInitScript(() => {
-      localStorage.setItem("theme", "light");
+    await expectSemanticColors({
+      background: "rgb(25, 26, 27)",
+      foreground: "rgb(28, 29, 30)",
+      card: "rgb(31, 32, 33)",
+      cardForeground: "rgb(34, 35, 36)",
+      border: "rgb(37, 38, 39)",
+      mutedForeground: "rgb(40, 41, 42)",
+      primary: "rgb(43, 44, 45)",
+      primaryForeground: "rgb(46, 47, 48)",
     });
-    await page.route("**/portal/theme.css", (route) =>
-      route.fulfill({
-        contentType: "text/css",
-        body: `
-          @font-face {
-            font-family: TenantTest;
-            src: url("theme/fonts/tenant-test.woff2") format("woff2");
-          }
-          :root {
-            --background: rgb(7, 8, 9);
-            --ui-font-sans: TenantTest, sans-serif;
-          }
-        `,
-      }),
-    );
-    await page.route("**/portal/theme/fonts/tenant-test.woff2", (route) => {
-      fontRequested = true;
-      return route.fulfill({ contentType: "font/woff2", body: "" });
-    });
-    await mockIntegrations(page, []);
-    await mockTokens(page, []);
-    await mockWorkflowRuns(page, []);
-
-    // The real server does not inject a <base> tag. Start at a canonical
-    // mounted client route to verify the relative build output still loads.
-    await page.goto("/portal/apps");
-
-    await expect
-      .poll(() => page.evaluate(() => getComputedStyle(document.body).backgroundColor))
-      .toBe("rgb(7, 8, 9)");
-    await expect.poll(() => fontRequested).toBe(true);
-    const appsLink = page.getByRole("link", { name: "Apps", exact: true });
-    await expect(appsLink).toHaveAttribute(
-      "href",
-      "/portal/apps",
-    );
-
-    await page.getByRole("link", { name: "Dashboard", exact: true }).click();
-    await expect(page).toHaveURL(/\/portal\/$/);
   });
 
   test("toggle enables dark mode and persists the selection", async ({

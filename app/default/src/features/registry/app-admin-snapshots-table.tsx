@@ -96,7 +96,7 @@ export function AppAdminSnapshotsTable({
             <th className="px-4 py-3 font-medium text-right">Action</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-border bg-card dark:bg-card">
+        <tbody className="divide-y divide-border bg-card text-card-foreground">
           {rows.map((row) => {
             const publication = rowPublication(row);
             const pullRequest = publication?.triggerPullRequest;

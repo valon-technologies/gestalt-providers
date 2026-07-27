@@ -61,7 +61,7 @@ export default function IdentityTokenTable({
   }
 
   return (
-    <div className="rounded-lg border border-border bg-card overflow-x-auto dark:bg-card">
+    <div className="overflow-x-auto rounded-lg border border-border bg-card text-card-foreground">
       {error && <p className="mb-4 px-5 pt-4 text-sm text-destructive">{error}</p>}
       <table className="w-full text-sm">
         <thead>

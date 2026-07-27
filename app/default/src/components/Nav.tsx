@@ -136,7 +136,7 @@ export default function Nav() {
               else if (theme === "dark") setTheme("system");
               else setTheme("light");
             }}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-all duration-150 hover:bg-accent"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-all duration-150 hover:bg-accent hover:text-accent-foreground"
             title={theme === "light" ? "Light mode" : theme === "dark" ? "Dark mode" : "System preference"}
             aria-label="Toggle theme"
           >

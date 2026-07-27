@@ -58,7 +58,7 @@ export function GettingStartedDocsPage() {
         }
       />
       <DocsPageBody>
-        <div className="rounded-xl border border-border bg-muted p-5 dark:bg-card">
+        <div className="rounded-xl border border-border bg-card p-5 text-card-foreground">
           <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground/70">
             Base URL
           </p>
@@ -627,8 +627,8 @@ function SetupMethodTabs({
               onClick={() => setActiveId(item.id)}
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-primary text-foreground dark:border-primary"
-                  : "border-transparent text-muted-foreground hover:border-ring hover:text-foreground dark:hover:border-ring"
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:border-ring hover:text-foreground"
               }`}
             >
               {item.label}
@@ -648,7 +648,7 @@ function SetupMethodTabs({
             hidden={!isActive}
             className={
               isActive
-                ? "space-y-4 rounded-b-xl border-x border-b border-border bg-muted px-5 py-5 dark:bg-card"
+                ? "space-y-4 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
                 : "hidden"
             }
           >
@@ -688,8 +688,8 @@ function AuthMethodTabs({
               onClick={() => setActiveId(item.id)}
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-primary text-foreground dark:border-primary"
-                  : "border-transparent text-muted-foreground hover:border-ring hover:text-foreground dark:hover:border-ring"
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:border-ring hover:text-foreground"
               }`}
             >
               {item.label}
@@ -709,7 +709,7 @@ function AuthMethodTabs({
             hidden={!isActive}
             className={
               isActive
-                ? "space-y-4 rounded-b-xl border-x border-b border-border bg-muted px-5 py-5 dark:bg-card"
+                ? "space-y-4 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
                 : "hidden"
             }
           >
@@ -752,8 +752,8 @@ function InvokeMethodTabs({ origin }: { origin: string }) {
               }
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-primary text-foreground dark:border-primary"
-                  : "border-transparent text-muted-foreground hover:border-ring hover:text-foreground dark:hover:border-ring"
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:border-ring hover:text-foreground"
               }`}
             >
               {item.label}
@@ -769,7 +769,7 @@ function InvokeMethodTabs({ origin }: { origin: string }) {
         hidden={activeId !== "invoke-cli"}
         className={
           activeId === "invoke-cli"
-            ? "space-y-4 rounded-b-xl border-x border-b border-border bg-muted px-5 py-5 dark:bg-card"
+            ? "space-y-4 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
             : "hidden"
         }
       >
@@ -794,7 +794,7 @@ gestalt apps invoke <app> <operation> --input-file payload.json --select data.it
         hidden={activeId !== "invoke-http"}
         className={
           activeId === "invoke-http"
-            ? "space-y-4 rounded-b-xl border-x border-b border-border bg-muted px-5 py-5 dark:bg-card"
+            ? "space-y-4 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
             : "hidden"
         }
       >
@@ -845,8 +845,8 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
               onClick={() => setActiveTabId(tab.id)}
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-primary text-foreground dark:border-primary"
-                  : "border-transparent text-muted-foreground hover:border-ring hover:text-foreground dark:hover:border-ring"
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:border-ring hover:text-foreground"
               }`}
             >
               {tab.label}
@@ -862,7 +862,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         hidden={activeTabId !== "agent-codex"}
         className={
           activeTabId === "agent-codex"
-            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-muted px-5 py-5 dark:bg-card"
+            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
             : "hidden"
         }
       >
@@ -909,7 +909,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         hidden={activeTabId !== "agent-cursor"}
         className={
           activeTabId === "agent-cursor"
-            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-muted px-5 py-5 dark:bg-card"
+            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
             : "hidden"
         }
       >
@@ -965,7 +965,7 @@ function AgentEnvironmentTabs({ origin }: { origin: string }) {
         hidden={activeTabId !== "agent-claude-code"}
         className={
           activeTabId === "agent-claude-code"
-            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-muted px-5 py-5 dark:bg-card"
+            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
             : "hidden"
         }
       >
@@ -1037,8 +1037,8 @@ function McpClientTabs({ origin }: { origin: string }) {
               onClick={() => setActiveTabId(tab.id)}
               className={`-mb-px border-b-2 px-1 pb-3 pt-1 text-sm font-medium transition-colors duration-150 ${
                 isActive
-                  ? "border-primary text-foreground dark:border-primary"
-                  : "border-transparent text-muted-foreground hover:border-ring hover:text-foreground dark:hover:border-ring"
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:border-ring hover:text-foreground"
               }`}
             >
               {tab.label}
@@ -1054,7 +1054,7 @@ function McpClientTabs({ origin }: { origin: string }) {
         hidden={activeTabId !== "mcp-claude-code"}
         className={
           activeTabId === "mcp-claude-code"
-            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-muted px-5 py-5 dark:bg-card"
+            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
             : "hidden"
         }
       >
@@ -1094,7 +1094,7 @@ function McpClientTabs({ origin }: { origin: string }) {
         hidden={activeTabId !== "mcp-codex"}
         className={
           activeTabId === "mcp-codex"
-            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-muted px-5 py-5 dark:bg-card"
+            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
             : "hidden"
         }
       >
@@ -1118,7 +1118,7 @@ function McpClientTabs({ origin }: { origin: string }) {
         hidden={activeTabId !== "mcp-cursor"}
         className={
           activeTabId === "mcp-cursor"
-            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-muted px-5 py-5 dark:bg-card"
+            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
             : "hidden"
         }
       >
@@ -1151,7 +1151,7 @@ function McpClientTabs({ origin }: { origin: string }) {
         hidden={activeTabId !== "mcp-other"}
         className={
           activeTabId === "mcp-other"
-            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-muted px-5 py-5 dark:bg-card"
+            ? "space-y-5 rounded-b-xl border-x border-b border-border bg-card px-5 py-5 text-card-foreground"
             : "hidden"
         }
       >
@@ -1199,7 +1199,7 @@ function useDeploymentOrigin() {
 
 function InlineCode({ children }: { children: React.ReactNode }) {
   return (
-    <code className="rounded-sm border border-border bg-card px-[0.3em] py-[0.1em] font-mono text-[0.875em] text-foreground">
+    <code className="rounded-sm border border-border bg-muted px-[0.3em] py-[0.1em] font-mono text-[0.875em] text-foreground">
       {children}
     </code>
   );
@@ -1240,7 +1240,7 @@ function CodeBlock({
       </div>
       <button
         onClick={handleCopy}
-        className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground/70 opacity-0 transition-all duration-150 hover:bg-accent hover:text-foreground group-hover:opacity-100"
+        className="absolute right-3 top-3 rounded-md p-1.5 text-muted-foreground/70 opacity-0 transition-all duration-150 hover:bg-accent hover:text-accent-foreground group-hover:opacity-100"
         title="Copy to clipboard"
         aria-label="Copy to clipboard"
       >
@@ -1257,11 +1257,11 @@ function CodeBlock({
 function InfoTable({ rows }: { rows: [string, string][] }) {
   return (
     <div className="overflow-hidden rounded-xl border border-border">
-      <table className="w-full border-collapse bg-card text-left text-sm dark:bg-card">
+      <table className="w-full border-collapse bg-card text-left text-sm text-card-foreground">
         <tbody>
           {rows.map(([label, value]) => (
             <tr key={label} className="border-t border-border first:border-t-0">
-              <th className="w-56 bg-muted px-4 py-3 align-top font-medium text-foreground dark:bg-muted">
+              <th className="w-56 bg-muted px-4 py-3 align-top font-medium text-foreground">
                 {label}
               </th>
               <td className="px-4 py-3 text-muted-foreground">{value}</td>

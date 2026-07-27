@@ -26,7 +26,7 @@ import { cva } from "class-variance-authority";
 // exclusive, so the press wins with no specificity hack. (Table rows don't need
 // this — their competitor is `:hover`, which `:active` already beats.)
 export const menuItemVariants = cva(
-  "relative flex cursor-default select-none items-center gap-2 rounded-md py-1.5 text-sm outline-none transition-colors duration-select-out ease-out-quart focus:not-active:bg-accent focus:text-foreground focus:duration-select-in aria-selected:not-active:bg-accent aria-selected:text-foreground aria-selected:duration-select-in active:bg-accent/80 active:text-foreground active:duration-press aria-disabled:pointer-events-none aria-disabled:opacity-50 aria-disabled:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "relative flex cursor-default select-none items-center gap-2 rounded-md py-1.5 text-sm outline-none transition-colors duration-select-out ease-out-quart focus:not-active:bg-accent focus:text-accent-foreground focus:duration-select-in aria-selected:not-active:bg-accent aria-selected:text-accent-foreground aria-selected:duration-select-in active:bg-accent/80 active:text-accent-foreground active:duration-press aria-disabled:pointer-events-none aria-disabled:opacity-50 aria-disabled:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       indicator: {

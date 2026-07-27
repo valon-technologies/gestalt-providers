@@ -124,7 +124,7 @@ export default function AppAdminPageClient({ appName }: { appName: string }) {
             <p className="text-sm text-muted-foreground">Loading app registry…</p>
           ) : forbidden ? (
             <div
-              className="animate-fade-in-up rounded-2xl border border-border bg-card p-6 dark:bg-card"
+              className="animate-fade-in-up rounded-2xl border border-border bg-card p-6 text-card-foreground"
               data-testid="app-admin-access-denied"
             >
               <h1 className="text-2xl font-heading text-foreground">Access denied</h1>

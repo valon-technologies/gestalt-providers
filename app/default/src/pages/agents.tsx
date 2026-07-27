@@ -595,7 +595,7 @@ export default function AgentsPage() {
           <h1 className="sr-only">Agent Sessions</h1>
           <div className="flex items-center justify-between border-b border-border px-5 py-2.5">
             <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-              <span className="tui-glyph text-success-foreground dark:text-success-foreground">●</span>
+              <span className="tui-glyph text-success-foreground">●</span>
               <span>agents</span>
               <span className="text-muted-foreground/70">/</span>
               <span className="text-foreground">sessions</span>
@@ -657,7 +657,7 @@ export default function AgentsPage() {
                 {notice || actionError || detailError ? (
                   <div className="border-t border-border px-5 py-2 font-mono text-[11px]">
                     {notice ? (
-                      <p className="text-success-foreground dark:text-success-foreground">
+                      <p className="text-success-foreground">
                         <span className="tui-glyph mr-2">●</span>
                         {notice}
                       </p>
@@ -760,7 +760,7 @@ export default function AgentsPage() {
 
 function footerStatusColor(status?: string): string {
   const normalized = (status ?? "").toLowerCase();
-  if (normalized === "succeeded") return "text-success-foreground dark:text-success-foreground";
+  if (normalized === "succeeded") return "text-success-foreground";
   if (normalized === "failed") return "text-destructive";
   if (
     normalized === "running" ||
@@ -867,19 +867,19 @@ function SessionSidebar({
                 onClick={() => onSelect(session.id)}
                 className={`relative flex w-full items-start gap-2.5 px-4 py-2 text-left font-mono transition-colors duration-150 ${
                   active
-                    ? "bg-accent text-foreground before:absolute before:left-0 before:top-0 before:h-full before:w-[2px] before:bg-success dark:before:bg-success"
-                    : "text-muted-foreground hover:bg-accent"
+                    ? "bg-accent text-accent-foreground before:absolute before:left-0 before:top-0 before:h-full before:w-[2px] before:bg-success"
+                    : "text-foreground hover:bg-accent hover:text-accent-foreground"
                 }`}
               >
                 <span className={`tui-glyph mt-1 text-[10px] ${dotClass}`}>●</span>
                 <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-sm text-foreground">
+                  <span className="truncate text-sm text-current">
                     {session.clientRef || shortID}
                   </span>
-                  <span className="truncate text-[11px] text-muted-foreground/70">
+                  <span className="truncate text-[11px] text-current opacity-70">
                     {session.provider || "default"} · {session.model || "—"}
                   </span>
-                  <span className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground/70">
+                  <span className="text-[10px] uppercase tracking-[0.16em] text-current opacity-70">
                     {shortID} · {formatDate(session.lastTurnAt || session.updatedAt)}
                   </span>
                 </span>
@@ -901,7 +901,7 @@ function sessionDotClass(session: AgentSession): string {
     case "archived":
       return "text-muted-foreground/70";
     default:
-      return "text-success-foreground dark:text-success-foreground";
+      return "text-success-foreground";
   }
 }
 
@@ -960,7 +960,7 @@ function ConsoleHeader({
                 onClick={() => onSelectTurn(item.id)}
                 className={`flex shrink-0 items-center gap-2 border px-2 py-1 text-left transition-colors duration-150 ${
                   active
-                    ? "border-input bg-accent text-foreground"
+                    ? "border-input bg-accent text-accent-foreground"
                     : "border-border text-muted-foreground hover:border-input hover:text-foreground"
                 }`}
               >
@@ -972,7 +972,7 @@ function ConsoleHeader({
                   ●
                 </span>
                 <span className="block max-w-40 truncate">{turnLabel(item)}</span>
-                <span className="block text-muted-foreground/70">{formatDate(item.createdAt)}</span>
+                <span className="block text-current opacity-70">{formatDate(item.createdAt)}</span>
               </button>
             );
           })}
@@ -985,7 +985,7 @@ function ConsoleHeader({
 function turnDotColor(status?: string): string {
   switch (status) {
     case "succeeded":
-      return "text-success-foreground dark:text-success-foreground";
+      return "text-success-foreground";
     case "failed":
       return "text-destructive";
     case "running":
@@ -1092,9 +1092,9 @@ function TranscriptBubble({ item }: { item: TranscriptItem }) {
 
   if (item.kind === "user") {
     return (
-      <div className="tui-user-bar border-l-2 border-l-success-foreground px-3 py-2 dark:border-l-success-foreground">
+      <div className="tui-user-bar border-l-2 border-l-success-foreground px-3 py-2">
         <div className="flex items-center gap-2 text-[11px]">
-          <span className="tui-user-bar-prompt text-success-foreground dark:text-success-foreground">›</span>
+          <span className="tui-user-bar-prompt text-success-foreground">›</span>
           <span className="tui-section-label">{item.title}</span>
           {item.streaming ? (
             <span className="ml-auto tui-status-line text-info-foreground">streaming</span>
@@ -1117,7 +1117,7 @@ function TranscriptBubble({ item }: { item: TranscriptItem }) {
           : "·";
   const glyphClass =
     item.kind === "assistant"
-      ? "text-success-foreground dark:text-success-foreground"
+      ? "text-success-foreground"
       : item.kind === "error"
         ? "text-destructive"
         : item.kind === "interaction"
@@ -1223,7 +1223,7 @@ function toolPhaseDotColor(phase?: string | null): string {
     return "text-destructive";
   }
   if (normalized.includes("completed") || normalized.includes("succeeded")) {
-    return "text-success-foreground dark:text-success-foreground";
+    return "text-success-foreground";
   }
   if (normalized.includes("started") || normalized.includes("running")) {
     return "text-info-foreground";
@@ -1278,8 +1278,8 @@ function InteractionPanel({
   if (interactions.length === 0) return null;
 
   return (
-    <section className="mt-5 rounded-md border border-border bg-accent p-4">
-      <h3 className="text-sm font-medium text-foreground">Waiting For Input</h3>
+    <section className="mt-5 rounded-md border border-warning-foreground/40 bg-warning p-4 text-warning-foreground">
+      <h3 className="text-sm font-medium">Waiting For Input</h3>
       <div className="mt-4 space-y-4">
         {interactions.map((interaction) => {
           const resolving = resolvingID === interaction.id;
@@ -1304,7 +1304,7 @@ function InteractionPanel({
                     onClick={() =>
                       void onResolve(interaction, { approved: false })
                     }
-                    className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground transition-colors duration-150 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60 dark:bg-card"
+                    className="rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground transition-colors duration-150 hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Reject
                   </button>
@@ -1339,7 +1339,7 @@ function InteractionPanel({
                       [interaction.id]: event.target.value,
                     }))
                   }
-                  className="w-full rounded-md border border-border bg-muted px-3 py-2 text-sm text-foreground outline-hidden transition-colors duration-150 focus:border-input dark:bg-card"
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-hidden transition-colors duration-150 focus:border-input"
                 />
                 <button
                   type="submit"
@@ -1381,7 +1381,7 @@ function InteractionPanel({
                   }))
                 }
                 rows={4}
-                className="w-full rounded-md border border-border bg-muted px-3 py-2 font-mono text-sm text-foreground outline-hidden transition-colors duration-150 focus:border-input dark:bg-card"
+                className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono text-sm text-foreground outline-hidden transition-colors duration-150 focus:border-input"
               />
               <button
                 type="submit"
@@ -1401,11 +1401,11 @@ function InteractionPanel({
 function InteractionPrompt({ interaction }: { interaction: AgentInteraction }) {
   return (
     <div>
-      <p className="text-sm font-medium text-foreground">
+      <p className="text-sm font-medium text-current">
         {interaction.title || interaction.type || "Interaction"}
       </p>
       {interaction.prompt ? (
-        <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
+        <p className="mt-1 whitespace-pre-wrap text-sm text-current opacity-80">
           {interaction.prompt}
         </p>
       ) : null}
@@ -1759,7 +1759,7 @@ function JsonTextarea({
         onChange={(event) => onChange(event.target.value)}
         rows={3}
         spellCheck={false}
-        className="w-full resize-y rounded-md border border-border bg-muted px-3 py-2 font-mono text-sm text-foreground outline-hidden transition-colors duration-150 focus:border-input dark:bg-card"
+        className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 font-mono text-sm text-foreground outline-hidden transition-colors duration-150 focus:border-input"
       />
     </label>
   );
@@ -1921,16 +1921,16 @@ function statusClassName(status?: string): string {
     "inline-flex shrink-0 items-center gap-1.5 border px-2 py-0.5 font-mono text-[11px] uppercase tracking-[0.16em]";
   switch (status) {
     case "succeeded":
-      return `${base} border-success-foreground/40 text-success-foreground dark:text-success-foreground`;
+      return `${base} border-success-foreground/40 text-success-foreground`;
     case "failed":
       return `${base} border-destructive/50 text-destructive`;
     case "canceled":
       return `${base} border-border text-muted-foreground`;
     case "waiting_for_input":
-      return `${base} border-warning-foreground/40 text-warning-foreground dark:text-warning-foreground`;
+      return `${base} border-warning-foreground/40 text-warning-foreground`;
     case "pending":
     case "running":
-      return `${base} border-info-foreground/40 text-info-foreground dark:text-info-foreground tui-pulse`;
+      return `${base} border-info-foreground/40 text-info-foreground tui-pulse`;
     default:
       return `${base} border-border text-muted-foreground/70`;
   }
@@ -1944,10 +1944,10 @@ function toolPhaseClassName(phase?: string | null): string {
     return `${base} border-destructive/50 text-destructive`;
   }
   if (normalized.includes("completed") || normalized.includes("succeeded")) {
-    return `${base} border-success-foreground/40 text-success-foreground dark:text-success-foreground`;
+    return `${base} border-success-foreground/40 text-success-foreground`;
   }
   if (normalized.includes("started") || normalized.includes("running")) {
-    return `${base} border-info-foreground/40 text-info-foreground dark:text-info-foreground`;
+    return `${base} border-info-foreground/40 text-info-foreground`;
   }
   return `${base} border-border text-muted-foreground/70`;
 }
