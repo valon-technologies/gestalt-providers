@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/section-header";
 import { AppAdminHistoryTable } from "@/features/registry/app-admin-history-table";
 import { AppAdminSnapshotsTable } from "@/features/registry/app-admin-snapshots-table";
-import { isActiveRegistryRollout, formatRolloutStateLabel } from "@/features/registry/format";
+import { RolloutPhaseStepper } from "@/features/registry/rollout-phase-stepper";
 import { RegistryCode } from "@/features/registry/registry-code";
 import { RolloutBadge } from "@/features/registry/rollout-badge";
 import type { AppAdminRegistryResponse } from "@/features/registry/types";
@@ -41,9 +41,6 @@ export function AppAdminVersionPanel({
       : "Failed to load revision history"
     : null;
 
-  const rolloutActive = registry.rollout
-    ? isActiveRegistryRollout(registry.rollout.state)
-    : false;
   const controlsDisabled = registry.selectionDisabled || deployingVersion !== null;
 
   useEffect(() => {
@@ -75,15 +72,7 @@ export function AppAdminVersionPanel({
         <RolloutBadge app={registry} />
       </div>
 
-      {rolloutActive && registry.rollout ? (
-        <p
-          className="rounded-lg border border-info-foreground/40 bg-info px-4 py-3 text-sm text-info-foreground"
-          data-testid="rollout-active-banner"
-        >
-          Rollout {formatRolloutStateLabel(registry.rollout.state)}:{" "}
-          <RegistryCode>{registry.rollout.version}</RegistryCode>
-        </p>
-      ) : null}
+      <RolloutPhaseStepper rollout={registry.rollout} />
 
       <div className="flex gap-2 border-b border-border">
         <button
