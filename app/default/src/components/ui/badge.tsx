@@ -32,6 +32,14 @@ function relativeLuminance(hex: string): number {
   return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
 }
 
+/** Soft-wash a fill (hex or CSS `var(--token)`) toward white with dark ink. */
+function badgeSoftWashPresentation(fill: string): React.CSSProperties {
+  return {
+    backgroundColor: `color-mix(in oklch, ${fill} 50%, white)`,
+    color: BADGE_CUSTOM_COLOR_INK,
+  };
+}
+
 /**
  * Fill + ink for Badge `color`. Pale identities soft-mix toward white with dark
  * ink; deep identities keep the solid hex with light ink.
@@ -41,11 +49,7 @@ export function badgeCustomColorStyle(color: string): React.CSSProperties {
     return { backgroundColor: color, color: BADGE_CUSTOM_COLOR_INK };
   }
   if (relativeLuminance(color) > BADGE_CUSTOM_COLOR_SOFT_LUMINANCE) {
-    return {
-      // 50% identity into white — pale chips stay chromatic + AA with dark ink.
-      backgroundColor: `color-mix(in oklch, ${color} 50%, white)`,
-      color: BADGE_CUSTOM_COLOR_INK,
-    };
+    return badgeSoftWashPresentation(color);
   }
   return {
     backgroundColor: color,
@@ -58,15 +62,12 @@ type SemanticStatusVariant = (typeof SEMANTIC_STATUS_VARIANTS)[number];
 
 /**
  * Status badges read semantic fill tokens (`--success`, `--warning`, …). Tenant
- * themes may override a fill without its paired foreground (issue-181). Use the
- * same pale soft-wash + dark ink path as badgeCustomColorStyle so label text
- * stays readable regardless of whether the deployment supplied both tokens.
+ * themes may override a fill without its paired foreground (issue-181). Luminance
+ * is not known at build time, so always use the pale soft-wash presentation —
+ * the same path issue-171 uses for light custom label colors.
  */
-export function semanticStatusBadgeStyle(variant: SemanticStatusVariant): React.CSSProperties {
-  return {
-    backgroundColor: `color-mix(in oklch, var(--${variant}) 50%, white)`,
-    color: BADGE_CUSTOM_COLOR_INK,
-  };
+function semanticStatusBadgeStyle(variant: SemanticStatusVariant): React.CSSProperties {
+  return badgeSoftWashPresentation(`var(--${variant})`);
 }
 
 const badgeVariants = cva(
