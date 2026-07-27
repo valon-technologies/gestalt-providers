@@ -396,6 +396,7 @@ const routeTree = rootRoute.addChildren([
   identitiesRoute,
   integrationsRoute,
   tokensRoute,
+  workflowsRoute,
   docsLayoutRoute.addChildren([
     docsIndexRoute,
     docsGettingStartedRoute,
