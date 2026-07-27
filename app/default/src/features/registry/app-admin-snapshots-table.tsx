@@ -115,7 +115,7 @@ function AppAdminPendingSnapshotTableRow({
 
   return (
     <tr data-testid="snapshot-row-pending">
-      <td className="px-4 py-3 align-top">
+      <td className="px-4 py-3 align-middle">
         {pullRequest?.number ? (
           <PublicationPullRequestLabel pullRequest={pullRequest} />
         ) : publication?.workflowRunUrl ? (
@@ -131,10 +131,10 @@ function AppAdminPendingSnapshotTableRow({
           <span className="text-muted-foreground">—</span>
         )}
       </td>
-      <td className="px-4 py-3 align-top">
+      <td className="px-4 py-3 align-middle">
         <RegistryCode title={row.version}>{shortenSnapshotVersion(row.version)}</RegistryCode>
       </td>
-      <td className="px-4 py-3 align-top">
+      <td className="px-4 py-3 align-middle">
         <div className="flex flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={status.variant} data-testid="snapshot-status" className="relative">
@@ -152,7 +152,7 @@ function AppAdminPendingSnapshotTableRow({
           ) : null}
         </div>
       </td>
-      <td className="px-4 py-3 align-top text-muted-foreground">
+      <td className="px-4 py-3 align-middle text-muted-foreground">
         {lastUpdated ? (
           <time
             dateTime={snapshotLastUpdatedAt(row) ?? undefined}
@@ -165,7 +165,7 @@ function AppAdminPendingSnapshotTableRow({
           <span>—</span>
         )}
       </td>
-      <td className="px-4 py-3 align-top text-right">
+      <td className="px-4 py-3 align-middle text-right">
         <span className="text-muted-foreground">—</span>
       </td>
     </tr>
@@ -225,9 +225,13 @@ function AppAdminSnapshotTableRow({
       data-selected-version-row={rowAffordance ? "true" : undefined}
       className={selectedRowClassName(registry.rollout, row.version)}
     >
-      <td className="px-4 py-3 align-top">
+      <td className="relative px-4 py-3 align-middle">
         {rowAffordance ? (
-          <span className="mr-1 text-primary" aria-hidden="true" data-testid="snapshot-row-arrow">
+          <span
+            className="pointer-events-none absolute -left-7 top-1/2 flex w-7 -translate-y-1/2 items-center justify-center text-primary leading-none"
+            aria-hidden="true"
+            data-testid="snapshot-row-arrow"
+          >
             →
           </span>
         ) : null}
@@ -246,10 +250,10 @@ function AppAdminSnapshotTableRow({
           <span className="text-muted-foreground">—</span>
         )}
       </td>
-      <td className="px-4 py-3 align-top">
+      <td className="px-4 py-3 align-middle">
         <RegistryCode title={row.version}>{shortenSnapshotVersion(row.version)}</RegistryCode>
       </td>
-      <td className="px-4 py-3 align-top">
+      <td className="px-4 py-3 align-middle">
         <div className="flex flex-col gap-1">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={status.variant} data-testid="snapshot-status" className="relative">
@@ -264,7 +268,7 @@ function AppAdminSnapshotTableRow({
           ) : null}
         </div>
       </td>
-      <td className="px-4 py-3 align-top text-muted-foreground">
+      <td className="px-4 py-3 align-middle text-muted-foreground">
         {lastUpdated ? (
           <time
             dateTime={snapshotLastUpdatedAt(row) ?? undefined}
@@ -277,7 +281,7 @@ function AppAdminSnapshotTableRow({
           <span>—</span>
         )}
       </td>
-      <td className="px-4 py-3 align-top text-right">
+      <td className="px-4 py-3 align-middle text-right">
         {showRolloutDeploying ? (
           <Button
             type="button"
@@ -335,40 +339,42 @@ export function AppAdminSnapshotsTable({
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-border">
-      <table
-        className="min-w-full table-fixed divide-y divide-border text-sm"
-        data-testid="snapshots-table"
-      >
-        <colgroup>
-          <col className="w-[28%]" />
-          <col className="w-[22%]" />
-          <col className="w-[26%]" />
-          <col className="w-[14%]" />
-          <col className="w-[10%]" />
-        </colgroup>
-        <thead className="bg-foreground/[0.03] text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          <tr>
-            <th className="px-4 py-3 font-medium">Pull request</th>
-            <th className="px-4 py-3 font-medium">Snapshot</th>
-            <th className="px-4 py-3 font-medium">Status</th>
-            <th className="px-4 py-3 font-medium">Last update</th>
-            <th className="px-4 py-3 font-medium text-right">Action</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border bg-card text-card-foreground">
-          {rows.map((row) => (
-            <AppAdminSnapshotTableRow
-              key={`${row.kind}:${row.version}`}
-              row={row}
-              registry={registry}
-              controlsDisabled={controlsDisabled}
-              deployingVersion={deployingVersion}
-              onDeployVersion={onDeployVersion}
-            />
-          ))}
-        </tbody>
-      </table>
+    <div className="pl-7">
+      <div className="overflow-x-auto rounded-xl border border-border">
+        <table
+          className="min-w-full table-fixed divide-y divide-border text-sm"
+          data-testid="snapshots-table"
+        >
+          <colgroup>
+            <col className="w-[28%]" />
+            <col className="w-[22%]" />
+            <col className="w-[26%]" />
+            <col className="w-[14%]" />
+            <col className="w-[10%]" />
+          </colgroup>
+          <thead className="bg-foreground/[0.03] text-left text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="px-4 py-3 font-medium">Pull request</th>
+              <th className="px-4 py-3 font-medium">Snapshot</th>
+              <th className="px-4 py-3 font-medium">Status</th>
+              <th className="px-4 py-3 font-medium">Last update</th>
+              <th className="px-4 py-3 font-medium text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border bg-card text-card-foreground">
+            {rows.map((row) => (
+              <AppAdminSnapshotTableRow
+                key={`${row.kind}:${row.version}`}
+                row={row}
+                registry={registry}
+                controlsDisabled={controlsDisabled}
+                deployingVersion={deployingVersion}
+                onDeployVersion={onDeployVersion}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import {
   buildRolloutStepperModel,
   type RolloutStepperModel,
@@ -36,7 +37,7 @@ function StepConnector({ active }: { active: boolean }) {
   return (
     <span
       className={cn(
-        "h-0.5 min-w-8 flex-1",
+        "mt-1.5 h-0.5 min-w-8 flex-1 self-start",
         active ? "bg-warning" : "bg-muted-foreground/25",
       )}
       aria-hidden="true"
@@ -50,32 +51,29 @@ export function RolloutPhaseStepper({
   rollout?: RegistryRollout;
 }) {
   const model = buildRolloutStepperModel(rollout);
-  const [enrolling, restarting, terminal] = model.phases;
 
   return (
     <div
-      className="flex items-center gap-2"
+      className="flex w-full max-w-md items-start"
       data-testid="rollout-phase-stepper"
       aria-label="Rollout progress"
     >
-      <div className="flex min-w-0 flex-1 flex-col items-center gap-1">
-        <div className="flex w-full items-center gap-2">
-          <StepNode phase={enrolling} />
-          <StepConnector active={enrolling.state === "completed"} />
-          <StepNode phase={restarting} />
-          <StepConnector
-            active={
-              restarting.state === "completed" || terminal.state === "terminal"
-            }
-          />
-          <StepNode phase={terminal} />
-        </div>
-        <div className="grid w-full grid-cols-3 gap-2 text-center text-xs text-muted-foreground">
-          <span>{enrolling.label}</span>
-          <span>{restarting.label}</span>
-          <span>{terminal.label}</span>
-        </div>
-      </div>
+      {model.phases.map((phase, index) => {
+        const previousPhase = index > 0 ? model.phases[index - 1] : null;
+        const connectorActive = previousPhase?.state === "completed";
+
+        return (
+          <Fragment key={phase.id}>
+            {index > 0 ? <StepConnector active={connectorActive} /> : null}
+            <div className="flex shrink-0 flex-col items-center gap-1.5">
+              <StepNode phase={phase} />
+              <span className="whitespace-nowrap text-xs text-muted-foreground">
+                {phase.label}
+              </span>
+            </div>
+          </Fragment>
+        );
+      })}
     </div>
   );
 }
