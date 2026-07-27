@@ -3,6 +3,7 @@
 /* Scan src/ only — do not crawl bundled admin vendor files for candidates. */
 @import "tailwindcss" source(".");
 @import "tw-animate-css";
+@import "./styles/typeset.css";
 
 /* Dark mode follows the class set by useTheme. */
 @custom-variant dark (&:is(.dark *));
