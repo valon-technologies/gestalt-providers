@@ -114,6 +114,26 @@ test.describe("Navigation", () => {
     await expect(page.getByTestId("app-workflow-ownership-note")).toBeVisible();
   });
 
+  test("app admin workflows section renders", async ({ authenticatedPage: page }) => {
+    await mockIntegrations(page, [
+      {
+        name: "slack",
+        displayName: "Slack",
+        managementPath: "/apps/slack/admin",
+      },
+    ]);
+    await mockAppAdminRegistry(page, "slack", {
+      app: "slack",
+      registry: "toolshed",
+      knownVersions: [],
+      publishedVersions: [],
+      selectionDisabled: false,
+    });
+    await mockWorkflowRuns(page, []);
+    await page.goto("/apps/slack/admin?section=workflows");
+    await expect(page.getByRole("heading", { name: "Workflows", level: 2 })).toBeVisible();
+  });
+
   test("authorization redirects to settings tokens", async ({ authenticatedPage: page }) => {
     await page.goto("/authorization");
     await expect(page).toHaveURL(/\/settings\/tokens$/);

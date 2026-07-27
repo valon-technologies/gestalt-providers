@@ -1,6 +1,7 @@
 import { clearSession } from "./auth";
 import { HTTP_UNAUTHORIZED } from "./constants";
 import { serverLoginURL } from "./authReturn";
+import { workflowRunMatchesApp } from "./workflowActivity";
 
 export interface ConnectionParamDef {
   required?: boolean;
