@@ -3,7 +3,8 @@
 import * as React from "react";
 
 import { FileCode2 } from "lucide-react";
-import { all, createLowlight } from "lowlight";
+
+import { codeBlockLowlight } from "@/components/ui/code-block-lowlight";
 
 import { CopyIconButton } from "@/components/ui/copy-button";
 import {
@@ -29,7 +30,7 @@ import { cn } from "@/lib/utils";
 // paint comes from `code-fence` (shared with Plate code-block-node). Chrome
 // (filename, copy, line numbers, tabs) is modeled on shadcnspace's CodeBlock.
 
-const lowlight = createLowlight(all);
+const lowlight = codeBlockLowlight;
 
 type CodeFenceVariant = NonNullable<CodeFenceShellProps["variant"]>;
 
