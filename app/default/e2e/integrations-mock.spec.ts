@@ -264,7 +264,7 @@ test.describe("Integrations", () => {
       page.getByRole("heading", { name: "Apps" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("combobox", { name: "Search apps" }),
+      page.getByRole("searchbox", { name: "Search apps" }),
     ).toBeVisible();
     await expect(page.getByText(OAUTH_INTEGRATION.displayName!)).toBeVisible();
     await expect(page.getByText(MANUAL_INTEGRATION.displayName!)).toBeVisible();
@@ -387,7 +387,7 @@ test.describe("Integrations", () => {
     await mockIntegrations(page, sampleIntegrations);
 
     await page.goto("/apps");
-    const search = page.getByRole("combobox", { name: "Search apps" });
+    const search = page.getByRole("searchbox", { name: "Search apps" });
     const grid = page.getByTestId("plugin-grid");
 
     await search.fill("manual");
@@ -402,7 +402,7 @@ test.describe("Integrations", () => {
     await mockIntegrations(page, sampleIntegrations);
 
     await page.goto("/apps");
-    const search = page.getByRole("combobox", { name: "Search apps" });
+    const search = page.getByRole("searchbox", { name: "Search apps" });
     const grid = page.getByTestId("plugin-grid");
 
     await search.fill("oauth-svc");
@@ -417,7 +417,7 @@ test.describe("Integrations", () => {
     await mockIntegrations(page, sampleIntegrations);
 
     await page.goto("/apps");
-    const search = page.getByRole("combobox", { name: "Search apps" });
+    const search = page.getByRole("searchbox", { name: "Search apps" });
     const grid = page.getByTestId("plugin-grid");
 
     await search.fill("example oauth integration");
@@ -432,7 +432,7 @@ test.describe("Integrations", () => {
     await mockIntegrations(page, sampleIntegrations);
 
     await page.goto("/apps");
-    const search = page.getByRole("combobox", { name: "Search apps" });
+    const search = page.getByRole("searchbox", { name: "Search apps" });
 
     await search.fill("missing-plugin");
 
@@ -440,19 +440,17 @@ test.describe("Integrations", () => {
     await expect(page.getByTestId("plugin-grid")).toHaveCount(0);
   });
 
-  test("supports keyboard selection from the search results", async ({ authenticatedPage }) => {
+  test("does not render a suggestion list over the grid", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await mockIntegrations(page, sampleIntegrations);
 
     await page.goto("/apps");
-    const search = page.getByRole("combobox", { name: "Search apps" });
+    const search = page.getByRole("searchbox", { name: "Search apps" });
     const grid = page.getByTestId("plugin-grid");
 
     await search.fill("oauth");
-    await search.press("ArrowDown");
-    await search.press("Enter");
-
-    await expect(search).toHaveValue("OAuth Service");
+    await expect(page.getByRole("listbox")).toHaveCount(0);
+    await expect(page.getByRole("option")).toHaveCount(0);
     await expect(grid.getByText("OAuth Service", { exact: true })).toBeVisible();
     await expect(grid.getByText("Manual Service", { exact: true })).toHaveCount(0);
     await expect(grid.getByText("Another Service", { exact: true })).toHaveCount(0);
@@ -463,7 +461,7 @@ test.describe("Integrations", () => {
     await mockIntegrations(page, sampleIntegrations);
 
     await page.goto("/apps");
-    const search = page.getByRole("combobox", { name: "Search apps" });
+    const search = page.getByRole("searchbox", { name: "Search apps" });
     const clearButton = page.locator('button[aria-label="Clear app search"]');
     const grid = page.getByTestId("plugin-grid");
 
