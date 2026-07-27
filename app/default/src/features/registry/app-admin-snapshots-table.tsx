@@ -2,6 +2,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { isActiveRegistryRollout } from "@/features/registry/format";
 import {
+  isRolloutDeployingAction,
+  selectedVersionRowAffordance,
+} from "@/features/registry/rollout-stepper";
+import {
   PublicationPullRequestLabel,
   REGISTRY_TABLE_LINK_CLASS,
 } from "@/features/registry/publication-pull-request-label";
@@ -19,8 +23,9 @@ import type {
   AppAdminSnapshotRow,
   RegistryAppSummary,
 } from "@/features/registry/types";
-import { Loader2 } from "lucide-react";
 import { useLiveNow } from "@/hooks/use-live-now";
+import { cn } from "@/lib/cn";
+import { Loader2 } from "lucide-react";
 
 const PUBLISH_DURATION_CLASS =
   "inline-block min-w-[4.75rem] tabular-nums text-muted-foreground";
@@ -52,11 +57,12 @@ function snapshotStatus({
   if (row.kind === "failed") {
     return { label: "Failed", variant: "destructive" };
   }
-  if (row.version === desiredVersion) {
+  const rolloutTargetActive =
+    rollout &&
+    rollout.version === row.version &&
+    isActiveRegistryRollout(rollout.state);
+  if (row.version === desiredVersion && !rolloutTargetActive) {
     return { label: "Deployed", variant: "success" };
-  }
-  if (rollout && rollout.version === row.version && isActiveRegistryRollout(rollout.state)) {
-    return { label: "Rolling out", variant: "warning" };
   }
   return { label: "Available", variant: "secondary" };
 }
@@ -67,6 +73,18 @@ function PendingPublishDuration({ statusTimer }: { statusTimer: string }) {
     <span className="text-muted-foreground">
       for <span className={PUBLISH_DURATION_CLASS}>{duration}</span>
     </span>
+  );
+}
+
+function selectedRowClassName(
+  rollout: RegistryAppSummary["rollout"],
+  rowVersion: string,
+): string {
+  const affordance = selectedVersionRowAffordance(rollout, rowVersion);
+  return cn(
+    affordance === "pulsing" && "bg-primary/10 motion-safe:animate-pulse",
+    affordance === "success" && "bg-success/10",
+    affordance === "error" && "bg-destructive/10",
   );
 }
 
@@ -198,10 +216,21 @@ function AppAdminSnapshotTableRow({
   const statusTimer = snapshotStatusTimer(row);
   const lastUpdated = snapshotLastUpdatedLabel(row);
   const failedReason = snapshotFailedReason(row);
+  const rowAffordance = selectedVersionRowAffordance(registry.rollout, row.version);
+  const showRolloutDeploying = isRolloutDeployingAction(registry.rollout, row.version);
 
   return (
-    <tr data-testid={`snapshot-row-${row.kind}`}>
+    <tr
+      data-testid={`snapshot-row-${row.kind}`}
+      data-selected-version-row={rowAffordance ? "true" : undefined}
+      className={selectedRowClassName(registry.rollout, row.version)}
+    >
       <td className="px-4 py-3 align-top">
+        {rowAffordance ? (
+          <span className="mr-1 text-primary" aria-hidden="true" data-testid="snapshot-row-arrow">
+            →
+          </span>
+        ) : null}
         {pullRequest?.number ? (
           <PublicationPullRequestLabel pullRequest={pullRequest} />
         ) : publication?.workflowRunUrl ? (
@@ -249,7 +278,18 @@ function AppAdminSnapshotTableRow({
         )}
       </td>
       <td className="px-4 py-3 align-top text-right">
-        {isDeployable ? (
+        {showRolloutDeploying ? (
+          <Button
+            type="button"
+            size="sm"
+            data-testid={`deploy-version-${row.version}`}
+            disabled
+          >
+            Deploying...
+          </Button>
+        ) : isDeployable && row.version === registry.desiredVersion ? (
+          <span className="text-muted-foreground">—</span>
+        ) : isDeployable ? (
           <Button
             type="button"
             size="sm"

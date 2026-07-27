@@ -267,14 +267,39 @@ test.describe("app admin registry UI", () => {
     });
     await page.goto(`/apps/${APP}/admin`);
 
-    await expect(page.getByTestId("rollout-active-banner")).toContainText(
-      "Rollout Enrolling",
-    );
+    await expect(page.getByTestId("rollout-phase-stepper")).toBeVisible();
+    await expect(page.getByTestId("rollout-phase-node-enrolling")).toBeVisible();
+    const deployingRow = page
+      .getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)
+      .locator("xpath=ancestor::tr");
+    await expect(deployingRow.getByTestId("snapshot-row-arrow")).toBeVisible();
     await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toBeDisabled();
+    await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toHaveText(
+      "Deploying...",
+    );
     await expect(page.getByTestId(`deploy-version-${PUBLISHED_LEGACY.version}`)).toBeDisabled();
     await expect(page.getByTestId("selection-disabled-reason")).toHaveText(
       "rollout in progress",
     );
+  });
+
+  test("keeps selected version row affordance after rollout completes", async ({ page }) => {
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      desiredVersion: PUBLISHED_NEW.version,
+      rollout: {
+        version: PUBLISHED_NEW.version,
+        state: "complete",
+      },
+      selectionDisabled: false,
+    });
+    await page.goto(`/apps/${APP}/admin`);
+
+    await expect(page.getByTestId("rollout-phase-node-terminal")).toBeVisible();
+    const selectedRow = page.locator('[data-selected-version-row="true"]');
+    await expect(selectedRow.getByTestId("snapshot-row-arrow")).toBeVisible();
+    await expect(selectedRow.getByTestId("snapshot-status")).toHaveText("Deployed");
+    await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toHaveCount(0);
   });
 
   test("successful deploy shows the new active rollout", async ({ page }) => {
@@ -294,10 +319,11 @@ test.describe("app admin registry UI", () => {
 
     await page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`).click();
 
-    await expect(page.getByTestId("rollout-active-banner")).toContainText(
-      PUBLISHED_NEW.version,
-    );
+    await expect(page.getByTestId("rollout-phase-stepper")).toBeVisible();
     await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toBeDisabled();
+    await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toHaveText(
+      "Deploying...",
+    );
     await expect(page.getByTestId("rollout-badge")).toHaveText("Enrolling");
   });
 
