@@ -111,6 +111,43 @@ test.describe("Theme", () => {
     });
   });
 
+  test("authorization subhead never uses the muted surface fill as text color", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await page.addInitScript(() => {
+      localStorage.setItem("theme", "light");
+    });
+    await page.route("**/theme.css", (route) =>
+      route.fulfill({
+        contentType: "text/css",
+        body: `
+          :root {
+            --background: rgb(255, 255, 255);
+            --foreground: rgb(35, 24, 16);
+            --card: rgb(250, 248, 245);
+            --card-foreground: rgb(35, 24, 16);
+            --border: rgb(230, 225, 218);
+            --muted: rgb(241, 238, 233);
+            --primary: rgb(122, 79, 16);
+            --primary-foreground: rgb(255, 255, 255);
+          }
+        `,
+      }),
+    );
+    await mockIntegrations(page, []);
+    await mockTokens(page, []);
+    await mockWorkflowRuns(page, []);
+
+    await page.goto("/authorization");
+
+    const bodyCopy = page.getByText(
+      /Create personal API tokens for local tooling/,
+    );
+    await expect(bodyCopy).toHaveClass(/text-muted-foreground/);
+    await expect(bodyCopy).not.toHaveCSS("color", "rgb(241, 238, 233)");
+  });
+
   test("toggle enables dark mode and persists the selection", async ({
     authenticatedPage,
   }) => {
