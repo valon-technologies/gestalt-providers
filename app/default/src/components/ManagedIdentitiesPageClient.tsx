@@ -131,10 +131,10 @@ export default function ManagedIdentitiesPageClient() {
                   Managed identities require platform auth and are unavailable when auth is disabled.
                 </p>
                 <Link
-                  to="/"
+                  to="/apps"
                   className="mt-6 inline-flex text-sm text-muted transition-colors duration-150 hover:text-primary"
                 >
-                  &larr; Back to dashboard
+                  &larr; Back to apps
                 </Link>
               </div>
             </div>

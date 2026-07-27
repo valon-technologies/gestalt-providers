@@ -220,6 +220,20 @@ export interface CreateTokenResponse {
   expiresAt?: string;
 }
 
+export interface AgentToolRef {
+  system?: string;
+  plugin?: string;
+  operation?: string;
+  connection?: string;
+  instance?: string;
+  title?: string;
+  description?: string;
+}
+
+export type AgentOutput =
+  | { text: Record<string, never>; structured?: never }
+  | { text?: never; structured: { schema: Record<string, unknown> } };
+
 export interface WorkflowAppTarget {
   name: string;
   operation: string;
@@ -495,275 +509,6 @@ function optionalRecord(value: unknown): Record<string, unknown> | undefined {
   return isRecord(value) ? value : undefined;
 }
 
-export type AgentExecutionStatus =
-  | "pending"
-  | "running"
-  | "waiting_for_input"
-  | "succeeded"
-  | "failed"
-  | "canceled"
-  | string;
-
-export type AgentSessionState = "active" | "archived" | string;
-
-export interface AgentMessagePart {
-  type?: string;
-  text?: string;
-  json?: Record<string, unknown>;
-  toolCall?: Record<string, unknown>;
-  toolResult?: Record<string, unknown>;
-  imageRef?: Record<string, unknown>;
-}
-
-export interface AgentMessage {
-  role: string;
-  text?: string;
-  parts?: AgentMessagePart[];
-  metadata?: Record<string, unknown>;
-}
-
-export interface AgentActor {
-  subjectId?: string;
-  subjectKind?: string;
-  displayName?: string;
-  authSource?: string;
-}
-
-export interface AgentToolRef {
-  system?: string;
-  plugin?: string;
-  operation?: string;
-  connection?: string;
-  instance?: string;
-  title?: string;
-  description?: string;
-}
-
-export interface AgentRun {
-  id: string;
-  sessionId?: string;
-  provider: string;
-  model?: string;
-  status?: AgentExecutionStatus;
-  messages?: AgentMessage[];
-  output?: AgentTurnOutput;
-  statusMessage?: string;
-  sessionRef?: string;
-  createdBy?: AgentActor;
-  createdAt?: string;
-  startedAt?: string;
-  completedAt?: string;
-  executionRef?: string;
-}
-
-export interface AgentRunCreate {
-  provider?: string;
-  model?: string;
-  messages: AgentMessage[];
-  toolRefs?: AgentToolRef[];
-  toolSource?: "catalog" | "explicit" | "inherit_invokes";
-  output?: AgentOutput;
-  sessionRef?: string;
-  metadata?: Record<string, unknown>;
-  modelOptions?: Record<string, unknown>;
-  idempotencyKey?: string;
-}
-
-export interface AgentSession {
-  id: string;
-  provider: string;
-  model?: string;
-  clientRef?: string;
-  state?: AgentSessionState;
-  metadata?: Record<string, unknown>;
-  createdBy?: AgentActor;
-  createdAt?: string;
-  updatedAt?: string;
-  lastTurnAt?: string;
-}
-
-export type AgentTurn = Omit<AgentRun, "sessionRef"> & {
-  sessionId: string;
-};
-
-type AgentTurnWire = AgentTurn;
-
-export type AgentOutput =
-  | { text: Record<string, never>; structured?: never }
-  | { text?: never; structured: { schema: Record<string, unknown> } };
-
-export type AgentTurnOutput =
-  | { text: { text?: string }; structured?: never }
-  | { text?: never; structured: { text?: string; value?: Record<string, unknown> } };
-
-export interface AgentProviderCapabilities {
-  streamingText?: boolean;
-  toolCalls?: boolean;
-  parallelToolCalls?: boolean;
-  interactions?: boolean;
-  resumableTurns?: boolean;
-  reasoningSummaries?: boolean;
-  boundedListHydration?: boolean;
-  supportedToolSources?: string[];
-}
-
-export interface AgentProvider {
-  name: string;
-  default?: boolean;
-  capabilities?: AgentProviderCapabilities;
-}
-
-export interface AgentProviderList {
-  providers: AgentProvider[];
-}
-
-export interface AgentSessionCreate {
-  provider?: string;
-  model?: string;
-  clientRef?: string;
-  tools?: AgentSessionTools;
-  metadata?: Record<string, unknown>;
-  modelOptions?: Record<string, unknown>;
-  idempotencyKey?: string;
-}
-
-export type AgentSessionTools =
-  | { none: Record<string, never>; catalog?: never }
-  | { none?: never; catalog: { refs?: AgentToolRef[] } };
-
-export interface AgentSessionUpdate {
-  clientRef?: string;
-  state?: AgentSessionState;
-  metadata?: Record<string, unknown>;
-}
-
-export interface AgentTurnCreate {
-  model?: string;
-  messages: AgentMessage[];
-  output?: AgentOutput;
-  metadata?: Record<string, unknown>;
-  modelOptions?: Record<string, unknown>;
-  idempotencyKey?: string;
-}
-
-export interface AgentTurnDisplay {
-  kind?: string;
-  phase?: string;
-  text?: string;
-  label?: string;
-  ref?: string;
-  parentRef?: string;
-  input?: unknown;
-  output?: unknown;
-  error?: unknown;
-  action?: string;
-  format?: string;
-  language?: string;
-}
-
-export interface AgentTurnEvent {
-  id: string;
-  turnId: string;
-  seq: number;
-  type: string;
-  source?: string;
-  visibility?: "public" | "private" | string;
-  data?: Record<string, unknown>;
-  createdAt?: string;
-  display?: AgentTurnDisplay;
-}
-
-export type AgentInteractionType =
-  | "approval"
-  | "clarification"
-  | "input"
-  | string;
-
-export type AgentInteractionState = "pending" | "resolved" | "canceled" | string;
-
-export interface AgentInteraction {
-  id: string;
-  turnId: string;
-  type: AgentInteractionType;
-  state: AgentInteractionState;
-  title?: string;
-  prompt?: string;
-  request?: Record<string, unknown>;
-  resolution?: Record<string, unknown>;
-  createdAt?: string;
-  resolvedAt?: string;
-}
-
-export interface AgentInteractionResolve {
-  resolution: Record<string, unknown>;
-}
-
-export interface AgentTurnEventStream {
-  close: () => void;
-}
-
-export interface AgentTurnEventStreamOptions {
-  after?: number;
-  limit?: number;
-  until?: "terminal" | "blocked_or_terminal";
-  onEvent?: (event: AgentTurnEvent) => void;
-  onError?: (error: Error, event?: unknown) => void;
-  onClose?: () => void;
-}
-
-function normalizeAgentRun(
-  turn: AgentTurnWire,
-  session?: AgentSession,
-): AgentRun {
-  return {
-    ...turn,
-    sessionRef: session?.clientRef || turn.sessionId,
-  };
-}
-
-function compareAgentRunsDesc(left: AgentRun, right: AgentRun): number {
-  const leftTime = Date.parse(left.createdAt || "");
-  const rightTime = Date.parse(right.createdAt || "");
-  const leftValue = Number.isNaN(leftTime) ? 0 : leftTime;
-  const rightValue = Number.isNaN(rightTime) ? 0 : rightTime;
-  return rightValue - leftValue || right.id.localeCompare(left.id);
-}
-
-function idempotencyKeyPart(prefix: string, key?: string): string | undefined {
-  return key ? `${prefix}:${key}` : undefined;
-}
-
-function agentToolRefsToRequest(
-  toolRefs?: AgentToolRef[],
-): AgentToolRef[] | undefined {
-  return toolRefs?.map((tool) => ({
-    system: tool.system,
-    plugin: tool.plugin,
-    operation: tool.operation,
-    connection: tool.connection,
-    instance: tool.instance,
-    title: tool.title,
-    description: tool.description,
-  }));
-}
-
-function agentToolsToRequest(
-  value?: AgentRunCreate["toolSource"],
-  refs?: AgentToolRef[],
-): AgentSessionTools | undefined {
-  switch (value) {
-    case undefined:
-      return undefined;
-    case "catalog":
-    case "explicit":
-      return { catalog: { refs: agentToolRefsToRequest(refs) } };
-    case "inherit_invokes":
-      throw new Error("inherit_invokes is not supported by the agent API");
-    default:
-      return undefined;
-  }
-}
-
 export interface ManagedIdentity {
   id: string;
   subjectId: string;
@@ -812,14 +557,25 @@ export function isAPIErrorStatus(error: unknown, status: number): boolean {
   return error instanceof APIError && error.status === status;
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 export const PENDING_CONNECTION_PATH = "/api/v1/auth/pending-connection";
 
+/**
+ * Resolve a path for same-origin API traffic.
+ *
+ * Cookie auth requires one browser origin: the SPA and `/api/*` share it.
+ * Production gestaltd serves both; local/prod-dev Vite proxies `/api` to
+ * `GESTALT_API_PROXY_TARGET`. Absolute URLs (e.g. OAuth selection redirects)
+ * pass through unchanged. Do not read `process.env` here — that is Node-only
+ * and blanks the Vite SPA.
+ */
 export function resolveAPIPath(path: string): string {
   if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(path)) {
     return path;
   }
-  return `${API_BASE}${path}`;
+  if (!path.startsWith("/")) {
+    throw new Error(`API path must be absolute (got ${JSON.stringify(path)})`);
+  }
+  return path;
 }
 
 export async function fetchAPI<T>(
@@ -870,9 +626,6 @@ export interface AuthInfo {
   provider: string;
   displayName: string;
   loginSupported: boolean;
-  features?: {
-    agent?: boolean;
-  };
 }
 
 export interface AuthSession {
@@ -1033,344 +786,6 @@ export async function cancelWorkflowRun(
     },
   );
   return normalizeWorkflowRun(run);
-}
-
-export async function getAgentProviders(): Promise<AgentProvider[]> {
-  const response = await fetchAPI<AgentProviderList | AgentProvider[]>(
-    "/api/v1/agent/providers",
-  );
-  return Array.isArray(response) ? response : (response.providers ?? []);
-}
-
-export async function getAgentSessions(opts?: {
-  provider?: string;
-  state?: string;
-  view?: "full" | "summary";
-  limit?: number;
-}): Promise<AgentSession[]> {
-  const query = new URLSearchParams();
-  if (opts?.provider) query.set("provider", opts.provider);
-  if (opts?.state && opts.state !== "all") query.set("state", opts.state);
-  if (opts?.view) query.set("view", opts.view);
-  if (opts?.limit) query.set("limit", String(opts.limit));
-  const params = query.toString();
-  return fetchAPI<AgentSession[]>(
-    `/api/v1/agent/sessions${params ? `?${params}` : ""}`,
-  );
-}
-
-export async function getAgentSession(
-  id: string,
-  provider: string,
-): Promise<AgentSession> {
-  return fetchAPI<AgentSession>(
-    `/api/v1/agent/sessions/${encodeURIComponent(id)}?${new URLSearchParams({ provider })}`,
-  );
-}
-
-export async function createAgentSession(
-  body: AgentSessionCreate,
-): Promise<AgentSession> {
-  return fetchAPI<AgentSession>("/api/v1/agent/sessions", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
-
-export async function updateAgentSession(
-  id: string,
-  provider: string,
-  body: AgentSessionUpdate,
-): Promise<AgentSession> {
-  return fetchAPI<AgentSession>(
-    `/api/v1/agent/sessions/${encodeURIComponent(id)}?${new URLSearchParams({ provider })}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify(body),
-    },
-  );
-}
-
-export async function getAgentTurns(
-  sessionID: string,
-  provider: string,
-  opts?: {
-    status?: string;
-    limit?: number;
-    view?: "full" | "summary";
-  },
-): Promise<AgentTurn[]> {
-  const query = new URLSearchParams({ provider });
-  if (opts?.status && opts.status !== "all") query.set("status", opts.status);
-  if (opts?.limit) query.set("limit", String(opts.limit));
-  if (opts?.view) query.set("view", opts.view);
-  return fetchAPI<AgentTurn[]>(
-    `/api/v1/agent/sessions/${encodeURIComponent(sessionID)}/turns?${query}`,
-  );
-}
-
-export async function getAgentTurn(
-  id: string,
-  provider: string,
-): Promise<AgentTurn> {
-  return fetchAPI<AgentTurn>(
-    `/api/v1/agent/turns/${encodeURIComponent(id)}?${new URLSearchParams({ provider })}`,
-  );
-}
-
-export async function createAgentTurn(
-  sessionID: string,
-  provider: string,
-  body: AgentTurnCreate,
-): Promise<AgentTurn> {
-  const output = body.output ?? { text: {} };
-  return fetchAPI<AgentTurn>(
-    `/api/v1/agent/sessions/${encodeURIComponent(sessionID)}/turns?${new URLSearchParams({ provider })}`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        model: body.model,
-        messages: body.messages,
-        output,
-        metadata: body.metadata,
-        modelOptions: body.modelOptions,
-        idempotencyKey: body.idempotencyKey,
-      }),
-    },
-  );
-}
-
-export async function cancelAgentTurn(
-  id: string,
-  provider: string,
-  reason?: string,
-): Promise<AgentTurn> {
-  return fetchAPI<AgentTurn>(
-    `/api/v1/agent/turns/${encodeURIComponent(id)}/cancel?${new URLSearchParams({ provider })}`,
-    {
-      method: "POST",
-      body: JSON.stringify(reason ? { reason } : {}),
-    },
-  );
-}
-
-export async function getAgentTurnEvents(
-  turnID: string,
-  provider: string,
-  opts?: { after?: number; limit?: number },
-): Promise<AgentTurnEvent[]> {
-  const query = new URLSearchParams({ provider });
-  if (typeof opts?.after === "number") query.set("after", String(opts.after));
-  if (typeof opts?.limit === "number") query.set("limit", String(opts.limit));
-  return fetchAPI<AgentTurnEvent[]>(
-    `/api/v1/agent/turns/${encodeURIComponent(turnID)}/events?${query}`,
-  );
-}
-
-export async function getAllAgentTurnEvents(
-  turnID: string,
-  provider: string,
-  opts?: { after?: number; limit?: number },
-): Promise<{ events: AgentTurnEvent[]; lastSeq: number }> {
-  const limit = opts?.limit ?? 100;
-  let after = opts?.after ?? 0;
-  const events: AgentTurnEvent[] = [];
-
-  for (;;) {
-    const page = await getAgentTurnEvents(turnID, provider, { after, limit });
-    if (page.length === 0) {
-      break;
-    }
-
-    let maxSeq = after;
-    for (const event of page) {
-      if (typeof event.seq === "number") {
-        maxSeq = Math.max(maxSeq, event.seq);
-      }
-      events.push(event);
-    }
-
-    if (page.length < limit || maxSeq <= after) {
-      after = maxSeq;
-      break;
-    }
-    after = maxSeq;
-  }
-
-  return { events, lastSeq: after };
-}
-
-export async function getAgentInteractions(
-  turnID: string,
-  provider: string,
-): Promise<AgentInteraction[]> {
-  return fetchAPI<AgentInteraction[]>(
-    `/api/v1/agent/turns/${encodeURIComponent(turnID)}/interactions?${new URLSearchParams({ provider })}`,
-  );
-}
-
-export async function resolveAgentInteraction(
-  turnID: string,
-  provider: string,
-  interactionID: string,
-  resolution: Record<string, unknown>,
-): Promise<AgentInteraction> {
-  return fetchAPI<AgentInteraction>(
-    `/api/v1/agent/turns/${encodeURIComponent(
-      turnID,
-    )}/interactions/${encodeURIComponent(interactionID)}/resolve?${new URLSearchParams({ provider })}`,
-    {
-      method: "POST",
-      body: JSON.stringify({ resolution } satisfies AgentInteractionResolve),
-    },
-  );
-}
-
-export function openAgentTurnEventStream(
-  turnID: string,
-  provider: string,
-  opts: AgentTurnEventStreamOptions,
-): AgentTurnEventStream {
-  const query = new URLSearchParams({
-    provider,
-    after: String(opts.after ?? 0),
-    limit: String(opts.limit ?? 100),
-    until: opts.until ?? "blocked_or_terminal",
-  });
-  const source = new EventSource(
-    resolveAPIPath(
-      `/api/v1/agent/turns/${encodeURIComponent(turnID)}/events/stream?${query}`,
-    ),
-    { withCredentials: true },
-  );
-  let closed = false;
-
-  function close() {
-    if (closed) return;
-    closed = true;
-    source.close();
-    opts.onClose?.();
-  }
-
-  function parseEvent(data: string, eventName: string): AgentTurnEvent | null {
-    const trimmed = data.trim();
-    if (!trimmed) return null;
-    try {
-      const parsed = JSON.parse(trimmed) as AgentTurnEvent;
-      if (eventName === "error") {
-        const message =
-          typeof parsed?.data?.error === "string"
-            ? parsed.data.error
-            : "Agent event stream error";
-        opts.onError?.(new Error(message), parsed);
-        return null;
-      }
-      return parsed;
-    } catch (err) {
-      opts.onError?.(
-        err instanceof Error ? err : new Error("Invalid agent event frame"),
-      );
-      return null;
-    }
-  }
-
-  source.onmessage = (event) => {
-    const parsed = parseEvent(event.data, "message");
-    if (!parsed) return;
-    opts.onEvent?.(parsed);
-    if (
-      parsed.type === "turn.completed" ||
-      parsed.type === "turn.failed" ||
-      parsed.type === "turn.canceled"
-    ) {
-      close();
-    }
-  };
-
-  source.addEventListener("error", (event) => {
-    if (event instanceof MessageEvent && typeof event.data === "string") {
-      parseEvent(event.data, "error");
-    } else {
-      opts.onError?.(new Error("Agent event stream closed"));
-    }
-    close();
-  });
-
-  return { close };
-}
-
-export async function getAgentRuns(opts?: {
-  provider?: string;
-  status?: string;
-}): Promise<AgentRun[]> {
-  const sessions = await getAgentSessions({
-    provider: opts?.provider,
-    view: "summary",
-    limit: 50,
-  });
-
-  const turnLists = await Promise.all(
-    sessions.map(async (session) => {
-      const turns = await getAgentTurns(session.id, session.provider, {
-        status: opts?.status,
-        limit: 20,
-      });
-      return turns.map((turn) => normalizeAgentRun(turn, session));
-    }),
-  );
-
-  return turnLists.flat().sort(compareAgentRunsDesc);
-}
-
-export async function getAgentRun(
-  id: string,
-  provider: string,
-): Promise<AgentRun> {
-  const turn = await getAgentTurn(id, provider);
-  return normalizeAgentRun(turn);
-}
-
-export async function createAgentRun(body: AgentRunCreate): Promise<AgentRun> {
-  const tools = agentToolsToRequest(body.toolSource, body.toolRefs);
-
-  const session = await fetchAPI<AgentSession>("/api/v1/agent/sessions", {
-    method: "POST",
-    body: JSON.stringify({
-      provider: body.provider,
-      model: body.model,
-      clientRef: body.sessionRef,
-      tools,
-      metadata: body.metadata,
-      idempotencyKey: idempotencyKeyPart("session", body.idempotencyKey),
-    }),
-  });
-
-  const turn = await fetchAPI<AgentTurnWire>(
-    `/api/v1/agent/sessions/${encodeURIComponent(session.id)}/turns?${new URLSearchParams(
-      { provider: session.provider },
-    )}`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        model: body.model,
-        messages: body.messages,
-        output: body.output ?? { text: {} },
-        metadata: body.metadata,
-        modelOptions: body.modelOptions,
-        idempotencyKey: idempotencyKeyPart("turn", body.idempotencyKey),
-      }),
-    },
-  );
-  return normalizeAgentRun(turn, session);
-}
-
-export async function cancelAgentRun(
-  id: string,
-  provider: string,
-  reason?: string,
-): Promise<AgentRun> {
-  const turn = await cancelAgentTurn(id, provider, reason);
-  return normalizeAgentRun(turn);
 }
 
 export async function createToken(
