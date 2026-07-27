@@ -12,7 +12,7 @@ test.describe("Integrations", () => {
       page.getByRole("heading", { name: "Apps" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("searchbox", { name: "Search apps" }),
+      page.getByRole("combobox", { name: "Search apps" }),
     ).toBeVisible();
   });
 });

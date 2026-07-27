@@ -1,9 +1,5 @@
 "use client";
 
-/**
- * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
- */
-
 import {
   type RefObject,
   useCallback,
@@ -17,6 +13,13 @@ import {
   pickActiveSection,
   type ScrollSpyEntry,
 } from "@/lib/scroll-spy";
+
+/**
+ * Gestalt console vendor of Valon Registry `use-scroll-spy`.
+ *
+ * Ownership: Valon Registry
+ * (`valon-tools/apps/registry/ui/src/hooks/use-scroll-spy.ts`).
+ */
 
 const DEFAULT_ACTIVATION_OFFSET = 80;
 /** Fallback pin after TOC click when `scrollend` never fires. */
