@@ -242,6 +242,16 @@
   }
 }
 
+/*
+ * Tailwind maps text-muted to the muted surface fill (--muted). That token is
+ * for backgrounds, not secondary copy; using it as a text color washes out on
+ * --background. Keep the class name for migration safety, but route it to the
+ * semantic foreground role instead.
+ */
+@utility text-muted {
+  color: var(--muted-foreground);
+}
+
 @layer components {
   .label-text {
     color: var(--muted-foreground);
