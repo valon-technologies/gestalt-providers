@@ -7,7 +7,6 @@ import {
   mockIntegrations,
   mockManagedIdentities,
   mockTokens,
-  mockWorkflowRuns,
 } from "./fixtures";
 import { PERSONAL_IDENTITY_GRANTS_PATH } from "../src/lib/personalGrants";
 
@@ -61,15 +60,16 @@ test.describe("Authentication", () => {
     });
     await mockIntegrations(page, []);
     await mockTokens(page, []);
-    await mockWorkflowRuns(page, []);
 
     await page.goto("/");
     await expect(page).toHaveURL(/\/apps/);
+    await expect(page.getByRole("button", { name: "Open user menu" })).toBeVisible();
+    await page.getByRole("button", { name: "Open user menu" }).click();
     await expect(page.getByText("anonymous@gestalt")).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Authorization", exact: true }),
+      page.getByRole("menuitem", { name: "Settings" }),
     ).toBeVisible();
-    await expect(page.getByRole("button", { name: /Logout/i })).toHaveCount(0);
+    await expect(page.getByRole("menuitem", { name: /Log out/i })).toHaveCount(0);
 
     await page.goto("/identities");
     await expect(
@@ -92,7 +92,6 @@ test.describe("Authentication", () => {
       { name: "test-svc", displayName: "Test Service" },
     ]);
     await mockTokens(page, []);
-    await mockWorkflowRuns(page, []);
 
     await page.goto("/");
     await expect(page).toHaveURL(/\/apps/);
@@ -103,10 +102,14 @@ test.describe("Authentication", () => {
       page.getByRole("link", { name: "Apps", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("link", { name: "Authorization", exact: true }),
+      page.getByRole("button", { name: "Open user menu" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Open user menu" }).click();
+    await expect(
+      page.getByRole("menuitem", { name: "Settings" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /Logout/i }),
+      page.getByRole("menuitem", { name: /Log out/i }),
     ).toBeVisible();
   });
 
@@ -132,7 +135,6 @@ test.describe("Authentication", () => {
     await mockManagedIdentities(page, []);
     await mockIntegrations(page, []);
     await mockTokens(page, []);
-    await mockWorkflowRuns(page, []);
     await page.route("**/api/v1/auth/logout", (route) => {
       loggedOut = true;
       route.fulfill({ json: { status: "ok" } });
@@ -151,7 +153,8 @@ test.describe("Authentication", () => {
     });
 
     await page.goto("/apps");
-    await page.getByRole("button", { name: /Logout/i }).click();
+    await page.getByRole("button", { name: "Open user menu" }).click();
+    await page.getByRole("menuitem", { name: /Log out/i }).click();
     await expect(page).toHaveURL((url) => {
       return (
         url.pathname === "/api/v1/auth/login" &&
@@ -199,20 +202,12 @@ test.describe("Authentication", () => {
     await page.route(`**${PERSONAL_IDENTITY_GRANTS_PATH}`, (route) => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
-    await page.route("**/api/v1/workflow/runs", (route) => {
-      route.fulfill({ status: 401, json: { error: "invalid token" } });
-    });
 
-    await page.goto("/workflows?range=week#runs", { waitUntil: "networkidle" });
-    await page.waitForFunction(
-      () => window.location.pathname === "/api/v1/auth/login",
-      null,
-      { timeout: 15000 },
-    );
+    await page.goto("/apps?view=catalog#list");
     await expect(page).toHaveURL((url) => {
       return (
         url.pathname === "/api/v1/auth/login" &&
-        url.searchParams.get("next") === "/workflows?range=week#runs"
+        url.searchParams.get("next") === "/apps?view=catalog#list"
       );
     });
     await expect(

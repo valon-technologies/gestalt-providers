@@ -18,9 +18,7 @@ import {
   useWorkflowRunQuery,
   useWorkflowRunsQuery,
 } from "@/lib/queries";
-import AuthGuard from "@/components/AuthGuard";
 import Container from "@/components/Container";
-import Nav from "@/components/Nav";
 
 const RUN_STATUSES = ["all", "pending", "running", "succeeded", "failed", "canceled"];
 
@@ -83,10 +81,7 @@ export default function WorkflowsPage() {
   const counts = workflowRunCounts(runs);
 
   return (
-    <AuthGuard>
-      <div className="min-h-screen">
-        <Nav />
-        <Container as="main" className="py-10">
+    <Container as="main" className="py-10">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <span className="label-text">Workflows</span>
@@ -168,8 +163,6 @@ export default function WorkflowsPage() {
             />
           )}
         </Container>
-      </div>
-    </AuthGuard>
   );
 }
 

@@ -1,12 +1,12 @@
 import { useDeferredValue, useEffect, useState } from "react";
 import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "@/lib/constants";
 import { filterIntegrations } from "@/lib/integrationSearch";
+import { appPath } from "@/lib/mount";
 import { useIntegrationsQuery, useInvalidateIntegrations } from "@/lib/queries";
-import Nav from "@/components/Nav";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import PluginSearchBar from "@/components/PluginSearchBar";
-import AuthGuard from "@/components/AuthGuard";
+import { SpinnerIcon } from "@/components/icons";
 
 const APPS_PATH = "/apps";
 const LEGACY_INTEGRATIONS_PATH = "/integrations";
@@ -31,13 +31,13 @@ export default function AppsPage() {
   const hasSearchQuery = query.trim().length > 0;
 
   useEffect(() => {
-    if (window.location.pathname !== LEGACY_INTEGRATIONS_PATH) {
+    if (window.location.pathname !== appPath(LEGACY_INTEGRATIONS_PATH)) {
       return;
     }
     window.history.replaceState(
       null,
       "",
-      `${APPS_PATH}${window.location.search}${window.location.hash}`,
+      `${appPath(APPS_PATH)}${window.location.search}${window.location.hash}`,
     );
   }, []);
 
@@ -59,14 +59,11 @@ export default function AppsPage() {
       }
     }
 
-    window.history.replaceState(null, "", APPS_PATH);
+    window.history.replaceState(null, "", appPath(APPS_PATH));
   }, [toast]);
 
   return (
-    <AuthGuard>
-      <div className="min-h-screen">
-        <Nav />
-        <Container as="main" className="py-12">
+    <Container as="main" className="py-12">
           {toast && (
             <div className="mb-8 flex items-center justify-between rounded-lg border border-grove-200 bg-grove-50 px-5 py-3.5 text-sm text-grove-700 dark:border-grove-600 dark:bg-grove-700/20 dark:text-grove-200">
               <span>{toast}</span>
@@ -100,7 +97,10 @@ export default function AppsPage() {
           </div>
 
           {loading && (
-            <p className="mt-10 text-sm text-faint">Loading...</p>
+            <p className="mt-10 flex items-center gap-1.5 text-sm text-faint">
+              <SpinnerIcon className="size-4 animate-spin" aria-hidden />
+              Loading...
+            </p>
           )}
 
           {error && <p className="mt-10 text-sm text-ember-500">{error}</p>}
@@ -128,13 +128,11 @@ export default function AppsPage() {
                   integration={integration}
                   onConnected={invalidateIntegrations}
                   onDisconnected={invalidateIntegrations}
-                  returnPath={APPS_PATH}
+                  returnPath={appPath(APPS_PATH)}
                 />
               ))}
             </div>
           )}
-        </Container>
-      </div>
-    </AuthGuard>
+    </Container>
   );
 }

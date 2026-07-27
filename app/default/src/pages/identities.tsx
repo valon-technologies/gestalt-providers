@@ -7,12 +7,10 @@ import {
   useCreateManagedIdentityMutation,
   useManagedIdentitiesQuery,
 } from "@/lib/queries";
-import AuthGuard from "@/components/AuthGuard";
 import Button from "@/components/Button";
 import Container from "@/components/Container";
 import IdentitySummaryCard from "@/components/IdentitySummaryCard";
 import ManagedIdentityDetailView from "@/components/ManagedIdentityDetailView";
-import Nav from "@/components/Nav";
 
 function managedIdentityLocalIDFromName(value: string): string {
   return value
@@ -76,9 +74,7 @@ export default function ManagedIdentitiesPage() {
   }
 
   return (
-    <AuthGuard>
-      <div className="min-h-screen">
-        <Nav />
+    <>
         {identitiesAvailable === null ? (
           <Container as="main" className="py-12">
             <p className="text-sm text-faint">Loading...</p>
@@ -194,7 +190,6 @@ export default function ManagedIdentitiesPage() {
             ) : null}
           </Container>
         )}
-      </div>
-    </AuthGuard>
+    </>
   );
 }
