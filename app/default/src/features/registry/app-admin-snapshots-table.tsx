@@ -20,6 +20,7 @@ import type {
   RegistryAppSummary,
 } from "@/features/registry/types";
 import { Loader2 } from "lucide-react";
+import { useLiveNow } from "@/hooks/use-live-now";
 
 function shortenSnapshotVersion(version: string): string {
   const trimmed = version.trim();
@@ -77,6 +78,8 @@ export function AppAdminSnapshotsTable({
   onDeployVersion: (version: string) => void;
 }) {
   const rows = buildAppAdminSnapshotRows(registry);
+  const hasPendingRows = rows.some((row) => row.kind === "pending");
+  const liveNow = useLiveNow({ enabled: hasPendingRows });
 
   if (rows.length === 0) {
     return (
@@ -112,8 +115,8 @@ export function AppAdminSnapshotsTable({
               controlsDisabled ||
               isDeploying ||
               row.version === registry.desiredVersion;
-            const statusTimer = snapshotStatusTimer(row);
-            const lastUpdated = snapshotLastUpdatedLabel(row);
+            const statusTimer = snapshotStatusTimer(row, liveNow);
+            const lastUpdated = snapshotLastUpdatedLabel(row, liveNow);
             const failedReason = snapshotFailedReason(row);
 
             return (
