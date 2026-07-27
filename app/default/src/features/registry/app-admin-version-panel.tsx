@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   SectionHeader,
   SectionHeaderContent,
@@ -10,11 +10,8 @@ import { AppAdminSnapshotsTable } from "@/features/registry/app-admin-snapshots-
 import { isActiveRegistryRollout, formatRolloutStateLabel } from "@/features/registry/format";
 import { RegistryCode } from "@/features/registry/registry-code";
 import { RolloutBadge } from "@/features/registry/rollout-badge";
-import type {
-  AppAdminRegistryResponse,
-  AppAdminRegistryRevision,
-} from "@/features/registry/types";
-import { getAppAdminRegistryHistory } from "@/lib/api";
+import type { AppAdminRegistryResponse } from "@/features/registry/types";
+import { useAppAdminRegistryHistoryQuery } from "@/lib/queries";
 
 type AppAdminTab = "snapshots" | "history";
 
@@ -32,61 +29,26 @@ export function AppAdminVersionPanel({
   error: string | null;
 }) {
   const [activeTab, setActiveTab] = useState<AppAdminTab>("snapshots");
-  const [historyRevisions, setHistoryRevisions] = useState<AppAdminRegistryRevision[]>([]);
-  const [historyCursor, setHistoryCursor] = useState<string | undefined>();
-  const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
-  const [historyError, setHistoryError] = useState<string | null>(null);
+  const historyQuery = useAppAdminRegistryHistoryQuery(
+    registry.app,
+    activeTab === "history",
+  );
+  const historyRevisions =
+    historyQuery.data?.pages.flatMap((page) => page.revisions) ?? [];
+  const historyError = historyQuery.error
+    ? historyQuery.error instanceof Error
+      ? historyQuery.error.message
+      : "Failed to load revision history"
+    : null;
 
   const rolloutActive = registry.rollout
     ? isActiveRegistryRollout(registry.rollout.state)
     : false;
   const controlsDisabled = registry.selectionDisabled || deployingVersion !== null;
 
-  const loadHistory = useCallback(
-    async (cursor?: string) => {
-      const loadingMore = Boolean(cursor);
-      if (loadingMore) {
-        setHistoryLoadingMore(true);
-      } else {
-        setHistoryLoading(true);
-      }
-      setHistoryError(null);
-      try {
-        const response = await getAppAdminRegistryHistory(registry.app, {
-          limit: 50,
-          cursor,
-        });
-        setHistoryRevisions((current) =>
-          loadingMore ? [...current, ...response.revisions] : response.revisions,
-        );
-        setHistoryCursor(response.nextCursor);
-        setHistoryLoaded(true);
-      } catch (err) {
-        setHistoryError(err instanceof Error ? err.message : "Failed to load revision history");
-      } finally {
-        setHistoryLoading(false);
-        setHistoryLoadingMore(false);
-      }
-    },
-    [registry.app],
-  );
-
   useEffect(() => {
     setActiveTab("snapshots");
-    setHistoryRevisions([]);
-    setHistoryCursor(undefined);
-    setHistoryLoaded(false);
-    setHistoryLoading(false);
-    setHistoryLoadingMore(false);
-    setHistoryError(null);
   }, [registry.app]);
-
-  useEffect(() => {
-    if (activeTab !== "history" || historyLoaded || historyLoading) return;
-    void loadHistory();
-  }, [activeTab, historyLoaded, historyLoading, loadHistory]);
 
   return (
     <div className="space-y-8">
@@ -191,11 +153,11 @@ export function AppAdminVersionPanel({
 
           <AppAdminHistoryTable
             revisions={historyRevisions}
-            loading={historyLoading}
-            loadingMore={historyLoadingMore}
+            loading={historyQuery.isPending}
+            loadingMore={historyQuery.isFetchingNextPage}
             error={historyError}
-            hasMore={Boolean(historyCursor)}
-            onLoadMore={() => void loadHistory(historyCursor)}
+            hasMore={historyQuery.hasNextPage}
+            onLoadMore={() => void historyQuery.fetchNextPage()}
           />
         </section>
       )}

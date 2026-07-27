@@ -1,24 +1,14 @@
-
-import { useEffect, useRef, useState } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import {
-  type AuthSession,
-  getAgentSessions,
-  getAuthInfo,
-  getAuthSession,
-  isAPIErrorStatus,
-  logout,
-} from "@/lib/api";
-import {
-  clearSession,
-  getCachedSession,
-  sessionDisplayLabel,
-  setCachedSession,
-  type CachedAuthSession,
-} from "@/lib/auth";
+import { isAPIErrorStatus, logout } from "@/lib/api";
+import { clearSession, sessionDisplayLabel } from "@/lib/auth";
 import { DOCS_PATH } from "@/lib/constants";
 import { serverLoginURL } from "@/lib/authReturn";
 import { appPath } from "@/lib/mount";
+import {
+  useAgentSessionsQuery,
+  useAuthInfoQuery,
+  useAuthSessionQuery,
+} from "@/lib/queries";
 import { useTheme } from "@/hooks/use-theme";
 import Container from "./Container";
 import { MoonIcon, SunIcon, SunMoonIcon } from "./icons";
@@ -34,70 +24,28 @@ const links = [
 
 export default function Nav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const [session, setSession] = useState<CachedAuthSession | null>(null);
-  const [loginSupported, setLoginSupported] = useState(false);
-  const [agentAvailable, setAgentAvailable] = useState(false);
-  const { theme, setTheme } = useTheme();
-  const sessionRefreshGeneration = useRef(0);
-
-  useEffect(() => {
-    const generation = ++sessionRefreshGeneration.current;
-    setSession(getCachedSession());
-    getAuthSession()
-      .then((nextSession: AuthSession) => {
-        if (generation !== sessionRefreshGeneration.current) return;
-        setCachedSession(nextSession);
-        setSession(nextSession);
-      })
-      .catch(() => {});
-  }, []);
+  const sessionQuery = useAuthSessionQuery();
+  const session = sessionQuery.data ?? null;
   const displayLabel = sessionDisplayLabel(session);
+  const authInfoQuery = useAuthInfoQuery(!!displayLabel);
+  const agentFeature = authInfoQuery.data?.features?.agent;
+  const agentProbeQuery = useAgentSessionsQuery(
+    { view: "summary", limit: 1 },
+    agentFeature === undefined && !!displayLabel,
+  );
+  const loginSupported = authInfoQuery.data?.loginSupported ?? false;
+  const agentAvailable =
+    typeof agentFeature === "boolean"
+      ? agentFeature
+      : agentProbeQuery.isSuccess
+        ? true
+        : agentProbeQuery.isError
+          ? !isAPIErrorStatus(agentProbeQuery.error, 412)
+          : false;
+  const { theme, setTheme } = useTheme();
   const ThemeIcon = theme === "light" ? SunIcon : theme === "dark" ? MoonIcon : SunMoonIcon;
 
-  useEffect(() => {
-    if (!displayLabel) {
-      setLoginSupported(false);
-      setAgentAvailable(false);
-      return;
-    }
-
-    let active = true;
-    getAuthInfo()
-      .then(async (info) => {
-        if (active) {
-          setLoginSupported(info.loginSupported);
-        }
-        if (typeof info.features?.agent === "boolean") {
-          if (active) {
-            setAgentAvailable(info.features.agent);
-          }
-          return;
-        }
-        try {
-          await getAgentSessions({ view: "summary", limit: 1 });
-          if (active) {
-            setAgentAvailable(true);
-          }
-        } catch (err) {
-          if (active) {
-            setAgentAvailable(!isAPIErrorStatus(err, 412));
-          }
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setLoginSupported(true);
-          setAgentAvailable(true);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [displayLabel]);
-
   async function handleLogout() {
-    sessionRefreshGeneration.current++;
     await logout().catch(() => {});
     clearSession();
     window.location.href = serverLoginURL(appPath("/"));
@@ -147,7 +95,7 @@ export default function Nav() {
               <span className="text-sm text-muted-foreground/70">{displayLabel}</span>
               {loginSupported && (
                 <button
-                  onClick={handleLogout}
+                  onClick={() => void handleLogout()}
                   className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-150"
                 >
                   Logout

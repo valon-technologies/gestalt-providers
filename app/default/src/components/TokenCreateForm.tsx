@@ -1,12 +1,7 @@
-
 import { useState } from "react";
-import { createToken } from "@/lib/api";
 import { INPUT_CLASSES } from "@/lib/constants";
+import { useCreateTokenMutation } from "@/lib/queries";
 import Button from "./Button";
-
-interface TokenCreateFormProps {
-  onCreated: () => void | Promise<void>;
-}
 
 const daySeconds = 24 * 60 * 60;
 const tokenLifetimeSeconds: Record<string, number> = {
@@ -16,10 +11,14 @@ const tokenLifetimeSeconds: Record<string, number> = {
 };
 const defaultTokenLifetime = "30d";
 
-export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+export default function TokenCreateForm() {
+  const createToken = useCreateTokenMutation();
   const [plaintext, setPlaintext] = useState<string | null>(null);
+  const error = createToken.error
+    ? createToken.error instanceof Error
+      ? createToken.error.message
+      : "Failed to create token"
+    : null;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -30,19 +29,19 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
     const lifetime = (formData.get("lifetime") as string) ?? defaultTokenLifetime;
     if (!name) return;
 
-    setCreating(true);
-    setError(null);
     setPlaintext(null);
 
     try {
-      const result = await createToken(name, scopes, tokenLifetimeSeconds[lifetime] ?? tokenLifetimeSeconds[defaultTokenLifetime]);
+      const result = await createToken.mutateAsync({
+        name,
+        scopes,
+        expiresIn:
+          tokenLifetimeSeconds[lifetime] ?? tokenLifetimeSeconds[defaultTokenLifetime],
+      });
       setPlaintext(result.token);
       form.reset();
-      await onCreated();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create token");
-    } finally {
-      setCreating(false);
+    } catch {
+      // surfaced via mutation error state
     }
   }
 
@@ -98,8 +97,8 @@ export default function TokenCreateForm({ onCreated }: TokenCreateFormProps) {
             <option value="365d">1 year</option>
           </select>
         </div>
-        <Button type="submit" disabled={creating} className="sm:shrink-0">
-          {creating ? "Creating..." : "Create Token"}
+        <Button type="submit" disabled={createToken.isPending} className="sm:shrink-0">
+          {createToken.isPending ? "Creating..." : "Create Token"}
         </Button>
       </form>
 

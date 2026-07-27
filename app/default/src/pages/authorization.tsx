@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { getTokens, type APIToken } from "@/lib/api";
+import { useTokensQuery } from "@/lib/queries";
 import AuthGuard from "@/components/AuthGuard";
 import Container from "@/components/Container";
 import Nav from "@/components/Nav";
@@ -8,34 +7,13 @@ import TokenCreateForm from "@/components/TokenCreateForm";
 import TokenTable from "@/components/TokenTable";
 
 export default function AuthorizationPage() {
-  const [tokens, setTokens] = useState<APIToken[]>([]);
-  const [tokensLoading, setTokensLoading] = useState(true);
-  const [tokensError, setTokensError] = useState<string | null>(null);
-
-  const tokenLoadRequestIdRef = useRef(0);
-
-  async function loadTokens() {
-    const requestID = tokenLoadRequestIdRef.current + 1;
-    tokenLoadRequestIdRef.current = requestID;
-
-    try {
-      const nextTokens = await getTokens();
-      if (tokenLoadRequestIdRef.current !== requestID) return;
-      setTokens(nextTokens);
-      setTokensError(null);
-    } catch (err) {
-      if (tokenLoadRequestIdRef.current !== requestID) return;
-      setTokensError(err instanceof Error ? err.message : "Failed to load tokens");
-    } finally {
-      if (tokenLoadRequestIdRef.current === requestID) {
-        setTokensLoading(false);
-      }
-    }
-  }
-
-  useEffect(() => {
-    void loadTokens();
-  }, []);
+  const tokensQuery = useTokensQuery();
+  const tokens = tokensQuery.data ?? [];
+  const tokensError = tokensQuery.error
+    ? tokensQuery.error instanceof Error
+      ? tokensQuery.error.message
+      : "Failed to load tokens"
+    : null;
 
   return (
     <AuthGuard>
@@ -65,17 +43,17 @@ export default function AuthorizationPage() {
 
             <div className="mt-8">
               <div className="rounded-xl border border-alpha bg-base-white p-5 dark:bg-surface-raised">
-                <TokenCreateForm onCreated={loadTokens} />
+                <TokenCreateForm />
               </div>
             </div>
 
             {tokensError && <p className="mt-4 text-sm text-ember-500">{tokensError}</p>}
 
-            {tokensLoading ? (
+            {tokensQuery.isPending ? (
               <p className="mt-10 text-sm text-faint">Loading...</p>
             ) : !tokensError ? (
               <div className="mt-8">
-                <TokenTable tokens={tokens} onRevoked={loadTokens} />
+                <TokenTable tokens={tokens} />
               </div>
             ) : null}
           </section>

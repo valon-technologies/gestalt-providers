@@ -1,109 +1,53 @@
 
-import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { AGENT_SESSION_ROUTE } from "@/lib/agentLinks";
 import {
-  getAuthInfo,
-  getAgentSessions,
-  getIntegrations,
-  getTokens,
-  getWorkflowRuns,
-  isAPIErrorStatus,
-} from "@/lib/api";
+  useAgentSessionsQuery,
+  useAuthInfoQuery,
+  useIntegrationsQuery,
+  useTokensQuery,
+  useWorkflowRunsQuery,
+} from "@/lib/queries";
+import { isAPIErrorStatus } from "@/lib/api";
 import Nav from "@/components/Nav";
 import AuthGuard from "@/components/AuthGuard";
 import Container from "@/components/Container";
-import { AGENT_SESSION_ROUTE } from "@/lib/agentLinks";
 
 export default function DashboardPage() {
-  const [data, setData] = useState<{
-    integrations: number | null;
-    tokens: number | null;
-    workflowResources: number | null;
-    agentAvailable: boolean;
-    agentSessions: number | null;
-    error: string | null;
-  }>({
-    integrations: null,
-    tokens: null,
-    workflowResources: null,
-    agentAvailable: false,
-    agentSessions: null,
-    error: null,
-  });
+  const authInfoQuery = useAuthInfoQuery();
+  const integrationsQuery = useIntegrationsQuery();
+  const tokensQuery = useTokensQuery();
+  const workflowRunsQuery = useWorkflowRunsQuery();
+  const agentFeature = authInfoQuery.data?.features?.agent;
+  const agentSessionsQuery = useAgentSessionsQuery(
+    { view: "summary", limit: 50 },
+    authInfoQuery.isSuccess && agentFeature !== false,
+  );
 
-  useEffect(() => {
-    let active = true;
-
-    getAuthInfo()
-      .catch(() => ({
-        provider: "unknown",
-        displayName: "Unknown",
-        loginSupported: true,
-        features: undefined,
-      }))
-      .then((authInfo) => {
-        if (!active) return;
-        const agentFeature = authInfo.features?.agent;
-        return Promise.allSettled([
-          getIntegrations(),
-          getTokens(),
-          getWorkflowRuns(),
-          agentFeature === false
-            ? Promise.resolve(null)
-            : getAgentSessions({ view: "summary", limit: 50 }),
-        ]).then(([
-          integrationsResult,
-          tokensResult,
-          workflowRunsResult,
-          agentSessionsResult,
-        ]) => {
-          if (!active) return;
-
-          const error =
-            integrationsResult.status === "rejected"
-              ? errorMessage(integrationsResult.reason)
-              : tokensResult.status === "rejected"
-                ? errorMessage(tokensResult.reason)
-                : null;
-
-          const workflowResources =
-            workflowRunsResult.status === "fulfilled"
-              ? workflowRunsResult.value.length
-              : null;
-          const agentAvailable =
-            typeof agentFeature === "boolean"
-              ? agentFeature
-              : !(
-                  agentSessionsResult.status === "rejected" &&
-                  isAPIErrorStatus(agentSessionsResult.reason, 412)
-                );
-
-          setData({
-            integrations:
-              integrationsResult.status === "fulfilled"
-                ? integrationsResult.value.length
-                : null,
-            tokens:
-              tokensResult.status === "fulfilled"
-                ? tokensResult.value.length
-                : null,
-            workflowResources,
-            agentAvailable,
-            agentSessions:
-              agentAvailable &&
-              agentSessionsResult.status === "fulfilled" &&
-              agentSessionsResult.value
-                ? agentSessionsResult.value.length
-                : null,
-            error,
-          });
-        });
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
+  const integrations = integrationsQuery.isSuccess
+    ? integrationsQuery.data.length
+    : null;
+  const tokens = tokensQuery.isSuccess ? tokensQuery.data.length : null;
+  const workflowResources = workflowRunsQuery.isSuccess
+    ? workflowRunsQuery.data.length
+    : null;
+  const agentAvailable =
+    typeof agentFeature === "boolean"
+      ? agentFeature
+      : !(
+          agentSessionsQuery.isError &&
+          isAPIErrorStatus(agentSessionsQuery.error, 412)
+        );
+  const agentSessions =
+    agentAvailable && agentSessionsQuery.isSuccess
+      ? agentSessionsQuery.data.length
+      : null;
+  const error =
+    integrationsQuery.isError
+      ? errorMessage(integrationsQuery.error)
+      : tokensQuery.isError
+        ? errorMessage(tokensQuery.error)
+        : null;
 
   return (
     <AuthGuard>
@@ -120,8 +64,8 @@ export default function DashboardPage() {
             </p>
           </div>
 
-          {data.error && (
-            <p className="mt-8 text-sm text-destructive">{data.error}</p>
+          {error && (
+            <p className="mt-8 text-sm text-destructive">{error}</p>
           )}
 
           <div className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4 animate-fade-in-up [animation-delay:60ms]">
@@ -131,7 +75,7 @@ export default function DashboardPage() {
             >
               <span className="label-text">Authorization</span>
               <p className="mt-3 text-3xl font-heading font-bold text-card-foreground">
-                {data.tokens ?? "--"}
+                {tokens ?? "--"}
               </p>
               <p className="mt-3 text-sm text-muted-foreground transition-colors duration-150 group-hover:text-card-foreground">
                 Manage API tokens
@@ -146,7 +90,7 @@ export default function DashboardPage() {
             >
               <span className="label-text">Apps</span>
               <p className="mt-3 text-3xl font-heading font-bold text-card-foreground">
-                {data.integrations ?? "--"}
+                {integrations ?? "--"}
               </p>
               <p className="mt-3 text-sm text-muted-foreground transition-colors duration-150 group-hover:text-card-foreground">
                 Manage apps
@@ -161,7 +105,7 @@ export default function DashboardPage() {
             >
               <span className="label-text">Workflows</span>
               <p className="mt-3 text-3xl font-heading font-bold text-card-foreground">
-                {data.workflowResources ?? "--"}
+                {workflowResources ?? "--"}
               </p>
               <p className="mt-3 text-sm text-muted-foreground transition-colors duration-150 group-hover:text-card-foreground">
                 Inspect workflow runs
@@ -170,14 +114,14 @@ export default function DashboardPage() {
                 </span>
               </p>
             </Link>
-            {data.agentAvailable && (
+            {agentAvailable && (
               <Link
                 to={AGENT_SESSION_ROUTE}
                 className="group rounded-lg border border-border bg-card p-8 text-card-foreground transition-all duration-150 hover:border-input hover:shadow-card"
               >
                 <span className="label-text">Agents</span>
                 <p className="mt-3 text-3xl font-heading font-bold text-card-foreground">
-                  {data.agentSessions ?? "--"}
+                  {agentSessions ?? "--"}
                 </p>
                 <p className="mt-3 text-sm text-muted-foreground transition-colors duration-150 group-hover:text-card-foreground">
                   View agent sessions

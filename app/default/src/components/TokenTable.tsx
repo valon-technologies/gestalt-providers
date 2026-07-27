@@ -1,27 +1,29 @@
-
-import { APIToken, revokeToken } from "@/lib/api";
-import Button from "./Button";
 import { useState } from "react";
+import type { APIToken } from "@/lib/api";
+import { useRevokeTokenMutation } from "@/lib/queries";
+import Button from "./Button";
 
 interface TokenTableProps {
   tokens: APIToken[];
-  onRevoked: () => void | Promise<void>;
 }
 
-export default function TokenTable({ tokens, onRevoked }: TokenTableProps) {
-  const [revoking, setRevoking] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+export default function TokenTable({ tokens }: TokenTableProps) {
+  const revokeToken = useRevokeTokenMutation();
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+  const error = revokeToken.error
+    ? revokeToken.error instanceof Error
+      ? revokeToken.error.message
+      : "Failed to revoke token"
+    : null;
 
   async function handleRevoke(id: string) {
-    setRevoking(id);
-    setError(null);
+    setRevokingId(id);
     try {
-      await revokeToken(id);
-      await onRevoked();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to revoke token");
+      await revokeToken.mutateAsync(id);
+    } catch {
+      // surfaced via mutation error state
     } finally {
-      setRevoking(null);
+      setRevokingId(null);
     }
   }
 
@@ -64,10 +66,10 @@ export default function TokenTable({ tokens, onRevoked }: TokenTableProps) {
               <td className="px-5 py-4">
                 <Button
                   variant="danger"
-                  onClick={() => handleRevoke(token.id)}
-                  disabled={revoking === token.id}
+                  onClick={() => void handleRevoke(token.id)}
+                  disabled={revokingId === token.id}
                 >
-                  {revoking === token.id ? "Revoking..." : "Revoke"}
+                  {revokingId === token.id ? "Revoking..." : "Revoke"}
                 </Button>
               </td>
             </tr>

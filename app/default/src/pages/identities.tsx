@@ -1,12 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import {
-  createManagedIdentity,
-  getAuthInfo,
-  getManagedIdentities,
-  type ManagedIdentity,
-} from "@/lib/api";
 import { INPUT_CLASSES } from "@/lib/constants";
+import {
+  useAuthInfoQuery,
+  useCreateManagedIdentityMutation,
+  useManagedIdentitiesQuery,
+} from "@/lib/queries";
 import AuthGuard from "@/components/AuthGuard";
 import Button from "@/components/Button";
 import Container from "@/components/Container";
@@ -34,61 +33,29 @@ export default function ManagedIdentitiesPage() {
   const identityID = canonicalManagedIdentityID(
     new URLSearchParams(search).get("id") || "",
   );
-  const [identitiesAvailable, setIdentitiesAvailable] = useState<boolean | null>(null);
-  const [identities, setIdentities] = useState<ManagedIdentity[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [createError, setCreateError] = useState<string | null>(null);
+  const authInfoQuery = useAuthInfoQuery();
+  const identitiesAvailable =
+    authInfoQuery.data === undefined
+      ? authInfoQuery.isPending
+        ? null
+        : true
+      : authInfoQuery.data.provider !== "none";
+  const identitiesQuery = useManagedIdentitiesQuery(
+    identitiesAvailable === true && !identityID,
+  );
+  const createIdentity = useCreateManagedIdentityMutation();
   const [displayNameInput, setDisplayNameInput] = useState("");
   const [identityLocalID, setIdentityLocalID] = useState("");
   const [identityIDEdited, setIdentityIDEdited] = useState(false);
-  const loadRequestIdRef = useRef(0);
+  const [createError, setCreateError] = useState<string | null>(null);
 
-  async function loadIdentities() {
-    const requestID = loadRequestIdRef.current + 1;
-    loadRequestIdRef.current = requestID;
-
-    try {
-      const nextIdentities = await getManagedIdentities();
-      if (loadRequestIdRef.current !== requestID) return;
-      setIdentities(nextIdentities);
-      setError(null);
-    } catch (err) {
-      if (loadRequestIdRef.current !== requestID) return;
-      setError(err instanceof Error ? err.message : "Failed to load identities");
-    } finally {
-      if (loadRequestIdRef.current === requestID) {
-        setLoading(false);
-      }
-    }
-  }
-
-  useEffect(() => {
-    let active = true;
-    getAuthInfo()
-      .then((info) => {
-        if (!active) return;
-        const available = info.provider !== "none";
-        setIdentitiesAvailable(available);
-        if (!available) {
-          setLoading(false);
-        }
-      })
-      .catch(() => {
-        if (!active) return;
-        setIdentitiesAvailable(true);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (identitiesAvailable !== true || identityID) return;
-    void loadIdentities();
-  }, [identitiesAvailable, identityID]);
+  const identities = identitiesQuery.data ?? [];
+  const loading = identitiesQuery.isPending;
+  const error = identitiesQuery.error
+    ? identitiesQuery.error instanceof Error
+      ? identitiesQuery.error.message
+      : "Failed to load identities"
+    : null;
 
   async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -98,15 +65,12 @@ export default function ManagedIdentitiesPage() {
     const id = (fd.get("identityID") as string)?.trim();
     if (!displayName || !id) return;
 
-    setCreating(true);
     setCreateError(null);
     try {
-      const identity = await createManagedIdentity(id, displayName);
+      const identity = await createIdentity.mutateAsync({ id, displayName });
       window.location.href = `/identities?id=${encodeURIComponent(identity.subjectId)}`;
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "Failed to create identity");
-    } finally {
-      setCreating(false);
     }
   }
 
@@ -205,8 +169,8 @@ export default function ManagedIdentitiesPage() {
                 </p>
               </div>
               <div>
-                <Button type="submit" disabled={creating}>
-                  {creating ? "Creating..." : "Create Identity"}
+                <Button type="submit" disabled={createIdentity.isPending}>
+                  {createIdentity.isPending ? "Creating..." : "Create Identity"}
                 </Button>
               </div>
             </form>

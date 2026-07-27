@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useState } from "react";
-import { getIntegrations, Integration } from "@/lib/api";
 import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "@/lib/constants";
 import { filterIntegrations } from "@/lib/integrationSearch";
+import { useIntegrationsQuery, useInvalidateIntegrations } from "@/lib/queries";
 import Nav from "@/components/Nav";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
@@ -12,9 +12,15 @@ const APPS_PATH = "/apps";
 const LEGACY_INTEGRATIONS_PATH = "/integrations";
 
 export default function AppsPage() {
-  const [integrations, setIntegrations] = useState<Integration[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const integrationsQuery = useIntegrationsQuery();
+  const invalidateIntegrations = useInvalidateIntegrations();
+  const integrations = integrationsQuery.data ?? [];
+  const loading = integrationsQuery.isPending;
+  const error = integrationsQuery.error
+    ? integrationsQuery.error instanceof Error
+      ? integrationsQuery.error.message
+      : "Failed to load"
+    : null;
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState<string | null>(() => {
     const connected = new URLSearchParams(window.location.search).get("connected");
@@ -55,17 +61,6 @@ export default function AppsPage() {
 
     window.history.replaceState(null, "", APPS_PATH);
   }, [toast]);
-
-  function loadIntegrations() {
-    getIntegrations()
-      .then(setIntegrations)
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to load");
-      })
-      .finally(() => setLoading(false));
-  }
-
-  useEffect(() => { loadIntegrations(); }, []);
 
   return (
     <AuthGuard>
@@ -132,8 +127,8 @@ export default function AppsPage() {
                 <IntegrationCard
                   key={integration.name}
                   integration={integration}
-                  onConnected={loadIntegrations}
-                  onDisconnected={loadIntegrations}
+                  onConnected={invalidateIntegrations}
+                  onDisconnected={invalidateIntegrations}
                   returnPath={APPS_PATH}
                 />
               ))}

@@ -7,28 +7,13 @@ import {
   ComboboxOptions,
 } from "@headlessui/react";
 import { Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import {
-  type APIToken,
   connectManagedIdentityManualIntegration,
-  deleteManagedIdentity,
-  deleteManagedIdentityGrant,
   disconnectManagedIdentityIntegration,
-  deleteManagedIdentityMember,
-  getManagedIdentity,
-  getManagedIdentityGrants,
-  getIntegrations,
-  getManagedIdentityIntegrations,
-  getManagedIdentityMembers,
-  getManagedIdentityTokens,
-  putManagedIdentityGrant,
-  putManagedIdentityMember,
   startManagedIdentityIntegrationOAuth,
-  updateManagedIdentity,
   type Integration,
-  type ManagedIdentity,
   type ManagedIdentityGrant,
-  type ManagedIdentityMember,
 } from "@/lib/api";
 import { getUserEmail } from "@/lib/auth";
 import {
@@ -37,6 +22,21 @@ import {
 } from "@/lib/constants";
 import { filterIntegrations, getIntegrationLabel } from "@/lib/integrationSearch";
 import { appPath } from "@/lib/mount";
+import {
+  useDeleteManagedIdentityGrantMutation,
+  useDeleteManagedIdentityMemberMutation,
+  useDeleteManagedIdentityMutation,
+  useIntegrationsQuery,
+  useInvalidateManagedIdentity,
+  useManagedIdentityGrantsQuery,
+  useManagedIdentityIntegrationsQuery,
+  useManagedIdentityMembersQuery,
+  useManagedIdentityQuery,
+  useManagedIdentityTokensQuery,
+  usePutManagedIdentityGrantMutation,
+  usePutManagedIdentityMemberMutation,
+  useUpdateManagedIdentityMutation,
+} from "@/lib/queries";
 import Button from "./Button";
 import Container from "./Container";
 import IntegrationCard from "./IntegrationCard";
@@ -110,76 +110,49 @@ export default function ManagedIdentityDetailView({
 }: {
   identityID: string;
 }) {
-  const [identity, setIdentity] = useState<ManagedIdentity | null>(null);
-  const [members, setMembers] = useState<ManagedIdentityMember[]>([]);
-  const [grants, setGrants] = useState<ManagedIdentityGrant[]>([]);
-  const [tokens, setTokens] = useState<APIToken[]>([]);
-  const [visibleIntegrations, setVisibleIntegrations] = useState<Integration[]>([]);
-  const [managedIntegrations, setManagedIntegrations] = useState<Integration[]>([]);
-  const [managedIntegrationError, setManagedIntegrationError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const identityQuery = useManagedIdentityQuery(identityID);
+  const membersQuery = useManagedIdentityMembersQuery(identityID);
+  const grantsQuery = useManagedIdentityGrantsQuery(identityID);
+  const tokensQuery = useManagedIdentityTokensQuery(identityID);
+  const visibleIntegrationsQuery = useIntegrationsQuery();
+  const managedIntegrationsQuery = useManagedIdentityIntegrationsQuery(identityID);
+  const updateIdentity = useUpdateManagedIdentityMutation(identityID);
+  const deleteIdentity = useDeleteManagedIdentityMutation(identityID);
+  const putMember = usePutManagedIdentityMemberMutation(identityID);
+  const deleteMember = useDeleteManagedIdentityMemberMutation(identityID);
+  const putGrant = usePutManagedIdentityGrantMutation(identityID);
+  const deleteGrant = useDeleteManagedIdentityGrantMutation(identityID);
+  const invalidateIdentity = useInvalidateManagedIdentity(identityID);
+
+  const identity = identityQuery.data ?? null;
+  const members = membersQuery.data ?? [];
+  const grants = grantsQuery.data ?? [];
+  const tokens = tokensQuery.data ?? [];
+  const visibleIntegrations = visibleIntegrationsQuery.data ?? [];
+  const managedIntegrations = managedIntegrationsQuery.data ?? [];
+  const managedIntegrationError = managedIntegrationsQuery.error
+    ? managedIntegrationsQuery.error instanceof Error
+      ? managedIntegrationsQuery.error.message
+      : "Failed to load app connections"
+    : null;
+  const loading =
+    identityQuery.isPending ||
+    membersQuery.isPending ||
+    grantsQuery.isPending ||
+    tokensQuery.isPending;
   const [error, setError] = useState<string | null>(null);
-  const [savingName, setSavingName] = useState(false);
-  const [memberBusy, setMemberBusy] = useState(false);
-  const [grantBusy, setGrantBusy] = useState(false);
   const [selectedGrantPlugin, setSelectedGrantPlugin] = useState("");
   const [grantPluginQuery, setGrantPluginQuery] = useState("");
   const [selectedGrantRole, setSelectedGrantRole] =
     useState<ManagedIdentityGrant["role"]>("viewer");
   const [grantSelectionError, setGrantSelectionError] = useState<string | null>(null);
-  const [deleteBusy, setDeleteBusy] = useState(false);
-  const loadRequestIdRef = useRef(0);
-
-  const loadAll = useCallback(async () => {
-    if (!identityID) return;
-    const requestID = loadRequestIdRef.current + 1;
-    loadRequestIdRef.current = requestID;
-
-    try {
-      const managedIntegrationsResult = getManagedIdentityIntegrations(identityID)
-        .then((integrations) => ({ integrations, error: null as string | null }))
-        .catch((err) => ({
-          integrations: [] as Integration[],
-          error: err instanceof Error ? err.message : "Failed to load app connections",
-        }));
-      const [
-        nextIdentity,
-        nextMembers,
-        nextGrants,
-        nextTokens,
-        nextVisibleIntegrations,
-        nextManagedIntegrationsResult,
-      ] =
-        await Promise.all([
-          getManagedIdentity(identityID),
-          getManagedIdentityMembers(identityID),
-          getManagedIdentityGrants(identityID),
-          getManagedIdentityTokens(identityID),
-          getIntegrations().catch(() => [] as Integration[]),
-          managedIntegrationsResult,
-        ]);
-      if (loadRequestIdRef.current !== requestID) return;
-      setIdentity(nextIdentity);
-      setMembers(nextMembers);
-      setGrants(nextGrants);
-      setTokens(nextTokens);
-      setVisibleIntegrations(nextVisibleIntegrations);
-      setManagedIntegrations(nextManagedIntegrationsResult.integrations);
-      setManagedIntegrationError(nextManagedIntegrationsResult.error);
-      setError(null);
-    } catch (err) {
-      if (loadRequestIdRef.current !== requestID) return;
-      setError(err instanceof Error ? err.message : "Failed to load identity");
-    } finally {
-      if (loadRequestIdRef.current === requestID) {
-        setLoading(false);
-      }
-    }
-  }, [identityID]);
-
-  useEffect(() => {
-    void loadAll();
-  }, [loadAll]);
+  const loadError =
+    error ??
+    (identityQuery.isError
+      ? identityQuery.error instanceof Error
+        ? identityQuery.error.message
+        : "Failed to load identity"
+      : null);
 
   const currentUserEmail = getUserEmail()?.trim().toLowerCase() || "";
   const role =
@@ -202,22 +175,19 @@ export default function ManagedIdentityDetailView({
     grantPluginQuery,
   );
   const activeGrantPluginName = activeGrantPlugin?.name ?? "";
-  const canSubmitGrant = !!activeGrantPluginName && !!selectedGrantRole && !grantBusy;
+  const canSubmitGrant =
+    !!activeGrantPluginName && !!selectedGrantRole && !putGrant.isPending;
 
   async function handleRename(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const displayName = (new FormData(e.currentTarget).get("displayName") as string)?.trim();
     if (!displayName) return;
 
-    setSavingName(true);
     setError(null);
     try {
-      await updateManagedIdentity(identityID, displayName);
-      await loadAll();
+      await updateIdentity.mutateAsync(displayName);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update identity");
-    } finally {
-      setSavingName(false);
     }
   }
 
@@ -225,14 +195,12 @@ export default function ManagedIdentityDetailView({
     if (!window.confirm("Delete this identity and all of its tokens, members, grants, and connections?")) {
       return;
     }
-    setDeleteBusy(true);
     setError(null);
     try {
-      await deleteManagedIdentity(identityID);
+      await deleteIdentity.mutateAsync();
       window.location.href = appPath("/identities");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete identity");
-      setDeleteBusy(false);
     }
   }
 
@@ -241,36 +209,28 @@ export default function ManagedIdentityDetailView({
     const form = e.currentTarget;
     const fd = new FormData(form);
     const email = (fd.get("email") as string)?.trim();
-    const role = (fd.get("role") as string)?.trim() as ManagedIdentityMember["role"];
+    const role = (fd.get("role") as string)?.trim() as ManagedIdentityGrant["role"];
     if (!email || !role) return;
 
-    setMemberBusy(true);
     setError(null);
     try {
-      await putManagedIdentityMember(identityID, email, role);
+      await putMember.mutateAsync({ email, role });
       form.reset();
-      await loadAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update member");
-    } finally {
-      setMemberBusy(false);
     }
   }
 
-  async function handleRemoveMember(member: ManagedIdentityMember) {
+  async function handleRemoveMember(member: { subjectId: string; email?: string }) {
     const label = member.email || member.subjectId;
     if (!window.confirm(`Remove ${label} from this identity?`)) {
       return;
     }
-    setMemberBusy(true);
     setError(null);
     try {
-      await deleteManagedIdentityMember(identityID, member.subjectId);
-      await loadAll();
+      await deleteMember.mutateAsync(member.subjectId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to remove member");
-    } finally {
-      setMemberBusy(false);
     }
   }
 
@@ -291,32 +251,30 @@ export default function ManagedIdentityDetailView({
   async function handleGrantSubmit() {
     if (!activeGrantPluginName) return;
 
-    setGrantBusy(true);
     setError(null);
     setGrantSelectionError(null);
     try {
-      await putManagedIdentityGrant(identityID, activeGrantPluginName, selectedGrantRole);
+      await putGrant.mutateAsync({
+        plugin: activeGrantPluginName,
+        role: selectedGrantRole,
+      });
       resetGrantForm();
-      await loadAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update grant");
-    } finally {
-      setGrantBusy(false);
     }
   }
 
   async function handleDeleteGrant(plugin: string) {
-    setGrantBusy(true);
     setError(null);
     try {
-      await deleteManagedIdentityGrant(identityID, plugin);
-      await loadAll();
+      await deleteGrant.mutateAsync(plugin);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to remove grant");
-    } finally {
-      setGrantBusy(false);
     }
   }
+
+  const grantBusy = putGrant.isPending || deleteGrant.isPending;
+  const memberBusy = putMember.isPending || deleteMember.isPending;
 
   function rememberConnectionReturnPath() {
     window.sessionStorage.setItem(
@@ -346,7 +304,7 @@ export default function ManagedIdentityDetailView({
         ) : null}
       </div>
 
-      {error && <p className="mt-6 text-sm text-destructive">{error}</p>}
+      {loadError && <p className="mt-6 text-sm text-destructive">{loadError}</p>}
       {loading ? <p className="mt-10 text-sm text-muted-foreground/70">Loading...</p> : null}
 
       {!loading && identity ? (
@@ -381,17 +339,17 @@ export default function ManagedIdentityDetailView({
                         className={`mt-2 w-full ${INPUT_CLASSES}`}
                       />
                     </div>
-                    <Button type="submit" disabled={savingName}>
-                      {savingName ? "Saving..." : "Rename"}
+                    <Button type="submit" disabled={updateIdentity.isPending}>
+                      {updateIdentity.isPending ? "Saving..." : "Rename"}
                     </Button>
                   </form>
                   <div className="mt-4">
                     <Button
                       variant="danger"
                       onClick={handleDelete}
-                      disabled={deleteBusy}
+                      disabled={deleteIdentity.isPending}
                     >
-                      {deleteBusy ? "Deleting..." : "Delete Identity"}
+                      {deleteIdentity.isPending ? "Deleting..." : "Delete Identity"}
                     </Button>
                   </div>
                 </div>
@@ -668,8 +626,8 @@ export default function ManagedIdentityDetailView({
                         connection,
                       )
                     }
-                    onConnected={loadAll}
-                    onDisconnected={loadAll}
+                    onConnected={invalidateIdentity}
+                    onDisconnected={invalidateIdentity}
                     returnPath={connectionReturnPath}
                     readOnly={!canConnect}
                     disableNavigation
@@ -690,7 +648,6 @@ export default function ManagedIdentityDetailView({
               <IdentityTokenCreateForm
                 identityID={identityID}
                 grants={grants}
-                onCreated={loadAll}
               />
             ) : (
               <p className="mt-6 text-sm text-muted-foreground">
@@ -702,7 +659,6 @@ export default function ManagedIdentityDetailView({
                 identityID={identityID}
                 tokens={tokens}
                 canRevoke={canAdmin}
-                onRevoked={loadAll}
               />
             </div>
           </section>

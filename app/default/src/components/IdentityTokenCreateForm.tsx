@@ -1,11 +1,8 @@
 
 import { useState } from "react";
-import {
-  createManagedIdentityToken,
-  type AccessPermission,
-  type ManagedIdentityGrant,
-} from "@/lib/api";
+import type { AccessPermission, ManagedIdentityGrant } from "@/lib/api";
 import { INPUT_CLASSES } from "@/lib/constants";
+import { useCreateManagedIdentityTokenMutation } from "@/lib/queries";
 import Button from "./Button";
 
 function uniqueOperations(operations?: string[]): string[] {
@@ -28,16 +25,21 @@ type ScopeMode = "all" | "restricted";
 export default function IdentityTokenCreateForm({
   identityID,
   grants,
-  onCreated,
 }: {
   identityID: string;
   grants: ManagedIdentityGrant[];
-  onCreated: () => void | Promise<void>;
 }) {
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const createToken = useCreateManagedIdentityTokenMutation(identityID);
   const [plaintext, setPlaintext] = useState<string | null>(null);
   const [scopeMode, setScopeMode] = useState<ScopeMode>("all");
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const error =
+    validationError ??
+    (createToken.error
+      ? createToken.error instanceof Error
+        ? createToken.error.message
+        : "Failed to create token"
+      : null);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -64,25 +66,21 @@ export default function IdentityTokenCreateForm({
       }
 
       if (permissions.length === 0) {
-        setError("Choose at least one token limit, or use all authorized access.");
+        setValidationError("Choose at least one token limit, or use all authorized access.");
         return;
       }
     }
 
-    setCreating(true);
-    setError(null);
+    setValidationError(null);
     setPlaintext(null);
 
     try {
-      const result = await createManagedIdentityToken(identityID, name, permissions);
+      const result = await createToken.mutateAsync({ name, permissions });
       setPlaintext(result.token);
       form.reset();
       setScopeMode("all");
-      await onCreated();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create token");
-    } finally {
-      setCreating(false);
+    } catch {
+      // surfaced via mutation error state
     }
   }
 
@@ -118,7 +116,7 @@ export default function IdentityTokenCreateForm({
                   checked={scopeMode === "all"}
                   onChange={() => {
                     setScopeMode("all");
-                    setError(null);
+                    setValidationError(null);
                   }}
                   className="mt-0.5 h-4 w-4"
                 />
@@ -138,7 +136,7 @@ export default function IdentityTokenCreateForm({
                   checked={scopeMode === "restricted"}
                   onChange={() => {
                     setScopeMode("restricted");
-                    setError(null);
+                    setValidationError(null);
                   }}
                   className="mt-0.5 h-4 w-4"
                 />
@@ -208,8 +206,8 @@ export default function IdentityTokenCreateForm({
           )}
 
           <div className="flex items-center gap-3">
-            <Button type="submit" disabled={creating}>
-              {creating ? "Creating..." : "Create Token"}
+            <Button type="submit" disabled={createToken.isPending}>
+              {createToken.isPending ? "Creating..." : "Create Token"}
             </Button>
           </div>
         </div>

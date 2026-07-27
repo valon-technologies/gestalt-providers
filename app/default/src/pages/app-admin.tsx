@@ -1,111 +1,52 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useMemo } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 import AuthGuard from "@/components/AuthGuard";
 import Container from "@/components/Container";
 import Nav from "@/components/Nav";
 import { AppAdminVersionPanel } from "@/features/registry/app-admin-version-panel";
-import {
-  APP_ADMIN_BOOTSTRAP_POLL_MS,
-  shouldPollAppAdminRegistry,
-} from "@/features/registry/polling";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import {
-  getAppAdminRegistry,
-  getIntegrations,
-  isAPIErrorStatus,
-  selectAppAdminRegistryVersion,
-  type AppAdminRegistryResponse,
-} from "@/lib/api";
+  useAppAdminRegistryQuery,
+  useDeployAppAdminVersionMutation,
+  useIntegrationsQuery,
+} from "@/lib/queries";
+import { isAPIErrorStatus } from "@/lib/api";
 
 const APPS_PATH = "/apps";
-const POLL_INTERVAL_MS = 12_000;
 
 export default function AppAdminPage() {
   const { app: appName } = useParams({ from: "/apps/$app/admin" });
   useDocumentTitle(`${appName} · App management`);
-  const [registry, setRegistry] = useState<AppAdminRegistryResponse | null>(null);
-  const [appMountedPath, setAppMountedPath] = useState<string | undefined>();
-  const [deployingVersion, setDeployingVersion] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [forbidden, setForbidden] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const loadRequestIdRef = useRef(0);
-  const bootstrapPollUntilRef = useRef(0);
+  const integrationsQuery = useIntegrationsQuery();
+  const registryQuery = useAppAdminRegistryQuery(appName);
+  const deployMutation = useDeployAppAdminVersionMutation(appName);
 
-  const loadRegistry = useCallback(async () => {
-    const requestId = loadRequestIdRef.current + 1;
-    loadRequestIdRef.current = requestId;
-
-    try {
-      const [data, integrations] = await Promise.all([
-        getAppAdminRegistry(appName),
-        getIntegrations().catch(() => []),
-      ]);
-      if (loadRequestIdRef.current !== requestId) return data;
-      setRegistry(data);
-      const mountedPath = integrations
-        .find((integration) => integration.name === appName)
-        ?.mountedPath?.trim();
-      setAppMountedPath(mountedPath || undefined);
-      setForbidden(false);
-      setError(null);
-      return data;
-    } catch (err) {
-      if (loadRequestIdRef.current !== requestId) return;
-      if (isAPIErrorStatus(err, 403)) {
-        setForbidden(true);
-        setRegistry(null);
-        setAppMountedPath(undefined);
-        setError(null);
-        return;
-      }
-      setError(err instanceof Error ? err.message : "Failed to load app registry");
-      return;
-    } finally {
-      if (loadRequestIdRef.current === requestId) {
-        setLoading(false);
-      }
-    }
-  }, [appName]);
-
-  useEffect(() => {
-    bootstrapPollUntilRef.current = Date.now() + APP_ADMIN_BOOTSTRAP_POLL_MS;
-    setLoading(true);
-    setForbidden(false);
-    setRegistry(null);
-    setAppMountedPath(undefined);
-    setError(null);
-    void loadRegistry();
-  }, [loadRegistry]);
-
-  useEffect(() => {
-    if (!registry) return undefined;
-    if (!shouldPollAppAdminRegistry(registry, bootstrapPollUntilRef.current)) return undefined;
-
-    const timer = window.setTimeout(() => {
-      void loadRegistry();
-    }, POLL_INTERVAL_MS);
-    return () => window.clearTimeout(timer);
-  }, [registry, loadRegistry]);
-
-  async function handleDeployVersion(version: string) {
-    if (!version || registry?.selectionDisabled) return;
-
-    setDeployingVersion(version);
-    setError(null);
-    try {
-      await selectAppAdminRegistryVersion(appName, version);
-      await loadRegistry();
-    } catch (err) {
-      if (isAPIErrorStatus(err, 409)) {
-        await loadRegistry();
-        return;
-      }
-      setError(err instanceof Error ? err.message : "Failed to deploy version");
-    } finally {
-      setDeployingVersion(null);
-    }
-  }
+  const forbidden =
+    registryQuery.isError && isAPIErrorStatus(registryQuery.error, 403);
+  const registry = registryQuery.data;
+  const appMountedPath = useMemo(() => {
+    const mountedPath = integrationsQuery.data
+      ?.find((integration) => integration.name === appName)
+      ?.mountedPath?.trim();
+    return mountedPath || undefined;
+  }, [appName, integrationsQuery.data]);
+  const deployConflict =
+    deployMutation.isError && isAPIErrorStatus(deployMutation.error, 409);
+  const deployFailed = deployMutation.isError && !deployConflict;
+  const error =
+    registryQuery.isError && !forbidden
+      ? registryQuery.error instanceof Error
+        ? registryQuery.error.message
+        : "Failed to load app registry"
+      : deployFailed && !registry
+        ? deployMutation.error instanceof Error
+          ? deployMutation.error.message
+          : "Failed to deploy version"
+        : deployFailed
+          ? deployMutation.error instanceof Error
+            ? deployMutation.error.message
+            : "Failed to deploy version"
+          : null;
 
   return (
     <AuthGuard>
@@ -121,7 +62,7 @@ export default function AppAdminPage() {
             </Link>
           </div>
 
-          {loading ? (
+          {registryQuery.isPending ? (
             <p className="text-sm text-muted-foreground">Loading app registry…</p>
           ) : forbidden ? (
             <div
@@ -140,8 +81,10 @@ export default function AppAdminPage() {
               <AppAdminVersionPanel
                 registry={registry}
                 appMountedPath={appMountedPath}
-                deployingVersion={deployingVersion}
-                onDeployVersion={(version) => void handleDeployVersion(version)}
+                deployingVersion={
+                  deployMutation.isPending ? deployMutation.variables : null
+                }
+                onDeployVersion={(version) => deployMutation.mutate(version)}
                 error={error}
               />
             </div>
