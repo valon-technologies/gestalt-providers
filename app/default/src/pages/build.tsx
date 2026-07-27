@@ -29,8 +29,13 @@ import {
   PageHeaderContent,
   PageHeaderDescription,
   PageHeaderTitle,
-  pageHeaderTitleVariants,
 } from "@/components/ui/page-header";
+import {
+  SectionHeader,
+  SectionHeaderContent,
+  SectionHeaderDescription,
+  SectionHeaderTitle,
+} from "@/components/ui/section-header";
 import { Separator } from "@/components/ui/separator";
 import { CodeBlock } from "@/components/ui/code-block";
 import { CopyableCode } from "@/components/ui/copyable-code";
@@ -85,6 +90,7 @@ import {
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  SpinnerIcon,
 } from "@/components/icons";
 import { useBuildSession } from "@/hooks/use-build-session";
 import { useDocumentTitle } from "@/hooks/use-document-title";
@@ -105,6 +111,8 @@ import {
   BUILD_EXEMPLARS,
   BUILD_STEPS,
   buildAuthorizeSelectionReady,
+  buildMcpCredentialReady,
+  canNavigateToBuildStep,
   companionAppLabel,
   connectedAppIds,
   DEFAULT_BUILD_TOKEN_NAME,
@@ -135,8 +143,11 @@ export function BuildIndexRedirect() {
   if (!tokensReady || !integrationsReady) {
     return (
       <Container as="main" className="py-12">
-        <div className="mx-auto w-full max-w-4xl">
-          <p className="text-sm text-faint">Loading Build…</p>
+        <div className="mx-auto flex min-h-[50vh] w-full max-w-4xl items-center justify-center">
+          <p className="flex items-center gap-2 text-sm text-faint">
+            <SpinnerIcon className="size-3.5 animate-spin" aria-hidden />
+            Loading Build…
+          </p>
         </div>
       </Container>
     );
@@ -148,6 +159,7 @@ export function BuildIndexRedirect() {
     activeExemplarId: session.activeExemplarId,
     mcpInstalled: session.mcpInstalled,
     apiToken: session.apiToken,
+    apiTokenGrantId: session.apiTokenGrantId,
     tokenName: session.tokenName,
     selectedTokenId: session.selectedTokenId,
     introSeen: session.introSeen,
@@ -190,6 +202,7 @@ export default function BuildStepPage() {
     activeExemplarId: session.activeExemplarId,
     mcpInstalled: session.mcpInstalled,
     apiToken: session.apiToken,
+    apiTokenGrantId: session.apiTokenGrantId,
     tokenName: session.tokenName,
     selectedTokenId: session.selectedTokenId,
     introSeen: session.introSeen,
@@ -207,6 +220,14 @@ export default function BuildStepPage() {
 
   function goToStep(id: BuildStepId) {
     void navigate({ to: "/build/$stepId", params: { stepId: id } });
+  }
+
+  const stepIsDone = (step: BuildStep) =>
+    isStepDone(step, snapshot, tokensReady, integrationsReady);
+
+  function tryGoToStep(id: BuildStepId) {
+    if (!stepId || !canNavigateToBuildStep(id, stepId, stepIsDone)) return;
+    goToStep(id);
   }
 
   async function refreshTokens() {
@@ -227,7 +248,7 @@ export default function BuildStepPage() {
           <Stepper
             value={stepId}
             onValueChange={(next) => {
-              if (isBuildStepId(next)) goToStep(next);
+              if (isBuildStepId(next)) tryGoToStep(next);
             }}
             activationMode="jump"
           >
@@ -277,6 +298,7 @@ export default function BuildStepPage() {
           activeExemplarId={session.activeExemplarId}
           onSelectExemplar={session.setActiveExemplarId}
           apiToken={session.apiToken}
+          apiTokenGrantId={session.apiTokenGrantId}
           onApiToken={session.setApiToken}
           tokenName={session.tokenName}
           onTokenName={session.setTokenName}
@@ -696,12 +718,10 @@ function IntroStepActions({
           type="button"
           data-testid="build-intro-continue"
           onClick={handleContinue}
-          className="group flex w-fit max-w-xs flex-col gap-1 rounded-xl bg-neutral-hover px-5 py-5 text-left transition-[background-color] duration-hover-out ease-out-quart hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed focus-ring sm:items-end sm:text-right"
+          className={cn(buildStepPagerCardClassName, "sm:items-end sm:text-right")}
         >
-          <span className="text-2xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
-            Next
-          </span>
-          <span className="mt-1 flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground sm:flex-row-reverse">
+          <span className={buildStepPagerEyebrowClassName}>Next</span>
+          <span className="flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground sm:flex-row-reverse">
             <ChevronRightIcon
               tight
               strokeWidth={1.5}
@@ -717,20 +737,21 @@ function IntroStepActions({
 
 function McpInstallPanel({
   apiToken,
+  hasMcpCredential,
   selectedAgent,
   onSelectedAgent,
   onMarkMcpInstalled,
 }: {
   apiToken: string;
+  hasMcpCredential: boolean;
   selectedAgent: BuildInstallAgentId | "";
   onSelectedAgent: (id: BuildInstallAgentId) => void;
   onMarkMcpInstalled: () => void;
 }) {
   const mcpBase = gestaltMcpBaseUrl();
   const mcpUrl = `${mcpBase}/mcp`;
-  const tokenForSnippets = apiToken || "gst_api_YOUR_TOKEN";
-  const hasToken = apiToken.length > 0;
-  const cursorInstallHref = hasToken
+  const tokenForSnippets = hasMcpCredential ? apiToken : "gst_api_YOUR_TOKEN";
+  const cursorInstallHref = hasMcpCredential
     ? cursorMcpInstallHref(mcpUrl, apiToken)
     : null;
 
@@ -993,6 +1014,7 @@ function BuildStepPanel({
   activeExemplarId,
   onSelectExemplar,
   apiToken,
+  apiTokenGrantId,
   onApiToken,
   tokenName,
   onTokenName,
@@ -1015,7 +1037,8 @@ function BuildStepPanel({
   activeExemplarId: BuildExemplarId;
   onSelectExemplar: (id: BuildExemplarId) => void;
   apiToken: string;
-  onApiToken: (token: string) => void;
+  apiTokenGrantId: string;
+  onApiToken: (token: string, grantId?: string) => void;
   tokenName: string;
   onTokenName: (name: string) => void;
   selectedTokenId: string;
@@ -1029,9 +1052,15 @@ function BuildStepPanel({
 }) {
   const authorizeReady = buildAuthorizeSelectionReady({
     apiToken,
+    apiTokenGrantId,
     selectedTokenId,
     tokenName,
     tokens,
+  });
+  const mcpCredentialReady = buildMcpCredentialReady({
+    apiToken,
+    apiTokenGrantId,
+    selectedTokenId,
   });
   const installReady = buildInstallAgentSelected(selectedInstallAgent);
   const tokenCreateFormRef = useRef<TokenCreateFormHandle>(null);
@@ -1040,7 +1069,7 @@ function BuildStepPanel({
     if (
       step.id === "authorize" &&
       selectedTokenId === BUILD_CREATE_NEW_TOKEN_ID &&
-      !apiToken.trim()
+      !mcpCredentialReady
     ) {
       const created = (await tokenCreateFormRef.current?.create()) ?? false;
       if (!created) return;
@@ -1091,6 +1120,7 @@ function BuildStepPanel({
       {step.id === "install" ? (
         <InstallStepActions
           apiToken={apiToken}
+          hasMcpCredential={mcpCredentialReady}
           selectedInstallAgent={selectedInstallAgent}
           onSelectedInstallAgent={onSelectedInstallAgent}
           onMarkMcpInstalled={onMarkMcpInstalled}
@@ -1147,6 +1177,12 @@ function BuildStepPanel({
   );
 }
 
+const buildStepPagerEyebrowClassName =
+  "text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground leading-none";
+
+const buildStepPagerCardClassName =
+  "group flex w-fit max-w-xs flex-col gap-2.5 rounded-xl bg-neutral-hover px-5 py-5 text-left transition-[background-color] duration-hover-out ease-out-quart hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed focus-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-neutral-hover disabled:active:bg-neutral-hover";
+
 function BuildStepPager({
   stepId,
   onGoToStep,
@@ -1170,18 +1206,14 @@ function BuildStepPager({
       : null;
   if (!prev && !next && !terminalNext) return null;
 
-  const cardClass =
-    // Registry Card solid (bg-secondary ≈ neutral-hover) + Neutral dark hover/press.
-    "group flex w-fit max-w-xs flex-col gap-1 rounded-xl bg-neutral-hover px-5 py-5 text-left transition-[background-color] duration-hover-out ease-out-quart hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed focus-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-neutral-hover disabled:active:bg-neutral-hover";
+  const cardClass = buildStepPagerCardClassName;
 
   const nextCardClassName = cn(cardClass, "ms-auto items-end text-right");
   const nextEyebrow = (
-    <span className="text-2xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
-      Next
-    </span>
+    <span className={buildStepPagerEyebrowClassName}>Next</span>
   );
   const nextTitle = (title: string) => (
-    <span className="mt-1 flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground flex-row-reverse">
+    <span className="flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground flex-row-reverse">
       <ChevronRightIcon
         tight
         strokeWidth={1.5}
@@ -1204,10 +1236,8 @@ function BuildStepPager({
           onClick={() => onGoToStep(prev.id)}
           className={cardClass}
         >
-          <span className="text-2xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
-            Previous
-          </span>
-          <span className="mt-1 flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground">
+          <span className={buildStepPagerEyebrowClassName}>Previous</span>
+          <span className="flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground">
             <ChevronLeftIcon
               tight
               strokeWidth={1.5}
@@ -1342,7 +1372,7 @@ function AuthorizeStepActions({
   description: string;
   tokens: APIToken[];
   tokensLoaded: boolean;
-  onApiToken: (token: string) => void;
+  onApiToken: (token: string, grantId?: string) => void;
   tokenName: string;
   onTokenName: (name: string) => void;
   selectedTokenId: string;
@@ -1397,9 +1427,9 @@ function AuthorizeStepActions({
     plaintext: string,
     created: { id: string; name: string },
   ) {
-    onApiToken(plaintext);
-    onTokenName(created.name);
     onSelectedTokenId(created.id);
+    onApiToken(plaintext, created.id);
+    onTokenName(created.name);
     await onTokensChanged();
   }
 
@@ -1587,11 +1617,13 @@ function AuthorizeStepActions({
 
 function InstallStepActions({
   apiToken,
+  hasMcpCredential,
   selectedInstallAgent,
   onSelectedInstallAgent,
   onMarkMcpInstalled,
 }: {
   apiToken: string;
+  hasMcpCredential: boolean;
   selectedInstallAgent: BuildInstallAgentId | "";
   onSelectedInstallAgent: (id: BuildInstallAgentId | "") => void;
   onMarkMcpInstalled: () => void;
@@ -1599,6 +1631,7 @@ function InstallStepActions({
   return (
     <McpInstallPanel
       apiToken={apiToken}
+      hasMcpCredential={hasMcpCredential}
       selectedAgent={selectedInstallAgent}
       onSelectedAgent={onSelectedInstallAgent}
       onMarkMcpInstalled={onMarkMcpInstalled}
@@ -1678,21 +1711,17 @@ function InvokeStepActions({
       </div>
 
       <div className="space-y-6" data-testid="build-shipped-app">
-        <PageHeaderContent size="lg">
-          <h2
-            className={cn(
-              pageHeaderTitleVariants({ size: "lg", display: true }),
-            )}
-          >
-            Already shipped
-          </h2>
-          <PageHeaderDescription>
-            <span className="text-foreground">{exemplar.builderNote}</span>{" "}
-            already shipped{" "}
-            <span className="text-foreground">{displayName}</span>. It&apos;s a
-            custom App that answers just what you asked and more.
-          </PageHeaderDescription>
-        </PageHeaderContent>
+        <SectionHeader>
+          <SectionHeaderContent>
+            <SectionHeaderTitle>Already shipped</SectionHeaderTitle>
+            <SectionHeaderDescription>
+              <span className="text-foreground">{exemplar.builderNote}</span>{" "}
+              already shipped{" "}
+              <span className="text-foreground">{displayName}</span>. It&apos;s a
+              custom App that answers just what you asked and more.
+            </SectionHeaderDescription>
+          </SectionHeaderContent>
+        </SectionHeader>
         <div className="max-w-md">
           <BuildStoreAppCard
             name={exemplar.id}
@@ -1709,18 +1738,14 @@ function InvokeStepActions({
       </div>
 
       <div className="space-y-6" data-testid="build-related-apps">
-        <PageHeaderContent size="lg">
-          <h2
-            className={cn(
-              pageHeaderTitleVariants({ size: "lg", display: true }),
-            )}
-          >
-            Related apps
-          </h2>
-          <PageHeaderDescription>
-            More apps that fit this outcome — open one, or browse the full store.
-          </PageHeaderDescription>
-        </PageHeaderContent>
+        <SectionHeader>
+          <SectionHeaderContent>
+            <SectionHeaderTitle>Related apps</SectionHeaderTitle>
+            <SectionHeaderDescription>
+              More apps that fit this outcome — open one, or browse the full store.
+            </SectionHeaderDescription>
+          </SectionHeaderContent>
+        </SectionHeader>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {exemplar.relatedAppIds.map((appId) => {
             const related = integrations.find((item) => item.name === appId);
@@ -1850,13 +1875,17 @@ function ConnectStepActions({
           }
 
           return (
-            <IntegrationCard
+            <div
               key={appId}
-              integration={integration}
-              returnPath={returnPath}
-              onConnected={() => void refreshIntegrations()}
-              onDisconnected={() => void refreshIntegrations()}
-            />
+              data-testid={`build-connect-app-${appId}`}
+            >
+              <IntegrationCard
+                integration={integration}
+                returnPath={returnPath}
+                onConnected={() => void refreshIntegrations()}
+                onDisconnected={() => void refreshIntegrations()}
+              />
+            </div>
           );
         })}
       </div>

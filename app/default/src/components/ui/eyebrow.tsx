@@ -21,8 +21,11 @@ const eyebrowVariants = cva(
   "text-xs font-normal uppercase tracking-eyebrow leading-none",
   {
     variants: {
+      // Ink roles map to color.md text hierarchy — pick a tone, never override
+      // text-* after eyebrowVariants().
       tone: {
         muted: "text-muted-foreground-soft",
+        secondary: "text-muted-foreground",
         brand: "text-brand",
       },
     },

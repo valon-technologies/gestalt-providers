@@ -4,6 +4,7 @@ import {
   readIntroSeenFlag,
   readMcpInstalledFlag,
   readStoredApiToken,
+  readStoredApiTokenGrantId,
   readStoredSelectedTokenId,
   readStoredTokenName,
   readStoredInstallAgent,
@@ -11,6 +12,7 @@ import {
   writeIntroSeenFlag,
   writeMcpInstalledFlag,
   writeStoredApiToken,
+  writeStoredApiTokenGrantId,
   writeStoredSelectedTokenId,
   writeStoredTokenName,
   writeStoredInstallAgent,
@@ -20,7 +22,8 @@ import {
 
 export type BuildSession = {
   apiToken: string;
-  setApiToken: (token: string) => void;
+  apiTokenGrantId: string;
+  setApiToken: (token: string, grantId?: string) => void;
   tokenName: string;
   setTokenName: (name: string) => void;
   selectedTokenId: string;
@@ -38,6 +41,9 @@ export type BuildSession = {
 /** Client session for the Build journey — survives step navigation via sessionStorage. */
 export function useBuildSession(): BuildSession {
   const [apiToken, setApiTokenState] = useState(readStoredApiToken);
+  const [apiTokenGrantId, setApiTokenGrantIdState] = useState(
+    readStoredApiTokenGrantId,
+  );
   const [tokenName, setTokenNameState] = useState(readStoredTokenName);
   const [selectedTokenId, setSelectedTokenIdState] = useState(
     readStoredSelectedTokenId,
@@ -50,9 +56,27 @@ export function useBuildSession(): BuildSession {
     useState(readActiveExemplarId);
   const [introSeen, setIntroSeen] = useState(readIntroSeenFlag);
 
-  const setApiToken = useCallback((token: string) => {
-    writeStoredApiToken(token);
-    setApiTokenState(token);
+  const setApiToken = useCallback((token: string, grantId?: string) => {
+    const trimmed = token.trim();
+    writeStoredApiToken(trimmed);
+    if (grantId) {
+      writeStoredApiTokenGrantId(grantId);
+      setApiTokenGrantIdState(grantId);
+    } else if (!trimmed) {
+      writeStoredApiTokenGrantId("");
+      setApiTokenGrantIdState("");
+    }
+    setApiTokenState(trimmed);
+  }, []);
+
+  const clearApiTokenUnlessGrant = useCallback((grantId: string) => {
+    const bound = readStoredApiTokenGrantId();
+    if (bound && bound !== grantId) {
+      writeStoredApiToken("");
+      writeStoredApiTokenGrantId("");
+      setApiTokenState("");
+      setApiTokenGrantIdState("");
+    }
   }, []);
 
   const setTokenName = useCallback((name: string) => {
@@ -61,9 +85,10 @@ export function useBuildSession(): BuildSession {
   }, []);
 
   const setSelectedTokenId = useCallback((id: string) => {
+    clearApiTokenUnlessGrant(id);
     writeStoredSelectedTokenId(id);
     setSelectedTokenIdState(id);
-  }, []);
+  }, [clearApiTokenUnlessGrant]);
 
   const setSelectedInstallAgent = useCallback((id: BuildInstallAgentId | "") => {
     writeStoredInstallAgent(id);
@@ -87,6 +112,7 @@ export function useBuildSession(): BuildSession {
 
   return {
     apiToken,
+    apiTokenGrantId,
     setApiToken,
     tokenName,
     setTokenName,

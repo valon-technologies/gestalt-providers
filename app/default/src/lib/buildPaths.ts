@@ -54,6 +54,8 @@ export interface BuildWorkspaceSnapshot {
   activeExemplarId: BuildExemplarId;
   mcpInstalled: boolean;
   apiToken: string;
+  /** Grant id the plaintext {@link apiToken} was issued for — empty when unset. */
+  apiTokenGrantId: string;
   /** Display name for the token chosen or drafted in this Build session. */
   tokenName: string;
   /**
@@ -229,16 +231,43 @@ export function buildAuthorizeCreateDraftReady(
 export function buildAuthorizeSelectionReady(
   snapshot: Pick<
     BuildWorkspaceSnapshot,
-    "apiToken" | "selectedTokenId" | "tokenName" | "tokens"
+    "apiToken" | "apiTokenGrantId" | "selectedTokenId" | "tokenName" | "tokens"
   >,
 ): boolean {
-  if (snapshot.apiToken.trim().length > 0) return true;
   const selected = snapshot.selectedTokenId.trim();
   if (!selected || selected === BUILD_USE_EXISTING_TOKEN_ID) return false;
   if (selected === BUILD_CREATE_NEW_TOKEN_ID) {
-    return buildAuthorizeCreateDraftReady(snapshot);
+    return (
+      buildAuthorizeCreateDraftReady(snapshot) ||
+      buildMcpCredentialReady(snapshot)
+    );
   }
   return snapshot.tokens.some((token) => token.id === selected);
+}
+
+/** Plaintext bearer secret bound to the current grant selection — required for MCP install. */
+export function buildMcpCredentialReady(
+  snapshot: Pick<
+    BuildWorkspaceSnapshot,
+    "apiToken" | "apiTokenGrantId" | "selectedTokenId"
+  >,
+): boolean {
+  const token = snapshot.apiToken.trim();
+  const grantId = snapshot.apiTokenGrantId.trim();
+  const selected = snapshot.selectedTokenId.trim();
+  return token.length > 0 && grantId.length > 0 && grantId === selected;
+}
+
+export function canNavigateToBuildStep(
+  targetId: BuildStepId,
+  currentId: BuildStepId,
+  isStepDone: (step: BuildStep) => boolean,
+): boolean {
+  const targetIdx = BUILD_STEPS.findIndex((step) => step.id === targetId);
+  const currentIdx = BUILD_STEPS.findIndex((step) => step.id === currentId);
+  if (targetIdx === -1 || currentIdx === -1) return false;
+  if (targetIdx <= currentIdx) return true;
+  return BUILD_STEPS.slice(0, targetIdx).every(isStepDone);
 }
 
 const BUILD_STEP_IDS = new Set<string>(BUILD_STEPS.map((step) => step.id));
@@ -346,6 +375,8 @@ export const MCP_INSTALLED_STORAGE_KEY = "gestalt.build.mcpInstalled";
 export const BUILD_EXEMPLAR_STORAGE_KEY = "gestalt.build.activeExemplarId";
 export const BUILD_INTRO_SEEN_STORAGE_KEY = "gestalt.build.introSeen";
 export const BUILD_API_TOKEN_STORAGE_KEY = "gestalt.build.apiToken";
+export const BUILD_API_TOKEN_GRANT_ID_STORAGE_KEY =
+  "gestalt.build.apiTokenGrantId";
 export const BUILD_TOKEN_NAME_STORAGE_KEY = "gestalt.build.tokenName";
 export const BUILD_SELECTED_TOKEN_ID_STORAGE_KEY =
   "gestalt.build.selectedTokenId";
@@ -424,6 +455,33 @@ export function writeStoredApiToken(token: string): void {
       window.sessionStorage.setItem(BUILD_API_TOKEN_STORAGE_KEY, token);
     } else {
       window.sessionStorage.removeItem(BUILD_API_TOKEN_STORAGE_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readStoredApiTokenGrantId(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return (
+      window.sessionStorage.getItem(BUILD_API_TOKEN_GRANT_ID_STORAGE_KEY) ?? ""
+    );
+  } catch {
+    return "";
+  }
+}
+
+export function writeStoredApiTokenGrantId(grantId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (grantId) {
+      window.sessionStorage.setItem(
+        BUILD_API_TOKEN_GRANT_ID_STORAGE_KEY,
+        grantId,
+      );
+    } else {
+      window.sessionStorage.removeItem(BUILD_API_TOKEN_GRANT_ID_STORAGE_KEY);
     }
   } catch {
     /* ignore */

@@ -111,7 +111,7 @@ test.describe("Build page", () => {
 
     await expect(page).toHaveURL(/\/build\/intro$/);
     await expect(
-      page.getByRole("heading", { name: "Build", exact: true }),
+      page.getByRole("heading", { name: "Pick what to build", exact: true }),
     ).toBeVisible();
 
     await expect(page.getByTestId("build-intro")).toBeVisible();
@@ -191,6 +191,7 @@ test.describe("Build page", () => {
     await page.addInitScript(() => {
       sessionStorage.setItem("gestalt.build.introSeen", "1");
       sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
+      sessionStorage.setItem("gestalt.build.apiTokenGrantId", "tok_123");
       sessionStorage.setItem(
         "gestalt.build.apiToken",
         "gst_api_test_token_for_install",
@@ -293,8 +294,8 @@ test.describe("Build page", () => {
     await expect(page.getByTestId("build-connect-app-linear")).toBeVisible();
     await expect(page.getByTestId("build-connect-app-slack")).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Connect PagerDuty" }),
-    ).toBeVisible();
+      page.getByTestId("build-connect-app-pagerduty"),
+    ).toContainText("PagerDuty");
   });
 
   test("connect shows companions for Ashby exemplar", async ({

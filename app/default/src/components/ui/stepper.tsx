@@ -411,7 +411,7 @@ function StepperTrigger({
 
 const stepperIndicatorVariants = cva(
   // Above the progress rail (separator z-[1]) so the bullet sits on the line end.
-  "relative z-10 flex shrink-0 items-center justify-center rounded-full border font-display text-base font-normal italic leading-none transition-[color,background-color,border-color] duration-hover-out ease-out-quart [--stepper-indicator-size:2rem]",
+  "relative z-10 grid shrink-0 place-items-center rounded-full border font-display font-normal italic leading-none transition-[color,background-color,border-color] duration-hover-out ease-out-quart [--stepper-indicator-size:2rem]",
   {
     variants: {
       size: {
@@ -530,7 +530,12 @@ function StepperIndicator({ className, size, children, ...props }: StepperIndica
         <>
           {/* Number stays mounted under the check so layout never shifts. */}
           <span
-            className={cn("tabular-nums", !numberVisible && "invisible")}
+            className={cn(
+              "col-start-1 row-start-1 tabular-nums",
+              // Season italic cap figures read low/left in a geometric circle.
+              "translate-x-[0.06em] -translate-y-[0.07em]",
+              !numberVisible && "invisible",
+            )}
             aria-hidden={!numberVisible}
           >
             {index + 1}
@@ -542,7 +547,7 @@ function StepperIndicator({ className, size, children, ...props }: StepperIndica
             density="condensed"
             tone="current"
             svgClassName={checkSvg}
-            className="pointer-events-none absolute inset-0 m-auto"
+            className="pointer-events-none absolute inset-0 col-start-1 row-start-1 m-auto"
           />
         </>
       )}

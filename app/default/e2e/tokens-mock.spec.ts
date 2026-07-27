@@ -52,15 +52,12 @@ test.describe("Token Management", () => {
     const page = authenticatedPage;
     const tokens = await mockTokens(page, []);
     await mockPersonalTokenCreate(page, tokens, async (body) => {
-      expect(body).toEqual({
-        name: "audit-label",
-        scopes: "my-app",
-        expiresIn: 30 * 24 * 60 * 60,
-      });
+      expect(body.name).toBe("audit-label");
+      expect(body.expiresIn).toBe(30 * 24 * 60 * 60);
       return {
         token: {
           id: "tok-new",
-          scopes: body.scopes ? [body.scopes] : [],
+          scopes: body.scopes ? body.scopes.split(/\s+/) : [],
           createdAt: "2026-03-01T12:00:00Z",
         },
         plaintext: "gestalt_abc123secret",
@@ -71,13 +68,12 @@ test.describe("Token Management", () => {
 
     await page.goto("/authorization");
     await page.getByLabel("Token name").fill("audit-label");
-    await page.getByLabel("Scopes").fill("my-app");
+    await page.getByRole("radio", { name: /all apps/i }).click();
     await page.getByRole("button", { name: "Create Token" }).click();
 
     await expect(page.getByText("Copy this token now")).toBeVisible();
     await expect(page.getByText("gestalt_abc123secret")).toBeVisible();
     await expect(page.locator("tr", { hasText: "tok-new" })).toBeVisible();
-    await expect(page.getByText("my-app")).toBeVisible();
   });
 
   test("keeps the created token visible when stale list requests finish later", async ({
@@ -86,11 +82,10 @@ test.describe("Token Management", () => {
     const page = authenticatedPage;
     const tokens = await mockTokens(page, [], { delayFirstListMs: 250 });
     await mockPersonalTokenCreate(page, tokens, async (body) => {
-      expect(body.scopes).toBe("other-app");
       return {
         token: {
           id: "tok-race",
-          scopes: body.scopes ? [body.scopes] : [],
+          scopes: body.scopes ? body.scopes.split(/\s+/) : [],
           createdAt: "2026-03-01T12:00:00Z",
         },
         plaintext: "gestalt_race_secret",
@@ -100,7 +95,7 @@ test.describe("Token Management", () => {
 
     await page.goto("/authorization");
     await page.getByLabel("Token name").fill("race-token");
-    await page.getByLabel("Scopes").fill("other-app");
+    await page.getByRole("radio", { name: /all apps/i }).click();
     await page.getByRole("button", { name: "Create Token" }).click();
 
     await expect(page.getByText("Copy this token now")).toBeVisible();
