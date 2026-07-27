@@ -4,6 +4,9 @@ import type { AppAdminRegistryResponse } from "@/lib/api";
 /** Poll briefly after landing on admin so CI-recorded pending shows without refresh. */
 export const APP_ADMIN_BOOTSTRAP_POLL_MS = 5 * 60_000;
 
+/** Registry poll interval while bootstrap window is open or publish/rollout is active. */
+export const APP_ADMIN_POLL_INTERVAL_MS = 3_000;
+
 export function shouldPollAppAdminRegistry(
   registry: AppAdminRegistryResponse,
   bootstrapPollUntilMs: number,
