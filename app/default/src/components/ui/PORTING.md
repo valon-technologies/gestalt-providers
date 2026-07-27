@@ -289,9 +289,10 @@ only when the parent is muted (sidebar / rail).
 ## CodeBlock / code-fence
 
 Registry `code-block` + `code-fence` are vendored here for display snippets
-(Build MCP install, etc.). Keep highlighting on lowlight → `.typeset-code-hljs`
-(`src/styles/typeset-reading.css`). Do not reintroduce
-Shiki for these surfaces. Shell paint maps Registry `bg-muted/50` /
+(Build MCP install, etc.). Keep highlighting on the curated
+`code-block-lowlight` instance → `.typeset-code-hljs`
+(`src/styles/typeset-reading.css`). Do not import `lowlight/all`, and do not
+reintroduce Shiki for these surfaces. Shell paint maps Registry `bg-muted/50` /
 `border-border/50` to console `bg-alpha-5` / `border-alpha`. Pass
 `chrome="inset"` for docs/blog fences (no header; copy overlays the body).
 Pass `filename` only for real file paths with `chrome="header"` (default) —

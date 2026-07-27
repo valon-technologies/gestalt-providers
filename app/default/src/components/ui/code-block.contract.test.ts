@@ -25,6 +25,12 @@ describe("CodeBlock chrome contract", () => {
     expect(SOURCE).not.toContain("flex h-10 items-center justify-between gap-2 px-3");
   });
 
+  test("does not import lowlight/all", () => {
+    expect(SOURCE).not.toContain("createLowlight(all)");
+    expect(SOURCE).not.toContain('from "lowlight"');
+    expect(SOURCE).toContain("codeBlockLowlight");
+  });
+
   test("highlighted lines use full-bleed flex rows with inset accent edge", () => {
     expect(SOURCE).toContain("codeLineRowBleedClass");
     expect(SOURCE).toContain("codeLineEmphasisRowClassName");

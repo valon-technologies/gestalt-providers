@@ -6,7 +6,8 @@
 import * as React from "react";
 
 import { FileCode2 } from "lucide-react";
-import { all, createLowlight } from "lowlight";
+
+import { codeBlockLowlight } from "@/components/ui/code-block-lowlight";
 
 import { CopyIconButton } from "@/components/ui/copy-button";
 import {
@@ -25,7 +26,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/cn";
-import cliLanguage from "@/components/ui/code-block-cli-language";
 
 // Display CodeBlock for install snippets / docs / AI messages — not the Plate
 // editor fence. Highlighting uses the same lowlight → hljs class pipeline as
@@ -34,8 +34,7 @@ import cliLanguage from "@/components/ui/code-block-cli-language";
 // (filename, copy, line numbers, tabs) is modeled on shadcnspace's CodeBlock.
 // CLI command lines use the registered `cli` grammar (not highlight.js bash).
 
-const lowlight = createLowlight(all);
-lowlight.register("cli", cliLanguage);
+const lowlight = codeBlockLowlight;
 
 type CodeFenceVariant = NonNullable<CodeFenceShellProps["variant"]>;
 
