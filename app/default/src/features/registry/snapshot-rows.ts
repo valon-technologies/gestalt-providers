@@ -105,9 +105,7 @@ export function snapshotStatusTimer(
   now: number | Date = Date.now(),
 ): string | null {
   if (row.kind === "pending") {
-    const seconds =
-      row.pending.publishingForSeconds ??
-      durationSecondsBetween(row.pending.startedAt, now);
+    const seconds = durationSecondsBetween(row.pending.startedAt, now);
     return seconds !== null ? `for ${formatDurationSeconds(seconds)}` : null;
   }
   if (row.kind === "published") {
