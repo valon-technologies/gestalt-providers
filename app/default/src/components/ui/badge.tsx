@@ -1,8 +1,12 @@
+/**
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ */
+
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/cn";
 
 // User-chosen Badge `color` (entity labels) is a *hue identity*. Presentation
 // splits on relative luminance: pale → soft wash toward white + dark ink;

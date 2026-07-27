@@ -1,6 +1,12 @@
+"use client";
+
+/**
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ */
+
 import * as React from "react";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/cn";
 
 // Shared selection checkmark — stroke-draw glyph used by Checkbox,
 // Combobox, Select, and Listbox. Two paths (down into the vertex, then up out

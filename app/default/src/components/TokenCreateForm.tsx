@@ -1,119 +1,738 @@
-import { useState } from "react";
-import { INPUT_CLASSES } from "@/lib/constants";
-import { useCreateTokenMutation } from "@/lib/queries";
-import Button from "./Button";
+import {
+  Listbox,
+  ListboxButton,
+  ListboxOption,
+  ListboxOptions,
+} from "@headlessui/react";
+import * as React from "react";
+import { useId, useImperativeHandle, useMemo, useState } from "react";
+import {
+  createToken,
+  getIntegrationOperations,
+  type IntegrationOperation,
+} from "@/lib/api";
+import {
+  encodeTokenScopes,
+  expiresInFromChoice,
+  formatExpirationDayLabel,
+  hasEffectiveScopes,
+  type ExpirationChoice,
+  type TokenScopeMode,
+} from "@/lib/tokenScopes";
+import {
+  useIntegrationsQuery,
+  useInvalidateTokens,
+} from "@/lib/queries";
+import { Button } from "@/components/ui/button";
+import {
+  CheckboxTree,
+  type CheckboxTreeNode,
+} from "@/components/ui/checkbox-tree";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group";
+import {
+  Alert,
+  AlertDescription,
+} from "@/components/ui/alert";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  CalendarIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  CopyIcon,
+  SearchIcon,
+} from "@/components/icons";
+import { Info } from "lucide-react";
+import { filterIntegrations } from "@/lib/integrationSearch";
+import { cn } from "@/lib/cn";
 
-const daySeconds = 24 * 60 * 60;
-const tokenLifetimeSeconds: Record<string, number> = {
-  "30d": 30 * daySeconds,
-  "90d": 90 * daySeconds,
-  "365d": 365 * daySeconds,
+interface TokenCreateFormProps {
+  /**
+   * Called with the one-time plaintext token after a successful create.
+   * `created` carries the durable id + name for session persistence.
+   */
+  onCreated?: (
+    plaintext: string,
+    created: { id: string; name: string },
+  ) => void | Promise<void>;
+  /** Controlled token name — persists via parent when provided with onNameChange. */
+  name?: string;
+  onNameChange?: (name: string) => void;
+  /** Uncontrolled initial name when `name` is omitted. */
+  defaultName?: string;
+  /** When false, omit the submit button (caller creates on its own schedule). */
+  showSubmit?: boolean;
+  /** Settings stacks labels; Build authorize uses inline label + control rows. */
+  fieldOrientation?: "vertical" | "horizontal";
+  /** When false, skip the post-create plaintext copy block (Build advances on Next). */
+  showPlaintextResult?: boolean;
+}
+
+export type TokenCreateFormHandle = {
+  create: () => Promise<boolean>;
 };
-const defaultTokenLifetime = "30d";
 
-export default function TokenCreateForm() {
-  const createToken = useCreateTokenMutation();
+type DayPreset = 7 | 30 | 60 | 90;
+
+type ExpirationOption =
+  | { id: "7d" | "30d" | "60d" | "90d"; kind: "days"; days: DayPreset }
+  | { id: "custom"; kind: "custom" }
+  | { id: "none"; kind: "none" };
+
+const DAY_PRESETS: DayPreset[] = [7, 30, 60, 90];
+
+function buildExpirationOptions(): ExpirationOption[] {
+  const dayOptions: ExpirationOption[] = DAY_PRESETS.map((days) => ({
+    id: `${days}d` as "7d" | "30d" | "60d" | "90d",
+    kind: "days",
+    days,
+  }));
+  return [
+    ...dayOptions,
+    { id: "custom", kind: "custom" },
+    { id: "none", kind: "none" },
+  ];
+}
+
+function expirationOptionLabel(option: ExpirationOption, now: Date): string {
+  if (option.kind === "days") {
+    return formatExpirationDayLabel(option.days, now);
+  }
+  if (option.kind === "custom") {
+    return "Custom…";
+  }
+  return "No expiration";
+}
+
+type SelectedAppState = {
+  /** When true (default), encode bare appId. When false, encode checked ops only. */
+  allOperations: boolean;
+  /** Checked operation ids when allOperations is false. */
+  operationIds: Set<string>;
+};
+
+/** Scope grammar leaf: `app:operation` — matches encodeTokenScopes. */
+function operationLeafId(appName: string, operationId: string): string {
+  return `${appName}:${operationId}`;
+}
+
+function parseOperationLeafId(
+  leafId: string,
+): { appName: string; operationId: string } | null {
+  const sep = leafId.indexOf(":");
+  if (sep <= 0) return null;
+  return {
+    appName: leafId.slice(0, sep),
+    operationId: leafId.slice(sep + 1),
+  };
+}
+
+function listedOperations(
+  opsState: IntegrationOperation[] | "loading" | "error" | undefined,
+): IntegrationOperation[] | null {
+  return Array.isArray(opsState) && opsState.length > 0 ? opsState : null;
+}
+
+/** Build CheckboxTree nodes for the searchable app catalog. */
+function buildCatalogAccessTree(
+  filteredApps: readonly { name: string; displayName?: string }[],
+  opsByApp: Record<string, IntegrationOperation[] | "loading" | "error">,
+): CheckboxTreeNode[] {
+  return filteredApps.map((app) => {
+    const label = app.displayName?.trim() || app.name;
+    const ops = listedOperations(opsByApp[app.name]);
+    if (!ops) {
+      return { id: app.name, label };
+    }
+    return {
+      id: app.name,
+      label,
+      children: ops.map((op) => ({
+        id: operationLeafId(app.name, op.id),
+        label: op.title?.trim() || op.id,
+      })),
+    };
+  });
+}
+
+/** Derive CheckboxTree leaf value from SelectedAppState + loaded ops. */
+function leafValueFromSelectedApps(
+  selectedApps: Record<string, SelectedAppState>,
+  opsByApp: Record<string, IntegrationOperation[] | "loading" | "error">,
+): string[] {
+  const leaves: string[] = [];
+  for (const [appName, state] of Object.entries(selectedApps)) {
+    const ops = listedOperations(opsByApp[appName]);
+    if (!ops) {
+      leaves.push(appName);
+      continue;
+    }
+    if (state.allOperations) {
+      for (const op of ops) {
+        leaves.push(operationLeafId(appName, op.id));
+      }
+      continue;
+    }
+    for (const opId of state.operationIds) {
+      leaves.push(operationLeafId(appName, opId));
+    }
+  }
+  return leaves;
+}
+
+/**
+ * Map CheckboxTree leaf ids back to SelectedAppState.
+ * Unchecking every leaf under an app removes it from the selection set.
+ */
+function selectedAppsFromLeafValue(
+  leafIds: readonly string[],
+  previous: Record<string, SelectedAppState>,
+  opsByApp: Record<string, IntegrationOperation[] | "loading" | "error">,
+): Record<string, SelectedAppState> {
+  const byApp = new Map<string, Set<string>>();
+  const bareApps = new Set<string>();
+
+  for (const leafId of leafIds) {
+    const parsed = parseOperationLeafId(leafId);
+    if (parsed) {
+      const set = byApp.get(parsed.appName) ?? new Set<string>();
+      set.add(parsed.operationId);
+      byApp.set(parsed.appName, set);
+      continue;
+    }
+    bareApps.add(leafId);
+  }
+
+  const next: Record<string, SelectedAppState> = {};
+
+  for (const appName of bareApps) {
+    next[appName] = previous[appName] ?? {
+      allOperations: true,
+      operationIds: new Set(),
+    };
+    if (!listedOperations(opsByApp[appName])) {
+      next[appName] = { allOperations: true, operationIds: new Set() };
+    }
+  }
+
+  for (const [appName, operationIds] of byApp) {
+    const ops = listedOperations(opsByApp[appName]);
+    if (!ops) {
+      next[appName] = { allOperations: true, operationIds: new Set() };
+      continue;
+    }
+    const allSelected =
+      ops.length > 0 && ops.every((op) => operationIds.has(op.id));
+    next[appName] = allSelected
+      ? { allOperations: true, operationIds: new Set() }
+      : { allOperations: false, operationIds };
+  }
+
+  return next;
+}
+
+const TokenCreateForm = React.forwardRef<
+  TokenCreateFormHandle,
+  TokenCreateFormProps
+>(function TokenCreateForm(
+  {
+    onCreated,
+    name: nameProp,
+    onNameChange,
+    defaultName = "",
+    showSubmit = true,
+    fieldOrientation = "vertical",
+    showPlaintextResult = true,
+  },
+  ref,
+) {
+  const idPrefix = useId();
+  const nameId = `${idPrefix}-name`;
+  const expirationId = `${idPrefix}-expiration`;
+  const customDateId = `${idPrefix}-custom-date`;
+  const appAccessId = `${idPrefix}-app-access`;
+  const appSearchId = `${idPrefix}-app-search`;
+
+  const isNameControlled = nameProp !== undefined;
+  const [nameUncontrolled, setNameUncontrolled] = useState(defaultName);
+  const name = isNameControlled ? nameProp : nameUncontrolled;
+
+  function setName(next: string) {
+    if (!isNameControlled) {
+      setNameUncontrolled(next);
+    }
+    onNameChange?.(next);
+  }
+
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<string | null>(null);
   const [plaintext, setPlaintext] = useState<string | null>(null);
-  const error = createToken.error
-    ? createToken.error instanceof Error
-      ? createToken.error.message
-      : "Failed to create token"
-    : null;
+  const [tokenCopied, setTokenCopied] = useState(false);
+
+  const [expirationIdSelected, setExpirationIdSelected] =
+    useState<ExpirationOption["id"]>("30d");
+  const [customDate, setCustomDate] = useState("");
+
+  const [scopeMode, setScopeMode] = useState<TokenScopeMode>("all");
+  const [appQuery, setAppQuery] = useState("");
+  const [selectedApps, setSelectedApps] = useState<
+    Record<string, SelectedAppState>
+  >({});
+  const [opsByApp, setOpsByApp] = useState<
+    Record<string, IntegrationOperation[] | "loading" | "error">
+  >({});
+
+  const invalidateTokens = useInvalidateTokens();
+  const integrationsQuery = useIntegrationsQuery({
+    enabled: scopeMode === "select",
+  });
+  const integrations = integrationsQuery.data ?? null;
+  const integrationsError =
+    integrationsQuery.error instanceof Error
+      ? integrationsQuery.error.message
+      : integrationsQuery.error
+        ? "Failed to load apps"
+        : null;
+
+  const now = useMemo(() => new Date(), []);
+  const expirationOptions = useMemo(() => buildExpirationOptions(), []);
+  const selectedExpiration =
+    expirationOptions.find((o) => o.id === expirationIdSelected) ??
+    expirationOptions[1];
+
+  function ensureOpsLoaded(appName: string) {
+    setOpsByApp((prev) => {
+      if (prev[appName] !== undefined) return prev;
+      return { ...prev, [appName]: "loading" };
+    });
+
+    void getIntegrationOperations(appName)
+      .then((ops) => {
+        setOpsByApp((prev) => ({
+          ...prev,
+          [appName]: ops.filter((op) => op.visible !== false),
+        }));
+      })
+      .catch(() => {
+        setOpsByApp((prev) => ({ ...prev, [appName]: "error" }));
+      });
+  }
+
+  function buildSelections() {
+    return Object.entries(selectedApps).map(([appId, state]) => ({
+      appId,
+      operations: state.allOperations
+        ? ({ kind: "all" } as const)
+        : ({
+            kind: "ops" as const,
+            operationIds: [...state.operationIds],
+          }),
+    }));
+  }
+
+  function buildExpirationChoice(): ExpirationChoice {
+    if (selectedExpiration.kind === "days") {
+      return { kind: "days", days: selectedExpiration.days };
+    }
+    if (selectedExpiration.kind === "none") {
+      return { kind: "none" };
+    }
+    return { kind: "custom", date: customDate };
+  }
+
+  async function runCreate(): Promise<boolean> {
+    const trimmedName = name.trim();
+    if (!trimmedName) return false;
+
+    const selections = buildSelections();
+    if (!hasEffectiveScopes(scopeMode, selections)) {
+      setFieldError("Select at least one app.");
+      return false;
+    }
+
+    if (
+      selectedExpiration.kind === "custom" &&
+      expiresInFromChoice({ kind: "custom", date: customDate }) == null
+    ) {
+      setFieldError("Choose a future expiration date.");
+      return false;
+    }
+
+    setFieldError(null);
+    setCreating(true);
+    setError(null);
+    if (showPlaintextResult) {
+      setPlaintext(null);
+    }
+
+    const scopes = encodeTokenScopes(scopeMode, selections);
+    const expiresIn = expiresInFromChoice(buildExpirationChoice());
+
+    try {
+      const result = await createToken(trimmedName, scopes, expiresIn);
+      if (showPlaintextResult) {
+        setPlaintext(result.token);
+        setTokenCopied(false);
+      }
+      if (!isNameControlled) {
+        setName("");
+      }
+      setScopeMode("all");
+      setSelectedApps({});
+      setAppQuery("");
+      setExpirationIdSelected("30d");
+      setCustomDate("");
+      await invalidateTokens();
+      await onCreated?.(result.token, {
+        id: result.id,
+        name: trimmedName,
+      });
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create token");
+      return false;
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      create: runCreate,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runCreate closes over latest draft state
+    [
+      name,
+      scopeMode,
+      selectedApps,
+      selectedExpiration,
+      customDate,
+      showPlaintextResult,
+    ],
+  );
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const form = e.currentTarget;
-    const formData = new FormData(form);
-    const name = (formData.get("name") as string)?.trim();
-    const scopes = (formData.get("scopes") as string)?.trim();
-    const lifetime = (formData.get("lifetime") as string) ?? defaultTokenLifetime;
-    if (!name) return;
+    await runCreate();
+  }
 
-    setPlaintext(null);
+  const filteredApps = useMemo(
+    () => filterIntegrations(integrations ?? [], appQuery),
+    [integrations, appQuery],
+  );
 
-    try {
-      const result = await createToken.mutateAsync({
-        name,
-        scopes,
-        expiresIn:
-          tokenLifetimeSeconds[lifetime] ?? tokenLifetimeSeconds[defaultTokenLifetime],
+  const selectedAppNames = Object.keys(selectedApps);
+
+  const accessTree = useMemo(
+    () => buildCatalogAccessTree(filteredApps, opsByApp),
+    [filteredApps, opsByApp],
+  );
+
+  const accessTreeValue = useMemo(
+    () => leafValueFromSelectedApps(selectedApps, opsByApp),
+    [selectedApps, opsByApp],
+  );
+
+  const accessTreeStatusNotes: {
+    appName: string;
+    tone: "muted" | "error";
+    text: string;
+  }[] = [];
+  for (const appName of selectedAppNames) {
+    const opsState = opsByApp[appName];
+    const app = integrations?.find((item) => item.name === appName);
+    const label = app?.displayName?.trim() || appName;
+    if (opsState === "loading" || opsState === undefined) {
+      accessTreeStatusNotes.push({
+        appName,
+        tone: "muted",
+        text: `Loading operations for ${label}…`,
       });
-      setPlaintext(result.token);
-      form.reset();
-    } catch {
-      // surfaced via mutation error state
+      continue;
+    }
+    if (opsState === "error") {
+      accessTreeStatusNotes.push({
+        appName,
+        tone: "error",
+        text: `Could not load operations for ${label}. Token will grant all operations for this app.`,
+      });
+      continue;
+    }
+    if (opsState.length === 0) {
+      accessTreeStatusNotes.push({
+        appName,
+        tone: "muted",
+        text: `No listed operations for ${label} — token grants full access to this app.`,
+      });
     }
   }
 
   return (
     <>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-3 sm:flex-row sm:items-end">
-        <div className="flex-1">
-          <label
-            htmlFor="token-name"
-            className="label-text block"
-          >
-            Token name
-          </label>
-          <input
-            id="token-name"
-            name="name"
-            type="text"
-            required
-            placeholder="e.g. ci-pipeline"
-            className={`mt-2 w-full ${INPUT_CLASSES}`}
-          />
-        </div>
-        <div className="flex-1">
-          <label
-            htmlFor="token-scopes"
-            className="label-text block"
-          >
-            Scopes (optional)
-          </label>
-          <input
-            id="token-scopes"
-            name="scopes"
-            type="text"
-            placeholder="blank = full identity, or my-app / my-app:operation"
-            className={`mt-2 w-full ${INPUT_CLASSES}`}
-          />
-        </div>
-        <div className="sm:w-40">
-          <label
-            htmlFor="token-lifetime"
-            className="label-text block"
-          >
-            Lifetime
-          </label>
-          <select
-            id="token-lifetime"
-            name="lifetime"
-            defaultValue={defaultTokenLifetime}
-            className={`mt-2 w-full ${INPUT_CLASSES}`}
-          >
-            <option value="30d">30 days</option>
-            <option value="90d">90 days</option>
-            <option value="365d">1 year</option>
-          </select>
-        </div>
-        <Button type="submit" disabled={createToken.isPending} className="sm:shrink-0">
-          {createToken.isPending ? "Creating..." : "Create Token"}
-        </Button>
+      <form onSubmit={handleSubmit} className="flex w-full flex-col gap-4">
+        <FieldGroup className="gap-5">
+          <Field orientation={fieldOrientation}>
+            <FieldLabel htmlFor={nameId}>Token name</FieldLabel>
+            <FieldContent>
+              <Input
+                id={nameId}
+                name="name"
+                type="text"
+                required
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. ci-pipeline"
+                autoComplete="off"
+              />
+            </FieldContent>
+          </Field>
+
+          <Field orientation={fieldOrientation}>
+            <FieldLabel id={expirationId}>Expiration</FieldLabel>
+            <FieldContent>
+              <Listbox
+                value={selectedExpiration}
+                onChange={(option: ExpirationOption) => {
+                  setExpirationIdSelected(option.id);
+                  setFieldError(null);
+                }}
+              >
+                <div className="relative">
+                  <ListboxButton
+                    aria-labelledby={expirationId}
+                    className={cn(
+                      "relative flex w-full items-center gap-2 rounded-md border border-input bg-transparent px-3 py-2 text-left text-sm text-foreground shadow-xs",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-base-950/10",
+                      "dark:focus-visible:ring-base-200/10",
+                    )}
+                  >
+                    <CalendarIcon className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {expirationOptionLabel(selectedExpiration, now)}
+                    </span>
+                    <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
+                  </ListboxButton>
+                  <ListboxOptions
+                    anchor="bottom start"
+                    className="z-50 mt-1 max-h-72 w-[var(--button-width)] overflow-auto rounded-md border border-alpha bg-base-white p-1 shadow-dropdown dark:bg-surface"
+                  >
+                    {expirationOptions.map((option) => (
+                      <ListboxOption
+                        key={option.id}
+                        value={option}
+                        className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground data-focus:bg-alpha-5 data-selected:font-medium"
+                      >
+                        {({ selected }) => (
+                          <>
+                            <span className="flex size-4 shrink-0 items-center justify-center">
+                              {selected ? (
+                                <CheckIcon className="size-3.5" />
+                              ) : null}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate">
+                              {expirationOptionLabel(option, now)}
+                            </span>
+                          </>
+                        )}
+                      </ListboxOption>
+                    ))}
+                  </ListboxOptions>
+                </div>
+              </Listbox>
+              {selectedExpiration.kind === "custom" ? (
+                <Input
+                  id={customDateId}
+                  type="date"
+                  value={customDate}
+                  onChange={(e) => {
+                    setCustomDate(e.target.value);
+                    setFieldError(null);
+                  }}
+                  className="mt-2"
+                  aria-label="Custom expiration date"
+                />
+              ) : null}
+              {fieldOrientation === "vertical" ? (
+                <FieldDescription>
+                  Tokens expire at the end of the selected day. Choose no expiration
+                  only for long-lived automation you will rotate yourself.
+                </FieldDescription>
+              ) : null}
+            </FieldContent>
+          </Field>
+
+          <Field orientation={fieldOrientation}>
+            <FieldLabel id={appAccessId}>App access</FieldLabel>
+            <FieldContent>
+              <RadioGroup
+                aria-labelledby={appAccessId}
+                value={scopeMode}
+                onValueChange={(value) => {
+                  setScopeMode(value as TokenScopeMode);
+                  setFieldError(null);
+                }}
+                className="gap-3"
+              >
+              <label className="flex cursor-pointer items-start gap-3">
+                <RadioGroupItem value="all" className="mt-0.5" aria-label="All apps" />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-foreground">
+                    All apps
+                  </span>
+                  <span className="block text-sm text-muted-foreground">
+                    This token can use any app your account can access.
+                  </span>
+                </span>
+              </label>
+              <label className="flex cursor-pointer items-start gap-3">
+                <RadioGroupItem
+                  value="select"
+                  className="mt-0.5"
+                  aria-label="Only select apps"
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-foreground">
+                    Only select apps
+                  </span>
+                  <span className="block text-sm text-muted-foreground">
+                    Limit this token to specific apps and optionally operations.
+                  </span>
+                </span>
+              </label>
+            </RadioGroup>
+
+            {scopeMode === "select" ? (
+              <div className="mt-3 space-y-3 rounded-md border border-alpha p-3">
+                <div className="relative">
+                  <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id={appSearchId}
+                    type="search"
+                    value={appQuery}
+                    onChange={(e) => setAppQuery(e.target.value)}
+                    placeholder="Search apps"
+                    className="pl-8"
+                    aria-label="Search apps"
+                    autoComplete="off"
+                  />
+                </div>
+
+                {integrationsError ? (
+                  <p className="text-sm text-ember-500">{integrationsError}</p>
+                ) : integrations === null || integrationsQuery.isPending ? (
+                  <p className="text-sm text-muted-foreground">Loading apps…</p>
+                ) : filteredApps.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No apps found.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {accessTreeStatusNotes.length > 0 ? (
+                      <ul className="space-y-1">
+                        {accessTreeStatusNotes.map((note) => (
+                          <li
+                            key={note.appName}
+                            className={
+                              note.tone === "error"
+                                ? "text-xs text-ember-500"
+                                : "text-xs text-muted-foreground"
+                            }
+                          >
+                            {note.text}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    <CheckboxTree
+                      tree={accessTree}
+                      value={accessTreeValue}
+                      density="condensed"
+                      onValueChange={(nextLeaves) => {
+                        const next = selectedAppsFromLeafValue(
+                          nextLeaves,
+                          selectedApps,
+                          opsByApp,
+                        );
+                        setSelectedApps(next);
+                        for (const appName of Object.keys(next)) {
+                          ensureOpsLoaded(appName);
+                        }
+                        setFieldError(null);
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+              {fieldError ? <FieldError>{fieldError}</FieldError> : null}
+            </FieldContent>
+          </Field>
+        </FieldGroup>
+
+        {showSubmit ? (
+          <Button type="submit" disabled={creating} className="w-fit">
+            {creating ? "Creating..." : "Create Token"}
+          </Button>
+        ) : null}
       </form>
 
-      {plaintext && (
-        <div className="mt-6 rounded-lg border border-warning-foreground/40 bg-warning p-5 text-warning-foreground">
-          <p className="text-sm font-medium">
-            Copy this token now. It will not be shown again.
-          </p>
-          <code className="mt-3 block break-all rounded-sm border border-border bg-background p-3 font-mono text-sm text-foreground">
-            {plaintext}
-          </code>
+      {showPlaintextResult && plaintext ? (
+        <div className="mt-6 space-y-2">
+          <InputGroup>
+            <InputGroupInput
+              value={plaintext}
+              readOnly
+              aria-label="API token"
+              className="font-mono text-sm"
+              onFocus={(event) => event.currentTarget.select()}
+            />
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton
+                size="icon-xs"
+                aria-label={tokenCopied ? "Copied" : "Copy token"}
+                title={tokenCopied ? "Copied" : "Copy"}
+                onClick={() => {
+                  void navigator.clipboard.writeText(plaintext).then(() => {
+                    setTokenCopied(true);
+                    window.setTimeout(() => setTokenCopied(false), 2000);
+                  });
+                }}
+              >
+                {tokenCopied ? (
+                  <CheckIcon className="size-3.5" />
+                ) : (
+                  <CopyIcon className="size-3.5" />
+                )}
+              </InputGroupButton>
+            </InputGroupAddon>
+          </InputGroup>
+          <Alert>
+            <Info aria-hidden />
+            <AlertDescription className="font-normal">
+              We&apos;ll use this token for this example. You can delete it later
+              and create a safer one if you want.
+            </AlertDescription>
+          </Alert>
         </div>
-      )}
+      ) : null}
 
       {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
     </>
   );
-}
+});
+
+export default TokenCreateForm;

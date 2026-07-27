@@ -1,7 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { logout } from "@/lib/api";
 import { clearSession, sessionDisplayLabel } from "@/lib/auth";
-import { DOCS_PATH } from "@/lib/constants";
+import { BUILD_PATH, DOCS_PATH } from "@/lib/constants";
 import { serverLoginURL } from "@/lib/authReturn";
 import { appPath } from "@/lib/mount";
 import { useAuthInfoQuery, useAuthSessionQuery } from "@/lib/queries";
@@ -12,6 +12,7 @@ import { MoonIcon, SunIcon, SunMoonIcon } from "./icons";
 const links = [
   { href: "/authorization", label: "Authorization" },
   { href: "/apps", label: "Apps" },
+  { href: BUILD_PATH, label: "Build" },
   { href: "/workflows", label: "Workflows" },
   { href: DOCS_PATH, label: "Docs" },
 ];

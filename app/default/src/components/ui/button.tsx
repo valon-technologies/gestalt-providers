@@ -1,8 +1,12 @@
+/**
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ */
+
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/cn";
 
 // Hover/press feedback is an on-color state-layer overlay, not a brightness
 // filter (press-feedback.md / RES-20260617-004): the `::after` scrim paints in

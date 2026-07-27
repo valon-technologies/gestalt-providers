@@ -1,9 +1,12 @@
+import type { ReactNode } from "react";
 import {
   Outlet,
   createRoute,
   createRouter,
   redirect,
 } from "@tanstack/react-router";
+import AuthGuard from "@/components/AuthGuard";
+import Nav from "@/components/Nav";
 import DocsShell from "@/docs/DocsShell";
 import {
   AuthorizationDocsPage,
@@ -19,6 +22,7 @@ import { useDocumentTitle } from "@/hooks/use-document-title";
 import AppAdminPage from "@/pages/app-admin";
 import AppsPage from "@/pages/apps";
 import AuthorizationPage from "@/pages/authorization";
+import BuildPage, { BuildIndexRedirect } from "@/pages/build";
 import IdentitiesPage from "@/pages/identities";
 import IntegrationsPage from "@/pages/integrations";
 import WorkflowsPage from "@/pages/workflows";
@@ -73,6 +77,33 @@ function DocsTroubleshootingRoute() {
   return <TroubleshootingDocsPage />;
 }
 
+function BuildLayout({ children }: { children: ReactNode }) {
+  return (
+    <AuthGuard>
+      <div className="min-h-screen">
+        <Nav />
+        {children}
+      </div>
+    </AuthGuard>
+  );
+}
+
+function BuildIndexRoute() {
+  return (
+    <BuildLayout>
+      <BuildIndexRedirect />
+    </BuildLayout>
+  );
+}
+
+function BuildStepRoute() {
+  return (
+    <BuildLayout>
+      <BuildPage />
+    </BuildLayout>
+  );
+}
+
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
@@ -93,6 +124,18 @@ const appsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/apps",
   component: AppsPage,
+});
+
+const buildIndexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/build",
+  component: BuildIndexRoute,
+});
+
+const buildStepRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/build/$stepId",
+  component: BuildStepRoute,
 });
 
 const appAdminRoute = createRoute({
@@ -197,6 +240,8 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   agentsRoute,
   appsRoute,
+  buildIndexRoute,
+  buildStepRoute,
   appAdminRoute,
   authorizationRoute,
   identitiesRoute,

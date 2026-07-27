@@ -1,0 +1,442 @@
+import {
+  test,
+  expect,
+  mockAuthInfo,
+  mockIntegrations,
+  mockIntegrationOperations,
+  mockManagedIdentities,
+  mockTokens,
+} from "./fixtures";
+
+const catalogFixtures = [
+  {
+    name: "slack",
+    displayName: "Slack",
+    description: "Slack",
+    iconSvg:
+      '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>',
+    credentialState: "missing" as const,
+    status: "needs_user_connection" as const,
+  },
+  {
+    name: "pagerduty",
+    displayName: "PagerDuty",
+    description: "PagerDuty",
+    iconSvg:
+      '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>',
+    credentialState: "missing" as const,
+    status: "needs_user_connection" as const,
+  },
+  {
+    name: "linear",
+    displayName: "Linear",
+    description: "Linear",
+    iconSvg:
+      '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v16H4z"/></svg>',
+    credentialState: "missing" as const,
+    status: "needs_user_connection" as const,
+  },
+  {
+    name: "ashby",
+    displayName: "Ashby",
+    description: "Ashby",
+    iconSvg:
+      '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>',
+    credentialState: "missing" as const,
+    status: "needs_user_connection" as const,
+  },
+  {
+    name: "intercom",
+    displayName: "Intercom",
+    description: "Intercom",
+    iconSvg:
+      '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>',
+    credentialState: "missing" as const,
+    status: "needs_user_connection" as const,
+  },
+  {
+    name: "aiSpendTracker",
+    displayName: "AI Spend Tracker",
+    description: "Personal AI spend",
+    mountedPath: "/ai-spend",
+    iconSvg:
+      '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="8"/></svg>',
+    credentialState: "connected" as const,
+    status: "ready" as const,
+  },
+  {
+    name: "oncall",
+    displayName: "Oncall",
+    description: "Oncall",
+    mountedPath: "/oncall",
+    iconSvg:
+      '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 6l10 7 10-7v12H2z"/></svg>',
+    credentialState: "connected" as const,
+    status: "ready" as const,
+  },
+  {
+    name: "servicingQuiz",
+    displayName: "Servicing Quiz",
+    description: "SATs",
+    mountedPath: "/servicing-quiz",
+    iconSvg:
+      '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12"/></svg>',
+    credentialState: "connected" as const,
+    status: "ready" as const,
+  },
+];
+
+const defaultToken = {
+  id: "tok_123",
+  name: "Default token",
+  scopes: ["api"],
+  createdAt: "2026-04-13T00:00:00Z",
+};
+
+test.describe("Build page", () => {
+  test.beforeEach(async ({ authenticatedPage }) => {
+    await mockAuthInfo(authenticatedPage, {
+      provider: "test-sso",
+      displayName: "Test SSO",
+    });
+    await mockManagedIdentities(authenticatedPage, []);
+    await mockIntegrations(authenticatedPage, catalogFixtures);
+    await mockTokens(authenticatedPage, []);
+  });
+
+  test("redirects /build to intro; outcome toggle drives AgentConsole", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/build");
+
+    await expect(page).toHaveURL(/\/build\/intro$/);
+    await expect(
+      page.getByRole("heading", { name: "Pick what to build", exact: true }),
+    ).toBeVisible();
+
+    await expect(page.getByTestId("build-intro")).toBeVisible();
+    await expect(page.getByTestId("build-outcome-toggle")).toBeVisible();
+    await expect(page.getByTestId("build-outcome-card-aiSpendTracker")).toBeVisible();
+    await expect(page.getByTestId("build-outcome-card-oncall")).toBeVisible();
+    await expect(page.getByTestId("build-outcome-card-ashby")).toBeVisible();
+    await expect(page.getByTestId("build-outcome-card-servicingQuiz")).toBeVisible();
+
+    await expect(
+      page.getByTestId("build-outcome-card-aiSpendTracker").getByText("Engineering"),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("radio", { name: "Monitor spending" }),
+    ).toBeChecked();
+    await expect(page.getByText("Already built at Acme")).toHaveCount(0);
+    await expect(page.getByRole("radio", { name: "AI Spend Tracker" })).toHaveCount(
+      0,
+    );
+
+    await expect(page.getByTestId("build-agent-console")).toBeVisible();
+    await expect(page.getByTestId("build-agent-console")).toContainText(
+      /How much did I spend on AI last week/i,
+    );
+
+    await page.getByRole("radio", { name: "Practice servicing knowledge" }).click();
+    await expect(page.getByTestId("build-outcome-department")).toHaveText(
+      "Default Servicing",
+    );
+    await expect(page.getByTestId("build-agent-console")).toContainText(
+      /Am I ready for another servicing quiz/i,
+    );
+
+    await page.getByRole("radio", { name: "Check oncall schedule" }).click();
+    await expect(
+      page.getByTestId("build-outcome-card-oncall").getByText("Engineering"),
+    ).toBeVisible();
+    await expect(page.getByTestId("build-outcome-department")).toHaveText(
+      "Engineering",
+    );
+
+    await expect(page.getByTestId("build-nav-intro")).toBeVisible();
+    await expect(page.getByTestId("build-nav-authorize")).toBeVisible();
+    await expect(page.getByTestId("build-nav-install")).toBeVisible();
+    await expect(page.getByTestId("build-nav-connect")).toBeVisible();
+    await expect(page.getByTestId("build-nav-invoke")).toBeVisible();
+
+    await expect(page.getByTestId("build-showcase")).toHaveCount(0);
+    await expect(page.getByLabel("Token name")).toHaveCount(0);
+  });
+
+  test("continue from intro opens authorize", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/build/intro");
+    await page.getByTestId("build-intro-continue").click();
+    await expect(page).toHaveURL(/\/build\/authorize$/);
+    await expect(
+      page.getByRole("radio", { name: "Use existing token" }),
+    ).not.toBeChecked();
+    await expect(
+      page.getByRole("radio", { name: "Create new token" }),
+    ).not.toBeChecked();
+    await expect(page.getByLabel("Token name")).toHaveCount(0);
+    await page.getByRole("radio", { name: "Create new token" }).click();
+    await expect(page.getByLabel("Token name")).toBeVisible();
+    await expect(page.getByText("Expiration", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("build-step-next")).toContainText(
+      "Install Gestalt",
+    );
+  });
+
+  test("paste + Add to Cursor on install after tokens exist", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockTokens(page, [defaultToken]);
+    await page.addInitScript(() => {
+      sessionStorage.setItem("gestalt.build.introSeen", "1");
+      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
+      sessionStorage.setItem("gestalt.build.apiTokenGrantId", "tok_123");
+      sessionStorage.setItem(
+        "gestalt.build.apiToken",
+        "gst_api_test_token_for_install",
+      );
+    });
+
+    await page.goto("/build");
+
+    await expect(page).toHaveURL(/\/build\/install$/);
+    await expect(
+      page.getByRole("radio", { name: "Cursor" }),
+    ).not.toBeChecked();
+    await page.getByRole("radio", { name: "Cursor" }).click();
+    await expect(page.getByTestId("build-add-to-cursor")).toBeEnabled();
+    await expect(page.getByLabel("Paste an API token secret")).toHaveCount(0);
+    await expect(page.getByTestId("build-add-to-cursor")).toHaveAttribute(
+      "href",
+      /cursor:\/\/anysphere\.cursor-deeplink\/mcp\/install/,
+    );
+
+    await page.getByRole("radio", { name: "Claude Code" }).click();
+    await expect(page.getByTestId("build-install-claude-snippet")).toBeVisible();
+    await expect(page.getByText(/claude mcp add --transport http/)).toBeVisible();
+    await page.getByRole("radio", { name: "Codex" }).click();
+    await expect(page.getByTestId("build-install-codex-snippet")).toBeVisible();
+    await expect(page.getByText(/codex mcp add gestalt/)).toBeVisible();
+  });
+
+  test("step pager advances from authorize to install after create", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.addInitScript(() => {
+      sessionStorage.setItem("gestalt.build.introSeen", "1");
+    });
+
+    await mockTokens(page, []);
+    await page.route("**/api/v1/tokens", async (route, request) => {
+      if (request.method() === "POST") {
+        const body = request.postDataJSON() as {
+          name?: string;
+          scopes?: string;
+          expiresIn?: number;
+        };
+        expect(body).toEqual({
+          name: "ci-pipeline",
+          scopes: "",
+          expiresIn: 30 * 24 * 60 * 60,
+        });
+        await route.fulfill({
+          json: {
+            id: "tok_new",
+            name: "ci-pipeline",
+            scopes: [],
+            createdAt: "2026-07-21T00:00:00Z",
+            token: "gst_api_created_once_secret",
+          },
+        });
+        return;
+      }
+      await route.fallback();
+    });
+
+    await page.goto("/build/authorize");
+
+    await page.getByRole("radio", { name: "Create new token" }).click();
+    await page.getByLabel("Token name").fill("ci-pipeline");
+    await expect(page.getByRole("button", { name: "Create Token" })).toHaveCount(
+      0,
+    );
+    await expect(page.getByTestId("build-step-next")).toBeEnabled();
+
+    await page.getByTestId("build-step-next").click();
+
+    await expect(page).toHaveURL(/\/build\/install$/);
+    await expect(page.getByTestId("build-step-next")).toBeDisabled();
+    await page.getByRole("radio", { name: "Cursor" }).click();
+    await expect(page.getByTestId("build-add-to-cursor")).toBeEnabled();
+    await expect(page.getByLabel("API token secret")).toHaveCount(0);
+    await expect(page.getByTestId("build-step-next")).toBeEnabled();
+    await expect(page.getByTestId("build-step-prev")).toContainText(
+      "Choose a token",
+    );
+  });
+
+  test("connect shows companions for Oncall exemplar", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockTokens(page, [defaultToken]);
+    await page.addInitScript(() => {
+      sessionStorage.setItem("gestalt.build.introSeen", "1");
+      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
+      sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
+      sessionStorage.setItem("gestalt.build.activeExemplarId", "oncall");
+    });
+
+    await page.goto("/build");
+
+    await expect(page).toHaveURL(/\/build\/connect$/);
+    await expect(page.getByTestId("build-connect-app-pagerduty")).toBeVisible();
+    await expect(page.getByTestId("build-connect-app-linear")).toBeVisible();
+    await expect(page.getByTestId("build-connect-app-slack")).toBeVisible();
+    await expect(
+      page.getByTestId("build-connect-app-pagerduty"),
+    ).toContainText("PagerDuty");
+  });
+
+  test("connect shows companions for Ashby exemplar", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockTokens(page, [defaultToken]);
+    await page.addInitScript(() => {
+      sessionStorage.setItem("gestalt.build.introSeen", "1");
+      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
+      sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
+      sessionStorage.setItem("gestalt.build.activeExemplarId", "ashby");
+    });
+
+    await page.goto("/build");
+
+    await expect(page).toHaveURL(/\/build\/connect$/);
+    await expect(page.getByTestId("build-connect-apps")).toBeVisible();
+    await expect(page.getByTestId("integration-card-ashby")).toBeVisible();
+    await expect(page.getByTestId("integration-card-slack")).toBeVisible();
+  });
+
+  test("shows invoke after companions connected for AI Spend Tracker", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockIntegrations(page, [
+      {
+        ...catalogFixtures[0],
+        credentialState: "connected",
+        status: "ready",
+      },
+      catalogFixtures[1],
+      catalogFixtures[2],
+      catalogFixtures[3],
+      catalogFixtures[4],
+      catalogFixtures[5],
+      catalogFixtures[6],
+      catalogFixtures[7],
+    ]);
+    await mockTokens(page, [defaultToken]);
+    await mockIntegrationOperations(page, {
+      aiSpendTracker: [
+        {
+          id: "getMyUsage",
+          title: "Get my usage",
+          description: "Returns personal AI coding spend for a time window.",
+          readOnly: true,
+        },
+      ],
+    });
+    await page.addInitScript(() => {
+      sessionStorage.setItem("gestalt.build.introSeen", "1");
+      sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
+      sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
+      sessionStorage.setItem(
+        "gestalt.build.activeExemplarId",
+        "aiSpendTracker",
+      );
+    });
+
+    await page.goto("/build");
+
+    await expect(page).toHaveURL(/\/build\/invoke$/);
+    await expect(page.getByTestId("build-golden-prompt")).toBeVisible();
+    await expect(
+      page.getByText(/Prompt your favorite LLM with/),
+    ).toBeVisible();
+    await expect(page.getByTestId("build-invoke-operation")).toContainText(
+      "aiSpendTracker.getMyUsage",
+    );
+    await expect(page.getByTestId("build-cli-alert")).toBeVisible();
+    await expect(
+      page.getByText(/If you want to use the CLI instead/),
+    ).toBeVisible();
+    await expect(page.getByTestId("build-agent-console-reply")).toBeVisible();
+    await expect(page.getByTestId("build-open-exemplar")).toHaveAttribute(
+      "href",
+      "/ai-spend",
+    );
+    await expect(page.getByTestId("build-open-exemplar")).toHaveAttribute(
+      "target",
+      "_blank",
+    );
+    await expect(page.getByTestId("build-related-apps")).toBeVisible();
+    await expect(page.getByTestId("build-step-next")).toHaveAttribute(
+      "href",
+      "/apps",
+    );
+    await expect(page.getByTestId("build-step-next")).toContainText(
+      "See all apps",
+    );
+    await expect(page.getByTestId("build-step-panel")).toBeVisible();
+    await expect(page.getByTestId("build-nav-intro")).toHaveAttribute(
+      "data-state",
+      "completed",
+    );
+  });
+
+  test("authorize step lists tokens as radios and supports create new", async ({
+    authenticatedPage: page,
+  }) => {
+    await mockTokens(page, [
+      {
+        ...defaultToken,
+        lastUsedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      },
+    ]);
+    await page.addInitScript(() => {
+      sessionStorage.setItem("gestalt.build.introSeen", "1");
+      sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
+      sessionStorage.setItem("gestalt.build.activeExemplarId", "servicingQuiz");
+    });
+
+    await page.goto("/build/authorize");
+
+    await expect(page.getByTestId("build-token-radio")).toBeVisible();
+    await expect(
+      page.getByRole("radio", { name: "Use existing token" }),
+    ).not.toBeChecked();
+    await expect(
+      page.getByRole("radio", { name: "Create new token" }),
+    ).not.toBeChecked();
+    await page.getByRole("radio", { name: "Use existing token" }).click();
+    await expect(
+      page.getByRole("radio", { name: "Use existing token" }),
+    ).toBeChecked();
+    await expect(page.getByTestId("build-existing-token-list")).toBeVisible();
+    await expect(page.getByText("tok_123")).toBeVisible();
+    await expect(page.getByText("Added on Apr 12, 2026")).toBeVisible();
+    await expect(
+      page.getByText("Last used within the last week"),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("radio", { name: "Create new token" }),
+    ).toBeVisible();
+    await expect(page.getByLabel("Token name")).toHaveCount(0);
+    await page.getByRole("radio", { name: "Create new token" }).click();
+    await expect(page.getByLabel("Token name")).toBeVisible();
+    await expect(page.getByText("Expiration", { exact: true })).toBeVisible();
+    await expect(page.getByText("App access", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Create Token" })).toHaveCount(
+      0,
+    );
+  });
+});

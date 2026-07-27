@@ -1,7 +1,11 @@
+/**
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ */
+
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 
-import { cn } from "@/lib/utils";
+import { cn } from "@/lib/cn";
 
 // Two roles share one <label> primitive (Carbon / form a11y):
 //   inline — companion text beside checkbox/radio. Body size + foreground; the

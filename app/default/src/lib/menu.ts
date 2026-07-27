@@ -1,3 +1,7 @@
+/**
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ */
+
 import { cva } from "class-variance-authority";
 
 // Shared row styling for menu surfaces (DropdownMenu, Select, Command): one
