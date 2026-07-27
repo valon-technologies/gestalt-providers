@@ -327,13 +327,48 @@ export async function mockAppAdminRegistryHistory(
   };
 }
 
+function tokenToIdentityGrant(token: APIToken) {
+  return {
+    scopes: (token.scopes ?? []).map((scope) => ({ scope, resource: [] })),
+    createdAt: Math.floor(new Date(token.createdAt).getTime() / 1000),
+    expiresAt: token.expiresAt
+      ? Math.floor(new Date(token.expiresAt).getTime() / 1000)
+      : 0,
+  };
+}
+
 export async function mockTokens(page: Page, tokens: APIToken[]) {
-  await page.route("**/api/v1/tokens", (route: Route, request) => {
+  let currentTokens = [...tokens];
+
+  await page.route("**/api/v2/identity/grants", (route: Route, request) => {
     if (request.method() === "GET") {
-      route.fulfill({ json: tokens });
-    } else {
-      route.fallback();
+      route.fulfill({
+        json: { grantIds: currentTokens.map((token) => token.id) },
+      });
+      return;
     }
+    route.fallback();
+  });
+
+  await page.route("**/api/v2/identity/grants/*", (route: Route, request) => {
+    const grantId = decodeURIComponent(
+      request.url().split("/api/v2/identity/grants/")[1]?.split("?")[0] ?? "",
+    );
+    if (request.method() === "GET") {
+      const token = currentTokens.find((entry) => entry.id === grantId);
+      if (!token) {
+        route.fulfill({ status: 404, json: { error: "grant not found" } });
+        return;
+      }
+      route.fulfill({ json: tokenToIdentityGrant(token) });
+      return;
+    }
+    if (request.method() === "DELETE") {
+      currentTokens = currentTokens.filter((entry) => entry.id !== grantId);
+      route.fulfill({ json: {} });
+      return;
+    }
+    route.fallback();
   });
 }
 

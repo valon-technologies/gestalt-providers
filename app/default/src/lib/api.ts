@@ -1003,8 +1003,72 @@ export async function disconnectIntegration(
   );
 }
 
+interface IdentityGrantScope {
+  scope: string;
+  resource?: string[];
+}
+
+interface ListIdentityGrantsResponse {
+  grantIds?: string[];
+}
+
+interface IdentityGrantResponse {
+  scopes?: IdentityGrantScope[];
+  createdAt?: number;
+  expiresAt?: number;
+}
+
+const IDENTITY_GRANTS_PATH = "/api/v2/identity/grants";
+
+function unixSecondsToISO(seconds?: number): string | undefined {
+  if (!seconds || seconds <= 0) {
+    return undefined;
+  }
+  return new Date(seconds * 1000).toISOString();
+}
+
+function grantScopesToTokenScopes(
+  scopes?: IdentityGrantScope[],
+): string[] | undefined {
+  if (!scopes?.length) {
+    return undefined;
+  }
+  const parts = scopes
+    .map((scope) => scope.scope.trim())
+    .filter((scope) => scope.length > 0);
+  return parts.length > 0 ? parts : undefined;
+}
+
+function identityGrantToAPIToken(
+  grantId: string,
+  grant: IdentityGrantResponse,
+): APIToken {
+  return {
+    id: grantId,
+    name: grantId,
+    scopes: grantScopesToTokenScopes(grant.scopes),
+    createdAt:
+      unixSecondsToISO(grant.createdAt) ?? new Date(0).toISOString(),
+    expiresAt: unixSecondsToISO(grant.expiresAt),
+  };
+}
+
 export async function getTokens(): Promise<APIToken[]> {
-  return fetchAPI("/api/v1/tokens");
+  const list = await fetchAPI<ListIdentityGrantsResponse>(IDENTITY_GRANTS_PATH);
+  const grantIds = list.grantIds ?? [];
+  if (grantIds.length === 0) {
+    return [];
+  }
+
+  const grants = await Promise.all(
+    grantIds.map(async (grantId) => {
+      const grant = await fetchAPI<IdentityGrantResponse>(
+        `${IDENTITY_GRANTS_PATH}/${encodeURIComponent(grantId)}`,
+      );
+      return identityGrantToAPIToken(grantId, grant);
+    }),
+  );
+  return grants;
 }
 
 export async function getWorkflowRuns(): Promise<WorkflowRun[]> {
@@ -1389,7 +1453,9 @@ export async function createToken(
 }
 
 export async function revokeToken(id: string): Promise<void> {
-  await fetchAPI(`/api/v1/tokens/${id}`, { method: "DELETE" });
+  await fetchAPI(`${IDENTITY_GRANTS_PATH}/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
 }
 
 const MANAGED_SUBJECTS_PATH = "/api/v1/authorization/subjects";

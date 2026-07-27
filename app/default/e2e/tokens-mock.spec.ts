@@ -50,11 +50,39 @@ test.describe("Token Management", () => {
   }) => {
     const page = authenticatedPage;
     let tokens: APIToken[] = [];
-    await page.route("**/api/v1/tokens", async (route, request) => {
+    await page.route("**/api/v2/identity/grants", async (route, request) => {
       if (request.method() === "GET") {
-        await route.fulfill({ json: tokens });
+        await route.fulfill({
+          json: { grantIds: tokens.map((token) => token.id) },
+        });
         return;
       }
+      await route.continue();
+    });
+    await page.route("**/api/v2/identity/grants/*", async (route, request) => {
+      const grantId = decodeURIComponent(
+        request.url().split("/api/v2/identity/grants/")[1]?.split("?")[0] ?? "",
+      );
+      if (request.method() === "GET") {
+        const token = tokens.find((entry) => entry.id === grantId);
+        if (!token) {
+          await route.fulfill({ status: 404, json: { error: "grant not found" } });
+          return;
+        }
+        await route.fulfill({
+          json: {
+            scopes: (token.scopes ?? []).map((scope) => ({ scope, resource: [] })),
+            createdAt: Math.floor(new Date(token.createdAt).getTime() / 1000),
+            expiresAt: token.expiresAt
+              ? Math.floor(new Date(token.expiresAt).getTime() / 1000)
+              : 0,
+          },
+        });
+        return;
+      }
+      await route.continue();
+    });
+    await page.route("**/api/v1/tokens", async (route, request) => {
       if (request.method() === "POST") {
         const body = request.postDataJSON() as { name?: string; scopes?: string; expiresIn?: number };
         expect(body).toEqual({ name: "audit-label", scopes: "my-app", expiresIn: 30 * 24 * 60 * 60 });
@@ -96,20 +124,48 @@ test.describe("Token Management", () => {
   }) => {
     const page = authenticatedPage;
     let tokens: APIToken[] = [];
-    let getCount = 0;
+    let listCount = 0;
 
-    await page.route("**/api/v1/tokens", async (route, request) => {
+    await page.route("**/api/v2/identity/grants", async (route, request) => {
       if (request.method() === "GET") {
-        getCount += 1;
-        if (getCount === 1) {
+        listCount += 1;
+        if (listCount === 1) {
           await new Promise((resolve) => setTimeout(resolve, 250));
-          await route.fulfill({ json: [] });
+          await route.fulfill({ json: { grantIds: [] } });
           return;
         }
-        await route.fulfill({ json: tokens });
+        await route.fulfill({
+          json: { grantIds: tokens.map((token) => token.id) },
+        });
         return;
       }
+      await route.continue();
+    });
+    await page.route("**/api/v2/identity/grants/*", async (route, request) => {
+      const grantId = decodeURIComponent(
+        request.url().split("/api/v2/identity/grants/")[1]?.split("?")[0] ?? "",
+      );
+      if (request.method() === "GET") {
+        const token = tokens.find((entry) => entry.id === grantId);
+        if (!token) {
+          await route.fulfill({ status: 404, json: { error: "grant not found" } });
+          return;
+        }
+        await route.fulfill({
+          json: {
+            scopes: (token.scopes ?? []).map((scope) => ({ scope, resource: [] })),
+            createdAt: Math.floor(new Date(token.createdAt).getTime() / 1000),
+            expiresAt: token.expiresAt
+              ? Math.floor(new Date(token.expiresAt).getTime() / 1000)
+              : 0,
+          },
+        });
+        return;
+      }
+      await route.continue();
+    });
 
+    await page.route("**/api/v1/tokens", async (route, request) => {
       if (request.method() === "POST") {
         const body = request.postDataJSON() as { name?: string; scopes?: string };
         expect(body.scopes).toBe("other-app");
@@ -148,20 +204,42 @@ test.describe("Token Management", () => {
   test("revokes a token by grant ID", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     let tokens = [...sampleTokens];
-    await page.route("**/api/v1/tokens", (route, request) => {
+    await page.route("**/api/v2/identity/grants", (route, request) => {
       if (request.method() === "GET") {
-        route.fulfill({ json: tokens });
+        route.fulfill({
+          json: { grantIds: tokens.map((token) => token.id) },
+        });
       } else {
         route.continue();
       }
     });
-    await page.route("**/api/v1/tokens/*", (route, request) => {
-      if (request.method() === "DELETE") {
-        tokens = tokens.filter((t) => !request.url().includes(t.id));
-        route.fulfill({ json: { status: "revoked" } });
-      } else {
-        route.continue();
+    await page.route("**/api/v2/identity/grants/*", (route, request) => {
+      const grantId = decodeURIComponent(
+        request.url().split("/api/v2/identity/grants/")[1]?.split("?")[0] ?? "",
+      );
+      if (request.method() === "GET") {
+        const token = tokens.find((entry) => entry.id === grantId);
+        if (!token) {
+          route.fulfill({ status: 404, json: { error: "grant not found" } });
+          return;
+        }
+        route.fulfill({
+          json: {
+            scopes: (token.scopes ?? []).map((scope) => ({ scope, resource: [] })),
+            createdAt: Math.floor(new Date(token.createdAt).getTime() / 1000),
+            expiresAt: token.expiresAt
+              ? Math.floor(new Date(token.expiresAt).getTime() / 1000)
+              : 0,
+          },
+        });
+        return;
       }
+      if (request.method() === "DELETE") {
+        tokens = tokens.filter((entry) => entry.id !== grantId);
+        route.fulfill({ json: {} });
+        return;
+      }
+      route.continue();
     });
     await mockIntegrations(page, []);
 
