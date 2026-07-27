@@ -37,11 +37,14 @@ function availabilityStatus(revision: AppAdminRegistryRevision): {
     case "desired":
       return { label: "Current", variant: "success" };
     case "redeployable":
+    case "available":
       return { label: "Redeployable", variant: "secondary" };
     case "locked":
       return { label: "Locked", variant: "secondary" };
+    case "expired":
+      return { label: "Expired", variant: "destructive" };
     default:
-      return { label: revision.deploymentState || "—", variant: "secondary" };
+      return { label: "—", variant: "secondary" };
   }
 }
 
