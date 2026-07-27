@@ -92,7 +92,6 @@ export default function AppsPage() {
             </div>
             <div className="w-full md:w-auto">
               <PluginSearchBar
-                integrations={integrations}
                 query={query}
                 onQueryChange={setQuery}
                 disabled={loading || !!error || integrations.length === 0}
