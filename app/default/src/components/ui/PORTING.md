@@ -47,6 +47,10 @@ ink utilities — those names are Registry fills. Optional console-only
 Compose labeled controls with `Field` + `FieldLabel` (+ `FieldDescription` /
 `FieldError`) — see Registry `guidelines/fields.md`.
 
+`Input` / `Textarea` expose a `chrome` variant (`standalone` default,
+`group` for `InputGroupInput` / `InputGroupTextarea`) so the shell owns the
+focus ring without stacking on the inner control.
+
 ## Choice cards (RadioGroup)
 
 Do not fork tile chrome at call sites. Import helpers from

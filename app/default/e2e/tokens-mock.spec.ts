@@ -27,7 +27,7 @@ test.describe("Token Management", () => {
     await mockTokens(page, sampleTokens);
     await mockIntegrations(page, []);
 
-    await page.goto("/settings");
+    await page.goto("/settings/tokens");
     await expect(page).toHaveURL(/\/settings/);
     await expect(
       page.getByRole("heading", { name: "Settings" }),
@@ -46,7 +46,7 @@ test.describe("Token Management", () => {
     await mockTokens(page, []);
     await mockIntegrations(page, []);
 
-    await page.goto("/settings");
+    await page.goto("/settings/tokens");
     await expect(page.getByText("No API tokens yet.")).toBeVisible();
   });
 
@@ -70,13 +70,14 @@ test.describe("Token Management", () => {
     });
     await mockIntegrations(page, []);
 
-    await page.goto("/settings");
+    await page.goto("/settings/tokens");
     await page.getByLabel("Token name").fill("audit-label");
     await page.getByRole("radio", { name: /all apps/i }).click();
     await page.getByRole("button", { name: "Create Token" }).click();
 
-    await expect(page.getByText("Copy this token now")).toBeVisible();
-    await expect(page.getByText("gestalt_abc123secret")).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "API token" })).toHaveValue(
+      "gestalt_abc123secret",
+    );
     await expect(page.locator("tr", { hasText: "tok-new" })).toBeVisible();
   });
 
@@ -97,12 +98,14 @@ test.describe("Token Management", () => {
     });
     await mockIntegrations(page, []);
 
-    await page.goto("/settings");
+    await page.goto("/settings/tokens");
     await page.getByLabel("Token name").fill("race-token");
     await page.getByRole("radio", { name: /all apps/i }).click();
     await page.getByRole("button", { name: "Create Token" }).click();
 
-    await expect(page.getByText("Copy this token now")).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "API token" })).toHaveValue(
+      "gestalt_race_secret",
+    );
     await expect(page.locator("tr", { hasText: "tok-race" })).toBeVisible();
     await expect(page.getByText("No API tokens yet.")).toBeHidden();
   });
@@ -112,11 +115,15 @@ test.describe("Token Management", () => {
     await mockTokens(page, sampleTokens);
     await mockIntegrations(page, []);
 
-    await page.goto("/settings");
+    await page.goto("/settings/tokens");
     await expect(page.getByText("tok-1")).toBeVisible();
 
     await page.getByRole("button", { name: "Revoke" }).first().click();
-    await expect(page.getByText("tok-1")).toBeHidden();
-    await expect(page.getByText("tok-2")).toBeVisible();
+    const revokeDialog = page.getByRole("alertdialog", { name: "Revoke token" });
+    await expect(revokeDialog).toBeVisible();
+    await revokeDialog.getByRole("button", { name: "Revoke token" }).click();
+    await expect(revokeDialog).toBeHidden();
+    await expect(page.locator("tr", { hasText: "tok-1" })).toHaveCount(0);
+    await expect(page.locator("tr", { hasText: "tok-2" })).toBeVisible();
   });
 });

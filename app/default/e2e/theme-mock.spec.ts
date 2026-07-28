@@ -133,7 +133,7 @@ test.describe("Theme", () => {
     await mockIntegrations(page, []);
     await mockTokens(page, []);
 
-    await page.goto("/settings#authorization");
+    await page.goto("/settings/tokens");
 
     const bodyCopy = page.getByText(
       /Create personal tokens for local tooling/,

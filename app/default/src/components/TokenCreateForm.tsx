@@ -79,6 +79,8 @@ interface TokenCreateFormProps {
   fieldOrientation?: "vertical" | "horizontal";
   /** When false, skip the post-create plaintext copy block (Build advances on Next). */
   showPlaintextResult?: boolean;
+  /** Optional max width for token name + expiration controls (e.g. `max-w-[50%]`). */
+  controlsClassName?: string;
 }
 
 export type TokenCreateFormHandle = {
@@ -256,6 +258,7 @@ const TokenCreateForm = React.forwardRef<
     showSubmit = true,
     fieldOrientation = "vertical",
     showPlaintextResult = true,
+    controlsClassName,
   },
   ref,
 ) {
@@ -488,7 +491,7 @@ const TokenCreateForm = React.forwardRef<
         <FieldGroup className="gap-5">
           <Field orientation={fieldOrientation}>
             <FieldLabel htmlFor={nameId}>Token name</FieldLabel>
-            <FieldContent>
+            <FieldContent className={controlsClassName}>
               <Input
                 id={nameId}
                 name="name"
@@ -504,7 +507,7 @@ const TokenCreateForm = React.forwardRef<
 
           <Field orientation={fieldOrientation}>
             <FieldLabel id={expirationId}>Expiration</FieldLabel>
-            <FieldContent>
+            <FieldContent className={controlsClassName}>
               <Listbox
                 value={selectedExpiration}
                 onChange={(option: ExpirationOption) => {

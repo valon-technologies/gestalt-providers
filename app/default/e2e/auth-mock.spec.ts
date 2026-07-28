@@ -41,7 +41,7 @@ test.describe("Authentication", () => {
     await expect(page).toHaveURL((url) => {
       return (
         url.pathname === "/api/v1/auth/login" &&
-        url.searchParams.get("next") === "/identities?id=agent-1#profile"
+        url.searchParams.get("next") === "/settings/identities/agent-1#profile"
       );
     });
   });
@@ -72,13 +72,15 @@ test.describe("Authentication", () => {
     await expect(page.getByRole("menuitem", { name: /Log out/i })).toHaveCount(0);
 
     await page.goto("/identities");
+    await expect(page).toHaveURL(/\/settings\/identities$/);
     await expect(
-      page.getByRole("heading", { name: "Agent Identities" }),
+      page.getByRole("heading", { name: "Managed identities" }),
     ).toBeVisible();
 
     await page.goto("/identities?id=agent-1");
+    await expect(page).toHaveURL(/\/settings\/identities\/agent-1$/);
     await expect(
-      page.getByRole("heading", { name: "Agent Identities" }),
+      page.getByRole("heading", { name: "Settings" }),
     ).toBeVisible();
   });
 
