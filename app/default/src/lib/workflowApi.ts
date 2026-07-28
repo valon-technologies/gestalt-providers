@@ -1,4 +1,5 @@
 import { fetchAPI, normalizeWorkflowRun, type WorkflowRun } from "@/lib/api";
+import { workflowRunMatchesApp } from "@/lib/workflowActivity";
 import {
   rememberWorkflowProvider,
   resolveWorkflowProvider,
@@ -98,7 +99,12 @@ export async function listWorkflowRuns(
   const response = await fetchAPI<WorkflowRunListResponse>(
     `${WORKFLOW_RUNS_PATH}?${params}`,
   );
-  return normalizeRuns(response.runs);
+  const runs = normalizeRuns(response.runs);
+  const targetApp = opts?.targetApp?.trim();
+  if (!targetApp) {
+    return runs;
+  }
+  return runs.filter((run) => workflowRunMatchesApp(run, targetApp));
 }
 
 export async function getWorkflowRun(
