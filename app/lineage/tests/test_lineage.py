@@ -76,10 +76,10 @@ class TraverseTests(unittest.TestCase):
             provider_module.LineageSnapshot,
             "load",
             return_value=snapshot,
-        ):
+        ) as load:
             result = provider_module.get_column_lineage(
                 provider_module.GetColumnLineageInput(
-                    tenant="valon_analytics",
+                    tenant="1, 9",
                     model="raw.loans",
                     column="id",
                     direction="downstream",
@@ -89,6 +89,8 @@ class TraverseTests(unittest.TestCase):
 
         self.assertIsInstance(result, provider_module.GetColumnLineageOutput)
         assert isinstance(result, provider_module.GetColumnLineageOutput)
+        load.assert_called_once_with("valon_analytics")
+        self.assertEqual(result.tenant, "valon_analytics")
         self.assertEqual(
             [(node.model, node.column, node.depth) for node in result.results],
             [
@@ -99,7 +101,49 @@ class TraverseTests(unittest.TestCase):
             ],
         )
 
-    def test_operation_rejects_tenant_without_lineage_data(self) -> None:
+    def test_tenant_aliases_resolve_to_canonical_names(self) -> None:
+        expected_tenants = {
+            "1": "valon_mortgage",
+            "valon_mortgage": "valon_mortgage",
+            "9": "service_mac",
+            "service_mac": "service_mac",
+            "1,9": "valon_analytics",
+            "1, 9": "valon_analytics",
+            "valon_analytics": "valon_analytics",
+        }
+
+        for value, expected in expected_tenants.items():
+            with self.subTest(value=value):
+                self.assertEqual(
+                    provider_module._normalize_tenant(value),
+                    expected,
+                )
+
+    def test_operation_rejects_unknown_tenant(self) -> None:
+        result = provider_module.get_column_lineage(
+            provider_module.GetColumnLineageInput(
+                tenant="unknown",
+                model="model",
+                column="column",
+                direction="upstream",
+            ),
+            gestalt.Request(),
+        )
+
+        self.assertIsInstance(result, gestalt.Response)
+        assert isinstance(result, gestalt.Response)
+        self.assertEqual(result.status, HTTPStatus.BAD_REQUEST)
+        self.assertEqual(
+            result.body,
+            {
+                "error": (
+                    "tenant must be 1 or valon_mortgage, 9 or service_mac, "
+                    "or 1,9 or valon_analytics"
+                )
+            },
+        )
+
+    def test_operation_reports_valid_tenant_without_lineage_data(self) -> None:
         with mock.patch.object(
             provider_module.LineageSnapshot,
             "load",
@@ -110,7 +154,7 @@ class TraverseTests(unittest.TestCase):
         ):
             result = provider_module.get_column_lineage(
                 provider_module.GetColumnLineageInput(
-                    tenant="unknown",
+                    tenant="9",
                     model="model",
                     column="column",
                     direction="upstream",
@@ -123,7 +167,7 @@ class TraverseTests(unittest.TestCase):
         self.assertEqual(result.status, HTTPStatus.NOT_FOUND)
         self.assertEqual(
             result.body,
-            {"error": "No column lineage data found for tenant: unknown"},
+            {"error": "No column lineage data found for tenant: service_mac"},
         )
 
     def test_max_depth_stops_traversal(self) -> None:

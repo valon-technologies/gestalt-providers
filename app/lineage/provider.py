@@ -21,10 +21,21 @@ class Direction(StrEnum):
 
 
 class GetColumnLineageInput(gestalt.Model):
-    tenant: str = gestalt.field(description="Lineage tenant")
+    tenant: str = gestalt.field(
+        description=(
+            "Lineage scope: 1 or valon_mortgage for Valon Mortgage; "
+            "9 or service_mac for ServiceMac; 1,9 or valon_analytics "
+            "for combined multi-tenant lineage. Spaces in 1, 9 are accepted."
+        )
+    )
     model: str = gestalt.field(description="dbt model or source name")
     column: str = gestalt.field(description="Column name")
-    direction: str = gestalt.field(description='"upstream" or "downstream"')
+    direction: str = gestalt.field(
+        description=(
+            '"upstream" finds source columns; "downstream" finds columns '
+            "that depend on this column"
+        )
+    )
     max_depth: int = gestalt.field(
         description="Maximum traversal depth",
         default=20,
@@ -53,13 +64,16 @@ GetColumnLineageResult: TypeAlias = GetColumnLineageOutput | ErrorResponse
 @app.operation(
     id="get_column_lineage",
     method="POST",
-    description="Get upstream or downstream lineage for a dbt column.",
+    description=(
+        "Get dbt column lineage for Valon Mortgage, ServiceMac, or the "
+        "combined analytics environment."
+    ),
 )
 def get_column_lineage(
     input: GetColumnLineageInput, _req: gestalt.Request
 ) -> GetColumnLineageResult:
     try:
-        tenant = _required_text(input.tenant, "tenant")
+        tenant = _normalize_tenant(input.tenant)
         model = _required_text(input.model, "model")
         column = _required_text(input.column, "column")
         direction = Direction(input.direction.strip().lower())
@@ -118,6 +132,26 @@ def _required_text(value: str, field_name: str) -> str:
     if not normalized:
         raise ValueError(f"{field_name} is required")
     return normalized
+
+
+def _normalize_tenant(value: str) -> str:
+    tenant = _required_text(value, "tenant")
+    normalized_tenant = ",".join(part.strip() for part in tenant.split(","))
+    tenant_mapping = {
+        "1": "valon_mortgage",
+        "9": "service_mac",
+        "1,9": "valon_analytics",
+        "valon_mortgage": "valon_mortgage",
+        "service_mac": "service_mac",
+        "valon_analytics": "valon_analytics",
+    }
+    try:
+        return tenant_mapping[normalized_tenant]
+    except KeyError as err:
+        raise ValueError(
+            "tenant must be 1 or valon_mortgage, 9 or service_mac, "
+            "or 1,9 or valon_analytics"
+        ) from err
 
 
 def _google_api_status(err: GoogleAPICallError) -> HTTPStatus:
