@@ -1209,6 +1209,7 @@ class SlackProviderTests(unittest.TestCase):
 
         user_default_selector_operations = (
             "conversations.list",
+            "users.conversations",
             "conversations.open",
             "conversations.history",
             "conversations.replies",

@@ -426,6 +426,31 @@ operations:
     type: string
     description: Message timestamp
     default: ''
+- id: users.conversations
+  method: GET
+  description: List conversations the calling user or bot is a member of. Prefer this
+    over conversations.list when you need membership-scoped channels, DMs, or MPIMs.
+  parameters:
+  - name: cursor
+    type: string
+    description: Slack pagination cursor from a previous response
+  - name: exclude_archived
+    type: boolean
+    description: Exclude archived conversations from the list
+  - name: limit
+    type: integer
+    description: Maximum number of conversations to return
+  - name: types
+    type: string
+    description: Comma-separated conversation types such as public_channel, private_channel,
+      mpim, im
+  - name: user
+    type: string
+    description: Optional user ID whose membership to browse; non-public channels are
+      limited to shared membership with the calling token
+  - name: team_id
+    type: string
+    description: Encoded team ID required when calling with an org-level token
 - id: conversations.findUserMentions
   method: POST
   description: Find Slack user mentions in channel messages
