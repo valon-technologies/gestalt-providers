@@ -20,6 +20,7 @@ import AppAdminLayout from "@/pages/app-admin-layout";
 import AppAdminSnapshotsPage from "@/pages/app-admin-snapshots";
 import AppAdminHistoryPage from "@/pages/app-admin-history";
 import AppAdminWorkflowsPage from "@/pages/app-admin-workflows";
+import AppDetailPage from "@/pages/app-detail";
 import AppsPage from "@/pages/apps";
 import BuildPage, { BuildIndexRedirect } from "@/pages/build";
 import SettingsPage from "@/pages/settings";
@@ -114,6 +115,40 @@ const buildStepRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/build/$stepId",
   component: BuildPage,
+});
+
+const APP_DETAIL_SECTIONS = [
+  "overview",
+  "access",
+  "workflows",
+  "operations",
+] as const;
+
+type AppDetailSectionSearch = (typeof APP_DETAIL_SECTIONS)[number];
+
+const appDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/apps/$appName",
+  validateSearch: (search: Record<string, unknown>): {
+    section?: AppDetailSectionSearch;
+    operation?: string;
+  } => {
+    const raw = search.section;
+    let section: AppDetailSectionSearch | undefined;
+    if (
+      typeof raw === "string" &&
+      (APP_DETAIL_SECTIONS as readonly string[]).includes(raw)
+    ) {
+      section = raw as AppDetailSectionSearch;
+    }
+    const operationRaw = search.operation;
+    const operation =
+      typeof operationRaw === "string" && operationRaw.trim()
+        ? operationRaw.trim()
+        : undefined;
+    return { section, operation };
+  },
+  component: AppDetailPage,
 });
 
 const appAdminLayoutRoute = createRoute({
@@ -320,6 +355,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   agentsRoute,
   appsRoute,
+  appDetailRoute,
   buildIndexRoute,
   buildStepRoute,
   appAdminLayoutRoute.addChildren([

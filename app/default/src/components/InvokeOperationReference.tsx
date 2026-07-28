@@ -39,8 +39,9 @@ export function InvokeOperationReference({
     <HoverCard>
       <HoverCardTrigger asChild>
         <Link
-          to="/apps/$app/admin"
-          params={{ app: appId }}
+          to="/apps/$appName"
+          params={{ appName: appId }}
+          search={{ section: "operations", operation: operationId }}
           data-testid="build-invoke-operation"
           className={cn("inline rounded-sm focus-ring", className)}
         >
@@ -78,8 +79,12 @@ export function InvokeOperationReference({
           <p className="text-xs text-faint">Read-only operation</p>
         ) : null}
         <UiLink asChild className="text-sm">
-          <Link to="/apps/$app/admin" params={{ app: appId }}>
-            View app admin
+          <Link
+            to="/apps/$appName"
+            params={{ appName: appId }}
+            search={{ section: "operations", operation: operationId }}
+          >
+            View operation
           </Link>
         </UiLink>
       </HoverCardContent>
