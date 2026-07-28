@@ -3,9 +3,8 @@ import { cn } from "@/lib/cn";
 /**
  * Gestalt console vendor of Valon Registry `table-of-contents`.
  *
- * Ownership: Valon Registry
- * (`valon-tools/apps/registry/ui/src/ui/table-of-contents.tsx`).
- * Pair with `useScrollSpy` for active-section tracking.
+ * Vendored from the upstream design-system registry. Pair with `useScrollSpy`
+ * for active-section tracking.
  *
  * NOTE: `kind: "separator"` is a console forward-port until Registry lands the
  * same item union — keep this file in sync when Registry ships separators.

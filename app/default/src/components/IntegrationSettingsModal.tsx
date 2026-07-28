@@ -15,7 +15,7 @@ import {
   type NormalizedConnection,
   type NormalizedIntegrationStatus,
 } from "@/lib/integrationStatus";
-import { Badge } from "@/components/Badge";
+import { Badge } from "@/components/ui/badge";
 import Button from "./Button";
 import { CheckCircleIcon, CloseIcon } from "./icons";
 

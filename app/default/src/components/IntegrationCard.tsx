@@ -11,11 +11,13 @@ import {
 } from "@/lib/api";
 import {
   appOpenPath,
+  appManagementPath,
   badgeVariantFromTone,
   canManageApp,
   catalogCardActivateTarget,
-  connectionSetupBucket,
+  catalogInstallState,
   getAppSurfaces,
+  primaryConnectLabel,
 } from "@/lib/catalogFilters";
 import { shouldShowIntegrationSettings } from "@/lib/integrationStatus";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
@@ -25,7 +27,7 @@ import {
 } from "@/lib/integrationStatus";
 import { resolveMountedAppHref } from "@/lib/mount";
 import { cn } from "@/lib/cn";
-import { Badge } from "./Badge";
+import { Badge } from "@/components/ui/badge";
 import AppListingDetail from "./AppListingDetail";
 import { HighlightMatch } from "./HighlightMatch";
 import IntegrationIcon from "./IntegrationIcon";
@@ -159,26 +161,32 @@ export default function IntegrationCard({
     connectionContext,
   );
   const surfaces = getAppSurfaces(integration);
-  const setupBucket = connectionSetupBucket(integration, connectionContext);
-  const isConnected = setupBucket === "ready";
+  const installState = catalogInstallState(integration, connectionContext);
   const isAppAdmin = canManageApp(integration);
   const mountedPath = appOpenPath(integration);
+  const connectLabel = primaryConnectLabel(integration, connectionContext);
   const settingsAvailable = shouldShowIntegrationSettings(
     normalizedStatus,
     readOnly,
   );
   /** Attention chip only — Ready is a check beside the options menu. */
   const statusBadgeLabel =
-    setupBucket === "needs_attention" ? normalizedStatus.summaryLabel : null;
+    installState === "needs_attention" ? normalizedStatus.summaryLabel : null;
   const statusBadgeVariant = badgeVariantFromTone(normalizedStatus.tone);
   const cardActivateTarget = catalogCardActivateTarget(
     integration,
     connectionContext,
   );
   const cardNavigationEnabled = !disableNavigation && !settingsOpen;
-  /** Installed → More (Manage / Uninstall). Not installed → Add (connect). */
-  const showInstalledMenu = isConnected;
-  const showAddButton = !isConnected && !readOnly;
+  /** Installed → More (Manage / Settings / Uninstall). Discovery → Add when connectable. */
+  const showInstalledMenu =
+    installState === "connected" || installState === "needs_attention";
+  const showInstalledCheck = showInstalledMenu;
+  const showAddButton =
+    !readOnly &&
+    (installState === "mount_only" ||
+      installState === "not_connected" ||
+      connectLabel !== null);
 
   useEffect(() => {
     if (!pendingSelection) return;
@@ -330,10 +338,9 @@ export default function IntegrationCard({
   }
 
   function navigateToAdmin() {
-    void navigate({
-      to: "/apps/$app/admin",
-      params: { app: integration.name },
-    });
+    const path = appManagementPath(integration);
+    if (!path) return;
+    void navigate({ to: path });
   }
 
   function activateCard() {
@@ -449,7 +456,7 @@ export default function IntegrationCard({
           onKeyDown={(event) => event.stopPropagation()}
         >
           <TooltipProvider>
-            {isConnected ? (
+            {showInstalledCheck ? (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span

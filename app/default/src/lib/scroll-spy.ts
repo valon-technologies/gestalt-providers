@@ -1,8 +1,7 @@
 /**
  * Gestalt console vendor of Valon Registry `scroll-spy`.
  *
- * Ownership: Valon Registry (`valon-tools/apps/registry/ui/src/lib/scroll-spy.ts`).
- * Synced from toolshed origin/main — import-path adaptation only.
+ * Vendored from the upstream design-system registry — import-path adaptation only.
  */
 
 /** A section candidate for scroll-spy activation (document/viewport tops). */

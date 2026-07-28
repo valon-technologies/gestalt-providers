@@ -1,5 +1,5 @@
 import type { Integration } from "@/lib/api";
-import { connectionSetupBucket } from "@/lib/catalogFilters";
+import { catalogInstallState } from "@/lib/catalogFilters";
 
 /**
  * Catalog browse taxonomy for /apps — ChatGPT Plugins–style layout
@@ -120,6 +120,10 @@ const APP_BUCKET: Readonly<Record<string, CatalogBucketId>> = {
   vercel: "developer-tools",
 
   // Business & operations
+  google_admin_directory: "business-operations",
+  google_admin_datatransfer: "business-operations",
+  google_forms: "productivity",
+  httpbin: "developer-tools",
 
   // Data & analytics
   bigquery: "data-analytics",
@@ -161,9 +165,10 @@ export function catalogBucketIdFor(
   return "other";
 }
 
-/** Connected / ready apps — shown in the Installed section first. */
+/** Credential-connected apps — shown in the Installed section first. */
 export function isCatalogInstalled(integration: Integration): boolean {
-  return connectionSetupBucket(integration) === "ready";
+  const state = catalogInstallState(integration);
+  return state === "connected" || state === "needs_attention";
 }
 
 export type CatalogBucketSection = {
@@ -208,11 +213,4 @@ export function groupCatalogForBrowse(
   });
 
   return { installed, sections };
-}
-
-/** @deprecated Prefer groupCatalogForBrowse — kept for call sites mid-migration. */
-export function groupCatalogByBucket(
-  integrations: Integration[],
-): CatalogBucketSection[] {
-  return groupCatalogForBrowse(integrations).sections;
 }

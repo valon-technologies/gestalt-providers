@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { INPUT_CLASSES } from "@/lib/constants";
 import { appPath } from "@/lib/mount";
 import {
@@ -35,6 +35,7 @@ function canonicalManagedIdentityID(value: string): string {
 }
 
 export default function ManagedIdentitiesPage() {
+  const navigate = useNavigate();
   const search = useRouterState({ select: (state) => state.location.search });
   const identityID = canonicalManagedIdentityID(
     new URLSearchParams(search).get("id") || "",
@@ -74,7 +75,10 @@ export default function ManagedIdentitiesPage() {
     setCreateError(null);
     try {
       const identity = await createIdentity.mutateAsync({ id, displayName });
-      window.location.href = `/identities?id=${encodeURIComponent(identity.subjectId)}`;
+      void navigate({
+        to: "/identities",
+        search: { id: identity.subjectId },
+      });
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : "Failed to create identity");
     }

@@ -16,8 +16,7 @@ import {
 /**
  * Gestalt console vendor of Valon Registry `use-scroll-spy`.
  *
- * Ownership: Valon Registry
- * (`valon-tools/apps/registry/ui/src/hooks/use-scroll-spy.ts`).
+ * Vendored from the upstream design-system registry.
  */
 
 const DEFAULT_ACTIVATION_OFFSET = 80;

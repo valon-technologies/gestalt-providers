@@ -227,7 +227,7 @@ export default function IntegrationIcon({
         hasBrandMark
           ? // Brand SVGs are full-bleed in the slot; ~12% inset matches the
             // optical padding most catalog marks already bake into their
-            // viewBox (g-issues was edge-cropped and read oversized).
+            // viewBox (one catalog mark was edge-cropped and read oversized).
             "[&>svg]:size-[76%]"
           : size === "sm"
             ? "[&>svg]:size-4"

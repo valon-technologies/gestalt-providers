@@ -1,3 +1,4 @@
+import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   useCallback,
   useDeferredValue,
@@ -39,13 +40,17 @@ import {
 } from "@/lib/queries";
 
 const APPS_PATH = appPath("/apps");
-const LEGACY_INTEGRATIONS_PATH = appPath("/integrations");
 /** Offset below the viewport top for TOC scroll-spy + scroll-margin on headings. */
 /** Must sit below `scroll-mt-24` (96px) so a clicked heading still counts as
  *  crossed after `scrollIntoView` parks it on the scroll-margin. */
 const CATALOG_TOC_ACTIVATION_OFFSET = 112;
 
 export default function AppsCatalogPageClient() {
+  const navigate = useNavigate();
+  const locationSearch = useRouterState({
+    select: (state) => state.location.search,
+  });
+  const connectedParam = new URLSearchParams(locationSearch).get("connected");
   const integrationsQuery = useIntegrationsQuery();
   const invalidateIntegrations = useInvalidateIntegrations();
 
@@ -60,15 +65,9 @@ export default function AppsCatalogPageClient() {
         : null;
 
   const [query, setQuery] = useState("");
-  const [toast, setToast] = useState<string | null>(() => {
-    if (typeof window === "undefined") {
-      return null;
-    }
-    const connected = new URLSearchParams(window.location.search).get(
-      "connected",
-    );
-    return connected ? `${connected} connected successfully.` : null;
-  });
+  const [toast, setToast] = useState<string | null>(() =>
+    connectedParam ? `${connectedParam} connected successfully.` : null,
+  );
   const deferredQuery = useDeferredValue(query);
   const filteredIntegrations = filterCatalogIntegrations(integrations, {
     query: deferredQuery,
@@ -145,17 +144,6 @@ export default function AppsCatalogPageClient() {
   );
 
   useEffect(() => {
-    if (window.location.pathname !== LEGACY_INTEGRATIONS_PATH) {
-      return;
-    }
-    window.history.replaceState(
-      null,
-      "",
-      `${APPS_PATH}${window.location.search}${window.location.hash}`,
-    );
-  }, []);
-
-  useEffect(() => {
     if (!toast) {
       window.sessionStorage.removeItem(CONNECTION_RETURN_PATH_STORAGE_KEY);
       return;
@@ -171,15 +159,17 @@ export default function AppsCatalogPageClient() {
         nextURL.origin === window.location.origin &&
         nextURL.pathname.startsWith("/")
       ) {
-        window.location.replace(
-          `${nextURL.pathname}${nextURL.search}${nextURL.hash}`,
-        );
+        void navigate({
+          to: nextURL.pathname,
+          replace: true,
+          hash: nextURL.hash,
+        });
         return;
       }
     }
 
-    window.history.replaceState(null, "", APPS_PATH);
-  }, [toast]);
+    void navigate({ to: "/apps", replace: true });
+  }, [navigate, toast]);
 
   async function refreshIntegrations(options?: { background?: boolean }) {
     try {
@@ -236,7 +226,7 @@ export default function AppsCatalogPageClient() {
       ) : null}
 
       {loading && (
-        <p className="mt-10 flex items-center gap-1.5 text-sm text-faint">
+        <p className="mt-10 flex items-center gap-1.5 text-sm text-muted-foreground-soft">
           <SpinnerIcon className="size-4 animate-spin" aria-hidden />
           Loading...
         </p>
@@ -262,7 +252,7 @@ export default function AppsCatalogPageClient() {
       )}
 
       {!loading && !error && integrations.length === 0 && (
-        <p className="mt-10 text-sm text-faint">
+        <p className="mt-10 text-sm text-muted-foreground-soft">
           No apps are available yet. Ask your admin if you expected to see ones
           here.
         </p>
@@ -273,7 +263,7 @@ export default function AppsCatalogPageClient() {
         integrations.length > 0 &&
         !hasCatalogContent && (
           <div className="mt-10 flex flex-col items-start gap-3">
-            <p className="text-sm text-faint">
+            <p className="text-sm text-muted-foreground-soft">
               {hasSearchQuery ? (
                 <>
                   No apps match <span>{`"${query.trim()}"`}</span>. Try a
