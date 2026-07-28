@@ -17,7 +17,6 @@ import {
 import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "@/lib/constants";
 import { sanitizeAuthReturnPath } from "@/lib/authReturn";
 import { appPath } from "@/lib/mount";
-import { cn } from "@/lib/cn";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import PluginSearchBar from "@/components/PluginSearchBar";
@@ -28,12 +27,12 @@ import {
   PageHeaderDescription,
   PageHeaderTitle,
 } from "@/components/ui/page-header";
-import { Eyebrow } from "@/components/ui/eyebrow";
 import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -325,16 +324,12 @@ export default function AppsCatalogPageClient() {
                         </SidebarGroup>
                       ) : null}
                       {catalogSections.length > 0 ? (
-                        <SidebarGroup className="p-0">
-                          <Eyebrow
-                            size="sm"
-                            className={cn(
-                              "px-2 py-1.5 text-sidebar-foreground/60",
-                              installed.length > 0 && "mt-2",
-                            )}
-                          >
-                            Categories
-                          </Eyebrow>
+                        <SidebarGroup
+                          className={
+                            installed.length > 0 ? "mt-2 p-0" : "p-0"
+                          }
+                        >
+                          <SidebarGroupLabel>Categories</SidebarGroupLabel>
                           <SidebarGroupContent>
                             <SidebarMenu>
                               {catalogSections.map(({ bucket }) => (
