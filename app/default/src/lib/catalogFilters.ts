@@ -17,42 +17,7 @@ export type ConnectionSetupBucket =
   | "needs_attention";
 
 /** Connection setup partitions for sort / attention — not UI filter tabs. */
-export type ConnectionFilter =
-  | "all"
-  | "needs_connection"
-  | "needs_attention"
-  | "ready";
-
-/**
- * Catalog presentation state — encodes install chrome and card navigation.
- * Distinct from `connectionSetupBucket`: mount-only apps have no credential
- * surface but still open their mounted UI from discovery.
- */
-export type CatalogInstallState =
-  | "not_connected"
-  | "needs_attention"
-  | "connected"
-  | "mount_only";
-
-/** Mounted product UI with zero connection rows — discovery, not Installed. */
-export function isMountOnlyIntegration(integration: Integration): boolean {
-  const hasMount = Boolean(integration.mountedPath?.trim());
-  const connections = integration.connections ?? [];
-  return hasMount && connections.length === 0;
-}
-
-export function catalogInstallState(
-  integration: Integration,
-  context: ConnectionContext = "current_user",
-): CatalogInstallState {
-  if (isMountOnlyIntegration(integration)) {
-    return "mount_only";
-  }
-  const bucket = connectionSetupBucket(integration, context);
-  if (bucket === "needs_connection") return "not_connected";
-  if (bucket === "needs_attention") return "needs_attention";
-  return "connected";
-}
+export type ConnectionFilter = "all" | "needs_connection" | "ready";
 
 export type SurfaceFilter = "all" | "has_ui" | "no_ui" | "has_mcp";
 
@@ -150,9 +115,6 @@ export function matchesConnectionFilter(
   context: ConnectionContext = "current_user",
 ): boolean {
   if (filter === "all") return true;
-  if (filter === "ready") {
-    return catalogInstallState(integration, context) === "connected";
-  }
   return connectionSetupBucket(integration, context) === filter;
 }
 

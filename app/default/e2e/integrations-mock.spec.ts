@@ -360,9 +360,7 @@ test.describe("Integrations", () => {
 
     await page.goto("/apps");
     await expect(
-      page.getByText(
-        "No apps are available yet. Ask your admin if you expected to see ones here.",
-      ),
+      page.getByText("No apps registered."),
     ).toBeVisible();
   });
 
