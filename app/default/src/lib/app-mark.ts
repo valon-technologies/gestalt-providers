@@ -1,3 +1,5 @@
+import { isVisibleInSafeIcon } from "@/lib/safe-svg";
+
 /**
  * Every app in the registry has a *mark* — its visual identity in the catalog.
  * A mark is one of two things, and never both:
@@ -79,14 +81,27 @@ function isOpaque(element: Element): boolean {
 }
 
 /**
- * Share of the tile a glyph's *ink* should occupy. Chosen to match what the
- * common 15%-padded mark already rendered at, so the majority are unaffected.
+ * Share of the tile a glyph's *ink* should occupy. The tile is the constant, so
+ * this is the one number that sets how large every mark reads.
  */
-const TARGET_INK_FRACTION = 0.476;
-/** Never inset further than this, or a sparse mark disappears. */
-const MIN_INSET = 0.48;
-/** Never scale a mark up past what it rendered at before normalisation. */
-const MAX_INSET = 0.68;
+const TARGET_INK_FRACTION = 0.6;
+/**
+ * Guard on the laid-out `<svg>`, so a mark padded far beyond anything we ship
+ * cannot be scaled until it collides with the tile's border. No current mark
+ * reaches it — the most heavily padded lands around 86%.
+ */
+const MAX_INSET = 0.88;
+/**
+ * Share of the tile a full-bleed mark's artwork occupies.
+ *
+ * These marks carry their own background, so they used to render at the full
+ * tile and had whatever internal margin their author happened to leave — which
+ * varies enough that some glyphs collided with the tile's rounded corners and
+ * were visibly clipped. Insetting them and painting the tile in the mark's own
+ * background colour gives a uniform safe area while keeping the fill seamless
+ * to the corners.
+ */
+const FULL_BLEED_INSET = 0.86;
 
 /**
  * How much of its own viewBox a mark reserves as padding, per side.
@@ -105,14 +120,45 @@ function paddingFraction(box: readonly number[]): number {
 }
 
 export type BrandMarkShape = {
-  /** The mark paints its own background and should be clipped flush. */
+  /** The mark paints its own background rather than sitting on transparency. */
   fullBleed: boolean;
+  /**
+   * The background colour a full-bleed mark paints, for the tile to adopt so the
+   * fill reaches the tile's corners rather than the mark's. Undefined when the
+   * background is not a plain colour we can lift, in which case the mark keeps
+   * filling the tile edge to edge.
+   */
+  backgroundColor?: string;
   /**
    * Fraction of the tile the `<svg>` should occupy, compensated for the padding
    * the mark bakes into its own viewBox so every glyph's ink lands at one size.
    */
   inset: number;
 };
+
+/**
+ * Whether an element only defines something for later reference — a clip path,
+ * a mask, a template — rather than painting. Such a rect can cover the viewBox
+ * without being the background.
+ */
+function isDefinitionOnly(element: Element): boolean {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    if (/^(defs|clipPath|mask|pattern|symbol|marker)$/.test(node.tagName)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Colours we can safely restate as a CSS background on the tile. */
+const PLAIN_COLOR = /^(#[0-9a-f]{3,8}|[a-z]+|rgba?\([\d\s.,%]+\)|hsla?\([\d\s.,%]+\))$/i;
+
+function plainColor(value: string | null): string | undefined {
+  const color = value?.trim();
+  if (!color || !PLAIN_COLOR.test(color)) return undefined;
+  if (color.toLowerCase() === "currentcolor") return undefined;
+  return color;
+}
 
 function parseViewBox(root: Element): number[] | null {
   const box = (root.getAttribute("viewBox") ?? "")
@@ -132,17 +178,29 @@ export function describeBrandMark(svg: string): BrandMarkShape {
   const box = parseViewBox(root);
   if (!box) return fallback;
 
-  const fullBleed = Array.from(root.querySelectorAll("rect")).some(
-    (rect) => isOpaque(rect) && coversViewBox(rect, box),
+  // First in document order is painted first, so it is the background.
+  const background = Array.from(root.querySelectorAll("rect")).find(
+    (rect) =>
+      isVisibleInSafeIcon(rect) &&
+      !isDefinitionOnly(rect) &&
+      isOpaque(rect) &&
+      coversViewBox(rect, box),
   );
-  if (fullBleed) return { fullBleed: true, inset: 1 };
+  if (background) {
+    const backgroundColor = plainColor(background.getAttribute("fill"));
+    return backgroundColor
+      ? { fullBleed: true, backgroundColor, inset: FULL_BLEED_INSET }
+      : // Without a colour to hand the tile, insetting would expose the tile
+        // behind the artwork, so keep filling it.
+        { fullBleed: true, inset: 1 };
+  }
 
+  // Scale up by whatever padding the mark bakes in, so the ink — not the
+  // element — lands at the target. Always >= the target, since padding only
+  // ever shrinks the artwork inside its own viewBox.
   const inner = 1 - 2 * paddingFraction(box);
   const inset = inner > 0 ? TARGET_INK_FRACTION / inner : MAX_INSET;
-  return {
-    fullBleed: false,
-    inset: Math.min(MAX_INSET, Math.max(MIN_INSET, inset)),
-  };
+  return { fullBleed: false, inset: Math.min(MAX_INSET, inset) };
 }
 
 /** Word separators used in app names and display names alike. */
@@ -173,7 +231,7 @@ function isShortAcronym(value: string): boolean {
  *   - A display name that is itself a short acronym is kept whole, so `LLM`
  *     reads as LLM rather than a truncated LL.
  *   - Two or more words take the first letter of the first two — `Acme Hub` → AH,
- *     `field-portal REST API` → FP.
+ *     `api-portal REST API` → AP.
  *   - A single word takes its first two letters — `Example` → EX. Two characters
  *     read as a monogram where one reads as a stray letter.
  *
@@ -197,7 +255,7 @@ export function appInitials(displayName: string | undefined, name: string): stri
     }
 
     // A leading acronym still contributes only its first letter, so
-    // `CI Workqueue` → CW rather than CI.
+    // `API Queue` → AQ rather than AP.
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
 

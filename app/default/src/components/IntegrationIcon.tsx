@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { DefaultIcon } from "@/components/icons";
 import { appInitials, describeBrandMark } from "@/lib/app-mark";
 import { cn } from "@/lib/cn";
-import { renderSafeIcon } from "@/lib/safe-svg";
+import { renderSafeIcon, iconSvgHasPaintableContent } from "@/lib/safe-svg";
 
 /**
  * Canonical renderer for an app's mark. Sole owner of the brand-vs-monogram
@@ -44,6 +44,16 @@ const monogramSizeClass = {
   xl: "text-xl",
 } as const;
 
+// A three-character monogram is half again as wide as a two-character one, so at
+// the same size it runs to the tile's edges. Step it down to keep the same
+// margin either side.
+const wideMonogramSizeClass = {
+  sm: "text-[0.625rem]",
+  md: "text-sm",
+  lg: "text-base",
+  xl: "text-lg",
+} as const;
+
 export default function IntegrationIcon({
   iconSvg,
   name,
@@ -67,7 +77,10 @@ export default function IntegrationIcon({
   const iconIDPrefix = `provider-icon-${useId().replace(/:/g, "")}`;
   const iconNode = iconSvg ? renderSafeIcon(iconSvg, iconIDPrefix) : null;
   const hasBrandMark = iconNode != null;
-  const shape = hasBrandMark && iconSvg ? describeBrandMark(iconSvg) : null;
+  const shape =
+    hasBrandMark && iconSvg && iconSvgHasPaintableContent(iconSvg)
+      ? describeBrandMark(iconSvg)
+      : null;
   const fullBleed = shape?.fullBleed ?? false;
   const initials = hasBrandMark ? "" : appInitials(displayName, name ?? "");
   const tile = variant === "tile";
@@ -77,8 +90,15 @@ export default function IntegrationIcon({
       data-testid="app-mark"
       data-full-bleed={fullBleed || undefined}
       style={
-        shape && !fullBleed
-          ? ({ "--mark-inset": `${(shape.inset * 100).toFixed(1)}%` } as CSSProperties)
+        shape
+          ? ({
+              "--mark-inset": `${(shape.inset * 100).toFixed(1)}%`,
+              // The tile wears the mark's own background so the fill reaches the
+              // tile's corners while the artwork sits inside the safe area.
+              ...(shape.backgroundColor
+                ? { backgroundColor: shape.backgroundColor }
+                : {}),
+            } as CSSProperties)
           : undefined
       }
       className={cn(
@@ -92,11 +112,10 @@ export default function IntegrationIcon({
         // a hairline seam showing through the clipped corners.
         tile && !fullBleed && "border border-border bg-background",
         hasBrandMark
-          ? fullBleed
-            ? "[&>svg]:size-full"
-            : // Inset by the amount that normalises this mark's own baked
-              // padding, so every glyph's ink lands at one optical size.
-              "[&>svg]:size-[var(--mark-inset)]"
+          ? // Inset by the amount that normalises this mark's own baked padding,
+            // so every glyph's ink lands at one optical size. A full-bleed mark
+            // uses it as a safe area instead, clearing the rounded corners.
+            "[&>svg]:size-[var(--mark-inset)]"
           : glyphSizeClass[size],
         className,
       )}
@@ -116,7 +135,9 @@ export default function IntegrationIcon({
             "text-foreground",
             // Size first: `text-base` also carries a line-height, so
             // tailwind-merge drops any `leading-*` that precedes it.
-            monogramSizeClass[size],
+            (initials.length > 2 ? wideMonogramSizeClass : monogramSizeClass)[
+              size
+            ],
             "leading-none",
             // Trim the box to cap height so flex centring aligns the glyphs
             // rather than the serif's ascent and descent.

@@ -152,13 +152,13 @@ test.describe("app registry icons", () => {
     { name: "tokenPile", displayName: "Token Pile", expected: "TP" },
     { name: "helloWorld", displayName: "Hello World", expected: "HW" },
     {
-      name: "agent-trace-viewer",
-      displayName: "Agent Trace Viewer",
-      expected: "AT",
+      name: "traceViewer",
+      displayName: "Trace Viewer",
+      expected: "TV",
     },
     // A leading acronym contributes only its first letter.
-    { name: "ciQueue", displayName: "CI Queue", expected: "CQ" },
-    { name: "sdtPipeline", displayName: "SDT Pipeline", expected: "SP" },
+    { name: "apiQueue", displayName: "API Queue", expected: "AQ" },
+    { name: "dataPipeline", displayName: "Data Pipeline", expected: "DP" },
     {
       name: "itAccountOnboarding",
       displayName: "IT Account Onboarding",
@@ -167,22 +167,22 @@ test.describe("app registry icons", () => {
     { name: "vmStyleGuide", displayName: "VM Style Guide", expected: "VS" },
     // Hyphens and dots are word separators, and the result is uppercased.
     {
-      name: "fieldPortal",
-      displayName: "field-portal REST API",
-      expected: "FP",
+      name: "apiPortal",
+      displayName: "api-portal REST API",
+      expected: "AP",
     },
     { name: "example-sats", displayName: "Example SATs", expected: "ES" },
     // A display name that is itself a short acronym is kept whole.
     { name: "llm", displayName: "LLM", expected: "LLM" },
     // Single word → first two letters.
     { name: "example", displayName: "Example", expected: "EX" },
-    { name: "delta", displayName: "Delta", expected: "DE" },
+    { name: "bravo", displayName: "Bravo", expected: "BR" },
     { name: "valkey", displayName: "Valkey", expected: "VA" },
     { name: "glinks", displayName: "GLinks", expected: "GL" },
     // No display name → fall back to the id, splitting camelCase so this does
     // not degrade to "DA".
     { name: "dataRecordExplorer", expected: "DR" },
-    { name: "oncall", expected: "ON" },
+    { name: "novaInc", expected: "NI" },
   ];
 
   test("derives a display-font monogram for apps with no brand mark", async ({
@@ -271,10 +271,11 @@ test.describe("app registry icons", () => {
         .boundingBox();
       return box?.width ?? 0;
     };
-    expect(await svgWidth("solid")).toBeCloseTo(await frameWidth("solid"), 0);
-    expect(await svgWidth("glyph")).toBeLessThan(
-      (await frameWidth("glyph")) * 0.8,
-    );
+    // Every mark stays clear of the tile's edge — a full-bleed one because its
+    // glyph would otherwise collide with the rounded corners, a glyph because it
+    // sits inside a visible border.
+    expect(await svgWidth("solid")).toBeLessThan(await frameWidth("solid"));
+    expect(await svgWidth("glyph")).toBeLessThan(await frameWidth("glyph"));
 
     // Inset marks are normalised on *ink*, not on element size: a mark that
     // bakes 15% padding into its viewBox is laid out larger than one cropped
@@ -285,6 +286,94 @@ test.describe("app registry icons", () => {
       await svgWidth("tinted"),
       0,
     );
+  });
+
+  // The background is the first covering opaque rect that actually paints. A rect
+  // of the same size inside a clipPath defines a shape and must not be mistaken
+  // for it — several real marks are built exactly this way.
+  const CLIPPED_SOLID_ICON = `<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" fill="none">
+    <g clip-path="url(#c)">
+      <rect width="16" height="16" fill="#7A005D"/>
+      <path fill="#fff" d="M4 5h8v6H4z"/>
+    </g>
+    <defs><clipPath id="c"><rect width="16" height="16" fill="white"/></clipPath></defs>
+  </svg>`;
+  // A background we cannot restate as a CSS colour, so the mark must keep
+  // filling the tile rather than exposing it.
+  const GRADIENT_SOLID_ICON = `<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+    <defs><linearGradient id="g"><stop offset="0" stop-color="#000"/><stop offset="1" stop-color="#fff"/></linearGradient></defs>
+    <rect width="16" height="16" fill="url(#g)"/>
+    <path fill="#fff" d="M4 5h8v6H4z"/>
+  </svg>`;
+
+  test("hands a full-bleed mark's background to the tile", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [
+      { name: "solid", displayName: "Solid", iconSvg: SOLID_ICON },
+      { name: "clipped", displayName: "Clipped", iconSvg: CLIPPED_SOLID_ICON },
+      { name: "gradient", displayName: "Gradient", iconSvg: GRADIENT_SOLID_ICON },
+    ]);
+    await page.goto("/apps");
+
+    const markOf = (app: string) =>
+      page.locator(
+        `[data-testid="integration-card-${app}"] [data-testid="app-mark"]`,
+      );
+    const measure = (app: string) =>
+      markOf(app).evaluate((node) => ({
+        background: getComputedStyle(node).backgroundColor,
+        markWidth: node.getBoundingClientRect().width,
+        svgWidth: node.querySelector("svg")!.getBoundingClientRect().width,
+      }));
+
+    // The tile wears the colour, so the fill reaches its rounded corners while
+    // the artwork sits inside a safe area.
+    const solid = await measure("solid");
+    expect(solid.background).toBe("rgb(72, 56, 168)");
+    expect(solid.svgWidth).toBeLessThan(solid.markWidth);
+
+    // A clipPath rect of the same size is a definition, not the background.
+    const clipped = await measure("clipped");
+    expect(clipped.background).toBe("rgb(122, 0, 93)");
+
+    // A gradient cannot be handed over, so the mark keeps covering the tile
+    // rather than letting it show through.
+    await expect(markOf("gradient")).toHaveAttribute("data-full-bleed", "true");
+    const gradient = await measure("gradient");
+    expect(gradient.svgWidth).toBeCloseTo(gradient.markWidth, 0);
+  });
+
+  test("steps down a three-character monogram", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [
+      { name: "acmeHub", displayName: "Acme Hub" },
+      { name: "llm", displayName: "LLM" },
+    ]);
+    await page.goto("/apps");
+
+    const monogram = (app: string) =>
+      page.locator(
+        `[data-testid="integration-card-${app}"] [data-testid="app-monogram"]`,
+      );
+    const [two, three] = await Promise.all([
+      monogram("acmeHub").evaluate((n) => ({
+        size: Number.parseFloat(getComputedStyle(n).fontSize),
+        width: n.getBoundingClientRect().width,
+      })),
+      monogram("llm").evaluate((n) => ({
+        size: Number.parseFloat(getComputedStyle(n).fontSize),
+        width: n.getBoundingClientRect().width,
+        tile: n.parentElement!.getBoundingClientRect().width,
+      })),
+    ]);
+
+    expect(three.size).toBeLessThan(two.size);
+    // And the point of it: three characters still clear the tile's edges.
+    expect(three.width).toBeLessThan(three.tile * 0.9);
   });
 
   test("centres the monogram on its cap height", async ({
