@@ -1,5 +1,0 @@
-{
-  "local_authorization": true,
-  "local_authorization_subject": "user:b4310193-c032-461a-bf22-b722d20598b0",
-  "base_config": "console-local.base.yaml"
-}
