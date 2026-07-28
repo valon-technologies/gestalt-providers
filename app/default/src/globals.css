@@ -74,9 +74,13 @@
 }
 
 /*
- * The Tailwind bridge is intentionally live (`inline reference`): generated
- * utilities read these runtime variables at paint time, so a serve-time tenant
- * stylesheet can override them without rebuilding this bundle.
+ * Tailwind bridge — tenant-neutral only. Maps utilities to semantic CSS variables
+ * from shared/theme.css. Do NOT reference deployment palette constants here;
+ * tenants override the semantic names at serve time (see THEMING.md).
+ *
+ * Intentionally live (`inline reference`): generated utilities read these runtime
+ * variables at paint time, so a serve-time tenant stylesheet can override them
+ * without rebuilding this bundle.
  */
 @theme inline reference {
   --color-background: var(--background);
@@ -158,30 +162,30 @@
   --color-link-hover: var(--link-hover);
   --color-link-pressed: var(--link-pressed);
 
-  --tracking-display: var(--valon-tracking-display);
-  --tracking-display-tight: var(--valon-tracking-display-tight);
-  --tracking-heading: var(--valon-tracking-heading);
-  --tracking-heading-tight: var(--valon-tracking-heading-tight);
+  --tracking-display: var(--tracking-display);
+  --tracking-display-tight: var(--tracking-display-tight);
+  --tracking-heading: var(--tracking-heading);
+  --tracking-heading-tight: var(--tracking-heading-tight);
 
   /* Brand type scale utilities — text-display-sm, text-heading-md, text-body-lg. */
-  --text-body-lg: var(--valon-text-body-lg);
-  --text-body-lg--line-height: var(--valon-text-body-lg--line-height);
-  --text-heading-sm: var(--valon-text-heading-sm);
-  --text-heading-sm--line-height: var(--valon-text-heading-sm--line-height);
-  --text-heading-md: var(--valon-text-heading-md);
-  --text-heading-md--line-height: var(--valon-text-heading-md--line-height);
-  --text-heading-lg: var(--valon-text-heading-lg);
-  --text-heading-lg--line-height: var(--valon-text-heading-lg--line-height);
-  --text-heading-xl: var(--valon-text-heading-xl);
-  --text-heading-xl--line-height: var(--valon-text-heading-xl--line-height);
-  --text-display-sm: var(--valon-text-display-sm);
-  --text-display-sm--line-height: var(--valon-text-display-sm--line-height);
-  --text-display-md: var(--valon-text-display-md);
-  --text-display-md--line-height: var(--valon-text-display-md--line-height);
-  --text-display-lg: var(--valon-text-display-lg);
-  --text-display-lg--line-height: var(--valon-text-display-lg--line-height);
-  --text-display-xl: var(--valon-text-display-xl);
-  --text-display-xl--line-height: var(--valon-text-display-xl--line-height);
+  --text-body-lg: var(--text-body-lg);
+  --text-body-lg--line-height: var(--text-body-lg--line-height);
+  --text-heading-sm: var(--text-heading-sm);
+  --text-heading-sm--line-height: var(--text-heading-sm--line-height);
+  --text-heading-md: var(--text-heading-md);
+  --text-heading-md--line-height: var(--text-heading-md--line-height);
+  --text-heading-lg: var(--text-heading-lg);
+  --text-heading-lg--line-height: var(--text-heading-lg--line-height);
+  --text-heading-xl: var(--text-heading-xl);
+  --text-heading-xl--line-height: var(--text-heading-xl--line-height);
+  --text-display-sm: var(--text-display-sm);
+  --text-display-sm--line-height: var(--text-display-sm--line-height);
+  --text-display-md: var(--text-display-md);
+  --text-display-md--line-height: var(--text-display-md--line-height);
+  --text-display-lg: var(--text-display-lg);
+  --text-display-lg--line-height: var(--text-display-lg--line-height);
+  --text-display-xl: var(--text-display-xl);
+  --text-display-xl--line-height: var(--text-display-xl--line-height);
 
   /* Console-only until registry Eyebrow ships native 2xs (10px). */
   --text-2xs: 0.625rem;

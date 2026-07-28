@@ -54,7 +54,7 @@ export function badgeCustomColorStyle(color: string): React.CSSProperties {
 
 const badgeVariants = cva(
   // Badges are single-line soft-rects (`rounded-sm` / --radius-sm ≈ 4px) — squarer
-  // than a capsule, tighter than Button's `rounded-md`, matching valon.ai status
+  // than a capsule, tighter than Button's `rounded-md`, matching Registry status
   // chips. Without nowrap, label text wraps inside narrow table/sidebar cells.
   "inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-sm text-xs font-normal transition-colors [&>svg]:size-3 [&>svg]:shrink-0",
   {
@@ -65,7 +65,7 @@ const badgeVariants = cva(
         muted: "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground",
         outline: "border border-border text-foreground",
         ghost: "bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-        // Valon registry Badge — uses --badge-* status surfaces (shared/theme.css)
+        // Registry Badge — uses --badge-* status surfaces (shared/theme.css)
         // so legacy gestalt-shell --success grove overrides do not affect chips.
         success: "bg-badge-success text-badge-success-foreground",
         warning: "bg-badge-warning text-badge-warning-foreground",

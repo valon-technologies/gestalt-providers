@@ -1,8 +1,10 @@
 /*
- * Public theme contract
+ * PUBLIC CONTRACT — tenant-neutral only.
  *
- * Semantic roles only — components never ask for palette names. A deployment
- * may override any variable via the runtime `theme.css` endpoint.
+ * Semantic roles only — components never ask for palette or deployment names.
+ * Do NOT add deployment-specific palette constants (e.g. --tenant-* prefixes)
+ * or licensed brand values here. Tenants override consumed tokens at serve time
+ * via deploy/ui/theme.css (see THEMING.md).
  *
  * Defaults use :where() (zero specificity) so tenant `:root` / `.dark` wins.
  * Fallback oklch values mirror the shared Gestalt UI theme contract so
@@ -28,9 +30,8 @@
   --state-overlay-press: 0.14;
 
   /* ── Core surfaces (Registry: neutral + paper) ─────────────────────────── */
-  --valon-neutral-900: oklch(21.867% 0.0213 76.13);
   --background: oklch(100% 0 0);
-  --foreground: var(--valon-neutral-900);
+  --foreground: oklch(21.867% 0.0213 76.13);
   --card: oklch(100% 0 0);
   --card-foreground: var(--foreground);
   --popover: oklch(100% 0 0);
@@ -109,9 +110,9 @@
   --info: oklch(92.8% 0.035 248);
   --info-foreground: oklch(40.8% 0.105 248);
 
-  /* Badge status surfaces — Valon registry parity (registry/theme/theme.css).
-   * Distinct from legacy gestalt-shell --success canvas-ink overrides. Tenants
-   * may remap these to --success / --info when their theme uses status surfaces. */
+  /* Badge status surfaces — Registry parity. Distinct from legacy gestalt-shell
+   * --success canvas-ink overrides. Tenants may remap these to --success / --info
+   * when their theme uses status surfaces. */
   --badge-success: oklch(92.8% 0.045 144);
   --badge-success-foreground: oklch(40.8% 0.105 144);
   --badge-warning: oklch(92.8% 0.045 82);
@@ -129,32 +130,30 @@
   --code-line-emphasis: color-mix(in oklch, var(--accent-wash), var(--accent-highlight));
   --scrollbar-thumb: oklch(86.851% 0.0197 72.55);
 
-  /* Brand type scale — valon.ai/style / Registry theme. Display roles are
-   * 44px+; Heading / Body LG are product chrome. Consumed by PageHeader /
-   * SectionHeader via @theme aliases in globals.css. */
-  --valon-text-body-lg: 1.125rem; /* 18px */
-  --valon-text-body-lg--line-height: 1.5rem; /* 24px */
-  --valon-text-heading-sm: 1.125rem; /* 18px */
-  --valon-text-heading-sm--line-height: 1.5rem; /* 24px */
-  --valon-text-heading-md: 1.25rem; /* 20px */
-  --valon-text-heading-md--line-height: 1.75rem; /* 28px */
-  --valon-text-heading-lg: 1.5rem; /* 24px */
-  --valon-text-heading-lg--line-height: 2rem; /* 32px */
-  --valon-text-heading-xl: 2rem; /* 32px */
-  --valon-text-heading-xl--line-height: 2.5rem; /* 40px */
-  --valon-text-display-sm: 2.75rem; /* 44px — display floor */
-  --valon-text-display-sm--line-height: 3.125rem; /* 50px */
-  --valon-text-display-md: 3.25rem; /* 52px */
-  --valon-text-display-md--line-height: 3.625rem; /* 58px */
-  --valon-text-display-lg: 3.75rem; /* 60px */
-  --valon-text-display-lg--line-height: 4rem; /* 64px */
-  --valon-text-display-xl: 4.25rem; /* 68px */
-  --valon-text-display-xl--line-height: 4.25rem; /* 68px */
-  /* Display / heading tracking — valon.ai/style (−0.5px / −0.8px / −1px). */
-  --valon-tracking-display: -0.03125rem; /* −0.5px */
-  --valon-tracking-display-tight: -0.0625rem; /* −1px */
-  --valon-tracking-heading: -0.03125rem; /* −0.5px · Heading LG */
-  --valon-tracking-heading-tight: -0.05rem; /* −0.8px · Heading XL */
+  /* Type scale — semantic sizes for PageHeader / SectionHeader. Tenants override
+   * at serve time; deployment palettes map to these names in deploy/ui/theme.css. */
+  --text-body-lg: 1.125rem; /* 18px */
+  --text-body-lg--line-height: 1.5rem; /* 24px */
+  --text-heading-sm: 1.125rem; /* 18px */
+  --text-heading-sm--line-height: 1.5rem; /* 24px */
+  --text-heading-md: 1.25rem; /* 20px */
+  --text-heading-md--line-height: 1.75rem; /* 28px */
+  --text-heading-lg: 1.5rem; /* 24px */
+  --text-heading-lg--line-height: 2rem; /* 32px */
+  --text-heading-xl: 2rem; /* 32px */
+  --text-heading-xl--line-height: 2.5rem; /* 40px */
+  --text-display-sm: 2.75rem; /* 44px — display floor */
+  --text-display-sm--line-height: 3.125rem; /* 50px */
+  --text-display-md: 3.25rem; /* 52px */
+  --text-display-md--line-height: 3.625rem; /* 58px */
+  --text-display-lg: 3.75rem; /* 60px */
+  --text-display-lg--line-height: 4rem; /* 64px */
+  --text-display-xl: 4.25rem; /* 68px */
+  --text-display-xl--line-height: 4.25rem; /* 68px */
+  --tracking-display: -0.03125rem; /* −0.5px */
+  --tracking-display-tight: -0.0625rem; /* −1px */
+  --tracking-heading: -0.03125rem; /* −0.5px */
+  --tracking-heading-tight: -0.05rem; /* −0.8px */
 
   /* Geometry and type — tenant customization seams. */
   --radius: 0.5rem;
