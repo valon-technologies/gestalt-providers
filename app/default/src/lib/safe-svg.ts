@@ -289,6 +289,31 @@ function svgElementHasPaintableContent(element: Element): boolean {
   return false;
 }
 
+/** Whether an icon SVG string parses and retains paintable content after sanitization. */
+export function iconSvgHasPaintableContent(svg: string): boolean {
+  const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+  const root = doc.documentElement;
+  if (root.nodeName !== "svg" || doc.querySelector("parsererror")) {
+    return false;
+  }
+  return svgElementHasPaintableContent(root);
+}
+
+/**
+ * Whether an element sits in a subtree the sanitizer would actually render.
+ * Rects inside stripped containers such as `foreignObject` must not drive tile
+ * chrome decisions.
+ */
+export function isVisibleInSafeIcon(element: Element): boolean {
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    if (!SAFE_SVG_ELEMENTS.has(node.tagName)) return false;
+    if (/^(defs|clipPath|mask|pattern|symbol|marker)$/.test(node.tagName)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * Parse and sanitize an icon SVG string into React elements.
  * Returns null when the string is not parseable as SVG or when sanitization

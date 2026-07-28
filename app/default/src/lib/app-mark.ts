@@ -1,3 +1,5 @@
+import { isVisibleInSafeIcon } from "@/lib/safe-svg";
+
 /**
  * Every app in the registry has a *mark* — its visual identity in the catalog.
  * A mark is one of two things, and never both:
@@ -179,7 +181,10 @@ export function describeBrandMark(svg: string): BrandMarkShape {
   // First in document order is painted first, so it is the background.
   const background = Array.from(root.querySelectorAll("rect")).find(
     (rect) =>
-      !isDefinitionOnly(rect) && isOpaque(rect) && coversViewBox(rect, box),
+      isVisibleInSafeIcon(rect) &&
+      !isDefinitionOnly(rect) &&
+      isOpaque(rect) &&
+      coversViewBox(rect, box),
   );
   if (background) {
     const backgroundColor = plainColor(background.getAttribute("fill"));
@@ -226,7 +231,7 @@ function isShortAcronym(value: string): boolean {
  *   - A display name that is itself a short acronym is kept whole, so `LLM`
  *     reads as LLM rather than a truncated LL.
  *   - Two or more words take the first letter of the first two — `Acme Hub` → AH,
- *     `field-portal REST API` → FP.
+ *     `api-portal REST API` → AP.
  *   - A single word takes its first two letters — `Example` → EX. Two characters
  *     read as a monogram where one reads as a stray letter.
  *
@@ -250,7 +255,7 @@ export function appInitials(displayName: string | undefined, name: string): stri
     }
 
     // A leading acronym still contributes only its first letter, so
-    // `CI Workqueue` → CW rather than CI.
+    // `API Queue` → AQ rather than AP.
     return (parts[0][0] + parts[1][0]).toUpperCase();
   }
 

@@ -152,13 +152,13 @@ test.describe("app registry icons", () => {
     { name: "tokenPile", displayName: "Token Pile", expected: "TP" },
     { name: "helloWorld", displayName: "Hello World", expected: "HW" },
     {
-      name: "agent-trace-viewer",
-      displayName: "Agent Trace Viewer",
-      expected: "AT",
+      name: "traceViewer",
+      displayName: "Trace Viewer",
+      expected: "TV",
     },
     // A leading acronym contributes only its first letter.
-    { name: "ciQueue", displayName: "CI Queue", expected: "CQ" },
-    { name: "sdtPipeline", displayName: "SDT Pipeline", expected: "SP" },
+    { name: "apiQueue", displayName: "API Queue", expected: "AQ" },
+    { name: "dataPipeline", displayName: "Data Pipeline", expected: "DP" },
     {
       name: "itAccountOnboarding",
       displayName: "IT Account Onboarding",
@@ -167,22 +167,22 @@ test.describe("app registry icons", () => {
     { name: "vmStyleGuide", displayName: "VM Style Guide", expected: "VS" },
     // Hyphens and dots are word separators, and the result is uppercased.
     {
-      name: "fieldPortal",
-      displayName: "field-portal REST API",
-      expected: "FP",
+      name: "apiPortal",
+      displayName: "api-portal REST API",
+      expected: "AP",
     },
     { name: "example-sats", displayName: "Example SATs", expected: "ES" },
     // A display name that is itself a short acronym is kept whole.
     { name: "llm", displayName: "LLM", expected: "LLM" },
     // Single word → first two letters.
     { name: "example", displayName: "Example", expected: "EX" },
-    { name: "delta", displayName: "Delta", expected: "DE" },
+    { name: "bravo", displayName: "Bravo", expected: "BR" },
     { name: "valkey", displayName: "Valkey", expected: "VA" },
     { name: "glinks", displayName: "GLinks", expected: "GL" },
     // No display name → fall back to the id, splitting camelCase so this does
     // not degrade to "DA".
     { name: "dataRecordExplorer", expected: "DR" },
-    { name: "oncall", expected: "ON" },
+    { name: "novaInc", expected: "NI" },
   ];
 
   test("derives a display-font monogram for apps with no brand mark", async ({

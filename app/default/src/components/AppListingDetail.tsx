@@ -68,7 +68,11 @@ export default function AppListingDetail({
     >
       <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
         <div className="flex min-w-0 items-start gap-3">
-          <IntegrationIcon iconSvg={integration.iconSvg} />
+          <IntegrationIcon
+            iconSvg={integration.iconSvg}
+            name={integration.name}
+            displayName={integration.displayName}
+          />
           <div className="min-w-0">
             <h2 id={headingId} className="text-lg font-heading text-foreground">
               {label}

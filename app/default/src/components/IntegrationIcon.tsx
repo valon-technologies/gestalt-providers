@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { DefaultIcon } from "@/components/icons";
 import { appInitials, describeBrandMark } from "@/lib/app-mark";
 import { cn } from "@/lib/cn";
-import { renderSafeIcon } from "@/lib/safe-svg";
+import { renderSafeIcon, iconSvgHasPaintableContent } from "@/lib/safe-svg";
 
 /**
  * Canonical renderer for an app's mark. Sole owner of the brand-vs-monogram
@@ -77,7 +77,10 @@ export default function IntegrationIcon({
   const iconIDPrefix = `provider-icon-${useId().replace(/:/g, "")}`;
   const iconNode = iconSvg ? renderSafeIcon(iconSvg, iconIDPrefix) : null;
   const hasBrandMark = iconNode != null;
-  const shape = hasBrandMark && iconSvg ? describeBrandMark(iconSvg) : null;
+  const shape =
+    hasBrandMark && iconSvg && iconSvgHasPaintableContent(iconSvg)
+      ? describeBrandMark(iconSvg)
+      : null;
   const fullBleed = shape?.fullBleed ?? false;
   const initials = hasBrandMark ? "" : appInitials(displayName, name ?? "");
   const tile = variant === "tile";
