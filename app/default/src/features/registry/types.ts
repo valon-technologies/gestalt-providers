@@ -103,6 +103,12 @@ export type AppAdminSnapshotRow =
       failed: AppAdminFailedVersion;
     };
 
+export type AppAdminAutoDeploy = {
+  enabled: boolean;
+  pendingVersion?: string;
+  lastError?: string;
+};
+
 export type AppAdminRegistryResponse = RegistryAppSummary & {
   knownVersions: Array<{
     version: string;
@@ -112,6 +118,7 @@ export type AppAdminRegistryResponse = RegistryAppSummary & {
   publishedVersions: AppAdminPublishedVersion[];
   pendingVersions?: AppAdminPendingVersion[];
   failedVersions?: AppAdminFailedVersion[];
+  autoDeploy: AppAdminAutoDeploy;
   selectionDisabled: boolean;
   disabledReason?: string;
 };

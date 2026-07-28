@@ -137,6 +137,12 @@ export interface AppAdminFailedVersion {
   publication?: AppAdminPublication;
 }
 
+export interface AppAdminAutoDeploy {
+  enabled: boolean;
+  pendingVersion?: string;
+  lastError?: string;
+}
+
 export interface AppAdminRegistryResponse {
   app: string;
   registry: string;
@@ -153,8 +159,14 @@ export interface AppAdminRegistryResponse {
     version: string;
     state: string;
   };
+  autoDeploy: AppAdminAutoDeploy;
   selectionDisabled: boolean;
   disabledReason?: string;
+}
+
+export interface AppAdminRegistryAutoDeployResponse {
+  app: string;
+  autoDeploy: AppAdminAutoDeploy;
 }
 
 export interface AppAdminRegistryVersionResponse {
@@ -677,6 +689,19 @@ export async function selectAppAdminRegistryVersion(
     {
       method: "POST",
       body: JSON.stringify({ version }),
+    },
+  );
+}
+
+export async function updateAppAdminRegistryAutoDeploy(
+  app: string,
+  enabled: boolean,
+): Promise<AppAdminRegistryAutoDeployResponse> {
+  return fetchAPI<AppAdminRegistryAutoDeployResponse>(
+    `/api/v1/apps/${encodeURIComponent(app)}/admin/registry/auto-deploy`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
     },
   );
 }

@@ -100,6 +100,9 @@ function installedRegistryState(): AppAdminRegistryResponse {
       version: PUBLISHED_LEGACY.version,
       state: "complete",
     },
+    autoDeploy: {
+      enabled: false,
+    },
     selectionDisabled: false,
   };
 }
@@ -365,11 +368,12 @@ test.describe("app admin registry UI", () => {
     });
     await page.goto(`/apps/${APP}/admin`);
 
-    await expect(page.getByTestId("rollout-active-banner")).toContainText(
-      "Rollout Enrolling",
-    );
+    await expect(page.getByTestId("rollout-badge")).toHaveText("Enrolling");
     await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toBeDisabled();
-    await expect(page.getByTestId(`deploy-version-${PUBLISHED_LEGACY.version}`)).toBeDisabled();
+    await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toHaveText(
+      "Deploying...",
+    );
+    await expect(page.getByTestId(`deploy-version-${PUBLISHED_LEGACY.version}`)).toHaveCount(0);
     await expect(page.getByTestId("selection-disabled-reason")).toHaveText(
       "rollout in progress",
     );
@@ -392,11 +396,12 @@ test.describe("app admin registry UI", () => {
 
     await page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`).click();
 
-    await expect(page.getByTestId("rollout-active-banner")).toContainText(
-      PUBLISHED_NEW.version,
-    );
-    await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toBeDisabled();
     await expect(page.getByTestId("rollout-badge")).toHaveText("Enrolling");
+    await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toBeDisabled();
+    await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toHaveText(
+      "Deploying...",
+    );
+    await expect(page.getByTestId("rollout-phase-stepper")).toBeVisible();
   });
 
   test("409 after stale page disables controls after refresh", async ({ page }) => {
@@ -420,7 +425,10 @@ test.describe("app admin registry UI", () => {
     await page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`).click();
 
     await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toBeDisabled();
-    await expect(page.getByTestId(`deploy-version-${PUBLISHED_LEGACY.version}`)).toBeDisabled();
+    await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toHaveText(
+      "Deploying...",
+    );
+    await expect(page.getByTestId(`deploy-version-${PUBLISHED_LEGACY.version}`)).toHaveCount(0);
   });
 
   test("polls for pending publish without manual refresh", async ({ page }) => {
@@ -549,5 +557,79 @@ test.describe("app admin registry UI", () => {
 
     await page.getByTestId("app-admin-tab-history").click();
     await expect(page.getByTestId("revision-history-empty")).toHaveText("No deployments yet");
+  });
+
+  test("toggles auto-deploy and shows last error", async ({ page }) => {
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      autoDeploy: {
+        enabled: false,
+        lastError: "rollout failed for 0.0.0-snapshot.gdef456",
+      },
+    });
+    await page.goto(`/apps/${APP}/admin`);
+
+    await expect(page.getByTestId("auto-deploy-toggle")).not.toBeChecked();
+    await expect(page.getByTestId("auto-deploy-last-error")).toHaveText(
+      "rollout failed for 0.0.0-snapshot.gdef456",
+    );
+
+    await page.getByTestId("auto-deploy-toggle").click();
+    await expect(page.getByTestId("auto-deploy-toggle")).toBeChecked();
+    await expect(page.getByTestId("auto-deploy-last-error")).toHaveCount(0);
+
+    await page.getByTestId("auto-deploy-toggle").click();
+    await expect(page.getByTestId("auto-deploy-toggle")).not.toBeChecked();
+  });
+
+  test("shows queued for deploy on auto-deploy pending snapshot during rollout", async ({
+    page,
+  }) => {
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      autoDeploy: {
+        enabled: true,
+        pendingVersion: PUBLISHED_NEW.version,
+      },
+      rollout: {
+        version: PUBLISHED_LEGACY.version,
+        state: "enrolling",
+      },
+      selectionDisabled: true,
+      disabledReason: "rollout in progress",
+    });
+    await page.goto(`/apps/${APP}/admin`);
+
+    const legacyRow = page.getByTestId("snapshot-row-published").filter({
+      hasText: PUBLISHED_LEGACY.version.slice(0, 20),
+    });
+    const newRow = page.getByTestId("snapshot-row-published").filter({
+      hasText: PUBLISHED_NEW.version.slice(0, 20),
+    });
+
+    await expect(legacyRow.getByTestId("deploy-version-" + PUBLISHED_LEGACY.version)).toHaveText(
+      "Deploying...",
+    );
+    await expect(newRow.getByTestId("snapshot-status")).toHaveText("Queued for deploy");
+  });
+
+  test("shows system:auto-deploy in revision history", async ({ page }) => {
+    await mockAppAdminRegistry(page, APP, installedRegistryState());
+    await mockAppAdminRegistryHistory(page, APP, {
+      app: APP,
+      revisions: [
+        {
+          id: "rev-auto",
+          version: PUBLISHED_NEW.version,
+          previousVersion: PUBLISHED_LEGACY.version,
+          deployedAt: "2026-07-25T09:10:00Z",
+          deployedBy: "system:auto-deploy",
+        },
+      ],
+    });
+    await page.goto(`/apps/${APP}/admin`);
+    await page.getByTestId("app-admin-tab-history").click();
+
+    await expect(page.getByTestId("revision-history-row")).toContainText("system:auto-deploy");
   });
 });

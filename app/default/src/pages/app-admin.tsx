@@ -13,6 +13,7 @@ import {
   useAppAdminRegistryQuery,
   useDeployAppAdminVersionMutation,
   useIntegrationsQuery,
+  useUpdateAppAdminAutoDeployMutation,
 } from "@/lib/queries";
 import { isAPIErrorStatus } from "@/lib/api";
 
@@ -24,6 +25,7 @@ export default function AppAdminPage() {
   const integrationsQuery = useIntegrationsQuery();
   const registryQuery = useAppAdminRegistryQuery(appName);
   const deployMutation = useDeployAppAdminVersionMutation(appName);
+  const autoDeployMutation = useUpdateAppAdminAutoDeployMutation(appName);
 
   const forbidden =
     registryQuery.isError && isAPIErrorStatus(registryQuery.error, 403);
@@ -92,6 +94,8 @@ export default function AppAdminPage() {
                 onDeployVersion={(version) => deployMutation.mutate(version)}
                 onCheckForNewVersions={registryQuery.checkForNewVersions}
                 isCheckingForNewVersions={registryQuery.isFetching}
+                onAutoDeployChange={(enabled) => autoDeployMutation.mutate(enabled)}
+                isUpdatingAutoDeploy={autoDeployMutation.isPending}
                 error={error}
               />
             </div>
