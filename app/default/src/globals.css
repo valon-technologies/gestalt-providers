@@ -232,6 +232,15 @@
 @utility text-faint {
   color: color-mix(in oklab, var(--alpha-dark) 40%, transparent);
 }
+/* Trim the line box to cap height and baseline so centring aligns the glyphs
+ * rather than the font's ascent/descent metrics. Matters most for the display
+ * serif, whose ascenders leave the caps sitting visibly high in a centred box.
+ * Ignored where unsupported, which degrades to ordinary flex centring. */
+/* Named outside the `text-*` namespace on purpose: tailwind-merge groups
+ * `text-…` utilities and would drop this one as a conflict with `text-base`. */
+@utility trim-cap {
+  text-box: trim-both cap alphabetic;
+}
 @utility border-alpha {
   border-color: color-mix(in oklab, var(--alpha-dark) 10%, transparent);
 }
