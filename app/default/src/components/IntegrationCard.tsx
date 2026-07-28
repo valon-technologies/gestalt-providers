@@ -406,7 +406,12 @@ export default function IntegrationCard({
       )}
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-4">
-          <IntegrationIcon iconSvg={integration.iconSvg} size="xl" />
+          <IntegrationIcon
+            iconSvg={integration.iconSvg}
+            name={integration.name}
+            displayName={integration.displayName}
+            size="xl"
+          />
           <div className="min-w-0">
             <h3 className="text-base font-heading text-foreground">
               <HighlightMatch text={label} query={highlightQuery} />
