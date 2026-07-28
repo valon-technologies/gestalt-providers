@@ -49,7 +49,7 @@ Compose labeled controls with `Field` + `FieldLabel` (+ `FieldDescription` /
 
 `Input` / `Textarea` expose a `chrome` variant (`standalone` default,
 `group` for `InputGroupInput` / `InputGroupTextarea`) so the shell owns the
-focus ring without stacking on the inner control (toolshed #3857).
+focus ring without stacking on the inner control.
 
 ## Choice cards (RadioGroup)
 

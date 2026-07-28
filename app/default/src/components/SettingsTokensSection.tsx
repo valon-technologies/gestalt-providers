@@ -47,7 +47,7 @@ export default function SettingsTokensSection() {
       </div>
 
       {tokensError ? (
-        <p className="text-sm text-ember-500">{tokensError}</p>
+        <p className="text-sm text-destructive">{tokensError}</p>
       ) : null}
 
       <div className="space-y-4">
@@ -60,7 +60,7 @@ export default function SettingsTokensSection() {
         </SectionHeader>
 
         {tokensLoading ? (
-          <p className="flex items-center gap-1.5 text-sm text-faint">
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
             <SpinnerIcon className="size-4 animate-spin" aria-hidden />
             Loading tokens…
           </p>

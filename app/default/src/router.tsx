@@ -25,7 +25,10 @@ import SettingsIdentityDetail from "@/components/SettingsIdentityDetail";
 import SettingsTokensSection from "@/components/SettingsTokensSection";
 import WorkflowsPage from "@/pages/workflows";
 import { appBasepath } from "@/lib/mount";
-import { managedIdentityLocalId } from "@/lib/managed-identity-paths";
+import {
+  legacyIdentityIdFromLocation,
+  managedIdentityLocalId,
+} from "@/lib/managed-identity-paths";
 import { rootRoute } from "./routes/__root";
 
 function DocsLayout() {
@@ -163,9 +166,7 @@ const identitiesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/identities",
   beforeLoad: ({ location }) => {
-    const search =
-      typeof location.search === "string" ? location.search : "";
-    const id = new URLSearchParams(search).get("id");
+    const id = legacyIdentityIdFromLocation(location);
     if (id) {
       throw redirect({
         to: "/settings/identities/$identityLocalId",

@@ -101,7 +101,7 @@ export default function SettingsIdentitiesList() {
 
   if (identitiesAvailable === null) {
     return (
-      <p className="flex items-center gap-1.5 text-sm text-faint">
+      <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
         <SpinnerIcon className="size-4 animate-spin" aria-hidden />
         Loading…
       </p>
@@ -199,12 +199,12 @@ export default function SettingsIdentitiesList() {
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
       {loading ? (
-        <p className="flex items-center gap-1.5 text-sm text-faint">
+        <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
           <SpinnerIcon className="size-4 animate-spin" aria-hidden />
           Loading identities…
         </p>
       ) : !error && identities.length === 0 ? (
-        <p className="text-sm text-faint">No managed identities yet.</p>
+        <p className="text-sm text-muted-foreground">No managed identities yet.</p>
       ) : !error ? (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {identities.map((identity) => (
