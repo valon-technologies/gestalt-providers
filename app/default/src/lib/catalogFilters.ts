@@ -17,7 +17,42 @@ export type ConnectionSetupBucket =
   | "needs_attention";
 
 /** Connection setup partitions for sort / attention — not UI filter tabs. */
-export type ConnectionFilter = "all" | "needs_connection" | "ready";
+export type ConnectionFilter =
+  | "all"
+  | "needs_connection"
+  | "needs_attention"
+  | "ready";
+
+/**
+ * Catalog presentation state — encodes install chrome and card navigation.
+ * Distinct from `connectionSetupBucket`: mount-only apps have no credential
+ * surface but still open their mounted UI from discovery.
+ */
+export type CatalogInstallState =
+  | "not_connected"
+  | "needs_attention"
+  | "connected"
+  | "mount_only";
+
+/** Mounted product UI with zero connection rows — discovery, not Installed. */
+export function isMountOnlyIntegration(integration: Integration): boolean {
+  const hasMount = Boolean(integration.mountedPath?.trim());
+  const connections = integration.connections ?? [];
+  return hasMount && connections.length === 0;
+}
+
+export function catalogInstallState(
+  integration: Integration,
+  context: ConnectionContext = "current_user",
+): CatalogInstallState {
+  if (isMountOnlyIntegration(integration)) {
+    return "mount_only";
+  }
+  const bucket = connectionSetupBucket(integration, context);
+  if (bucket === "needs_connection") return "not_connected";
+  if (bucket === "needs_attention") return "needs_attention";
+  return "connected";
+}
 
 export type SurfaceFilter = "all" | "has_ui" | "no_ui" | "has_mcp";
 
@@ -115,6 +150,9 @@ export function matchesConnectionFilter(
   context: ConnectionContext = "current_user",
 ): boolean {
   if (filter === "all") return true;
+  if (filter === "ready") {
+    return catalogInstallState(integration, context) === "connected";
+  }
   return connectionSetupBucket(integration, context) === filter;
 }
 
@@ -214,15 +252,49 @@ export function primaryConnectLabel(
   return null;
 }
 
+/** User can administer this app (server omits managementPath otherwise). */
+export function canManageApp(integration: Integration): boolean {
+  return Boolean(integration.managementPath?.trim());
+}
+
+/** Server-authoritative admin route — never synthesize from `integration.name`. */
+export function appManagementPath(integration: Integration): string | undefined {
+  const path = integration.managementPath?.trim();
+  return path || undefined;
+}
+
+export function appOpenPath(integration: Integration): string | undefined {
+  const mountedPath = integration.mountedPath?.trim();
+  return mountedPath || undefined;
+}
+
 /**
- * Whole-card activate target — listing (connect funnel) vs admin.
+ * Whole-card activate target — listing (connect funnel) vs mounted app.
  * The tile has no separate face CTA; the card itself is the hit target.
  */
 export function catalogCardActivateTarget(
   integration: Integration,
   context: ConnectionContext = "current_user",
-): "listing" | "admin" {
-  return connectionSetupBucket(integration, context) === "needs_connection"
-    ? "listing"
-    : "admin";
+): "listing" | "app" {
+  const state = catalogInstallState(integration, context);
+  if (state === "mount_only") {
+    return "app";
+  }
+  if (state === "not_connected" || state === "needs_attention") {
+    return "listing";
+  }
+  return "app";
+}
+
+/** Catalog tile / listing badge copy — shorter success label without mutating settings labels. */
+export function catalogStatusBadgeLabel(
+  integration: Integration,
+  context: ConnectionContext = "current_user",
+): string {
+  const status = normalizeIntegrationStatus(integration, context);
+  const state = catalogInstallState(integration, context);
+  if (state === "connected" && status.status === "ready") {
+    return "Ready";
+  }
+  return status.summaryLabel;
 }

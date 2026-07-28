@@ -328,8 +328,10 @@ export default function IntegrationCard({
   }
 
   function navigateToApp() {
-    if (!mountedPath) return;
-    window.location.assign(resolveMountedAppHref(mountedPath));
+    void navigate({
+      to: "/apps/$appName",
+      params: { appName: integration.name },
+    });
   }
 
   function navigateToAdmin() {
