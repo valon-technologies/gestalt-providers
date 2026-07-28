@@ -1,7 +1,6 @@
 import { clearSession } from "./auth";
 import { HTTP_UNAUTHORIZED } from "./constants";
 import { serverLoginURL } from "./authReturn";
-import { workflowRunMatchesApp } from "./workflowActivity";
 
 export interface ConnectionParamDef {
   required?: boolean;
@@ -228,7 +227,6 @@ export interface APIToken {
   permissions?: AccessPermission[];
   createdAt: string;
   expiresAt?: string;
-  lastUsedAt?: string;
 }
 
 export interface CreateTokenResponse {
@@ -362,17 +360,12 @@ export interface WorkflowRun {
   steps?: WorkflowStepExecution[];
 }
 
-interface WorkflowRunListResponse {
-  runs: WorkflowRunWire[];
-  nextPageToken?: string;
-}
-
 type WorkflowRunWire = Omit<WorkflowRun, "target" | "steps"> & {
   target?: unknown;
   steps?: unknown;
 };
 
-function normalizeWorkflowRun(run: WorkflowRunWire): WorkflowRun {
+export function normalizeWorkflowRun(run: WorkflowRunWire): WorkflowRun {
   return {
     ...run,
     target: normalizeWorkflowTarget(run.target),
@@ -654,6 +647,11 @@ export interface AuthInfo {
   provider: string;
   displayName: string;
   loginSupported: boolean;
+  features?: {
+    agent?: boolean;
+    /** Default `providers.workflow.*` name for this deployment. */
+    workflowDefaultProvider?: string;
+  };
 }
 
 export interface AuthSession {
@@ -804,45 +802,6 @@ import {
 
 export async function getTokens(): Promise<APIToken[]> {
   return listPersonalAPITokens(fetchAPI);
-}
-
-export async function getWorkflowRuns(opts?: {
-  /** Step-target app filter (`?app=` → TargetApp). */
-  app?: string;
-}): Promise<WorkflowRun[]> {
-  const appName = opts?.app?.trim();
-  const query = new URLSearchParams();
-  if (appName) {
-    query.set("app", appName);
-  }
-  const params = query.toString();
-  const response = await fetchAPI<WorkflowRunListResponse>(
-    `/api/v1/workflow/runs${params ? `?${params}` : ""}`,
-  );
-  const runs = response.runs.map(normalizeWorkflowRun);
-  if (!appName) return runs;
-  return runs.filter((run) => workflowRunMatchesApp(run, appName));
-}
-
-export async function getWorkflowRun(id: string): Promise<WorkflowRun> {
-  const run = await fetchAPI<WorkflowRunWire>(
-    `/api/v1/workflow/runs/${encodeURIComponent(id)}`,
-  );
-  return normalizeWorkflowRun(run);
-}
-
-export async function cancelWorkflowRun(
-  id: string,
-  reason?: string,
-): Promise<WorkflowRun> {
-  const run = await fetchAPI<WorkflowRunWire>(
-    `/api/v1/workflow/runs/${encodeURIComponent(id)}/cancel`,
-    {
-      method: "POST",
-      body: JSON.stringify(reason ? { reason } : {}),
-    },
-  );
-  return normalizeWorkflowRun(run);
 }
 
 export async function createToken(

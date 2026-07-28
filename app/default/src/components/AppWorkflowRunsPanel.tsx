@@ -7,15 +7,17 @@ import {
   type ReactNode,
 } from "react";
 import {
-  cancelWorkflowRun,
-  getWorkflowRun,
-  getWorkflowRuns,
   workflowTargetApp,
   type WorkflowRun,
   type WorkflowStepExecution,
   type WorkflowStepTarget,
   type WorkflowTarget,
 } from "@/lib/api";
+import {
+  cancelWorkflowRun,
+  getWorkflowRun,
+  listWorkflowRuns,
+} from "@/lib/workflowApi";
 import { Link } from "@tanstack/react-router";
 import {
   collectAutomationSubjects,
@@ -61,7 +63,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
       setRefreshing(true);
     }
 
-    getWorkflowRuns({ app: appName })
+    listWorkflowRuns({ targetApp: appName })
       .then((value) => {
         if (!active) return;
         setRuns(value);
@@ -115,7 +117,9 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
     setActionError(null);
 
     let active = true;
-    getWorkflowRun(selectedRunID)
+    getWorkflowRun(selectedRunID, {
+      run: runsRef.current.find((run) => run.id === selectedRunID) ?? undefined,
+    })
       .then((run) => {
         if (!active) return;
         if (!workflowRunMatchesApp(run, appName)) {
@@ -149,6 +153,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
       const canceled = await cancelWorkflowRun(
         selectedRun.id,
         "Canceled from Gestalt UI",
+        { run: selectedRun },
       );
       if (!workflowRunMatchesApp(canceled, appName)) {
         setActionError("This workflow run does not belong to this app.");
@@ -179,15 +184,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h2 className="text-lg font-heading text-foreground">Workflows</h2>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Automation for this app: recent runs, schedule and event
-            activations visible from run history, and the identities those
-            runs execute as.
-          </p>
-        </div>
+      <div className="flex justify-end">
         <button
           type="button"
           onClick={() => setRefreshNonce((value) => value + 1)}

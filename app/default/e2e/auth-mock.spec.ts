@@ -204,6 +204,9 @@ test.describe("Authentication", () => {
     await page.route(`**${PERSONAL_IDENTITY_GRANTS_PATH}`, (route) => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
+    await page.route("**/api/v2/workflow/runs", (route) => {
+      route.fulfill({ status: 401, json: { error: "invalid token" } });
+    });
 
     await page.goto("/apps/slack/admin/workflows", { waitUntil: "networkidle" });
     await page.waitForFunction(

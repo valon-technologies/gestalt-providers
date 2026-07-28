@@ -27,7 +27,7 @@ async function openSlackWorkflows(page: import("@playwright/test").Page) {
     },
   ]);
   await mockAppAdminRegistry(page, SLACK_APP, SLACK_REGISTRY);
-  await page.goto(`/apps/${SLACK_APP}/admin?section=workflows`);
+  await page.goto(`/apps/${SLACK_APP}/admin/workflows`);
 }
 
 function workflowAppTarget(
@@ -215,7 +215,7 @@ test.describe("App admin workflows", () => {
     await openSlackWorkflows(page);
     const detailPanel = page.locator('[data-testid="app-workflow-run-list"]').locator("..");
 
-    await expect(page.getByRole("heading", { name: "Workflows", level: 2 })).toBeVisible();
+    await expect(page.getByTestId("app-admin-nav-workflows")).toHaveClass(/font-medium/);
     await expect(
       page.getByRole("button", { name: /datadog\.monitors\.get \(\+2\)/i }),
     ).toBeVisible();

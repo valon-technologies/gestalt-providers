@@ -16,7 +16,10 @@ import {
   WorkflowsDocsPage,
 } from "@/docs/DocsContent";
 import { useDocumentTitle } from "@/hooks/use-document-title";
-import AppAdminPage from "@/pages/app-admin";
+import AppAdminLayout from "@/pages/app-admin-layout";
+import AppAdminSnapshotsPage from "@/pages/app-admin-snapshots";
+import AppAdminHistoryPage from "@/pages/app-admin-history";
+import AppAdminWorkflowsPage from "@/pages/app-admin-workflows";
 import AppsPage from "@/pages/apps";
 import BuildPage, { BuildIndexRedirect } from "@/pages/build";
 import SettingsPage from "@/pages/settings";
@@ -113,15 +116,54 @@ const buildStepRoute = createRoute({
   component: BuildPage,
 });
 
-const appAdminRoute = createRoute({
+const appAdminLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/apps/$app/admin",
-  validateSearch: (
-    search: Record<string, unknown>,
-  ): { section: "registry" | "workflows" } => ({
-    section: search.section === "workflows" ? "workflows" : "registry",
-  }),
-  component: AppAdminPage,
+  beforeLoad: ({ location, params }) => {
+    const section = new URLSearchParams(location.searchStr).get("section");
+    if (section === "workflows") {
+      throw redirect({
+        to: "/apps/$app/admin/workflows",
+        params: { app: params.app },
+      });
+    }
+    if (section === "registry" && location.pathname.endsWith("/admin")) {
+      throw redirect({
+        to: "/apps/$app/admin/snapshots",
+        params: { app: params.app },
+      });
+    }
+  },
+  component: AppAdminLayout,
+});
+
+const appAdminIndexRoute = createRoute({
+  getParentRoute: () => appAdminLayoutRoute,
+  path: "/",
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/apps/$app/admin/snapshots",
+      params: { app: params.app },
+    });
+  },
+});
+
+const appAdminSnapshotsRoute = createRoute({
+  getParentRoute: () => appAdminLayoutRoute,
+  path: "/snapshots",
+  component: AppAdminSnapshotsPage,
+});
+
+const appAdminHistoryRoute = createRoute({
+  getParentRoute: () => appAdminLayoutRoute,
+  path: "/history",
+  component: AppAdminHistoryPage,
+});
+
+const appAdminWorkflowsRoute = createRoute({
+  getParentRoute: () => appAdminLayoutRoute,
+  path: "/workflows",
+  component: AppAdminWorkflowsPage,
 });
 
 const settingsRoute = createRoute({
@@ -280,7 +322,12 @@ const routeTree = rootRoute.addChildren([
   appsRoute,
   buildIndexRoute,
   buildStepRoute,
-  appAdminRoute,
+  appAdminLayoutRoute.addChildren([
+    appAdminIndexRoute,
+    appAdminSnapshotsRoute,
+    appAdminHistoryRoute,
+    appAdminWorkflowsRoute,
+  ]),
   settingsRoute.addChildren([
     settingsIndexRoute,
     settingsTokensRoute,
