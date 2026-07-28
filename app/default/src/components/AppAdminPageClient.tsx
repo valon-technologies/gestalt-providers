@@ -911,7 +911,7 @@ export default function AppAdminPageClient() {
 
             {section === "workflows" ? (
               <section className={SECTION_CARD} aria-label="Workflows">
-                <AppWorkflowRunsPanel appName={appName} />
+                <AppWorkflowRunsPanel key={appName} appName={appName} />
               </section>
             ) : null}
 
