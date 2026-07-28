@@ -1,6 +1,10 @@
-
 import { useRef } from "react";
-import { INPUT_CLASSES } from "@/lib/constants";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import { CloseIcon, SearchIcon } from "./icons";
 
 type PluginSearchBarProps = {
@@ -28,9 +32,11 @@ export default function PluginSearchBar({
 
   return (
     <div className="w-full max-w-sm">
-      <div className="relative">
-        <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
-        <input
+      <InputGroup>
+        <InputGroupAddon align="inline-start">
+          <SearchIcon aria-hidden />
+        </InputGroupAddon>
+        <InputGroupInput
           ref={inputRef}
           type="search"
           aria-label="Search apps"
@@ -39,25 +45,25 @@ export default function PluginSearchBar({
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           placeholder="Search apps"
-          className={`w-full pl-9 pr-10 ${INPUT_CLASSES} [&::-webkit-search-cancel-button]:hidden disabled:cursor-not-allowed disabled:opacity-60`}
+          className="[&::-webkit-search-cancel-button]:hidden"
         />
-        {trimmedQuery.length > 0 && !disabled && (
-          <button
-            type="button"
-            className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-accent-foreground"
-            aria-label="Clear app search"
-            onMouseDown={(event) => {
-              event.preventDefault();
-            }}
-            onClick={(event) => {
-              event.preventDefault();
-              clearSearch();
-            }}
-          >
-            <CloseIcon className="h-4 w-4" />
-          </button>
-        )}
-      </div>
+        {trimmedQuery.length > 0 && !disabled ? (
+          <InputGroupAddon align="inline-end">
+            <InputGroupButton
+              aria-label="Clear app search"
+              onMouseDown={(event) => {
+                event.preventDefault();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                clearSearch();
+              }}
+            >
+              <CloseIcon className="size-4" />
+            </InputGroupButton>
+          </InputGroupAddon>
+        ) : null}
+      </InputGroup>
     </div>
   );
 }
