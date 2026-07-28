@@ -137,6 +137,117 @@ test.describe("app registry icons", () => {
     await expect(mask).toHaveAttribute("width", "80");
   });
 
+  // Drawn from the real icon-less apps in the live registry, plus the shapes
+  // that decide each branch of the rule.
+  const MONOGRAM_CASES: {
+    name: string;
+    displayName?: string;
+    expected: string;
+  }[] = [
+    // Two or more words → first letter of the first two.
+    { name: "dealHub", displayName: "Deal Hub", expected: "DH" },
+    { name: "entityDiff", displayName: "Entity Diff", expected: "ED" },
+    { name: "tokenPile", displayName: "Token Pile", expected: "TP" },
+    { name: "helloWorld", displayName: "Hello World", expected: "HW" },
+    {
+      name: "agent-trace-viewer",
+      displayName: "Agent Trace Viewer",
+      expected: "AT",
+    },
+    // A leading acronym contributes only its first letter.
+    { name: "ciWorkqueue", displayName: "CI Workqueue", expected: "CW" },
+    { name: "sdtPipeline", displayName: "SDT Pipeline", expected: "SP" },
+    {
+      name: "itAccountOnboarding",
+      displayName: "IT Account Onboarding",
+      expected: "IA",
+    },
+    { name: "vmStyleGuide", displayName: "VM Style Guide", expected: "VS" },
+    // Hyphens and dots are word separators, and the result is uppercased.
+    {
+      name: "frontPorch",
+      displayName: "front-porch Internal GraphQL",
+      expected: "FP",
+    },
+    { name: "valon-sats", displayName: "Valon SATs", expected: "VS" },
+    // A display name that is itself a short acronym is kept whole.
+    { name: "llm", displayName: "LLM", expected: "LLM" },
+    // Single word → first two letters.
+    { name: "jarvis", displayName: "Jarvis", expected: "JA" },
+    { name: "delta", displayName: "Delta", expected: "DE" },
+    { name: "valkey", displayName: "Valkey", expected: "VA" },
+    { name: "glinks", displayName: "GLinks", expected: "GL" },
+    // No display name → fall back to the id, splitting camelCase so this does
+    // not degrade to "DA".
+    { name: "dataSchemaExplorer", expected: "DS" },
+    { name: "oncall", expected: "ON" },
+  ];
+
+  test("derives a display-font monogram for apps with no brand mark", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(
+      page,
+      MONOGRAM_CASES.map(({ name, displayName }) => ({
+        name,
+        ...(displayName ? { displayName } : {}),
+      })),
+    );
+    await page.goto("/apps");
+
+    for (const { name, expected } of MONOGRAM_CASES) {
+      const monogram = page.locator(
+        `[data-testid="integration-card-${name}"] [data-testid="app-monogram"]`,
+      );
+      await expect(monogram, `${name}: monogram should render`).toHaveText(
+        expected,
+      );
+    }
+
+    // The monogram uses the display face, not the body face.
+    const first = page.locator('[data-testid="app-monogram"]').first();
+    const [monogramFont, bodyFont] = await Promise.all([
+      first.evaluate((node) => getComputedStyle(node).fontFamily),
+      page.evaluate(() => getComputedStyle(document.body).fontFamily),
+    ]);
+    expect(monogramFont).not.toBe(bodyFont);
+    expect(
+      monogramFont,
+      "monogram should resolve to the theme's display family",
+    ).toBe(
+      await page.evaluate(() =>
+        getComputedStyle(document.documentElement)
+          .getPropertyValue("--ui-font-display")
+          .trim(),
+      ),
+    );
+  });
+
+  test("prefers a brand mark over a monogram", async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [
+      { name: "branded", displayName: "Branded App", iconSvg: MASKED_ICON },
+    ]);
+    await page.goto("/apps");
+
+    const card = page.locator('[data-testid="integration-card-branded"]');
+    await expect(card.locator("svg mask")).toBeAttached();
+    await expect(card.locator('[data-testid="app-monogram"]')).toHaveCount(0);
+  });
+
+  test("falls back to the generic glyph when no letters can be derived", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [{ name: "---", displayName: "!!!" }]);
+    await page.goto("/apps");
+
+    const card = page.locator('[data-testid="integration-card----"]');
+    await expect(card.locator('[data-testid="app-monogram"]')).toHaveCount(0);
+    await expect(card.locator("svg")).toBeAttached();
+  });
+
   test("still strips style and unsafe elements", async ({
     authenticatedPage,
   }) => {

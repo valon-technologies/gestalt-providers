@@ -1802,7 +1802,12 @@ function BuildStoreAppCard({
         "focus-ring rounded-xl",
       )}
     >
-      <IntegrationIcon iconSvg={iconSvg} size="xl" />
+      <IntegrationIcon
+        iconSvg={iconSvg}
+        name={name}
+        displayName={label}
+        size="xl"
+      />
       <span className="min-w-0">
         <span className="block text-base font-heading text-foreground">
           {label}
@@ -1856,7 +1861,11 @@ function ConnectStepActions({
                 data-testid={`build-connect-app-${appId}`}
               >
                 <div className="flex items-start gap-3">
-                  <IntegrationIcon size="md" />
+                  <IntegrationIcon
+                    name={appId}
+                    displayName={companionAppLabel(appId)}
+                    size="md"
+                  />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-foreground">
                       {companionAppLabel(appId)}
