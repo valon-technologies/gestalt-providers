@@ -311,11 +311,6 @@ export default function IntegrationCard({
     setSettingsOpen(true);
   }
 
-  function openListingDetail(e?: MouseEvent) {
-    e?.stopPropagation();
-    setListingOpen(true);
-  }
-
   function handleListingConnect() {
     setListingOpen(false);
     setSettingsOpen(true);

@@ -1,8 +1,5 @@
 /**
- * Gestalt console vendor of Valon Registry `disclosure-caret`.
- *
- * Ownership: Valon Registry (`valon-tools/apps/registry/ui/src/lib/disclosure-caret.ts`).
- * Synced from toolshed origin/main — import-path adaptation only.
+ * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
 /**
