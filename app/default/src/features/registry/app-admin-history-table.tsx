@@ -1,3 +1,4 @@
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatRegistryTime, formatRegistryTimeAgo } from "@/features/registry/format";
 import {
@@ -5,8 +6,19 @@ import {
   REGISTRY_TABLE_LINK_CLASS,
 } from "@/features/registry/publication-pull-request-label";
 import { RegistryCode } from "@/features/registry/registry-code";
-import type { AppAdminRegistryRevision } from "@/features/registry/types";
+import {
+  decorateRevisionRollout,
+  revisionHasActiveRollout,
+  revisionRolloutStatusLabel,
+  revisionRolloutStatusTimer,
+  revisionRolloutStatusVariant,
+} from "@/features/registry/revision-history-rows";
+import type { AppAdminRegistryRevision, RegistryRollout } from "@/features/registry/types";
+import { useLiveNow } from "@/hooks/use-live-now";
 import { Loader2 } from "lucide-react";
+
+const ROLLOUT_DURATION_CLASS =
+  "inline-block min-w-[4.75rem] tabular-nums text-muted-foreground";
 
 function shortenVersion(version: string): string {
   const trimmed = version.trim();
@@ -44,8 +56,115 @@ function deployedByLabel(actor?: string): string {
   return trimmed || "—";
 }
 
+function RevisionRolloutDuration({ statusTimer }: { statusTimer: string }) {
+  if (statusTimer.startsWith("for ")) {
+    const duration = statusTimer.replace(/^for\s+/, "");
+    return (
+      <span className="text-muted-foreground">
+        for <span className={ROLLOUT_DURATION_CLASS}>{duration}</span>
+      </span>
+    );
+  }
+  return <span className="text-muted-foreground">{statusTimer}</span>;
+}
+
+function RevisionHistoryRow({
+  revision,
+  rollout,
+  liveNow,
+}: {
+  revision: AppAdminRegistryRevision;
+  rollout?: RegistryRollout;
+  liveNow: number;
+}) {
+  const decoratedRevision = decorateRevisionRollout(revision, rollout);
+  const deployedAt = deployedAtLabel(decoratedRevision.deployedAt, liveNow);
+  const pullRequest = decoratedRevision.publication?.triggerPullRequest;
+  const statusLabel = revisionRolloutStatusLabel(decoratedRevision.rolloutState);
+  const statusVariant = revisionRolloutStatusVariant(decoratedRevision.rolloutState);
+  const statusTimer = revisionRolloutStatusTimer(decoratedRevision, liveNow);
+  const isActiveRollout =
+    decoratedRevision.rolloutState === "enrolling" ||
+    decoratedRevision.rolloutState === "restarting";
+
+  return (
+    <tr key={decoratedRevision.id} data-testid="revision-history-row">
+      <td className="px-4 py-3 align-top text-muted-foreground">
+        {deployedAt ? (
+          <time
+            dateTime={deployedAt.dateTime}
+            title={deployedAt.absolute}
+            data-testid="revision-deployed-at"
+          >
+            {deployedAt.relative}
+          </time>
+        ) : (
+          <span>—</span>
+        )}
+      </td>
+      <td className="px-4 py-3 align-top">
+        <div className="flex flex-col gap-1">
+          <RegistryCode title={fullTransitionLabel(decoratedRevision)}>
+            {transitionLabel(decoratedRevision)}
+          </RegistryCode>
+          {decoratedRevision.sourceUrl ? (
+            <a
+              href={decoratedRevision.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={REGISTRY_TABLE_LINK_CLASS}
+            >
+              {decoratedRevision.sourceRef?.slice(0, 12) ?? "source"}
+            </a>
+          ) : null}
+          {pullRequest?.number ? (
+            <PublicationPullRequestLabel
+              pullRequest={pullRequest}
+              titleClassName="text-xs text-muted-foreground"
+            />
+          ) : decoratedRevision.publication?.workflowRunUrl ? (
+            <a
+              href={decoratedRevision.publication.workflowRunUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={REGISTRY_TABLE_LINK_CLASS}
+            >
+              workflow
+            </a>
+          ) : null}
+        </div>
+      </td>
+      <td className="px-4 py-3 align-top">
+        {statusLabel && statusVariant ? (
+          <div className="flex flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={statusVariant} data-testid="revision-rollout-status">
+                {isActiveRollout ? (
+                  <Loader2
+                    className="mr-1 size-3.5 animate-spin"
+                    aria-hidden="true"
+                    data-testid="revision-rollout-status-spinner"
+                  />
+                ) : null}
+                {statusLabel}
+              </Badge>
+              {statusTimer ? <RevisionRolloutDuration statusTimer={statusTimer} /> : null}
+            </div>
+          </div>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </td>
+      <td className="px-4 py-3 align-top text-muted-foreground">
+        {deployedByLabel(decoratedRevision.deployedBy)}
+      </td>
+    </tr>
+  );
+}
+
 export function AppAdminHistoryTable({
   revisions,
+  rollout,
   loading,
   loadingMore,
   error,
@@ -53,12 +172,17 @@ export function AppAdminHistoryTable({
   hasMore,
 }: {
   revisions: AppAdminRegistryRevision[];
+  rollout?: RegistryRollout;
   loading: boolean;
   loadingMore: boolean;
   error: string | null;
   onLoadMore: () => void;
   hasMore: boolean;
 }) {
+  const liveNow = useLiveNow({
+    enabled: revisionHasActiveRollout(revisions, rollout),
+  });
+
   if (loading) {
     return <p className="text-sm text-muted-foreground">Loading revision history…</p>;
   }
@@ -83,67 +207,19 @@ export function AppAdminHistoryTable({
             <tr>
               <th className="px-4 py-3 font-medium">Deployed at</th>
               <th className="px-4 py-3 font-medium">Transition</th>
+              <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium">Deployed by</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border bg-card text-card-foreground">
-            {revisions.map((revision) => {
-              const deployedAt = deployedAtLabel(revision.deployedAt);
-              const pullRequest = revision.publication?.triggerPullRequest;
-
-              return (
-                <tr key={revision.id} data-testid="revision-history-row">
-                  <td className="px-4 py-3 align-top text-muted-foreground">
-                    {deployedAt ? (
-                      <time
-                        dateTime={deployedAt.dateTime}
-                        title={deployedAt.absolute}
-                        data-testid="revision-deployed-at"
-                      >
-                        {deployedAt.relative}
-                      </time>
-                    ) : (
-                      <span>—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 align-top">
-                    <div className="flex flex-col gap-1">
-                      <RegistryCode title={fullTransitionLabel(revision)}>
-                        {transitionLabel(revision)}
-                      </RegistryCode>
-                      {revision.sourceUrl ? (
-                        <a
-                          href={revision.sourceUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={REGISTRY_TABLE_LINK_CLASS}
-                        >
-                          {revision.sourceRef?.slice(0, 12) ?? "source"}
-                        </a>
-                      ) : null}
-                      {pullRequest?.number ? (
-                        <PublicationPullRequestLabel
-                          pullRequest={pullRequest}
-                          titleClassName="text-xs text-muted-foreground"
-                        />
-                      ) : revision.publication?.workflowRunUrl ? (
-                        <a
-                          href={revision.publication.workflowRunUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className={REGISTRY_TABLE_LINK_CLASS}
-                        >
-                          workflow
-                        </a>
-                      ) : null}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 align-top text-muted-foreground">
-                    {deployedByLabel(revision.deployedBy)}
-                  </td>
-                </tr>
-              );
-            })}
+            {revisions.map((revision) => (
+              <RevisionHistoryRow
+                key={revision.id}
+                revision={revision}
+                rollout={rollout}
+                liveNow={liveNow}
+              />
+            ))}
           </tbody>
         </table>
       </div>
