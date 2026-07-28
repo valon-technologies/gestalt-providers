@@ -89,6 +89,17 @@ const TARGET_INK_FRACTION = 0.6;
  * reaches it — the most heavily padded lands around 86%.
  */
 const MAX_INSET = 0.88;
+/**
+ * Share of the tile a full-bleed mark's artwork occupies.
+ *
+ * These marks carry their own background, so they used to render at the full
+ * tile and had whatever internal margin their author happened to leave — which
+ * varies enough that some glyphs collided with the tile's rounded corners and
+ * were visibly clipped. Insetting them and painting the tile in the mark's own
+ * background colour gives a uniform safe area while keeping the fill seamless
+ * to the corners.
+ */
+const FULL_BLEED_INSET = 0.86;
 
 /**
  * How much of its own viewBox a mark reserves as padding, per side.
@@ -107,14 +118,45 @@ function paddingFraction(box: readonly number[]): number {
 }
 
 export type BrandMarkShape = {
-  /** The mark paints its own background and should be clipped flush. */
+  /** The mark paints its own background rather than sitting on transparency. */
   fullBleed: boolean;
+  /**
+   * The background colour a full-bleed mark paints, for the tile to adopt so the
+   * fill reaches the tile's corners rather than the mark's. Undefined when the
+   * background is not a plain colour we can lift, in which case the mark keeps
+   * filling the tile edge to edge.
+   */
+  backgroundColor?: string;
   /**
    * Fraction of the tile the `<svg>` should occupy, compensated for the padding
    * the mark bakes into its own viewBox so every glyph's ink lands at one size.
    */
   inset: number;
 };
+
+/**
+ * Whether an element only defines something for later reference — a clip path,
+ * a mask, a template — rather than painting. Such a rect can cover the viewBox
+ * without being the background.
+ */
+function isDefinitionOnly(element: Element): boolean {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    if (/^(defs|clipPath|mask|pattern|symbol|marker)$/.test(node.tagName)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Colours we can safely restate as a CSS background on the tile. */
+const PLAIN_COLOR = /^(#[0-9a-f]{3,8}|[a-z]+|rgba?\([\d\s.,%]+\)|hsla?\([\d\s.,%]+\))$/i;
+
+function plainColor(value: string | null): string | undefined {
+  const color = value?.trim();
+  if (!color || !PLAIN_COLOR.test(color)) return undefined;
+  if (color.toLowerCase() === "currentcolor") return undefined;
+  return color;
+}
 
 function parseViewBox(root: Element): number[] | null {
   const box = (root.getAttribute("viewBox") ?? "")
@@ -134,10 +176,19 @@ export function describeBrandMark(svg: string): BrandMarkShape {
   const box = parseViewBox(root);
   if (!box) return fallback;
 
-  const fullBleed = Array.from(root.querySelectorAll("rect")).some(
-    (rect) => isOpaque(rect) && coversViewBox(rect, box),
+  // First in document order is painted first, so it is the background.
+  const background = Array.from(root.querySelectorAll("rect")).find(
+    (rect) =>
+      !isDefinitionOnly(rect) && isOpaque(rect) && coversViewBox(rect, box),
   );
-  if (fullBleed) return { fullBleed: true, inset: 1 };
+  if (background) {
+    const backgroundColor = plainColor(background.getAttribute("fill"));
+    return backgroundColor
+      ? { fullBleed: true, backgroundColor, inset: FULL_BLEED_INSET }
+      : // Without a colour to hand the tile, insetting would expose the tile
+        // behind the artwork, so keep filling it.
+        { fullBleed: true, inset: 1 };
+  }
 
   // Scale up by whatever padding the mark bakes in, so the ink — not the
   // element — lands at the target. Always >= the target, since padding only
