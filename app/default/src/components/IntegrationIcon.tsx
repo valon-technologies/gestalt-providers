@@ -74,6 +74,7 @@ export default function IntegrationIcon({
 
   return (
     <div
+      data-testid="app-mark"
       data-full-bleed={fullBleed || undefined}
       style={
         shape && !fullBleed

@@ -49,7 +49,10 @@ const MASKED_ICON = `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/sv
 </svg>`;
 
 function iconIn(page: import("@playwright/test").Page, app: string) {
-  return page.locator(`[data-testid="integration-card-${app}"] svg`).first();
+  // Some marks nest an <svg> inside the root one, so pin the outermost.
+  return page
+    .locator(`[data-testid="integration-card-${app}"] [data-testid="app-mark"] svg`)
+    .first();
 }
 
 test.describe("app registry icons", () => {
@@ -128,7 +131,7 @@ test.describe("app registry icons", () => {
     await page.goto("/apps");
 
     const mask = page.locator(
-      '[data-testid="integration-card-masked"] svg mask',
+      '[data-testid="integration-card-masked"] [data-testid="app-mark"] svg mask',
     );
     await expect(mask).toHaveAttribute("maskUnits", "userSpaceOnUse");
     await expect(mask).toHaveAttribute("mask-type", "alpha");
@@ -255,15 +258,16 @@ test.describe("app registry icons", () => {
     // A bled mark fills its tile; an inset one leaves the border visible.
     const svgWidth = async (app: string) => {
       const box = await page
-        .locator(`[data-testid="integration-card-${app}"] svg`)
+        .locator(
+          `[data-testid="integration-card-${app}"] [data-testid="app-mark"] svg`,
+        )
         .first()
         .boundingBox();
       return box?.width ?? 0;
     };
     const frameWidth = async (app: string) => {
       const box = await page
-        .locator(`[data-testid="integration-card-${app}"] [class*="size-10"]`)
-        .first()
+        .locator(`[data-testid="integration-card-${app}"] [data-testid="app-mark"]`)
         .boundingBox();
       return box?.width ?? 0;
     };
@@ -341,7 +345,9 @@ test.describe("app registry icons", () => {
     ]);
     await page.goto("/apps");
 
-    const card = page.locator('[data-testid="integration-card-branded"]');
+    const card = page.locator(
+      '[data-testid="integration-card-branded"] [data-testid="app-mark"]',
+    );
     await expect(card.locator("svg mask")).toBeAttached();
     await expect(card.locator('[data-testid="app-monogram"]')).toHaveCount(0);
   });
@@ -353,7 +359,9 @@ test.describe("app registry icons", () => {
     await mockIntegrations(page, [{ name: "---", displayName: "!!!" }]);
     await page.goto("/apps");
 
-    const card = page.locator('[data-testid="integration-card----"]');
+    const card = page.locator(
+      '[data-testid="integration-card----"] [data-testid="app-mark"]',
+    );
     await expect(card.locator('[data-testid="app-monogram"]')).toHaveCount(0);
     await expect(card.locator("svg")).toBeAttached();
   });
@@ -373,9 +381,11 @@ test.describe("app registry icons", () => {
     ]);
     await page.goto("/apps");
 
-    const card = page.locator('[data-testid="integration-card-empty-shell"]');
-    await expect(card.locator('[data-testid="app-monogram"]')).toHaveText("ES");
-    await expect(card.locator("svg")).toHaveCount(0);
+    const mark = page.locator(
+      '[data-testid="integration-card-empty-shell"] [data-testid="app-mark"]',
+    );
+    await expect(mark.locator('[data-testid="app-monogram"]')).toHaveText("ES");
+    await expect(mark.locator("svg")).toHaveCount(0);
   });
 
   test("still strips style and unsafe elements", async ({
@@ -395,7 +405,9 @@ test.describe("app registry icons", () => {
     ]);
     await page.goto("/apps");
 
-    const svg = page.locator('[data-testid="integration-card-hostile"] svg');
+    const svg = page
+      .locator('[data-testid="integration-card-hostile"] [data-testid="app-mark"] svg')
+      .first();
     await expect(svg).toBeAttached();
     // mask-type is lifted out of style; nothing else from style is, and the
     // style attribute itself never lands.
