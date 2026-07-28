@@ -1,5 +1,7 @@
 /**
- * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Gestalt console vendor of Valon Registry `scroll-spy`.
+ *
+ * Vendored from the upstream design-system registry — import-path adaptation only.
  */
 
 /** A section candidate for scroll-spy activation (document/viewport tops). */

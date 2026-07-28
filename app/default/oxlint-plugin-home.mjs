@@ -1,9 +1,8 @@
 /**
  * Home-shell Oxlint plugin — console UI invariants for app/default.
  *
- * Keep this package local to gestalt-providers. Do not path-depend on
- * toolshed's private oxlint-gestalt (different token model + overwrite-surface
- * rules that do not apply here).
+ * Keep this package local to gestalt-providers. Do not depend on private
+ * upstream fleet lint plugins (different token model + overwrite-surface rules).
  */
 
 const BRAND_TEXT_ON_SELECTED =

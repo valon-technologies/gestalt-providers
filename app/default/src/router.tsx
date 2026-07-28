@@ -20,7 +20,6 @@ import AppAdminPage from "@/pages/app-admin";
 import AppsPage from "@/pages/apps";
 import BuildPage, { BuildIndexRedirect } from "@/pages/build";
 import IdentitiesPage from "@/pages/identities";
-import IntegrationsPage from "@/pages/integrations";
 import SettingsPage from "@/pages/settings";
 import WorkflowsPage from "@/pages/workflows";
 import { appBasepath } from "@/lib/mount";
@@ -137,7 +136,13 @@ const identitiesRoute = createRoute({
 const integrationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/integrations",
-  component: IntegrationsPage,
+  beforeLoad: ({ location }) => {
+    throw redirect({
+      to: "/apps",
+      search: location.search,
+      hash: location.hash,
+    });
+  },
 });
 
 const tokensRoute = createRoute({

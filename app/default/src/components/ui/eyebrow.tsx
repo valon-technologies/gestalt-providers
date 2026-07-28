@@ -12,11 +12,14 @@ import { cn } from "@/lib/cn";
 // (eyebrow.md / RES-20260717-006). Default element is span — never a heading.
 // Caps via CSS `uppercase` — type real case in markup. Not Label (form) and not
 // Badge (filled chip).
-// TODO(registry): switch base back to text-xs when Eyebrow ships native 2xs.
 const eyebrowVariants = cva(
-  "text-2xs font-normal uppercase tracking-eyebrow leading-none",
+  "font-normal uppercase tracking-eyebrow leading-none",
   {
     variants: {
+      size: {
+        default: "text-xs",
+        sm: "text-2xs",
+      },
       // Ink roles map to color.md text hierarchy — pick a tone, never override
       // text-* after eyebrowVariants().
       tone: {
@@ -26,6 +29,7 @@ const eyebrowVariants = cva(
       },
     },
     defaultVariants: {
+      size: "default",
       tone: "muted",
     },
   },
@@ -36,11 +40,11 @@ export interface EyebrowProps
     VariantProps<typeof eyebrowVariants> {}
 
 const Eyebrow = React.forwardRef<HTMLSpanElement, EyebrowProps>(
-  ({ className, tone, ...props }, ref) => (
+  ({ className, size, tone, ...props }, ref) => (
     <span
       ref={ref}
       data-slot="eyebrow"
-      className={cn(eyebrowVariants({ tone }), className)}
+      className={cn(eyebrowVariants({ size, tone }), className)}
       {...props}
     />
   ),
