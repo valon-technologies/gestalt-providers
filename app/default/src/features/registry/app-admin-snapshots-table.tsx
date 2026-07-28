@@ -222,9 +222,11 @@ function AppAdminSnapshotTableRow({
   });
   const isDeployable = row.kind === "published";
   const isDeploying = deployingVersion === row.version;
+  const autoDeployEnabled = registry.autoDeploy?.enabled ?? false;
   const deployDisabled =
     !isDeployable ||
     controlsDisabled ||
+    autoDeployEnabled ||
     isDeploying ||
     row.version === registry.desiredVersion;
   const statusTimer = snapshotStatusTimer(row);

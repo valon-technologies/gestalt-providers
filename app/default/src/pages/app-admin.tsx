@@ -39,6 +39,13 @@ export default function AppAdminPage() {
   const deployConflict =
     deployMutation.isError && isAPIErrorStatus(deployMutation.error, 409);
   const deployFailed = deployMutation.isError && !deployConflict;
+  const autoDeployFailed = autoDeployMutation.isError;
+  const autoDeployError =
+    autoDeployFailed && autoDeployMutation.error instanceof Error
+      ? autoDeployMutation.error.message
+      : autoDeployFailed
+        ? "Failed to update auto-deploy"
+        : null;
   const error =
     registryQuery.isError && !forbidden
       ? registryQuery.error instanceof Error
@@ -96,6 +103,7 @@ export default function AppAdminPage() {
                 isCheckingForNewVersions={registryQuery.isFetching}
                 onAutoDeployChange={(enabled) => autoDeployMutation.mutate(enabled)}
                 isUpdatingAutoDeploy={autoDeployMutation.isPending}
+                autoDeployError={autoDeployError}
                 error={error}
               />
             </div>

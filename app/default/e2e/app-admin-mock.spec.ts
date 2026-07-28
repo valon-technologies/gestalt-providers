@@ -579,16 +579,54 @@ test.describe("app admin registry UI", () => {
     await page.goto(`/apps/${APP}/admin`);
 
     await expect(page.getByTestId("auto-deploy-toggle")).not.toBeChecked();
+    await expect(page.getByTestId("auto-deploy-state")).toHaveText("Off");
     await expect(page.getByTestId("auto-deploy-last-error")).toHaveText(
       "rollout failed for 0.0.0-snapshot.gdef456",
     );
 
     await page.getByTestId("auto-deploy-toggle").click();
     await expect(page.getByTestId("auto-deploy-toggle")).toBeChecked();
+    await expect(page.getByTestId("auto-deploy-state")).toHaveText("On");
     await expect(page.getByTestId("auto-deploy-last-error")).toHaveCount(0);
 
     await page.getByTestId("auto-deploy-toggle").click();
     await expect(page.getByTestId("auto-deploy-toggle")).not.toBeChecked();
+    await expect(page.getByTestId("auto-deploy-state")).toHaveText("Off");
+  });
+
+  test("disables manual deploy buttons when auto-deploy is on", async ({ page }) => {
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      autoDeploy: {
+        enabled: true,
+      },
+    });
+    await page.goto(`/apps/${APP}/admin`);
+
+    await expect(page.getByTestId("auto-deploy-toggle")).toBeChecked();
+    await expect(page.getByTestId("auto-deploy-state")).toHaveText("On");
+    await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toBeDisabled();
+  });
+
+  test("shows auto-deploy update errors", async ({ page }) => {
+    await mockAppAdminRegistry(page, APP, installedRegistryState());
+    await page.route(`**/api/v1/apps/${APP}/admin/registry/auto-deploy`, async (route, request) => {
+      if (request.method() === "PUT") {
+        await route.fulfill({
+          status: 503,
+          json: { error: "app registry installation services are unavailable" },
+        });
+        return;
+      }
+      await route.fallback();
+    });
+    await page.goto(`/apps/${APP}/admin`);
+
+    await page.getByTestId("auto-deploy-toggle").click();
+    await expect(page.getByTestId("auto-deploy-update-error")).toHaveText(
+      "app registry installation services are unavailable",
+    );
+    await expect(page.getByTestId("auto-deploy-state")).toHaveText("Off");
   });
 
   test("shows queued for deploy on auto-deploy pending snapshot during rollout", async ({

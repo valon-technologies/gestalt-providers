@@ -37,6 +37,7 @@ export function AppAdminVersionPanel({
   isCheckingForNewVersions = false,
   onAutoDeployChange,
   isUpdatingAutoDeploy = false,
+  autoDeployError = null,
   error,
 }: {
   registry: AppAdminRegistryResponse;
@@ -47,6 +48,7 @@ export function AppAdminVersionPanel({
   isCheckingForNewVersions?: boolean;
   onAutoDeployChange: (enabled: boolean) => void;
   isUpdatingAutoDeploy?: boolean;
+  autoDeployError?: string | null;
   error: string | null;
 }) {
   const [activeTab, setActiveTab] = useState<AppAdminTab>("snapshots");
@@ -63,6 +65,8 @@ export function AppAdminVersionPanel({
     : null;
 
   const controlsDisabled = registry.selectionDisabled || deployingVersion !== null;
+  const autoDeployEnabled = registry.autoDeploy?.enabled ?? false;
+  const manualDeployDisabled = controlsDisabled || autoDeployEnabled;
 
   useEffect(() => {
     setActiveTab("snapshots");
@@ -103,8 +107,9 @@ export function AppAdminVersionPanel({
 
       <AppAdminAutoDeployToggle
         autoDeploy={registry.autoDeploy ?? { enabled: false }}
-        disabled={controlsDisabled}
+        disabled={isUpdatingAutoDeploy}
         updating={isUpdatingAutoDeploy}
+        updateError={autoDeployError}
         onChange={onAutoDeployChange}
       />
 
@@ -141,9 +146,11 @@ export function AppAdminVersionPanel({
             <SectionHeaderContent>
               <SectionHeaderTitle>Published snapshots</SectionHeaderTitle>
               <SectionHeaderDescription>
-                {registry.desiredVersion
-                  ? "Deploy any published snapshot across the fleet."
-                  : "No version is installed yet. Deploy a published snapshot to install this app across the fleet."}
+                {autoDeployEnabled
+                  ? "Automatic deploy is on — new snapshots are admitted without manual deploy."
+                  : registry.desiredVersion
+                    ? "Deploy any published snapshot across the fleet."
+                    : "No version is installed yet. Deploy a published snapshot to install this app across the fleet."}
               </SectionHeaderDescription>
             </SectionHeaderContent>
             <SectionHeaderActions>
@@ -169,7 +176,7 @@ export function AppAdminVersionPanel({
 
           <AppAdminSnapshotsTable
             registry={registry}
-            controlsDisabled={controlsDisabled}
+            controlsDisabled={manualDeployDisabled}
             deployingVersion={deployingVersion}
             onDeployVersion={onDeployVersion}
           />
