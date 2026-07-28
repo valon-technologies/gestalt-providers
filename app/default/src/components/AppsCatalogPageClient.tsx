@@ -28,10 +28,17 @@ import {
   PageHeaderTitle,
 } from "@/components/ui/page-header";
 import {
-  TableOfContents,
-  isTableOfContentsLink,
-  type TableOfContentsItem,
-} from "@/components/ui/table-of-contents";
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarSeparator,
+} from "@/components/ui/sidebar";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import { SpinnerIcon } from "@/components/icons";
 import Button from "@/components/Button";
@@ -41,7 +48,7 @@ import {
 } from "@/lib/queries";
 
 const APPS_PATH = appPath("/apps");
-/** Offset below the viewport top for TOC scroll-spy + scroll-margin on headings. */
+/** Offset below the viewport top for section scroll-spy + scroll-margin on headings. */
 /** Must sit below `scroll-mt-24` (96px) so a clicked heading still counts as
  *  crossed after `scrollIntoView` parks it on the scroll-margin. */
 const CATALOG_TOC_ACTIVATION_OFFSET = 112;
@@ -83,26 +90,21 @@ export default function AppsCatalogPageClient() {
   const hasSearchQuery = query.trim().length > 0;
   const hasCatalogContent = installed.length > 0 || catalogSections.length > 0;
 
-  const tocItems = useMemo((): TableOfContentsItem[] => {
-    const items: TableOfContentsItem[] = [];
+  const catalogNavSections = useMemo(() => {
+    const sections: { id: string; label: string }[] = [];
     if (installed.length > 0) {
-      items.push({
+      sections.push({
         id: "catalog-bucket-installed",
-        title: "Installed",
-        depth: 1,
+        label: "Installed",
       });
-    }
-    if (installed.length > 0 && catalogSections.length > 0) {
-      items.push({ kind: "separator", id: "catalog-toc-sep-installed" });
     }
     for (const { bucket } of catalogSections) {
-      items.push({
+      sections.push({
         id: `catalog-bucket-${bucket.id}`,
-        title: bucket.label,
-        depth: 1,
+        label: bucket.label,
       });
     }
-    return items;
+    return sections;
   }, [catalogSections, installed.length]);
 
   const scrollRootRef = useRef<HTMLElement | null>(null);
@@ -110,10 +112,7 @@ export default function AppsCatalogPageClient() {
     scrollRootRef.current = document.documentElement;
   }, []);
 
-  const linkItems = useMemo(
-    () => tocItems.filter(isTableOfContentsLink),
-    [tocItems],
-  );
+  const linkItems = catalogNavSections;
   const sectionsKey = linkItems.map((item) => item.id).join(",");
   const getEntries = useCallback(() => {
     return linkItems.flatMap((item) => {
@@ -134,7 +133,7 @@ export default function AppsCatalogPageClient() {
     observeWindow: true,
   });
 
-  const onTocSelect = useCallback(
+  const onNavSectionSelect = useCallback(
     (id: string) => {
       const el = document.getElementById(id);
       if (!el) return;
@@ -291,20 +290,69 @@ export default function AppsCatalogPageClient() {
 
       {!loading && !error && hasCatalogContent && (
         <div className="mt-10 flex gap-8" data-testid="plugin-grid">
-          {tocItems.length > 0 ? (
+          {catalogNavSections.length > 0 ? (
             <aside
               className="hidden w-44 shrink-0 lg:block"
               data-testid="apps-catalog-toc"
             >
               <div className="sticky top-24 h-[calc(100vh-7rem)]">
-                <TableOfContents
-                  items={tocItems}
-                  activeId={activeId}
-                  onItemSelect={onTocSelect}
-                  label="Categories"
-                  className="min-h-0"
-                  maxHeight="100%"
-                />
+                <SidebarProvider
+                  defaultWidth="11rem"
+                  className="h-full min-h-0 w-full"
+                >
+                  <Sidebar collapsible="none" className="h-full">
+                    <SidebarContent className="overflow-visible">
+                      <SidebarGroup className="p-0">
+                        <SidebarGroupLabel>Categories</SidebarGroupLabel>
+                        <SidebarGroupContent>
+                          {installed.length > 0 ? (
+                            <SidebarMenu>
+                              <SidebarMenuItem>
+                                <SidebarMenuButton
+                                  isActive={
+                                    activeId === "catalog-bucket-installed"
+                                  }
+                                  onClick={() =>
+                                    onNavSectionSelect(
+                                      "catalog-bucket-installed",
+                                    )
+                                  }
+                                >
+                                  Installed
+                                </SidebarMenuButton>
+                              </SidebarMenuItem>
+                            </SidebarMenu>
+                          ) : null}
+                          {installed.length > 0 &&
+                          catalogSections.length > 0 ? (
+                            <SidebarSeparator className="my-1" />
+                          ) : null}
+                          {catalogSections.length > 0 ? (
+                            <SidebarMenu>
+                              {catalogSections.map(({ bucket }) => (
+                                <SidebarMenuItem key={bucket.id}>
+                                  <SidebarMenuButton
+                                    isActive={
+                                      activeId ===
+                                      `catalog-bucket-${bucket.id}`
+                                    }
+                                    onClick={() =>
+                                      onNavSectionSelect(
+                                        `catalog-bucket-${bucket.id}`,
+                                      )
+                                    }
+                                  >
+                                    {bucket.label}
+                                  </SidebarMenuButton>
+                                </SidebarMenuItem>
+                              ))}
+                            </SidebarMenu>
+                          ) : null}
+                        </SidebarGroupContent>
+                      </SidebarGroup>
+                    </SidebarContent>
+                  </Sidebar>
+                </SidebarProvider>
               </div>
             </aside>
           ) : null}
