@@ -15,6 +15,7 @@ import {
   filterCatalogIntegrations,
 } from "@/lib/catalogFilters";
 import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "@/lib/constants";
+import { sanitizeAuthReturnPath } from "@/lib/authReturn";
 import { appPath } from "@/lib/mount";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
@@ -154,15 +155,18 @@ export default function AppsCatalogPageClient() {
     );
     window.sessionStorage.removeItem(CONNECTION_RETURN_PATH_STORAGE_KEY);
     if (returnPath) {
-      const nextURL = new URL(returnPath, window.location.origin);
+      const safePath = sanitizeAuthReturnPath(returnPath);
+      const nextURL = new URL(safePath, window.location.origin);
       if (
         nextURL.origin === window.location.origin &&
         nextURL.pathname.startsWith("/")
       ) {
+        const search = Object.fromEntries(nextURL.searchParams.entries());
         void navigate({
           to: nextURL.pathname,
           replace: true,
-          hash: nextURL.hash,
+          hash: nextURL.hash || undefined,
+          ...(Object.keys(search).length > 0 ? { search } : {}),
         });
         return;
       }

@@ -4,7 +4,7 @@
  * Home-shell invariants live in ./oxlint-plugin-home.mjs. Upstream fleet lint
  * packages are intentionally not extended — they encode a different token model.
  *
- * Categories stay off by default (toolshed pattern): ship only intentional
+ * Categories stay off by default (explicit rule categories only): ship only intentional
  * rules so lint is fail-closed for conventions we care about, not a pile of
  * stylistic warnings inherited from ESLint migrations.
  *
