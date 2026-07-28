@@ -15,6 +15,7 @@ import {
   PageHeaderDescription,
   PageHeaderTitle,
 } from "@/components/ui/page-header";
+import { AppAdminAutoDeployToggle } from "@/features/registry/app-admin-auto-deploy-toggle";
 import { AppAdminHistoryTable } from "@/features/registry/app-admin-history-table";
 import { AppAdminSnapshotsTable } from "@/features/registry/app-admin-snapshots-table";
 import { RolloutPhaseStepper } from "@/features/registry/rollout-phase-stepper";
@@ -33,6 +34,8 @@ export function AppAdminVersionPanel({
   onDeployVersion,
   onCheckForNewVersions,
   isCheckingForNewVersions = false,
+  onAutoDeployChange,
+  isUpdatingAutoDeploy = false,
   error,
 }: {
   registry: AppAdminRegistryResponse;
@@ -41,6 +44,8 @@ export function AppAdminVersionPanel({
   onDeployVersion: (version: string) => void;
   onCheckForNewVersions: () => void;
   isCheckingForNewVersions?: boolean;
+  onAutoDeployChange: (enabled: boolean) => void;
+  isUpdatingAutoDeploy?: boolean;
   error: string | null;
 }) {
   const [activeTab, setActiveTab] = useState<AppAdminTab>("snapshots");
@@ -94,6 +99,13 @@ export function AppAdminVersionPanel({
       </PageHeader>
 
       <RolloutPhaseStepper rollout={registry.rollout} />
+
+      <AppAdminAutoDeployToggle
+        autoDeploy={registry.autoDeploy ?? { enabled: false }}
+        disabled={controlsDisabled}
+        updating={isUpdatingAutoDeploy}
+        onChange={onAutoDeployChange}
+      />
 
       <div className="flex gap-2 border-b border-border">
         <button

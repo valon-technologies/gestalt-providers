@@ -16,5 +16,7 @@ export function shouldPollAppAdminRegistry(
   if (registry.selectionDisabled) return true;
   if (registry.rollout && isActiveRegistryRollout(registry.rollout.state)) return true;
   if ((registry.pendingVersions?.length ?? 0) > 0) return true;
+  if (registry.autoDeploy?.enabled) return true;
+  if (registry.autoDeploy?.pendingVersion) return true;
   return false;
 }

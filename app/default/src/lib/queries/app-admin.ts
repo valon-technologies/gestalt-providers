@@ -15,6 +15,7 @@ import {
   getAppAdminRegistryHistory,
   isAPIErrorStatus,
   selectAppAdminRegistryVersion,
+  updateAppAdminRegistryAutoDeploy,
 } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
 
@@ -76,6 +77,30 @@ export function useDeployAppAdminVersionMutation(appName: string) {
   return useMutation({
     mutationFn: (version: string) =>
       selectAppAdminRegistryVersion(appName, version),
+    onSettled: () =>
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.appAdmin.registry(appName),
+      }),
+  });
+}
+
+export function useUpdateAppAdminAutoDeployMutation(appName: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      updateAppAdminRegistryAutoDeploy(appName, enabled),
+    onSuccess: (response) => {
+      queryClient.setQueryData(
+        queryKeys.appAdmin.registry(appName),
+        (current: Awaited<ReturnType<typeof getAppAdminRegistry>> | undefined) =>
+          current
+            ? {
+                ...current,
+                autoDeploy: response.autoDeploy,
+              }
+            : current,
+      );
+    },
     onSettled: () =>
       queryClient.invalidateQueries({
         queryKey: queryKeys.appAdmin.registry(appName),

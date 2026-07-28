@@ -158,7 +158,10 @@ export async function mockAppAdminRegistry(
   initialState: AppAdminRegistryResponse,
   opts?: MockAppAdminRegistryOptions,
 ): Promise<{ getState: () => AppAdminRegistryResponse; setState: (state: AppAdminRegistryResponse) => void }> {
-  let state = initialState;
+  let state: AppAdminRegistryResponse = {
+    ...initialState,
+    autoDeploy: initialState.autoDeploy ?? { enabled: false },
+  };
 
   await page.route(`**/api/v1/apps/${app}/admin/registry`, (route: Route, request) => {
     const pathname = new URL(request.url()).pathname;
@@ -172,6 +175,36 @@ export async function mockAppAdminRegistry(
     }
     route.fallback();
   });
+
+  await page.route(
+    `**/api/v1/apps/${app}/admin/registry/auto-deploy`,
+    async (route: Route, request) => {
+      if (request.method() !== "PUT") {
+        await route.fallback();
+        return;
+      }
+      const body = JSON.parse(request.postData() || "{}") as { enabled?: boolean };
+      if (typeof body.enabled !== "boolean") {
+        await route.fulfill({ status: 400, json: { error: "enabled is required" } });
+        return;
+      }
+      state = {
+        ...state,
+        autoDeploy: {
+          ...state.autoDeploy,
+          enabled: body.enabled,
+          lastError: body.enabled ? undefined : state.autoDeploy?.lastError,
+          pendingVersion: body.enabled ? state.autoDeploy?.pendingVersion : undefined,
+        },
+      };
+      await route.fulfill({
+        json: {
+          app: state.app,
+          autoDeploy: state.autoDeploy,
+        },
+      });
+    },
+  );
 
   await page.route(
     `**/api/v1/apps/${app}/admin/registry/version`,

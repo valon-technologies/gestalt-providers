@@ -46,16 +46,24 @@ function snapshotStatus({
   row,
   desiredVersion,
   rollout,
+  autoDeployPendingVersion,
 }: {
   row: AppAdminSnapshotRow;
   desiredVersion?: string;
   rollout?: RegistryAppSummary["rollout"];
+  autoDeployPendingVersion?: string;
 }): { label: string; variant: "success" | "warning" | "info" | "destructive" } {
   if (row.kind === "pending") {
     return { label: "Publishing", variant: "warning" };
   }
   if (row.kind === "failed") {
     return { label: "Failed", variant: "destructive" };
+  }
+  if (
+    autoDeployPendingVersion === row.version &&
+    !isRolloutDeployingAction(rollout, row.version)
+  ) {
+    return { label: "Queued for deploy", variant: "warning" };
   }
   const rolloutTargetActive =
     rollout &&
@@ -98,7 +106,7 @@ function AppAdminPendingSnapshotTableRow({
   row: Extract<AppAdminSnapshotRow, { kind: "pending" }>;
   registry: Pick<
     AppAdminRegistryResponse,
-    "desiredVersion" | "rollout" | "selectionDisabled"
+    "desiredVersion" | "rollout" | "selectionDisabled" | "autoDeploy"
   >;
 }) {
   const liveNow = useLiveNow({ enabled: true });
@@ -108,6 +116,7 @@ function AppAdminPendingSnapshotTableRow({
     row,
     desiredVersion: registry.desiredVersion,
     rollout: registry.rollout,
+    autoDeployPendingVersion: registry.autoDeploy?.pendingVersion,
   });
   const statusTimer = snapshotStatusTimer(row, liveNow);
   const lastUpdated = snapshotLastUpdatedLabel(row, {
@@ -191,6 +200,7 @@ function AppAdminSnapshotTableRow({
     | "desiredVersion"
     | "rollout"
     | "selectionDisabled"
+    | "autoDeploy"
   >;
   controlsDisabled: boolean;
   deployingVersion: string | null;
@@ -208,6 +218,7 @@ function AppAdminSnapshotTableRow({
     row,
     desiredVersion: registry.desiredVersion,
     rollout: registry.rollout,
+    autoDeployPendingVersion: registry.autoDeploy?.pendingVersion,
   });
   const isDeployable = row.kind === "published";
   const isDeploying = deployingVersion === row.version;
@@ -328,6 +339,7 @@ export function AppAdminSnapshotsTable({
     | "desiredVersion"
     | "rollout"
     | "selectionDisabled"
+    | "autoDeploy"
   >;
   controlsDisabled: boolean;
   deployingVersion: string | null;
