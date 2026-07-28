@@ -1,8 +1,6 @@
 import { useMemo } from "react";
 import { Link, Outlet, useParams } from "@tanstack/react-router";
-import AuthGuard from "@/components/AuthGuard";
 import Container from "@/components/Container";
-import Nav from "@/components/Nav";
 import { RolloutBadge } from "@/features/registry/rollout-badge";
 import { formatRolloutStateLabel, isActiveRegistryRollout } from "@/features/registry/format";
 import { RegistryCode } from "@/features/registry/registry-code";
@@ -64,10 +62,7 @@ export default function AppAdminLayout() {
     : false;
 
   return (
-    <AuthGuard>
-      <div className="min-h-screen">
-        <Nav />
-        <Container as="main" className="py-12">
+    <Container as="main" className="py-12">
           <div className="mb-8 animate-fade-in-up">
             <Link
               to={APPS_PATH}
@@ -171,7 +166,5 @@ export default function AppAdminLayout() {
             </p>
           )}
         </Container>
-      </div>
-    </AuthGuard>
   );
 }
