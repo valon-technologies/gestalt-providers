@@ -41,38 +41,3 @@ export function filterIntegrations(
     matchesSearchQuery(getSearchableFields(integration).join(" "), query),
   );
 }
-
-export type MatchRange = { start: number; end: number };
-
-/** Merged case-insensitive ranges for every query token in `text`. */
-export function matchRangesForQuery(text: string, rawQuery: string): MatchRange[] {
-  const tokens = tokenizeQuery(rawQuery);
-  if (!text || tokens.length === 0) return [];
-
-  const lower = text.toLowerCase();
-  const ranges: MatchRange[] = [];
-
-  for (const token of tokens) {
-    let from = 0;
-    while (from < lower.length) {
-      const index = lower.indexOf(token, from);
-      if (index === -1) break;
-      ranges.push({ start: index, end: index + token.length });
-      from = index + token.length;
-    }
-  }
-
-  if (ranges.length === 0) return [];
-
-  ranges.sort((a, b) => a.start - b.start || a.end - b.end);
-  const merged: MatchRange[] = [];
-  for (const range of ranges) {
-    const last = merged[merged.length - 1];
-    if (last && range.start <= last.end) {
-      last.end = Math.max(last.end, range.end);
-    } else {
-      merged.push({ ...range });
-    }
-  }
-  return merged;
-}

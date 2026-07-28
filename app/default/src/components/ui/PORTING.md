@@ -112,6 +112,16 @@ checks + connectors). Depends on `lib/list-item-interaction.ts` and
 uses controlled `activationMode="jump"` — do not restyle Stepper chrome at the
 call site (layout-only wrappers OK).
 
+## SearchHighlight
+
+Registry `search-highlight` + `search-highlight-context` are vendored as
+`ui/search-highlight.tsx` and `lib/search-highlight-context.tsx` (helpers in
+`lib/search-highlight.ts`). Highlight paint is decoupled from DataTable: pass an
+explicit `query` prop or wrap with `SearchHighlightProvider`. Use
+`variant="vivid"` on card surfaces (integrations catalog); default
+`bg-accent-highlight` is for table cells when DataTable bridges context.
+Do not hand-roll `<mark className="bg-accent-vivid">` at call sites.
+
 ## Held local overrides (discuss before dropping)
 
 ### Add to Registry (so console can drop the fork)
