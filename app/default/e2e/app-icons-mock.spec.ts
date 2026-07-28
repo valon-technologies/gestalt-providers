@@ -137,16 +137,15 @@ test.describe("app registry icons", () => {
     await expect(mask).toHaveAttribute("width", "80");
   });
 
-  // Drawn from the real icon-less apps in the live registry, plus the shapes
-  // that decide each branch of the rule.
+  // Neutral fixtures that exercise each branch of the derivation rule.
   const MONOGRAM_CASES: {
     name: string;
     displayName?: string;
     expected: string;
   }[] = [
     // Two or more words → first letter of the first two.
-    { name: "dealHub", displayName: "Deal Hub", expected: "DH" },
-    { name: "entityDiff", displayName: "Entity Diff", expected: "ED" },
+    { name: "acmeHub", displayName: "Acme Hub", expected: "AH" },
+    { name: "recordDiff", displayName: "Record Diff", expected: "RD" },
     { name: "tokenPile", displayName: "Token Pile", expected: "TP" },
     { name: "helloWorld", displayName: "Hello World", expected: "HW" },
     {
@@ -155,7 +154,7 @@ test.describe("app registry icons", () => {
       expected: "AT",
     },
     // A leading acronym contributes only its first letter.
-    { name: "ciWorkqueue", displayName: "CI Workqueue", expected: "CW" },
+    { name: "ciQueue", displayName: "CI Queue", expected: "CQ" },
     { name: "sdtPipeline", displayName: "SDT Pipeline", expected: "SP" },
     {
       name: "itAccountOnboarding",
@@ -165,21 +164,21 @@ test.describe("app registry icons", () => {
     { name: "vmStyleGuide", displayName: "VM Style Guide", expected: "VS" },
     // Hyphens and dots are word separators, and the result is uppercased.
     {
-      name: "frontPorch",
-      displayName: "front-porch Internal GraphQL",
+      name: "fieldPortal",
+      displayName: "field-portal REST API",
       expected: "FP",
     },
-    { name: "valon-sats", displayName: "Valon SATs", expected: "VS" },
+    { name: "example-sats", displayName: "Example SATs", expected: "ES" },
     // A display name that is itself a short acronym is kept whole.
     { name: "llm", displayName: "LLM", expected: "LLM" },
     // Single word → first two letters.
-    { name: "jarvis", displayName: "Jarvis", expected: "JA" },
+    { name: "example", displayName: "Example", expected: "EX" },
     { name: "delta", displayName: "Delta", expected: "DE" },
     { name: "valkey", displayName: "Valkey", expected: "VA" },
     { name: "glinks", displayName: "GLinks", expected: "GL" },
     // No display name → fall back to the id, splitting camelCase so this does
     // not degrade to "DA".
-    { name: "dataSchemaExplorer", expected: "DS" },
+    { name: "dataRecordExplorer", expected: "DR" },
     { name: "oncall", expected: "ON" },
   ];
 
@@ -224,6 +223,117 @@ test.describe("app registry icons", () => {
     );
   });
 
+  const SOLID_ICON = `<svg viewBox="0 0 192 192" xmlns="http://www.w3.org/2000/svg"><rect width="192" height="192" fill="#4838A8"/><path fill="#fff" d="M40 150h112L96 40Z"/></svg>`;
+  const GLYPH_ICON = `<svg viewBox="-5.143 -5.143 34.286 34.286" xmlns="http://www.w3.org/2000/svg" fill="currentColor"><path d="M0 0h24v24H0z"/></svg>`;
+  // A deliberately faint plate is a tint, not a background.
+  const TINTED_ICON = `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"><rect width="32" height="32" rx="6" fill="currentColor" opacity="0.12"/><path fill="currentColor" d="M8 14h16v4H8z"/></svg>`;
+  // A full-size raster may be a solid square or a transparent glyph, so it must
+  // not be treated as full-bleed.
+  const RASTER_ICON = `<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image x="1" y="0" width="126" height="128" xlink:href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=="/></svg>`;
+
+  test("bleeds marks that paint their own background, insets the rest", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [
+      { name: "solid", displayName: "Solid", iconSvg: SOLID_ICON },
+      { name: "glyph", displayName: "Glyph", iconSvg: GLYPH_ICON },
+      { name: "tinted", displayName: "Tinted", iconSvg: TINTED_ICON },
+      { name: "raster", displayName: "Raster", iconSvg: RASTER_ICON },
+    ]);
+    await page.goto("/apps");
+
+    const frameOf = (app: string) =>
+      page.locator(`[data-testid="integration-card-${app}"] [data-full-bleed]`);
+
+    // Only the opaque full-viewBox rect counts.
+    await expect(frameOf("solid")).toHaveCount(1);
+    await expect(frameOf("glyph")).toHaveCount(0);
+    await expect(frameOf("tinted")).toHaveCount(0);
+    await expect(frameOf("raster")).toHaveCount(0);
+
+    // A bled mark fills its tile; an inset one leaves the border visible.
+    const svgWidth = async (app: string) => {
+      const box = await page
+        .locator(`[data-testid="integration-card-${app}"] svg`)
+        .first()
+        .boundingBox();
+      return box?.width ?? 0;
+    };
+    const frameWidth = async (app: string) => {
+      const box = await page
+        .locator(`[data-testid="integration-card-${app}"] [class*="size-10"]`)
+        .first()
+        .boundingBox();
+      return box?.width ?? 0;
+    };
+    expect(await svgWidth("solid")).toBeCloseTo(await frameWidth("solid"), 0);
+    expect(await svgWidth("glyph")).toBeLessThan(
+      (await frameWidth("glyph")) * 0.8,
+    );
+
+    // Inset marks are normalised on *ink*, not on element size: a mark that
+    // bakes 15% padding into its viewBox is laid out larger than one cropped
+    // flush to its artwork, precisely so the visible glyphs match.
+    const GLYPH_PADDING = 0.15;
+    expect(await svgWidth("tinted")).toBeLessThan(await svgWidth("glyph"));
+    expect((await svgWidth("glyph")) * (1 - 2 * GLYPH_PADDING)).toBeCloseTo(
+      await svgWidth("tinted"),
+      0,
+    );
+  });
+
+  test("centres the monogram on its cap height", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [
+      { name: "acmeHub", displayName: "Acme Hub" },
+      { name: "llm", displayName: "LLM" },
+    ]);
+    await page.goto("/apps");
+
+    for (const app of ["acmeHub", "llm"]) {
+      const measured = await page
+        .locator(
+          `[data-testid="integration-card-${app}"] [data-testid="app-monogram"]`,
+        )
+        .evaluate((node) => {
+          const style = getComputedStyle(node);
+          const tile = node.parentElement!.getBoundingClientRect();
+          const box = node.getBoundingClientRect();
+          return {
+            trim: style.getPropertyValue("text-box-trim"),
+            edge: style.getPropertyValue("text-box-edge"),
+            lineHeight: style.lineHeight,
+            fontSize: style.fontSize,
+            above: box.y - tile.y,
+            below: tile.y + tile.height - (box.y + box.height),
+          };
+        });
+
+      // `cn()` merges Tailwind classes, and a font-size utility displaces a
+      // preceding `leading-*` while an unrecognised `text-…` name is dropped as
+      // a conflict. Both happened here and neither throws, so assert the
+      // computed result rather than the class list.
+      expect(measured.trim, `${app}: box not trimmed`).toBe("trim-both");
+      expect(measured.edge, `${app}: not trimmed to cap height`).toBe(
+        "cap alphabetic",
+      );
+      expect(measured.lineHeight, `${app}: leading-none was dropped`).toBe(
+        measured.fontSize,
+      );
+
+      // Trimmed to the caps, flex centring leaves equal space above and below.
+      expect(
+        Math.abs(measured.above - measured.below),
+        `${app}: monogram is not vertically centred`,
+      ).toBeLessThan(0.75);
+      // And the trimmed box really is cap height, not the full em box.
+      expect(measured.below).toBeGreaterThan(0);
+    }
+  });
+
   test("prefers a brand mark over a monogram", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await mockIntegrations(page, [
@@ -246,6 +356,26 @@ test.describe("app registry icons", () => {
     const card = page.locator('[data-testid="integration-card----"]');
     await expect(card.locator('[data-testid="app-monogram"]')).toHaveCount(0);
     await expect(card.locator("svg")).toBeAttached();
+  });
+
+  test("falls back when iconSvg parses but nothing paintable survives", async ({
+    authenticatedPage,
+  }) => {
+    const page = authenticatedPage;
+    await mockIntegrations(page, [
+      {
+        name: "empty-shell",
+        displayName: "Empty Shell",
+        iconSvg: `<svg viewBox="0 0 10 10" xmlns="http://www.w3.org/2000/svg">
+          <script>window.__pwned = true</script>
+        </svg>`,
+      },
+    ]);
+    await page.goto("/apps");
+
+    const card = page.locator('[data-testid="integration-card-empty-shell"]');
+    await expect(card.locator('[data-testid="app-monogram"]')).toHaveText("ES");
+    await expect(card.locator("svg")).toHaveCount(0);
   });
 
   test("still strips style and unsafe elements", async ({

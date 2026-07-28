@@ -37,6 +37,19 @@ const SAFE_SVG_ELEMENTS = new Set([
   "use",
 ]);
 
+/** Shapes that actually paint pixels. Structural nodes alone are not a mark. */
+const PAINTABLE_SVG_ELEMENTS = new Set([
+  "circle",
+  "ellipse",
+  "image",
+  "line",
+  "path",
+  "polygon",
+  "polyline",
+  "rect",
+  "use",
+]);
+
 const SAFE_SVG_ATTRIBUTES = new Set([
   "aria-label",
   "aria-labelledby",
@@ -255,10 +268,32 @@ function renderSafeSVGNode(
   return createElement(tagName, props, ...children);
 }
 
+function svgElementHasPaintableContent(element: Element): boolean {
+  const tagName = element.tagName;
+  if (!SAFE_SVG_ELEMENTS.has(tagName)) {
+    return false;
+  }
+  if (PAINTABLE_SVG_ELEMENTS.has(tagName)) {
+    if (tagName === "use") {
+      const href =
+        element.getAttribute("href") ?? element.getAttribute("xlink:href");
+      return !!href && isSafeSVGHref(href);
+    }
+    return true;
+  }
+  for (const child of element.children) {
+    if (svgElementHasPaintableContent(child)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Parse and sanitize an icon SVG string into React elements.
- * Returns null when the string is not parseable as SVG, so callers can fall
- * back to a placeholder glyph.
+ * Returns null when the string is not parseable as SVG or when sanitization
+ * strips every paintable shape, so callers can fall back to a monogram or
+ * placeholder glyph.
  *
  * `prefix` must be unique per rendered icon — it namespaces internal IDs.
  */
@@ -266,6 +301,9 @@ export function renderSafeIcon(svg: string, prefix: string): ReactNode | null {
   const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
   const root = doc.documentElement;
   if (root.nodeName !== "svg" || doc.querySelector("parsererror")) {
+    return null;
+  }
+  if (!svgElementHasPaintableContent(root)) {
     return null;
   }
   return renderSafeSVGNode(root, prefix, buildSVGIDMap(root, prefix));

@@ -1,6 +1,7 @@
 import { useId } from "react";
+import type { CSSProperties } from "react";
 import { DefaultIcon } from "@/components/icons";
-import { appInitials } from "@/lib/app-mark";
+import { appInitials, describeBrandMark } from "@/lib/app-mark";
 import { cn } from "@/lib/cn";
 import { renderSafeIcon } from "@/lib/safe-svg";
 
@@ -10,6 +11,14 @@ import { renderSafeIcon } from "@/lib/safe-svg";
  *
  * The choice can only be made here: a brand mark counts as present when it
  * actually survives sanitization, which is not knowable before parsing.
+ *
+ * In `tile` mode the mark sits in a fixed bordered square, and how it fills that
+ * square depends on how the artwork was authored. A glyph drawn on transparency
+ * is inset, revealing the border, which gives every glyph the same optical size
+ * regardless of the padding its author happened to bake into the viewBox. A mark
+ * that paints its own background instead fills the tile edge to edge and is
+ * clipped by the tile's radius, so its colour bleeds into the corners and covers
+ * the border — the treatment app-icon grids use.
  */
 
 const frameSizeClass = {
@@ -27,9 +36,9 @@ const glyphSizeClass = {
 } as const;
 
 // Serif caps run optically smaller than the brand marks beside them, so the
-// monogram sits one step above the glyph scale to hold equal weight in the grid.
+// monogram sits above the glyph scale to hold equal weight in the grid.
 const monogramSizeClass = {
-  sm: "text-sm",
+  sm: "text-xs",
   md: "text-base",
   lg: "text-lg",
   xl: "text-xl",
@@ -41,7 +50,7 @@ export default function IntegrationIcon({
   displayName,
   className,
   size = "md",
-  variant = "bare",
+  variant = "tile",
 }: {
   iconSvg?: string;
   /** Stable app id. Used to derive a monogram when there is no brand mark. */
@@ -50,30 +59,43 @@ export default function IntegrationIcon({
   className?: string;
   size?: keyof typeof frameSizeClass;
   /**
-   * `bare` — frameless, for cards that own their own hover plate.
-   * `plated` — muted tile behind the mark.
+   * `tile` — bordered square; glyphs inset, full-bleed marks clipped flush.
+   * `bare` — no chrome, for surfaces that supply their own.
    */
-  variant?: "bare" | "plated";
+  variant?: "tile" | "bare";
 }) {
   const iconIDPrefix = `provider-icon-${useId().replace(/:/g, "")}`;
   const iconNode = iconSvg ? renderSafeIcon(iconSvg, iconIDPrefix) : null;
-  // Brand marks from /api/v1/apps are full-bleed; derived marks stay inset.
   const hasBrandMark = iconNode != null;
+  const shape = hasBrandMark && iconSvg ? describeBrandMark(iconSvg) : null;
+  const fullBleed = shape?.fullBleed ?? false;
   const initials = hasBrandMark ? "" : appInitials(displayName, name ?? "");
+  const tile = variant === "tile";
 
   return (
     <div
+      data-full-bleed={fullBleed || undefined}
+      style={
+        shape && !fullBleed
+          ? ({ "--mark-inset": `${(shape.inset * 100).toFixed(1)}%` } as CSSProperties)
+          : undefined
+      }
       className={cn(
-        // Frameless by default — a filled frame matches the card at rest and
-        // only appears on card hover (card darkens, plate does not).
-        "flex shrink-0 items-center justify-center overflow-hidden text-muted-foreground",
+        "flex shrink-0 items-center justify-center overflow-hidden",
+        // A brand mark carries the app's identity, so monochrome marks drawn in
+        // currentColor take full ink. Only the placeholder glyph is muted.
+        hasBrandMark ? "text-foreground" : "text-muted-foreground",
         frameSizeClass[size],
-        variant === "plated" && "rounded-lg bg-muted",
+        tile && "rounded-lg",
+        // A full-bleed mark covers the border anyway, and keeping it off avoids
+        // a hairline seam showing through the clipped corners.
+        tile && !fullBleed && "border border-border bg-background",
         hasBrandMark
-          ? // Brand SVGs are full-bleed in the slot; ~12% inset matches the
-            // optical padding most catalog marks already bake into their
-            // viewBox (one catalog mark was edge-cropped and read oversized).
-            "[&>svg]:size-[76%]"
+          ? fullBleed
+            ? "[&>svg]:size-full"
+            : // Inset by the amount that normalises this mark's own baked
+              // padding, so every glyph's ink lands at one optical size.
+              "[&>svg]:size-[var(--mark-inset)]"
           : glyphSizeClass[size],
         className,
       )}
@@ -89,9 +111,15 @@ export default function IntegrationIcon({
             // monogram; extra weight only muddies it at this size.
             // Full ink, not the frame's muted tone: a monogram *is* the app's
             // identity, so it reads as a mark rather than as secondary text.
-            "select-none font-display font-normal leading-none tracking-tight",
+            "select-none font-display font-normal tracking-tight",
             "text-foreground",
+            // Size first: `text-base` also carries a line-height, so
+            // tailwind-merge drops any `leading-*` that precedes it.
             monogramSizeClass[size],
+            "leading-none",
+            // Trim the box to cap height so flex centring aligns the glyphs
+            // rather than the serif's ascent and descent.
+            "trim-cap",
           )}
         >
           {initials}

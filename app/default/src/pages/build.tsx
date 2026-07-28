@@ -1807,6 +1807,7 @@ function BuildStoreAppCard({
         name={name}
         displayName={label}
         size="xl"
+        variant="bare"
       />
       <span className="min-w-0">
         <span className="block text-base font-heading text-foreground">
@@ -1865,6 +1866,7 @@ function ConnectStepActions({
                     name={appId}
                     displayName={companionAppLabel(appId)}
                     size="md"
+                    variant="bare"
                   />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-foreground">
