@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "lint": "oxlint .",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm run lint && node scripts/verify-admin-assets.mjs",
+    "check": "npm run typecheck && npm run lint && node scripts/verify-admin-assets.mjs && node scripts/verify-favicon-assets.mjs",
     "test:e2e": "npm run build && rm -rf out && cp -R dist out && playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:ui": "playwright test --ui"
