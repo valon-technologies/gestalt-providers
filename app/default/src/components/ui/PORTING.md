@@ -69,10 +69,11 @@ Do not hand-roll `bg-muted font-mono` at call sites.
 ## Brand type scale
 
 Registry PageHeader / SectionHeader consume `text-heading-*`, `text-display-*`,
-`tracking-heading`, `tracking-display` (brand type scale). Bridge heading tokens in
-`shared/theme.css` and expose them via
-`globals.css` `@theme inline`. Do not invent freestyle `tracking-*` /
-`text-*` sizes at call sites.
+`tracking-heading`, `tracking-display` (brand type scale). Add **generic** defaults
+in `shared/theme.css` and bridge them in `globals.css` `@theme inline`. Tenant-
+specific values belong in the deployment repo's `deploy/ui/theme.css` — not here.
+See [`docs/agent/theme-boundary.md`](../../../../docs/agent/theme-boundary.md).
+Do not invent freestyle `tracking-*` / `text-*` sizes at call sites.
 
 ## Card / Collapsible
 

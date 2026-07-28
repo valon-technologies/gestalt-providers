@@ -27,10 +27,42 @@ dark).
 | `--content-max-width` | shared max width of the nav and every contained page (see `src/components/Container.tsx`) | `80rem` |
 | `--heading-weight` | default `h1`–`h6` weight (applied by a `globals.css` base rule) | `400` (Newsreader ships one cut) |
 | `--font-display`, `--font-body`, `--font-mono` | type stacks (see the font seam below) | Newsreader (opsz 72) / Instrument Sans / Geist Mono — all OFL |
+| `--text-body-lg`, `--text-heading-sm` … `--text-display-xl` | brand type scale (PageHeader, SectionHeader) | see `shared/theme.css` |
+| `--tracking-display`, `--tracking-heading`, … | letter-spacing for display/heading roles | see `shared/theme.css` |
 
 The bundled defaults are wrapped in `:where(:root)` / `:where(.dark)` — zero
 specificity — so any tenant declaration (`:root { … }`, `.dark { … }`)
 outranks them by cascade contract, not by observed stylesheet order.
+
+## Public vs tenant boundary
+
+This repository ships a **tenant-neutral** bundle. The following never belong
+here:
+
+- Deployment-specific palette constants (any org-prefixed CSS variables such as
+  `--tenant-*`)
+- Licensed brand fonts or `@font-face` rules for commercial typefaces
+- Absolute `/theme/...` asset URLs in component source
+- Imports of or references to a deployment repo's `deploy/ui/theme.css`
+
+| Token kind | Public (`shared/theme.css`) | Private (`deploy/ui/theme.css`) |
+| --- | --- | --- |
+| Type scale | `--text-display-sm`, `--text-heading-md`, … (generic defaults) | palette constants → semantic names |
+| Tracking | `--tracking-display`, `--tracking-heading`, … | palette constants → semantic names |
+| Colors | `--foreground`, `--brand`, … (generic defaults) | palette constants → semantic names |
+| Fonts | OFL bundled defaults; `--font-*` seam on `body` | `@font-face` + `body { --font-body: … }` |
+
+When porting Registry components that use `text-display-sm` or similar utilities:
+
+1. Add **generic** token names and neutral defaults to `shared/theme.css`.
+2. Bridge utilities in `src/globals.css` `@theme inline` (`--text-display-sm:
+   var(--text-display-sm)` — same pattern as `--radius`).
+3. Put tenant-specific values and palette→semantic mapping in the deployment
+   repo's `deploy/ui/theme.css` (served at `/theme.css`).
+
+Do **not** copy palette constants from a private Registry theme file into this
+public bundle. See [`docs/agent/theme-boundary.md`](../../docs/agent/theme-boundary.md)
+for agent-oriented guidance.
 
 A tenant theme is one stylesheet that re-declares any subset of these tokens
 (plus optional `@font-face` rules). Conventions and rules:
@@ -111,7 +143,7 @@ is immutable and environment-agnostic, tenant theming is applied at serve time:
      home:
        source:
          git:
-           repo: valon-technologies/gestalt-providers
+           repo: example-org/gestalt-providers
            path: app/default/manifest.yaml
        static:
          mount: /

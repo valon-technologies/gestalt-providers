@@ -4,6 +4,12 @@ import Container from "@/components/Container";
 import { AppAdminVersionPanel } from "@/features/registry/app-admin-version-panel";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 import {
+  PageHeader,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
+import {
   useAppAdminRegistryQuery,
   useDeployAppAdminVersionMutation,
   useIntegrationsQuery,
@@ -64,10 +70,14 @@ export default function AppAdminPage() {
               className="animate-fade-in-up rounded-2xl border border-alpha bg-base-white p-6 dark:bg-surface"
               data-testid="app-admin-access-denied"
             >
-              <h1 className="text-2xl font-heading text-foreground">Access denied</h1>
-              <p className="mt-3 text-sm text-muted-foreground">
-                You do not have permission to manage this app.
-              </p>
+              <PageHeader>
+                <PageHeaderContent size="lg">
+                  <PageHeaderTitle>Access denied</PageHeaderTitle>
+                  <PageHeaderDescription>
+                    You do not have permission to manage this app.
+                  </PageHeaderDescription>
+                </PageHeaderContent>
+              </PageHeader>
             </div>
           ) : error && !registry ? (
             <p className="text-sm text-ember-500">{error}</p>

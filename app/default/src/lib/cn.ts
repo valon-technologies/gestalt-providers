@@ -16,6 +16,7 @@ const twMerge = extendTailwindMerge({
       "font-size": [
         {
           text: [
+            "2xs",
             "control-xs",
             "control-sm",
             "control-default",

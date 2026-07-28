@@ -19,6 +19,13 @@ import {
   useWorkflowRunsQuery,
 } from "@/lib/queries";
 import Container from "@/components/Container";
+import {
+  PageHeader,
+  PageHeaderActions,
+  PageHeaderContent,
+  PageHeaderDescription,
+  PageHeaderTitle,
+} from "@/components/ui/page-header";
 
 const RUN_STATUSES = ["all", "pending", "running", "succeeded", "failed", "canceled"];
 
@@ -82,26 +89,25 @@ export default function WorkflowsPage() {
 
   return (
     <Container as="main" className="py-10">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <span className="label-text">Workflows</span>
-              <h1 className="mt-2 text-2xl font-heading text-foreground">
-                Workflows
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
+          <PageHeader>
+            <PageHeaderContent size="lg">
+              <PageHeaderTitle>Workflows</PageHeaderTitle>
+              <PageHeaderDescription>
                 Inspect durable workflow run history, step state, and captured
                 inputs and outputs.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => void runsQuery.refetch()}
-              disabled={refreshing}
-              className="inline-flex items-center justify-center rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:border-input hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {refreshing ? "Refreshing..." : "Refresh"}
-            </button>
-          </div>
+              </PageHeaderDescription>
+            </PageHeaderContent>
+            <PageHeaderActions>
+              <button
+                type="button"
+                onClick={() => void runsQuery.refetch()}
+                disabled={refreshing}
+                className="inline-flex items-center justify-center rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:border-input hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {refreshing ? "Refreshing..." : "Refresh"}
+              </button>
+            </PageHeaderActions>
+          </PageHeader>
 
           <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <SummaryCard label="Runs" value={String(runs.length)} tone="default" />
