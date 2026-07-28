@@ -453,7 +453,7 @@ export default function IntegrationSettingsModal({
     return (
       <div
         key={connection.key}
-        className="rounded-md border border-alpha px-4 py-3"
+        className="rounded-md border border-border px-4 py-3"
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
@@ -465,7 +465,7 @@ export default function IntegrationSettingsModal({
                 <div className="truncate text-sm font-medium text-foreground">
                   {connection.label}
                 </div>
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-faint">
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground-soft">
                   {connection.detailLines.map((line) => (
                     <span key={line}>{line}</span>
                   ))}
@@ -482,12 +482,12 @@ export default function IntegrationSettingsModal({
                 {connection.instances.map((instance) => (
                   <div
                     key={`${connection.key}:${instance.name}`}
-                    className="flex items-center justify-between gap-3 rounded-md bg-base-100 px-3 py-2 dark:bg-surface-raised"
+                    className="flex items-center justify-between gap-3 rounded-md bg-muted px-3 py-2"
                   >
                     <div>
                       <div className="text-sm text-foreground">{instance.name}</div>
                       {instance.connection ? (
-                        <div className="text-xs text-faint">
+                        <div className="text-xs text-muted-foreground-soft">
                           {instance.connection}
                         </div>
                       ) : null}
@@ -529,7 +529,7 @@ export default function IntegrationSettingsModal({
       onCancel={handleCancel}
       onClose={onClose}
       onClick={handleBackdropClick}
-      className="m-auto w-full max-w-lg rounded-lg border border-alpha bg-base-white p-0 shadow-dropdown dark:bg-surface"
+      className="m-auto w-full max-w-lg rounded-lg border border-border bg-card p-0 text-card-foreground shadow-dropdown"
     >
       <div className="p-7">
         {view === "disconnect" ? (
@@ -687,7 +687,7 @@ export default function IntegrationSettingsModal({
               </div>
               <button
                 onClick={closeDialog}
-                className="rounded-md p-1.5 text-faint transition-colors duration-150 hover:bg-alpha-5 hover:text-muted-foreground"
+                className="rounded-md p-1.5 text-muted-foreground-soft transition-colors duration-150 hover:bg-muted hover:text-muted-foreground"
                 aria-label="Close"
               >
                 <CloseIcon className="h-4 w-4" />
@@ -775,7 +775,7 @@ function TokenForm({
             {field.label || field.name}
           </label>
           {field.description && (
-            <p className="mt-1 text-xs text-faint normal-case tracking-normal">{renderLinkedText(field.description)}</p>
+            <p className="mt-1 text-xs text-muted-foreground-soft normal-case tracking-normal">{renderLinkedText(field.description)}</p>
           )}
           <input
             id={`cred_${field.name}-${integrationName}`}
