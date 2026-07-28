@@ -257,6 +257,7 @@ export interface APIToken {
   permissions?: AccessPermission[];
   createdAt: string;
   expiresAt?: string;
+  lastUsedAt?: string;
 }
 
 export interface CreateTokenResponse {
