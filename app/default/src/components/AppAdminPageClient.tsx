@@ -19,7 +19,6 @@ import {
   primaryConnectLabel,
 } from "@/lib/catalogFilters";
 import { getAppPromptExamples } from "@/lib/appPromptExamples";
-import { DOCS_PATH } from "@/lib/constants";
 import { normalizeIntegrationStatus, shouldShowIntegrationSettings } from "@/lib/integrationStatus";
 import { getIntegrationLabel } from "@/lib/integrationSearch";
 import { appOperationElementId } from "@/lib/appAdminPaths";
@@ -44,32 +43,22 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { Eyebrow } from "@/components/ui/eyebrow";
-import {
-  PageHeader,
-  PageHeaderActions,
-  PageHeaderContent,
-  PageHeaderDescription,
-  PageHeaderTitle,
-} from "@/components/ui/page-header";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { SelectionCheck } from "@/components/ui/selection-check";
 import { SpinnerIcon } from "@/components/icons";
 import { useDocumentTitle } from "@/hooks/use-document-title";
 
-type AppAdminSection = "overview" | "access" | "workflows" | "operations";
+type AppAdminSection =
+  | "overview"
+  | "connection"
+  | "access"
+  | "workflows"
+  | "operations";
 
 type AppAccessGrant = {
   identity: ManagedIdentity;
   grant: ManagedIdentityGrant;
 };
-
-const SECTION_OPTIONS: Array<{ value: AppAdminSection; label: string }> = [
-  { value: "overview", label: "Overview" },
-  { value: "access", label: "Access" },
-  { value: "workflows", label: "Workflows" },
-  { value: "operations", label: "Operations" },
-];
 
 const SECTION_CARD =
   "rounded-lg border border-alpha bg-base-white p-6 dark:bg-surface";
@@ -275,15 +264,29 @@ export default function AppAdminPageClient() {
       !connectLabel &&
       (status.connected || shouldShowIntegrationSettings(status, false)),
   );
+  const showConnectionSection = Boolean(
+    connectLabel ||
+      showManageConnection ||
+      (integration?.connections?.length ?? 0) > 0,
+  );
+
+  const sectionOptions = useMemo(() => {
+    const options: Array<{ value: AppAdminSection; label: string }> = [
+      { value: "overview", label: "Overview" },
+    ];
+    if (showConnectionSection) {
+      options.push({ value: "connection", label: "Manage connection" });
+    }
+    options.push(
+      { value: "access", label: "Access" },
+      { value: "workflows", label: "Workflows" },
+      { value: "operations", label: "Operations" },
+    );
+    return options;
+  }, [showConnectionSection]);
 
   function openConnectionSettings() {
-    setSection("overview");
-    setSettingsOpen(true);
-    requestAnimationFrame(() => {
-      document
-        .getElementById("app-admin-connection")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
+    setSection("connection");
   }
 
   const checklist = useMemo(() => {
@@ -313,10 +316,17 @@ export default function AppAdminPageClient() {
   }, [status, surfaces]);
 
   useEffect(() => {
-    if (section !== "overview") {
-      setSettingsOpen(false);
+    if (section === "connection") {
+      setSettingsOpen(true);
+      return;
     }
+    setSettingsOpen(false);
   }, [section]);
+
+  useEffect(() => {
+    if (section !== "connection" || showConnectionSection) return;
+    setSection("overview");
+  }, [section, showConnectionSection]);
 
   const memberCounts = useMemo(() => {
     const effective = members.filter((row) => row.effective).length;
@@ -415,7 +425,7 @@ export default function AppAdminPageClient() {
           <aside className="hidden xl:block">
             <div className="sticky top-24">
               <nav className="space-y-0.5" aria-label="App sections">
-                {SECTION_OPTIONS.map((option) => {
+                {sectionOptions.map((option) => {
                   const isActive = option.value === section;
                   return (
                     <button
@@ -437,91 +447,10 @@ export default function AppAdminPageClient() {
           </aside>
 
           <div className="min-w-0">
-          <PageHeader>
-            <PageHeaderContent size="lg">
-              <div className="flex items-start gap-4">
-                <IntegrationIcon
-                  iconSvg={integration.iconSvg}
-                  size="lg"
-                  className="shrink-0"
-                />
-                <div className="flex min-w-0 flex-col gap-3">
-                  <Eyebrow>App</Eyebrow>
-                  <PageHeaderTitle>{label}</PageHeaderTitle>
-                  {integration.description ? (
-                    <PageHeaderDescription>
-                      {integration.description}
-                    </PageHeaderDescription>
-                  ) : (
-                    <PageHeaderDescription>
-                      Manage connection, access, workflows, and operations for{" "}
-                      <code className="font-mono text-xs">
-                        {integration.name}
-                      </code>
-                      .
-                    </PageHeaderDescription>
-                  )}
-                </div>
-              </div>
-            </PageHeaderContent>
-            <PageHeaderActions className="flex flex-wrap items-center gap-2">
-              {status ? (
-                <Badge
-                  variant={badgeVariantFromTone(status.tone)}
-                  aria-label={status.summaryLabel}
-                >
-                  {status.summaryLabel}
-                </Badge>
-              ) : null}
-              {surfaces?.hasUi ? (
-                <Badge variant="secondary" size="sm">
-                  App
-                </Badge>
-              ) : null}
-              {surfaces?.hasMcp ? (
-                <Badge variant="secondary" size="sm">
-                  Works with AI
-                </Badge>
-              ) : null}
-              {connectLabel ? (
-                <Button type="button" onClick={openConnectionSettings}>
-                  {connectLabel}
-                </Button>
-              ) : null}
-              {showManageConnection ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={openConnectionSettings}
-                >
-                  Manage connection
-                </Button>
-              ) : null}
-              {mountedPath ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => window.location.assign(mountedPath)}
-                >
-                  Open app
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={() => {
-                  window.location.assign(DOCS_PATH);
-                }}
-              >
-                Docs
-              </Button>
-            </PageHeaderActions>
-          </PageHeader>
-
-          <div className="mt-8 xl:hidden">
+          <div className="xl:hidden">
             <SegmentedControl
               label="App sections"
-              options={SECTION_OPTIONS}
+              options={sectionOptions}
               value={section}
               onValueChange={setSection}
               showLabels
@@ -529,9 +458,71 @@ export default function AppAdminPageClient() {
             />
           </div>
 
-          <div className="mt-8">
+          <div className="mt-8 xl:mt-0">
             {section === "overview" ? (
-              <section className="space-y-6" aria-label="Overview">
+              <section className="space-y-8" aria-label="Overview">
+                <div className="flex flex-col gap-4">
+                  <IntegrationIcon
+                    iconSvg={integration.iconSvg}
+                    size="lg"
+                    className="shrink-0"
+                  />
+                  <div className="flex min-w-0 flex-col gap-3">
+                    <h1 className="text-2xl font-heading text-foreground">
+                      {label}
+                    </h1>
+                    {integration.description ? (
+                      <p className="text-sm text-muted-foreground">
+                        {integration.description}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        Manage connection, access, workflows, and operations for{" "}
+                        <code className="font-mono text-xs">
+                          {integration.name}
+                        </code>
+                        .
+                      </p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {status ? (
+                        <Badge
+                          variant={badgeVariantFromTone(status.tone)}
+                          aria-label={status.summaryLabel}
+                        >
+                          {status.summaryLabel}
+                        </Badge>
+                      ) : null}
+                      {surfaces?.hasUi ? (
+                        <Badge variant="secondary" size="sm">
+                          App
+                        </Badge>
+                      ) : null}
+                      {surfaces?.hasMcp ? (
+                        <Badge variant="secondary" size="sm">
+                          Works with AI
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {connectLabel ? (
+                        <Button type="button" onClick={openConnectionSettings}>
+                          {connectLabel}
+                        </Button>
+                      ) : null}
+                      {mountedPath ? (
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => window.location.assign(mountedPath)}
+                        >
+                          Open app
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
                 <AppPromptExamplePromo
                   displayName={promptExample.displayName}
                   body={promptExample.body}
@@ -566,69 +557,6 @@ export default function AppAdminPageClient() {
                     </ul>
                   </div>
                 ) : null}
-
-                <div
-                  className={SECTION_CARD}
-                  id="app-admin-connection"
-                  data-testid="app-admin-connection"
-                >
-                  <h2 className="text-lg font-heading text-foreground">
-                    Connection
-                  </h2>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Connect or reconnect credentials for this app under your
-                    user. Disconnect anytime from settings.
-                  </p>
-                  <p className="mt-3 text-xs text-faint">
-                    Connecting grants this workspace permission to use the app
-                    with your credentials. Review the provider’s privacy policy
-                    before continuing.
-                  </p>
-                  <div className="mt-5 max-w-xl">
-                    <IntegrationCard
-                      integration={integration}
-                      onConnected={loadIntegration}
-                      onDisconnected={loadIntegration}
-                      returnPath={`/apps/${encodeURIComponent(appName)}`}
-                      disableNavigation
-                      settingsOpen={settingsOpen}
-                      onSettingsOpenChange={setSettingsOpen}
-                    />
-                  </div>
-                  {status && status.connections.length > 0 ? (
-                    <ul className="mt-5 divide-y divide-alpha rounded-lg border border-alpha">
-                      {status.connections.map((connection) => (
-                        <li
-                          key={connection.key}
-                          className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-                        >
-                          <div>
-                            <p className="text-sm font-medium text-foreground">
-                              {connection.label}
-                            </p>
-                            <p className="mt-0.5 text-xs text-muted-foreground">
-                              {connection.ownerLabel}
-                              {connection.credentialLabel
-                                ? ` · ${connection.credentialLabel}`
-                                : ""}
-                              {connection.healthLabel
-                                ? ` · ${connection.healthLabel}`
-                                : ""}
-                            </p>
-                          </div>
-                          <Badge
-                            variant={
-                              connection.connected ? "success" : "muted"
-                            }
-                            size="sm"
-                          >
-                            {connection.statusLabel}
-                          </Badge>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
 
                 <div className={SECTION_CARD}>
                   <h2 className="text-lg font-heading text-foreground">Details</h2>
@@ -682,9 +610,77 @@ export default function AppAdminPageClient() {
               </section>
             ) : null}
 
+            {section === "connection" ? (
+              <section
+                className="space-y-6"
+                aria-label="Manage connection"
+                id="app-admin-connection"
+                data-testid="app-admin-connection"
+              >
+                <div>
+                  <h2 className="text-lg font-heading text-foreground">
+                    Manage connection
+                  </h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Connect or reconnect credentials for this app under your
+                    user. Disconnect anytime from settings.
+                  </p>
+                  <p className="mt-3 text-xs text-faint">
+                    Connecting grants this workspace permission to use the app
+                    with your credentials. Review the provider’s privacy policy
+                    before continuing.
+                  </p>
+                </div>
+                <IntegrationCard
+                  integration={integration}
+                  onConnected={loadIntegration}
+                  onDisconnected={loadIntegration}
+                  returnPath={`/apps/${encodeURIComponent(appName)}?section=connection`}
+                  disableNavigation
+                  settingsOpen={settingsOpen}
+                  onSettingsOpenChange={setSettingsOpen}
+                  settingsPresentation="inline"
+                  settingsOnly
+                />
+                {status && status.connections.length > 0 ? (
+                  <ul className="divide-y divide-alpha rounded-lg border border-alpha">
+                    {status.connections.map((connection) => (
+                      <li
+                        key={connection.key}
+                        className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-foreground">
+                            {connection.label}
+                          </p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {connection.ownerLabel}
+                            {connection.credentialLabel
+                              ? ` · ${connection.credentialLabel}`
+                              : ""}
+                            {connection.healthLabel
+                              ? ` · ${connection.healthLabel}`
+                              : ""}
+                          </p>
+                        </div>
+                        <Badge
+                          variant={
+                            connection.connected ? "success" : "muted"
+                          }
+                          size="sm"
+                        >
+                          {connection.statusLabel}
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </section>
+            ) : null}
+
             {section === "access" ? (
-              <section className="space-y-6" aria-label="Access">
-                <div className={SECTION_CARD}>
+              <section className="divide-y divide-alpha" aria-label="Access">
+                <div className="pb-8">
                   <h2 className="text-lg font-heading text-foreground">
                     Your access
                   </h2>
@@ -712,7 +708,7 @@ export default function AppAdminPageClient() {
                   </dl>
                 </div>
 
-                <div className={SECTION_CARD}>
+                <div className="py-8">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                     <div>
                       <h2 className="text-lg font-heading text-foreground">
@@ -838,7 +834,7 @@ export default function AppAdminPageClient() {
                   ) : null}
                 </div>
 
-                <div className={SECTION_CARD}>
+                <div className="pt-8">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
                     <div>
                       <h2 className="text-lg font-heading text-foreground">
@@ -910,13 +906,18 @@ export default function AppAdminPageClient() {
             ) : null}
 
             {section === "workflows" ? (
-              <section className={SECTION_CARD} aria-label="Workflows">
-                <AppWorkflowRunsPanel key={appName} appName={appName} />
+              <section aria-label="Workflows">
+                <h2 className="text-lg font-heading text-foreground">
+                  Workflows
+                </h2>
+                <div className="mt-6">
+                  <AppWorkflowRunsPanel key={appName} appName={appName} />
+                </div>
               </section>
             ) : null}
 
             {section === "operations" ? (
-              <section className={SECTION_CARD} aria-label="Operations">
+              <section aria-label="Operations">
                 <h2 className="text-lg font-heading text-foreground">
                   Operations
                 </h2>

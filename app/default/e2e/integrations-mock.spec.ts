@@ -364,7 +364,7 @@ test.describe("Integrations", () => {
     ).toBeVisible();
   });
 
-  test("mounted ui cards navigate to app detail", async ({ authenticatedPage }) => {
+  test("mounted ui cards navigate to mounted app", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await mockIntegrations(page, [MOUNTED_UI_INTEGRATION]);
     await mockTokens(page, []);
