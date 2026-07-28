@@ -132,7 +132,10 @@ const settingsIndexRoute = createRoute({
     if (location.hash === "#identities") {
       throw redirect({ to: "/settings/identities" });
     }
-    throw redirect({ to: "/settings/tokens" });
+    throw redirect({
+      to: "/settings/tokens",
+      hash: location.hash || undefined,
+    });
   },
 });
 

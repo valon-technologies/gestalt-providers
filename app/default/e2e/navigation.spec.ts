@@ -84,6 +84,14 @@ test.describe("Navigation", () => {
     ).toBeVisible();
   });
 
+  test("settings authorization hash lands on tokens anchor", async ({
+    authenticatedPage: page,
+  }) => {
+    await page.goto("/settings#authorization");
+    await expect(page).toHaveURL(/\/settings\/tokens#authorization$/);
+    await expect(page.locator("#authorization")).toBeVisible();
+  });
+
   test("workflows page renders", async ({ authenticatedPage: page }) => {
     await page.goto("/workflows");
     await expect(

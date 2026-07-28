@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
