@@ -86,7 +86,7 @@ export default function AppsCatalogPageClient() {
     () => groupCatalogForBrowse(filteredIntegrations),
     [filteredIntegrations],
   );
-  const needsAttentionCount = countNeedsAttention(integrations);
+  const needsAttentionCount = countNeedsAttention(filteredIntegrations);
   const hasSearchQuery = query.trim().length > 0;
   const hasCatalogContent = installed.length > 0 || catalogSections.length > 0;
 
