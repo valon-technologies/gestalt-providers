@@ -8,20 +8,21 @@ import {
 } from "./fixtures";
 import type { AppAdminRegistryResponse, Integration } from "../src/lib/api";
 
-const APP = "example-app";
-const EXAMPLE_REPO = "https://github.com/example-org/example-app";
+const APP = "g-issues";
 
 const PUBLISHED_NEW: AppAdminRegistryResponse["publishedVersions"][number] = {
   version: "0.0.0-snapshot.gdef456",
   publishedAt: "2026-07-22T15:00:00Z",
   platforms: ["linux/amd64"],
   sourceRef: "def456def456def456def456def456def456def4",
-  sourceUrl: `${EXAMPLE_REPO}/commit/def456def456def456def456def456def456def4`,
+  sourceUrl:
+    "https://github.com/valon-technologies/valon-tools/commit/def456def456def456def456def456def456def4",
   publication: {
-    workflowRunUrl: `${EXAMPLE_REPO}/actions/runs/123456789`,
+    workflowRunUrl:
+      "https://github.com/valon-technologies/valon-tools/actions/runs/123456789",
     triggerPullRequest: {
       number: 3251,
-      url: `${EXAMPLE_REPO}/pull/3251`,
+      url: "https://github.com/valon-technologies/valon-tools/pull/3251",
       title: "Add registry deploy banner",
     },
   },
@@ -32,7 +33,8 @@ const PUBLISHED_LEGACY: AppAdminRegistryResponse["publishedVersions"][number] = 
   publishedAt: "2026-07-21T12:00:00Z",
   platforms: ["linux/amd64"],
   sourceRef: "abc123abc123abc123abc123abc123abc123ab",
-  sourceUrl: `${EXAMPLE_REPO}/commit/abc123abc123abc123abc123abc123abc123ab`,
+  sourceUrl:
+    "https://github.com/valon-technologies/valon-tools/commit/abc123abc123abc123abc123abc123abc123ab",
 };
 
 const PENDING_VERSION: NonNullable<AppAdminRegistryResponse["pendingVersions"]>[number] = {
@@ -42,10 +44,11 @@ const PENDING_VERSION: NonNullable<AppAdminRegistryResponse["pendingVersions"]>[
   phase: "publishing",
   publishingForSeconds: 240,
   publication: {
-    workflowRunUrl: `${EXAMPLE_REPO}/actions/runs/223456789`,
+    workflowRunUrl:
+      "https://github.com/valon-technologies/valon-tools/actions/runs/223456789",
     triggerPullRequest: {
       number: 3740,
-      url: `${EXAMPLE_REPO}/pull/3740`,
+      url: "https://github.com/valon-technologies/valon-tools/pull/3740",
       title: "Publish pending snapshot",
     },
   },
@@ -58,10 +61,11 @@ const FAILED_VERSION: NonNullable<AppAdminRegistryResponse["failedVersions"]>[nu
   reason: "stale",
   publishDurationSeconds: 2100,
   publication: {
-    workflowRunUrl: `${EXAMPLE_REPO}/actions/runs/323456789`,
+    workflowRunUrl:
+      "https://github.com/valon-technologies/valon-tools/actions/runs/323456789",
     triggerPullRequest: {
       number: 3788,
-      url: `${EXAMPLE_REPO}/pull/3788`,
+      url: "https://github.com/valon-technologies/valon-tools/pull/3788",
       title: "Retry registry publish",
     },
   },
@@ -69,21 +73,9 @@ const FAILED_VERSION: NonNullable<AppAdminRegistryResponse["failedVersions"]>[nu
 
 const MANAGED_INTEGRATION: Integration = {
   name: APP,
-  displayName: "Example App",
+  displayName: "G Issues",
   mountedPath: `/${APP}`,
   managementPath: `/apps/${APP}/admin`,
-  status: "ready",
-  credentialState: "connected",
-  connections: [
-    {
-      name: "plugin",
-      authTypes: ["oauth"],
-      status: "ready",
-      credentialState: "connected",
-      actions: ["disconnect"],
-      instances: [{ name: "default", connection: "plugin" }],
-    },
-  ],
 };
 
 const UNMANAGED_INTEGRATION: Integration = {
@@ -94,7 +86,7 @@ const UNMANAGED_INTEGRATION: Integration = {
 function installedRegistryState(): AppAdminRegistryResponse {
   return {
     app: APP,
-    registry: "example-registry",
+    registry: "toolshed",
     desiredVersion: PUBLISHED_LEGACY.version,
     knownVersions: [
       {
@@ -531,7 +523,7 @@ test.describe("app admin registry UI", () => {
   test("renders first-install copy when no desired version exists", async ({ page }) => {
     await mockAppAdminRegistry(page, APP, {
       app: APP,
-      registry: "example-registry",
+      registry: "toolshed",
       knownVersions: [],
       publishedVersions: [PUBLISHED_NEW],
       selectionDisabled: false,
@@ -565,7 +557,10 @@ test.describe("app admin registry UI", () => {
     await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toHaveText(
       "Deploying...",
     );
-    await expect(page.getByTestId(`deploy-version-${PUBLISHED_LEGACY.version}`)).toHaveCount(0);
+    const legacyRow = page
+      .getByTestId("snapshot-row-published")
+      .filter({ hasText: PUBLISHED_LEGACY.version.slice(0, 20) });
+    await expect(legacyRow.getByTestId(`deploy-version-${PUBLISHED_LEGACY.version}`)).toHaveCount(0);
     await expect(page.getByTestId("selection-disabled-reason")).toHaveText(
       "Deploy paused while a rollout is in progress.",
     );
@@ -575,7 +570,7 @@ test.describe("app admin registry UI", () => {
     await mockAppAdminRegistry(page, APP, installedRegistryState(), {
       onSelectVersion: (version) => ({
         app: APP,
-        registry: "example-registry",
+        registry: "toolshed",
         fromVersion: PUBLISHED_LEGACY.version,
         desiredVersion: version,
         rollout: {
@@ -624,7 +619,10 @@ test.describe("app admin registry UI", () => {
     await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toHaveText(
       "Deploying...",
     );
-    await expect(page.getByTestId(`deploy-version-${PUBLISHED_LEGACY.version}`)).toHaveCount(0);
+    const legacyRow = page
+      .getByTestId("snapshot-row-published")
+      .filter({ hasText: PUBLISHED_LEGACY.version.slice(0, 20) });
+    await expect(legacyRow.getByTestId(`deploy-version-${PUBLISHED_LEGACY.version}`)).toHaveCount(0);
   });
 
   test("polls for pending publish without manual refresh", async ({ page }) => {
@@ -663,7 +661,7 @@ test.describe("app admin registry UI", () => {
     await expect(page.getByTestId("app-admin-access-denied")).toBeVisible();
     await expect(page.getByText("Access denied")).toBeVisible();
     await expect(page.getByTestId("snapshots-table")).toHaveCount(0);
-    await expect(page.getByText("example-registry")).toHaveCount(0);
+    await expect(page.getByText("toolshed")).toHaveCount(0);
   });
 
   test("loads revision history lazily and paginates older rows", async ({ page }) => {

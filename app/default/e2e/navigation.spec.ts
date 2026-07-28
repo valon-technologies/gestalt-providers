@@ -130,8 +130,9 @@ test.describe("Navigation", () => {
       selectionDisabled: false,
     });
     await mockWorkflowRuns(page, []);
-    await page.goto("/apps/slack/admin?section=workflows");
-    await expect(page.getByRole("heading", { name: "Workflows", level: 2 })).toBeVisible();
+    await page.goto("/apps/slack/admin/workflows");
+    await expect(page.getByTestId("app-admin-nav-workflows")).toHaveClass(/font-medium/);
+    await expect(page.getByTestId("app-workflow-ownership-note")).toBeVisible();
   });
 
   test("authorization redirects to settings tokens", async ({ authenticatedPage: page }) => {
