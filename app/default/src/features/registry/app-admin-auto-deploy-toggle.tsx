@@ -13,11 +13,13 @@ export function AppAdminAutoDeployToggle({
   autoDeploy,
   disabled,
   updating,
+  updateError,
   onChange,
 }: {
   autoDeploy: AppAdminAutoDeploy;
   disabled?: boolean;
   updating?: boolean;
+  updateError?: string | null;
   onChange: (enabled: boolean) => void;
 }) {
   const toggleId = "app-admin-auto-deploy-toggle";
@@ -66,6 +68,12 @@ export function AppAdminAutoDeployToggle({
           ) : null}
         </div>
       </Field>
+
+      {updateError ? (
+        <p className="text-sm text-destructive" data-testid="auto-deploy-update-error">
+          {updateError}
+        </p>
+      ) : null}
 
       {lastError ? (
         <p className="text-sm text-destructive" data-testid="auto-deploy-last-error">

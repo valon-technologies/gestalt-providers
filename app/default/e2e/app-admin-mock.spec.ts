@@ -599,6 +599,27 @@ test.describe("app admin registry UI", () => {
     await expect(page.getByTestId(`deploy-version-${PUBLISHED_NEW.version}`)).toBeDisabled();
   });
 
+  test("shows auto-deploy update errors", async ({ page }) => {
+    await mockAppAdminRegistry(page, APP, installedRegistryState());
+    await page.route(`**/api/v1/apps/${APP}/admin/registry/auto-deploy`, async (route, request) => {
+      if (request.method() === "PUT") {
+        await route.fulfill({
+          status: 503,
+          json: { error: "app registry installation services are unavailable" },
+        });
+        return;
+      }
+      await route.fallback();
+    });
+    await page.goto(`/apps/${APP}/admin`);
+
+    await page.getByTestId("auto-deploy-toggle").click();
+    await expect(page.getByTestId("auto-deploy-update-error")).toHaveText(
+      "app registry installation services are unavailable",
+    );
+    await expect(page.getByTestId("auto-deploy-state")).toHaveText("Off");
+  });
+
   test("shows queued for deploy on auto-deploy pending snapshot during rollout", async ({
     page,
   }) => {

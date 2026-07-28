@@ -36,6 +36,7 @@ export function AppAdminVersionPanel({
   isCheckingForNewVersions = false,
   onAutoDeployChange,
   isUpdatingAutoDeploy = false,
+  autoDeployError = null,
   error,
 }: {
   registry: AppAdminRegistryResponse;
@@ -46,6 +47,7 @@ export function AppAdminVersionPanel({
   isCheckingForNewVersions?: boolean;
   onAutoDeployChange: (enabled: boolean) => void;
   isUpdatingAutoDeploy?: boolean;
+  autoDeployError?: string | null;
   error: string | null;
 }) {
   const [activeTab, setActiveTab] = useState<AppAdminTab>("snapshots");
@@ -106,6 +108,7 @@ export function AppAdminVersionPanel({
         autoDeploy={registry.autoDeploy ?? { enabled: false }}
         disabled={isUpdatingAutoDeploy}
         updating={isUpdatingAutoDeploy}
+        updateError={autoDeployError}
         onChange={onAutoDeployChange}
       />
 
