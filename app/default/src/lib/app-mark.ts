@@ -79,14 +79,16 @@ function isOpaque(element: Element): boolean {
 }
 
 /**
- * Share of the tile a glyph's *ink* should occupy. Chosen to match what the
- * common 15%-padded mark already rendered at, so the majority are unaffected.
+ * Share of the tile a glyph's *ink* should occupy. The tile is the constant, so
+ * this is the one number that sets how large every mark reads.
  */
-const TARGET_INK_FRACTION = 0.476;
-/** Never inset further than this, or a sparse mark disappears. */
-const MIN_INSET = 0.48;
-/** Never scale a mark up past what it rendered at before normalisation. */
-const MAX_INSET = 0.68;
+const TARGET_INK_FRACTION = 0.6;
+/**
+ * Guard on the laid-out `<svg>`, so a mark padded far beyond anything we ship
+ * cannot be scaled until it collides with the tile's border. No current mark
+ * reaches it — the most heavily padded lands around 86%.
+ */
+const MAX_INSET = 0.88;
 
 /**
  * How much of its own viewBox a mark reserves as padding, per side.
@@ -137,12 +139,12 @@ export function describeBrandMark(svg: string): BrandMarkShape {
   );
   if (fullBleed) return { fullBleed: true, inset: 1 };
 
+  // Scale up by whatever padding the mark bakes in, so the ink — not the
+  // element — lands at the target. Always >= the target, since padding only
+  // ever shrinks the artwork inside its own viewBox.
   const inner = 1 - 2 * paddingFraction(box);
   const inset = inner > 0 ? TARGET_INK_FRACTION / inner : MAX_INSET;
-  return {
-    fullBleed: false,
-    inset: Math.min(MAX_INSET, Math.max(MIN_INSET, inset)),
-  };
+  return { fullBleed: false, inset: Math.min(MAX_INSET, inset) };
 }
 
 /** Word separators used in app names and display names alike. */

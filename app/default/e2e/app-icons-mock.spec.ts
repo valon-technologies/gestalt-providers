@@ -272,9 +272,8 @@ test.describe("app registry icons", () => {
       return box?.width ?? 0;
     };
     expect(await svgWidth("solid")).toBeCloseTo(await frameWidth("solid"), 0);
-    expect(await svgWidth("glyph")).toBeLessThan(
-      (await frameWidth("glyph")) * 0.8,
-    );
+    // Inset marks stay clear of the border rather than filling the tile.
+    expect(await svgWidth("glyph")).toBeLessThan(await frameWidth("glyph"));
 
     // Inset marks are normalised on *ink*, not on element size: a mark that
     // bakes 15% padding into its viewBox is laid out larger than one cropped
