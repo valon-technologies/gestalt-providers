@@ -89,6 +89,34 @@ export function useUpdateAppAdminAutoDeployMutation(appName: string) {
   return useMutation({
     mutationFn: (enabled: boolean) =>
       updateAppAdminRegistryAutoDeploy(appName, enabled),
+    onMutate: async (enabled) => {
+      await queryClient.cancelQueries({
+        queryKey: queryKeys.appAdmin.registry(appName),
+      });
+      const previous = queryClient.getQueryData<
+        Awaited<ReturnType<typeof getAppAdminRegistry>>
+      >(queryKeys.appAdmin.registry(appName));
+      if (previous) {
+        queryClient.setQueryData(queryKeys.appAdmin.registry(appName), {
+          ...previous,
+          autoDeploy: {
+            ...previous.autoDeploy,
+            enabled,
+            lastError: enabled ? undefined : previous.autoDeploy?.lastError,
+            pendingVersion: enabled ? previous.autoDeploy?.pendingVersion : undefined,
+          },
+        });
+      }
+      return { previous };
+    },
+    onError: (_error, _enabled, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(
+          queryKeys.appAdmin.registry(appName),
+          context.previous,
+        );
+      }
+    },
     onSuccess: (response) => {
       queryClient.setQueryData(
         queryKeys.appAdmin.registry(appName),

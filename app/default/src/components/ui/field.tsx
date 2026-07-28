@@ -83,13 +83,13 @@ const fieldVariants = cva(
           // top); description/error hang below inside FieldContent.
           // gap-x must match FieldGroup — a subgrid's own gap overrides the parent.
           "has-[>[data-slot=field-content]]:col-span-2 has-[>[data-slot=field-content]]:grid has-[>[data-slot=field-content]]:grid-cols-subgrid has-[>[data-slot=field-content]]:items-baseline has-[>[data-slot=field-content]]:gap-x-4 has-[>[data-slot=field-content]]:gap-y-0",
-          "has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px",
+          "has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio],[role=switch]]:mt-px",
         ],
         responsive: [
           "flex-col [&>*]:w-full [&>.sr-only]:w-auto",
           "@md/field-group:flex-row @md/field-group:items-center @md/field-group:[&>*]:w-auto",
           "@md/field-group:has-[>[data-slot=field-content]]:col-span-2 @md/field-group:has-[>[data-slot=field-content]]:grid @md/field-group:has-[>[data-slot=field-content]]:grid-cols-subgrid @md/field-group:has-[>[data-slot=field-content]]:items-baseline @md/field-group:has-[>[data-slot=field-content]]:gap-x-4 @md/field-group:has-[>[data-slot=field-content]]:gap-y-0",
-          "@md/field-group:has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio]]:mt-px",
+          "@md/field-group:has-[>[data-slot=field-content]]:[&>[role=checkbox],[role=radio],[role=switch]]:mt-px",
         ],
       },
     },
