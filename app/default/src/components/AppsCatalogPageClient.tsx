@@ -1,4 +1,3 @@
-import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   useCallback,
   useDeferredValue,
@@ -15,8 +14,6 @@ import {
   filterCatalogIntegrations,
 } from "@/lib/catalogFilters";
 import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "@/lib/constants";
-import { sanitizeAuthReturnPath } from "@/lib/authReturn";
-import { appPath } from "@/lib/mount";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import PluginSearchBar from "@/components/PluginSearchBar";
@@ -28,36 +25,26 @@ import {
   PageHeaderTitle,
 } from "@/components/ui/page-header";
 import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-} from "@/components/ui/sidebar";
+  TableOfContents,
+  isTableOfContentsLink,
+  type TableOfContentsItem,
+} from "@/components/ui/table-of-contents";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import { SpinnerIcon } from "@/components/icons";
 import Button from "@/components/Button";
 import {
   useIntegrationsQuery,
   useInvalidateIntegrations,
-} from "@/lib/queries";
+} from "@/hooks/use-server-queries";
 
-const APPS_PATH = appPath("/apps");
-/** Offset below the viewport top for section scroll-spy + scroll-margin on headings. */
+const APPS_PATH = "/apps";
+const LEGACY_INTEGRATIONS_PATH = "/integrations";
+/** Offset below the viewport top for TOC scroll-spy + scroll-margin on headings. */
 /** Must sit below `scroll-mt-24` (96px) so a clicked heading still counts as
  *  crossed after `scrollIntoView` parks it on the scroll-margin. */
 const CATALOG_TOC_ACTIVATION_OFFSET = 112;
 
 export default function AppsCatalogPageClient() {
-  const navigate = useNavigate();
-  const locationSearch = useRouterState({
-    select: (state) => state.location.search,
-  });
-  const connectedParam = new URLSearchParams(locationSearch).get("connected");
   const integrationsQuery = useIntegrationsQuery();
   const invalidateIntegrations = useInvalidateIntegrations();
 
@@ -72,9 +59,15 @@ export default function AppsCatalogPageClient() {
         : null;
 
   const [query, setQuery] = useState("");
-  const [toast, setToast] = useState<string | null>(() =>
-    connectedParam ? `${connectedParam} connected successfully.` : null,
-  );
+  const [toast, setToast] = useState<string | null>(() => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+    const connected = new URLSearchParams(window.location.search).get(
+      "connected",
+    );
+    return connected ? `${connected} connected successfully.` : null;
+  });
   const deferredQuery = useDeferredValue(query);
   const filteredIntegrations = filterCatalogIntegrations(integrations, {
     query: deferredQuery,
@@ -85,25 +78,30 @@ export default function AppsCatalogPageClient() {
     () => groupCatalogForBrowse(filteredIntegrations),
     [filteredIntegrations],
   );
-  const needsAttentionCount = countNeedsAttention(filteredIntegrations);
+  const needsAttentionCount = countNeedsAttention(integrations);
   const hasSearchQuery = query.trim().length > 0;
   const hasCatalogContent = installed.length > 0 || catalogSections.length > 0;
 
-  const catalogNavSections = useMemo(() => {
-    const sections: { id: string; label: string }[] = [];
+  const tocItems = useMemo((): TableOfContentsItem[] => {
+    const items: TableOfContentsItem[] = [];
     if (installed.length > 0) {
-      sections.push({
+      items.push({
         id: "catalog-bucket-installed",
-        label: "Installed",
+        title: "Installed",
+        depth: 1,
       });
+    }
+    if (installed.length > 0 && catalogSections.length > 0) {
+      items.push({ kind: "separator", id: "catalog-toc-sep-installed" });
     }
     for (const { bucket } of catalogSections) {
-      sections.push({
+      items.push({
         id: `catalog-bucket-${bucket.id}`,
-        label: bucket.label,
+        title: bucket.label,
+        depth: 1,
       });
     }
-    return sections;
+    return items;
   }, [catalogSections, installed.length]);
 
   const scrollRootRef = useRef<HTMLElement | null>(null);
@@ -111,7 +109,10 @@ export default function AppsCatalogPageClient() {
     scrollRootRef.current = document.documentElement;
   }, []);
 
-  const linkItems = catalogNavSections;
+  const linkItems = useMemo(
+    () => tocItems.filter(isTableOfContentsLink),
+    [tocItems],
+  );
   const sectionsKey = linkItems.map((item) => item.id).join(",");
   const getEntries = useCallback(() => {
     return linkItems.flatMap((item) => {
@@ -132,7 +133,7 @@ export default function AppsCatalogPageClient() {
     observeWindow: true,
   });
 
-  const onNavSectionSelect = useCallback(
+  const onTocSelect = useCallback(
     (id: string) => {
       const el = document.getElementById(id);
       if (!el) return;
@@ -141,6 +142,17 @@ export default function AppsCatalogPageClient() {
     },
     [activate],
   );
+
+  useEffect(() => {
+    if (window.location.pathname !== LEGACY_INTEGRATIONS_PATH) {
+      return;
+    }
+    window.history.replaceState(
+      null,
+      "",
+      `${APPS_PATH}${window.location.search}${window.location.hash}`,
+    );
+  }, []);
 
   useEffect(() => {
     if (!toast) {
@@ -153,25 +165,20 @@ export default function AppsCatalogPageClient() {
     );
     window.sessionStorage.removeItem(CONNECTION_RETURN_PATH_STORAGE_KEY);
     if (returnPath) {
-      const safePath = sanitizeAuthReturnPath(returnPath);
-      const nextURL = new URL(safePath, window.location.origin);
+      const nextURL = new URL(returnPath, window.location.origin);
       if (
         nextURL.origin === window.location.origin &&
         nextURL.pathname.startsWith("/")
       ) {
-        const search = Object.fromEntries(nextURL.searchParams.entries());
-        void navigate({
-          to: nextURL.pathname,
-          replace: true,
-          hash: nextURL.hash || undefined,
-          ...(Object.keys(search).length > 0 ? { search } : {}),
-        });
+        window.location.replace(
+          `${nextURL.pathname}${nextURL.search}${nextURL.hash}`,
+        );
         return;
       }
     }
 
-    void navigate({ to: "/apps", replace: true });
-  }, [navigate, toast]);
+    window.history.replaceState(null, "", APPS_PATH);
+  }, [toast]);
 
   async function refreshIntegrations(options?: { background?: boolean }) {
     try {
@@ -228,7 +235,7 @@ export default function AppsCatalogPageClient() {
       ) : null}
 
       {loading && (
-        <p className="mt-10 flex items-center gap-1.5 text-sm text-muted-foreground-soft">
+        <p className="mt-10 flex items-center gap-1.5 text-sm text-faint">
           <SpinnerIcon className="size-4 animate-spin" aria-hidden />
           Loading...
         </p>
@@ -254,7 +261,7 @@ export default function AppsCatalogPageClient() {
       )}
 
       {!loading && !error && integrations.length === 0 && (
-        <p className="mt-10 text-sm text-muted-foreground-soft">
+        <p className="mt-10 text-sm text-faint">
           No apps are available yet. Ask your admin if you expected to see ones
           here.
         </p>
@@ -265,7 +272,7 @@ export default function AppsCatalogPageClient() {
         integrations.length > 0 &&
         !hasCatalogContent && (
           <div className="mt-10 flex flex-col items-start gap-3">
-            <p className="text-sm text-muted-foreground-soft">
+            <p className="text-sm text-faint">
               {hasSearchQuery ? (
                 <>
                   No apps match <span>{`"${query.trim()}"`}</span>. Try a
@@ -289,73 +296,20 @@ export default function AppsCatalogPageClient() {
 
       {!loading && !error && hasCatalogContent && (
         <div className="mt-10 flex gap-8" data-testid="plugin-grid">
-          {catalogNavSections.length > 0 ? (
+          {tocItems.length > 0 ? (
             <aside
               className="hidden w-44 shrink-0 lg:block"
               data-testid="apps-catalog-toc"
             >
               <div className="sticky top-24 h-[calc(100vh-7rem)]">
-                <SidebarProvider
-                  defaultWidth="11rem"
-                  className="h-full min-h-0 w-full"
-                >
-                  <Sidebar collapsible="none" className="h-full">
-                    <SidebarContent className="overflow-visible">
-                      {installed.length > 0 ? (
-                        <SidebarGroup className="p-0">
-                          <SidebarGroupContent>
-                            <SidebarMenu>
-                              <SidebarMenuItem>
-                                <SidebarMenuButton
-                                  isActive={
-                                    activeId === "catalog-bucket-installed"
-                                  }
-                                  onClick={() =>
-                                    onNavSectionSelect(
-                                      "catalog-bucket-installed",
-                                    )
-                                  }
-                                >
-                                  Installed
-                                </SidebarMenuButton>
-                              </SidebarMenuItem>
-                            </SidebarMenu>
-                          </SidebarGroupContent>
-                        </SidebarGroup>
-                      ) : null}
-                      {catalogSections.length > 0 ? (
-                        <SidebarGroup
-                          className={
-                            installed.length > 0 ? "mt-2 p-0" : "p-0"
-                          }
-                        >
-                          <SidebarGroupLabel>Categories</SidebarGroupLabel>
-                          <SidebarGroupContent>
-                            <SidebarMenu>
-                              {catalogSections.map(({ bucket }) => (
-                                <SidebarMenuItem key={bucket.id}>
-                                  <SidebarMenuButton
-                                    isActive={
-                                      activeId ===
-                                      `catalog-bucket-${bucket.id}`
-                                    }
-                                    onClick={() =>
-                                      onNavSectionSelect(
-                                        `catalog-bucket-${bucket.id}`,
-                                      )
-                                    }
-                                  >
-                                    {bucket.label}
-                                  </SidebarMenuButton>
-                                </SidebarMenuItem>
-                              ))}
-                            </SidebarMenu>
-                          </SidebarGroupContent>
-                        </SidebarGroup>
-                      ) : null}
-                    </SidebarContent>
-                  </Sidebar>
-                </SidebarProvider>
+                <TableOfContents
+                  items={tocItems}
+                  activeId={activeId}
+                  onItemSelect={onTocSelect}
+                  label="Categories"
+                  className="min-h-0"
+                  maxHeight="100%"
+                />
               </div>
             </aside>
           ) : null}
@@ -369,7 +323,7 @@ export default function AppsCatalogPageClient() {
                 <div className="mb-4 max-w-2xl">
                   <h2
                     id="catalog-bucket-installed"
-                    className="scroll-mt-24 font-heading text-2xl text-foreground"
+                    className="scroll-mt-24 font-heading text-xl text-foreground"
                   >
                     Installed
                   </h2>
@@ -407,7 +361,7 @@ export default function AppsCatalogPageClient() {
                 <div className="mb-4 max-w-2xl">
                   <h2
                     id={`catalog-bucket-${bucket.id}`}
-                    className="scroll-mt-24 font-heading text-2xl text-foreground"
+                    className="scroll-mt-24 font-heading text-xl text-foreground"
                   >
                     {bucket.label}
                   </h2>

@@ -374,14 +374,13 @@ test.describe("Managed identities", () => {
     await wireIdentityRoutes(page, state, { wrapGrantResponse: true });
 
     await page.goto("/identities");
-    await expect(page).toHaveURL(/\/settings\/identities$/);
-    await expect(page.getByRole("heading", { name: "Managed identities" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Agent Identities" })).toBeVisible();
     await expect(page.getByText("Release Bot")).toBeVisible();
 
     await page.getByLabel("Display name").fill("Deploy Bot");
-    await page.getByRole("button", { name: "Create identity" }).click();
+    await page.getByRole("button", { name: "Create Identity" }).click();
 
-    await expect(page).toHaveURL(/\/settings\/identities\/deploy-bot$/);
+    await expect(page).toHaveURL(/\/identities\?id=service_account%3Adeploy-bot$/);
     await expect(page.getByRole("heading", { name: "Deploy Bot" })).toBeVisible();
   });
 
@@ -395,7 +394,7 @@ test.describe("Managed identities", () => {
       onManagedDisconnect: (integration) => managedDisconnects.push(integration),
     });
 
-    await page.goto("/settings/identities/agent-1");
+    await page.goto("/identities?id=agent-1");
 
     await expect(page.getByRole("heading", { name: "Release Bot" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Slack settings" })).toBeVisible();
@@ -410,10 +409,10 @@ test.describe("Managed identities", () => {
         integration: "slack",
         connection: "plugin",
         credential: "xoxb-managed-identity",
-        returnPath: "/settings/identities/agent-1",
+        returnPath: "/identities?id=service_account%3Aagent-1",
       },
     ]);
-    await expect(page.getByLabel("Connected")).toBeVisible();
+    await expect(page.getByLabel("Identity connected")).toBeVisible();
 
     await page.getByRole("button", { name: "Slack settings" }).click();
     const dialog = page.getByRole("dialog");
@@ -431,18 +430,18 @@ test.describe("Managed identities", () => {
     await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
     await wireIdentityRoutes(page, state);
 
-    await page.goto("/settings/identities/agent-1");
+    await page.goto("/identities?id=agent-1");
     await page.evaluate(
       ([key, value]) => window.sessionStorage.setItem(key, value),
       [
         CONNECTION_RETURN_PATH_STORAGE_KEY,
-        "/settings/identities/agent-1",
+        "/identities?id=service_account%3Aagent-1",
       ],
     );
 
     await page.goto("/apps?connected=slack");
 
-    await expect(page).toHaveURL(/\/settings\/identities\/agent-1$/);
+    await expect(page).toHaveURL(/\/identities\?id=service_account%3Aagent-1$/);
     await expect(page.getByRole("heading", { name: "Release Bot" })).toBeVisible();
   });
 
@@ -475,7 +474,7 @@ test.describe("Managed identities", () => {
     await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
     await wireIdentityRoutes(page, state);
 
-    await page.goto("/settings/identities/agent-1");
+    await page.goto("/identities?id=agent-1");
     await expect(page.getByRole("heading", { name: "Release Bot" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Create Token" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Delete Identity" })).toHaveCount(0);
@@ -493,7 +492,7 @@ test.describe("Managed identities", () => {
     await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
     await wireIdentityRoutes(page, state);
 
-    await page.goto("/settings/identities/agent-1");
+    await page.goto("/identities?id=agent-1");
     await expect(page.getByRole("heading", { name: "Identity App Access" })).toBeVisible();
     await expect(page.getByText(/Grants are identity-level roles/)).toBeVisible();
     await expect(page.getByText(/Connections store OAuth or manual credentials/)).toBeVisible();
@@ -551,7 +550,7 @@ test.describe("Managed identities", () => {
     await mockAuthInfo(page, { provider: "test-sso", displayName: "Test SSO" });
     await wireIdentityRoutes(page, state);
 
-    await page.goto("/settings/identities/agent-1");
+    await page.goto("/identities?id=agent-1");
 
     const memberRow = page.getByRole("row").filter({
       has: page.getByRole("cell", { name: "viewer@example.test", exact: true }),
@@ -574,7 +573,7 @@ test.describe("Managed identities", () => {
     await expect(page.getByRole("cell", { name: "cleanup-token", exact: true })).toHaveCount(0);
 
     await page.getByRole("button", { name: "Delete Identity" }).click();
-    await expect(page).toHaveURL(/\/settings\/identities$/);
+    await expect(page).toHaveURL(/\/identities$/);
     await expect(page.getByText("Release Bot")).toHaveCount(0);
   });
 
@@ -590,7 +589,7 @@ test.describe("Managed identities", () => {
       },
     });
 
-    await page.goto("/settings/identities/agent-1");
+    await page.goto("/identities?id=agent-1");
     await expect(page.getByText(/No identity-level app access grants/)).toBeVisible();
     await expect(page.getByRole("radio", { name: /All authorized access/ })).toBeChecked();
     await page.getByLabel("Token name").fill("brain-ingest");
@@ -616,7 +615,7 @@ test.describe("Managed identities", () => {
       },
     });
 
-    await page.goto("/settings/identities/agent-1");
+    await page.goto("/identities?id=agent-1");
     await page.getByLabel("Token name").fill("all-token");
     await page.getByRole("radio", { name: /Restrict this token/ }).check();
     await page.getByLabel("Operations for slack").fill("channels.read");
@@ -639,7 +638,7 @@ test.describe("Managed identities", () => {
       },
     });
 
-    await page.goto("/settings/identities/agent-1");
+    await page.goto("/identities?id=agent-1");
     await page.getByLabel("Token name").fill("empty-restricted-token");
     await page.getByRole("radio", { name: /Restrict this token/ }).check();
     await page.getByRole("button", { name: "Create Token" }).click();
@@ -667,7 +666,7 @@ test.describe("Managed identities", () => {
       },
     });
 
-    await page.goto("/settings/identities/agent-1");
+    await page.goto("/identities?id=agent-1");
     await page.getByLabel("Token name").fill("github-token");
     await page.getByRole("radio", { name: /Restrict this token/ }).check();
     await page.getByLabel("Operations for github").fill("issues.read, repos.read");
@@ -696,7 +695,7 @@ test.describe("Managed identities", () => {
       },
     });
 
-    await page.goto("/settings/identities/agent-1");
+    await page.goto("/identities?id=agent-1");
     await page.getByLabel("Token name").fill("slack-token");
     await page.getByRole("radio", { name: /Restrict this token/ }).check();
     await page.getByRole("checkbox", { name: "Limit this token to all authorized slack operations" }).check();

@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Link as UiLink } from "@/components/ui/link";
+import { Link as UiLink } from "@/components/Link";
 import { Code } from "@/components/ui/code";
 import {
   HoverCard,
@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/hover-card";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import { SpinnerIcon } from "@/components/icons";
-import { useIntegrationOperationsQuery } from "@/lib/queries";
+import { useIntegrationOperationsQuery } from "@/hooks/use-server-queries";
 import { cn } from "@/lib/cn";
 
 type InvokeOperationReferenceProps = {
@@ -39,9 +39,9 @@ export function InvokeOperationReference({
     <HoverCard>
       <HoverCardTrigger asChild>
         <Link
-          to="/apps/$app/operations"
-          params={{ app: appId }}
-          hash={operationId}
+          to="/apps/$appName"
+          params={{ appName: appId }}
+          search={{ section: "operations", operation: operationId }}
           data-testid="build-invoke-operation"
           className={cn("inline rounded-sm focus-ring", className)}
         >
@@ -80,11 +80,11 @@ export function InvokeOperationReference({
         ) : null}
         <UiLink asChild className="text-sm">
           <Link
-            to="/apps/$app/operations"
-            params={{ app: appId }}
-            hash={operationId}
+            to="/apps/$appName"
+            params={{ appName: appId }}
+            search={{ section: "operations", operation: operationId }}
           >
-            View operation
+            View in app operations
           </Link>
         </UiLink>
       </HoverCardContent>

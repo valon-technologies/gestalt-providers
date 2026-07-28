@@ -1,25 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { getTokens, revokeToken } from "@/lib/api";
-import { queryKeys } from "@/lib/query-keys";
+import { getTokens, type APIToken } from "@/lib/api";
 
-export function useTokensQuery() {
-  return useQuery({
-    queryKey: queryKeys.tokens.list(),
-    queryFn: getTokens,
-  });
-}
-
-export function useInvalidateTokens() {
-  const queryClient = useQueryClient();
-  return () =>
-    queryClient.invalidateQueries({ queryKey: queryKeys.tokens.root });
-}
-
-export function useRevokeTokenMutation() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => revokeToken(id),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: queryKeys.tokens.root }),
-  });
+/**
+ * Personal token listing for the console — Identity v2 grants
+ * (`GET /api/v2/identity/grants`), not the removed `GET /api/v1/tokens`.
+ */
+export async function fetchPersonalTokenList(): Promise<APIToken[]> {
+  return getTokens();
 }

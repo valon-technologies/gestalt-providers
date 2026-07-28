@@ -1,0 +1,14 @@
+---
+description: Valon Registry UI — no call-site chrome overrides (app/default)
+globs: app/default/**/*.{tsx,ts,css,md}
+alwaysApply: false
+---
+
+# Registry UI (app/default)
+
+Follow [`app/default/AGENTS.md`](app/default/AGENTS.md) — portable agent
+contract (also for non-Cursor LLMs).
+
+Fail closed: when asked to use a Registry component, use the **story recipe**
+and shared exports (`choiceCardClassName`, etc.). Do not invent local card /
+control chrome overrides at call sites.

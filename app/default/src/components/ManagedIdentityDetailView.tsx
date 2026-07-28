@@ -7,43 +7,42 @@ import {
   ComboboxOptions,
 } from "@headlessui/react";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  type APIToken,
   connectManagedIdentityManualIntegration,
+  deleteManagedIdentity,
+  deleteManagedIdentityGrant,
   disconnectManagedIdentityIntegration,
+  deleteManagedIdentityMember,
+  getManagedIdentity,
+  getManagedIdentityGrants,
+  getIntegrations,
+  getManagedIdentityIntegrations,
+  getManagedIdentityMembers,
+  getManagedIdentityTokens,
+  putManagedIdentityGrant,
+  putManagedIdentityMember,
   startManagedIdentityIntegrationOAuth,
+  updateManagedIdentity,
   type Integration,
+  type ManagedIdentity,
   type ManagedIdentityGrant,
+  type ManagedIdentityMember,
 } from "@/lib/api";
 import { getUserEmail } from "@/lib/auth";
 import {
   CONNECTION_RETURN_PATH_STORAGE_KEY,
   INPUT_CLASSES,
 } from "@/lib/constants";
+import { queryKeys } from "@/lib/queries/client";
 import { filterIntegrations, getIntegrationLabel } from "@/lib/integrationSearch";
-import {
-  SETTINGS_IDENTITIES_PATH,
-  settingsIdentityDetailPath,
-} from "@/lib/managed-identity-paths";
-import { appPath } from "@/lib/mount";
-import {
-  useDeleteManagedIdentityGrantMutation,
-  useDeleteManagedIdentityMemberMutation,
-  useDeleteManagedIdentityMutation,
-  useIntegrationsQuery,
-  useInvalidateManagedIdentity,
-  useManagedIdentityGrantsQuery,
-  useManagedIdentityIntegrationsQuery,
-  useManagedIdentityMembersQuery,
-  useManagedIdentityQuery,
-  useManagedIdentityTokensQuery,
-  usePutManagedIdentityGrantMutation,
-  usePutManagedIdentityMemberMutation,
-  useUpdateManagedIdentityMutation,
-} from "@/lib/queries";
 import Button from "./Button";
 import Container from "./Container";
 import IntegrationCard from "./IntegrationCard";
+import IdentityTokenCreateForm from "./IdentityTokenCreateForm";
+import IdentityTokenTable from "./IdentityTokenTable";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import {
   PageHeader,
@@ -51,12 +50,10 @@ import {
   PageHeaderDescription,
   PageHeaderTitle,
 } from "@/components/ui/page-header";
-import IdentityTokenCreateForm from "./IdentityTokenCreateForm";
-import IdentityTokenTable from "./IdentityTokenTable";
 import { SearchIcon } from "./icons";
 
 const SECTION_CARD =
-  "rounded-lg border border-border bg-card p-6 text-card-foreground";
+  "rounded-lg border border-alpha bg-base-white p-6 dark:bg-surface";
 
 function mergeGrantPluginOptions(
   visibleIntegrations: Integration[],
@@ -118,56 +115,85 @@ function ChevronUpDownIcon({ className }: { className?: string }) {
 
 export default function ManagedIdentityDetailView({
   identityID,
-  listTo = SETTINGS_IDENTITIES_PATH,
-  embedded = false,
 }: {
   identityID: string;
-  listTo?: string;
-  embedded?: boolean;
 }) {
-  const identityQuery = useManagedIdentityQuery(identityID);
-  const membersQuery = useManagedIdentityMembersQuery(identityID);
-  const grantsQuery = useManagedIdentityGrantsQuery(identityID);
-  const tokensQuery = useManagedIdentityTokensQuery(identityID);
-  const visibleIntegrationsQuery = useIntegrationsQuery();
-  const managedIntegrationsQuery = useManagedIdentityIntegrationsQuery(identityID);
-  const updateIdentity = useUpdateManagedIdentityMutation(identityID);
-  const deleteIdentity = useDeleteManagedIdentityMutation(identityID);
-  const putMember = usePutManagedIdentityMemberMutation(identityID);
-  const deleteMember = useDeleteManagedIdentityMemberMutation(identityID);
-  const putGrant = usePutManagedIdentityGrantMutation(identityID);
-  const deleteGrant = useDeleteManagedIdentityGrantMutation(identityID);
-  const invalidateIdentity = useInvalidateManagedIdentity(identityID);
-
-  const identity = identityQuery.data ?? null;
-  const members = membersQuery.data ?? [];
-  const grants = grantsQuery.data ?? [];
-  const tokens = tokensQuery.data ?? [];
-  const visibleIntegrations = visibleIntegrationsQuery.data ?? [];
-  const managedIntegrations = managedIntegrationsQuery.data ?? [];
-  const managedIntegrationError = managedIntegrationsQuery.error
-    ? managedIntegrationsQuery.error instanceof Error
-      ? managedIntegrationsQuery.error.message
-      : "Failed to load app connections"
-    : null;
-  const loading =
-    identityQuery.isPending ||
-    membersQuery.isPending ||
-    grantsQuery.isPending ||
-    tokensQuery.isPending;
+  const queryClient = useQueryClient();
+  const [identity, setIdentity] = useState<ManagedIdentity | null>(null);
+  const [members, setMembers] = useState<ManagedIdentityMember[]>([]);
+  const [grants, setGrants] = useState<ManagedIdentityGrant[]>([]);
+  const [tokens, setTokens] = useState<APIToken[]>([]);
+  const [visibleIntegrations, setVisibleIntegrations] = useState<Integration[]>([]);
+  const [managedIntegrations, setManagedIntegrations] = useState<Integration[]>([]);
+  const [managedIntegrationError, setManagedIntegrationError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [savingName, setSavingName] = useState(false);
+  const [memberBusy, setMemberBusy] = useState(false);
+  const [grantBusy, setGrantBusy] = useState(false);
   const [selectedGrantPlugin, setSelectedGrantPlugin] = useState("");
   const [grantPluginQuery, setGrantPluginQuery] = useState("");
   const [selectedGrantRole, setSelectedGrantRole] =
     useState<ManagedIdentityGrant["role"]>("viewer");
   const [grantSelectionError, setGrantSelectionError] = useState<string | null>(null);
-  const loadError =
-    error ??
-    (identityQuery.isError
-      ? identityQuery.error instanceof Error
-        ? identityQuery.error.message
-        : "Failed to load identity"
-      : null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const loadRequestIdRef = useRef(0);
+
+  const loadAll = useCallback(async () => {
+    if (!identityID) return;
+    const requestID = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestID;
+
+    try {
+      const managedIntegrationsResult = getManagedIdentityIntegrations(identityID)
+        .then((integrations) => ({ integrations, error: null as string | null }))
+        .catch((err) => ({
+          integrations: [] as Integration[],
+          error: err instanceof Error ? err.message : "Failed to load app connections",
+        }));
+      const [
+        nextIdentity,
+        nextMembers,
+        nextGrants,
+        nextTokens,
+        nextVisibleIntegrations,
+        nextManagedIntegrationsResult,
+      ] =
+        await Promise.all([
+          getManagedIdentity(identityID),
+          getManagedIdentityMembers(identityID),
+          getManagedIdentityGrants(identityID),
+          getManagedIdentityTokens(identityID),
+          queryClient
+            .fetchQuery({
+              queryKey: queryKeys.integrations,
+              queryFn: getIntegrations,
+            })
+            .catch(() => [] as Integration[]),
+          managedIntegrationsResult,
+        ]);
+      if (loadRequestIdRef.current !== requestID) return;
+      setIdentity(nextIdentity);
+      setMembers(nextMembers);
+      setGrants(nextGrants);
+      setTokens(nextTokens);
+      setVisibleIntegrations(nextVisibleIntegrations);
+      setManagedIntegrations(nextManagedIntegrationsResult.integrations);
+      setManagedIntegrationError(nextManagedIntegrationsResult.error);
+      setError(null);
+    } catch (err) {
+      if (loadRequestIdRef.current !== requestID) return;
+      setError(err instanceof Error ? err.message : "Failed to load identity");
+    } finally {
+      if (loadRequestIdRef.current === requestID) {
+        setLoading(false);
+      }
+    }
+  }, [identityID, queryClient]);
+
+  useEffect(() => {
+    void loadAll();
+  }, [loadAll]);
 
   const currentUserEmail = getUserEmail()?.trim().toLowerCase() || "";
   const role =
@@ -175,7 +201,7 @@ export default function ManagedIdentityDetailView({
       ?.role ?? "viewer";
   const canAdmin = role === "admin";
   const canConnect = role === "editor" || role === "admin";
-  const connectionReturnPath = settingsIdentityDetailPath(identityID);
+  const connectionReturnPath = `/identities?id=${encodeURIComponent(identityID)}`;
   const grantPluginOptions = mergeGrantPluginOptions(
     visibleIntegrations,
     grants,
@@ -190,19 +216,22 @@ export default function ManagedIdentityDetailView({
     grantPluginQuery,
   );
   const activeGrantPluginName = activeGrantPlugin?.name ?? "";
-  const canSubmitGrant =
-    !!activeGrantPluginName && !!selectedGrantRole && !putGrant.isPending;
+  const canSubmitGrant = !!activeGrantPluginName && !!selectedGrantRole && !grantBusy;
 
   async function handleRename(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const displayName = (new FormData(e.currentTarget).get("displayName") as string)?.trim();
     if (!displayName) return;
 
+    setSavingName(true);
     setError(null);
     try {
-      await updateIdentity.mutateAsync(displayName);
+      await updateManagedIdentity(identityID, displayName);
+      await loadAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update identity");
+    } finally {
+      setSavingName(false);
     }
   }
 
@@ -210,12 +239,14 @@ export default function ManagedIdentityDetailView({
     if (!window.confirm("Delete this identity and all of its tokens, members, grants, and connections?")) {
       return;
     }
+    setDeleteBusy(true);
     setError(null);
     try {
-      await deleteIdentity.mutateAsync();
-      window.location.href = appPath(listTo);
+      await deleteManagedIdentity(identityID);
+      window.location.href = "/identities";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete identity");
+      setDeleteBusy(false);
     }
   }
 
@@ -224,28 +255,36 @@ export default function ManagedIdentityDetailView({
     const form = e.currentTarget;
     const fd = new FormData(form);
     const email = (fd.get("email") as string)?.trim();
-    const role = (fd.get("role") as string)?.trim() as ManagedIdentityGrant["role"];
+    const role = (fd.get("role") as string)?.trim() as ManagedIdentityMember["role"];
     if (!email || !role) return;
 
+    setMemberBusy(true);
     setError(null);
     try {
-      await putMember.mutateAsync({ email, role });
+      await putManagedIdentityMember(identityID, email, role);
       form.reset();
+      await loadAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update member");
+    } finally {
+      setMemberBusy(false);
     }
   }
 
-  async function handleRemoveMember(member: { subjectId: string; email?: string }) {
+  async function handleRemoveMember(member: ManagedIdentityMember) {
     const label = member.email || member.subjectId;
     if (!window.confirm(`Remove ${label} from this identity?`)) {
       return;
     }
+    setMemberBusy(true);
     setError(null);
     try {
-      await deleteMember.mutateAsync(member.subjectId);
+      await deleteManagedIdentityMember(identityID, member.subjectId);
+      await loadAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to remove member");
+    } finally {
+      setMemberBusy(false);
     }
   }
 
@@ -266,32 +305,35 @@ export default function ManagedIdentityDetailView({
   async function handleGrantSubmit() {
     if (!activeGrantPluginName) return;
 
+    setGrantBusy(true);
     setError(null);
     setGrantSelectionError(null);
     try {
-      await putGrant.mutateAsync({
-        plugin: activeGrantPluginName,
-        role: selectedGrantRole,
-      });
+      await putManagedIdentityGrant(identityID, activeGrantPluginName, selectedGrantRole);
       resetGrantForm();
+      await loadAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update grant");
+    } finally {
+      setGrantBusy(false);
     }
   }
 
   async function handleDeleteGrant(plugin: string) {
+    setGrantBusy(true);
     setError(null);
     try {
-      await deleteGrant.mutateAsync(plugin);
+      await deleteManagedIdentityGrant(identityID, plugin);
+      await loadAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to remove grant");
+    } finally {
+      setGrantBusy(false);
     }
   }
 
-  const grantBusy = putGrant.isPending || deleteGrant.isPending;
-  const memberBusy = putMember.isPending || deleteMember.isPending;
-
   function rememberConnectionReturnPath() {
+    if (typeof window === "undefined") return;
     window.sessionStorage.setItem(
       CONNECTION_RETURN_PATH_STORAGE_KEY,
       connectionReturnPath,
@@ -299,21 +341,19 @@ export default function ManagedIdentityDetailView({
   }
 
   function forgetConnectionReturnPath() {
+    if (typeof window === "undefined") return;
     window.sessionStorage.removeItem(CONNECTION_RETURN_PATH_STORAGE_KEY);
   }
 
-  const detailBody = (
-    <>
-      <div className={embedded ? undefined : "animate-fade-in-up"}>
-        <Link
-          to={listTo}
-          className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-150"
-        >
+  return (
+    <Container as="main" className="py-12">
+      <div>
+        <Link to="/identities" className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-150">
           &larr; Back to identities
         </Link>
         <PageHeader className="mt-5">
           <PageHeaderContent size="entity">
-            <Eyebrow tone="brand">Managed Identity</Eyebrow>
+            <Eyebrow>Managed Identity</Eyebrow>
             <PageHeaderTitle>
               {identity?.displayName || "Loading identity"}
             </PageHeaderTitle>
@@ -327,15 +367,15 @@ export default function ManagedIdentityDetailView({
         </PageHeader>
       </div>
 
-      {loadError && <p className="mt-6 text-sm text-destructive">{loadError}</p>}
-      {loading ? <p className="mt-10 text-sm text-muted-foreground/70">Loading...</p> : null}
+      {error && <p className="mt-6 text-sm text-ember-500">{error}</p>}
+      {loading ? <p className="mt-10 text-sm text-faint">Loading...</p> : null}
 
       {!loading && identity ? (
-        <div className="mt-10 space-y-6 animate-fade-in-up [animation-delay:60ms]">
+        <div className="mt-10 space-y-6">
           <section className={SECTION_CARD}>
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <span className="label-text">Overview</span>
+                <Eyebrow>Overview</Eyebrow>
                 <p className="mt-3 text-sm text-muted-foreground">
                   Subject ID: <code className="font-mono text-xs text-foreground">{identity.subjectId}</code>
                 </p>
@@ -362,17 +402,17 @@ export default function ManagedIdentityDetailView({
                         className={`mt-2 w-full ${INPUT_CLASSES}`}
                       />
                     </div>
-                    <Button type="submit" disabled={updateIdentity.isPending}>
-                      {updateIdentity.isPending ? "Saving..." : "Rename"}
+                    <Button type="submit" disabled={savingName}>
+                      {savingName ? "Saving..." : "Rename"}
                     </Button>
                   </form>
                   <div className="mt-4">
                     <Button
                       variant="danger"
                       onClick={handleDelete}
-                      disabled={deleteIdentity.isPending}
+                      disabled={deleteBusy}
                     >
-                      {deleteIdentity.isPending ? "Deleting..." : "Delete Identity"}
+                      {deleteBusy ? "Deleting..." : "Delete Identity"}
                     </Button>
                   </div>
                 </div>
@@ -381,9 +421,9 @@ export default function ManagedIdentityDetailView({
           </section>
 
           <section className={SECTION_CARD}>
-            <div>
-              <span className="label-text">Sharing</span>
-              <h2 className="mt-2 text-lg font-heading text-foreground">Members</h2>
+            <div className="flex flex-col gap-3">
+              <Eyebrow>Sharing</Eyebrow>
+              <h2 className="text-lg font-heading text-foreground">Members</h2>
             </div>
             {canAdmin ? (
               <form onSubmit={handleMemberSubmit} className="mt-6 flex flex-col gap-3 lg:flex-row lg:items-end">
@@ -420,10 +460,10 @@ export default function ManagedIdentityDetailView({
                 </Button>
               </form>
             ) : null}
-            <div className="mt-6 overflow-x-auto rounded-lg border border-border">
+            <div className="mt-6 overflow-x-auto rounded-lg border border-alpha">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border text-left">
+                  <tr className="border-b border-alpha text-left">
                     <th className="px-5 py-3.5 label-text">Email</th>
                     <th className="px-5 py-3.5 label-text">Subject</th>
                     <th className="px-5 py-3.5 label-text">Role</th>
@@ -432,7 +472,7 @@ export default function ManagedIdentityDetailView({
                 </thead>
                 <tbody>
                   {members.map((member) => (
-                    <tr key={member.subjectId} className="border-b border-border last:border-b-0">
+                    <tr key={member.subjectId} className="border-b border-alpha last:border-b-0">
                       <td className="px-5 py-4 text-foreground font-medium">{member.email || "-"}</td>
                       <td className="px-5 py-4 text-muted-foreground font-mono text-xs">{member.subjectId}</td>
                       <td className="px-5 py-4 text-muted-foreground">{member.role}</td>
@@ -455,8 +495,10 @@ export default function ManagedIdentityDetailView({
           </section>
 
           <section className={SECTION_CARD}>
-            <span className="label-text">Authorization</span>
-            <h2 className="mt-2 text-lg font-heading text-foreground">Identity App Access</h2>
+            <div className="flex flex-col gap-3">
+              <Eyebrow>Authorization</Eyebrow>
+              <h2 className="text-lg font-heading text-foreground">Identity App Access</h2>
+            </div>
             <p className="mt-2 text-sm text-muted-foreground">
               Grants are identity-level roles for apps that enforce authorization. API keys do not create these grants; they only authenticate as this identity.
             </p>
@@ -473,7 +515,7 @@ export default function ManagedIdentityDetailView({
                     App
                   </label>
                   <div className="relative mt-2">
-                    <SearchIcon className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-muted-foreground/70" />
+                    <SearchIcon className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-faint" />
                     <Combobox value={activeGrantPlugin} onChange={selectGrantPlugin} immediate>
                       <ComboboxInput
                         id="grant-plugin"
@@ -488,10 +530,10 @@ export default function ManagedIdentityDetailView({
                         }}
                         placeholder="Choose a visible app"
                       />
-                      <ComboboxButton className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-muted-foreground/70 transition-colors duration-150 hover:text-muted-foreground">
+                      <ComboboxButton className="absolute right-3 top-1/2 z-10 -translate-y-1/2 text-faint transition-colors duration-150 hover:text-muted-foreground">
                         <ChevronUpDownIcon className="h-4 w-4" />
                       </ComboboxButton>
-                      <ComboboxOptions className="absolute left-0 top-full z-20 mt-2 max-h-80 w-full overflow-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-dropdown">
+                      <ComboboxOptions className="absolute left-0 top-full z-20 mt-2 max-h-80 w-full overflow-auto rounded-lg border border-alpha bg-base-white p-1 shadow-dropdown dark:bg-surface">
                         {filteredGrantPluginOptions.length > 0 ? (
                           filteredGrantPluginOptions.map((integration) => {
                             const secondaryText =
@@ -503,13 +545,13 @@ export default function ManagedIdentityDetailView({
                               <ComboboxOption
                                 key={integration.name}
                                 value={integration}
-                                className="cursor-pointer rounded-md px-3 py-2 transition-colors duration-150 data-[focus]:bg-accent data-[focus]:text-accent-foreground"
+                                className="cursor-pointer rounded-md px-3 py-2 transition-colors duration-150 data-[focus]:bg-base-100 dark:data-[focus]:bg-surface-raised"
                               >
-                                <div className="text-sm font-medium text-current">
+                                <div className="text-sm font-medium text-foreground">
                                   {getIntegrationLabel(integration)}
                                 </div>
                                 {secondaryText ? (
-                                  <div className="mt-0.5 text-xs text-current opacity-70">
+                                  <div className="mt-0.5 text-xs text-muted-foreground">
                                     {secondaryText}
                                   </div>
                                 ) : null}
@@ -543,7 +585,7 @@ export default function ManagedIdentityDetailView({
                     <option value="admin">admin</option>
                   </select>
                   {grantSelectionError ? (
-                    <p className="mt-2 text-xs text-destructive">{grantSelectionError}</p>
+                    <p className="mt-2 text-xs text-ember-500">{grantSelectionError}</p>
                   ) : null}
                 </div>
                 <Button type="submit" disabled={!canSubmitGrant}>
@@ -556,10 +598,10 @@ export default function ManagedIdentityDetailView({
                 No identity-level app access grants. Protected apps need a grant here; API keys can still be created below.
               </p>
             ) : (
-              <div className="mt-6 overflow-x-auto rounded-lg border border-border">
+              <div className="mt-6 overflow-x-auto rounded-lg border border-alpha">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-border text-left">
+                    <tr className="border-b border-alpha text-left">
                       <th className="px-5 py-3.5 label-text">App</th>
                       <th className="px-5 py-3.5 label-text">Role</th>
                       <th className="px-5 py-3.5 label-text">Source</th>
@@ -568,7 +610,7 @@ export default function ManagedIdentityDetailView({
                   </thead>
                   <tbody>
                     {grants.map((grant) => (
-                      <tr key={grant.plugin} className="border-b border-border last:border-b-0">
+                      <tr key={grant.plugin} className="border-b border-alpha last:border-b-0">
                         <td className="px-5 py-4 text-foreground font-medium">{grant.plugin}</td>
                         <td className="px-5 py-4 text-muted-foreground">{grant.role}</td>
                         <td className="px-5 py-4 text-muted-foreground">{grant.source}</td>
@@ -592,13 +634,15 @@ export default function ManagedIdentityDetailView({
           </section>
 
           <section className={SECTION_CARD}>
-            <span className="label-text">Connections</span>
-            <h2 className="mt-2 text-lg font-heading text-foreground">App Connections</h2>
+            <div className="flex flex-col gap-3">
+              <Eyebrow>Connections</Eyebrow>
+              <h2 className="text-lg font-heading text-foreground">App Connections</h2>
+            </div>
             <p className="mt-2 text-sm text-muted-foreground">
               Connections store OAuth or manual credentials for this identity. They do not add app roles or change API-key limits.
             </p>
             {managedIntegrationError ? (
-              <p className="mt-6 text-sm text-destructive">{managedIntegrationError}</p>
+              <p className="mt-6 text-sm text-ember-500">{managedIntegrationError}</p>
             ) : managedIntegrations.length === 0 ? (
               <p className="mt-6 text-sm text-muted-foreground">
                 No apps are available to connect for this identity.
@@ -649,8 +693,8 @@ export default function ManagedIdentityDetailView({
                         connection,
                       )
                     }
-                    onConnected={invalidateIdentity}
-                    onDisconnected={invalidateIdentity}
+                    onConnected={loadAll}
+                    onDisconnected={loadAll}
                     returnPath={connectionReturnPath}
                     readOnly={!canConnect}
                     disableNavigation
@@ -662,8 +706,10 @@ export default function ManagedIdentityDetailView({
           </section>
 
           <section className={SECTION_CARD}>
-            <span className="label-text">API Access</span>
-            <h2 className="mt-2 text-lg font-heading text-foreground">Identity API Keys</h2>
+            <div className="flex flex-col gap-3">
+              <Eyebrow>API Access</Eyebrow>
+              <h2 className="text-lg font-heading text-foreground">Identity API Keys</h2>
+            </div>
             <p className="mt-2 text-sm text-muted-foreground">
               API keys authenticate as this identity. By default, a key follows managed identity app access and connector credentials at use time; token limits only narrow one key.
             </p>
@@ -671,6 +717,7 @@ export default function ManagedIdentityDetailView({
               <IdentityTokenCreateForm
                 identityID={identityID}
                 grants={grants}
+                onCreated={loadAll}
               />
             ) : (
               <p className="mt-6 text-sm text-muted-foreground">
@@ -682,25 +729,12 @@ export default function ManagedIdentityDetailView({
                 identityID={identityID}
                 tokens={tokens}
                 canRevoke={canAdmin}
+                onRevoked={loadAll}
               />
             </div>
           </section>
         </div>
       ) : null}
-    </>
-  );
-
-  if (embedded) {
-    return (
-      <section className="scroll-mt-24" aria-label="Managed identity">
-        {detailBody}
-      </section>
-    );
-  }
-
-  return (
-    <Container as="main" className="py-12">
-      {detailBody}
     </Container>
   );
 }

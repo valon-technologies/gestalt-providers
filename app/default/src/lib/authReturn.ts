@@ -1,6 +1,4 @@
-import { appPath } from "./mount";
-
-const DEFAULT_RETURN_PATH = appPath("/apps");
+const DEFAULT_RETURN_PATH = "/";
 const LOGIN_CALLBACK_PATH = "/api/v1/auth/login/callback";
 const AUTH_LOGIN_PATH = "/api/v1/auth/login";
 const API_PATH = "/api";
@@ -43,6 +41,9 @@ export function sanitizeAuthReturnPath(raw: string | null | undefined): string {
 }
 
 export function currentAuthReturnPath(): string {
+  if (typeof window === "undefined") {
+    return DEFAULT_RETURN_PATH;
+  }
   return sanitizeAuthReturnPath(
     `${window.location.pathname}${window.location.search}${window.location.hash}`,
   );

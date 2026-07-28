@@ -1932,7 +1932,7 @@
           "title": "Slack v2"
         }
       ],
-      "iconUrl": "https://raw.githubusercontent.com/valon-technologies/gestalt-providers/main/app/slack_v2/assets/icon.svg",
+      "iconUrl": null,
       "kind": "app",
       "latestInstallableVersion": null,
       "manifestUrl": "https://github.com/valon-technologies/gestalt-providers/blob/main/app/slack_v2/manifest.yaml",

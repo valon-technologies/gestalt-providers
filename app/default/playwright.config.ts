@@ -18,6 +18,7 @@ export default defineConfig({
   ],
 
   use: {
+    ...(process.env.PLAYWRIGHT_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHANNEL } : {}),
     baseURL: backendURL || `http://localhost:${apiPort}`,
     trace: "retain-on-failure",
     video: "retain-on-failure",

@@ -6,14 +6,14 @@ export const rootRoute = createRootRoute({
   component: RootLayout,
 });
 
-/** Console chrome: top nav persists; route content is session-gated. */
+/** Console chrome: session gate + top nav persist across route changes. */
 function RootLayout() {
   return (
-    <div className="min-h-screen">
-      <Nav />
-      <AuthGuard>
+    <AuthGuard>
+      <div className="min-h-screen">
+        <Nav />
         <Outlet />
-      </AuthGuard>
-    </div>
+      </div>
+    </AuthGuard>
   );
 }

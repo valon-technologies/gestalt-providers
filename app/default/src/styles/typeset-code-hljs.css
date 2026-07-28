@@ -1,7 +1,7 @@
 /*
  * Syntax highlight theme for Registry CodeBlock (`.typeset-code-hljs`).
- * Excerpted from the shared typeset / registry code-blocks contract — do not fork
- * colors here; refresh from upstream when the contract changes.
+ * Excerpted from Valon Typeset / registry code-blocks contract — do not fork
+ * colors here; refresh from valon-typeset when upstream changes.
  */
 
 @layer components {

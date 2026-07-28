@@ -1,15 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import Container from "@/components/Container";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarProvider,
-} from "@/components/ui/sidebar";
+import { Eyebrow } from "@/components/ui/eyebrow";
 import { docsNavItems, getActiveDocsNavItem } from "./docs-data";
 
 export default function DocsShell({
@@ -22,34 +13,27 @@ export default function DocsShell({
 
   return (
     <Container as="main" className="py-16">
-      <div className="grid gap-10 xl:grid-cols-[11rem_minmax(0,1fr)_240px]">
-        <aside className="hidden w-44 shrink-0 xl:block">
+      <div className="grid gap-10 xl:grid-cols-[220px_minmax(0,1fr)_240px]">
+        <aside className="hidden xl:block">
           <div className="sticky top-24">
-            <SidebarProvider defaultWidth="11rem" className="min-h-0 w-full">
-              <Sidebar collapsible="none" className="h-full">
-                <SidebarContent
-                  className="overflow-visible"
-                  aria-label="Documentation"
-                >
-                  <SidebarGroup className="p-0">
-                    <SidebarGroupContent>
-                      <SidebarMenu>
-                        {docsNavItems.map((item) => (
-                          <SidebarMenuItem key={item.id}>
-                            <SidebarMenuButton
-                              asChild
-                              isActive={item.id === activeItem.id}
-                            >
-                              <Link to={item.href}>{item.label}</Link>
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
-                        ))}
-                      </SidebarMenu>
-                    </SidebarGroupContent>
-                  </SidebarGroup>
-                </SidebarContent>
-              </Sidebar>
-            </SidebarProvider>
+            <nav className="space-y-0.5">
+              {docsNavItems.map((item) => {
+                const isActive = item.id === activeItem.id;
+                return (
+                  <Link
+                    key={item.id}
+                    to={item.href}
+                    className={`block rounded-md px-3 py-2 text-sm transition-colors duration-150 ${
+                      isActive
+                        ? "bg-alpha-5 font-medium text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
           </div>
         </aside>
 
@@ -59,9 +43,7 @@ export default function DocsShell({
           <div className="sticky top-24 space-y-6">
             {activeItem.subsections.length > 0 && (
               <div>
-                <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground-soft">
-                  On This Page
-                </p>
+                <Eyebrow>On This Page</Eyebrow>
                 <nav className="mt-3 space-y-0.5">
                   {activeItem.subsections.map((subsection) => (
                     <a

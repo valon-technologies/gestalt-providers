@@ -1,5 +1,8 @@
 /**
- * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Gestalt console vendor of Valon Registry `list-item-interaction`.
+ *
+ * Ownership: Valon Registry (`valon-tools/apps/registry/ui/src/lib/list-item-interaction.ts`).
+ * Synced from toolshed origin/main — import-path adaptation only.
  */
 
 import { cva, type VariantProps } from "class-variance-authority";

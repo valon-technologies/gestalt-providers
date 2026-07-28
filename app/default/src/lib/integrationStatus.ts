@@ -589,14 +589,16 @@ function integrationSummaryLabel(
   credentialState: CredentialState,
   context: ConnectionContext,
 ): string {
-  if (credentialState === "not_required" && status === "ready") {
-    return "No credentials required";
-  }
-  if (credentialState === "configured" && status === "ready") {
-    return "Deployment configured";
-  }
-  if (credentialState === "connected" && status === "ready") {
-    return context === "managed_subject" ? "Identity connected" : "Connected";
+  // Catalog filter "Ready" and tile badges share one success word for current users.
+  if (
+    status === "ready" &&
+    (credentialState === "not_required" ||
+      credentialState === "configured" ||
+      credentialState === "connected")
+  ) {
+    return context === "managed_subject" && credentialState === "connected"
+      ? "Identity connected"
+      : "Ready";
   }
   return statusDisplayLabel(status, context);
 }
@@ -608,10 +610,10 @@ function connectionSummaryLabel(
   context: ConnectionContext,
 ): string {
   if (isNoAuth && credentialState === "not_required") {
-    return "No credentials required";
+    return "Ready";
   }
   if (credentialState === "connected" && status === "ready") {
-    return context === "managed_subject" ? "Identity connected" : "Connected";
+    return context === "managed_subject" ? "Identity connected" : "Ready";
   }
   return statusDisplayLabel(status, context);
 }

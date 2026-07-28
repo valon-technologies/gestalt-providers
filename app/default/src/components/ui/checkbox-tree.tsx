@@ -1,6 +1,13 @@
+"use client";
+
 
 /**
- * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Gestalt console vendor of Valon Registry `checkbox-tree`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/checkbox-tree.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
  */
 
 import * as React from "react";
@@ -303,11 +310,9 @@ const CheckboxTree = React.forwardRef<HTMLDivElement, CheckboxTreeProps>(
             );
             const inputId = `${idPrefix}-${id}`;
 
-            const rowSoft = state === true || state === "indeterminate";
-
             return (
               <TreeItem key={id} item={item}>
-                <TreeItemLabel data-soft={rowSoft || undefined}>
+                <TreeItemLabel>
                   <span
                     className={cn(
                       "flex min-w-0 items-center",

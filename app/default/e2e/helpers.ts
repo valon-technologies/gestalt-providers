@@ -12,7 +12,6 @@ export async function authenticate(page: Page) {
     );
   });
   await mockAuthSession(page);
-  await page.goto("/");
-  await page.waitForURL(/\/apps/, { timeout: 10000 });
+  await page.goto("/apps");
   await page.getByRole("heading", { name: "Apps" }).waitFor({ timeout: 10000 });
 }

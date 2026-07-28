@@ -1,6 +1,13 @@
+"use client";
+
 
 /**
- * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Gestalt console vendor of Valon Registry `stepper`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/stepper.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
  */
 
 import * as React from "react";
@@ -404,7 +411,7 @@ function StepperTrigger({
 
 const stepperIndicatorVariants = cva(
   // Above the progress rail (separator z-[1]) so the bullet sits on the line end.
-  "relative z-10 grid shrink-0 place-items-center rounded-full border font-display font-normal italic leading-none transition-[color,background-color,border-color] duration-hover-out ease-out-quart [--stepper-indicator-size:2rem]",
+  "relative z-10 flex shrink-0 items-center justify-center rounded-full border font-display text-base font-normal italic leading-none transition-[color,background-color,border-color] duration-hover-out ease-out-quart [--stepper-indicator-size:2rem]",
   {
     variants: {
       size: {
@@ -523,10 +530,7 @@ function StepperIndicator({ className, size, children, ...props }: StepperIndica
         <>
           {/* Number stays mounted under the check so layout never shifts. */}
           <span
-            className={cn(
-              "col-start-1 row-start-1 tabular-nums text-box-cap-trim",
-              !numberVisible && "invisible",
-            )}
+            className={cn("tabular-nums", !numberVisible && "invisible")}
             aria-hidden={!numberVisible}
           >
             {index + 1}
@@ -538,7 +542,7 @@ function StepperIndicator({ className, size, children, ...props }: StepperIndica
             density="condensed"
             tone="current"
             svgClassName={checkSvg}
-            className="pointer-events-none absolute inset-0 col-start-1 row-start-1 m-auto"
+            className="pointer-events-none absolute inset-0 m-auto"
           />
         </>
       )}

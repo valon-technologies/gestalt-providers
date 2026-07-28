@@ -1,13 +1,20 @@
+"use client";
+
 
 /**
- * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Gestalt console vendor of Valon Registry `selection-check`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/selection-check.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
  */
 
 import * as React from "react";
 
 import { cn } from "@/lib/cn";
 
-// Shared selection checkmark — stroke-draw glyph used by Checkbox,
+// Canonical Valon selection checkmark — stroke-draw glyph shared by Checkbox,
 // Combobox, Select, and Listbox. Two paths (down into the vertex, then up out
 // of it) with pathLength=1 dashoffset draw-in; bounce finishes after both enter
 // strokes. Bounce (self-drawn only): celebrates unchecked → checked while
@@ -21,11 +28,11 @@ import { cn } from "@/lib/cn";
 //
 // Density:
 // - `default` — menu/list indicators (Select / Combobox / Listbox): thinner
-//   stroke, wider mark so the check reads open on an unfilled row
+//   stroke, wider mark so the check reads open on a blank or gold row
 // - `condensed` — Checkbox: tighter mark + heavier stroke that fits the box
 //
 // Tone (self-drawn only):
-// - `solid` — blank-row indicators (Select / Combobox flyouts): primary ink
+// - `solid` — blank-row indicators (Select / Combobox flyouts): --accent-solid ink
 // - `current` — filled-row indicators (Listbox): currentColor
 
 type CheckDensity = "default" | "condensed";
@@ -139,10 +146,10 @@ export function SelectionCheck({
       className={cn(
         drawFrom === "self" && "group/selection-check",
         "flex size-4 shrink-0 items-center justify-center",
-        tone === "solid" ? "text-primary" : "text-current",
+        tone === "solid" ? "text-accent-solid" : "text-current",
         drawFrom === "self" &&
           bounce &&
-          "animate-[selection-check-bounce_var(--duration-200)_var(--ease-out-quart)_calc(2*var(--duration-200))]",
+          "animate-[valon-check-bounce_var(--duration-200)_var(--ease-out-quart)_calc(2*var(--duration-200))]",
         className,
       )}
       aria-hidden

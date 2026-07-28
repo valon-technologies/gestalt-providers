@@ -1,3 +1,4 @@
+"use client";
 
 import {
   type RefObject,
@@ -16,7 +17,8 @@ import {
 /**
  * Gestalt console vendor of Valon Registry `use-scroll-spy`.
  *
- * Vendored from the upstream design-system registry.
+ * Ownership: Valon Registry
+ * (`valon-tools/apps/registry/ui/src/hooks/use-scroll-spy.ts`).
  */
 
 const DEFAULT_ACTIVATION_OFFSET = 80;

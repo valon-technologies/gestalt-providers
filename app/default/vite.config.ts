@@ -1,78 +1,84 @@
-/// <reference types="vitest/config" />
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { gestalt } from "@valon-technologies/gestalt/vite";
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig } from "vite";
+import { gestaltDevMockApi } from "./scripts/vite-dev-mock-api.mjs";
+import { serveTenantThemeInDev } from "./scripts/vite-serve-tenant-theme.mjs";
 
 const projectDir = path.dirname(fileURLToPath(import.meta.url));
 
-/** prod-dev cookie-proxy ports — disjoint from /local-dev (see prod-dev skill). */
-const PROD_DEV_PROXY_PORT_MIN = 8100;
-const PROD_DEV_PROXY_PORT_MAX = 8199;
-
-function resolveGestaltPublicOrigin(
-  env: Record<string, string>,
-  backendOrigin: string,
-): string {
-  const configured = env.VITE_GESTALT_PUBLIC_ORIGIN?.trim();
-  if (configured) {
-    return configured.replace(/\/+$/, "");
+/** Valon deploy theme — Season Serif / Melange (Registry faces). */
+function resolveValonThemeFile(): string | null {
+  const explicit = process.env.GESTALT_THEME_FILE?.trim();
+  if (explicit) {
+    const resolved = path.resolve(explicit);
+    return fs.existsSync(resolved) ? resolved : null;
   }
-  try {
-    const url = new URL(backendOrigin);
-    const port = Number(url.port);
-    const isLoopback =
-      url.hostname === "127.0.0.1" || url.hostname === "localhost";
-    // Local Vite only bundles the console; prod-dev proxies API to production.
-    if (
-      isLoopback &&
-      port >= PROD_DEV_PROXY_PORT_MIN &&
-      port <= PROD_DEV_PROXY_PORT_MAX
-    ) {
-      const prodHost = env.GESTALT_PROD_HOST?.trim().replace(/\/+$/, "");
-      return prodHost ? `https://${prodHost}` : "";
-    }
-  } catch {
-    // ignore
+  // Default for Valon development: match Registry fonts 1:1 via tenant theme.
+  const candidates = [
+    path.resolve(
+      process.env.HOME || "",
+      "Work/toolshed/valon-tools/deploy/ui/theme.css",
+    ),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
   }
-  return "";
+  return null;
 }
 
-export default defineConfig(({ mode }) => {
-  // Keep direct Vite development same-origin. Gestaltd remains the only
-  // authority that selects and serves a tenant theme and its assets.
-  const env = loadEnv(mode, projectDir, "");
-  const backendOrigin =
-    env.GESTALT_API_PROXY_TARGET?.trim().replace(/\/+$/, "") ||
-    "http://127.0.0.1:8080";
-  const gestaltPublicOrigin = resolveGestaltPublicOrigin(env, backendOrigin);
+// Two-origin local/prod-dev (Vite + gestaltd/auth-proxy): browser stays
+// same-origin; Vite forwards `/api` to the backend. Canonical env matches
+// app-starter / local-dev stacks — never bake an API origin into client bundles.
+//
+// GESTALT_DEV_MOCK_AUTH=1: fulfill /api in Vite (UI boot without OAuth). Needed
+// when gestaltd's login callback is a different origin (e.g. localhost:8080)
+// than this SPA — Google OAuth cannot mint a cookie for the Vite port.
+const mockAuth = process.env.GESTALT_DEV_MOCK_AUTH === "1";
+const apiOrigin =
+  process.env.GESTALT_API_PROXY_TARGET?.trim() || "http://127.0.0.1:8080";
 
-  return {
-    // Production artifacts are mount-relative. The Gestalt Vite plugin
-    // overrides this with GESTALT_DEV_BASE_PATH for native UI development.
-    base: "./",
-    plugins: [react(), tailwindcss(), gestalt()],
-    define: {
-      "import.meta.env.VITE_GESTALT_PUBLIC_ORIGIN": JSON.stringify(
-        gestaltPublicOrigin,
-      ),
+const resolvedThemeFile =
+  process.env.NODE_ENV !== "production" ? resolveValonThemeFile() : null;
+const devThemeSource = resolvedThemeFile;
+const devThemeMirror = path.join(projectDir, ".dev", "theme.css");
+if (devThemeSource) {
+  fs.mkdirSync(path.dirname(devThemeMirror), { recursive: true });
+  fs.rmSync(devThemeMirror, { force: true });
+  fs.copyFileSync(devThemeSource, devThemeMirror);
+  // serveTenantThemeInDev reads GESTALT_THEME_FILE for /theme/* assets.
+  process.env.GESTALT_THEME_FILE = devThemeSource;
+}
+
+const themeTarget = devThemeSource
+  ? path.resolve(devThemeMirror)
+  : path.resolve(projectDir, "src/theme.stub.css");
+
+export default defineConfig({
+  plugins: [
+    react(),
+    tailwindcss(),
+    gestalt(),
+    serveTenantThemeInDev(),
+    gestaltDevMockApi(),
+  ],
+  resolve: {
+    alias: {
+      "@": path.resolve(projectDir, "src"),
+      "@theme.css": themeTarget,
     },
-    resolve: {
-      alias: {
-        "@": path.resolve(projectDir, "src"),
-      },
-    },
-    server: {
-      proxy: {
-        "/api": { target: backendOrigin, changeOrigin: true },
-        "/theme.css": { target: backendOrigin, changeOrigin: true },
-        "/theme/": { target: backendOrigin, changeOrigin: true },
-      },
-    },
-    test: {
-      include: ["src/**/*.test.ts"],
-    },
-  };
+  },
+  server: {
+    proxy: mockAuth
+      ? undefined
+      : {
+          "/api": {
+            target: apiOrigin.replace(/\/+$/, ""),
+            changeOrigin: true,
+          },
+        },
+  },
 });

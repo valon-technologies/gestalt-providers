@@ -1,26 +1,238 @@
 @import "../shared/theme.css";
 @import "./styles/typeset-code-hljs.css";
 
-/* Scan src/ only — do not crawl bundled admin vendor files for candidates. */
+/* Scan src/ only — the v3 config's content globs. The default heuristic would
+ * also crawl public/ (e.g. admin/echarts.min.js) for class candidates. */
 @import "tailwindcss" source(".");
-@import "tw-animate-css";
 
-/* Dark mode follows the class set by useTheme. */
+/* v3 `darkMode: ["class"]` — dark: variants match descendants of `.dark`. */
 @custom-variant dark (&:is(.dark *));
 
-/*
- * App-owned geometry and motion. These are deliberately not part of the
- * tenant theme API: a theme changes visual identity, not interaction density
- * or timing.
- */
 @theme {
-  --animate-fade-in-up: fade-in-up 0.5s cubic-bezier(0.19, 1, 0.22, 1) both;
+  /* Static warm palettes (hardcoded by design — see THEMING.md known gaps). */
+  --color-base-white: oklch(100% 0 0);
+  --color-base-50: oklch(99.1% 0.0041 91.45);
+  --color-base-100: oklch(97.384% 0.0045 78.3);
+  --color-base-200: oklch(92.323% 0.0129 63.91);
+  --color-base-300: oklch(86.851% 0.0197 72.55);
+  --color-base-400: oklch(71.063% 0.035 74.65);
+  --color-base-500: oklch(55.538% 0.0431 75.75);
+  --color-base-600: oklch(44.69% 0.0382 91.81);
+  --color-base-700: oklch(37.609% 0.0346 84.27);
+  --color-base-800: oklch(27.043% 0.0259 51.02);
+  --color-base-900: oklch(21.867% 0.0213 76.13);
+  --color-base-950: oklch(22.039% 0.0231 57.22);
+
+  --color-gold-50: oklch(99.5% 0.005 78.3);
+  --color-gold-100: oklch(97.9% 0.02 81.8);
+  --color-gold-200: oklch(93.6% 0.053 81.8);
+  --color-gold-300: oklch(85.9% 0.112 82.4);
+  --color-gold-400: oklch(79.3% 0.144 80.3);
+  --color-gold-500: oklch(73.1% 0.152 72.6);
+  --color-gold-600: oklch(64.4% 0.134 72.6);
+  --color-gold-700: oklch(54.9% 0.113 70.8);
+  --color-gold-800: oklch(46.522% 0.0933 70.48);
+  --color-gold-900: oklch(38.5% 0.075 71.9);
+  --color-gold-950: oklch(29.6% 0.055 73.6);
+
+  --color-grove-50: oklch(97.289% 0.0152 145.46);
+  --color-grove-100: oklch(93.286% 0.0323 145.31);
+  --color-grove-200: oklch(86.526% 0.0672 144.97);
+  --color-grove-500: oklch(53.731% 0.0937 144.13);
+  --color-grove-600: oklch(48.204% 0.0881 144.06);
+  --color-grove-700: oklch(42.447% 0.0842 143.91);
+
+  --color-ember-50: oklch(97.053% 0.0129 17.38);
+  --color-ember-500: oklch(58.766% 0.1526 23);
+  --color-ember-600: oklch(53.407% 0.1613 24.42);
+  --color-ember-700: oklch(46.502% 0.147 24.94);
+
+  /* Stock shades used in src/, pinned to the v3 hex palette — v4 recalibrated
+   * its default palette to oklch, which renders slightly differently. */
+  --color-amber-100: oklch(96.19% 0.058 95.62);
+  --color-amber-200: oklch(92.428% 0.1151 95.75);
+  --color-amber-500: oklch(76.859% 0.1647 70.08);
+  --color-amber-600: oklch(66.584% 0.1574 58.32);
+  --color-amber-700: oklch(55.528% 0.1455 49);
+  --color-sky-100: oklch(95.142% 0.025 236.82);
+  --color-sky-200: oklch(90.138% 0.0555 230.9);
+  --color-sky-500: oklch(68.469% 0.1479 237.32);
+  --color-sky-600: oklch(58.762% 0.1389 241.97);
+  --color-sky-700: oklch(49.998% 0.1193 242.75);
+
+  /* Absolute type-scale floor below Tailwind's text-xs (0.75rem). Named step
+   * so call sites never author text-[10px] — keep in sync with Valon Registry
+   * theme (`--text-2xs`, guidelines/typography-base-size.md). */
+  --text-2xs: 0.625rem;
+  --text-2xs--line-height: 0.875rem;
+
+  /* v3's default ring color (blue-500/50) — v4 defaults to currentColor.
+   * Bare-width rings (`ring-2` without a ring color) rendered blue in v3. */
+  --default-ring-color: oklch(62.308% 0.188 259.81 / 0.5);
+}
+
+/* Tokens backed by the tenant-theme contract (shared/theme.css). `inline` is
+ * required: utilities embed these var() chains verbatim, so they stay live
+ * for the serve-time /theme.css overrides. `reference` keeps Tailwind from
+ * re-emitting the names on :root — --font-display, --font-mono, and --radius
+ * are *also* the runtime contract variables, and an emitted
+ * `--font-display: var(--font-display), …` would be a self-reference. */
+@theme inline reference {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-foreground: var(--foreground);
+  --color-border: var(--border);
+  /* Whole-color tokens; alpha modifiers work via color-mix on all of them. */
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-pressed: var(--accent-pressed);
+  --color-accent-fill-hover: var(--accent-fill-hover);
+  --color-accent-fill-pressed: var(--accent-fill-pressed);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-vivid: var(--accent-vivid);
+  --color-accent-vivid-foreground: var(--accent-vivid-foreground);
+  --color-accent-vivid-hover: var(--accent-vivid-hover);
+  --color-accent-vivid-pressed: var(--accent-vivid-pressed);
+  --color-accent-wash: var(--accent-wash);
+  --color-accent-wash-hover: var(--accent-wash-hover);
+  --color-accent-wash-pressed: var(--accent-wash-pressed);
+  --color-accent-highlight: var(--accent-highlight);
+  --color-accent-solid: var(--accent-solid);
+  --color-accent-solid-hover: var(--accent-solid-hover);
+  --color-accent-solid-pressed: var(--accent-solid-pressed);
+  --color-neutral-hover: var(--neutral-hover);
+  --color-neutral-pressed: var(--neutral-pressed);
+  --color-neutral-dark-hover: var(--neutral-dark-hover);
+  --color-neutral-dark-pressed: var(--neutral-dark-pressed);
+  --color-list-item-hover: var(--list-item-hover);
+  --color-list-item-pressed: var(--list-item-pressed);
+  --color-ring: var(--ring);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-link: var(--link);
+  --color-link-hover: var(--link-hover);
+  --color-link-pressed: var(--link-pressed);
+
+  /* Registry semantic colors — single contract with Valon Registry
+   * (`guidelines/color.md`). Console ink is text-foreground /
+   * text-muted-foreground; fills are bg-primary / bg-muted / bg-secondary. */
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted-foreground-soft: var(--muted-foreground-soft);
+  --color-disabled: var(--disabled);
+  --color-disabled-foreground: var(--disabled-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-error-foreground: var(--error-foreground);
+  --color-input: var(--input);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-strong-hover: var(--accent-strong-hover);
+  --color-accent-strong-pressed: var(--accent-strong-pressed);
+
   --tracking-eyebrow: 0.075em;
+  --tracking-display: var(--valon-tracking-display);
+  --tracking-display-tight: var(--valon-tracking-display-tight);
+  --tracking-heading: var(--valon-tracking-heading);
+  --tracking-heading-tight: var(--valon-tracking-heading-tight);
 
-  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
-  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Brand type scale utilities — text-display-sm, text-heading-md, text-body-lg. */
+  --text-body-lg: var(--valon-text-body-lg);
+  --text-body-lg--line-height: var(--valon-text-body-lg--line-height);
+  --text-heading-sm: var(--valon-text-heading-sm);
+  --text-heading-sm--line-height: var(--valon-text-heading-sm--line-height);
+  --text-heading-md: var(--valon-text-heading-md);
+  --text-heading-md--line-height: var(--valon-text-heading-md--line-height);
+  --text-heading-lg: var(--valon-text-heading-lg);
+  --text-heading-lg--line-height: var(--valon-text-heading-lg--line-height);
+  --text-heading-xl: var(--valon-text-heading-xl);
+  --text-heading-xl--line-height: var(--valon-text-heading-xl--line-height);
+  --text-display-sm: var(--valon-text-display-sm);
+  --text-display-sm--line-height: var(--valon-text-display-sm--line-height);
+  --text-display-md: var(--valon-text-display-md);
+  --text-display-md--line-height: var(--valon-text-display-md--line-height);
+  --text-display-lg: var(--valon-text-display-lg);
+  --text-display-lg--line-height: var(--valon-text-display-lg--line-height);
+  --text-display-xl: var(--valon-text-display-xl);
+  --text-display-xl--line-height: var(--valon-text-display-xl--line-height);
 
+  --height-control-xs: var(--control-h-xs);
+  --height-control-sm: var(--control-h-sm);
+  --height-control-default: var(--control-h-default);
+  --height-control-lg: var(--control-h-lg);
+  --text-control-xs: var(--control-fz-xs);
+  --text-control-sm: var(--control-fz-sm);
+  --text-control-default: var(--control-fz-default);
+  --text-control-lg: var(--control-fz-lg);
+  --size-control-xs: var(--control-h-xs);
+  --size-control-sm: var(--control-h-sm);
+  --size-control-default: var(--control-h-default);
+  --size-control-lg: var(--control-h-lg);
+
+  --container-content: var(--content-max-width);
+
+  --font-sans: var(--font-body), system-ui, sans-serif;
+  --font-heading: var(--font-display), Georgia, serif;
+  --font-display: var(--font-display), Georgia, serif;
+  --font-mono: var(--font-mono), monospace;
+
+  /* Derived from --radius (0.5rem in the generic theme), keeping the
+   * rendered 6/8/12px scale. The bare --radius key preserves v3's
+   * `rounded` = var(--radius). */
+  --radius: var(--radius);
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 4px);
+
+  --shadow-md: var(--elevation-shadow-md);
+  --shadow-lg: var(--elevation-shadow-lg);
+  --shadow-2xs: 0 0 #0000;
+  --shadow-xs: 0 0 #0000;
+  --shadow-sm: 0 0 #0000;
+  --shadow: 0 0 #0000;
+  --shadow-xl: 0 0 #0000;
+  --shadow-2xl: 0 0 #0000;
+  --shadow-dropdown: 0 4px 12px color-mix(in oklab, var(--shadow-ink) 10%, transparent);
+  --shadow-card: 0 1px 3px color-mix(in oklab, var(--shadow-ink) 4%, transparent);
+
+  /* Motion utilities — mint duration-* / ease-* from :root aliases below. */
+  --ease-out-quart: var(--motion-ease-out-quart);
+  --ease-out-expo: var(--motion-ease-out-expo);
+  --ease-out-back: var(--motion-ease-out-back);
+  --ease-out-back-soft: var(--motion-ease-out-back-soft);
+  --transition-duration-hover-in: var(--motion-hover-in);
+  --transition-duration-hover-out: var(--motion-hover-out);
+  --transition-duration-press: var(--motion-press);
+  --transition-duration-select-in: var(--motion-select-in);
+  --transition-duration-select-out: var(--motion-select-out);
+  --transition-duration-reveal: var(--motion-reveal);
+  --transition-duration-dismiss: var(--motion-dismiss);
+  --transition-duration-reveal-lg: var(--motion-reveal-lg);
+  --transition-duration-dismiss-lg: var(--motion-dismiss-lg);
+  --transition-duration-move: var(--motion-move);
+  --transition-duration-overshoot: var(--motion-overshoot);
+  --transition-duration-toast: var(--motion-toast);
+}
+
+/* Motion token layer: primitives + semantic aliases. Components consume
+ * duration-<intent> / ease-<name> utilities — never raw ms. */
+:root {
   --duration-0: 0ms;
   --duration-50: 50ms;
   --duration-75: 75ms;
@@ -30,227 +242,88 @@
   --duration-250: 250ms;
   --duration-300: 300ms;
 
-  --transition-duration-hover-in: 0ms;
-  --transition-duration-hover-out: 0ms;
-  --transition-duration-press: 0ms;
-  --transition-duration-select-in: 0ms;
-  --transition-duration-select-out: 0ms;
-  --transition-duration-reveal: 150ms;
-  --transition-duration-dismiss: 100ms;
-  --transition-duration-reveal-lg: 300ms;
-  --transition-duration-dismiss-lg: 200ms;
-  --transition-duration-move: 200ms;
-  --transition-duration-overshoot: 200ms;
-  --transition-duration-toast: 250ms;
+  --motion-hover-in: var(--duration-0);
+  --motion-hover-out: var(--duration-0);
+  --motion-press: var(--duration-0);
+  --motion-select-in: var(--duration-0);
+  --motion-select-out: var(--duration-0);
+  --motion-reveal: var(--duration-150);
+  --motion-dismiss: var(--duration-100);
+  --motion-reveal-lg: var(--duration-300);
+  --motion-dismiss-lg: var(--duration-200);
+  --motion-move: var(--duration-200);
+  --motion-overshoot: var(--duration-200);
+  --motion-toast: var(--duration-250);
 
-  --height-control-xs: 1.75rem;
-  --height-control-sm: 2rem;
-  --height-control-default: 2.25rem;
-  --height-control-lg: 2.5rem;
-  --text-control-xs: 0.75rem;
-  --text-control-sm: 0.875rem;
-  --text-control-default: 0.875rem;
-  --text-control-lg: 1rem;
-  --size-control-xs: 1.75rem;
-  --size-control-sm: 2rem;
-  --size-control-default: 2.25rem;
-  --size-control-lg: 2.5rem;
-  --control-icon-xs: 0.875rem;
-  --control-icon-sm: 1rem;
-  --control-icon-default: 1rem;
-  --control-icon-lg: 1.125rem;
+  --motion-ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --motion-ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-out-back: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --motion-ease-out-back-soft: cubic-bezier(0.34, 1.25, 0.64, 1);
 
-  @keyframes fade-in-up {
-    from {
-      opacity: 0;
-      transform: translateY(12px);
-    }
+  /* Registry-compatible ease aliases (Link underline, etc. use var(--ease-*)). */
+  --ease-out-quart: var(--motion-ease-out-quart);
+  --ease-out-expo: var(--motion-ease-out-expo);
+  --ease-out-back: var(--motion-ease-out-back);
+  --ease-out-back-soft: var(--motion-ease-out-back-soft);
+}
 
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-50: 0ms;
+    --duration-75: 0ms;
+    --duration-100: 0ms;
+    --duration-150: 0ms;
+    --duration-200: 0ms;
+    --duration-250: 0ms;
+    --duration-300: 0ms;
   }
 }
 
+/* Checkbox finish — after the two strokes draw on, the whole indicator gives one
+ * small scale pop. Registry checkbox / selection-check pass --duration-200 as
+ * the animation duration, so the reduced-motion block above zeroes it. */
+@keyframes valon-check-bounce {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
 /*
- * Tailwind bridge — tenant-neutral only. Maps utilities to semantic CSS variables
- * from shared/theme.css. Do NOT reference deployment palette constants here;
- * tenants override the semantic names at serve time (see THEMING.md).
- *
- * Intentionally live (`inline reference`): generated utilities read these runtime
- * variables at paint time, so a serve-time tenant stylesheet can override them
- * without rebuilding this bundle.
+ * Accordion / Collapsible drawer — height to/from the intrinsic `auto` (no JS
+ * measurement), enabled by `interpolate-size: allow-keywords` on the panel.
+ * Registry theme.css — keep keyframes + data-slot selectors in sync.
  */
-@theme inline reference {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted-foreground-soft: var(--muted-foreground-soft);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent-fill-hover: var(--accent-fill-hover);
-  --color-accent-fill-pressed: var(--accent-fill-pressed);
-  --color-accent-hover: var(--accent-hover);
-  --color-accent-pressed: var(--accent-pressed);
-  --color-accent-subtle: var(--accent-subtle);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --color-success: var(--success);
-  --color-success-foreground: var(--success-foreground);
-  --color-warning: var(--warning);
-  --color-warning-foreground: var(--warning-foreground);
-  --color-info: var(--info);
-  --color-info-foreground: var(--info-foreground);
-  --color-badge-success: var(--badge-success);
-  --color-badge-success-foreground: var(--badge-success-foreground);
-  --color-badge-warning: var(--badge-warning);
-  --color-badge-warning-foreground: var(--badge-warning-foreground);
-  --color-badge-info: var(--badge-info);
-  --color-badge-info-foreground: var(--badge-info-foreground);
-  --color-badge-destructive: var(--badge-destructive);
-  --color-badge-destructive-foreground: var(--badge-destructive-foreground);
-
-  /* Registry UI extensions — see shared/theme.css for runtime fallbacks. */
-  --color-surface: var(--surface);
-  --color-surface-raised: var(--surface-raised);
-  --color-base-white: var(--base-white);
-  --color-muted-foreground-soft: var(--muted-foreground-soft);
-  --color-disabled: var(--disabled);
-  --color-disabled-foreground: var(--disabled-foreground);
-  --color-accent-vivid: var(--accent-vivid);
-  --color-accent-vivid-foreground: var(--accent-vivid-foreground);
-  --color-accent-vivid-hover: var(--accent-vivid-hover);
-  --color-accent-vivid-pressed: var(--accent-vivid-pressed);
-  --color-accent-solid: var(--accent-solid);
-  --color-accent-solid-hover: var(--accent-solid-hover);
-  --color-accent-solid-pressed: var(--accent-solid-pressed);
-  --color-accent-strong: var(--accent-strong);
-  --color-accent-strong-hover: var(--accent-strong-hover);
-  --color-accent-strong-pressed: var(--accent-strong-pressed);
-  --color-accent-highlight: var(--accent-highlight);
-  --color-accent-wash: var(--accent-wash);
-  --color-accent-wash-hover: var(--accent-wash-hover);
-  --color-accent-wash-pressed: var(--accent-wash-pressed);
-  --color-neutral-hover: var(--neutral-hover);
-  --color-neutral-pressed: var(--neutral-pressed);
-  --color-neutral-dark-hover: var(--neutral-dark-hover);
-  --color-neutral-dark-pressed: var(--neutral-dark-pressed);
-  --color-list-item-hover: var(--list-item-hover);
-  --color-list-item-pressed: var(--list-item-pressed);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-overlay: var(--overlay);
-  --color-separator-hover: var(--separator-hover);
-  --color-separator-active: var(--separator-active);
-  --color-surface-hover: var(--surface-hover);
-  --color-surface-pressed: var(--surface-pressed);
-  --color-error: var(--error);
-  --color-error-foreground: var(--error-foreground);
-  --color-code-line-emphasis: var(--code-line-emphasis);
-
-  --color-brand: var(--brand);
-  --color-brand-foreground: var(--brand-foreground);
-  --color-link: var(--link);
-  --color-link-hover: var(--link-hover);
-  --color-link-pressed: var(--link-pressed);
-
-  --tracking-display: var(--tracking-display);
-  --tracking-display-tight: var(--tracking-display-tight);
-  --tracking-heading: var(--tracking-heading);
-  --tracking-heading-tight: var(--tracking-heading-tight);
-
-  /* Brand type scale utilities — text-display-sm, text-heading-md, text-body-lg. */
-  --text-body-lg: var(--text-body-lg);
-  --text-body-lg--line-height: var(--text-body-lg--line-height);
-  --text-heading-sm: var(--text-heading-sm);
-  --text-heading-sm--line-height: var(--text-heading-sm--line-height);
-  --text-heading-md: var(--text-heading-md);
-  --text-heading-md--line-height: var(--text-heading-md--line-height);
-  --text-heading-lg: var(--text-heading-lg);
-  --text-heading-lg--line-height: var(--text-heading-lg--line-height);
-  --text-heading-xl: var(--text-heading-xl);
-  --text-heading-xl--line-height: var(--text-heading-xl--line-height);
-  --text-display-sm: var(--text-display-sm);
-  --text-display-sm--line-height: var(--text-display-sm--line-height);
-  --text-display-md: var(--text-display-md);
-  --text-display-md--line-height: var(--text-display-md--line-height);
-  --text-display-lg: var(--text-display-lg);
-  --text-display-lg--line-height: var(--text-display-lg--line-height);
-  --text-display-xl: var(--text-display-xl);
-  --text-display-xl--line-height: var(--text-display-xl--line-height);
-
-  /* Console-only until registry Eyebrow ships native 2xs (10px). */
-  --text-2xs: 0.625rem;
-  --text-2xs--line-height: 0.875rem;
-
-  --font-sans: var(--ui-font-sans);
-  --font-heading: var(--ui-font-display);
-  --font-display: var(--ui-font-display);
-  --font-mono: var(--ui-font-mono);
-
-  --radius: var(--radius);
-  --radius-sm: calc(var(--radius) - 2px);
-  --radius-md: var(--radius);
-  --radius-lg: calc(var(--radius) + 4px);
-  --radius-xl: calc(var(--radius) + 8px);
-
-  --shadow-md: var(--elevation-shadow-md);
-  --shadow-lg: var(--elevation-shadow-lg);
-  /* Non-tier shadows unset — elevation.md allows md/lg only; prevents Tailwind
-   * defaults (black ink) from leaking via stray shadow utilities. */
-  --shadow-2xs: 0 0 #0000;
-  --shadow-xs: 0 0 #0000;
-  --shadow-sm: 0 0 #0000;
-  --shadow: 0 0 #0000;
-  --shadow-xl: 0 0 #0000;
-  --shadow-2xl: 0 0 #0000;
-
-  --shadow-dropdown: 0 4px 12px color-mix(in oklab, var(--foreground) 16%, transparent);
-  --shadow-card: 0 1px 3px color-mix(in oklab, var(--foreground) 10%, transparent);
+@keyframes valon-accordion-open {
+  from { height: 0; }
+  to { height: auto; }
 }
 
-/* Registry console alpha utilities (v3 parity). */
-@utility text-primary {
-  color: var(--alpha-dark);
+@keyframes valon-accordion-close {
+  from { height: auto; }
+  to { height: 0; }
 }
-@utility text-secondary {
-  color: color-mix(in oklab, var(--alpha-dark) 80%, transparent);
+
+[data-slot="accordion-content"][data-state="open"],
+[data-slot="collapsible-content"][data-state="open"] {
+  animation-name: valon-accordion-open;
+  animation-duration: var(--motion-overshoot);
+  animation-timing-function: var(--ease-out-back-soft);
 }
-/* Prefer text-muted-foreground for body copy — Tailwind v4 also emits text-muted
- * from --color-muted (a surface token) which is invisible as ink on white. */
-@utility text-muted {
-  color: color-mix(in oklab, var(--alpha-dark) 60%, transparent);
+
+[data-slot="accordion-content"][data-state="closed"],
+[data-slot="collapsible-content"][data-state="closed"] {
+  animation-name: valon-accordion-close;
+  animation-duration: var(--motion-dismiss);
+  animation-timing-function: var(--ease-out-back-soft);
 }
+
+/* Console-only ink ladder remnant: 40% alpha-dark. Prefer
+ * text-muted-foreground for captions; text-faint for tertiary chrome
+ * (icons, placeholders) that must stay lighter than muted-foreground.
+ * Do not reintroduce text-primary / text-muted / text-secondary — those
+ * names belong to Registry fills (bg-primary, bg-muted, bg-secondary). */
 @utility text-faint {
   color: color-mix(in oklab, var(--alpha-dark) 40%, transparent);
-}
-/* Trim the line box to cap height and baseline so centring aligns the glyphs
- * rather than the font's ascent/descent metrics. Matters most for the display
- * serif, whose ascenders leave the caps sitting visibly high in a centred box.
- * Ignored where unsupported, which degrades to ordinary flex centring. */
-/* Named outside the `text-*` namespace on purpose: tailwind-merge groups
- * `text-…` utilities and would drop this one as a conflict with `text-base`. */
-@utility trim-cap {
-  text-box: trim-both cap alphabetic;
 }
 @utility border-alpha {
   border-color: color-mix(in oklab, var(--alpha-dark) 10%, transparent);
@@ -264,75 +337,94 @@
 @utility bg-alpha-5 {
   background-color: color-mix(in oklab, var(--alpha-dark) 5%, transparent);
 }
+/* v3 derived divide colors from borderColor; v4 does not. Targets the same
+ * children as v4's divide-x/y width utilities. */
 @utility divide-alpha {
   :where(& > :not(:last-child)) {
     border-color: color-mix(in oklab, var(--alpha-dark) 10%, transparent);
   }
 }
 
-/* Trim font metric leading so flex/grid centering matches visible glyphs (all fonts). */
-@utility text-box-cap-trim {
-  text-box: trim-both cap alphabetic;
+/* Keyboard focus — solid outline on :focus-visible only (not a box-shadow ring). */
+@utility focus-ring {
+  @apply focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-ring;
+}
+@utility focus-ring-inset {
+  @apply focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-ring;
 }
 
 @font-face {
   font-family: Newsreader;
   src: url("./assets/fonts/newsreader-opsz72-latin-400-normal.woff2") format("woff2");
-  font-style: normal;
   font-weight: 400;
+  font-style: normal;
   font-display: swap;
 }
 
 @font-face {
   font-family: Newsreader;
   src: url("./assets/fonts/newsreader-opsz72-latin-400-italic.woff2") format("woff2");
-  font-style: italic;
   font-weight: 400;
+  font-style: italic;
   font-display: swap;
 }
 
 @font-face {
   font-family: "Instrument Sans";
   src: url("./assets/fonts/instrument-sans-latin-wght-normal.woff2") format("woff2");
-  font-style: normal;
   font-weight: 400 700;
+  font-style: normal;
   font-display: swap;
 }
 
 @font-face {
   font-family: "Instrument Sans";
   src: url("./assets/fonts/instrument-sans-latin-wght-italic.woff2") format("woff2");
-  font-style: italic;
   font-weight: 400 700;
+  font-style: italic;
   font-display: swap;
 }
 
 @font-face {
   font-family: "Geist Mono";
   src: url("./assets/fonts/GeistMono_Regular.woff2") format("woff2");
-  font-style: normal;
   font-weight: 400;
+  font-style: normal;
   font-display: swap;
 }
 
 @layer base {
-  html {
-    scroll-behavior: smooth;
+  /* Font seam: bundled faces declare *-default variables at zero specificity
+   * so a tenant theme's `body { --font-display: … }` wins. Consumers always
+   * read --font-display/--font-body/--font-mono, never the *-default names. */
+  :where(body) {
+    --font-display-default: Newsreader, Georgia, serif;
+    --font-body-default: "Instrument Sans", system-ui, sans-serif;
+    --font-mono-default: "Geist Mono", monospace;
+    --font-display: var(--font-display-default);
+    --font-body: var(--font-body-default);
+    --font-mono: var(--font-mono-default);
   }
 
   * {
     border-color: var(--border);
   }
 
+  /* v3-preflight parity (v4 changed these defaults):
+   * - code/pre: v4 routes the font through --default-mono-font-family, which
+   *   computes on :root — above the body-level font seam — and so falls back
+   *   to ui-monospace. Re-declare per element, like v3 did.
+   * - placeholders: v3 used gray-400; v4 uses currentColor at 50%.
+   * - cursors: v3 gave buttons pointer; v4 leaves the UA default. */
   code,
   kbd,
   samp,
   pre {
-    font-family: var(--ui-font-mono), monospace;
+    font-family: var(--font-mono), monospace;
   }
 
   ::placeholder {
-    color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
+    color: oklch(71.366% 0.0192 261.32);
   }
 
   button,
@@ -350,6 +442,9 @@
 
   body {
     @apply bg-background text-foreground;
+    /* Same body weight as gestalt/docs: Instrument Sans is a variable cut,
+     * so 435 renders true; static tenant faces (e.g. KMR 400/700) resolve
+     * to 400 per CSS font matching. */
     font-weight: 435;
   }
 
@@ -362,142 +457,51 @@
     font-weight: var(--heading-weight);
   }
 
+  /* Registry / Valon app base: avoid ragged orphans on wrapped copy
+   * (page-header.md descriptions use text-pretty; titles keep text-balance
+   * via utility where needed — utilities win over this base rule). */
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  p {
+    text-wrap: pretty;
+  }
+
   dialog::backdrop {
-    background-color: color-mix(in oklab, var(--foreground) 70%, transparent);
+    /* Scrim from the light ink; the .dark override keeps its own constant —
+     * the dark --alpha-dark is a text/border scale, not a scrim color. */
+    background-color: color-mix(in oklab, var(--alpha-dark) 50%, transparent);
   }
 
-  html {
-    scrollbar-color: var(--scrollbar-thumb) transparent;
-  }
-
-  ::-webkit-scrollbar {
-    width: 0.5rem;
-    height: 0.5rem;
-  }
-
-  ::-webkit-scrollbar-track {
-    background: transparent;
-  }
-
-  ::-webkit-scrollbar-thumb {
-    border: 0.125rem solid transparent;
-    border-radius: 9999px;
-    background-clip: padding-box;
-    background-color: var(--scrollbar-thumb);
-  }
-
-  ::-webkit-scrollbar-thumb:hover {
-    background-color: color-mix(in oklab, var(--scrollbar-thumb), var(--foreground) 22%);
-  }
-}
-
-@layer base {
-  /* Re-bind caption ink after tenant theme.css sets --foreground (registry parity). */
-  :root {
-    --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
-    --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
-  }
-
-  .dark {
-    --muted-foreground: color-mix(in oklab, var(--foreground) 60%, transparent);
-    --muted-foreground-soft: color-mix(in oklab, var(--foreground) 40%, transparent);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .animate-fade-in-up {
-      opacity: 1 !important;
-      animation: none !important;
-    }
-  }
-}
-
-/*
- * Tailwind maps text-muted to the muted surface fill (--muted). That token is
- * for backgrounds, not secondary copy; using it as a text color washes out on
- * --background. Override the generated utility so stale class names still read
- * as secondary copy.
- */
-@layer utilities {
-  .text-muted {
-    color: var(--muted-foreground);
+  .dark dialog::backdrop {
+    background-color: oklch(13.618% 0.0065 71.35 / 0.7);
   }
 }
 
 @layer components {
-  .label-text {
-    color: var(--muted-foreground);
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-  }
-
   .doc-copy {
-    @apply text-base leading-7 text-muted-foreground;
+    @apply text-base leading-7 text-foreground/80;
   }
 
   .doc-link {
-    @apply text-foreground underline decoration-border underline-offset-4 transition-colors duration-150 hover:text-foreground;
+    @apply text-foreground underline decoration-base-300 underline-offset-4 transition-colors duration-150 hover:text-gold-600 dark:decoration-base-600;
   }
 
+  /* Code-block shell shared by the Shiki output and its plain <pre>
+   * fallback, so layout is identical before and after highlighting. */
   .doc-code pre {
-    @apply overflow-x-auto rounded-xl border border-border bg-muted px-4 py-4 pr-12 font-mono text-sm leading-6 text-foreground;
+    @apply overflow-x-auto rounded-xl border border-alpha bg-surface px-4 py-4 pr-12 font-mono text-sm leading-6 text-foreground;
   }
 }
 
+/* Shiki dual-theme output (defaultColor: false → per-token CSS vars). */
 pre.shiki span {
   color: var(--shiki-light);
 }
 
 .dark pre.shiki span {
   color: var(--shiki-dark);
-}
-
-.focus-ring:focus-visible {
-  outline: 3px solid var(--accent-solid);
-  outline-offset: 2px;
-}
-
-.focus-ring-inset:focus-visible {
-  outline: 3px solid var(--accent-solid);
-  outline-offset: -3px;
-}
-
-.scrollbar-muted {
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) transparent;
-}
-
-.scrollbar-muted::-webkit-scrollbar {
-  width: 0.5rem;
-  height: 0.5rem;
-}
-
-.scrollbar-muted::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.scrollbar-muted::-webkit-scrollbar-thumb {
-  border: 0.125rem solid transparent;
-  border-radius: 9999px;
-  background-clip: padding-box;
-  background-color: var(--scrollbar-thumb);
-}
-
-.scrollbar-muted::-webkit-scrollbar-thumb:hover {
-  background-color: color-mix(in oklab, var(--scrollbar-thumb), var(--foreground) 22%);
-}
-
-@keyframes selection-check-bounce {
-  0% {
-    transform: scale(1);
-  }
-
-  40% {
-    transform: scale(1.1);
-  }
-
-  100% {
-    transform: scale(1);
-  }
 }

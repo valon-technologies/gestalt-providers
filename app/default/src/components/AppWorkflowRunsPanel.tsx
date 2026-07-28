@@ -2,50 +2,27 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import {
+  cancelWorkflowRun,
+  getWorkflowRun,
+  getWorkflowRuns,
   workflowTargetApp,
   type WorkflowRun,
   type WorkflowStepExecution,
   type WorkflowStepTarget,
   type WorkflowTarget,
-} from "@/lib/api";
-import { cn } from "@/lib/cn";
-import { listItemInteraction } from "@/lib/list-item-interaction";
-import { Link } from "@tanstack/react-router";
-import {
-  useCancelWorkflowRunMutation,
-  useWorkflowRunQuery,
-  useWorkflowRunsQuery,
-} from "@/lib/queries";
-import {
-  SectionHeader,
-  SectionHeaderActions,
-  SectionHeaderContent,
-  SectionHeaderTitle,
-} from "@/components/ui/section-header";
-import {
-  Alert,
-  AlertDescription,
-} from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Stat,
-  StatGroup,
-  StatLabel,
-  StatValue,
-} from "@/components/ui/stat";
+} from "@/lib/workflow";
 import {
   collectAutomationSubjects,
   summarizeWorkflowDefinitionsFromRuns,
-  workflowRunBadgeVariant,
 } from "@/lib/workflowActivity";
-import { Info } from "lucide-react";
+import { Badge } from "@/components/Badge";
+import Button from "@/components/Button";
+import { Link } from "@/components/Link";
 
 const RUN_STATUSES = [
   "all",
@@ -57,33 +34,54 @@ const RUN_STATUSES = [
 ] as const;
 
 export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
-  const runsQuery = useWorkflowRunsQuery(appName);
-  const runs = runsQuery.data ?? [];
-  const loading = runsQuery.isPending;
-  const refreshing = runsQuery.isFetching && !runsQuery.isPending;
-  const runsError = runsQuery.error
-    ? errorMessage(runsQuery.error, "Failed to load workflow runs")
-    : null;
+  const [runs, setRuns] = useState<WorkflowRun[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [runsError, setRunsError] = useState<string | null>(null);
 
   const [selectedRunID, setSelectedRunID] = useState<string | null>(null);
-  const selectedListRun =
-    runs.find((run) => run.id === selectedRunID) ?? undefined;
-  const detailQuery = useWorkflowRunQuery(appName, selectedRunID, selectedListRun);
-  const cancelMutation = useCancelWorkflowRunMutation(appName);
+  const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [canceling, setCanceling] = useState(false);
 
-  const selectedRun = detailQuery.data ?? selectedListRun ?? null;
-  const detailLoading = detailQuery.isFetching && !detailQuery.data;
-  const detailError = detailQuery.error
-    ? errorMessage(detailQuery.error, "Failed to load workflow run")
-    : null;
-  const actionError = cancelMutation.error
-    ? errorMessage(cancelMutation.error, "Failed to cancel workflow run")
-    : null;
-  const canceling = cancelMutation.isPending;
-
-  const [runsQueryText, setRunsQuery] = useState("");
+  const [runsQuery, setRunsQuery] = useState("");
   const [runStatus, setRunStatus] = useState<string>("all");
-  const deferredRunsQuery = useDeferredValue(runsQueryText);
+  const deferredRunsQuery = useDeferredValue(runsQuery);
+  const runsRef = useRef<WorkflowRun[]>([]);
+
+  useEffect(() => {
+    runsRef.current = runs;
+  }, [runs]);
+
+  useEffect(() => {
+    let active = true;
+    if (refreshNonce > 0) {
+      setRefreshing(true);
+    }
+
+    getWorkflowRuns({ app: appName })
+      .then((value) => {
+        if (!active) return;
+        setRuns(value);
+        setRunsError(null);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setRunsError(errorMessage(err, "Failed to load workflow runs"));
+      })
+      .finally(() => {
+        if (!active) return;
+        setLoading(false);
+        setRefreshing(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [appName, refreshNonce]);
 
   const filteredRuns = useMemo(
     () => filterRuns(runs, deferredRunsQuery, runStatus),
@@ -103,19 +101,57 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
     }
   }, [filteredRuns, selectedRunID]);
 
-  function handleCancelSelectedRun() {
-    if (!selectedRun || canceling) return;
-    cancelMutation.mutate({
-      id: selectedRun.id,
-      reason: "Canceled from Gestalt UI",
-      run: selectedRun,
-    });
-  }
+  useEffect(() => {
+    if (!selectedRunID) {
+      setSelectedRun(null);
+      setDetailError(null);
+      return;
+    }
 
-  function refreshRuns() {
-    void runsQuery.refetch();
-    if (selectedRunID) {
-      void detailQuery.refetch();
+    const existing =
+      runsRef.current.find((run) => run.id === selectedRunID) ?? null;
+    setSelectedRun(existing);
+    setDetailLoading(true);
+    setDetailError(null);
+    setActionError(null);
+
+    let active = true;
+    getWorkflowRun(selectedRunID)
+      .then((run) => {
+        if (!active) return;
+        setSelectedRun(run);
+        setRuns((current) => upsertRun(current, run));
+      })
+      .catch((err) => {
+        if (!active) return;
+        setDetailError(errorMessage(err, "Failed to load workflow run"));
+      })
+      .finally(() => {
+        if (!active) return;
+        setDetailLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [selectedRunID]);
+
+  async function handleCancelSelectedRun() {
+    if (!selectedRun || canceling) return;
+    setCanceling(true);
+    setActionError(null);
+
+    try {
+      const canceled = await cancelWorkflowRun(
+        selectedRun.id,
+        "Canceled from Gestalt UI",
+      );
+      setSelectedRun(canceled);
+      setRuns((current) => upsertRun(current, canceled));
+    } catch (err) {
+      setActionError(errorMessage(err, "Failed to cancel workflow run"));
+    } finally {
+      setCanceling(false);
     }
   }
 
@@ -134,55 +170,43 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
   const eventDefinitions = definitions.filter((item) => item.eventCount > 0);
 
   return (
-    <>
-      <SectionHeader className="mb-6">
-        <SectionHeaderContent>
-          <SectionHeaderTitle className="font-heading text-2xl tracking-normal">
-            Workflows
-          </SectionHeaderTitle>
-        </SectionHeaderContent>
-        <SectionHeaderActions>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={refreshRuns}
-            disabled={refreshing}
-          >
-            {refreshing ? "Refreshing…" : "Refresh"}
-          </Button>
-        </SectionHeaderActions>
-      </SectionHeader>
+    <div className="space-y-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-lg font-heading text-foreground">Workflows</h2>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            Automation for this app: recent runs, schedule and event
+            activations visible from run history, and the identities those
+            runs execute as.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => setRefreshNonce((value) => value + 1)}
+          disabled={refreshing}
+        >
+          {refreshing ? "Refreshing…" : "Refresh"}
+        </Button>
+      </div>
 
-      <div className="space-y-8">
-      <Alert variant="info" data-testid="app-workflow-ownership-note">
-        <Info aria-hidden />
-        <AlertDescription>
-          Runs listed here target this app as a{" "}
-          <span className="text-foreground">step app</span> (or ship under{" "}
-          <code className="font-mono text-xs">app_{appName}_…</code> definition
-          IDs). Workflows that only <em>publish</em> events handled elsewhere are
-          not included — open the other app’s admin page for those.
-        </AlertDescription>
-      </Alert>
+      <div
+        className="rounded-lg border border-alpha bg-alpha-5 px-4 py-3 text-sm text-muted-foreground"
+        data-testid="app-workflow-ownership-note"
+      >
+        Runs listed here target this app as a{" "}
+        <span className="text-foreground">step app</span> (or ship under{" "}
+        <code className="font-mono text-xs">app_{appName}_…</code> definition
+        IDs). Workflows that only <em>publish</em> events handled elsewhere are
+        not included — open the other app’s admin page for those.
+      </div>
 
-      <StatGroup className="w-full" data-testid="workflow-run-stats">
-        <Stat variant="plain" className="w-max max-w-full shrink-0">
-          <StatLabel>Runs</StatLabel>
-          <StatValue>{runs.length}</StatValue>
-        </Stat>
-        <Stat variant="plain" className="w-max max-w-full shrink-0">
-          <StatLabel>Running</StatLabel>
-          <StatValue>{counts.running}</StatValue>
-        </Stat>
-        <Stat variant="plain" className="w-max max-w-full shrink-0">
-          <StatLabel>Succeeded</StatLabel>
-          <StatValue>{counts.succeeded}</StatValue>
-        </Stat>
-        <Stat variant="plain" className="w-max max-w-full shrink-0">
-          <StatLabel>Failed</StatLabel>
-          <StatValue>{counts.failed}</StatValue>
-        </Stat>
-      </StatGroup>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <SummaryCard label="Runs" value={String(runs.length)} />
+        <SummaryCard label="Running" value={String(counts.running)} />
+        <SummaryCard label="Succeeded" value={String(counts.succeeded)} />
+        <SummaryCard label="Failed" value={String(counts.failed)} />
+      </div>
 
       <section className="space-y-3" aria-label="Definitions and schedules">
         <div>
@@ -196,9 +220,9 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
           </p>
         </div>
         {loading ? (
-          <p className="text-sm text-muted-foreground/70">Loading definitions…</p>
+          <p className="text-sm text-faint">Loading definitions…</p>
         ) : definitions.length === 0 ? (
-          <p className="text-sm text-muted-foreground/70">
+          <p className="text-sm text-faint">
             No definitions observed in recent runs. Use{" "}
             <code className="font-mono text-xs">
               gestalt workflows runs list --app {appName}
@@ -206,7 +230,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
             or apply definitions from app config.
           </p>
         ) : (
-          <ul className="divide-y divide-border rounded-lg border border-border">
+          <ul className="divide-y divide-alpha rounded-lg border border-alpha">
             {definitions.map((item) => (
               <li
                 key={item.definitionId}
@@ -231,17 +255,17 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {item.scheduleCount > 0 ? (
-                    <Badge size="sm" variant="warning">
+                    <Badge variant="warning" size="sm">
                       Schedule ×{item.scheduleCount}
                     </Badge>
                   ) : null}
                   {item.eventCount > 0 ? (
-                    <Badge size="sm" variant="muted">
+                    <Badge variant="secondary" size="sm">
                       Event ×{item.eventCount}
                     </Badge>
                   ) : null}
                   {item.manualCount > 0 ? (
-                    <Badge size="sm" variant="muted">
+                    <Badge variant="muted" size="sm">
                       Manual ×{item.manualCount}
                     </Badge>
                   ) : null}
@@ -269,13 +293,13 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
           </p>
         </div>
         {loading ? (
-          <p className="text-sm text-muted-foreground/70">Loading events…</p>
+          <p className="text-sm text-faint">Loading events…</p>
         ) : eventDefinitions.length === 0 ? (
-          <p className="text-sm text-muted-foreground/70">
+          <p className="text-sm text-faint">
             No event-triggered runs for this app in the current page.
           </p>
         ) : (
-          <ul className="divide-y divide-border rounded-lg border border-border">
+          <ul className="divide-y divide-alpha rounded-lg border border-alpha">
             {eventDefinitions.map((item) => (
               <li key={`event-${item.definitionId}`} className="px-4 py-3">
                 <p className="font-mono text-sm text-foreground">
@@ -306,13 +330,13 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
           </p>
         </div>
         {loading ? (
-          <p className="text-sm text-muted-foreground/70">Loading identities…</p>
+          <p className="text-sm text-faint">Loading identities…</p>
         ) : automationSubjects.length === 0 ? (
-          <p className="text-sm text-muted-foreground/70">
+          <p className="text-sm text-faint">
             No creator subjects on recent runs.
           </p>
         ) : (
-          <ul className="divide-y divide-border rounded-lg border border-border">
+          <ul className="divide-y divide-alpha rounded-lg border border-alpha">
             {automationSubjects.map((subject) => (
               <li
                 key={subject}
@@ -323,9 +347,8 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
                 </code>
                 {subject.startsWith("service_account:") ? (
                   <Link
-                    to="/identities"
-                    search={{ id: subject }}
-                    className="text-sm text-foreground underline underline-offset-2 hover:text-foreground/80"
+                    href={`/identities?id=${encodeURIComponent(subject)}`}
+                    underlineVariant="always"
                   >
                     Open identity
                   </Link>
@@ -346,24 +369,21 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
         </div>
 
       <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_12rem]">
-        <div className="block">
-          <Label htmlFor="workflow-runs-search" variant="field">
-            Search runs
-          </Label>
-          <Input
-            id="workflow-runs-search"
-            value={runsQueryText}
+        <label className="block">
+          <span className="text-xs font-medium text-muted-foreground">Search runs</span>
+          <input
+            value={runsQuery}
             onChange={(event) => setRunsQuery(event.target.value)}
             placeholder="Run ID, step, definition, event"
-            className="mt-2"
+            className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-foreground outline-hidden transition-colors duration-150 placeholder:text-faint focus:border-sky-500"
           />
-        </div>
+        </label>
         <label className="block">
           <span className="text-xs font-medium text-muted-foreground">Status</span>
           <select
             value={runStatus}
             onChange={(event) => setRunStatus(event.target.value)}
-            className="mt-2 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground outline-hidden transition-colors duration-150 focus:border-info-foreground"
+            className="mt-2 w-full rounded-md border border-alpha bg-background px-3 py-2 text-sm text-foreground outline-hidden transition-colors duration-150 focus:border-sky-500"
           >
             {RUN_STATUSES.map((status) => (
               <option key={status} value={status}>
@@ -380,14 +400,14 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
           gestalt workflows runs list --app {appName}
         </code>
         . See{" "}
-        <Link to="/docs/workflows" className="underline underline-offset-2">
+        <Link href="/docs/workflows" underlineVariant="always">
           Workflow docs
         </Link>
         .
       </p>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground/70">Loading workflow runs…</p>
+        <p className="text-sm text-faint">Loading workflow runs…</p>
       ) : (
         <RunsPanel
           runs={filteredRuns}
@@ -403,8 +423,7 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
         />
       )}
       </section>
-      </div>
-    </>
+    </div>
   );
 }
 
@@ -432,12 +451,12 @@ function RunsPanel({
   onCancelSelectedRun: () => void;
 }) {
   if (runsError) {
-    return <p className="text-sm text-destructive">{runsError}</p>;
+    return <p className="text-sm text-ember-500">{runsError}</p>;
   }
 
   if (runs.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground/70" data-testid="app-workflows-empty">
+      <p className="text-sm text-faint" data-testid="app-workflows-empty">
         No workflow runs for this app yet.
       </p>
     );
@@ -446,10 +465,10 @@ function RunsPanel({
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,18rem)_minmax(0,1fr)]">
       <div
-        className="rounded-lg border border-border bg-card"
+        className="rounded-lg border border-alpha bg-base-white dark:bg-surface"
         data-testid="app-workflow-run-list"
       >
-        <ul className="divide-y divide-border">
+        <ul className="divide-y divide-alpha">
           {runs.map((run) => {
             const selected = run.id === selectedRunID;
             return (
@@ -457,11 +476,11 @@ function RunsPanel({
                 <button
                   type="button"
                   onClick={() => onSelectRun(run.id)}
-                  data-selected={selected || undefined}
-                  className={cn(
-                    "flex w-full flex-col gap-1 px-4 py-3 text-left focus-ring-inset",
-                    listItemInteraction({ pointer: "css" }),
-                  )}
+                  className={`flex w-full flex-col gap-1 px-4 py-3 text-left transition-colors duration-150 ${
+                    selected
+                      ? "bg-alpha-5"
+                      : "hover:bg-alpha-5"
+                  }`}
                 >
                   <span className="truncate text-sm font-medium text-foreground">
                     {targetLabel(run.target) ||
@@ -479,11 +498,11 @@ function RunsPanel({
         </ul>
       </div>
 
-      <div className="rounded-lg border border-border bg-card p-5">
+      <div className="rounded-lg border border-alpha bg-base-white p-5 dark:bg-surface">
         {detailError ? (
-          <p className="text-sm text-destructive">{detailError}</p>
+          <p className="text-sm text-ember-500">{detailError}</p>
         ) : !selectedRun ? (
-          <p className="text-sm text-muted-foreground/70">Select a run to inspect details.</p>
+          <p className="text-sm text-faint">Select a run to inspect details.</p>
         ) : (
           <div className="space-y-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -508,20 +527,19 @@ function RunsPanel({
               {selectedRun.status === "pending" ? (
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="secondary"
                   onClick={onCancelSelectedRun}
                   disabled={canceling}
-                  className="shrink-0"
                 >
                   {canceling ? "Canceling…" : "Cancel run"}
                 </Button>
               ) : null}
             </div>
             {actionError ? (
-              <p className="text-sm text-destructive">{actionError}</p>
+              <p className="text-sm text-ember-500">{actionError}</p>
             ) : null}
             {detailLoading ? (
-              <p className="text-sm text-muted-foreground/70">Loading details…</p>
+              <p className="text-sm text-faint">Loading details…</p>
             ) : null}
             <RunDetails run={selectedRun} />
           </div>
@@ -577,7 +595,7 @@ function TargetDetails({ target }: { target: WorkflowTarget }) {
     return (
       <div>
         <SectionHeading>Target</SectionHeading>
-        <p className="mt-2 text-sm text-muted-foreground/70">No target steps.</p>
+        <p className="mt-2 text-sm text-faint">No target steps.</p>
       </div>
     );
   }
@@ -589,7 +607,7 @@ function TargetDetails({ target }: { target: WorkflowTarget }) {
         {target.steps.map((step, index) => (
           <li
             key={step.id || `step-${index}`}
-            className="rounded-md border border-border px-3 py-2"
+            className="rounded-md border border-alpha px-3 py-2"
           >
             <TargetStepDetails step={step} />
           </li>
@@ -628,7 +646,7 @@ function StepExecutions({ steps }: { steps: WorkflowStepExecution[] }) {
         {steps.map((step, index) => (
           <li
             key={step.stepId || `execution-${index}`}
-            className="rounded-md border border-border px-3 py-3"
+            className="rounded-md border border-alpha px-3 py-3"
           >
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm font-medium text-foreground">
@@ -670,7 +688,7 @@ function JSONSection({
     <div className={compact ? "mt-3" : undefined}>
       <SectionHeading>{title}</SectionHeading>
       <pre
-        className={`mt-2 overflow-x-auto rounded-md border border-border bg-accent p-3 font-mono text-xs text-foreground ${
+        className={`mt-2 overflow-x-auto rounded-md border border-alpha bg-alpha-5 p-3 font-mono text-xs text-foreground ${
           compact ? "max-h-48" : "max-h-80"
         }`}
       >
@@ -697,9 +715,26 @@ function DetailLine({ label, value }: { label: string; value: string }) {
   );
 }
 
-function StatusBadge({ status }: { status?: string }) {
+function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
-    <Badge size="sm" variant={workflowRunBadgeVariant(status)}>
+    <div className="rounded-lg border border-alpha bg-base-white px-4 py-3 dark:bg-surface">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="mt-1 text-xl font-heading text-foreground">{value}</p>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status?: string }) {
+  const variant =
+    status === "succeeded"
+      ? "success"
+      : status === "failed"
+        ? "destructive"
+        : status === "running" || status === "pending"
+          ? "warning"
+          : "muted";
+  return (
+    <Badge variant={variant} size="sm">
       {capitalize(status || "unknown")}
     </Badge>
   );
@@ -758,6 +793,14 @@ function workflowRunCounts(runs: WorkflowRun[]) {
     succeeded: runs.filter((run) => run.status === "succeeded").length,
     failed: runs.filter((run) => run.status === "failed").length,
   };
+}
+
+function upsertRun(runs: WorkflowRun[], run: WorkflowRun): WorkflowRun[] {
+  const index = runs.findIndex((item) => item.id === run.id);
+  if (index === -1) return [run, ...runs];
+  const next = [...runs];
+  next[index] = run;
+  return next;
 }
 
 function formatDate(value?: string): string {

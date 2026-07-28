@@ -22,7 +22,7 @@ import {
 import {
   useIntegrationsQuery,
   useInvalidateTokens,
-} from "@/lib/queries";
+} from "@/hooks/use-server-queries";
 import { Button } from "@/components/ui/button";
 import {
   CheckboxTree,
@@ -47,7 +47,7 @@ import {
   Alert,
   AlertDescription,
 } from "@/components/ui/alert";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { RadioGroup, RadioGroupItem } from "@/components/RadioGroup";
 import {
   CalendarIcon,
   CheckIcon,
@@ -64,7 +64,7 @@ interface TokenCreateFormProps {
    * Called with the one-time plaintext token after a successful create.
    * `created` carries the durable id + name for session persistence.
    */
-  onCreated?: (
+  onCreated: (
     plaintext: string,
     created: { id: string; name: string },
   ) => void | Promise<void>;
@@ -79,8 +79,6 @@ interface TokenCreateFormProps {
   fieldOrientation?: "vertical" | "horizontal";
   /** When false, skip the post-create plaintext copy block (Build advances on Next). */
   showPlaintextResult?: boolean;
-  /** Optional max width for token name + expiration controls (e.g. `max-w-[50%]`). */
-  controlsClassName?: string;
 }
 
 export type TokenCreateFormHandle = {
@@ -258,7 +256,6 @@ const TokenCreateForm = React.forwardRef<
     showSubmit = true,
     fieldOrientation = "vertical",
     showPlaintextResult = true,
-    controlsClassName,
   },
   ref,
 ) {
@@ -400,7 +397,7 @@ const TokenCreateForm = React.forwardRef<
       setExpirationIdSelected("30d");
       setCustomDate("");
       await invalidateTokens();
-      await onCreated?.(result.token, {
+      await onCreated(result.token, {
         id: result.id,
         name: trimmedName,
       });
@@ -491,7 +488,7 @@ const TokenCreateForm = React.forwardRef<
         <FieldGroup className="gap-5">
           <Field orientation={fieldOrientation}>
             <FieldLabel htmlFor={nameId}>Token name</FieldLabel>
-            <FieldContent className={controlsClassName}>
+            <FieldContent>
               <Input
                 id={nameId}
                 name="name"
@@ -507,7 +504,7 @@ const TokenCreateForm = React.forwardRef<
 
           <Field orientation={fieldOrientation}>
             <FieldLabel id={expirationId}>Expiration</FieldLabel>
-            <FieldContent className={controlsClassName}>
+            <FieldContent>
               <Listbox
                 value={selectedExpiration}
                 onChange={(option: ExpirationOption) => {
@@ -733,7 +730,7 @@ const TokenCreateForm = React.forwardRef<
         </div>
       ) : null}
 
-      {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
+      {error && <p className="mt-4 text-sm text-ember-500">{error}</p>}
     </>
   );
 });

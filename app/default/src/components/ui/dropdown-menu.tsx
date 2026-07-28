@@ -1,5 +1,13 @@
+"use client";
+
+
 /**
- * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Gestalt console vendor of Valon Registry `dropdown-menu`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/dropdown-menu.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
  */
 
 import * as React from "react";
@@ -44,6 +52,7 @@ const DropdownMenuSubTrigger = React.forwardRef<
   <DropdownMenuPrimitive.SubTrigger
     ref={ref}
     className={cn(
+      // Same row chrome as CommandItem / SelectItem — icon size included.
       menuItemVariants({ indicator: inset ? "leading" : "none" }),
       "data-[state=open]:bg-neutral-hover",
       className,
@@ -113,6 +122,8 @@ const DropdownMenuCheckboxItem = React.forwardRef<
   <DropdownMenuPrimitive.CheckboxItem
     ref={ref}
     className={cn(
+      // Same Neutral row chrome as DropdownMenuItem / SelectItem / CommandItem.
+      // Leading gutter holds the check column (selection-indicators.md / flyout.md).
       menuItemVariants({ indicator: "leading" }),
       className,
     )}
@@ -136,6 +147,8 @@ const DropdownMenuRadioItem = React.forwardRef<
   <DropdownMenuPrimitive.RadioItem
     ref={ref}
     className={cn(
+      // Same Neutral row chrome + solid SelectionCheck as checkbox items /
+      // Select / Combobox — not a parallel accent + lucide-dot path.
       menuItemVariants({ indicator: "leading" }),
       className,
     )}

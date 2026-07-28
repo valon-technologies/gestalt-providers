@@ -1,6 +1,6 @@
 
-import { type APIToken } from "@/lib/api";
-import { useRevokeManagedIdentityTokenMutation } from "@/lib/queries";
+import { useState } from "react";
+import { revokeManagedIdentityToken, type APIToken } from "@/lib/api";
 import Button from "./Button";
 
 function formatPermissions(token: APIToken): string {
@@ -29,40 +29,43 @@ export default function IdentityTokenTable({
   identityID,
   tokens,
   canRevoke,
+  onRevoked,
 }: {
   identityID: string;
   tokens: APIToken[];
   canRevoke: boolean;
+  onRevoked: () => void | Promise<void>;
 }) {
-  const revokeToken = useRevokeManagedIdentityTokenMutation(identityID);
-  const error = revokeToken.error
-    ? revokeToken.error instanceof Error
-      ? revokeToken.error.message
-      : "Failed to revoke token"
-    : null;
+  const [revoking, setRevoking] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleRevoke(id: string) {
+    setRevoking(id);
+    setError(null);
     try {
-      await revokeToken.mutateAsync(id);
-    } catch {
-      // surfaced via mutation error state
+      await revokeManagedIdentityToken(identityID, id);
+      await onRevoked();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to revoke token");
+    } finally {
+      setRevoking(null);
     }
   }
 
   if (tokens.length === 0) {
     return (
-      <p className="py-12 text-center text-sm text-muted-foreground/70">
+      <p className="py-12 text-center text-sm text-faint">
         No API tokens yet.
       </p>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-card text-card-foreground">
-      {error && <p className="mb-4 px-5 pt-4 text-sm text-destructive">{error}</p>}
+    <div className="rounded-lg border border-alpha bg-base-white overflow-x-auto dark:bg-surface">
+      {error && <p className="mb-4 px-5 pt-4 text-sm text-ember-500">{error}</p>}
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border text-left">
+          <tr className="border-b border-alpha text-left">
             <th className="px-5 py-3.5 label-text">Name</th>
             <th className="px-5 py-3.5 label-text">Permissions</th>
             <th className="px-5 py-3.5 label-text">Created</th>
@@ -72,7 +75,7 @@ export default function IdentityTokenTable({
         </thead>
         <tbody>
           {tokens.map((token) => (
-            <tr key={token.id} className="border-b border-border last:border-b-0">
+            <tr key={token.id} className="border-b border-alpha last:border-b-0">
               <td className="px-5 py-4 text-foreground font-medium">{token.name}</td>
               <td className="px-5 py-4 text-muted-foreground">{formatPermissions(token)}</td>
               <td className="px-5 py-4 text-muted-foreground font-mono text-xs">
@@ -87,12 +90,10 @@ export default function IdentityTokenTable({
                 {canRevoke ? (
                   <Button
                     variant="danger"
-                    onClick={() => void handleRevoke(token.id)}
-                    disabled={revokeToken.isPending && revokeToken.variables === token.id}
+                    onClick={() => handleRevoke(token.id)}
+                    disabled={revoking === token.id}
                   >
-                    {revokeToken.isPending && revokeToken.variables === token.id
-                      ? "Revoking..."
-                      : "Revoke"}
+                    {revoking === token.id ? "Revoking..." : "Revoke"}
                   </Button>
                 ) : null}
               </td>

@@ -75,10 +75,10 @@ const catalogFixtures = [
     status: "ready" as const,
   },
   {
-    name: "servicingQuiz",
-    displayName: "Servicing Quiz",
+    name: "valonSats",
+    displayName: "Valon SATs",
     description: "SATs",
-    mountedPath: "/servicing-quiz",
+    mountedPath: "/valon-sats",
     iconSvg:
       '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12"/></svg>',
     credentialState: "connected" as const,
@@ -111,7 +111,7 @@ test.describe("Build page", () => {
 
     await expect(page).toHaveURL(/\/build\/intro$/);
     await expect(
-      page.getByRole("heading", { name: "Pick what to build", exact: true }),
+      page.getByRole("heading", { name: "Build", exact: true }),
     ).toBeVisible();
 
     await expect(page.getByTestId("build-intro")).toBeVisible();
@@ -119,7 +119,7 @@ test.describe("Build page", () => {
     await expect(page.getByTestId("build-outcome-card-aiSpendTracker")).toBeVisible();
     await expect(page.getByTestId("build-outcome-card-oncall")).toBeVisible();
     await expect(page.getByTestId("build-outcome-card-ashby")).toBeVisible();
-    await expect(page.getByTestId("build-outcome-card-servicingQuiz")).toBeVisible();
+    await expect(page.getByTestId("build-outcome-card-valonSats")).toBeVisible();
 
     await expect(
       page.getByTestId("build-outcome-card-aiSpendTracker").getByText("Engineering"),
@@ -127,7 +127,7 @@ test.describe("Build page", () => {
     await expect(
       page.getByRole("radio", { name: "Monitor spending" }),
     ).toBeChecked();
-    await expect(page.getByText("Already built at Acme")).toHaveCount(0);
+    await expect(page.getByText("Already built at Valon")).toHaveCount(0);
     await expect(page.getByRole("radio", { name: "AI Spend Tracker" })).toHaveCount(
       0,
     );
@@ -191,7 +191,6 @@ test.describe("Build page", () => {
     await page.addInitScript(() => {
       sessionStorage.setItem("gestalt.build.introSeen", "1");
       sessionStorage.setItem("gestalt.build.selectedTokenId", "tok_123");
-      sessionStorage.setItem("gestalt.build.apiTokenGrantId", "tok_123");
       sessionStorage.setItem(
         "gestalt.build.apiToken",
         "gst_api_test_token_for_install",
@@ -294,8 +293,8 @@ test.describe("Build page", () => {
     await expect(page.getByTestId("build-connect-app-linear")).toBeVisible();
     await expect(page.getByTestId("build-connect-app-slack")).toBeVisible();
     await expect(
-      page.getByTestId("build-connect-app-pagerduty"),
-    ).toContainText("PagerDuty");
+      page.getByRole("button", { name: "Connect PagerDuty" }),
+    ).toBeVisible();
   });
 
   test("connect shows companions for Ashby exemplar", async ({
@@ -405,7 +404,7 @@ test.describe("Build page", () => {
     await page.addInitScript(() => {
       sessionStorage.setItem("gestalt.build.introSeen", "1");
       sessionStorage.setItem("gestalt.build.mcpInstalled", "1");
-      sessionStorage.setItem("gestalt.build.activeExemplarId", "servicingQuiz");
+      sessionStorage.setItem("gestalt.build.activeExemplarId", "valonSats");
     });
 
     await page.goto("/build/authorize");

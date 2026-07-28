@@ -2,8 +2,8 @@ import {
   test,
   expect,
   mockTokens,
-  mockPersonalTokenCreate,
   mockIntegrations,
+  mockIntegrationOperations,
 } from "./fixtures";
 import type { APIToken } from "../src/lib/api";
 
@@ -27,7 +27,7 @@ test.describe("Token Management", () => {
     await mockTokens(page, sampleTokens);
     await mockIntegrations(page, []);
 
-    await page.goto("/settings/tokens");
+    await page.goto("/settings");
     await expect(page).toHaveURL(/\/settings/);
     await expect(
       page.getByRole("heading", { name: "Settings" }),
@@ -46,7 +46,7 @@ test.describe("Token Management", () => {
     await mockTokens(page, []);
     await mockIntegrations(page, []);
 
-    await page.goto("/settings/tokens");
+    await page.goto("/settings");
     await expect(page.getByText("No API tokens yet.")).toBeVisible();
   });
 
@@ -54,56 +54,164 @@ test.describe("Token Management", () => {
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
-    const tokens = await mockTokens(page, []);
-    await mockPersonalTokenCreate(page, tokens, async (body) => {
-      expect(body.name).toBe("audit-label");
-      expect(body.expiresIn).toBe(30 * 24 * 60 * 60);
-      return {
-        token: {
-          id: "tok-new",
-          scopes: body.scopes ? body.scopes.split(/\s+/) : [],
-          createdAt: "2026-03-01T12:00:00Z",
-        },
-        plaintext: "gestalt_abc123secret",
-        expiresAt: "2027-03-01T12:00:00Z",
-      };
+    let tokens: APIToken[] = [];
+    await mockTokens(page, () => tokens);
+    await page.route("**/api/v1/tokens", async (route, request) => {
+      if (request.method() === "POST") {
+        const body = request.postDataJSON() as {
+          name?: string;
+          scopes?: string;
+          expiresIn?: number;
+        };
+        expect(body).toEqual({
+          name: "audit-label",
+          scopes: "my-app",
+          expiresIn: 30 * 24 * 60 * 60,
+        });
+        tokens = [
+          {
+            id: "tok-new",
+            scopes: body.scopes ? [body.scopes] : [],
+            createdAt: "2026-03-01T12:00:00Z",
+          },
+        ];
+        await route.fulfill({
+          status: 201,
+          json: {
+            id: "tok-new",
+            token: "gestalt_abc123secret",
+            scopes: ["my-app"],
+            expiresAt: "2027-03-01T12:00:00Z",
+          },
+        });
+        return;
+      }
+      await route.fallback();
     });
-    await mockIntegrations(page, []);
+    await mockIntegrations(page, [
+      { name: "my-app", displayName: "My App" },
+      { name: "other-app", displayName: "Other App" },
+    ]);
+    await mockIntegrationOperations(page, {
+      "my-app": [{ id: "read", title: "Read" }],
+      "other-app": [{ id: "write", title: "Write" }],
+    });
 
-    await page.goto("/settings/tokens");
+    await page.goto("/settings");
     await page.getByLabel("Token name").fill("audit-label");
-    await page.getByRole("radio", { name: /all apps/i }).click();
+    await page.getByRole("radio", { name: /Only select apps/ }).click();
+    await page.getByRole("checkbox", { name: "My App" }).click();
     await page.getByRole("button", { name: "Create Token" }).click();
 
-    await expect(page.getByRole("textbox", { name: "API token" })).toHaveValue(
+    await expect(page.getByLabel("API token")).toHaveValue(
       "gestalt_abc123secret",
     );
+    await expect(
+      page.getByText("We'll use this token for this example"),
+    ).toBeVisible();
     await expect(page.locator("tr", { hasText: "tok-new" })).toBeVisible();
+    await expect(page.getByText("my-app")).toBeVisible();
   });
 
   test("keeps the created token visible when stale list requests finish later", async ({
     authenticatedPage,
   }) => {
     const page = authenticatedPage;
-    const tokens = await mockTokens(page, [], { delayFirstListMs: 250 });
-    await mockPersonalTokenCreate(page, tokens, async (body) => {
-      return {
-        token: {
-          id: "tok-race",
-          scopes: body.scopes ? body.scopes.split(/\s+/) : [],
-          createdAt: "2026-03-01T12:00:00Z",
-        },
-        plaintext: "gestalt_race_secret",
-      };
-    });
-    await mockIntegrations(page, []);
+    let tokens: APIToken[] = [];
+    let listCount = 0;
 
-    await page.goto("/settings/tokens");
+    await page.route(
+      (url) => url.pathname.includes("/api/v2/identity/grants"),
+      async (route, request) => {
+      const url = new URL(request.url());
+      if (
+        request.method() === "GET" &&
+        /\/api\/v2\/identity\/grants\/?$/.test(url.pathname)
+      ) {
+        listCount += 1;
+        if (listCount === 1) {
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          await route.fulfill({ json: { grantIds: [] } });
+          return;
+        }
+        await route.fulfill({
+          json: { grantIds: tokens.map((token) => token.id) },
+        });
+        return;
+      }
+
+      const match = url.pathname.match(
+        /\/api\/v2\/identity\/grants\/([^/]+)\/?$/,
+      );
+      if (request.method() === "GET" && match) {
+        const id = decodeURIComponent(match[1]!);
+        const token = tokens.find((item) => item.id === id);
+        if (!token) {
+          await route.fulfill({ status: 404, json: { error: "not found" } });
+          return;
+        }
+        const createdMs = Date.parse(token.createdAt);
+        await route.fulfill({
+          json: {
+            scopes: (token.scopes ?? []).map((scope) => ({
+              scope,
+              resource: [],
+            })),
+            createdAt: Number.isFinite(createdMs)
+              ? String(Math.floor(createdMs / 1000))
+              : "0",
+            expiresAt: "0",
+          },
+        });
+        return;
+      }
+
+      await route.fallback();
+    },
+    );
+
+    await page.route("**/api/v1/tokens", async (route, request) => {
+      if (request.method() === "POST") {
+        const body = request.postDataJSON() as {
+          name?: string;
+          scopes?: string;
+        };
+        expect(body.scopes).toBe("other-app");
+        tokens = [
+          {
+            id: "tok-race",
+            scopes: body.scopes ? [body.scopes] : [],
+            createdAt: "2026-03-01T12:00:00Z",
+          },
+        ];
+        await route.fulfill({
+          status: 201,
+          json: {
+            id: "tok-race",
+            token: "gestalt_race_secret",
+            scopes: ["other-app"],
+          },
+        });
+        return;
+      }
+      await route.fallback();
+    });
+    await mockIntegrations(page, [
+      { name: "my-app", displayName: "My App" },
+      { name: "other-app", displayName: "Other App" },
+    ]);
+    await mockIntegrationOperations(page, {
+      "my-app": [{ id: "read", title: "Read" }],
+      "other-app": [{ id: "write", title: "Write" }],
+    });
+
+    await page.goto("/settings");
     await page.getByLabel("Token name").fill("race-token");
-    await page.getByRole("radio", { name: /all apps/i }).click();
+    await page.getByRole("radio", { name: /Only select apps/ }).click();
+    await page.getByRole("checkbox", { name: "Other App" }).click();
     await page.getByRole("button", { name: "Create Token" }).click();
 
-    await expect(page.getByRole("textbox", { name: "API token" })).toHaveValue(
+    await expect(page.getByLabel("API token")).toHaveValue(
       "gestalt_race_secret",
     );
     await expect(page.locator("tr", { hasText: "tok-race" })).toBeVisible();
@@ -112,18 +220,19 @@ test.describe("Token Management", () => {
 
   test("revokes a token by grant ID", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
-    await mockTokens(page, sampleTokens);
+    let tokens = [...sampleTokens];
+    await mockTokens(page, () => tokens, {
+      onRevoke: (id) => {
+        tokens = tokens.filter((token) => token.id !== id);
+      },
+    });
     await mockIntegrations(page, []);
 
-    await page.goto("/settings/tokens");
+    await page.goto("/settings");
     await expect(page.getByText("tok-1")).toBeVisible();
 
     await page.getByRole("button", { name: "Revoke" }).first().click();
-    const revokeDialog = page.getByRole("alertdialog", { name: "Revoke token" });
-    await expect(revokeDialog).toBeVisible();
-    await revokeDialog.getByRole("button", { name: "Revoke token" }).click();
-    await expect(revokeDialog).toBeHidden();
-    await expect(page.locator("tr", { hasText: "tok-1" })).toHaveCount(0);
-    await expect(page.locator("tr", { hasText: "tok-2" })).toBeVisible();
+    await expect(page.getByText("tok-1")).toBeHidden();
+    await expect(page.getByText("tok-2")).toBeVisible();
   });
 });

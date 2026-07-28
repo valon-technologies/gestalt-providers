@@ -1,5 +1,10 @@
 /**
- * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Gestalt console vendor of Valon Registry `label`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/label.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
  */
 
 import * as React from "react";
@@ -19,7 +24,7 @@ import { cn } from "@/lib/cn";
 // Presence selector (not =true) — matches bare `data-invalid` and
 // `data-invalid={!!error}` per fields.md; =true misses empty-string flags.
 const labelVariants = cva(
-  "font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:text-muted-foreground group-data-[disabled]/field:cursor-not-allowed group-data-[disabled]/field:text-muted-foreground group-data-[invalid]/field:text-destructive",
+  "font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:text-disabled-foreground group-data-[disabled]/field:cursor-not-allowed group-data-[disabled]/field:text-disabled-foreground group-data-[invalid]/field:text-destructive",
   {
     variants: {
       variant: {

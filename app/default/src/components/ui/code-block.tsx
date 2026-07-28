@@ -1,40 +1,48 @@
+"use client";
+
 
 /**
- * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Gestalt console vendor of Valon Registry `code-block`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/code-block.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
  */
 
 import * as React from "react";
 
-import { FileCode2 } from "lucide-react";
+import { CheckIcon, CopyIcon, FileCode2 } from "lucide-react";
 import { all, createLowlight } from "lowlight";
 
-import { CopyIconButton } from "@/components/ui/copy-button";
+import { Button } from "@/components/ui/button";
 import {
   CodeFenceHeader,
   CodeFenceShell,
   codeFenceHighlightClass,
   codeFencePreClass,
-  codeFenceShellVariants,
-  codeLineEmphasisRowClass,
-  type CodeFenceShellProps,
+  codeFenceShellClass,
 } from "@/components/ui/code-fence";
 import {
   SegmentedControl,
   type SegmentedControlOption,
 } from "@/components/ui/segmented-control";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/cn";
 
 // Display CodeBlock for install snippets / docs / AI messages — not the Plate
 // editor fence. Highlighting uses the same lowlight → hljs class pipeline as
-// markdown-editor, styled by typeset's `.typeset-code-hljs`. Surface
+// markdown-editor, styled by valon-typeset's `.typeset-code-hljs`. Surface
 // paint comes from `code-fence` (shared with Plate code-block-node). Chrome
 // (filename, copy, line numbers, tabs) is modeled on shadcnspace's CodeBlock.
 
 const lowlight = createLowlight(all);
-
-type CodeFenceVariant = NonNullable<CodeFenceShellProps["variant"]>;
 
 type HastElement = {
   type: "element";
@@ -146,6 +154,37 @@ function highlightCodeToLines(
   }
 }
 
+function CodeBlockCopyButton({ code }: { code: string }) {
+  const [copied, setCopied] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          size="icon-xs"
+          variant="ghost"
+          className="shrink-0 text-muted-foreground"
+          aria-label={copied ? "Copied" : "Copy code"}
+          onClick={() => {
+            void navigator.clipboard.writeText(normalizeCodeNewlines(code));
+            setCopied(true);
+          }}
+        >
+          {copied ? <CheckIcon /> : <CopyIcon />}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{copied ? "Copied" : "Copy"}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 type CodeBodyProps = {
   code: string;
   language: string;
@@ -223,7 +262,9 @@ function CodeBody({
                 <span
                   className={cn(
                     "min-w-0 whitespace-pre",
-                    isHighlighted && codeLineEmphasisRowClass(showLineNumbers),
+                    isHighlighted &&
+                      "-mx-4 border-l-2 border-highlight bg-highlight/20 px-4",
+                    !showLineNumbers && isHighlighted && "block",
                   )}
                 >
                   {lineRowContent(line)}
@@ -425,20 +466,14 @@ function CodeBlockTabPanelStack({
 
 function CodeBlockShell({
   className,
-  variant,
   children,
 }: {
   className?: string;
-  variant?: CodeFenceVariant;
   children: React.ReactNode;
 }) {
   return (
     <TooltipProvider delayDuration={0}>
-      <CodeFenceShell
-        data-slot="code-block"
-        variant={variant}
-        className={cn("w-full", className)}
-      >
+      <CodeFenceShell data-slot="code-block" className={cn("w-full", className)}>
         {children}
       </CodeFenceShell>
     </TooltipProvider>
@@ -460,7 +495,7 @@ function CodeBlockHeader({
         {leading ?? <FileCode2 className="size-3.5 shrink-0" aria-hidden />}
         <span className="truncate font-mono text-xs">{label}</span>
       </div>
-      <CopyIconButton value={() => normalizeCodeNewlines(code)} />
+      <CodeBlockCopyButton code={code} />
     </CodeFenceHeader>
   );
 }
@@ -474,8 +509,6 @@ export type CodeBlockProps = {
   maxHeight?: number;
   /** 1-based line numbers to emphasize. */
   highlightLines?: number[];
-  /** `outline` = border, transparent fill (default). `solid` = muted fill. */
-  variant?: CodeFenceVariant;
   className?: string;
 };
 
@@ -487,11 +520,10 @@ function CodeBlock({
   scrollable = false,
   maxHeight = 400,
   highlightLines,
-  variant,
   className,
 }: CodeBlockProps) {
   return (
-    <CodeBlockShell className={className} variant={variant}>
+    <CodeBlockShell className={className}>
       <CodeBlockHeader label={filename ?? language} code={code} />
       <CodeBody
         code={code}
@@ -518,7 +550,6 @@ export type MultiFileCodeBlockProps = {
   showLineNumbers?: boolean;
   scrollable?: boolean;
   maxHeight?: number;
-  variant?: CodeFenceVariant;
   className?: string;
 };
 
@@ -527,7 +558,6 @@ function MultiFileCodeBlock({
   showLineNumbers = false,
   scrollable = false,
   maxHeight = 400,
-  variant,
   className,
 }: MultiFileCodeBlockProps) {
   const drafts = files.map((entry) => ({
@@ -547,13 +577,13 @@ function MultiFileCodeBlock({
   if (!file) return null;
 
   return (
-    <CodeBlockShell className={className} variant={variant}>
+    <CodeBlockShell className={className}>
       <Tabs
         value={active}
         onValueChange={setActive}
         className="w-full gap-0"
       >
-        <div className="flex items-center gap-1 border-b border-border pr-1">
+        <div className="flex items-center gap-1 border-b border-border/50 pr-2">
           <TabsList
             size="default"
             aria-label="Files"
@@ -569,7 +599,7 @@ function MultiFileCodeBlock({
               </TabsTrigger>
             ))}
           </TabsList>
-          <CopyIconButton value={() => normalizeCodeNewlines(file.code)} />
+          <CodeBlockCopyButton code={file.code} />
         </div>
         <CodeBlockTabPanelStack>
           {panes.map((pane) => (
@@ -611,7 +641,6 @@ export type LanguageTabsCodeBlockProps = {
   showLineNumbers?: boolean;
   scrollable?: boolean;
   maxHeight?: number;
-  variant?: CodeFenceVariant;
   className?: string;
 };
 
@@ -620,7 +649,6 @@ function LanguageTabsCodeBlock({
   showLineNumbers = false,
   scrollable = false,
   maxHeight = 400,
-  variant,
   className,
 }: LanguageTabsCodeBlockProps) {
   const drafts = tabs.map((entry) => ({
@@ -640,7 +668,7 @@ function LanguageTabsCodeBlock({
   if (panes.length === 0) return null;
 
   return (
-    <CodeBlockShell className={className} variant={variant}>
+    <CodeBlockShell className={className}>
       <Tabs
         value={active}
         onValueChange={setActive}
@@ -649,7 +677,7 @@ function LanguageTabsCodeBlock({
         <TabsList
           size="default"
           aria-label="Languages"
-          className="w-full justify-start overflow-x-auto rounded-none border-border"
+          className="w-full justify-start overflow-x-auto rounded-none border-border/50"
         >
           {panes.map((pane) => (
             <TabsTrigger
@@ -709,11 +737,10 @@ function buildInstallCommand(pm: PackageManager, registryUrl: string): string {
 
 export type InstallCommandProps = {
   registryUrl: string;
-  variant?: CodeFenceVariant;
   className?: string;
 };
 
-function InstallCommand({ registryUrl, variant, className }: InstallCommandProps) {
+function InstallCommand({ registryUrl, className }: InstallCommandProps) {
   const [pm, setPm] = React.useState<PackageManager>("pnpm");
   const command = buildInstallCommand(pm, registryUrl);
 
@@ -730,12 +757,12 @@ function InstallCommand({ registryUrl, variant, className }: InstallCommandProps
         />
         <div
           className={cn(
-            codeFenceShellVariants({ variant }),
+            codeFenceShellClass,
             "flex h-10 items-center justify-between gap-2 px-3",
           )}
         >
           <code className="grow truncate font-mono text-sm">{command}</code>
-          <CopyIconButton value={() => normalizeCodeNewlines(command)} />
+          <CodeBlockCopyButton code={command} />
         </div>
       </div>
     </TooltipProvider>

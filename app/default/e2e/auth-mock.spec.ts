@@ -8,7 +8,6 @@ import {
   mockManagedIdentities,
   mockTokens,
 } from "./fixtures";
-import { PERSONAL_IDENTITY_GRANTS_PATH } from "../src/lib/personalGrants";
 
 const hasBackend =
   !!process.env.PLAYWRIGHT_BASE_URL || !!process.env.GESTALT_BASE_URL;
@@ -32,16 +31,11 @@ test.describe("Authentication", () => {
     });
     await mockAuthSessionUnauthorized(page);
 
-    await page.goto("/identities?id=agent-1#profile", { waitUntil: "networkidle" });
-    await page.waitForFunction(
-      () => window.location.pathname === "/api/v1/auth/login",
-      null,
-      { timeout: 15000 },
-    );
+    await page.goto("/identities?id=agent-1#profile");
     await expect(page).toHaveURL((url) => {
       return (
         url.pathname === "/api/v1/auth/login" &&
-        url.searchParams.get("next") === "/settings/identities/agent-1#profile"
+        url.searchParams.get("next") === "/identities?id=agent-1#profile"
       );
     });
   });
@@ -72,15 +66,13 @@ test.describe("Authentication", () => {
     await expect(page.getByRole("menuitem", { name: /Log out/i })).toHaveCount(0);
 
     await page.goto("/identities");
-    await expect(page).toHaveURL(/\/settings\/identities$/);
     await expect(
-      page.getByRole("heading", { name: "Managed identities" }),
+      page.getByRole("heading", { name: "Agent Identities" }),
     ).toBeVisible();
 
     await page.goto("/identities?id=agent-1");
-    await expect(page).toHaveURL(/\/settings\/identities\/agent-1$/);
     await expect(
-      page.getByRole("heading", { name: "Settings" }),
+      page.getByRole("heading", { name: "Agent Identities" }),
     ).toBeVisible();
   });
 
@@ -174,15 +166,8 @@ test.describe("Authentication", () => {
   test("401 response clears session and redirects to server login", async ({
     page,
   }) => {
-    await mockAuthInfo(page, {
-      provider: "test-sso",
-      displayName: "Test SSO",
-    });
-    await page.addInitScript(() => {
-      if (sessionStorage.getItem("expired-session-test-seeded") === "1") {
-        return;
-      }
-      sessionStorage.setItem("expired-session-test-seeded", "1");
+    await page.goto("/apps");
+    await page.evaluate(() => {
       localStorage.setItem(
         "gestalt.auth.session",
         JSON.stringify({
@@ -201,7 +186,7 @@ test.describe("Authentication", () => {
     await page.route("**/api/v1/apps", (route) => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
-    await page.route(`**${PERSONAL_IDENTITY_GRANTS_PATH}`, (route) => {
+    await page.route("**/api/v2/identity/grants**", (route) => {
       route.fulfill({ status: 401, json: { error: "invalid token" } });
     });
     await page.route("**/api/v2/workflow/runs", (route) => {
@@ -223,38 +208,5 @@ test.describe("Authentication", () => {
     await expect(
       await page.evaluate(() => localStorage.getItem("gestalt.auth.session")),
     ).toBeNull();
-  });
-
-  test("cached session keeps chrome visible when session refetch fails", async ({
-    page,
-  }) => {
-    await page.addInitScript(() => {
-      localStorage.setItem(
-        "gestalt.auth.session",
-        JSON.stringify({
-          subjectId: "user:test@gestalt.dev",
-          email: "test@gestalt.dev",
-        }),
-      );
-    });
-    await mockAuthInfo(page, {
-      provider: "test-sso",
-      displayName: "Test SSO",
-    });
-    await page.route("**/api/v1/auth/session", (route) => {
-      route.fulfill({ status: 500, json: { error: "upstream unavailable" } });
-    });
-    await mockIntegrations(page, []);
-    await mockTokens(page, []);
-
-    await page.goto("/apps");
-    await expect(
-      page.getByRole("link", { name: "Apps", exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Open user menu" }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: "Open user menu" }).click();
-    await expect(page.getByText("test@gestalt.dev")).toBeVisible();
   });
 });

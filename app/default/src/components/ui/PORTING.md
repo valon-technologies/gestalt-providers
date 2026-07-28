@@ -1,11 +1,5 @@
 # Porting shared UI kit components
 
-Registry primitives live in `src/components/ui/` (kebab-case filenames matching
-Registry: `badge.tsx`, `link.tsx`, `radio-group.tsx`, `tooltip.tsx`, …).
-Composition recipes that are not standalone components (e.g. choice-card chrome)
-live in `src/lib/`. Console-specific composed UI (`Nav`, `IntegrationCard`,
-`TokenCreateForm`) stays in `src/components/`.
-
 When lifting a shared UI kit control into `src/components/ui/`:
 
 1. **Keep semantic class names** (`bg-accent-subtle`, `text-accent-foreground`,
@@ -17,16 +11,13 @@ When lifting a shared UI kit control into `src/components/ui/`:
    - accent-vivid → gold-300 bright fill/stroke
    - accent-solid → gold-400 mid control fill (Switch checked)
    - accent\*-foreground → ink (`--foreground`)
-3. **Body / secondary copy:** use `text-muted-foreground` (and
-   `text-muted-foreground-soft` for tertiary). Never `text-muted` or
-   `text-secondary` for ink — Tailwind v4 maps those names to surface tokens.
-4. **Forbidden on selected chrome:** `data-active:text-brand`,
+3. **Forbidden on selected chrome:** `data-active:text-brand`,
    `data-[selected]:text-brand`, `data-active:text-gold-*`, and the same for
    `data-[state=active]`. Selected rows use ink on an accent fill.
-5. Adapt motion / focus / sizing to local tokens (`focus-ring`,
+4. Adapt motion / focus / sizing to local tokens (`focus-ring`,
    `duration-select-*`, control heights) — not color roles.
 
-`oxlint` enforces (4) via `home/no-brand-text-on-selected`
+`oxlint` enforces (3) via `home/no-brand-text-on-selected`
 (`oxlint-plugin-home.mjs`, scoped to `src/components/ui/**`).
 
 ## Button / Input / Field / Label
@@ -47,22 +38,11 @@ ink utilities — those names are Registry fills. Optional console-only
 Compose labeled controls with `Field` + `FieldLabel` (+ `FieldDescription` /
 `FieldError`) — see Registry `guidelines/fields.md`.
 
-`Input` / `Textarea` expose a `chrome` variant (`standalone` default,
-`group` for `InputGroupInput` / `InputGroupTextarea`) so the shell owns the
-focus ring without stacking on the inner control.
-
 ## Choice cards (RadioGroup)
 
-Do not fork tile chrome at call sites. Import helpers from
-`@/lib/choice-card-chrome`. Primitives come from `@/components/ui/radio-group`:
-
-- `choiceCardClassName` + `choiceCardHoverClassName` — simple tiles
-- `choiceCardFormShellClassName` + `choiceCardFormFieldsClassName` — nested fields
-  (`Collapsible` drawer outside the `Label`, per `nested-interactive.md`)
-- `choiceCardRadioClassName` / `choiceCardRadioEyebrowClassName` — radio placement
-- Pass `focusRing="none"` on `RadioGroupItem` inside choice cards
-
-Canonical: upstream `choice-card-chrome` + `radio-group` stories. Requires `--accent-solid` in theme (gold-400).
+Do not fork tile chrome at call sites. Import `choiceCardClassName` from
+`@/components/RadioGroup` (Registry ChoiceCards / ChoiceCardsGrid recipe).
+Layout-only changes are OK. Agent contract: [`../../../AGENTS.md`](../../../AGENTS.md).
 
 ## Code (inline)
 
@@ -73,11 +53,10 @@ Do not hand-roll `bg-muted font-mono` at call sites.
 ## Brand type scale
 
 Registry PageHeader / SectionHeader consume `text-heading-*`, `text-display-*`,
-`tracking-heading`, `tracking-display` (brand type scale). Add **generic** defaults
-in `shared/theme.css` and bridge them in `globals.css` `@theme inline`. Tenant-
-specific values belong in the deployment repo's `deploy/ui/theme.css` — not here.
-See [`docs/agent/theme-boundary.md`](../../../../docs/agent/theme-boundary.md).
-Do not invent freestyle `tracking-*` / `text-*` sizes at call sites.
+`tracking-heading`, `tracking-display` (valon.ai/style). Bridge those tokens in
+`shared/theme.css` (`--valon-text-*`, `--valon-tracking-*`) and expose them via
+`globals.css` `@theme inline`. Do not invent freestyle `tracking-*` /
+`text-*` sizes at call sites.
 
 ## Card / Collapsible
 
@@ -97,7 +76,7 @@ indicator). Use for content navigation; mode switching stays on
 
 Registry `code-block` + `code-fence` are vendored here for display snippets
 (Build MCP install, etc.). Keep highlighting on lowlight → `.typeset-code-hljs`
-(`src/styles/typeset-code-hljs.css`). Do not reintroduce
+(`src/styles/typeset-code-hljs.css` from valon-typeset). Do not reintroduce
 Shiki for these surfaces. Shell paint maps Registry `bg-muted/50` /
 `border-border/50` to console `bg-alpha-5` / `border-alpha`. Multi-file /
 language-tab recipes (`MultiFileCodeBlock`, `LanguageTabsCodeBlock`) use

@@ -20,29 +20,6 @@ on:
         required: true
         default: false
         type: boolean
-  workflow_call:
-    inputs:
-      provider-ref:
-        description: Full gestalt-providers commit SHA to publish
-        required: true
-        type: string
-      gestalt-ref:
-        description: Full Gestalt commit SHA used to build gestaltd
-        required: true
-        type: string
-      provider-dirs:
-        description: Comma or newline separated provider directories
-        required: true
-        type: string
-      dry-run:
-        description: Validate and print uploads without writing to GCS
-        required: false
-        default: false
-        type: boolean
-
-concurrency:
-  group: provider-snapshot-publish-${{ inputs.provider-dirs }}-${{ inputs.provider-ref }}
-  cancel-in-progress: false
 
 permissions:
   contents: read

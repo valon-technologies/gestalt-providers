@@ -1,5 +1,9 @@
 /**
- * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Gestalt console vendor of Valon Registry `utils` (`cn`).
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/lib/utils.ts`).
+ * Synced from toolshed origin/main — exported as `@/lib/cn` (console path).
  */
 
 import { clsx, type ClassValue } from "clsx";
@@ -16,7 +20,6 @@ const twMerge = extendTailwindMerge({
       "font-size": [
         {
           text: [
-            "2xs",
             "control-xs",
             "control-sm",
             "control-default",

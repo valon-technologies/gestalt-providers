@@ -5,22 +5,13 @@ import {
   useNavigate,
   useParams,
 } from "@tanstack/react-router";
-import { Badge } from "@/components/ui/badge";
+import { Badge } from "@/components/Badge";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import { InvokeOperationReference } from "@/components/InvokeOperationReference";
 import IntegrationIcon from "@/components/IntegrationIcon";
-import { Link as UiLink } from "@/components/ui/link";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import {
-  choiceCardContentNoIndicatorClassName,
-  choiceCardFormFieldsClassName,
-  choiceCardFormShellClassName,
-  choiceCardHoverClassName,
-  choiceCardNoIndicatorClassName,
-  choiceCardRadioHiddenClassName,
-  radioLabelWrappedDisabledClassName,
-} from "@/lib/choice-card-chrome";
+import { Link as UiLink } from "@/components/Link";
+import { RadioGroup, RadioGroupItem, choiceCardClassName } from "@/components/RadioGroup";
 import { Eyebrow } from "@/components/ui/eyebrow";
 import { Label } from "@/components/ui/label";
 import {
@@ -28,13 +19,8 @@ import {
   PageHeaderContent,
   PageHeaderDescription,
   PageHeaderTitle,
+  pageHeaderTitleVariants,
 } from "@/components/ui/page-header";
-import {
-  SectionHeader,
-  SectionHeaderContent,
-  SectionHeaderDescription,
-  SectionHeaderTitle,
-} from "@/components/ui/section-header";
 import { Separator } from "@/components/ui/separator";
 import { CodeBlock } from "@/components/ui/code-block";
 import { CopyableCode } from "@/components/ui/copyable-code";
@@ -89,7 +75,6 @@ import {
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  SpinnerIcon,
 } from "@/components/icons";
 import { useBuildSession } from "@/hooks/use-build-session";
 import { useDocumentTitle } from "@/hooks/use-document-title";
@@ -98,7 +83,7 @@ import {
   useInvalidateIntegrations,
   useInvalidateTokens,
   useTokensQuery,
-} from "@/lib/queries";
+} from "@/hooks/use-server-queries";
 import {
   type APIToken,
   type Integration,
@@ -110,8 +95,6 @@ import {
   BUILD_EXEMPLARS,
   BUILD_STEPS,
   buildAuthorizeSelectionReady,
-  buildMcpCredentialReady,
-  canNavigateToBuildStep,
   companionAppLabel,
   connectedAppIds,
   DEFAULT_BUILD_TOKEN_NAME,
@@ -142,11 +125,8 @@ export function BuildIndexRedirect() {
   if (!tokensReady || !integrationsReady) {
     return (
       <Container as="main" className="py-12">
-        <div className="mx-auto flex min-h-[50vh] w-full max-w-4xl items-center justify-center">
-          <p className="flex items-center gap-2 text-sm text-faint">
-            <SpinnerIcon className="size-3.5 animate-spin" aria-hidden />
-            Loading Build…
-          </p>
+        <div className="mx-auto w-full max-w-4xl">
+          <p className="text-sm text-faint">Loading Build…</p>
         </div>
       </Container>
     );
@@ -158,7 +138,6 @@ export function BuildIndexRedirect() {
     activeExemplarId: session.activeExemplarId,
     mcpInstalled: session.mcpInstalled,
     apiToken: session.apiToken,
-    apiTokenGrantId: session.apiTokenGrantId,
     tokenName: session.tokenName,
     selectedTokenId: session.selectedTokenId,
     introSeen: session.introSeen,
@@ -201,7 +180,6 @@ export default function BuildStepPage() {
     activeExemplarId: session.activeExemplarId,
     mcpInstalled: session.mcpInstalled,
     apiToken: session.apiToken,
-    apiTokenGrantId: session.apiTokenGrantId,
     tokenName: session.tokenName,
     selectedTokenId: session.selectedTokenId,
     introSeen: session.introSeen,
@@ -221,14 +199,6 @@ export default function BuildStepPage() {
     void navigate({ to: "/build/$stepId", params: { stepId: id } });
   }
 
-  const stepIsDone = (step: BuildStep) =>
-    isStepDone(step, snapshot, tokensReady, integrationsReady);
-
-  function tryGoToStep(id: BuildStepId) {
-    if (!stepId || !canNavigateToBuildStep(id, stepId, stepIsDone)) return;
-    goToStep(id);
-  }
-
   async function refreshTokens() {
     await invalidateTokens();
   }
@@ -240,11 +210,14 @@ export default function BuildStepPage() {
           <p className="mb-8 text-sm text-ember-500">{error}</p>
         )}
 
-        <div data-testid="build-step-nav">
+        <div
+          data-testid="build-step-nav"
+          className="animate-fade-in-up"
+        >
           <Stepper
             value={stepId}
             onValueChange={(next) => {
-              if (isBuildStepId(next)) tryGoToStep(next);
+              if (isBuildStepId(next)) goToStep(next);
             }}
             activationMode="jump"
           >
@@ -268,13 +241,13 @@ export default function BuildStepPage() {
 
         <PageHeader
           className={cn(
-            "mt-10",
+            "mt-10 animate-fade-in-up [animation-delay:40ms]",
             stepId === "authorize" && "hidden",
           )}
         >
           <PageHeaderContent size="lg">
             {currentStep.eyebrow ? (
-              <Eyebrow tone="brand">{currentStep.eyebrow}</Eyebrow>
+              <Eyebrow>{currentStep.eyebrow}</Eyebrow>
             ) : null}
             <PageHeaderTitle>{currentStep.title}</PageHeaderTitle>
             <PageHeaderDescription>
@@ -294,7 +267,6 @@ export default function BuildStepPage() {
           activeExemplarId={session.activeExemplarId}
           onSelectExemplar={session.setActiveExemplarId}
           apiToken={session.apiToken}
-          apiTokenGrantId={session.apiTokenGrantId}
           onApiToken={session.setApiToken}
           tokenName={session.tokenName}
           onTokenName={session.setTokenName}
@@ -336,12 +308,10 @@ function isStepDone(
 }
 
 function gestaltMcpBaseUrl(): string {
-  const configured = import.meta.env.VITE_GESTALT_PUBLIC_ORIGIN?.trim();
-  if (configured) return configured.replace(/\/$/, "");
   if (typeof window === "undefined") return "https://your-gestalt-host";
   const { origin, hostname } = window.location;
   if (hostname === "localhost" || hostname === "127.0.0.1") {
-    return "https://your-gestalt-host";
+    return "https://valon.tools";
   }
   return origin;
 }
@@ -613,7 +583,7 @@ function BuildAgentConsolePreview({
   );
 }
 
-/** Registry ChoiceCards — vertical rail (features-14 spine); no-indicator tiles. */
+/** Registry ChoiceCards — vertical rail (features-14 spine); use {@link choiceCardClassName} only. */
 
 function IntroStepActions({
   activeExemplarId,
@@ -662,36 +632,30 @@ function IntroStepActions({
                 <Label
                   key={item.id}
                   htmlFor={inputId}
-                  className={cn(
-                    choiceCardNoIndicatorClassName,
-                    choiceCardHoverClassName,
-                  )}
+                  className={cn(choiceCardClassName)}
                   data-testid={`build-outcome-card-${item.id}`}
                 >
                   <RadioGroupItem
-                    focusRing="none"
                     value={item.id}
                     id={inputId}
-                    className={choiceCardRadioHiddenClassName}
+                    className="absolute end-3 top-3"
                     aria-label={item.outcomeTitle}
                   />
-                  <div className={choiceCardContentNoIndicatorClassName}>
-                    <Eyebrow
-                      data-testid={
-                        item.id === activeExemplarId
-                          ? "build-outcome-department"
-                          : undefined
-                      }
-                    >
-                      {item.department}
-                    </Eyebrow>
-                    <span
-                      data-choice-title
-                      className="text-base font-medium text-foreground"
-                    >
-                      {item.outcomeTitle}
-                    </span>
-                  </div>
+                  <Eyebrow
+                    data-testid={
+                      item.id === activeExemplarId
+                        ? "build-outcome-department"
+                        : undefined
+                    }
+                  >
+                    {item.department}
+                  </Eyebrow>
+                  <span
+                    data-choice-title
+                    className="text-base font-medium text-foreground"
+                  >
+                    {item.outcomeTitle}
+                  </span>
                 </Label>
               );
             })}
@@ -719,10 +683,12 @@ function IntroStepActions({
           type="button"
           data-testid="build-intro-continue"
           onClick={handleContinue}
-          className={cn(buildStepPagerCardClassName, "sm:items-end sm:text-right")}
+          className="group flex w-fit max-w-xs flex-col gap-1 rounded-xl bg-neutral-hover px-5 py-5 text-left transition-[background-color] duration-hover-out ease-out-quart hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed focus-ring sm:items-end sm:text-right"
         >
-          <Eyebrow tone="secondary">Next</Eyebrow>
-          <span className="flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground sm:flex-row-reverse">
+          <span className="text-2xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            Next
+          </span>
+          <span className="mt-1 flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground sm:flex-row-reverse">
             <ChevronRightIcon
               tight
               strokeWidth={1.5}
@@ -738,21 +704,20 @@ function IntroStepActions({
 
 function McpInstallPanel({
   apiToken,
-  hasMcpCredential,
   selectedAgent,
   onSelectedAgent,
   onMarkMcpInstalled,
 }: {
   apiToken: string;
-  hasMcpCredential: boolean;
   selectedAgent: BuildInstallAgentId | "";
   onSelectedAgent: (id: BuildInstallAgentId) => void;
   onMarkMcpInstalled: () => void;
 }) {
   const mcpBase = gestaltMcpBaseUrl();
   const mcpUrl = `${mcpBase}/mcp`;
-  const tokenForSnippets = hasMcpCredential ? apiToken : "gst_api_YOUR_TOKEN";
-  const cursorInstallHref = hasMcpCredential
+  const tokenForSnippets = apiToken || "gst_api_YOUR_TOKEN";
+  const hasToken = apiToken.length > 0;
+  const cursorInstallHref = hasToken
     ? cursorMcpInstallHref(mcpUrl, apiToken)
     : null;
 
@@ -783,39 +748,24 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
         data-testid="build-install-radio"
         aria-label="Choose how to install Gestalt"
       >
-        <div
-          key="cursor"
-          className={choiceCardFormShellClassName}
-          data-testid="build-install-card-cursor"
+        <Label
+          htmlFor="build-install-cursor"
+          className={cn(choiceCardClassName)}
         >
-          <Label
-            htmlFor="build-install-cursor"
-            className={cn(
-              "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
-              radioLabelWrappedDisabledClassName,
-            )}
+          <RadioGroupItem
+            value="cursor"
+            id="build-install-cursor"
+            className="absolute end-3 top-3"
+            aria-label="Cursor"
+          />
+          <span
+            data-choice-title
+            className="text-sm font-medium text-foreground"
           >
-            <RadioGroupItem
-              focusRing="none"
-              value="cursor"
-              id="build-install-cursor"
-              className={choiceCardRadioHiddenClassName}
-              aria-label="Cursor"
-            />
-            <div className={choiceCardContentNoIndicatorClassName}>
-              <span
-                data-choice-title
-                className="text-sm font-medium text-foreground"
-              >
-                Cursor
-              </span>
-            </div>
-          </Label>
+            Cursor
+          </span>
           <Collapsible open={selectedAgent === "cursor"}>
-            <CollapsibleContent
-              className={choiceCardFormFieldsClassName}
-              onPointerDown={(event) => event.stopPropagation()}
-            >
+            <CollapsibleContent className="space-y-3 pt-3">
               <p className="text-sm text-muted-foreground">
                 One-click install adds this workspace as an MCP server using your
                 API token.
@@ -852,7 +802,6 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
                     project’s Cursor config, then reload MCP in Cursor.
                   </p>
                   <CodeBlock
-                    variant="outline"
                     code={cursorConfig}
                     language="json"
                     filename=".cursor/mcp.json"
@@ -861,129 +810,86 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
               </details>
             </CollapsibleContent>
           </Collapsible>
-        </div>
+        </Label>
 
-        <div
-          key="claude"
-          className={choiceCardFormShellClassName}
-          data-testid="build-install-card-claude"
+        <Label
+          htmlFor="build-install-claude"
+          className={cn(choiceCardClassName)}
         >
-          <Label
-            htmlFor="build-install-claude"
-            className={cn(
-              "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
-              radioLabelWrappedDisabledClassName,
-            )}
+          <RadioGroupItem
+            value="claude"
+            id="build-install-claude"
+            className="absolute end-3 top-3"
+            aria-label="Claude Code"
+          />
+          <span
+            data-choice-title
+            className="text-sm font-medium text-foreground"
           >
-            <RadioGroupItem
-              focusRing="none"
-              value="claude"
-              id="build-install-claude"
-              className={choiceCardRadioHiddenClassName}
-              aria-label="Claude Code"
-            />
-            <div className={choiceCardContentNoIndicatorClassName}>
-              <span
-                data-choice-title
-                className="text-sm font-medium text-foreground"
-              >
-                Claude Code
-              </span>
-            </div>
-          </Label>
+            Claude Code
+          </span>
           <Collapsible open={selectedAgent === "claude"}>
             <CollapsibleContent
-              className={choiceCardFormFieldsClassName}
-              onPointerDown={(event) => event.stopPropagation()}
+              className="pt-3"
               data-testid="build-install-claude-snippet"
             >
               <CodeBlock
-                variant="outline"
                 code={claudeCommand}
                 language="bash"
                 filename="Terminal"
               />
             </CollapsibleContent>
           </Collapsible>
-        </div>
+        </Label>
 
-        <div
-          key="codex"
-          className={choiceCardFormShellClassName}
-          data-testid="build-install-card-codex"
+        <Label
+          htmlFor="build-install-codex"
+          className={cn(choiceCardClassName)}
         >
-          <Label
-            htmlFor="build-install-codex"
-            className={cn(
-              "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
-              radioLabelWrappedDisabledClassName,
-            )}
+          <RadioGroupItem
+            value="codex"
+            id="build-install-codex"
+            className="absolute end-3 top-3"
+            aria-label="Codex"
+          />
+          <span
+            data-choice-title
+            className="text-sm font-medium text-foreground"
           >
-            <RadioGroupItem
-              focusRing="none"
-              value="codex"
-              id="build-install-codex"
-              className={choiceCardRadioHiddenClassName}
-              aria-label="Codex"
-            />
-            <div className={choiceCardContentNoIndicatorClassName}>
-              <span
-                data-choice-title
-                className="text-sm font-medium text-foreground"
-              >
-                Codex
-              </span>
-            </div>
-          </Label>
+            Codex
+          </span>
           <Collapsible open={selectedAgent === "codex"}>
             <CollapsibleContent
-              className={choiceCardFormFieldsClassName}
-              onPointerDown={(event) => event.stopPropagation()}
+              className="pt-3"
               data-testid="build-install-codex-snippet"
             >
               <CodeBlock
-                variant="outline"
                 code={codexCommand}
                 language="bash"
                 filename="Terminal"
               />
             </CollapsibleContent>
           </Collapsible>
-        </div>
+        </Label>
 
-        <div
-          key="other"
-          className={choiceCardFormShellClassName}
-          data-testid="build-install-card-other"
+        <Label
+          htmlFor="build-install-other"
+          className={cn(choiceCardClassName)}
         >
-          <Label
-            htmlFor="build-install-other"
-            className={cn(
-              "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
-              radioLabelWrappedDisabledClassName,
-            )}
+          <RadioGroupItem
+            value="other"
+            id="build-install-other"
+            className="absolute end-3 top-3"
+            aria-label="Using a different agent?"
+          />
+          <span
+            data-choice-title
+            className="text-sm font-medium text-foreground"
           >
-            <RadioGroupItem
-              focusRing="none"
-              value="other"
-              id="build-install-other"
-              className={choiceCardRadioHiddenClassName}
-              aria-label="Using a different agent?"
-            />
-            <div className={choiceCardContentNoIndicatorClassName}>
-              <span
-                data-choice-title
-                className="text-sm font-medium text-foreground"
-              >
-                Using a different agent?
-              </span>
-            </div>
-          </Label>
+            Using a different agent?
+          </span>
           <Collapsible open={selectedAgent === "other"}>
-            <CollapsibleContent
-              className={choiceCardFormFieldsClassName}
-              onPointerDown={(event) => event.stopPropagation()}
-            >
+            <CollapsibleContent className="pt-3">
               <p className="text-sm text-muted-foreground">
                 Point any HTTP MCP client at{" "}
                 <code className="font-mono text-xs">{mcpUrl}</code> with{" "}
@@ -998,7 +904,7 @@ codex mcp add gestalt --url "${mcpUrl}" --bearer-token-env-var GESTALT_API_KEY`;
               </p>
             </CollapsibleContent>
           </Collapsible>
-        </div>
+        </Label>
       </RadioGroup>
     </div>
   );
@@ -1015,7 +921,6 @@ function BuildStepPanel({
   activeExemplarId,
   onSelectExemplar,
   apiToken,
-  apiTokenGrantId,
   onApiToken,
   tokenName,
   onTokenName,
@@ -1038,8 +943,7 @@ function BuildStepPanel({
   activeExemplarId: BuildExemplarId;
   onSelectExemplar: (id: BuildExemplarId) => void;
   apiToken: string;
-  apiTokenGrantId: string;
-  onApiToken: (token: string, grantId?: string) => void;
+  onApiToken: (token: string) => void;
   tokenName: string;
   onTokenName: (name: string) => void;
   selectedTokenId: string;
@@ -1053,15 +957,9 @@ function BuildStepPanel({
 }) {
   const authorizeReady = buildAuthorizeSelectionReady({
     apiToken,
-    apiTokenGrantId,
     selectedTokenId,
     tokenName,
     tokens,
-  });
-  const mcpCredentialReady = buildMcpCredentialReady({
-    apiToken,
-    apiTokenGrantId,
-    selectedTokenId,
   });
   const installReady = buildInstallAgentSelected(selectedInstallAgent);
   const tokenCreateFormRef = useRef<TokenCreateFormHandle>(null);
@@ -1070,7 +968,7 @@ function BuildStepPanel({
     if (
       step.id === "authorize" &&
       selectedTokenId === BUILD_CREATE_NEW_TOKEN_ID &&
-      !mcpCredentialReady
+      !apiToken.trim()
     ) {
       const created = (await tokenCreateFormRef.current?.create()) ?? false;
       if (!created) return;
@@ -1086,7 +984,7 @@ function BuildStepPanel({
   return (
     <section
       data-testid="build-step-panel"
-      className="mt-10 space-y-3"
+      className="mt-10 space-y-3 animate-fade-in-up [animation-delay:60ms]"
       aria-busy={
         (step.id === "authorize" && !tokensReady) ||
         (step.id === "connect" && !integrationsReady) ||
@@ -1121,7 +1019,6 @@ function BuildStepPanel({
       {step.id === "install" ? (
         <InstallStepActions
           apiToken={apiToken}
-          hasMcpCredential={mcpCredentialReady}
           selectedInstallAgent={selectedInstallAgent}
           onSelectedInstallAgent={onSelectedInstallAgent}
           onMarkMcpInstalled={onMarkMcpInstalled}
@@ -1178,9 +1075,6 @@ function BuildStepPanel({
   );
 }
 
-const buildStepPagerCardClassName =
-  "group flex w-fit max-w-xs flex-col gap-2.5 rounded-xl bg-neutral-hover px-5 py-5 text-left transition-[background-color] duration-hover-out ease-out-quart hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed focus-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-neutral-hover disabled:active:bg-neutral-hover";
-
 function BuildStepPager({
   stepId,
   onGoToStep,
@@ -1204,12 +1098,18 @@ function BuildStepPager({
       : null;
   if (!prev && !next && !terminalNext) return null;
 
-  const cardClass = buildStepPagerCardClassName;
+  const cardClass =
+    // Registry Card solid (bg-secondary ≈ neutral-hover) + Neutral dark hover/press.
+    "group flex w-fit max-w-xs flex-col gap-1 rounded-xl bg-neutral-hover px-5 py-5 text-left transition-[background-color] duration-hover-out ease-out-quart hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed focus-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-neutral-hover disabled:active:bg-neutral-hover";
 
   const nextCardClassName = cn(cardClass, "ms-auto items-end text-right");
-  const nextEyebrow = <Eyebrow tone="secondary">Next</Eyebrow>;
+  const nextEyebrow = (
+    <span className="text-2xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+      Next
+    </span>
+  );
   const nextTitle = (title: string) => (
-    <span className="flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground flex-row-reverse">
+    <span className="mt-1 flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground flex-row-reverse">
       <ChevronRightIcon
         tight
         strokeWidth={1.5}
@@ -1232,8 +1132,10 @@ function BuildStepPager({
           onClick={() => onGoToStep(prev.id)}
           className={cardClass}
         >
-          <Eyebrow tone="secondary">Previous</Eyebrow>
-          <span className="flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground">
+          <span className="text-2xs font-medium uppercase tracking-[0.08em] text-muted-foreground">
+            Previous
+          </span>
+          <span className="mt-1 flex items-baseline gap-1.5 font-heading text-xl font-normal leading-tight text-foreground">
             <ChevronLeftIcon
               tight
               strokeWidth={1.5}
@@ -1368,7 +1270,7 @@ function AuthorizeStepActions({
   description: string;
   tokens: APIToken[];
   tokensLoaded: boolean;
-  onApiToken: (token: string, grantId?: string) => void;
+  onApiToken: (token: string) => void;
   tokenName: string;
   onTokenName: (name: string) => void;
   selectedTokenId: string;
@@ -1423,9 +1325,9 @@ function AuthorizeStepActions({
     plaintext: string,
     created: { id: string; name: string },
   ) {
-    onSelectedTokenId(created.id);
-    onApiToken(plaintext, created.id);
+    onApiToken(plaintext);
     onTokenName(created.name);
+    onSelectedTokenId(created.id);
     await onTokensChanged();
   }
 
@@ -1476,36 +1378,27 @@ function AuthorizeStepActions({
             data-testid="build-token-radio"
             aria-label="Choose how to authorize"
           >
-            <div className={choiceCardFormShellClassName}>
-              <Label
-                htmlFor="build-authorize-existing"
-                className={cn(
-                  "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
-                  radioLabelWrappedDisabledClassName,
-                )}
+            <Label
+              htmlFor="build-authorize-existing"
+              className={cn(choiceCardClassName)}
+            >
+              <RadioGroupItem
+                value={BUILD_USE_EXISTING_TOKEN_ID}
+                id="build-authorize-existing"
+                className="absolute end-3 top-3"
+                aria-label="Use existing token"
+                disabled={!hasTokens}
+              />
+              <span
+                data-choice-title
+                className="text-sm font-medium text-foreground"
               >
-                <RadioGroupItem
-                  focusRing="none"
-                  value={BUILD_USE_EXISTING_TOKEN_ID}
-                  id="build-authorize-existing"
-                  className={choiceCardRadioHiddenClassName}
-                  aria-label="Use existing token"
-                  disabled={!hasTokens}
-                />
-                <div className={choiceCardContentNoIndicatorClassName}>
-                  <span
-                    data-choice-title
-                    className="text-sm font-medium text-foreground"
-                  >
-                    Use existing token
-                  </span>
-                </div>
-              </Label>
-              <Collapsible open={authorizeMode === BUILD_USE_EXISTING_TOKEN_ID}>
-                <CollapsibleContent
-                  className={choiceCardFormFieldsClassName}
-                  onPointerDown={(event) => event.stopPropagation()}
-                >
+                Use existing token
+              </span>
+              <Collapsible
+                open={authorizeMode === BUILD_USE_EXISTING_TOKEN_ID}
+              >
+                <CollapsibleContent className="pt-3">
                   {hasTokens ? (
                     <div className="space-y-2">
                       <RadioGroup
@@ -1560,37 +1453,26 @@ function AuthorizeStepActions({
                   )}
                 </CollapsibleContent>
               </Collapsible>
-            </div>
+            </Label>
 
-            <div className={choiceCardFormShellClassName}>
-              <Label
-                htmlFor="build-authorize-create"
-                className={cn(
-                  "flex cursor-pointer flex-col gap-1 p-4 leading-normal",
-                  radioLabelWrappedDisabledClassName,
-                )}
+            <Label
+              htmlFor="build-authorize-create"
+              className={cn(choiceCardClassName)}
+            >
+              <RadioGroupItem
+                value={BUILD_CREATE_NEW_TOKEN_ID}
+                id="build-authorize-create"
+                className="absolute end-3 top-3"
+                aria-label="Create new token"
+              />
+              <span
+                data-choice-title
+                className="text-sm font-medium text-foreground"
               >
-                <RadioGroupItem
-                  focusRing="none"
-                  value={BUILD_CREATE_NEW_TOKEN_ID}
-                  id="build-authorize-create"
-                  className={choiceCardRadioHiddenClassName}
-                  aria-label="Create new token"
-                />
-                <div className={choiceCardContentNoIndicatorClassName}>
-                  <span
-                    data-choice-title
-                    className="text-sm font-medium text-foreground"
-                  >
-                    Create new token
-                  </span>
-                </div>
-              </Label>
+                Create new token
+              </span>
               <Collapsible open={authorizeMode === BUILD_CREATE_NEW_TOKEN_ID}>
-                <CollapsibleContent
-                  className={choiceCardFormFieldsClassName}
-                  onPointerDown={(event) => event.stopPropagation()}
-                >
+                <CollapsibleContent className="w-full min-w-0 pt-3">
                   <TokenCreateForm
                     ref={createFormRef}
                     name={tokenName}
@@ -1603,7 +1485,7 @@ function AuthorizeStepActions({
                   />
                 </CollapsibleContent>
               </Collapsible>
-            </div>
+            </Label>
           </RadioGroup>
         </div>
       )}
@@ -1613,13 +1495,11 @@ function AuthorizeStepActions({
 
 function InstallStepActions({
   apiToken,
-  hasMcpCredential,
   selectedInstallAgent,
   onSelectedInstallAgent,
   onMarkMcpInstalled,
 }: {
   apiToken: string;
-  hasMcpCredential: boolean;
   selectedInstallAgent: BuildInstallAgentId | "";
   onSelectedInstallAgent: (id: BuildInstallAgentId | "") => void;
   onMarkMcpInstalled: () => void;
@@ -1627,7 +1507,6 @@ function InstallStepActions({
   return (
     <McpInstallPanel
       apiToken={apiToken}
-      hasMcpCredential={hasMcpCredential}
       selectedAgent={selectedInstallAgent}
       onSelectedAgent={onSelectedInstallAgent}
       onMarkMcpInstalled={onMarkMcpInstalled}
@@ -1697,7 +1576,6 @@ function InvokeStepActions({
               If you want to use the CLI instead, do it this way:
             </p>
             <CodeBlock
-              variant="outline"
               code={exemplar.invokeRecipe}
               language="bash"
               filename="Terminal"
@@ -1707,17 +1585,21 @@ function InvokeStepActions({
       </div>
 
       <div className="space-y-6" data-testid="build-shipped-app">
-        <SectionHeader>
-          <SectionHeaderContent>
-            <SectionHeaderTitle>Already shipped</SectionHeaderTitle>
-            <SectionHeaderDescription>
-              <span className="text-foreground">{exemplar.builderNote}</span>{" "}
-              already shipped{" "}
-              <span className="text-foreground">{displayName}</span>. It&apos;s a
-              custom App that answers just what you asked and more.
-            </SectionHeaderDescription>
-          </SectionHeaderContent>
-        </SectionHeader>
+        <PageHeaderContent size="lg">
+          <h2
+            className={cn(
+              pageHeaderTitleVariants({ size: "lg", display: true }),
+            )}
+          >
+            Already shipped
+          </h2>
+          <PageHeaderDescription>
+            <span className="text-foreground">{exemplar.builderNote}</span>{" "}
+            already shipped{" "}
+            <span className="text-foreground">{displayName}</span>. It&apos;s a
+            custom App that answers just what you asked and more.
+          </PageHeaderDescription>
+        </PageHeaderContent>
         <div className="max-w-md">
           <BuildStoreAppCard
             name={exemplar.id}
@@ -1734,14 +1616,18 @@ function InvokeStepActions({
       </div>
 
       <div className="space-y-6" data-testid="build-related-apps">
-        <SectionHeader>
-          <SectionHeaderContent>
-            <SectionHeaderTitle>Related apps</SectionHeaderTitle>
-            <SectionHeaderDescription>
-              More apps that fit this outcome — open one, or browse the full store.
-            </SectionHeaderDescription>
-          </SectionHeaderContent>
-        </SectionHeader>
+        <PageHeaderContent size="lg">
+          <h2
+            className={cn(
+              pageHeaderTitleVariants({ size: "lg", display: true }),
+            )}
+          >
+            Related apps
+          </h2>
+          <PageHeaderDescription>
+            More apps that fit this outcome — open one, or browse the full store.
+          </PageHeaderDescription>
+        </PageHeaderContent>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {exemplar.relatedAppIds.map((appId) => {
             const related = integrations.find((item) => item.name === appId);
@@ -1796,16 +1682,10 @@ function BuildStoreAppCard({
         "flex items-start gap-4 rounded-xl bg-neutral-hover p-4 text-foreground",
         "transition-[background-color] duration-hover-out ease-out-quart",
         "hover:bg-neutral-dark-hover hover:duration-hover-in active:bg-neutral-dark-pressed",
-        "focus-ring rounded-xl",
+        "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold-400 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       )}
     >
-      <IntegrationIcon
-        iconSvg={iconSvg}
-        name={name}
-        displayName={label}
-        size="xl"
-        variant="bare"
-      />
+      <IntegrationIcon iconSvg={iconSvg} size="xl" />
       <span className="min-w-0">
         <span className="block text-base font-heading text-foreground">
           {label}
@@ -1859,12 +1739,7 @@ function ConnectStepActions({
                 data-testid={`build-connect-app-${appId}`}
               >
                 <div className="flex items-start gap-3">
-                  <IntegrationIcon
-                    name={appId}
-                    displayName={companionAppLabel(appId)}
-                    size="md"
-                    variant="bare"
-                  />
+                  <IntegrationIcon size="md" />
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-foreground">
                       {companionAppLabel(appId)}
@@ -1882,18 +1757,13 @@ function ConnectStepActions({
           }
 
           return (
-            <div
+            <IntegrationCard
               key={appId}
-              data-testid={`build-connect-app-${appId}`}
-            >
-              <IntegrationCard
-                integration={integration}
-                returnPath={returnPath}
-                onConnected={() => void refreshIntegrations()}
-                onDisconnected={() => void refreshIntegrations()}
-                connectionEntry="modal"
-              />
-            </div>
+              integration={integration}
+              returnPath={returnPath}
+              onConnected={() => void refreshIntegrations()}
+              onDisconnected={() => void refreshIntegrations()}
+            />
           );
         })}
       </div>

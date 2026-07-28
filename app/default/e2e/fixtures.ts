@@ -1,20 +1,11 @@
 import { test as base, expect, type Page, type Route } from "@playwright/test";
 import type {
   APIToken,
-  AppAdminRegistryResponse,
-  AppAdminRegistryVersionResponse,
-  AppAdminRegistryHistoryResponse,
   Integration,
   IntegrationOperation,
   ManagedIdentity,
-  WorkflowRun,
 } from "../src/lib/api";
-import { workflowRunMatchesApp } from "../src/lib/workflowActivity";
-import {
-  apiTokenToIdentityGrantWire,
-  parseIdentityGrantIdFromUrl,
-  PERSONAL_IDENTITY_GRANTS_PATH,
-} from "../src/lib/personalGrants";
+import type { WorkflowRun } from "../src/lib/workflow";
 
 type MockWorkflowRunsOptions = {
   onCancel?: (
@@ -111,10 +102,6 @@ export async function mockAuthInfo(
     provider: string;
     displayName: string;
     loginSupported?: boolean;
-    features?: {
-      agent?: boolean;
-      workflowDefaultProvider?: string;
-    };
   },
 ) {
   await page.route("**/api/v1/auth/info", (route: Route) => {
@@ -147,266 +134,93 @@ export async function mockAuthSessionUnauthorized(page: Page): Promise<void> {
   });
 }
 
-type MockAppAdminRegistryOptions = {
-  onSelectVersion?: (
-    version: string,
-    state: AppAdminRegistryResponse,
-  ) =>
-    | AppAdminRegistryVersionResponse
-    | AppAdminRegistryResponse
-    | { status: number; json: unknown; nextState?: AppAdminRegistryResponse };
-};
+function isIdentityGrantsCollection(url: URL): boolean {
+  return /\/api\/v2\/identity\/grants\/?$/.test(url.pathname);
+}
 
-export async function mockAppAdminRegistry(
-  page: Page,
-  app: string,
-  initialState: AppAdminRegistryResponse,
-  opts?: MockAppAdminRegistryOptions,
-): Promise<{ getState: () => AppAdminRegistryResponse; setState: (state: AppAdminRegistryResponse) => void }> {
-  let state: AppAdminRegistryResponse = {
-    ...initialState,
-    autoDeploy: initialState.autoDeploy ?? { enabled: false },
+function identityGrantIdFromUrl(url: URL): string | null {
+  const match = url.pathname.match(/\/api\/v2\/identity\/grants\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]!) : null;
+}
+
+function identityGrantDetailJson(token: APIToken): {
+  scopes: { scope: string; resource: string[] }[];
+  createdAt: string;
+  expiresAt: string;
+  lastUsedAt?: string;
+  name?: string;
+} {
+  const createdMs = Date.parse(token.createdAt);
+  const expiresMs = token.expiresAt ? Date.parse(token.expiresAt) : NaN;
+  const lastUsedMs = token.lastUsedAt ? Date.parse(token.lastUsedAt) : NaN;
+  return {
+    scopes: (token.scopes ?? []).map((scope) => ({ scope, resource: [] })),
+    createdAt: Number.isFinite(createdMs)
+      ? String(Math.floor(createdMs / 1000))
+      : "0",
+    expiresAt: Number.isFinite(expiresMs)
+      ? String(Math.floor(expiresMs / 1000))
+      : "0",
+    ...(Number.isFinite(lastUsedMs)
+      ? { lastUsedAt: String(Math.floor(lastUsedMs / 1000)) }
+      : {}),
+    ...(token.name?.trim() ? { name: token.name.trim() } : {}),
   };
+}
 
-  await page.route(`**/api/v1/apps/${app}/admin/registry`, (route: Route, request) => {
-    const pathname = new URL(request.url()).pathname;
-    if (pathname.endsWith("/history")) {
+/**
+ * Mock Identity v2 personal-token grants (list + get + optional revoke).
+ * Create remains `POST /api/v1/tokens` and is not mocked here.
+ */
+export async function mockTokens(
+  page: Page,
+  tokens: APIToken[] | (() => APIToken[]),
+  opts?: {
+    onRevoke?: (id: string) => void;
+  },
+) {
+  const readTokens = () => (typeof tokens === "function" ? tokens() : tokens);
+
+  await page.route(
+    (url) => url.pathname.includes("/api/v2/identity/grants"),
+    (route: Route, request) => {
+    const url = new URL(request.url());
+    if (isIdentityGrantsCollection(url)) {
+      if (request.method() === "GET") {
+        route.fulfill({
+          json: { grantIds: readTokens().map((token) => token.id) },
+        });
+        return;
+      }
       route.fallback();
       return;
     }
-    if (request.method() === "GET") {
-      route.fulfill({ json: state });
+
+    const id = identityGrantIdFromUrl(url);
+    if (!id) {
+      route.fallback();
       return;
     }
-    route.fallback();
-  });
 
-  await page.route(
-    `**/api/v1/apps/${app}/admin/registry/auto-deploy`,
-    async (route: Route, request) => {
-      if (request.method() !== "PUT") {
-        await route.fallback();
-        return;
-      }
-      const body = JSON.parse(request.postData() || "{}") as { enabled?: boolean };
-      if (typeof body.enabled !== "boolean") {
-        await route.fulfill({ status: 400, json: { error: "enabled is required" } });
-        return;
-      }
-      state = {
-        ...state,
-        autoDeploy: {
-          ...state.autoDeploy,
-          enabled: body.enabled,
-          lastError: body.enabled ? undefined : state.autoDeploy?.lastError,
-          pendingVersion: body.enabled ? state.autoDeploy?.pendingVersion : undefined,
-        },
-      };
-      await route.fulfill({
-        json: {
-          app: state.app,
-          autoDeploy: state.autoDeploy,
-        },
-      });
-    },
-  );
-
-  await page.route(
-    `**/api/v1/apps/${app}/admin/registry/version`,
-    async (route: Route, request) => {
-      if (request.method() !== "POST") {
-        await route.fallback();
-        return;
-      }
-
-      const body = JSON.parse(request.postData() || "{}") as { version?: string };
-      const version = body.version || "";
-      if (opts?.onSelectVersion) {
-        const result = opts.onSelectVersion(version, state);
-        if ("status" in result) {
-          if (result.nextState) {
-            state = result.nextState;
-          }
-          await route.fulfill({ status: result.status, json: result.json });
-          return;
-        }
-        if ("publishedVersions" in result) {
-          state = result;
-          await route.fulfill({
-            json: {
-              app: state.app,
-              registry: state.registry,
-              desiredVersion: version,
-              rollout: state.rollout,
-            } satisfies AppAdminRegistryVersionResponse,
-          });
-          return;
-        }
-        state = {
-          ...state,
-          desiredVersion: result.desiredVersion,
-          rollout: result.rollout,
-          selectionDisabled: true,
-          disabledReason: "rollout in progress",
-        };
-        await route.fulfill({ json: result });
-        return;
-      }
-
-      state = {
-        ...state,
-        desiredVersion: version,
-        rollout: {
-          version,
-          state: "enrolling",
-        },
-        selectionDisabled: true,
-        disabledReason: "rollout in progress",
-      };
-      await route.fulfill({
-        json: {
-          app: state.app,
-          registry: state.registry,
-          desiredVersion: version,
-          rollout: state.rollout,
-        } satisfies AppAdminRegistryVersionResponse,
-      });
-    },
-  );
-
-  return {
-    getState: () => state,
-    setState: (nextState) => {
-      state = nextState;
-    },
-  };
-}
-
-export async function mockAppAdminRegistryHistory(
-  page: Page,
-  app: string,
-  initialState: AppAdminRegistryHistoryResponse,
-  opts?: {
-    onRequest?: (cursor: string | null) => AppAdminRegistryHistoryResponse;
-  },
-): Promise<{ getState: () => AppAdminRegistryHistoryResponse }> {
-  let state = initialState;
-
-  await page.route(`**/api/v1/apps/${app}/admin/registry/history**`, (route: Route, request) => {
     if (request.method() === "GET") {
-      const url = new URL(request.url());
-      const cursor = url.searchParams.get("cursor");
-      if (opts?.onRequest) {
-        route.fulfill({ json: opts.onRequest(cursor) });
-        return;
-      }
-      route.fulfill({ json: state });
-      return;
-    }
-    route.fallback();
-  });
-
-  return {
-    getState: () => state,
-  };
-}
-
-export interface MockTokensController {
-  setTokens(tokens: APIToken[]): void;
-  getTokens(): APIToken[];
-}
-
-export async function mockTokens(
-  page: Page,
-  initialTokens: APIToken[],
-  options?: {
-    delayFirstListMs?: number;
-  },
-): Promise<MockTokensController> {
-  let currentTokens = [...initialTokens];
-  let listCount = 0;
-
-  await page.route(`**${PERSONAL_IDENTITY_GRANTS_PATH}`, async (route: Route, request) => {
-    if (request.method() === "GET") {
-      listCount += 1;
-      if (options?.delayFirstListMs && listCount === 1) {
-        await new Promise((resolve) => setTimeout(resolve, options.delayFirstListMs));
-        await route.fulfill({ json: { grantIds: [] } });
-        return;
-      }
-      await route.fulfill({
-        json: { grantIds: currentTokens.map((token) => token.id) },
-      });
-      return;
-    }
-    await route.fallback();
-  });
-
-  await page.route(`**${PERSONAL_IDENTITY_GRANTS_PATH}/*`, async (route: Route, request) => {
-    const grantId = parseIdentityGrantIdFromUrl(request.url());
-    if (request.method() === "GET") {
-      const token = currentTokens.find((entry) => entry.id === grantId);
+      const token = readTokens().find((item) => item.id === id);
       if (!token) {
-        await route.fulfill({ status: 404, json: { error: "grant not found" } });
+        route.fulfill({ status: 404, json: { error: "grant not found" } });
         return;
       }
-      await route.fulfill({ json: apiTokenToIdentityGrantWire(token) });
+      route.fulfill({ json: identityGrantDetailJson(token) });
       return;
     }
+
     if (request.method() === "DELETE") {
-      currentTokens = currentTokens.filter((entry) => entry.id !== grantId);
-      await route.fulfill({ json: {} });
+      opts?.onRevoke?.(id);
+      route.fulfill({ json: {} });
       return;
     }
-    await route.fallback();
-  });
 
-  return {
-    setTokens(tokens: APIToken[]) {
-      currentTokens = [...tokens];
-    },
-    getTokens() {
-      return [...currentTokens];
-    },
-  };
-}
-
-type CreatePersonalTokenBody = {
-  name?: string;
-  scopes?: string;
-  expiresIn?: number;
-};
-
-export async function mockPersonalTokenCreate(
-  page: Page,
-  tokens: MockTokensController,
-  handler: (
-    body: CreatePersonalTokenBody,
-  ) => Promise<{
-    token: APIToken;
-    plaintext: string;
-    expiresAt?: string;
-    status?: number;
-  }>,
-) {
-  await page.route("**/api/v1/tokens", async (route: Route, request) => {
-    if (request.method() === "POST") {
-      const body = request.postDataJSON() as CreatePersonalTokenBody;
-      const result = await handler(body);
-      tokens.setTokens([result.token]);
-      await route.fulfill({
-        status: result.status ?? 201,
-        json: {
-          id: result.token.id,
-          token: result.plaintext,
-          scopes: result.token.scopes,
-          expiresAt: result.expiresAt,
-        },
-      });
-      return;
-    }
-    await route.fallback();
-  });
+    route.fallback();
+  },
+  );
 }
 
 export async function mockWorkflowRuns(
@@ -416,12 +230,29 @@ export async function mockWorkflowRuns(
 ): Promise<MockWorkflowRunsController> {
   let currentRuns = runs.map((run) => structuredClone(run));
 
-  await page.route(/\/api\/v2\/workflow\/runs(?:\?.*)?$/, (route: Route, request) => {
+  await page.route("**/api/v1/workflow/runs**", (route: Route, request) => {
+    const url = new URL(request.url());
+    // Detail and cancel routes include an id path segment after /runs/.
+    if (/\/api\/v1\/workflow\/runs\/.+/.test(url.pathname)) {
+      route.fallback();
+      return;
+    }
     if (request.method() === "GET") {
-      const url = new URL(request.url());
-      const appName = url.searchParams.get("targetApp")?.trim();
-      const runs = appName
-        ? currentRuns.filter((run) => workflowRunMatchesApp(run, appName))
+      const targetApp =
+        url.searchParams.get("app")?.trim() ||
+        url.searchParams.get("targetApp")?.trim();
+      const runs = targetApp
+        ? currentRuns.filter((run) => {
+            const names = run.target.steps
+              .map((step) => step.app?.name)
+              .filter((name): name is string => !!name);
+            const definitionId = run.definitionId || "";
+            return (
+              names.includes(targetApp) ||
+              definitionId === `app_${targetApp}` ||
+              definitionId.startsWith(`app_${targetApp}_`)
+            );
+          })
         : currentRuns;
       route.fulfill({ json: { runs, nextPageToken: "" } });
     } else {
@@ -429,20 +260,22 @@ export async function mockWorkflowRuns(
     }
   });
 
-  await page.route("**/api/v2/workflow/runs/**", (route: Route, request) => {
+  await page.route("**/api/v1/workflow/runs/**", (route: Route, request) => {
     const url = new URL(request.url());
-    const pathname = url.pathname;
-    const cancelMatch = pathname.match(/\/api\/v2\/workflow\/runs\/([^/]+):cancel$/);
-    const detailMatch = pathname.match(/\/api\/v2\/workflow\/runs\/([^/]+)$/);
-    const id = cancelMatch?.[1] ?? detailMatch?.[1];
+    const parts = url.pathname.split("/");
+    const id =
+      parts[parts.length - 2] === "runs"
+        ? parts[parts.length - 1]
+        : parts[parts.length - 2];
 
-    if (request.method() === "POST" && cancelMatch) {
+    if (request.method() === "POST" && parts[parts.length - 1] === "cancel") {
       const run = currentRuns.find((item) => item.id === id);
       if (!run) {
         route.fulfill({ status: 404, json: { error: "not found" } });
         return;
       }
-      const body = (request.postDataJSON() as { reason?: string } | null) ?? null;
+      const body =
+        (request.postDataJSON() as { reason?: string } | null) ?? null;
       const override = opts?.onCancel?.(structuredClone(run), body);
       if (override) {
         route.fulfill({ status: override.status, json: override.json });
@@ -451,7 +284,9 @@ export async function mockWorkflowRuns(
       if (run.status !== "pending") {
         route.fulfill({
           status: 412,
-          json: { error: "workflow run cannot be canceled once it has started" },
+          json: {
+            error: "workflow run cannot be canceled once it has started",
+          },
         });
         return;
       }

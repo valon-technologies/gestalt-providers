@@ -1209,7 +1209,6 @@ class SlackProviderTests(unittest.TestCase):
 
         user_default_selector_operations = (
             "conversations.list",
-            "users.conversations",
             "conversations.open",
             "conversations.history",
             "conversations.replies",
@@ -1226,12 +1225,6 @@ class SlackProviderTests(unittest.TestCase):
             )
             self.assertIn("actor", _manifest_parameter_names(operation))
 
-        self.assertEqual(
-            _manifest_parameter_types(
-                rest_ops["conversations.history"], "include_all_metadata"
-            ),
-            ["bool"],
-        )
         self.assertNotIn("chat.postMessage", rest_ops)
 
         self.assertEqual(rest_ops["search.messages"]["connection"], "default")

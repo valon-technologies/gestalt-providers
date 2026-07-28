@@ -1,5 +1,10 @@
 /**
- * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Gestalt console vendor of Valon Registry `eyebrow`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/eyebrow.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
  */
 
 import * as React from "react";
@@ -13,23 +18,15 @@ import { cn } from "@/lib/cn";
 // Caps via CSS `uppercase` — type real case in markup. Not Label (form) and not
 // Badge (filled chip).
 const eyebrowVariants = cva(
-  "font-normal uppercase tracking-eyebrow leading-none",
+  "text-xs font-normal uppercase tracking-eyebrow leading-none",
   {
     variants: {
-      size: {
-        default: "text-xs",
-        sm: "text-2xs",
-      },
-      // Ink roles map to color.md text hierarchy — pick a tone, never override
-      // text-* after eyebrowVariants().
       tone: {
         muted: "text-muted-foreground-soft",
-        secondary: "text-muted-foreground",
         brand: "text-brand",
       },
     },
     defaultVariants: {
-      size: "default",
       tone: "muted",
     },
   },
@@ -40,11 +37,11 @@ export interface EyebrowProps
     VariantProps<typeof eyebrowVariants> {}
 
 const Eyebrow = React.forwardRef<HTMLSpanElement, EyebrowProps>(
-  ({ className, size, tone, ...props }, ref) => (
+  ({ className, tone, ...props }, ref) => (
     <span
       ref={ref}
       data-slot="eyebrow"
-      className={cn(eyebrowVariants({ size, tone }), className)}
+      className={cn(eyebrowVariants({ tone }), className)}
       {...props}
     />
   ),

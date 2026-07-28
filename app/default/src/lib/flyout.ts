@@ -1,5 +1,9 @@
 /**
- * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Gestalt console vendor of Valon Registry `flyout`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/lib/flyout.ts`).
+ * Synced from toolshed origin/main — no token adaptations.
  */
 
 /**

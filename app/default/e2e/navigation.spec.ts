@@ -1,12 +1,10 @@
 import {
   test,
   expect,
-  mockAppAdminRegistry,
   mockAuthInfo,
   mockIntegrations,
   mockManagedIdentities,
   mockTokens,
-  mockWorkflowRuns,
 } from "./fixtures";
 
 test.describe("Navigation", () => {
@@ -32,23 +30,6 @@ test.describe("Navigation", () => {
         createdAt: "2026-04-13T00:00:00Z",
       },
     ]);
-    await mockWorkflowRuns(authenticatedPage, [
-      {
-        id: "run_123",
-        provider: "basic",
-        status: "succeeded",
-        target: {
-          steps: [
-            {
-              id: "run",
-              app: { name: "httpbin", operation: "get" },
-            },
-          ],
-        },
-        trigger: { kind: "schedule", activationId: "sched_123" },
-        createdAt: "2026-04-13T00:00:00Z",
-      },
-    ]);
   });
 
   test("root redirects to apps", async ({ authenticatedPage: page }) => {
@@ -59,6 +40,16 @@ test.describe("Navigation", () => {
     ).toBeVisible();
   });
 
+  test("build page renders", async ({ authenticatedPage: page }) => {
+    await page.goto("/build");
+    await expect(
+      page.getByRole("heading", { name: "Build", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Primary Google Calendar/ }),
+    ).toBeVisible();
+  });
+
   test("apps page renders", async ({ authenticatedPage: page }) => {
     await page.goto("/apps");
     await expect(
@@ -66,73 +57,26 @@ test.describe("Navigation", () => {
     ).toBeVisible();
   });
 
-  test("identities page redirects into settings", async ({ authenticatedPage: page }) => {
+  test("identities page renders", async ({ authenticatedPage: page }) => {
     await page.goto("/identities");
-    await expect(page).toHaveURL(/\/settings\/identities$/);
     await expect(
-      page.getByRole("heading", { name: "Settings" }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: "Managed identities" }),
+      page.getByRole("heading", { name: "Agent Identities" }),
     ).toBeVisible();
   });
 
   test("settings page renders", async ({ authenticatedPage: page }) => {
     await page.goto("/settings");
-    await expect(page).toHaveURL(/\/settings\/tokens$/);
     await expect(
       page.getByRole("heading", { name: "Settings" }),
     ).toBeVisible();
   });
 
-  test("settings authorization hash lands on tokens anchor", async ({
-    authenticatedPage: page,
-  }) => {
-    await page.goto("/settings#authorization");
-    await expect(page).toHaveURL(/\/settings\/tokens#authorization$/);
-    await expect(page.locator("#authorization")).toBeVisible();
-  });
-
-  test("app admin workflows section renders", async ({ authenticatedPage: page }) => {
-    await mockIntegrations(page, [
-      {
-        name: "slack",
-        displayName: "Slack",
-        managementPath: "/apps/slack/admin",
-      },
-    ]);
-    await mockAppAdminRegistry(page, "slack", {
-      app: "slack",
-      registry: "example-registry",
-      knownVersions: [],
-      publishedVersions: [],
-      selectionDisabled: false,
-    });
-    await mockWorkflowRuns(page, []);
-    await page.goto("/apps/slack/admin/workflows");
-    await expect(page.getByTestId("app-admin-nav-workflows")).toHaveClass(/font-medium/);
-    await expect(page.getByTestId("app-workflow-ownership-note")).toBeVisible();
-  });
-
-  test("authorization redirects to settings tokens", async ({ authenticatedPage: page }) => {
+  test("authorization redirects to settings", async ({ authenticatedPage: page }) => {
     await page.goto("/authorization");
-    await expect(page).toHaveURL(/\/settings\/tokens$/);
+    await expect(page).toHaveURL(/\/settings/);
     await expect(
       page.getByRole("heading", { name: "Settings" }),
     ).toBeVisible();
-  });
-
-  test("tokens redirects to settings tokens", async ({ authenticatedPage: page }) => {
-    await page.goto("/tokens");
-    await expect(page).toHaveURL(/\/settings\/tokens$/);
-    await expect(
-      page.getByRole("heading", { name: "Settings" }),
-    ).toBeVisible();
-  });
-
-  test("legacy workflows route redirects to apps", async ({ authenticatedPage: page }) => {
-    await page.goto("/workflows");
-    await expect(page).toHaveURL(/\/apps/);
   });
 
   test("docs page renders", async ({ authenticatedPage: page }) => {
@@ -159,6 +103,11 @@ test.describe("Navigation", () => {
 
   test("nav links work", async ({ authenticatedPage: page }) => {
     await page.goto("/apps");
+    await page.getByRole("link", { name: "Build", exact: true }).click();
+    await expect(page).toHaveURL(/\/build/);
+    await expect(
+      page.getByRole("heading", { name: "Build", exact: true }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Open user menu" }).click();
     await page.getByRole("menuitem", { name: "Settings" }).click();
     await expect(page).toHaveURL(/\/settings/);

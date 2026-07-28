@@ -4,8 +4,9 @@ import { SearchHighlight } from "@/components/ui/search-highlight";
 /**
  * Gestalt console vendor of Valon Registry `table-of-contents`.
  *
- * Vendored from the upstream design-system registry. Pair with `useScrollSpy`
- * for active-section tracking.
+ * Ownership: Valon Registry
+ * (`valon-tools/apps/registry/ui/src/ui/table-of-contents.tsx`).
+ * Pair with `useScrollSpy` for active-section tracking.
  *
  * NOTE: `kind: "separator"` and `highlightQuery` are console forward-ports until
  * Registry lands the same APIs — keep this file in sync when Registry ships them.

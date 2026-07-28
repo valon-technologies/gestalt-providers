@@ -1,34 +1,33 @@
-import { ButtonHTMLAttributes } from "react";
+import {
+  Button as RegistryButton,
+  type ButtonProps as RegistryButtonProps,
+} from "@/components/ui/button";
 
-type Variant = "primary" | "secondary" | "danger";
+/**
+ * Console Button — thin adapter over Registry `ui/button`.
+ *
+ * Legacy call sites used `primary` / `danger`; Registry uses `default` /
+ * `destructive`. Prefer importing `{ Button }` from `@/components/ui/button`
+ * for new code.
+ */
 
-const variantStyles: Record<Variant, string> = {
-  primary:
-    "bg-primary text-primary-foreground hover:bg-primary/90",
-  secondary:
-    "bg-accent text-accent-foreground hover:bg-accent/80",
-  danger:
-    "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+type LegacyVariant = "primary" | "secondary" | "danger";
+
+type ButtonProps = Omit<RegistryButtonProps, "variant"> & {
+  variant?: LegacyVariant | RegistryButtonProps["variant"];
 };
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: Variant;
+function mapVariant(
+  variant: ButtonProps["variant"],
+): RegistryButtonProps["variant"] {
+  if (variant === "primary" || variant == null) return "default";
+  if (variant === "danger") return "destructive";
+  return variant;
 }
 
 export default function Button({
   variant = "primary",
-  className = "",
-  disabled,
-  children,
   ...props
 }: ButtonProps) {
-  return (
-    <button
-      className={`rounded-md px-6 py-2.5 text-sm font-medium transition-all duration-150 ease-out disabled:opacity-50 disabled:cursor-not-allowed active:translate-y-px ${variantStyles[variant]} ${className}`}
-      disabled={disabled}
-      {...props}
-    >
-      {children}
-    </button>
-  );
+  return <RegistryButton variant={mapVariant(variant)} {...props} />;
 }

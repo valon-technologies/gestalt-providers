@@ -1,5 +1,10 @@
 /**
- * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Gestalt console vendor of Valon Registry `alert`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/alert.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
  */
 
 import * as React from "react";
@@ -7,7 +12,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/cn";
 
-// shadcn Alert, extended for Gestalt console: a trailing `AlertActions` column (so an inline
+// shadcn Alert, extended for Valon: a trailing `AlertActions` column (so an inline
 // notice can carry buttons), and the status-intent ramp on the shared --info/--success/
 // --warning/--error STATE tokens (not the --destructive ACTION color). A leading `>svg`
 // shifts the layout into its icon slot automatically.

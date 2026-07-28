@@ -3,15 +3,14 @@ export function appOperationElementId(operationId: string): string {
   return `app-operation-${operationId.replace(/\./g, "--")}`;
 }
 
-/** App operations route with optional deep-link hash. */
+/** App admin URL with Operations tab open on a specific method. */
 export function appOperationAdminHref(
   appName: string,
   operationId: string,
 ): string {
-  return `/apps/${encodeURIComponent(appName)}/operations#${encodeURIComponent(operationId)}`;
-}
-
-export function appOperationsPath(appName: string, operationId?: string): string {
-  const base = `/apps/${encodeURIComponent(appName)}/operations`;
-  return operationId ? `${base}#${encodeURIComponent(operationId)}` : base;
+  const params = new URLSearchParams({
+    section: "operations",
+    operation: operationId,
+  });
+  return `/apps/${encodeURIComponent(appName)}?${params.toString()}`;
 }

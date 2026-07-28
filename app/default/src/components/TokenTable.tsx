@@ -1,150 +1,82 @@
+
+import { APIToken, revokeToken } from "@/lib/api";
+import Button from "./Button";
 import { useState } from "react";
-import type { APIToken } from "@/lib/api";
-import { useRevokeTokenMutation } from "@/lib/queries";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
-import { Code } from "@/components/ui/code";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { useInvalidateTokens } from "@/hooks/use-server-queries";
 
 interface TokenTableProps {
   tokens: APIToken[];
+  onRevoked: () => void | Promise<void>;
 }
 
-export default function TokenTable({ tokens }: TokenTableProps) {
-  const revokeToken = useRevokeTokenMutation();
-  const [pendingRevokeId, setPendingRevokeId] = useState<string | null>(null);
-  const [revokingId, setRevokingId] = useState<string | null>(null);
-  const error = revokeToken.error
-    ? revokeToken.error instanceof Error
-      ? revokeToken.error.message
-      : "Failed to revoke token"
-    : null;
+export default function TokenTable({ tokens, onRevoked }: TokenTableProps) {
+  const invalidateTokens = useInvalidateTokens();
+  const [revoking, setRevoking] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const pendingToken = tokens.find((token) => token.id === pendingRevokeId);
-
-  async function confirmRevoke() {
-    if (!pendingRevokeId) return;
-    setRevokingId(pendingRevokeId);
+  async function handleRevoke(id: string) {
+    setRevoking(id);
+    setError(null);
     try {
-      await revokeToken.mutateAsync(pendingRevokeId);
-      setPendingRevokeId(null);
-    } catch {
-      // surfaced via mutation error state
+      await revokeToken(id);
+      await invalidateTokens();
+      await onRevoked();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to revoke token");
     } finally {
-      setRevokingId(null);
+      setRevoking(null);
     }
   }
 
   if (tokens.length === 0) {
     return (
-      <p className="py-12 text-center text-sm text-muted-foreground/70">
-        No API tokens yet.
-      </p>
+      <div className="rounded-lg border border-dashed border-alpha p-8">
+        <p className="text-center text-sm text-faint">No API tokens yet.</p>
+      </div>
     );
   }
 
   return (
-    <div>
-      {error && <p className="mb-4 text-sm text-destructive">{error}</p>}
-      <Table variant="line">
-        <TableHeader>
-          <TableRow>
-            <TableHead>ID</TableHead>
-            <TableHead>Scopes</TableHead>
-            <TableHead>Created</TableHead>
-            <TableHead>Expires</TableHead>
-            <TableHead align="end">
-              <span className="sr-only">Actions</span>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
+    <div className="rounded-lg border border-alpha bg-base-white overflow-x-auto dark:bg-surface">
+      {error && <p className="mb-4 px-5 pt-4 text-sm text-ember-500">{error}</p>}
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-alpha text-left">
+            <th className="px-5 py-3.5 label-text">ID</th>
+            <th className="px-5 py-3.5 label-text">Scopes</th>
+            <th className="px-5 py-3.5 label-text">Created</th>
+            <th className="px-5 py-3.5 label-text">Expires</th>
+            <th className="px-5 py-3.5 label-text"></th>
+          </tr>
+        </thead>
+        <tbody>
           {tokens.map((token) => (
-            <TableRow key={token.id}>
-              <TableCell>
-                <Code>{token.id}</Code>
-              </TableCell>
-              <TableCell className="text-muted-foreground">
+            <tr key={token.id} className="border-b border-alpha last:border-b-0">
+              <td className="px-5 py-4 text-foreground font-mono text-xs">{token.id}</td>
+              <td className="px-5 py-4 text-muted-foreground">
                 {token.scopes?.length ? token.scopes.join(" ") : "all"}
-              </TableCell>
-              <TableCell numeric className="text-muted-foreground">
+              </td>
+              <td className="px-5 py-4 text-muted-foreground font-mono text-xs">
                 {new Date(token.createdAt).toLocaleDateString()}
-              </TableCell>
-              <TableCell numeric className="text-muted-foreground">
+              </td>
+              <td className="px-5 py-4 text-muted-foreground font-mono text-xs">
                 {token.expiresAt
                   ? new Date(token.expiresAt).toLocaleDateString()
                   : "Never"}
-              </TableCell>
-              <TableCell align="end">
+              </td>
+              <td className="px-5 py-4">
                 <Button
-                  type="button"
                   variant="danger"
-                  size="sm"
-                  onClick={() => setPendingRevokeId(token.id)}
-                  disabled={revokingId === token.id}
+                  onClick={() => handleRevoke(token.id)}
+                  disabled={revoking === token.id}
                 >
-                  Revoke
+                  {revoking === token.id ? "Revoking..." : "Revoke"}
                 </Button>
-              </TableCell>
-            </TableRow>
+              </td>
+            </tr>
           ))}
-        </TableBody>
-      </Table>
-
-      <AlertDialog
-        open={pendingRevokeId !== null}
-        onOpenChange={(open) => {
-          if (!open && revokingId === null) {
-            setPendingRevokeId(null);
-          }
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Revoke token</AlertDialogTitle>
-            <AlertDialogDescription>
-              This token will be revoked immediately and can&apos;t be restored.
-              Any apps or scripts using it will lose API access.
-            </AlertDialogDescription>
-            {pendingToken ? (
-              <p className="text-sm text-muted-foreground">
-                Token ID: <Code>{pendingToken.id}</Code>
-              </p>
-            ) : null}
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={revokingId !== null}>
-              Keep token
-            </AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={revokingId !== null}
-              onClick={(event) => {
-                event.preventDefault();
-                void confirmRevoke();
-              }}
-            >
-              {revokingId !== null ? "Revoking..." : "Revoke token"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        </tbody>
+      </table>
     </div>
   );
 }

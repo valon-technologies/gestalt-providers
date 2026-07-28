@@ -1,28 +1,48 @@
-import { useAuthSessionQuery } from "@/lib/queries";
+import { useEffect, useState } from "react";
+import { getAuthSession } from "@/lib/api";
+import {
+  clearSession,
+  getCachedSession,
+  setCachedSession,
+} from "@/lib/auth";
+import { serverLoginURL } from "@/lib/authReturn";
 
+/**
+ * App-shell session gate. Owns authentication for the whole console once —
+ * mount at the root layout, not per page.
+ *
+ * Cached session is provisional identity: if localStorage already has a
+ * subject, render children immediately and revalidate in the background.
+ * That keeps chrome stable across client navigations and avoids a blank
+ * full-screen flash on every route change.
+ */
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
-  const sessionQuery = useAuthSessionQuery();
+  const [gate, setGate] = useState(() => {
+    const hasCache = !!getCachedSession();
+    return { checked: hasCache, authenticated: hasCache };
+  });
 
-  if (sessionQuery.isPending && !sessionQuery.data) return null;
+  useEffect(() => {
+    getAuthSession()
+      .then((session) => {
+        setCachedSession(session);
+        setGate({ checked: true, authenticated: true });
+      })
+      .catch(() => {
+        // fetchAPI usually navigates to /api/v1/auth/login on 401; if that
+        // did not happen (network error / invalid cache), do not sit on an
+        // empty shell.
+        clearSession();
+        setGate({ checked: true, authenticated: false });
+        window.location.href = serverLoginURL();
+      });
+  }, []);
 
-  if (sessionQuery.isError && !sessionQuery.data) {
+  if (!gate.checked || !gate.authenticated) {
     return (
-      <main className="mx-auto max-w-lg px-4 py-16 text-center">
-        <h1 className="text-lg font-heading text-foreground">
-          Could not verify your session
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          The session check failed. Try again or sign in from the login page.
-        </p>
-        <button
-          type="button"
-          onClick={() => void sessionQuery.refetch()}
-          disabled={sessionQuery.isFetching}
-          className="mt-6 inline-flex items-center justify-center rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:border-input hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {sessionQuery.isFetching ? "Retrying…" : "Try again"}
-        </button>
-      </main>
+      <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+        Checking session…
+      </div>
     );
   }
 

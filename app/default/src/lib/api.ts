@@ -2,6 +2,8 @@ import { clearSession } from "./auth";
 import { HTTP_UNAUTHORIZED } from "./constants";
 import { serverLoginURL } from "./authReturn";
 
+export type { WorkflowRun } from "./workflow";
+
 export interface ConnectionParamDef {
   required?: boolean;
   description?: string;
@@ -79,156 +81,11 @@ export interface Integration {
   description?: string;
   iconSvg?: string;
   mountedPath?: string;
-  managementPath?: string;
   connections?: ConnectionDefInfo[];
   status?: IntegrationStatus;
   credentialState?: CredentialState;
   healthState?: HealthState;
   actions?: IntegrationAction[];
-}
-
-export interface AppAdminPublicationPullRequest {
-  number: number;
-  url: string;
-  title?: string;
-}
-
-export interface AppAdminPublicationCommit {
-  sha: string;
-  url: string;
-}
-
-export interface AppAdminPublication {
-  workflowRunUrl?: string;
-  triggerPullRequest?: AppAdminPublicationPullRequest;
-  triggerCommit?: AppAdminPublicationCommit;
-}
-
-export interface AppAdminPublishedVersion {
-  version: string;
-  publishedAt: string;
-  publishStartedAt?: string;
-  publishDurationSeconds?: number;
-  platforms?: string[];
-  sourceRef?: string;
-  sourceUrl?: string;
-  publication?: AppAdminPublication;
-}
-
-export interface AppAdminPendingVersion {
-  version: string;
-  startedAt: string;
-  updatedAt: string;
-  phase: string;
-  publishingForSeconds?: number;
-  sourceRef?: string;
-  sourceUrl?: string;
-  publication?: AppAdminPublication;
-}
-
-export interface AppAdminFailedVersion {
-  version: string;
-  startedAt: string;
-  failedAt: string;
-  reason: string;
-  publishDurationSeconds?: number;
-  sourceRef?: string;
-  sourceUrl?: string;
-  publication?: AppAdminPublication;
-}
-
-export interface AppAdminAutoDeploy {
-  enabled: boolean;
-  pendingVersion?: string;
-  lastError?: string;
-}
-
-export interface AppAdminFleetState {
-  state: string;
-  sourceVersion?: string;
-  desiredVersion?: string;
-  minimumHealthyInstances: number;
-  liveInstances: number;
-  runningDesiredVersion: number;
-  mismatched: number;
-  errors: number;
-  heartbeatTtlSeconds: number;
-  evaluatedAt: string;
-}
-
-export interface AppAdminRecovery {
-  recoveredAt: string;
-  sourceVersion: string;
-  liveInstances: number;
-  minimumHealthyInstances: number;
-}
-
-export interface AppAdminRegistryResponse {
-  app: string;
-  registry: string;
-  desiredVersion?: string;
-  knownVersions: Array<{
-    version: string;
-    installedAt?: string;
-    installedBy?: string;
-  }>;
-  publishedVersions: AppAdminPublishedVersion[];
-  pendingVersions?: AppAdminPendingVersion[];
-  failedVersions?: AppAdminFailedVersion[];
-  rollout?: {
-    version: string;
-    state: string;
-    targetSourceVersion?: string;
-  };
-  fleetState?: AppAdminFleetState;
-  recovery?: AppAdminRecovery;
-  autoDeploy: AppAdminAutoDeploy;
-  selectionDisabled: boolean;
-  disabledReason?: string;
-}
-
-export interface AppAdminRegistryAutoDeployResponse {
-  app: string;
-  autoDeploy: AppAdminAutoDeploy;
-}
-
-export interface AppAdminRegistryVersionResponse {
-  app: string;
-  registry: string;
-  fromVersion?: string;
-  desiredVersion: string;
-  rollout: {
-    version: string;
-    state: string;
-    targetSourceVersion?: string;
-  };
-}
-
-export interface AppAdminRegistryRevision {
-  id: string;
-  version: string;
-  previousVersion?: string;
-  deployedAt: string;
-  deployedBy?: string;
-  sourceRef?: string;
-  sourceUrl?: string;
-  publication?: AppAdminPublication;
-  deploymentState?: string;
-  deployableUntil?: string;
-  current?: boolean;
-  rolloutState?: string;
-  rolloutForSeconds?: number;
-  rolloutDurationSeconds?: number;
-  rolloutCompletedAt?: string;
-  rolloutFailedAt?: string;
-  recovery?: AppAdminRecovery;
-}
-
-export interface AppAdminRegistryHistoryResponse {
-  app: string;
-  revisions: AppAdminRegistryRevision[];
-  fleetState?: AppAdminFleetState;
-  nextCursor?: string;
 }
 
 export interface IntegrationOperation {
@@ -238,10 +95,6 @@ export interface IntegrationOperation {
   readOnly?: boolean;
   visible?: boolean;
   tags?: string[];
-  method?: string;
-  path?: string;
-  allowedRoles?: string[];
-  transport?: string;
 }
 
 export interface AccessPermission {
@@ -266,297 +119,6 @@ export interface CreateTokenResponse {
   token: string;
   permissions?: AccessPermission[];
   expiresAt?: string;
-}
-
-export interface AgentToolRef {
-  system?: string;
-  plugin?: string;
-  operation?: string;
-  connection?: string;
-  instance?: string;
-  title?: string;
-  description?: string;
-}
-
-export type AgentOutput =
-  | { text: Record<string, never>; structured?: never }
-  | { text?: never; structured: { schema: Record<string, unknown> } };
-
-export interface WorkflowAppTarget {
-  name: string;
-  operation: string;
-  connection?: string;
-  instance?: string;
-  credentialMode?: string;
-  input?: unknown;
-}
-
-export interface WorkflowTextTarget {
-  template?: string;
-}
-
-export interface WorkflowMessageTarget {
-  role?: string;
-  text?: WorkflowTextTarget;
-  metadata?: Record<string, unknown>;
-}
-
-export interface WorkflowAgentTarget {
-  provider?: string;
-  model?: string;
-  sessionKey?: string;
-  prompt?: WorkflowTextTarget;
-  messages?: WorkflowMessageTarget[];
-  tools?: AgentToolRef[];
-  output?: AgentOutput;
-  modelOptions?: Record<string, unknown>;
-}
-
-export interface WorkflowStepTarget {
-  id?: string;
-  inputs?: Record<string, unknown>;
-  app?: WorkflowAppTarget;
-  agent?: WorkflowAgentTarget;
-  metadata?: Record<string, unknown>;
-  timeoutSeconds?: number;
-  when?: Record<string, unknown>;
-}
-
-export interface WorkflowTarget {
-  steps: WorkflowStepTarget[];
-}
-
-export interface WorkflowEvent {
-  id?: string;
-  source?: string;
-  specVersion?: string;
-  type?: string;
-  subject?: string;
-  time?: string;
-  dataContentType?: string;
-  data?: Record<string, unknown>;
-  extensions?: Record<string, unknown>;
-}
-
-export interface WorkflowRunTrigger {
-  kind?: string;
-  activationId?: string;
-  scheduledFor?: string;
-  event?: WorkflowEvent;
-}
-
-export interface WorkflowActor {
-  subjectId?: string;
-}
-
-export interface WorkflowStepAttempt {
-  id?: string;
-  status?: string;
-  idempotencyKey?: string;
-  input?: unknown;
-  output?: unknown;
-  statusMessage?: string;
-  startedAt?: string;
-  completedAt?: string;
-}
-
-export interface WorkflowStepExecution {
-  stepId?: string;
-  status?: string;
-  attempts?: WorkflowStepAttempt[];
-  input?: unknown;
-  output?: unknown;
-  statusMessage?: string;
-  skipReason?: string;
-  startedAt?: string;
-  completedAt?: string;
-}
-
-export interface WorkflowRun {
-  id: string;
-  provider: string;
-  /** Server-declared step-target app for this run (Workflow API `target_app`). */
-  targetApp?: string;
-  status?: string;
-  target: WorkflowTarget;
-  trigger?: WorkflowRunTrigger;
-  createdBy?: WorkflowActor;
-  createdAt?: string;
-  startedAt?: string;
-  completedAt?: string;
-  statusMessage?: string;
-  output?: unknown;
-  definitionId?: string;
-  definitionGeneration?: number;
-  input?: Record<string, unknown>;
-  currentStepId?: string;
-  steps?: WorkflowStepExecution[];
-}
-
-type WorkflowRunWire = Omit<WorkflowRun, "target" | "steps"> & {
-  target?: unknown;
-  steps?: unknown;
-};
-
-export function normalizeWorkflowRun(run: WorkflowRunWire): WorkflowRun {
-  const wire = run as WorkflowRunWire & {
-    targetApp?: string;
-    target_app?: string;
-  };
-  return {
-    ...run,
-    targetApp: optionalString(wire.targetApp) ?? optionalString(wire.target_app),
-    target: normalizeWorkflowTarget(run.target),
-    steps: normalizeWorkflowStepExecutions(run.steps),
-  };
-}
-
-function normalizeWorkflowTarget(target: unknown): WorkflowTarget {
-  if (!isRecord(target)) {
-    return { steps: [] };
-  }
-
-  const rawSteps = target.steps;
-  if (!Array.isArray(rawSteps)) {
-    return { steps: [] };
-  }
-
-  return {
-    steps: rawSteps.flatMap((rawStep) => {
-      if (!isRecord(rawStep)) {
-        return [];
-      }
-      const rawApp = rawStep.app;
-      const rawAgent = rawStep.agent;
-      return [
-        {
-          id: optionalString(rawStep.id),
-          inputs: optionalRecord(rawStep.inputs),
-          app: isRecord(rawApp)
-            ? {
-                name: stringValue(rawApp.name),
-                operation: stringValue(rawApp.operation),
-                connection: optionalString(rawApp.connection),
-                instance: optionalString(rawApp.instance),
-                credentialMode: optionalString(rawApp.credentialMode),
-                input: rawApp.input,
-              }
-            : undefined,
-          agent: normalizeWorkflowAgentTarget(rawAgent),
-          metadata: optionalRecord(rawStep.metadata),
-          timeoutSeconds:
-            typeof rawStep.timeoutSeconds === "number"
-              ? rawStep.timeoutSeconds
-              : undefined,
-          when: optionalRecord(rawStep.when),
-        },
-      ];
-    }),
-  };
-}
-
-function normalizeWorkflowAgentTarget(
-  value: unknown,
-): WorkflowAgentTarget | undefined {
-  if (!isRecord(value)) return undefined;
-  return {
-    provider: optionalString(value.provider),
-    model: optionalString(value.model),
-    sessionKey: optionalString(value.sessionKey),
-    prompt: normalizeWorkflowTextTarget(value.prompt),
-    messages: Array.isArray(value.messages)
-      ? value.messages.flatMap((message) => {
-          if (!isRecord(message)) return [];
-          return [
-            {
-              role: optionalString(message.role),
-              text: normalizeWorkflowTextTarget(message.text),
-              metadata: optionalRecord(message.metadata),
-            },
-          ];
-        })
-      : undefined,
-    tools: Array.isArray(value.tools)
-      ? value.tools.flatMap((tool) => (isRecord(tool) ? [tool as AgentToolRef] : []))
-      : undefined,
-    output: isRecord(value.output) ? (value.output as AgentOutput) : undefined,
-    modelOptions: optionalRecord(value.modelOptions),
-  };
-}
-
-function normalizeWorkflowTextTarget(
-  value: unknown,
-): WorkflowTextTarget | undefined {
-  if (!isRecord(value)) return undefined;
-  return {
-    template: optionalString(value.template),
-  };
-}
-
-function normalizeWorkflowStepExecutions(
-  value: unknown,
-): WorkflowStepExecution[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((rawStep) => {
-    if (!isRecord(rawStep)) return [];
-    return [
-      {
-        stepId: optionalString(rawStep.stepId),
-        status: optionalString(rawStep.status),
-        attempts: normalizeWorkflowStepAttempts(rawStep.attempts),
-        input: rawStep.input,
-        output: rawStep.output,
-        statusMessage: optionalString(rawStep.statusMessage),
-        skipReason: optionalString(rawStep.skipReason),
-        startedAt: optionalString(rawStep.startedAt),
-        completedAt: optionalString(rawStep.completedAt),
-      },
-    ];
-  });
-}
-
-function normalizeWorkflowStepAttempts(value: unknown): WorkflowStepAttempt[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((rawAttempt) => {
-    if (!isRecord(rawAttempt)) return [];
-    return [
-      {
-        id: optionalString(rawAttempt.id),
-        status: optionalString(rawAttempt.status),
-        idempotencyKey: optionalString(rawAttempt.idempotencyKey),
-        input: rawAttempt.input,
-        output: rawAttempt.output,
-        statusMessage: optionalString(rawAttempt.statusMessage),
-        startedAt: optionalString(rawAttempt.startedAt),
-        completedAt: optionalString(rawAttempt.completedAt),
-      },
-    ];
-  });
-}
-
-export function workflowTargetApp(target: WorkflowTarget): WorkflowAppTarget {
-  return (
-    target.steps.find((step) => step.app)?.app ?? {
-      name: "",
-      operation: "",
-    }
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function stringValue(value: unknown): string {
-  return typeof value === "string" ? value : "";
-}
-
-function optionalString(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined;
-}
-
-function optionalRecord(value: unknown): Record<string, unknown> | undefined {
-  return isRecord(value) ? value : undefined;
 }
 
 export interface ManagedIdentity {
@@ -607,35 +169,23 @@ export function isAPIErrorStatus(error: unknown, status: number): boolean {
   return error instanceof APIError && error.status === status;
 }
 
-export function redirectToLogin(returnPath?: string): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  clearSession();
-  if (!window.location.pathname.startsWith("/api/v1/auth/login")) {
-    window.location.assign(serverLoginURL(returnPath));
-  }
-}
-
 export const PENDING_CONNECTION_PATH = "/api/v1/auth/pending-connection";
 
 /**
- * Resolve a request URL at the browser/host boundary.
+ * Resolve a path for same-origin API traffic.
  *
- * The browser owns only same-origin navigation: production gestaltd serves
- * `/api/*` itself, while Vite development proxies that same path to the
- * configured backend. The upstream target is therefore host configuration,
- * never a public client environment variable. Absolute URLs are preserved
- * for server-provided OAuth and connection-selection redirects.
+ * Cookie auth requires one browser origin: the SPA and `/api/*` share it.
+ * Production gestaltd serves both; local/prod-dev Vite proxies `/api` to
+ * `GESTALT_API_PROXY_TARGET`. Absolute URLs (e.g. OAuth selection redirects)
+ * pass through unchanged. Do not read `process.env` here — that is Node-only
+ * and blanks the Vite SPA.
  */
 export function resolveAPIPath(path: string): string {
   if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(path)) {
     return path;
   }
   if (!path.startsWith("/")) {
-    throw new Error(
-      `API path must be absolute (got ${JSON.stringify(path)})`,
-    );
+    throw new Error(`API path must be absolute (got ${JSON.stringify(path)})`);
   }
   return path;
 }
@@ -654,7 +204,10 @@ export async function fetchAPI<T>(
   });
 
   if (res.status === HTTP_UNAUTHORIZED) {
-    redirectToLogin();
+    clearSession();
+    if (!window.location.pathname.startsWith("/api/v1/auth/login")) {
+      window.location.href = serverLoginURL();
+    }
     throw new APIError(HTTP_UNAUTHORIZED, "Session expired");
   }
 
@@ -685,11 +238,6 @@ export interface AuthInfo {
   provider: string;
   displayName: string;
   loginSupported: boolean;
-  features?: {
-    agent?: boolean;
-    /** Default `providers.workflow.*` name for this deployment. */
-    workflowDefaultProvider?: string;
-  };
 }
 
 export interface AuthSession {
@@ -706,91 +254,12 @@ export async function getAuthSession(): Promise<AuthSession> {
   return fetchAPI("/api/v1/auth/session");
 }
 
-/**
- * App authorization member row from the admin control plane.
- * Same shape as `/admin/` Authorization → app members.
- */
-export interface AppAuthorizationMember {
-  email?: string;
-  role?: string;
-  source?: "static" | "dynamic" | string;
-  mutable?: boolean;
-  effective?: boolean;
-  shadowedBy?: string;
-  selectorKind?: string;
-  selectorValue?: string;
-  subjectId?: string;
-}
-
-/**
- * List humans (and selectors) with access to an app.
- * Requires admin authorization for the app; callers should handle 403.
- */
-export async function getAppAuthorizationMembers(
-  appName: string,
-): Promise<AppAuthorizationMember[]> {
-  const response = await fetchAPI<
-    AppAuthorizationMember[] | { members?: AppAuthorizationMember[] }
-  >(
-    `/admin/api/v1/authorization/apps/${encodeURIComponent(appName)}/members`,
-  );
-  if (Array.isArray(response)) return response;
-  return response.members ?? [];
-}
-
 export async function logout(): Promise<void> {
   await fetchAPI("/api/v1/auth/logout", { method: "POST" });
 }
 
 export async function getIntegrations(): Promise<Integration[]> {
   return fetchAPI<Integration[]>("/api/v1/apps");
-}
-
-export async function getAppAdminRegistry(
-  app: string,
-): Promise<AppAdminRegistryResponse> {
-  return fetchAPI<AppAdminRegistryResponse>(
-    `/api/v1/apps/${encodeURIComponent(app)}/admin/registry`,
-  );
-}
-
-export async function selectAppAdminRegistryVersion(
-  app: string,
-  version: string,
-): Promise<AppAdminRegistryVersionResponse> {
-  return fetchAPI<AppAdminRegistryVersionResponse>(
-    `/api/v1/apps/${encodeURIComponent(app)}/admin/registry/version`,
-    {
-      method: "POST",
-      body: JSON.stringify({ version }),
-    },
-  );
-}
-
-export async function updateAppAdminRegistryAutoDeploy(
-  app: string,
-  enabled: boolean,
-): Promise<AppAdminRegistryAutoDeployResponse> {
-  return fetchAPI<AppAdminRegistryAutoDeployResponse>(
-    `/api/v1/apps/${encodeURIComponent(app)}/admin/registry/auto-deploy`,
-    {
-      method: "PUT",
-      body: JSON.stringify({ enabled }),
-    },
-  );
-}
-
-export async function getAppAdminRegistryHistory(
-  app: string,
-  options?: { limit?: number; cursor?: string },
-): Promise<AppAdminRegistryHistoryResponse> {
-  const params = new URLSearchParams();
-  if (options?.limit) params.set("limit", String(options.limit));
-  if (options?.cursor) params.set("cursor", options.cursor);
-  const query = params.toString();
-  return fetchAPI<AppAdminRegistryHistoryResponse>(
-    `/api/v1/apps/${encodeURIComponent(app)}/admin/registry/history${query ? `?${query}` : ""}`,
-  );
 }
 
 export async function getIntegrationOperations(
@@ -865,13 +334,96 @@ export async function disconnectIntegration(
   );
 }
 
-import {
-  listPersonalAPITokens,
-  revokePersonalAPIToken,
-} from "./personalGrants";
+/**
+ * Personal API-token grants live on Identity v2 after gestaltd dropped
+ * `GET /api/v1/tokens` (#2861). Create still uses v1 POST (login/create flows).
+ * List never returns the plaintext secret — only grant metadata.
+ */
+const IDENTITY_GRANTS_PATH = "/api/v2/identity/grants";
+
+type IdentityListGrantsResponse = {
+  grantIds?: string[];
+  grant_ids?: string[];
+};
+
+type IdentityGrantScope = {
+  scope?: string;
+  resource?: string[];
+};
+
+type IdentityGetGrantResponse = {
+  scopes?: IdentityGrantScope[];
+  createdAt?: string | number;
+  expiresAt?: string | number;
+  lastUsedAt?: string | number;
+  created_at?: string | number;
+  expires_at?: string | number;
+  last_used_at?: string | number;
+  name?: string;
+};
+
+function identityGrantPath(id: string): string {
+  return `${IDENTITY_GRANTS_PATH}/${encodeURIComponent(id)}`;
+}
+
+/** Identity timestamps are unix seconds (number or numeric string). */
+function grantUnixToIso(
+  value: string | number | undefined,
+): string | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  const seconds =
+    typeof value === "number" ? value : Number.parseInt(String(value), 10);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return undefined;
+  }
+  return new Date(seconds * 1000).toISOString();
+}
+
+function apiTokenFromGrant(
+  id: string,
+  detail: IdentityGetGrantResponse,
+): APIToken {
+  const scopes = (detail.scopes ?? [])
+    .map((entry) => entry.scope?.trim())
+    .filter((scope): scope is string => Boolean(scope));
+  const createdAt = grantUnixToIso(detail.createdAt ?? detail.created_at) ?? "";
+  const expiresAt = grantUnixToIso(detail.expiresAt ?? detail.expires_at);
+  const lastUsedAt = grantUnixToIso(
+    detail.lastUsedAt ?? detail.last_used_at,
+  );
+  const name = detail.name?.trim();
+  return {
+    id,
+    ...(name ? { name } : {}),
+    scopes,
+    createdAt,
+    ...(expiresAt ? { expiresAt } : {}),
+    ...(lastUsedAt ? { lastUsedAt } : {}),
+  };
+}
 
 export async function getTokens(): Promise<APIToken[]> {
-  return listPersonalAPITokens(fetchAPI);
+  const list = await fetchAPI<IdentityListGrantsResponse>(IDENTITY_GRANTS_PATH);
+  const ids = list.grantIds ?? list.grant_ids ?? [];
+  const tokens = await Promise.all(
+    ids.map(async (id) => {
+      try {
+        const detail = await fetchAPI<IdentityGetGrantResponse>(
+          identityGrantPath(id),
+        );
+        return apiTokenFromGrant(id, detail);
+      } catch (error) {
+        // Match CLI `gestalt token list`: skip grants that disappear mid-list.
+        if (isAPIErrorStatus(error, 404)) {
+          return null;
+        }
+        throw error;
+      }
+    }),
+  );
+  return tokens.filter((token): token is APIToken => token != null);
 }
 
 export async function createToken(
@@ -890,7 +442,7 @@ export async function createToken(
 }
 
 export async function revokeToken(id: string): Promise<void> {
-  return revokePersonalAPIToken(fetchAPI, id);
+  await fetchAPI(identityGrantPath(id), { method: "DELETE" });
 }
 
 const MANAGED_SUBJECTS_PATH = "/api/v1/authorization/subjects";
@@ -1102,4 +654,36 @@ export async function revokeManagedIdentityToken(
     `${managedSubjectPath(id)}/tokens/${encodeURIComponent(tokenId)}`,
     { method: "DELETE" },
   );
+}
+
+/**
+ * App authorization member row from the admin control plane.
+ * Same shape as `/admin/` Authorization → app members.
+ */
+export interface AppAuthorizationMember {
+  email?: string;
+  role?: string;
+  source?: "static" | "dynamic" | string;
+  mutable?: boolean;
+  effective?: boolean;
+  shadowedBy?: string;
+  selectorKind?: string;
+  selectorValue?: string;
+  subjectId?: string;
+}
+
+/**
+ * List humans (and selectors) with access to an app.
+ * Requires admin authorization for the app; callers should handle 403.
+ */
+export async function getAppAuthorizationMembers(
+  appName: string,
+): Promise<AppAuthorizationMember[]> {
+  const response = await fetchAPI<
+    AppAuthorizationMember[] | { members?: AppAuthorizationMember[] }
+  >(
+    `/admin/api/v1/authorization/apps/${encodeURIComponent(appName)}/members`,
+  );
+  if (Array.isArray(response)) return response;
+  return response.members ?? [];
 }

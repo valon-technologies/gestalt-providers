@@ -75,40 +75,6 @@ spec:
         - name: types
           type: string
           in: query
-      - name: users.conversations
-        description: List conversations the calling user or bot is a member of. Prefer this over conversations.list when you need membership-scoped channels, DMs, or MPIMs.
-        method: GET
-        path: /api/users.conversations
-        connectionSelector:
-          parameter: actor
-          default: user
-          values:
-            bot: bot
-            user: default
-        parameters:
-        - name: actor
-          type: string
-          description: "Slack credential actor to use: bot or user"
-          in: query
-          internal: true
-        - name: cursor
-          type: string
-          in: query
-        - name: exclude_archived
-          type: bool
-          in: query
-        - name: limit
-          type: int
-          in: query
-        - name: types
-          type: string
-          in: query
-        - name: user
-          type: string
-          in: query
-        - name: team_id
-          type: string
-          in: query
       - name: chat.update
         description: Update a message in a channel
         method: POST
@@ -366,9 +332,6 @@ spec:
         - name: inclusive
           type: bool
           in: query
-        - name: include_all_metadata
-          type: bool
-          in: query
       - name: search.messages
         description: Search messages across the workspace
         method: GET
@@ -391,15 +354,6 @@ spec:
         path: /api/users.info
         parameters:
         - name: user
-          type: string
-          in: query
-          required: true
-      - name: users.lookupByEmail
-        description: Find a Slack user by their email address
-        method: GET
-        path: /api/users.lookupByEmail
-        parameters:
-        - name: email
           type: string
           in: query
           required: true

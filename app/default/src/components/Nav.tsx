@@ -1,10 +1,21 @@
+import { useEffect, useRef, useState } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { logout } from "@/lib/api";
-import { clearSession, sessionDisplayLabel, sessionInitials } from "@/lib/auth";
-import { BUILD_PATH, DOCS_PATH } from "@/lib/constants";
+import {
+  type AuthSession,
+  getAuthInfo,
+  getAuthSession,
+  logout,
+} from "@/lib/api";
+import {
+  clearSession,
+  getCachedSession,
+  sessionDisplayLabel,
+  sessionInitials,
+  setCachedSession,
+  type CachedAuthSession,
+} from "@/lib/auth";
+import { DOCS_PATH, BUILD_PATH } from "@/lib/constants";
 import { serverLoginURL } from "@/lib/authReturn";
-import { appPath } from "@/lib/mount";
-import { useAuthInfoQuery, useAuthSessionQuery } from "@/lib/queries";
 import Container from "./Container";
 import { Avatar, AvatarFallback } from "./ui/avatar";
 import {
@@ -31,21 +42,57 @@ const links = [
 
 export default function Nav() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const sessionQuery = useAuthSessionQuery();
-  const session = sessionQuery.data ?? null;
+  const [session, setSession] = useState<CachedAuthSession | null>(null);
+  const [loginSupported, setLoginSupported] = useState(false);
+  const sessionRefreshGeneration = useRef(0);
+
+  useEffect(() => {
+    const generation = ++sessionRefreshGeneration.current;
+    setSession(getCachedSession());
+    getAuthSession()
+      .then((nextSession: AuthSession) => {
+        if (generation !== sessionRefreshGeneration.current) return;
+        setCachedSession(nextSession);
+        setSession(nextSession);
+      })
+      .catch(() => {});
+  }, []);
   const displayLabel = sessionDisplayLabel(session);
   const initials = sessionInitials(session);
-  const authInfoQuery = useAuthInfoQuery(!!displayLabel);
-  const loginSupported = authInfoQuery.data?.loginSupported ?? false;
+
+  useEffect(() => {
+    if (!displayLabel) {
+      setLoginSupported(false);
+      return;
+    }
+
+    let active = true;
+    getAuthInfo()
+      .then((info) => {
+        if (active) {
+          setLoginSupported(info.loginSupported);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setLoginSupported(true);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [displayLabel]);
 
   async function handleLogout() {
+    sessionRefreshGeneration.current++;
     await logout().catch(() => {});
     clearSession();
-    window.location.href = serverLoginURL(appPath("/apps"));
+    window.location.href = serverLoginURL("/apps");
   }
 
   return (
-    <header className="border-b border-border py-3 bg-background/80 backdrop-blur-xs sticky top-0 z-50">
+    <header className="border-b border-alpha py-3 bg-background/80 backdrop-blur-xs sticky top-0 z-50">
       <Container className="grid grid-cols-[1fr_auto_1fr] items-baseline gap-x-4">
         <div className="justify-self-start">
           <Link
@@ -96,7 +143,7 @@ export default function Nav() {
                 <DropdownMenuLabel>
                   <p className="truncate font-semibold">{displayLabel}</p>
                   {session?.email && session.email !== displayLabel && (
-                    <p className="mt-0.5 truncate text-xs font-normal text-muted-foreground">
+                    <p className="mt-0.5 truncate text-xs font-normal text-faint">
                       {session.email}
                     </p>
                   )}
@@ -106,9 +153,7 @@ export default function Nav() {
                   <Link to="/settings">Settings</Link>
                 </DropdownMenuItem>
                 {loginSupported && (
-                  <DropdownMenuItem onClick={() => void handleLogout()}>
-                    Log out
-                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleLogout}>Log out</DropdownMenuItem>
                 )}
               </DropdownMenuContent>
             </DropdownMenu>

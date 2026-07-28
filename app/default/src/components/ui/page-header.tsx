@@ -1,6 +1,13 @@
+"use client";
+
 
 /**
- * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
+ * Gestalt console vendor of Valon Registry `page-header`.
+ *
+ * Ownership: Valon Registry is canonical
+ * (`valon-tools/apps/registry/ui/src/ui/page-header.tsx`).
+ * Synced from toolshed origin/main — token adaptation only (`@/lib/cn` path).
+ * Do not restyle chrome at call sites; change Registry first.
  */
 
 import * as React from "react";
@@ -35,7 +42,7 @@ function PageHeader({ className, align, ...props }: PageHeaderProps) {
   );
 }
 
-// Product roles map onto the brand type scale (heading/display tokens).
+// Product roles map onto the brand type scale (theme tokens from valon.ai/style).
 // Everyday defaults stay Melange Heading; Season (`font-display`) is opt-in on
 // lg / xl / entity at Display SM+ (44px) only. Display compounds pin `font-normal`
 // so Season stays Regular — Melange `entity` keeps semibold when display is off.
@@ -77,7 +84,7 @@ type PageHeaderSize = NonNullable<VariantProps<typeof pageHeaderTitleVariants>["
 /** Content owns the title→description→gap scale. Title/Description read it. */
 const PageHeaderScaleContext = React.createContext<PageHeaderSize>("default");
 
-// Title→description rhythm anchored on the brand type scale Colors (44px → 18px / 12px gap).
+// Title→description rhythm anchored on valon.ai/style Colors (44px → 18px / 12px gap).
 // Larger title tiers step description and gap up together.
 const pageHeaderContentVariants = cva("flex min-w-0 flex-col", {
   variants: {
