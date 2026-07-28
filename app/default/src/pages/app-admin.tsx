@@ -100,7 +100,7 @@ export default function AppAdminPage() {
                 }
                 onDeployVersion={(version) => deployMutation.mutate(version)}
                 onCheckForNewVersions={registryQuery.checkForNewVersions}
-                isCheckingForNewVersions={registryQuery.isFetching}
+                isCheckingForNewVersions={registryQuery.isCheckingForNewVersions}
                 onAutoDeployChange={(enabled) => autoDeployMutation.mutate(enabled)}
                 isUpdatingAutoDeploy={autoDeployMutation.isPending}
                 autoDeployError={autoDeployError}

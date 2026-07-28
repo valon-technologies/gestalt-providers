@@ -2,18 +2,21 @@ import {
   Field,
   FieldContent,
   FieldDescription,
+  FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
 import type { AppAdminAutoDeploy } from "@/features/registry/types";
-import { cn } from "@/lib/cn";
 import { Loader2 } from "lucide-react";
+
+const SECTION_CARD =
+  "rounded-lg border border-alpha bg-base-white p-6 dark:bg-surface";
 
 export function AppAdminAutoDeployToggle({
   autoDeploy,
   disabled,
   updating,
-  updateError,
+  updateError = null,
   onChange,
 }: {
   autoDeploy: AppAdminAutoDeploy;
@@ -24,59 +27,49 @@ export function AppAdminAutoDeployToggle({
 }) {
   const toggleId = "app-admin-auto-deploy-toggle";
   const lastError = autoDeploy.lastError?.trim();
-  const enabled = autoDeploy.enabled;
+  const mutationError = updateError?.trim();
 
   return (
     <section
-      className="space-y-3 rounded-2xl border border-border bg-card p-6 text-card-foreground"
+      className={SECTION_CARD}
       data-testid="app-admin-auto-deploy"
+      aria-label="Automatic deployment"
     >
-      <Field orientation="horizontal">
-        <FieldContent>
-          <FieldLabel htmlFor={toggleId}>Automatically deploy new snapshots</FieldLabel>
-          <FieldDescription>
-            {enabled
-              ? "New published snapshots are admitted across the fleet automatically. Turn off to deploy manually."
-              : "Admit the newest published snapshot across the fleet without a manual deploy."}
-          </FieldDescription>
-        </FieldContent>
-        <div className="flex shrink-0 items-center gap-2 self-start">
-          <span
-            className={cn(
-              "min-w-[1.75rem] text-right text-sm font-medium tabular-nums",
-              enabled ? "text-foreground" : "text-muted-foreground",
-            )}
-            data-testid="auto-deploy-state"
-            aria-hidden="true"
-          >
-            {enabled ? "On" : "Off"}
-          </span>
-          <Switch
-            id={toggleId}
-            checked={enabled}
-            disabled={disabled || updating}
-            onCheckedChange={onChange}
-            data-testid="auto-deploy-toggle"
-            aria-label="Automatically deploy new snapshots"
-          />
-          {updating ? (
-            <Loader2
-              className="size-4 shrink-0 animate-spin text-muted-foreground"
-              aria-hidden="true"
-              data-testid="auto-deploy-toggle-spinner"
+      <FieldGroup>
+        <Field orientation="horizontal">
+          <FieldContent>
+            <FieldLabel htmlFor={toggleId}>Automatically deploy new snapshots</FieldLabel>
+            <FieldDescription>
+              Admit the newest published snapshot across the fleet without a manual deploy.
+            </FieldDescription>
+          </FieldContent>
+          <div className="flex shrink-0 items-center gap-2 self-center">
+            {updating ? (
+              <Loader2
+                className="size-4 animate-spin text-muted-foreground"
+                aria-hidden="true"
+                data-testid="auto-deploy-toggle-spinner"
+              />
+            ) : null}
+            <Switch
+              id={toggleId}
+              checked={autoDeploy.enabled}
+              disabled={disabled || updating}
+              onCheckedChange={onChange}
+              data-testid="auto-deploy-toggle"
             />
-          ) : null}
-        </div>
-      </Field>
+          </div>
+        </Field>
+      </FieldGroup>
 
-      {updateError ? (
-        <p className="text-sm text-destructive" data-testid="auto-deploy-update-error">
-          {updateError}
+      {mutationError ? (
+        <p className="mt-4 text-sm text-destructive" data-testid="auto-deploy-update-error">
+          {mutationError}
         </p>
       ) : null}
 
       {lastError ? (
-        <p className="text-sm text-destructive" data-testid="auto-deploy-last-error">
+        <p className="mt-4 text-sm text-destructive" data-testid="auto-deploy-last-error">
           {lastError}
         </p>
       ) : null}
