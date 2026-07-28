@@ -496,6 +496,7 @@ Operation surfaces: REST.
 
 Representative operations include:
 
+- `users.conversations`
 - `conversations.getThreadContext`
 - `identity.linkSelf`
 - `events.startStream`
