@@ -8,8 +8,14 @@ import type { AppAdminRegistryRevision, RegistryRollout } from "@/features/regis
 export function decorateRevisionRollout(
   revision: AppAdminRegistryRevision,
   rollout?: RegistryRollout,
+  currentRevisionId?: string,
 ): AppAdminRegistryRevision {
-  if (!rollout || rollout.version !== revision.version || !isActiveRegistryRollout(rollout.state)) {
+  if (
+    !rollout ||
+    rollout.version !== revision.version ||
+    !isActiveRegistryRollout(rollout.state) ||
+    (currentRevisionId !== undefined && revision.id !== currentRevisionId)
+  ) {
     return revision;
   }
   return {
@@ -31,7 +37,8 @@ export function revisionHasActiveRollout(
         revision.rolloutState === "enrolling" || revision.rolloutState === "restarting",
     );
   }
-  return revisions.some((revision) => revision.version === rollout.version);
+  const currentRevision = revisions[0];
+  return currentRevision?.version === rollout.version;
 }
 
 export function revisionRolloutStatusLabel(state?: string): string | null {

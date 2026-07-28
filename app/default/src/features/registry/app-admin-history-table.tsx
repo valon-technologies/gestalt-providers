@@ -71,13 +71,15 @@ function RevisionRolloutDuration({ statusTimer }: { statusTimer: string }) {
 function RevisionHistoryRow({
   revision,
   rollout,
+  currentRevisionId,
   liveNow,
 }: {
   revision: AppAdminRegistryRevision;
   rollout?: RegistryRollout;
+  currentRevisionId?: string;
   liveNow: number;
 }) {
-  const decoratedRevision = decorateRevisionRollout(revision, rollout);
+  const decoratedRevision = decorateRevisionRollout(revision, rollout, currentRevisionId);
   const deployedAt = deployedAtLabel(decoratedRevision.deployedAt, liveNow);
   const pullRequest = decoratedRevision.publication?.triggerPullRequest;
   const statusLabel = revisionRolloutStatusLabel(decoratedRevision.rolloutState);
@@ -182,6 +184,7 @@ export function AppAdminHistoryTable({
   const liveNow = useLiveNow({
     enabled: revisionHasActiveRollout(revisions, rollout),
   });
+  const currentRevisionId = revisions[0]?.id;
 
   if (loading) {
     return <p className="text-sm text-muted-foreground">Loading revision history…</p>;
@@ -217,6 +220,7 @@ export function AppAdminHistoryTable({
                 key={revision.id}
                 revision={revision}
                 rollout={rollout}
+                currentRevisionId={currentRevisionId}
                 liveNow={liveNow}
               />
             ))}
