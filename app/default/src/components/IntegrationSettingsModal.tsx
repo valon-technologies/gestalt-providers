@@ -54,6 +54,7 @@ interface IntegrationSettingsModalProps {
   connectionContext?: ConnectionContext;
   initialView?: ModalView;
   destructiveActionLabel?: "Disconnect" | "Uninstall";
+  presentation?: "modal" | "inline";
 }
 
 function statusBadgeClasses(tone: NormalizedIntegrationStatus["tone"]): string {
@@ -213,15 +214,18 @@ export default function IntegrationSettingsModal({
   connectionContext = "current_user",
   initialView = "default",
   destructiveActionLabel = "Disconnect",
+  presentation = "modal",
 }: IntegrationSettingsModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const [view, setView] = useState<ModalView>(initialView);
   const [disconnectTarget, setDisconnectTarget] = useState<ConnectionTarget>({});
   const [pendingAction, setPendingAction] = useState<PendingAuthAction | undefined>();
+  const isInline = presentation === "inline";
 
   useEffect(() => {
+    if (isInline) return;
     dialogRef.current?.showModal();
-  }, []);
+  }, [isInline]);
 
   const displayName = integration.displayName || integration.name;
   const headingId = `settings-modal-heading-${integration.name}`;
@@ -250,6 +254,10 @@ export default function IntegrationSettingsModal({
   }
 
   function closeDialog() {
+    if (isInline) {
+      onClose();
+      return;
+    }
     dialogRef.current?.close();
   }
 
@@ -454,16 +462,8 @@ export default function IntegrationSettingsModal({
     );
   }
 
-  return (
-    <dialog
-      ref={dialogRef}
-      aria-labelledby={headingId}
-      onCancel={handleCancel}
-      onClose={onClose}
-      onClick={handleBackdropClick}
-      className="m-auto w-full max-w-lg rounded-lg border border-border bg-card p-0 text-card-foreground shadow-dropdown"
-    >
-      <div className="p-7">
+  const panel = (
+    <div className={isInline ? undefined : "p-7"}>
         {view === "disconnect" ? (
           <>
             <h2
@@ -569,13 +569,15 @@ export default function IntegrationSettingsModal({
                   </p>
                 ) : null}
               </div>
-              <button
-                onClick={closeDialog}
-                className="rounded-md p-1.5 text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-accent-foreground"
-                aria-label="Close"
-              >
-                <CloseIcon className="h-4 w-4" />
-              </button>
+              {!isInline ? (
+                <button
+                  onClick={closeDialog}
+                  className="rounded-md p-1.5 text-muted-foreground/70 transition-colors duration-150 hover:bg-accent hover:text-accent-foreground"
+                  aria-label="Close"
+                >
+                  <CloseIcon className="h-4 w-4" />
+                </button>
+              ) : null}
             </div>
 
             {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
@@ -586,6 +588,26 @@ export default function IntegrationSettingsModal({
           </>
         )}
       </div>
+  );
+
+  if (isInline) {
+    return (
+      <div aria-labelledby={headingId} className="text-card-foreground">
+        {panel}
+      </div>
+    );
+  }
+
+  return (
+    <dialog
+      ref={dialogRef}
+      aria-labelledby={headingId}
+      onCancel={handleCancel}
+      onClose={onClose}
+      onClick={handleBackdropClick}
+      className="m-auto w-full max-w-lg rounded-lg border border-border bg-card p-0 text-card-foreground shadow-dropdown"
+    >
+      {panel}
     </dialog>
   );
 }

@@ -119,6 +119,7 @@ const buildStepRoute = createRoute({
 
 const APP_DETAIL_SECTIONS = [
   "overview",
+  "connection",
   "access",
   "workflows",
   "operations",

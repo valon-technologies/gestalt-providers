@@ -283,7 +283,7 @@ export function catalogCardActivateTarget(
   if (state === "not_connected" || state === "needs_attention") {
     return "listing";
   }
-  return "app";
+  return appOpenPath(integration) ? "app" : "listing";
 }
 
 /** Catalog tile / listing badge copy — shorter success label without mutating settings labels. */

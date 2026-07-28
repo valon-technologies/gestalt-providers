@@ -350,7 +350,7 @@ test.describe("Integrations", () => {
     ).toBeVisible();
   });
 
-  test("mounted ui cards navigate to app detail", async ({ authenticatedPage }) => {
+  test("mounted ui cards navigate to mounted app", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await mockIntegrations(page, [MOUNTED_UI_INTEGRATION]);
     await mockTokens(page, []);
@@ -360,26 +360,34 @@ test.describe("Integrations", () => {
 
     await page.getByTestId("integration-card-mounted-ui-svc").click();
 
-    await page.waitForURL("**/apps/mounted-ui-svc");
-    await expect(
-      page.getByRole("heading", { level: 1, name: "Mounted UI Service" }),
-    ).toBeVisible();
-    await expect(page.getByRole("navigation", { name: "breadcrumb" })).toBeVisible();
-    await expect(
-      page.getByRole("navigation", { name: "breadcrumb" }).getByRole("link", { name: "Apps" }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("navigation", { name: "breadcrumb" }),
-    ).toContainText("Mounted UI Service");
+    await page.waitForURL("**/mounted-ui");
   });
 
-  test("mounted ui settings button does not trigger navigation", async ({ authenticatedPage }) => {
+  test("manage menu opens app detail page", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
-    await mockIntegrations(page, [MOUNTED_UI_WITH_SETTINGS_INTEGRATION]);
+    const integration = withConnectedConnection(MOUNTED_UI_WITH_SETTINGS_INTEGRATION);
+    await mockIntegrations(page, [integration]);
     await mockTokens(page, []);
 
     await page.goto("/apps");
-    await page.getByRole("button", { name: "Mounted UI With Settings settings" }).click();
+    await page.getByRole("button", { name: "Mounted UI With Settings options" }).click();
+    await page.getByTestId("manage-app-mounted-ui-settings-svc").click();
+
+    await page.waitForURL("**/apps/mounted-ui-settings-svc");
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Mounted UI With Settings" }),
+    ).toBeVisible();
+  });
+
+  test("mounted ui settings menu does not trigger navigation", async ({ authenticatedPage }) => {
+    const page = authenticatedPage;
+    const integration = withConnectedConnection(MOUNTED_UI_WITH_SETTINGS_INTEGRATION);
+    await mockIntegrations(page, [integration]);
+    await mockTokens(page, []);
+
+    await page.goto("/apps");
+    await page.getByRole("button", { name: "Mounted UI With Settings options" }).click();
+    await page.getByRole("menuitem", { name: "Settings" }).click();
 
     await expect(page.getByRole("dialog")).toBeVisible();
     await expect(page).toHaveURL(/\/apps$/);

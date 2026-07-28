@@ -107,6 +107,8 @@ export default function IntegrationCard({
   connectionContext = "current_user",
   settingsOpen: settingsOpenProp,
   onSettingsOpenChange,
+  settingsPresentation = "modal",
+  settingsOnly = false,
   highlightQuery = "",
 }: {
   integration: Integration;
@@ -124,6 +126,9 @@ export default function IntegrationCard({
   /** Controlled settings modal (e.g. App Admin header Connect). */
   settingsOpen?: boolean;
   onSettingsOpenChange?: (open: boolean) => void;
+  settingsPresentation?: "modal" | "inline";
+  /** Render only the settings panel (no catalog card chrome). */
+  settingsOnly?: boolean;
   /** Catalog search query — highlights matching tokens in title/description. */
   highlightQuery?: string;
 }) {
@@ -302,7 +307,10 @@ export default function IntegrationCard({
   }
 
   function openManage() {
-    navigateToAdmin();
+    void navigate({
+      to: "/apps/$appName",
+      params: { appName: integration.name },
+    });
   }
 
   function openUninstall() {
@@ -328,10 +336,14 @@ export default function IntegrationCard({
   }
 
   function navigateToApp() {
-    void navigate({
-      to: "/apps/$appName",
-      params: { appName: integration.name },
-    });
+    if (!mountedPath) {
+      void navigate({
+        to: "/apps/$appName",
+        params: { appName: integration.name },
+      });
+      return;
+    }
+    window.location.assign(resolveMountedAppHref(mountedPath));
   }
 
   function navigateToAdmin() {
@@ -371,26 +383,38 @@ export default function IntegrationCard({
 
   return (
     <div
-      data-testid={`integration-card-${integration.name}`}
+      data-testid={
+        settingsOnly
+          ? `integration-settings-${integration.name}`
+          : `integration-card-${integration.name}`
+      }
       className={cn(
-        // Registry Card `variant="solid"` rest = secondary ≈ --neutral-hover.
-        // Interactive deepen: Neutral dark (selectable-rows.md) — named L-step
-        // tokens, not a ramp jump to base-200 (hover-pressed-color.md).
-        "rounded-xl bg-neutral-hover p-4 text-foreground",
-        "hover:bg-neutral-dark-hover active:bg-neutral-dark-pressed",
+        settingsOnly
+          ? undefined
+          : // Registry Card `variant="solid"` rest = secondary ≈ --neutral-hover.
+            // Interactive deepen: Neutral dark (selectable-rows.md) — named L-step
+            // tokens, not a ramp jump to base-200 (hover-pressed-color.md).
+            "rounded-xl bg-neutral-hover p-4 text-foreground",
+        !settingsOnly &&
+          "hover:bg-neutral-dark-hover active:bg-neutral-dark-pressed",
         // Nested controls own the hit (More / Add): suppress card deepen while
         // they are hovered/pressed — same :has() contract as Registry table
         // tbody rows (table.tsx + ROW_LINK_INTERACTIVE_SELECTOR / data-no-row-click).
-        "hover:has-[button:hover,[role=button]:hover,[data-no-row-click]:hover]:bg-neutral-hover",
-        "active:has-[button:active,[role=button]:active,[data-no-row-click]:active]:bg-neutral-hover",
-        cardNavigationEnabled &&
+        !settingsOnly &&
+          "hover:has-[button:hover,[role=button]:hover,[data-no-row-click]:hover]:bg-neutral-hover",
+        !settingsOnly &&
+          "active:has-[button:active,[role=button]:active,[data-no-row-click]:active]:bg-neutral-hover",
+        !settingsOnly &&
+          cardNavigationEnabled &&
           "cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold-400 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       )}
-      onClick={handleCardClick}
-      onKeyDown={handleCardKeyDown}
-      role={cardNavigationEnabled ? "link" : undefined}
-      tabIndex={cardNavigationEnabled ? 0 : undefined}
-      aria-label={cardNavigationEnabled ? cardAriaLabel : undefined}
+      onClick={settingsOnly ? undefined : handleCardClick}
+      onKeyDown={settingsOnly ? undefined : handleCardKeyDown}
+      role={!settingsOnly && cardNavigationEnabled ? "link" : undefined}
+      tabIndex={!settingsOnly && cardNavigationEnabled ? 0 : undefined}
+      aria-label={
+        !settingsOnly && cardNavigationEnabled ? cardAriaLabel : undefined
+      }
     >
       {pendingSelection && (
         <form
@@ -406,7 +430,8 @@ export default function IntegrationCard({
           />
         </form>
       )}
-      <div className="flex items-start justify-between gap-3">
+      {!settingsOnly ? (
+        <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-4">
           <IntegrationIcon
             iconSvg={integration.iconSvg}
@@ -498,15 +523,13 @@ export default function IntegrationCard({
                   <TooltipContent side="top">More</TooltipContent>
                 </Tooltip>
                 <DropdownMenuContent align="end" className="w-44">
-                  {isAppAdmin ? (
-                    <DropdownMenuItem
-                      onClick={openManage}
-                      data-testid={`manage-app-${integration.name}`}
-                    >
-                      <SlidersIcon />
-                      Manage
-                    </DropdownMenuItem>
-                  ) : null}
+                  <DropdownMenuItem
+                    onClick={openManage}
+                    data-testid={`manage-app-${integration.name}`}
+                  >
+                    <SlidersIcon />
+                    Manage
+                  </DropdownMenuItem>
                   {settingsAvailable ? (
                     <DropdownMenuItem onClick={openSettings}>
                       <SlidersIcon />
@@ -552,6 +575,7 @@ export default function IntegrationCard({
           </TooltipProvider>
         </div>
       </div>
+      ) : null}
       {error && !settingsOpen && (
         <p className="mt-3 text-sm text-ember-500">{error}</p>
       )}
@@ -579,6 +603,7 @@ export default function IntegrationCard({
           connectionContext={connectionContext}
           initialView={settingsInitialView}
           destructiveActionLabel={destructiveActionLabel}
+          presentation={settingsPresentation}
         />
       )}
     </div>
