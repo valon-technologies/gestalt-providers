@@ -1,6 +1,7 @@
 
 import { Link } from "@tanstack/react-router";
 import type { ManagedIdentity } from "@/lib/api";
+import { managedIdentityLocalId } from "@/lib/managed-identity-paths";
 
 export default function IdentitySummaryCard({
   identity,
@@ -9,8 +10,8 @@ export default function IdentitySummaryCard({
 }) {
   return (
     <Link
-      to="/identities"
-      search={{ id: identity.subjectId }}
+      to="/settings/identities/$identityLocalId"
+      params={{ identityLocalId: managedIdentityLocalId(identity.subjectId) }}
       className="group rounded-lg border border-border bg-card p-6 text-card-foreground transition-all duration-150 hover:border-input hover:shadow-card"
     >
       <div className="flex items-start justify-between gap-4">

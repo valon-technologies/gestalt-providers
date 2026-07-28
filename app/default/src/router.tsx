@@ -19,10 +19,13 @@ import { useDocumentTitle } from "@/hooks/use-document-title";
 import AppAdminPage from "@/pages/app-admin";
 import AppsPage from "@/pages/apps";
 import BuildPage, { BuildIndexRedirect } from "@/pages/build";
-import IdentitiesPage from "@/pages/identities";
 import SettingsPage from "@/pages/settings";
+import SettingsIdentitiesList from "@/components/SettingsIdentitiesList";
+import SettingsIdentityDetail from "@/components/SettingsIdentityDetail";
+import SettingsTokensSection from "@/components/SettingsTokensSection";
 import WorkflowsPage from "@/pages/workflows";
 import { appBasepath } from "@/lib/mount";
+import { managedIdentityLocalId } from "@/lib/managed-identity-paths";
 import { rootRoute } from "./routes/__root";
 
 function DocsLayout() {
@@ -119,18 +122,59 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 });
 
+const settingsIndexRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/",
+  beforeLoad: ({ location }) => {
+    if (location.hash === "#identities") {
+      throw redirect({ to: "/settings/identities" });
+    }
+    throw redirect({ to: "/settings/tokens" });
+  },
+});
+
+const settingsTokensRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/tokens",
+  component: SettingsTokensSection,
+});
+
+const settingsIdentitiesRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/identities",
+  component: SettingsIdentitiesList,
+});
+
+const settingsIdentityDetailRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/identities/$identityLocalId",
+  component: SettingsIdentityDetail,
+});
+
 const authorizationRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/authorization",
   beforeLoad: () => {
-    throw redirect({ to: "/settings", hash: "authorization" });
+    throw redirect({ to: "/settings/tokens" });
   },
 });
 
 const identitiesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/identities",
-  component: IdentitiesPage,
+  beforeLoad: ({ location }) => {
+    const search =
+      typeof location.search === "string" ? location.search : "";
+    const id = new URLSearchParams(search).get("id");
+    if (id) {
+      throw redirect({
+        to: "/settings/identities/$identityLocalId",
+        params: { identityLocalId: managedIdentityLocalId(id) },
+        hash: location.hash,
+      });
+    }
+    throw redirect({ to: "/settings/identities", hash: location.hash });
+  },
 });
 
 const integrationsRoute = createRoute({
@@ -149,7 +193,7 @@ const tokensRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/tokens",
   beforeLoad: () => {
-    throw redirect({ to: "/settings", hash: "authorization" });
+    throw redirect({ to: "/settings/tokens" });
   },
 });
 
@@ -226,7 +270,12 @@ const routeTree = rootRoute.addChildren([
   buildIndexRoute,
   buildStepRoute,
   appAdminRoute,
-  settingsRoute,
+  settingsRoute.addChildren([
+    settingsIndexRoute,
+    settingsTokensRoute,
+    settingsIdentitiesRoute,
+    settingsIdentityDetailRoute,
+  ]),
   authorizationRoute,
   identitiesRoute,
   integrationsRoute,

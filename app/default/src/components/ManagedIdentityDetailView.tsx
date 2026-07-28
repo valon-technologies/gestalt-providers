@@ -21,6 +21,10 @@ import {
   INPUT_CLASSES,
 } from "@/lib/constants";
 import { filterIntegrations, getIntegrationLabel } from "@/lib/integrationSearch";
+import {
+  SETTINGS_IDENTITIES_PATH,
+  settingsIdentityDetailPath,
+} from "@/lib/managed-identity-paths";
 import { appPath } from "@/lib/mount";
 import {
   useDeleteManagedIdentityGrantMutation,
@@ -114,8 +118,12 @@ function ChevronUpDownIcon({ className }: { className?: string }) {
 
 export default function ManagedIdentityDetailView({
   identityID,
+  listTo = SETTINGS_IDENTITIES_PATH,
+  embedded = false,
 }: {
   identityID: string;
+  listTo?: string;
+  embedded?: boolean;
 }) {
   const identityQuery = useManagedIdentityQuery(identityID);
   const membersQuery = useManagedIdentityMembersQuery(identityID);
@@ -167,7 +175,7 @@ export default function ManagedIdentityDetailView({
       ?.role ?? "viewer";
   const canAdmin = role === "admin";
   const canConnect = role === "editor" || role === "admin";
-  const connectionReturnPath = `/identities?id=${encodeURIComponent(identityID)}`;
+  const connectionReturnPath = settingsIdentityDetailPath(identityID);
   const grantPluginOptions = mergeGrantPluginOptions(
     visibleIntegrations,
     grants,
@@ -205,7 +213,7 @@ export default function ManagedIdentityDetailView({
     setError(null);
     try {
       await deleteIdentity.mutateAsync();
-      window.location.href = appPath("/identities");
+      window.location.href = appPath(listTo);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete identity");
     }
@@ -294,10 +302,13 @@ export default function ManagedIdentityDetailView({
     window.sessionStorage.removeItem(CONNECTION_RETURN_PATH_STORAGE_KEY);
   }
 
-  return (
-    <Container as="main" className="py-12">
-      <div className="animate-fade-in-up">
-        <Link to="/identities" className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-150">
+  const detailBody = (
+    <>
+      <div className={embedded ? undefined : "animate-fade-in-up"}>
+        <Link
+          to={listTo}
+          className="text-sm text-muted-foreground hover:text-foreground transition-colors duration-150"
+        >
           &larr; Back to identities
         </Link>
         <PageHeader className="mt-5">
@@ -676,6 +687,20 @@ export default function ManagedIdentityDetailView({
           </section>
         </div>
       ) : null}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <section className="scroll-mt-24" aria-label="Managed identity">
+        {detailBody}
+      </section>
+    );
+  }
+
+  return (
+    <Container as="main" className="py-12">
+      {detailBody}
     </Container>
   );
 }

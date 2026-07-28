@@ -1,5 +1,3 @@
-import SettingsPageClient from "@/components/SettingsPageClient";
+import SettingsLayout from "@/components/SettingsLayout";
 
-export default function SettingsPage() {
-  return <SettingsPageClient />;
-}
+export default SettingsLayout;
