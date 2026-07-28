@@ -27,7 +27,6 @@ import SettingsPage from "@/pages/settings";
 import SettingsIdentitiesList from "@/components/SettingsIdentitiesList";
 import SettingsIdentityDetail from "@/components/SettingsIdentityDetail";
 import SettingsTokensSection from "@/components/SettingsTokensSection";
-import WorkflowsPage from "@/pages/workflows";
 import { appBasepath } from "@/lib/mount";
 import {
   legacyIdentityIdFromLocation,

@@ -93,13 +93,6 @@ test.describe("Navigation", () => {
     await expect(page.locator("#authorization")).toBeVisible();
   });
 
-  test("workflows page renders", async ({ authenticatedPage: page }) => {
-    await page.goto("/workflows");
-    await expect(
-      page.getByRole("heading", { name: "Workflows" }),
-    ).toBeVisible();
-  });
-
   test("app admin workflows section renders", async ({ authenticatedPage: page }) => {
     await mockIntegrations(page, [
       {
