@@ -22,6 +22,7 @@ import { queryKeys } from "@/lib/query-keys";
 export function useAppAdminRegistryQuery(appName: string) {
   const bootstrapPollUntilRef = useRef(0);
   const [bootstrapPollEpoch, setBootstrapPollEpoch] = useState(0);
+  const [isCheckingForNewVersions, setIsCheckingForNewVersions] = useState(false);
 
   useEffect(() => {
     bootstrapPollUntilRef.current = Date.now() + APP_ADMIN_BOOTSTRAP_POLL_MS;
@@ -49,12 +50,16 @@ export function useAppAdminRegistryQuery(appName: string) {
   const checkForNewVersions = useCallback(() => {
     bootstrapPollUntilRef.current = Date.now() + APP_ADMIN_BOOTSTRAP_POLL_MS;
     setBootstrapPollEpoch((epoch) => epoch + 1);
-    void query.refetch();
+    setIsCheckingForNewVersions(true);
+    void query.refetch().finally(() => {
+      setIsCheckingForNewVersions(false);
+    });
   }, [query]);
 
   return {
     ...query,
     checkForNewVersions,
+    isCheckingForNewVersions,
   };
 }
 

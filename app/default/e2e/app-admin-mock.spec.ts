@@ -489,6 +489,22 @@ test.describe("app admin registry UI", () => {
     );
   });
 
+  test("background registry polling does not flash the check button loading state", async ({
+    page,
+  }) => {
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      autoDeploy: { enabled: true },
+    });
+    await page.goto(`/apps/${APP}/admin`);
+
+    const checkButton = page.getByTestId("check-for-new-versions");
+    await expect(checkButton).toHaveText("Check for new versions");
+    await page.waitForTimeout(4_500);
+    await expect(checkButton).toHaveText("Check for new versions");
+    await expect(checkButton).not.toContainText("Checking");
+  });
+
   test("403 renders access denied without registry metadata", async ({ page }) => {
     await page.route(`**/api/v1/apps/${APP}/admin/registry`, (route) => {
       route.fulfill({ status: 403, json: { error: "app access denied" } });
