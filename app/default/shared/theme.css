@@ -105,6 +105,18 @@
   --info: oklch(92.8% 0.035 248);
   --info-foreground: oklch(40.8% 0.105 248);
 
+  /* Badge status surfaces — Valon registry parity (registry/theme/theme.css).
+   * Distinct from legacy gestalt-shell --success canvas-ink overrides. Tenants
+   * may remap these to --success / --info when their theme uses status surfaces. */
+  --badge-success: oklch(92.8% 0.045 144);
+  --badge-success-foreground: oklch(40.8% 0.105 144);
+  --badge-warning: oklch(92.8% 0.045 82);
+  --badge-warning-foreground: oklch(40.8% 0.082 82);
+  --badge-info: oklch(92.8% 0.035 248);
+  --badge-info-foreground: oklch(40.8% 0.105 248);
+  --badge-destructive: oklch(58.766% 0.1526 23);
+  --badge-destructive-foreground: oklch(100% 0 0);
+
   /* ── Registry UI extensions ──────────────────────────────────────────── */
   --alpha-dark: var(--foreground);
   --surface: var(--card);
@@ -208,6 +220,15 @@
   --error-foreground: oklch(85.8% 0.073 25);
   --info: oklch(28.2% 0.058 248);
   --info-foreground: oklch(85.8% 0.07 248);
+
+  --badge-success: oklch(28.2% 0.058 144);
+  --badge-success-foreground: oklch(85.8% 0.075 144);
+  --badge-warning: oklch(28.2% 0.058 82);
+  --badge-warning-foreground: oklch(85.8% 0.075 82);
+  --badge-info: oklch(28.2% 0.058 248);
+  --badge-info-foreground: oklch(85.8% 0.07 248);
+  --badge-destructive: oklch(77.8% 0.108 25);
+  --badge-destructive-foreground: oklch(19.494% 0.0088 59.1);
 
   --alpha-dark: var(--foreground);
   --surface: var(--card);

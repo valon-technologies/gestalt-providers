@@ -42,7 +42,6 @@ export function badgeCustomColorStyle(color: string): React.CSSProperties {
   }
   if (relativeLuminance(color) > BADGE_CUSTOM_COLOR_SOFT_LUMINANCE) {
     return {
-      // 50% identity into white — pale chips stay chromatic + AA with dark ink.
       backgroundColor: `color-mix(in oklch, ${color} 50%, white)`,
       color: BADGE_CUSTOM_COLOR_INK,
     };
@@ -55,7 +54,7 @@ export function badgeCustomColorStyle(color: string): React.CSSProperties {
 
 const badgeVariants = cva(
   // Badges are single-line soft-rects (`rounded-sm` / --radius-sm ≈ 4px) — squarer
-  // than a capsule, tighter than Button's `rounded-md`, matching compact status
+  // than a capsule, tighter than Button's `rounded-md`, matching valon.ai status
   // chips. Without nowrap, label text wraps inside narrow table/sidebar cells.
   "inline-flex items-center justify-center gap-1 whitespace-nowrap rounded-sm text-xs font-normal transition-colors [&>svg]:size-3 [&>svg]:shrink-0",
   {
@@ -66,10 +65,12 @@ const badgeVariants = cva(
         muted: "bg-muted text-muted-foreground hover:bg-muted/80 hover:text-foreground",
         outline: "border border-border text-foreground",
         ghost: "bg-transparent text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-        success: "bg-success text-success-foreground",
-        warning: "bg-warning text-warning-foreground",
-        info: "bg-info text-info-foreground",
-        destructive: "bg-destructive text-destructive-foreground",
+        // Valon registry Badge — uses --badge-* status surfaces (shared/theme.css)
+        // so legacy gestalt-shell --success grove overrides do not affect chips.
+        success: "bg-badge-success text-badge-success-foreground",
+        warning: "bg-badge-warning text-badge-warning-foreground",
+        info: "bg-badge-info text-badge-info-foreground",
+        destructive: "bg-badge-destructive text-badge-destructive-foreground",
         // Internal: reached only via the `color` prop. No token fill/hover so the
         // soft wash + dark ink fully own the look.
         custom: "",
