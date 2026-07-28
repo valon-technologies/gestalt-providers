@@ -1,6 +1,8 @@
 import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import Container from "@/components/Container";
 import { Eyebrow } from "@/components/ui/eyebrow";
+import { NavList, NavListItem, NavListItemLabel } from "@/components/ui/nav-list";
+import { PageLayout } from "@/components/ui/page-layout";
 import {
   PageHeader,
   PageHeaderContent,
@@ -9,8 +11,6 @@ import {
 } from "@/components/ui/page-header";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useDocumentTitle } from "@/hooks/use-document-title";
-import { cn } from "@/lib/cn";
-import { listItemInteraction } from "@/lib/list-item-interaction";
 import {
   SETTINGS_IDENTITIES_PATH,
   SETTINGS_TOKENS_PATH,
@@ -18,8 +18,10 @@ import {
 
 type SettingsSection = "tokens" | "identities";
 
+// Rail labels are nouns. The section's own SectionHeader carries the fuller
+// phrasing plus a description, so the rail is not a duplicate of the h2.
 const SECTION_OPTIONS: Array<{ value: SettingsSection; label: string }> = [
-  { value: "tokens", label: "Your API Tokens" },
+  { value: "tokens", label: "API tokens" },
   { value: "identities", label: "Managed identities" },
 ];
 
@@ -42,59 +44,53 @@ export default function SettingsLayout() {
   const section = sectionFromPathname(pathname);
 
   return (
-    <Container as="main" className="py-12">
-      <PageHeader>
-        <PageHeaderContent>
-          <Eyebrow tone="brand">Account</Eyebrow>
-          <PageHeaderTitle>Settings</PageHeaderTitle>
-          <PageHeaderDescription>
-            Manage authorization for your account — personal API tokens and
-            shared service identities.
-          </PageHeaderDescription>
-        </PageHeaderContent>
-      </PageHeader>
-
-      <div className="mt-8 xl:hidden">
-        <SegmentedControl
-          label="Settings sections"
-          options={SECTION_OPTIONS}
-          value={section}
-          onValueChange={(next) => {
-            void navigate({ to: SECTION_PATHS[next] });
-          }}
-          showLabels
-          size="sm"
-        />
-      </div>
-
-      <div className="mt-8 grid gap-10 xl:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="hidden xl:block">
-          <div className="sticky top-24">
-            <nav className="space-y-0.5" aria-label="Settings sections">
-              {SECTION_OPTIONS.map((option) => {
-                const isActive = option.value === section;
-                return (
-                  <Link
-                    key={option.value}
-                    to={SECTION_PATHS[option.value]}
-                    data-selected={isActive || undefined}
-                    className={cn(
-                      "block w-full rounded-md px-3 py-2 text-left text-sm outline-none focus-ring-inset",
-                      listItemInteraction({ pointer: "css" }),
-                    )}
-                  >
-                    {option.label}
-                  </Link>
-                );
-              })}
-            </nav>
-          </div>
-        </aside>
-
-        <div className="min-w-0">
-          <Outlet />
-        </div>
-      </div>
+    // PageLayout renders the <main>, so the Container stays a plain wrapper.
+    <Container className="py-12">
+      <PageLayout
+        // "Settings" reads the same on both rail destinations, so it spans the
+        // full column above the Pane (guidelines/page-layout.md).
+        header={
+          <PageHeader>
+            <PageHeaderContent size="lg">
+              <Eyebrow tone="brand">Account</Eyebrow>
+              <PageHeaderTitle>Settings</PageHeaderTitle>
+              <PageHeaderDescription>
+                Manage authorization for your account — personal API tokens and
+                shared service identities.
+              </PageHeaderDescription>
+            </PageHeaderContent>
+          </PageHeader>
+        }
+        pane={
+          <NavList aria-label="Settings sections">
+            {SECTION_OPTIONS.map((option) => (
+              <NavListItem
+                key={option.value}
+                asChild
+                active={option.value === section}
+              >
+                <Link to={SECTION_PATHS[option.value]}>
+                  <NavListItemLabel>{option.label}</NavListItemLabel>
+                </Link>
+              </NavListItem>
+            ))}
+          </NavList>
+        }
+        paneMobile={
+          <SegmentedControl
+            label="Settings sections"
+            options={SECTION_OPTIONS}
+            value={section}
+            onValueChange={(next) => {
+              void navigate({ to: SECTION_PATHS[next] });
+            }}
+            showLabels
+            size="sm"
+          />
+        }
+      >
+        <Outlet />
+      </PageLayout>
     </Container>
   );
 }

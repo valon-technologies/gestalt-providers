@@ -329,6 +329,15 @@
     --font-mono: var(--font-mono-default);
   }
 
+  :root {
+    /* Sticky offset for PageLayout's Pane / Aside — clears the sticky app Nav
+       (~65px) with breathing room. Read by `page-layout.tsx`; set here so the
+       value lives next to the chrome that causes it rather than as a `top-24`
+       repeated per page. */
+    --page-layout-pane-top: 6rem;
+    --page-layout-pane-bottom: 2rem;
+  }
+
   html {
     scroll-behavior: smooth;
   }
