@@ -188,7 +188,7 @@ function renderSafeSVGNode(
   return createElement(tagName, props, ...children);
 }
 
-export function renderSafeIcon(
+function renderSafeIcon(
   svg: string,
   prefix: string,
 ): ReactNode | null {
