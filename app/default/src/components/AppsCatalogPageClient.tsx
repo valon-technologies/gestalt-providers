@@ -17,6 +17,7 @@ import {
 import { CONNECTION_RETURN_PATH_STORAGE_KEY } from "@/lib/constants";
 import { sanitizeAuthReturnPath } from "@/lib/authReturn";
 import { appPath } from "@/lib/mount";
+import { cn } from "@/lib/cn";
 import Container from "@/components/Container";
 import IntegrationCard from "@/components/IntegrationCard";
 import PluginSearchBar from "@/components/PluginSearchBar";
@@ -27,17 +28,16 @@ import {
   PageHeaderDescription,
   PageHeaderTitle,
 } from "@/components/ui/page-header";
+import { Eyebrow } from "@/components/ui/eyebrow";
 import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
-  SidebarSeparator,
 } from "@/components/ui/sidebar";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import { SpinnerIcon } from "@/components/icons";
@@ -302,10 +302,9 @@ export default function AppsCatalogPageClient() {
                 >
                   <Sidebar collapsible="none" className="h-full">
                     <SidebarContent className="overflow-visible">
-                      <SidebarGroup className="p-0">
-                        <SidebarGroupLabel>Categories</SidebarGroupLabel>
-                        <SidebarGroupContent>
-                          {installed.length > 0 ? (
+                      {installed.length > 0 ? (
+                        <SidebarGroup className="p-0">
+                          <SidebarGroupContent>
                             <SidebarMenu>
                               <SidebarMenuItem>
                                 <SidebarMenuButton
@@ -322,12 +321,21 @@ export default function AppsCatalogPageClient() {
                                 </SidebarMenuButton>
                               </SidebarMenuItem>
                             </SidebarMenu>
-                          ) : null}
-                          {installed.length > 0 &&
-                          catalogSections.length > 0 ? (
-                            <SidebarSeparator className="my-1" />
-                          ) : null}
-                          {catalogSections.length > 0 ? (
+                          </SidebarGroupContent>
+                        </SidebarGroup>
+                      ) : null}
+                      {catalogSections.length > 0 ? (
+                        <SidebarGroup className="p-0">
+                          <Eyebrow
+                            size="sm"
+                            className={cn(
+                              "px-2 py-1.5 text-sidebar-foreground/60",
+                              installed.length > 0 && "mt-2",
+                            )}
+                          >
+                            Categories
+                          </Eyebrow>
+                          <SidebarGroupContent>
                             <SidebarMenu>
                               {catalogSections.map(({ bucket }) => (
                                 <SidebarMenuItem key={bucket.id}>
@@ -347,9 +355,9 @@ export default function AppsCatalogPageClient() {
                                 </SidebarMenuItem>
                               ))}
                             </SidebarMenu>
-                          ) : null}
-                        </SidebarGroupContent>
-                      </SidebarGroup>
+                          </SidebarGroupContent>
+                        </SidebarGroup>
+                      ) : null}
                     </SidebarContent>
                   </Sidebar>
                 </SidebarProvider>
@@ -366,7 +374,7 @@ export default function AppsCatalogPageClient() {
                 <div className="mb-4 max-w-2xl">
                   <h2
                     id="catalog-bucket-installed"
-                    className="scroll-mt-24 font-heading text-xl text-foreground"
+                    className="scroll-mt-24 font-heading text-2xl text-foreground"
                   >
                     Installed
                   </h2>
@@ -404,7 +412,7 @@ export default function AppsCatalogPageClient() {
                 <div className="mb-4 max-w-2xl">
                   <h2
                     id={`catalog-bucket-${bucket.id}`}
-                    className="scroll-mt-24 font-heading text-xl text-foreground"
+                    className="scroll-mt-24 font-heading text-2xl text-foreground"
                   >
                     {bucket.label}
                   </h2>
