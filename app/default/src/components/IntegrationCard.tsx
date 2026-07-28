@@ -460,7 +460,7 @@ export default function IntegrationCard({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span
-                    className="flex size-8 items-center justify-center text-success"
+                    className="flex size-control-sm items-center justify-center text-success"
                     aria-label="Installed"
                   >
                     {/* Registry SelectionCheck — stroke-draw / bounce. */}
@@ -480,18 +480,21 @@ export default function IntegrationCard({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <span className="inline-flex">
-                      <DropdownMenuTrigger
-                        type="button"
-                        className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-neutral-hover hover:text-foreground"
-                        aria-label={`${label} options`}
-                      >
-                        <MoreHorizontalIcon />
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`${label} options`}
+                        >
+                          <MoreHorizontalIcon />
+                        </Button>
                       </DropdownMenuTrigger>
                     </span>
                   </TooltipTrigger>
                   <TooltipContent side="top">More</TooltipContent>
                 </Tooltip>
-                <DropdownMenuContent className="w-44">
+                <DropdownMenuContent align="end" className="w-44">
                   {isAppAdmin ? (
                     <DropdownMenuItem
                       onClick={openManage}

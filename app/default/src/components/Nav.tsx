@@ -12,7 +12,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuLinkItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
@@ -83,12 +82,18 @@ export default function Nav() {
           <ThemeToggle size="sm" />
           {displayLabel && (
             <DropdownMenu>
-              <DropdownMenuTrigger aria-label="Open user menu">
-                <Avatar size="xl" variant="solid" aria-hidden>
-                  <AvatarFallback>{initials}</AvatarFallback>
-                </Avatar>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="focus-ring rounded-full"
+                  aria-label="Open user menu"
+                >
+                  <Avatar size="xl" variant="solid" aria-hidden>
+                    <AvatarFallback>{initials}</AvatarFallback>
+                  </Avatar>
+                </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56">
+              <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel>
                   <p className="truncate font-semibold">{displayLabel}</p>
                   {session?.email && session.email !== displayLabel && (
@@ -98,9 +103,9 @@ export default function Nav() {
                   )}
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuLinkItem>
+                <DropdownMenuItem asChild>
                   <Link to="/settings">Settings</Link>
-                </DropdownMenuLinkItem>
+                </DropdownMenuItem>
                 {loginSupported && (
                   <DropdownMenuItem onClick={() => void handleLogout()}>
                     Log out
