@@ -192,6 +192,11 @@ export interface AppAdminRegistryRevision {
   deploymentState?: string;
   deployableUntil?: string;
   current?: boolean;
+  rolloutState?: string;
+  rolloutForSeconds?: number;
+  rolloutDurationSeconds?: number;
+  rolloutCompletedAt?: string;
+  rolloutFailedAt?: string;
 }
 
 export interface AppAdminRegistryHistoryResponse {

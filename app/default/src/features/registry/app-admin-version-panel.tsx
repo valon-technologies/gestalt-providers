@@ -202,6 +202,7 @@ export function AppAdminVersionPanel({
 
           <AppAdminHistoryTable
             revisions={historyRevisions}
+            rollout={registry.rollout}
             loading={historyQuery.isPending}
             loadingMore={historyQuery.isFetchingNextPage}
             error={historyError}

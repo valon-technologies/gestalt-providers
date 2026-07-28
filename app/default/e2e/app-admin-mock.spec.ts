@@ -695,4 +695,93 @@ test.describe("app admin registry UI", () => {
 
     await expect(page.getByTestId("revision-history-row")).toContainText("system:auto-deploy");
   });
+
+  test("shows rollout status and duration in revision history", async ({ page }) => {
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      rollout: {
+        version: PUBLISHED_NEW.version,
+        state: "restarting",
+      },
+    });
+    await mockAppAdminRegistryHistory(page, APP, {
+      app: APP,
+      revisions: [
+        {
+          id: "rev-rollout",
+          version: PUBLISHED_NEW.version,
+          previousVersion: PUBLISHED_LEGACY.version,
+          deployedAt: "2026-07-25T09:10:00Z",
+          deployedBy: "user:alice@valon.com",
+          rolloutState: "restarting",
+          rolloutForSeconds: 188,
+        },
+        {
+          id: "rev-complete",
+          version: PUBLISHED_LEGACY.version,
+          deployedAt: "2026-07-21T12:00:00Z",
+          deployedBy: "user:bob@valon.com",
+          rolloutState: "complete",
+          rolloutDurationSeconds: 112,
+          rolloutCompletedAt: "2026-07-21T12:01:52Z",
+        },
+      ],
+    });
+    await page.goto(`/apps/${APP}/admin`);
+    await page.getByTestId("app-admin-tab-history").click();
+
+    const rows = page.getByTestId("revision-history-row");
+    await expect(rows).toHaveCount(2);
+    await expect(rows.first().getByTestId("revision-rollout-status")).toHaveText("Rolling out");
+    await expect(rows.first().getByTestId("revision-rollout-status-spinner")).toBeVisible();
+    await expect(rows.first()).toContainText("for");
+    await expect(rows.nth(1).getByTestId("revision-rollout-status")).toHaveText("Available");
+    await expect(rows.nth(1)).toContainText("Available in 1m 52s");
+  });
+
+  test("omits live rollout status from older same-version revision", async ({ page }) => {
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      desiredVersion: PUBLISHED_NEW.version,
+      rollout: {
+        version: PUBLISHED_NEW.version,
+        state: "enrolling",
+      },
+    });
+    await mockAppAdminRegistryHistory(page, APP, {
+      app: APP,
+      revisions: [
+        {
+          id: "rev-readmit",
+          version: PUBLISHED_NEW.version,
+          previousVersion: PUBLISHED_LEGACY.version,
+          deployedAt: "2026-07-25T09:20:00Z",
+          deployedBy: "user:alice@valon.com",
+          rolloutState: "enrolling",
+          rolloutForSeconds: 120,
+        },
+        {
+          id: "rev-other",
+          version: PUBLISHED_LEGACY.version,
+          deployedAt: "2026-07-24T12:00:00Z",
+          deployedBy: "user:bob@valon.com",
+        },
+        {
+          id: "rev-original",
+          version: PUBLISHED_NEW.version,
+          previousVersion: PUBLISHED_LEGACY.version,
+          deployedAt: "2026-07-21T12:00:00Z",
+          deployedBy: "user:carol@valon.com",
+        },
+      ],
+    });
+    await page.goto(`/apps/${APP}/admin`);
+    await page.getByTestId("app-admin-tab-history").click();
+
+    const rows = page.getByTestId("revision-history-row");
+    await expect(rows).toHaveCount(3);
+    await expect(rows.first().getByTestId("revision-rollout-status")).toHaveText("Rolling out");
+    await expect(rows.nth(2).getByTestId("revision-rollout-status")).toHaveCount(0);
+    await expect(rows.nth(2)).toContainText("—");
+  });
 });
