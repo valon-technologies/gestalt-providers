@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { CheckIcon, CopyIcon } from "@/components/icons";
 import ShikiCode from "@/components/ShikiCode";
+import { Eyebrow } from "@/components/ui/eyebrow";
 
 const FALLBACK_ORIGIN = "https://your-gestalt-host";
 
@@ -546,11 +547,7 @@ function DocsPageHeader({
 
   return (
     <header className="scroll-mt-24 border-b border-alpha pb-10">
-      {showEyebrow ? (
-        <p className="text-2xs font-normal uppercase tracking-eyebrow text-muted-foreground-soft leading-none">
-          {eyebrow}
-        </p>
-      ) : null}
+      {showEyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
       <h1
         className={
           showEyebrow
