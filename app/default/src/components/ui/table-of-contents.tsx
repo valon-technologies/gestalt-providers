@@ -7,8 +7,8 @@ import { SearchHighlight } from "@/components/ui/search-highlight";
  * Vendored from the upstream design-system registry. Pair with `useScrollSpy`
  * for active-section tracking.
  *
- * NOTE: `kind: "separator"` is a console forward-port until Registry lands the
- * same item union — keep this file in sync when Registry ships separators.
+ * NOTE: `kind: "separator"` and `highlightQuery` are console forward-ports until
+ * Registry lands the same APIs — keep this file in sync when Registry ships them.
  */
 
 export type TableOfContentsLinkItem = {

@@ -1,4 +1,5 @@
 import type { IntegrationOperation } from "@/lib/api";
+import { textContainsAllSearchTokens } from "@/lib/search-highlight";
 
 export type OperationResourceGroup = {
   prefix: string;
@@ -54,25 +55,36 @@ export function groupOperationsByResource(
     }));
 }
 
+export function getOperationSearchHaystack(operation: IntegrationOperation): string {
+  return [
+    operation.id,
+    operation.title,
+    operation.description,
+    operation.tags?.join(" "),
+    operation.method,
+    operation.path,
+    operation.transport,
+    operation.allowedRoles?.join(" "),
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+export function matchesOperationSearchQuery(
+  operation: IntegrationOperation,
+  rawQuery: string,
+): boolean {
+  return textContainsAllSearchTokens(getOperationSearchHaystack(operation), rawQuery);
+}
+
 export function filterOperations(
   operations: IntegrationOperation[],
   query: string,
 ): IntegrationOperation[] {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return operations;
+  const trimmed = query.trim();
+  if (!trimmed) return operations;
 
-  return operations.filter((operation) => {
-    const haystack = [
-      operation.id,
-      operation.title,
-      operation.description,
-      operation.tags?.join(" "),
-      operation.method,
-      operation.allowedRoles?.join(" "),
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-    return haystack.includes(needle);
-  });
+  return operations.filter((operation) =>
+    matchesOperationSearchQuery(operation, trimmed),
+  );
 }

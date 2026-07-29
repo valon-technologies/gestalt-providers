@@ -13,6 +13,8 @@ import { appOperationElementId } from "@/lib/appAdminPaths";
 import {
   filterOperations,
   groupOperationsByResource,
+  operationResourcePrefix,
+  operationResourceSectionId,
   type OperationResourceGroup,
 } from "@/lib/operationGroups";
 import { cn } from "@/lib/cn";
@@ -31,10 +33,7 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group";
 import { CloseIcon, SearchIcon, SpinnerIcon } from "@/components/icons";
-import {
-  SearchHighlight,
-  SearchHighlightProvider,
-} from "@/components/ui/search-highlight";
+import { SearchHighlight } from "@/components/ui/search-highlight";
 import {
   Table,
   TableBody,
@@ -316,22 +315,39 @@ export default function AppWorkspaceOperationsPage() {
   );
 
   useEffect(() => {
-    const hash = window.location.hash.replace(/^#/, "");
-    if (!hash || operationsLoading) return;
+    const rawHash = window.location.hash.replace(/^#/, "");
+    if (!rawHash || operationsLoading) return;
+
+    let hash = rawHash;
+    try {
+      hash = decodeURIComponent(rawHash);
+    } catch {
+      return;
+    }
+
     if (!visibleOperations.some((op) => op.id === hash)) return;
+
+    if (
+      searchQuery.trim() &&
+      !filterOperations(visibleOperations, searchQuery).some((op) => op.id === hash)
+    ) {
+      setSearchQuery("");
+      return;
+    }
 
     const el = document.querySelector(
       `[data-operation-id="${CSS.escape(hash)}"]`,
     );
     if (!el) return;
 
-    const domId = appOperationElementId(hash);
-    activate(domId);
+    activate(
+      operationResourceSectionId(operationResourcePrefix(hash)),
+    );
     el.scrollIntoView({ block: "start", behavior: "smooth" });
     setHighlightedOperationId(hash);
     const timer = window.setTimeout(() => setHighlightedOperationId(null), 2500);
     return () => window.clearTimeout(timer);
-  }, [activate, operationsLoading, visibleOperations]);
+  }, [activate, operationsLoading, searchQuery, visibleOperations]);
 
   const hasSearchQuery = searchQuery.trim().length > 0;
 
@@ -344,7 +360,7 @@ export default function AppWorkspaceOperationsPage() {
       </p>
 
       {!operationsLoading && visibleOperations.length > 0 ? (
-        <div className="mt-5 max-w-md">
+        <div className="mt-5 max-w-md space-y-2">
           <InputGroup>
             <InputGroupAddon align="inline-start">
               <SearchIcon aria-hidden />
@@ -378,6 +394,12 @@ export default function AppWorkspaceOperationsPage() {
               </InputGroupAddon>
             ) : null}
           </InputGroup>
+          {hasSearchQuery && filteredOperations.length > 0 ? (
+            <p className="text-xs text-faint">
+              Showing {filteredOperations.length} of {visibleOperations.length}{" "}
+              operations
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -409,11 +431,10 @@ export default function AppWorkspaceOperationsPage() {
       ) : null}
 
       {!operationsLoading && filteredOperations.length > 0 ? (
-        <SearchHighlightProvider query={deferredHighlightQuery}>
-          <div
-            className="mt-8 flex gap-8"
-            data-testid="app-operations-reference"
-          >
+        <div
+          className="mt-8 flex gap-8"
+          data-testid="app-operations-reference"
+        >
             <div
               className="min-w-0 flex-1 space-y-10"
               data-testid="app-operations-list"
@@ -448,17 +469,7 @@ export default function AppWorkspaceOperationsPage() {
                 </div>
               </aside>
             ) : null}
-          </div>
-        </SearchHighlightProvider>
-      ) : null}
-
-      {!operationsLoading &&
-      hasSearchQuery &&
-      filteredOperations.length > 0 ? (
-        <p className="mt-4 text-xs text-faint">
-          Showing {filteredOperations.length} of {visibleOperations.length}{" "}
-          operations
-        </p>
+        </div>
       ) : null}
     </section>
   );
