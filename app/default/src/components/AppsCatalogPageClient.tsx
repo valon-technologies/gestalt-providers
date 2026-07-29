@@ -198,7 +198,7 @@ export default function AppsCatalogPageClient() {
         </div>
       )}
 
-      <PageHeader className="animate-fade-in-up">
+      <PageHeader>
         <PageHeaderContent size="lg">
           <PageHeaderTitle>Apps</PageHeaderTitle>
           <PageHeaderDescription>
