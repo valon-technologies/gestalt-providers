@@ -49,6 +49,13 @@ import {
 
 const TOC_ACTIVATION_OFFSET = 112;
 
+/** Shared column grid for the whole operations catalog (one table, many groups). */
+const OPERATIONS_COLUMN_WIDTHS = {
+  operation: "34%",
+  method: "6.5rem",
+  roles: "11rem",
+} as const;
+
 function operationMethodVariant(
   method: string,
 ): "muted" | "info" | "secondary" {
@@ -120,99 +127,123 @@ function OperationMethod({
   );
 }
 
-function OperationResourceSection({
-  group,
+function OperationRow({
+  operation,
   highlightedOperationId,
   highlightQuery,
 }: {
-  group: OperationResourceGroup;
+  operation: IntegrationOperation;
+  highlightedOperationId: string | null;
+  highlightQuery: string;
+}) {
+  const rolesLabel =
+    operation.allowedRoles && operation.allowedRoles.length > 0
+      ? operation.allowedRoles.join(", ")
+      : null;
+
+  return (
+    <TableRow
+      id={appOperationElementId(operation.id)}
+      data-operation-id={operation.id}
+      className={cn(
+        "scroll-mt-28 transition-[background-color,box-shadow] duration-reveal",
+        highlightedOperationId === operation.id &&
+          "bg-accent-subtle ring-2 ring-inset ring-accent-solid",
+      )}
+    >
+      <TableCell className="align-baseline">
+        <OperationIdCell operation={operation} highlightQuery={highlightQuery} />
+      </TableCell>
+      <TableCell className="align-baseline">
+        {operation.method ? (
+          <OperationMethod method={operation.method} highlightQuery={highlightQuery} />
+        ) : (
+          <span className="text-faint">—</span>
+        )}
+      </TableCell>
+      <TableCell className="align-baseline text-muted-foreground">
+        {operation.description?.trim() ? (
+          <SearchHighlight
+            text={operation.description.trim()}
+            query={highlightQuery}
+            variant="vivid"
+          />
+        ) : (
+          "—"
+        )}
+      </TableCell>
+      <TableCell className="align-baseline text-muted-foreground">
+        {rolesLabel ? (
+          <SearchHighlight text={rolesLabel} query={highlightQuery} variant="vivid" />
+        ) : (
+          <span className="text-faint">—</span>
+        )}
+      </TableCell>
+    </TableRow>
+  );
+}
+
+function OperationsCatalogTable({
+  resourceGroups,
+  highlightedOperationId,
+  highlightQuery,
+}: {
+  resourceGroups: OperationResourceGroup[];
   highlightedOperationId: string | null;
   highlightQuery: string;
 }) {
   return (
-    <section
-      id={group.sectionId}
-      className="scroll-mt-28"
-      aria-labelledby={`${group.sectionId}-heading`}
-    >
-      <h2
-        id={`${group.sectionId}-heading`}
-        className="text-xl font-heading text-foreground"
-      >
-        <SearchHighlight text={group.label} query={highlightQuery} variant="vivid" />
-      </h2>
-
-      <Table variant="line" className="mt-4">
-        <TableHeader>
-          <TableRow>
-            <TableHead>Operation</TableHead>
-            <TableHead className="w-24">Method</TableHead>
-            <TableHead>Description</TableHead>
-            <TableHead className="w-40">Roles</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {group.operations.map((operation) => {
-            const rolesLabel =
-              operation.allowedRoles && operation.allowedRoles.length > 0
-                ? operation.allowedRoles.join(", ")
-                : null;
-
-            return (
-              <TableRow
-                key={operation.id}
-                id={appOperationElementId(operation.id)}
-                data-operation-id={operation.id}
-                className={cn(
-                  "scroll-mt-28 transition-[background-color,box-shadow] duration-reveal",
-                  highlightedOperationId === operation.id &&
-                    "bg-accent-subtle ring-2 ring-inset ring-accent-solid",
-                )}
+    <Table variant="line" className="table-fixed">
+      <colgroup>
+        <col style={{ width: OPERATIONS_COLUMN_WIDTHS.operation }} />
+        <col style={{ width: OPERATIONS_COLUMN_WIDTHS.method }} />
+        <col />
+        <col style={{ width: OPERATIONS_COLUMN_WIDTHS.roles }} />
+      </colgroup>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Operation</TableHead>
+          <TableHead>Method</TableHead>
+          <TableHead>Description</TableHead>
+          <TableHead>Roles</TableHead>
+        </TableRow>
+      </TableHeader>
+      {resourceGroups.map((group, groupIndex) => (
+        <TableBody key={group.prefix}>
+          <TableRow
+            className="border-b-0 hover:bg-transparent active:bg-transparent"
+            data-testid={`ops-resource-${group.prefix}`}
+          >
+            <TableCell
+              colSpan={4}
+              className={cn(
+                "scroll-mt-28 px-3 pb-2",
+                groupIndex === 0 ? "pt-4" : "pt-10",
+              )}
+            >
+              <h2
+                id={group.sectionId}
+                className="text-xl font-heading text-foreground"
               >
-                <TableCell className="align-baseline">
-                  <OperationIdCell
-                    operation={operation}
-                    highlightQuery={highlightQuery}
-                  />
-                </TableCell>
-                <TableCell className="align-baseline">
-                  {operation.method ? (
-                    <OperationMethod
-                      method={operation.method}
-                      highlightQuery={highlightQuery}
-                    />
-                  ) : (
-                    <span className="text-faint">—</span>
-                  )}
-                </TableCell>
-                <TableCell className="align-baseline text-muted-foreground">
-                  {operation.description?.trim() ? (
-                    <SearchHighlight
-                      text={operation.description.trim()}
-                      query={highlightQuery}
-                      variant="vivid"
-                    />
-                  ) : (
-                    "—"
-                  )}
-                </TableCell>
-                <TableCell className="align-baseline text-muted-foreground">
-                  {rolesLabel ? (
-                    <SearchHighlight
-                      text={rolesLabel}
-                      query={highlightQuery}
-                      variant="vivid"
-                    />
-                  ) : (
-                    <span className="text-faint">—</span>
-                  )}
-                </TableCell>
-              </TableRow>
-            );
-          })}
+                <SearchHighlight
+                  text={group.label}
+                  query={highlightQuery}
+                  variant="vivid"
+                />
+              </h2>
+            </TableCell>
+          </TableRow>
+          {group.operations.map((operation) => (
+            <OperationRow
+              key={operation.id}
+              operation={operation}
+              highlightedOperationId={highlightedOperationId}
+              highlightQuery={highlightQuery}
+            />
+          ))}
         </TableBody>
-      </Table>
-    </section>
+      ))}
+    </Table>
   );
 }
 
@@ -435,18 +466,12 @@ export default function AppWorkspaceOperationsPage() {
           className="mt-8 flex gap-8"
           data-testid="app-operations-reference"
         >
-            <div
-              className="min-w-0 flex-1 space-y-10"
-              data-testid="app-operations-list"
-            >
-              {resourceGroups.map((group) => (
-                <OperationResourceSection
-                  key={group.prefix}
-                  group={group}
-                  highlightedOperationId={highlightedOperationId}
-                  highlightQuery={deferredHighlightQuery}
-                />
-              ))}
+            <div className="min-w-0 flex-1" data-testid="app-operations-list">
+              <OperationsCatalogTable
+                resourceGroups={resourceGroups}
+                highlightedOperationId={highlightedOperationId}
+                highlightQuery={deferredHighlightQuery}
+              />
             </div>
 
             {tocItems.length > 0 ? (
