@@ -12,10 +12,14 @@ import {
   type Row,
   type Table as TanStackTable,
 } from "@tanstack/react-table";
-import { ArrowDown, ArrowUp, ChevronsUpDown, Search } from "lucide-react";
+import { Search } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  SortHeaderButton,
+  sortHeaderAriaSort,
+  type SortHeaderAlign,
+} from "@/components/ui/sort-header-button";
 import {
   Table,
   TableBody,
@@ -27,46 +31,45 @@ import {
 import { SearchHighlightQueryContext } from "@/lib/search-highlight-context";
 import { cn } from "@/lib/cn";
 
-export function columnAriaSort(
-  sorted: false | "asc" | "desc",
-): "ascending" | "descending" | "none" {
-  if (sorted === "asc") return "ascending";
-  if (sorted === "desc") return "descending";
-  return "none";
-}
+export { sortHeaderAriaSort } from "@/components/ui/sort-header-button";
 
 interface DataTableColumnHeaderProps<TData, TValue>
   extends React.HTMLAttributes<HTMLDivElement> {
   column: import("@tanstack/react-table").Column<TData, TValue>;
   title: string;
+  align?: SortHeaderAlign;
 }
 
 export function DataTableColumnHeader<TData, TValue>({
   column,
   title,
   className,
+  align: alignProp,
 }: DataTableColumnHeaderProps<TData, TValue>) {
   if (!column.getCanSort()) {
     return <div className={cn(className)}>{title}</div>;
   }
 
   const sorted = column.getIsSorted();
-  const SortIcon =
-    sorted === "desc" ? ArrowDown : sorted === "asc" ? ArrowUp : ChevronsUpDown;
+  const active = sorted !== false;
+  const direction = sorted === "desc" ? "desc" : "asc";
+  const align =
+    alignProp ??
+    (column.columnDef.meta?.align === "end"
+      ? "end"
+      : column.columnDef.meta?.align === "center"
+        ? "center"
+        : "start");
+
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="sm"
+    <SortHeaderButton
+      label={title}
+      active={active}
+      direction={direction}
+      align={align}
+      className={className}
       onClick={() => column.toggleSorting(sorted === "asc")}
-      className={cn(
-        "-ml-3 h-8 hover:bg-neutral-hover active:bg-neutral-pressed hover:after:opacity-0 active:after:opacity-0",
-        className,
-      )}
-    >
-      <span>{title}</span>
-      <SortIcon aria-hidden />
-    </Button>
+    />
   );
 }
 
@@ -155,17 +158,21 @@ export function DataTableView<TData>({
             <TableRow key={headerGroup.id}>
               {headerGroup.headers.map((header) => {
                 const canSort = header.column.getCanSort();
+                const sorted = header.column.getIsSorted();
+                const sortDirection = sorted === "desc" ? "desc" : "asc";
                 return (
                   <TableHead
                     key={header.id}
                     align={
                       header.column.columnDef.meta?.align === "end"
                         ? "end"
-                        : undefined
+                        : header.column.columnDef.meta?.align === "center"
+                          ? "center"
+                          : undefined
                     }
                     aria-sort={
                       canSort
-                        ? columnAriaSort(header.column.getIsSorted())
+                        ? sortHeaderAriaSort(sorted !== false, sortDirection)
                         : undefined
                     }
                   >
@@ -225,6 +232,6 @@ export function DataTableView<TData>({
 declare module "@tanstack/react-table" {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface ColumnMeta<TData, TValue> {
-    align?: "end";
+    align?: "start" | "center" | "end";
   }
 }
