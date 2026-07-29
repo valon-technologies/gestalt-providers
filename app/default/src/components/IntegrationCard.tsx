@@ -29,7 +29,7 @@ import { resolveMountedAppHref } from "@/lib/mount";
 import { cn } from "@/lib/cn";
 import { Badge } from "@/components/ui/badge";
 import AppListingDetail from "./AppListingDetail";
-import { HighlightMatch } from "./HighlightMatch";
+import { SearchHighlight } from "@/components/ui/search-highlight";
 import IntegrationIcon from "./IntegrationIcon";
 import {
   MoreHorizontalIcon,
@@ -414,13 +414,14 @@ export default function IntegrationCard({
           />
           <div className="min-w-0">
             <h3 className="text-base font-heading text-foreground">
-              <HighlightMatch text={label} query={highlightQuery} />
+              <SearchHighlight text={label} query={highlightQuery} variant="vivid" />
             </h3>
             {integration.description && (
               <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                <HighlightMatch
+                <SearchHighlight
                   text={integration.description}
                   query={highlightQuery}
+                  variant="vivid"
                 />
               </p>
             )}
