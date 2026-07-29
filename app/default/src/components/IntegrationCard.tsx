@@ -234,11 +234,7 @@ export default function IntegrationCard({
 
   return (
     <div
-      data-testid={
-        settingsOnly
-          ? `integration-settings-${integration.name}`
-          : `integration-card-${integration.name}`
-      }
+      data-testid={`integration-card-${integration.name}`}
       className={cn(
         "rounded-xl bg-neutral-hover p-4 text-foreground",
         "hover:bg-neutral-dark-hover active:bg-neutral-dark-pressed",
@@ -247,13 +243,11 @@ export default function IntegrationCard({
         cardNavigationEnabled &&
           "cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-gold-400 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       )}
-      onClick={settingsOnly ? undefined : handleCardClick}
-      onKeyDown={settingsOnly ? undefined : handleCardKeyDown}
-      role={!settingsOnly && cardNavigationEnabled ? "link" : undefined}
-      tabIndex={!settingsOnly && cardNavigationEnabled ? 0 : undefined}
-      aria-label={
-        !settingsOnly && cardNavigationEnabled ? cardAriaLabel : undefined
-      }
+      onClick={handleCardClick}
+      onKeyDown={handleCardKeyDown}
+      role={cardNavigationEnabled ? "link" : undefined}
+      tabIndex={cardNavigationEnabled ? 0 : undefined}
+      aria-label={cardNavigationEnabled ? cardAriaLabel : undefined}
     >
       {connection.pendingSelection && (
         <form
@@ -269,8 +263,7 @@ export default function IntegrationCard({
           />
         </form>
       )}
-      {!settingsOnly ? (
-        <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-4">
           <IntegrationIcon
             iconSvg={integration.iconSvg}

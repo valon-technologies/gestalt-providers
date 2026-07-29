@@ -360,11 +360,13 @@ test.describe("Integrations", () => {
 
     await page.goto("/apps");
     await expect(
-      page.getByText("No apps registered."),
+      page.getByText(
+        "No apps are available yet. Ask your admin if you expected to see ones here.",
+      ),
     ).toBeVisible();
   });
 
-  test("mounted ui cards navigate to mounted app", async ({ authenticatedPage }) => {
+  test("mounted ui cards navigate to app detail", async ({ authenticatedPage }) => {
     const page = authenticatedPage;
     await mockIntegrations(page, [MOUNTED_UI_INTEGRATION]);
     await mockTokens(page, []);
