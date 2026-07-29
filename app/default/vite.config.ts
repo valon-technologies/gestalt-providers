@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
@@ -69,6 +70,9 @@ export default defineConfig(({ mode }) => {
         "/theme.css": { target: backendOrigin, changeOrigin: true },
         "/theme/": { target: backendOrigin, changeOrigin: true },
       },
+    },
+    test: {
+      include: ["src/**/*.test.ts"],
     },
   };
 });

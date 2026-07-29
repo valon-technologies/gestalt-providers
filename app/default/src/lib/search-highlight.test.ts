@@ -1,78 +1,75 @@
-import { describe, test } from "node:test";
-import assert from "node:assert/strict";
+import { describe, expect, it } from "vitest";
 
 import {
   extractSearchSnippet,
   searchTokensMissingFromText,
   splitSearchHighlightParts,
   textContainsAllSearchTokens,
-} from "./search-highlight.ts";
+} from "./search-highlight";
 
 describe("search-highlight", () => {
-  test("splits highlight parts for token-AND queries", () => {
-    assert.deepEqual(splitSearchHighlightParts("Hello World", "wor"), [
+  it("splits highlight parts for token-AND queries", () => {
+    expect(splitSearchHighlightParts("Hello World", "wor")).toEqual([
       { text: "Hello ", highlight: false },
       { text: "Wor", highlight: true },
       { text: "ld", highlight: false },
     ]);
   });
 
-  test("matches accent-insensitively", () => {
-    assert.equal(textContainsAllSearchTokens("José García", "jose"), true);
+  it("matches accent-insensitively", () => {
+    expect(textContainsAllSearchTokens("José García", "jose")).toBe(true);
   });
 
-  test("extracts description snippet around first token", () => {
+  it("extracts description snippet around first token", () => {
     const snippet = extractSearchSnippet(
       "A long description that mentions deployment failures near the end",
       "deploy",
       8,
     );
-    assert.ok(snippet?.includes("deployment"));
+    expect(snippet).toContain("deployment");
   });
 
-  test("highlights ligature display text when query matches a partial expansion", () => {
-    assert.deepEqual(splitSearchHighlightParts("ﬁx deployment", "f"), [
+  it("highlights ligature display text when query matches a partial expansion", () => {
+    expect(splitSearchHighlightParts("ﬁx deployment", "f")).toEqual([
       { text: "ﬁ", highlight: true },
       { text: "x deployment", highlight: false },
     ]);
   });
 
-  test("anchors snippet on tokens missing from the primary field", () => {
+  it("anchors snippet on tokens missing from the primary field", () => {
     const description =
       "Ship workflow plan for the quarterly roadmap. Later we added escrow automation.";
     const missing = searchTokensMissingFromText("Ship the release", "ship escrow");
-    assert.deepEqual(missing, ["escrow"]);
+    expect(missing).toEqual(["escrow"]);
 
     const snippet = extractSearchSnippet(description, "ship escrow", 16, missing);
-    assert.ok(snippet?.includes("escrow"));
-    assert.ok(!snippet?.includes("roadmap"));
+    expect(snippet).toContain("escrow");
+    expect(snippet).not.toContain("roadmap");
   });
 });
 
 describe("catalog list-search parity", () => {
   // integrationSearch.matchesSearchQuery delegates here — keep filter/highlight aligned.
-  test("filter tokens highlight on accented display names", () => {
+  it("filter tokens highlight on accented display names", () => {
     const label = "Résumé Parser";
     const query = "resume";
-    assert.equal(textContainsAllSearchTokens(label, query), true);
+    expect(textContainsAllSearchTokens(label, query)).toBe(true);
     const parts = splitSearchHighlightParts(label, query);
-    assert.ok(parts.some((part) => part.highlight));
+    expect(parts.some((part) => part.highlight)).toBe(true);
   });
 
-  test("catalog haystack shapes match token-AND semantics", () => {
-    assert.equal(
+  it("catalog haystack shapes match token-AND semantics", () => {
+    expect(
       textContainsAllSearchTokens(
         "slack_v2 Slack Messaging Connect your workspace",
         "slack messaging",
       ),
-      true,
-    );
-    assert.equal(
+    ).toBe(true);
+    expect(
       textContainsAllSearchTokens(
         "zendesk Zendesk Support ticketing integration",
         "zendesk support",
       ),
-      true,
-    );
+    ).toBe(true);
   });
 });
