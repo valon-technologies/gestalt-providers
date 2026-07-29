@@ -10,7 +10,7 @@
     "lint": "oxlint .",
     "typecheck": "tsc --noEmit",
     "test": "bun test src/lib",
-    "check": "npm run typecheck && npm run lint && npm run test && node scripts/verify-admin-assets.mjs",
+    "check": "bun run typecheck && bun run lint && bun test src/lib && node scripts/verify-admin-assets.mjs",
     "test:e2e": "npm run build && rm -rf out && cp -R dist out && playwright test",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:ui": "playwright test --ui"
