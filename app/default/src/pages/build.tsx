@@ -272,7 +272,7 @@ export default function BuildStepPage() {
             stepId === "authorize" && "hidden",
           )}
         >
-          <PageHeaderContent size="lg">
+          <PageHeaderContent>
             {currentStep.eyebrow ? (
               <Eyebrow tone="brand">{currentStep.eyebrow}</Eyebrow>
             ) : null}
@@ -1453,7 +1453,7 @@ function AuthorizeStepActions({
   return (
     <div className="space-y-8">
       <PageHeader>
-        <PageHeaderContent size="lg">
+        <PageHeaderContent>
           <PageHeaderTitle>{title}</PageHeaderTitle>
           <PageHeaderDescription>{description}</PageHeaderDescription>
         </PageHeaderContent>

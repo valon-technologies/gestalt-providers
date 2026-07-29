@@ -44,7 +44,7 @@ export default function SettingsLayout() {
   return (
     <Container as="main" className="py-12">
       <PageHeader>
-        <PageHeaderContent size="lg">
+        <PageHeaderContent>
           <Eyebrow tone="brand">Account</Eyebrow>
           <PageHeaderTitle>Settings</PageHeaderTitle>
           <PageHeaderDescription>

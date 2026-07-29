@@ -199,7 +199,7 @@ export default function AppsCatalogPageClient() {
       )}
 
       <PageHeader>
-        <PageHeaderContent size="lg">
+        <PageHeaderContent>
           <PageHeaderTitle>Apps</PageHeaderTitle>
           <PageHeaderDescription>
             Browse installed apps, then discover more by category. Connect

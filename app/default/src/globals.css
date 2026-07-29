@@ -202,10 +202,10 @@
   --text-2xs: 0.625rem;
   --text-2xs--line-height: 0.875rem;
 
-  --font-sans: var(--ui-font-sans);
-  --font-heading: var(--ui-font-display);
-  --font-display: var(--ui-font-display);
-  --font-mono: var(--ui-font-mono);
+  --font-sans: var(--font-body), system-ui, sans-serif;
+  --font-heading: var(--font-display), Georgia, serif;
+  --font-display: var(--font-display), Georgia, serif;
+  --font-mono: var(--font-mono), monospace;
 
   --radius: var(--radius);
   --radius-sm: calc(var(--radius) - 2px);
@@ -316,6 +316,18 @@
 }
 
 @layer base {
+  /* Font seam: bundled defaults on --ui-font-*; tenants override --font-body,
+   * --font-display, and --font-mono on body (see THEMING.md). Utilities read
+   * the consumed names via @theme inline above, never --ui-font-* directly. */
+  :where(body) {
+    --font-display-default: var(--ui-font-display);
+    --font-body-default: var(--ui-font-sans);
+    --font-mono-default: var(--ui-font-mono);
+    --font-display: var(--font-display-default);
+    --font-body: var(--font-body-default);
+    --font-mono: var(--font-mono-default);
+  }
+
   html {
     scroll-behavior: smooth;
   }
@@ -328,7 +340,7 @@
   kbd,
   samp,
   pre {
-    font-family: var(--ui-font-mono), monospace;
+    font-family: var(--font-mono), monospace;
   }
 
   ::placeholder {
