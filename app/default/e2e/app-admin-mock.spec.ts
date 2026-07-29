@@ -427,6 +427,38 @@ test.describe("app admin registry UI", () => {
     await expect(deployedBadge).toHaveCSS("color", "oklch(0.408 0.105 248)");
   });
 
+  test("snapshot rows render TableStatusIndicator gutter severity", async ({ page }) => {
+    await mockAppAdminRegistry(page, APP, {
+      ...installedRegistryState(),
+      pendingVersions: [PENDING_VERSION],
+      failedVersions: [FAILED_VERSION],
+    });
+    await page.goto(`/apps/${APP}/admin`);
+
+    const deployedRow = page
+      .getByTestId("snapshot-row-published")
+      .filter({ hasText: PUBLISHED_LEGACY.version.slice(0, 20) });
+    await expect(deployedRow.getByTestId("snapshot-severity-indicator")).toHaveAttribute(
+      "data-variant",
+      "success",
+    );
+
+    const availableRow = page
+      .getByTestId("snapshot-row-published")
+      .filter({ hasText: PUBLISHED_NEW.version.slice(0, 20) });
+    await expect(availableRow.getByTestId("snapshot-severity-indicator")).toHaveAttribute(
+      "data-variant",
+      "info",
+    );
+
+    await expect(
+      page.getByTestId("snapshot-row-pending").getByTestId("snapshot-severity-indicator"),
+    ).toHaveAttribute("data-variant", "warning");
+    await expect(
+      page.getByTestId("snapshot-row-failed").getByTestId("snapshot-severity-indicator"),
+    ).toHaveAttribute("data-variant", "danger");
+  });
+
   test("legacy gestalt-shell grove success override does not recolor status badges", async ({
     page,
   }) => {

@@ -112,6 +112,13 @@ checks + connectors). Depends on `lib/list-item-interaction.ts` and
 uses controlled `activationMode="jump"` — do not restyle Stepper chrome at the
 call site (layout-only wrappers OK).
 
+## Table / TableStatusIndicator
+
+Registry `table` + `table-status-indicator` are vendored here. Pair row severity
+with `TableStatusIndicator` in a gutter column (`iconOnly`) and match the status
+`Badge` via `tableStatusIndicatorBadgeVariant`. Do not convey severity with
+full-row washes alone — see Registry `Display/Table → Row status indicators`.
+
 ## SearchHighlight
 
 Registry `search-highlight` + `search-highlight-context` are vendored as
