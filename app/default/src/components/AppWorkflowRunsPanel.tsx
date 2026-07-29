@@ -20,10 +20,28 @@ import {
 } from "@/lib/workflowApi";
 import { Link } from "@tanstack/react-router";
 import {
+  SectionHeader,
+  SectionHeaderActions,
+  SectionHeaderContent,
+  SectionHeaderTitle,
+} from "@/components/ui/section-header";
+import {
+  Alert,
+  AlertDescription,
+} from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import {
+  Stat,
+  StatGroup,
+  StatLabel,
+  StatValue,
+} from "@/components/ui/stat";
+import {
   collectAutomationSubjects,
   summarizeWorkflowDefinitionsFromRuns,
   workflowRunMatchesApp,
 } from "@/lib/workflowActivity";
+import { Info } from "lucide-react";
 
 const RUN_STATUSES = [
   "all",
@@ -183,35 +201,55 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
   const eventDefinitions = definitions.filter((item) => item.eventCount > 0);
 
   return (
-    <div className="space-y-8">
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => setRefreshNonce((value) => value + 1)}
-          disabled={refreshing}
-          className="inline-flex items-center justify-center rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors duration-150 hover:border-input hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {refreshing ? "Refreshing…" : "Refresh"}
-        </button>
-      </div>
+    <>
+      <SectionHeader className="mb-6">
+        <SectionHeaderContent>
+          <SectionHeaderTitle className="font-heading text-2xl tracking-normal">
+            Workflows
+          </SectionHeaderTitle>
+        </SectionHeaderContent>
+        <SectionHeaderActions>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setRefreshNonce((value) => value + 1)}
+            disabled={refreshing}
+          >
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </Button>
+        </SectionHeaderActions>
+      </SectionHeader>
 
-      <div
-        className="rounded-lg border border-border bg-accent px-4 py-3 text-sm text-muted-foreground"
-        data-testid="app-workflow-ownership-note"
-      >
-        Runs listed here target this app as a{" "}
-        <span className="text-foreground">step app</span> (or ship under{" "}
-        <code className="font-mono text-xs">app_{appName}_…</code> definition
-        IDs). Workflows that only <em>publish</em> events handled elsewhere are
-        not included — open the other app’s admin page for those.
-      </div>
+      <div className="space-y-8">
+      <Alert variant="info" data-testid="app-workflow-ownership-note">
+        <Info aria-hidden />
+        <AlertDescription>
+          Runs listed here target this app as a{" "}
+          <span className="text-foreground">step app</span> (or ship under{" "}
+          <code className="font-mono text-xs">app_{appName}_…</code> definition
+          IDs). Workflows that only <em>publish</em> events handled elsewhere are
+          not included — open the other app’s admin page for those.
+        </AlertDescription>
+      </Alert>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <SummaryCard label="Runs" value={String(runs.length)} />
-        <SummaryCard label="Running" value={String(counts.running)} />
-        <SummaryCard label="Succeeded" value={String(counts.succeeded)} />
-        <SummaryCard label="Failed" value={String(counts.failed)} />
-      </div>
+      <StatGroup className="w-full" data-testid="workflow-run-stats">
+        <Stat variant="plain" className="w-max max-w-full shrink-0">
+          <StatLabel>Runs</StatLabel>
+          <StatValue>{runs.length}</StatValue>
+        </Stat>
+        <Stat variant="plain" className="w-max max-w-full shrink-0">
+          <StatLabel>Running</StatLabel>
+          <StatValue>{counts.running}</StatValue>
+        </Stat>
+        <Stat variant="plain" className="w-max max-w-full shrink-0">
+          <StatLabel>Succeeded</StatLabel>
+          <StatValue>{counts.succeeded}</StatValue>
+        </Stat>
+        <Stat variant="plain" className="w-max max-w-full shrink-0">
+          <StatLabel>Failed</StatLabel>
+          <StatValue>{counts.failed}</StatValue>
+        </Stat>
+      </StatGroup>
 
       <section className="space-y-3" aria-label="Definitions and schedules">
         <div>
@@ -429,7 +467,8 @@ export default function AppWorkflowRunsPanel({ appName }: { appName: string }) {
         />
       )}
       </section>
-    </div>
+      </div>
+    </>
   );
 }
 
@@ -718,15 +757,6 @@ function DetailLine({ label, value }: { label: string; value: string }) {
       <span className="text-muted-foreground">{label}: </span>
       {value}
     </p>
-  );
-}
-
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-card px-4 py-3 text-card-foreground">
-      <p className="text-xs font-medium text-muted-foreground">{label}</p>
-      <p className="mt-1 text-xl font-heading text-foreground">{value}</p>
-    </div>
   );
 }
 

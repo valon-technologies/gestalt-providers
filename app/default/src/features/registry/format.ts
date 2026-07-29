@@ -50,6 +50,18 @@ export function formatRegistryTime(value?: string | null): string {
   return date.toLocaleString();
 }
 
+export function formatRegistryTimeShort(
+  value?: string | number | Date | null,
+): string {
+  if (value === null || value === undefined) return "—";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export function formatRegistryTimeAgo(
   value?: string | null,
   now: number | Date = Date.now(),

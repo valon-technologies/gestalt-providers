@@ -1,5 +1,5 @@
 import { Link, Outlet, useParams, useRouterState } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   getAppAuthorizationMembers,
   isAPIErrorStatus,
@@ -148,18 +148,41 @@ export default function AppWorkspaceLayout() {
         : "Failed to deploy version"
       : null;
 
-  const registryOutlet: AppAdminOutletContext | undefined =
-    registry && capabilities.registry
-      ? {
-          appName: app,
-          registry,
-          appMountedPath: mountedPath,
-          deployingVersion:
-            deployMutation.isPending ? deployMutation.variables : null,
-          onDeployVersion: (version) => deployMutation.mutate(version),
-          deployError,
-        }
-      : undefined;
+  const onDeployVersion = useCallback(
+    (version: string) => {
+      deployMutation.mutate(version);
+    },
+    [deployMutation],
+  );
+
+  const registryOutlet = useMemo<AppAdminOutletContext | undefined>(() => {
+    if (!registry || !capabilities.registry) return undefined;
+    return {
+      appName: app,
+      registry,
+      appMountedPath: mountedPath,
+      deployingVersion:
+        deployMutation.isPending ? deployMutation.variables : null,
+      onDeployVersion,
+      deployError,
+      checkForNewVersions: registryQuery.checkForNewVersions,
+      isCheckingForNewVersions: registryQuery.isCheckingForNewVersions,
+      registryUpdatedAt: registryQuery.isFetched ? registryQuery.dataUpdatedAt : null,
+    };
+  }, [
+    app,
+    capabilities.registry,
+    deployError,
+    deployMutation.isPending,
+    deployMutation.variables,
+    mountedPath,
+    onDeployVersion,
+    registry,
+    registryQuery.checkForNewVersions,
+    registryQuery.isCheckingForNewVersions,
+    registryQuery.dataUpdatedAt,
+    registryQuery.isFetched,
+  ]);
 
   const workspaceValue = useMemo(
     () => ({
@@ -237,8 +260,8 @@ export default function AppWorkspaceLayout() {
         ) : null}
 
         {(integration || isAdminPath) ? (
-          <div className="grid gap-10 lg:grid-cols-[220px_minmax(0,1fr)]">
-            <aside className="min-w-0">
+          <div className="grid gap-10 lg:grid-cols-[11rem_minmax(0,1fr)]">
+            <aside className="min-w-0 w-44 shrink-0">
               <div className="lg:sticky lg:top-24">
                 <AppWorkspaceNav
                   app={app}

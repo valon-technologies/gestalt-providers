@@ -7,4 +7,7 @@ export type AppAdminOutletContext = {
   deployingVersion: string | null;
   onDeployVersion: (version: string) => void;
   deployError: string | null;
+  checkForNewVersions: () => void;
+  isCheckingForNewVersions: boolean;
+  registryUpdatedAt: number | null;
 };

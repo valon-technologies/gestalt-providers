@@ -12,7 +12,6 @@ export function useLiveNow({
 
   useEffect(() => {
     if (!enabled) {
-      setNow(Date.now());
       return undefined;
     }
 

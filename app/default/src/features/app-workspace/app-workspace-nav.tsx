@@ -1,5 +1,15 @@
-import { Link } from "@tanstack/react-router";
-import { Eyebrow } from "@/components/ui/eyebrow";
+import { Link, useMatchRoute } from "@tanstack/react-router";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+} from "@/components/ui/sidebar";
 import type { AppAdminNavId, AppUserNavId } from "./app-nav";
 
 type NavItem = {
@@ -8,10 +18,36 @@ type NavItem = {
   to: string;
 };
 
-const navLinkClass =
-  "block rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors duration-150 hover:text-foreground";
-const navLinkActiveClass =
-  "block rounded-md bg-alpha-5 px-3 py-2 text-sm font-medium text-foreground transition-colors duration-150";
+function WorkspaceNavItem({
+  app,
+  item,
+  testId,
+  exact = false,
+}: {
+  app: string;
+  item: NavItem;
+  testId: string;
+  exact?: boolean;
+}) {
+  const matchRoute = useMatchRoute();
+  const isActive = Boolean(
+    matchRoute({
+      to: item.to,
+      params: { app },
+      fuzzy: !exact,
+    }),
+  );
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton asChild isActive={isActive}>
+        <Link to={item.to} params={{ app }} data-testid={testId}>
+          {item.label}
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
 
 export function AppWorkspaceNav({
   app,
@@ -25,44 +61,44 @@ export function AppWorkspaceNav({
   adminGroupVisible: boolean;
 }) {
   return (
-    <nav className="space-y-6" aria-label="App workspace">
-      <div className="space-y-0.5">
-        {userItems.map((item) => (
-          <Link
-            key={item.id}
-            to={item.to}
-            params={{ app }}
-            className={navLinkClass}
-            activeProps={{ className: navLinkActiveClass }}
-            activeOptions={{ exact: item.id === "overview" }}
-            data-testid={`app-workspace-nav-${item.id}`}
-          >
-            {item.label}
-          </Link>
-        ))}
-      </div>
+    <SidebarProvider defaultWidth="11rem" className="min-h-0 w-full">
+      <Sidebar collapsible="none" className="h-full">
+        <SidebarContent className="overflow-visible" aria-label="App workspace">
+          <SidebarGroup className="p-0">
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {userItems.map((item) => (
+                  <WorkspaceNavItem
+                    key={item.id}
+                    app={app}
+                    item={item}
+                    exact={item.id === "overview"}
+                    testId={`app-workspace-nav-${item.id}`}
+                  />
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
 
-      {adminGroupVisible && adminItems.length > 0 ? (
-        <div>
-          <Eyebrow size="sm" tone="secondary" className="mb-2 block px-3">
-            Admin
-          </Eyebrow>
-          <div className="space-y-0.5">
-            {adminItems.map((item) => (
-              <Link
-                key={item.id}
-                to={item.to}
-                params={{ app }}
-                className={navLinkClass}
-                activeProps={{ className: navLinkActiveClass }}
-                data-testid={`app-admin-nav-${item.id}`}
-              >
-                {item.label}
-              </Link>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </nav>
+          {adminGroupVisible && adminItems.length > 0 ? (
+            <SidebarGroup className="mt-2 p-0">
+              <SidebarGroupLabel>Admin</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {adminItems.map((item) => (
+                    <WorkspaceNavItem
+                      key={item.id}
+                      app={app}
+                      item={item}
+                      testId={`app-admin-nav-${item.id}`}
+                    />
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          ) : null}
+        </SidebarContent>
+      </Sidebar>
+    </SidebarProvider>
   );
 }

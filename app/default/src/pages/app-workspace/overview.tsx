@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { getAuthSession, type AuthSession } from "@/lib/api";
 import {
@@ -16,7 +16,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SelectionCheck } from "@/components/ui/selection-check";
 import { useAppWorkspace } from "@/features/app-workspace/app-workspace-context";
-import { APP_SECTION_CARD } from "@/features/app-workspace/app-workspace-shared";
+
+const overviewSectionClass = "border-t border-border pt-8";
 
 export default function AppWorkspaceOverviewPage() {
   const navigate = useNavigate();
@@ -76,7 +77,7 @@ export default function AppWorkspaceOverviewPage() {
   }, [status, surfaces]);
 
   return (
-    <section className="space-y-8" aria-label="Overview">
+    <section aria-label="Overview">
       <div className="flex flex-col gap-4">
         <IntegrationIcon
           iconSvg={integration.iconSvg}
@@ -145,7 +146,14 @@ export default function AppWorkspaceOverviewPage() {
         </div>
       </div>
 
-      <div className={APP_SECTION_CARD}>
+      <div className={overviewSectionClass}>
+        <AppPromptExamplePromo
+          displayName={promptExample.displayName}
+          body={promptExample.body}
+        />
+      </div>
+
+      <div className={overviewSectionClass}>
         <h2 className="text-lg font-heading text-foreground">Your access</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Connection and credentials for the signed-in user.
@@ -171,13 +179,11 @@ export default function AppWorkspaceOverviewPage() {
         </dl>
       </div>
 
-      <AppPromptExamplePromo
-        displayName={promptExample.displayName}
-        body={promptExample.body}
-      />
-
       {checklist.length > 0 ? (
-        <div className={APP_SECTION_CARD} data-testid="app-admin-checklist">
+        <div
+          className={overviewSectionClass}
+          data-testid="app-admin-checklist"
+        >
           <h2 className="text-lg font-heading text-foreground">Setup</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {checklist.filter((item) => item.done).length}/{checklist.length}{" "}
@@ -197,7 +203,7 @@ export default function AppWorkspaceOverviewPage() {
         </div>
       ) : null}
 
-      <div className={APP_SECTION_CARD}>
+      <div className={overviewSectionClass}>
         <h2 className="text-lg font-heading text-foreground">Details</h2>
         <dl className="mt-4 grid gap-3 sm:grid-cols-2">
           <div>

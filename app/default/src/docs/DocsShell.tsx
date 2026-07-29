@@ -1,5 +1,15 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import Container from "@/components/Container";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+} from "@/components/ui/sidebar";
 import { docsNavItems, getActiveDocsNavItem } from "./docs-data";
 
 export default function DocsShell({
@@ -12,27 +22,34 @@ export default function DocsShell({
 
   return (
     <Container as="main" className="py-16">
-      <div className="grid gap-10 xl:grid-cols-[220px_minmax(0,1fr)_240px]">
-        <aside className="hidden xl:block">
+      <div className="grid gap-10 xl:grid-cols-[11rem_minmax(0,1fr)_240px]">
+        <aside className="hidden w-44 shrink-0 xl:block">
           <div className="sticky top-24">
-            <nav className="space-y-0.5">
-              {docsNavItems.map((item) => {
-                const isActive = item.id === activeItem.id;
-                return (
-                  <Link
-                    key={item.id}
-                    to={item.href}
-                    className={`block rounded-md px-3 py-2 text-sm transition-colors duration-150 ${
-                      isActive
-                        ? "bg-alpha-5 font-medium text-primary"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
+            <SidebarProvider defaultWidth="11rem" className="min-h-0 w-full">
+              <Sidebar collapsible="none" className="h-full">
+                <SidebarContent
+                  className="overflow-visible"
+                  aria-label="Documentation"
+                >
+                  <SidebarGroup className="p-0">
+                    <SidebarGroupContent>
+                      <SidebarMenu>
+                        {docsNavItems.map((item) => (
+                          <SidebarMenuItem key={item.id}>
+                            <SidebarMenuButton
+                              asChild
+                              isActive={item.id === activeItem.id}
+                            >
+                              <Link to={item.href}>{item.label}</Link>
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        ))}
+                      </SidebarMenu>
+                    </SidebarGroupContent>
+                  </SidebarGroup>
+                </SidebarContent>
+              </Sidebar>
+            </SidebarProvider>
           </div>
         </aside>
 
