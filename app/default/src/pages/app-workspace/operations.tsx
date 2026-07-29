@@ -1,6 +1,7 @@
 import { useParams } from "@tanstack/react-router";
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -15,11 +16,25 @@ import {
   type OperationResourceGroup,
 } from "@/lib/operationGroups";
 import { cn } from "@/lib/cn";
+import {
+  extractSearchSnippet,
+  searchTokensMissingFromText,
+  textContainsAllSearchTokens,
+} from "@/lib/search-highlight";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import { Badge } from "@/components/ui/badge";
-import { Eyebrow } from "@/components/ui/eyebrow";
-import { Input } from "@/components/ui/input";
-import { SpinnerIcon } from "@/components/icons";
+import { Code } from "@/components/ui/code";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group";
+import { CloseIcon, SearchIcon, SpinnerIcon } from "@/components/icons";
+import {
+  SearchHighlight,
+  SearchHighlightProvider,
+} from "@/components/ui/search-highlight";
 import {
   Table,
   TableBody,
@@ -35,80 +50,85 @@ import {
 
 const TOC_ACTIVATION_OFFSET = 112;
 
-function operationMethodVariant(method: string | undefined): "muted" | "info" | "secondary" {
-  const upper = method?.trim().toUpperCase();
+function operationMethodVariant(
+  method: string,
+): "muted" | "info" | "secondary" {
+  const upper = method.trim().toUpperCase();
   if (upper === "GET" || upper === "HEAD") return "muted";
   if (upper === "POST" || upper === "PUT" || upper === "PATCH") return "info";
   return "secondary";
 }
 
-function operationDisplayTitle(operation: IntegrationOperation): string {
-  if (operation.title?.trim() && operation.title !== operation.id) {
-    return operation.title.trim();
-  }
-  const dot = operation.id.indexOf(".");
-  return dot === -1 ? operation.id : operation.id.slice(dot + 1);
-}
-
-function OperationDetail({
+function OperationIdCell({
   operation,
-  highlighted,
+  highlightQuery,
 }: {
   operation: IntegrationOperation;
-  highlighted: boolean;
+  highlightQuery: string;
 }) {
-  const title = operationDisplayTitle(operation);
+  const description = operation.description?.trim() ?? "";
+  const showSnippet = Boolean(
+    highlightQuery.trim()
+      && description
+      && !textContainsAllSearchTokens(operation.id, highlightQuery),
+  );
+  const snippet = showSnippet
+    ? extractSearchSnippet(
+        description,
+        highlightQuery,
+        48,
+        searchTokensMissingFromText(operation.id, highlightQuery),
+      )
+    : null;
 
   return (
-    <article
-      id={appOperationElementId(operation.id)}
-      data-operation-id={operation.id}
-      className={cn(
-        "scroll-mt-28 rounded-lg border border-border bg-card px-4 py-3 transition-[background-color,box-shadow] duration-reveal",
-        highlighted && "bg-accent-subtle ring-2 ring-inset ring-accent-solid",
-      )}
+    <div className="min-w-0">
+      <Code className="align-baseline">
+        <SearchHighlight
+          text={operation.id}
+          query={highlightQuery}
+          variant="vivid"
+        />
+      </Code>
+      {snippet ? (
+        <div className="mt-0.5 truncate text-xs text-muted-foreground">
+          <SearchHighlight text={snippet} query={highlightQuery} variant="vivid" />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function OperationMethod({
+  method,
+  highlightQuery,
+}: {
+  method: string;
+  highlightQuery: string;
+}) {
+  return (
+    <Badge
+      variant={operationMethodVariant(method)}
+      size="sm"
+      className="align-baseline"
     >
-      <div className="flex flex-wrap items-center gap-2">
-        <h3 className="font-mono text-sm font-medium text-foreground">
-          {operation.id}
-        </h3>
-        {operation.method ? (
-          <Badge variant={operationMethodVariant(operation.method)} size="sm">
-            {operation.method.toUpperCase()}
-          </Badge>
-        ) : null}
-        {operation.readOnly ? (
-          <Badge variant="muted" size="sm">read-only</Badge>
-        ) : null}
-      </div>
-      {title !== operation.id ? (
-        <p className="mt-1 text-sm font-medium text-foreground">{title}</p>
-      ) : null}
-      {operation.description ? (
-        <p className="mt-1 text-sm text-muted-foreground text-pretty">
-          {operation.description}
-        </p>
-      ) : null}
-      {operation.allowedRoles && operation.allowedRoles.length > 0 ? (
-        <p className="mt-2 text-xs text-faint">
-          Roles: {operation.allowedRoles.join(", ")}
-        </p>
-      ) : null}
-      {operation.tags && operation.tags.length > 0 ? (
-        <p className="mt-2 text-xs text-faint">
-          {operation.tags.join(" · ")}
-        </p>
-      ) : null}
-    </article>
+      <SearchHighlight
+        text={method.trim().toUpperCase()}
+        query={highlightQuery}
+        variant="vivid"
+      />
+    </Badge>
   );
 }
 
 function OperationResourceSection({
   group,
   highlightedOperationId,
+  highlightQuery,
 }: {
   group: OperationResourceGroup;
   highlightedOperationId: string | null;
+  highlightQuery: string;
 }) {
   return (
     <section
@@ -120,56 +140,79 @@ function OperationResourceSection({
         id={`${group.sectionId}-heading`}
         className="text-xl font-heading text-foreground"
       >
-        {group.label}
+        <SearchHighlight text={group.label} query={highlightQuery} variant="vivid" />
       </h2>
 
-      <div className="mt-4">
-        <Eyebrow tone="secondary" className="mb-2">Operations</Eyebrow>
-        <Table variant="surface" className="rounded-lg border border-border">
-          <TableHeader>
-            <TableRow>
-              <TableHead>Operation</TableHead>
-              <TableHead className="w-24">Method</TableHead>
-              <TableHead>Description</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {group.operations.map((operation) => (
-              <TableRow key={operation.id}>
-                <TableCell className="font-mono text-foreground">
-                  {operation.id}
+      <Table variant="line" className="mt-4">
+        <TableHeader>
+          <TableRow>
+            <TableHead>Operation</TableHead>
+            <TableHead className="w-24">Method</TableHead>
+            <TableHead>Description</TableHead>
+            <TableHead className="w-40">Roles</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {group.operations.map((operation) => {
+            const rolesLabel =
+              operation.allowedRoles && operation.allowedRoles.length > 0
+                ? operation.allowedRoles.join(", ")
+                : null;
+
+            return (
+              <TableRow
+                key={operation.id}
+                id={appOperationElementId(operation.id)}
+                data-operation-id={operation.id}
+                className={cn(
+                  "scroll-mt-28 transition-[background-color,box-shadow] duration-reveal",
+                  highlightedOperationId === operation.id &&
+                    "bg-accent-subtle ring-2 ring-inset ring-accent-solid",
+                )}
+              >
+                <TableCell className="align-baseline">
+                  <OperationIdCell
+                    operation={operation}
+                    highlightQuery={highlightQuery}
+                  />
                 </TableCell>
-                <TableCell>
+                <TableCell className="align-baseline">
                   {operation.method ? (
-                    <Badge
-                      variant={operationMethodVariant(operation.method)}
-                      size="sm"
-                    >
-                      {operation.method.toUpperCase()}
-                    </Badge>
+                    <OperationMethod
+                      method={operation.method}
+                      highlightQuery={highlightQuery}
+                    />
                   ) : (
                     <span className="text-faint">—</span>
                   )}
                 </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {operation.description?.trim() || "—"}
+                <TableCell className="align-baseline text-muted-foreground">
+                  {operation.description?.trim() ? (
+                    <SearchHighlight
+                      text={operation.description.trim()}
+                      query={highlightQuery}
+                      variant="vivid"
+                    />
+                  ) : (
+                    "—"
+                  )}
+                </TableCell>
+                <TableCell className="align-baseline text-muted-foreground">
+                  {rolesLabel ? (
+                    <SearchHighlight
+                      text={rolesLabel}
+                      query={highlightQuery}
+                      variant="vivid"
+                    />
+                  ) : (
+                    <span className="text-faint">—</span>
+                  )}
                 </TableCell>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-
-      <div className="mt-6 space-y-3">
-        <Eyebrow tone="secondary">Details</Eyebrow>
-        {group.operations.map((operation) => (
-          <OperationDetail
-            key={operation.id}
-            operation={operation}
-            highlighted={highlightedOperationId === operation.id}
-          />
-        ))}
-      </div>
+            );
+          })}
+        </TableBody>
+      </Table>
     </section>
   );
 }
@@ -180,9 +223,11 @@ export default function AppWorkspaceOperationsPage() {
   const [operationsLoading, setOperationsLoading] = useState(true);
   const [operationsError, setOperationsError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const deferredHighlightQuery = useDeferredValue(searchQuery);
   const [highlightedOperationId, setHighlightedOperationId] = useState<
     string | null
   >(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -227,22 +272,11 @@ export default function AppWorkspaceOperationsPage() {
   );
 
   const tocItems = useMemo((): TableOfContentsItem[] => {
-    const items: TableOfContentsItem[] = [];
-    for (const group of resourceGroups) {
-      items.push({
-        id: group.sectionId,
-        title: group.label,
-        depth: 1,
-      });
-      for (const operation of group.operations) {
-        items.push({
-          id: appOperationElementId(operation.id),
-          title: operationDisplayTitle(operation),
-          depth: 2,
-        });
-      }
-    }
-    return items;
+    return resourceGroups.map((group) => ({
+      id: group.sectionId,
+      title: group.label,
+      depth: 1,
+    }));
   }, [resourceGroups]);
 
   const scrollRootRef = useRef<HTMLElement | null>(null);
@@ -311,14 +345,39 @@ export default function AppWorkspaceOperationsPage() {
 
       {!operationsLoading && visibleOperations.length > 0 ? (
         <div className="mt-5 max-w-md">
-          <Input
-            type="search"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Search operations…"
-            aria-label="Search operations"
-            data-testid="app-operations-search"
-          />
+          <InputGroup>
+            <InputGroupAddon align="inline-start">
+              <SearchIcon aria-hidden />
+            </InputGroupAddon>
+            <InputGroupInput
+              ref={searchInputRef}
+              type="search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search operations…"
+              aria-label="Search operations"
+              autoComplete="off"
+              data-testid="app-operations-search"
+              className="[&::-webkit-search-cancel-button]:hidden"
+            />
+            {searchQuery.trim().length > 0 ? (
+              <InputGroupAddon align="inline-end">
+                <InputGroupButton
+                  aria-label="Clear operation search"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setSearchQuery("");
+                    searchInputRef.current?.focus();
+                  }}
+                >
+                  <CloseIcon className="size-4" />
+                </InputGroupButton>
+              </InputGroupAddon>
+            ) : null}
+          </InputGroup>
         </div>
       ) : null}
 
@@ -350,43 +409,47 @@ export default function AppWorkspaceOperationsPage() {
       ) : null}
 
       {!operationsLoading && filteredOperations.length > 0 ? (
-        <div
-          className="mt-8 flex gap-8"
-          data-testid="app-operations-reference"
-        >
+        <SearchHighlightProvider query={deferredHighlightQuery}>
           <div
-            className="min-w-0 flex-1 space-y-10"
-            data-testid="app-operations-list"
+            className="mt-8 flex gap-8"
+            data-testid="app-operations-reference"
           >
-            {resourceGroups.map((group) => (
-              <OperationResourceSection
-                key={group.prefix}
-                group={group}
-                highlightedOperationId={highlightedOperationId}
-              />
-            ))}
-          </div>
-
-          {tocItems.length > 0 ? (
-            <aside
-              className="hidden w-52 shrink-0 xl:block"
-              data-testid="app-operations-toc"
+            <div
+              className="min-w-0 flex-1 space-y-10"
+              data-testid="app-operations-list"
             >
-              <div className="sticky top-28">
-                <p className="mb-2 text-sm font-medium text-foreground">
-                  On this page
-                </p>
-                <TableOfContents
-                  items={tocItems}
-                  activeId={activeId}
-                  onItemSelect={onTocSelect}
-                  label="Operations on this page"
-                  maxHeight="calc(100vh - 9rem)"
+              {resourceGroups.map((group) => (
+                <OperationResourceSection
+                  key={group.prefix}
+                  group={group}
+                  highlightedOperationId={highlightedOperationId}
+                  highlightQuery={deferredHighlightQuery}
                 />
-              </div>
-            </aside>
-          ) : null}
-        </div>
+              ))}
+            </div>
+
+            {tocItems.length > 0 ? (
+              <aside
+                className="hidden w-52 shrink-0 xl:block"
+                data-testid="app-operations-toc"
+              >
+                <div className="sticky top-28">
+                  <p className="mb-2 text-sm font-medium text-foreground">
+                    On this page
+                  </p>
+                  <TableOfContents
+                    items={tocItems}
+                    activeId={activeId}
+                    onItemSelect={onTocSelect}
+                    label="Operations on this page"
+                    maxHeight="calc(100vh - 9rem)"
+                    highlightQuery={deferredHighlightQuery}
+                  />
+                </div>
+              </aside>
+            ) : null}
+          </div>
+        </SearchHighlightProvider>
       ) : null}
 
       {!operationsLoading &&

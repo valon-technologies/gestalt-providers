@@ -68,6 +68,7 @@ export function filterOperations(
       operation.description,
       operation.tags?.join(" "),
       operation.method,
+      operation.allowedRoles?.join(" "),
     ]
       .filter(Boolean)
       .join(" ")

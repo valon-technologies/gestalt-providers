@@ -1,4 +1,5 @@
 import { cn } from "@/lib/cn";
+import { SearchHighlight } from "@/components/ui/search-highlight";
 
 /**
  * Gestalt console vendor of Valon Registry `table-of-contents`.
@@ -50,6 +51,8 @@ export type TableOfContentsProps = {
    * (`scrollbar-gutter` alone is ignored by overlay scrollbars on macOS).
    */
   maxHeight?: string;
+  /** When set, link labels use SearchHighlight for query matches. */
+  highlightQuery?: string;
 };
 
 function depthPaddingClass(depth: number): string {
@@ -76,6 +79,7 @@ function TableOfContents({
   className,
   listClassName,
   maxHeight,
+  highlightQuery,
 }: TableOfContentsProps) {
   if (items.length === 0) return null;
 
@@ -119,7 +123,15 @@ function TableOfContents({
               )}
               title={item.title}
             >
-              {item.title}
+              {highlightQuery?.trim() ? (
+                <SearchHighlight
+                  text={item.title}
+                  query={highlightQuery}
+                  variant="vivid"
+                />
+              ) : (
+                item.title
+              )}
             </button>
           </li>
         );
