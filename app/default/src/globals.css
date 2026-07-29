@@ -203,7 +203,8 @@
   --text-2xs--line-height: 0.875rem;
 
   --font-sans: var(--font-body), system-ui, sans-serif;
-  --font-heading: var(--font-display), Georgia, serif;
+  /* Everyday headings (Melange at Valon); display serif is `font-display`. */
+  --font-heading: var(--font-body), system-ui, sans-serif;
   --font-display: var(--font-display), Georgia, serif;
   --font-mono: var(--font-mono), monospace;
 
@@ -326,6 +327,10 @@
     --font-display: var(--font-display-default);
     --font-body: var(--font-body-default);
     --font-mono: var(--font-mono-default);
+    /* Mirror consumed tokens so legacy `--ui-font-*` reads pick up tenant overrides. */
+    --ui-font-sans: var(--font-body);
+    --ui-font-display: var(--font-display);
+    --ui-font-mono: var(--font-mono);
   }
 
   html {
