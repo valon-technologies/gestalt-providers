@@ -240,10 +240,7 @@ export default function BuildStepPage() {
           <p className="mb-8 text-sm text-ember-500">{error}</p>
         )}
 
-        <div
-          data-testid="build-step-nav"
-          className="animate-fade-in-up"
-        >
+        <div data-testid="build-step-nav">
           <Stepper
             value={stepId}
             onValueChange={(next) => {
@@ -271,7 +268,7 @@ export default function BuildStepPage() {
 
         <PageHeader
           className={cn(
-            "mt-10 animate-fade-in-up [animation-delay:40ms]",
+            "mt-10",
             stepId === "authorize" && "hidden",
           )}
         >
@@ -1089,7 +1086,7 @@ function BuildStepPanel({
   return (
     <section
       data-testid="build-step-panel"
-      className="mt-10 space-y-3 animate-fade-in-up [animation-delay:60ms]"
+      className="mt-10 space-y-3"
       aria-busy={
         (step.id === "authorize" && !tokensReady) ||
         (step.id === "connect" && !integrationsReady) ||
