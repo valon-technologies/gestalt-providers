@@ -1,4 +1,8 @@
 import type { Integration } from "@/lib/api";
+import {
+  searchTokensFromQuery,
+  textContainsAllSearchTokens,
+} from "@/lib/search-highlight";
 
 export function getIntegrationLabel(integration: Integration): string {
   return integration.displayName || integration.name;
@@ -12,20 +16,14 @@ function getSearchableFields(integration: Integration): string[] {
   ];
 }
 
+/** Catalog filter tokens — delegates to vendored list-search normalization. */
 export function tokenizeQuery(rawQuery: string): string[] {
-  return rawQuery
-    .trim()
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((token) => token.length > 0);
+  return searchTokensFromQuery(rawQuery);
 }
 
-/** True when every query token appears somewhere in the haystack (word-fuzzy). */
+/** True when every query token appears somewhere in the haystack (token-AND). */
 export function matchesSearchQuery(haystack: string, rawQuery: string): boolean {
-  const tokens = tokenizeQuery(rawQuery);
-  if (tokens.length === 0) return true;
-  const lower = haystack.toLowerCase();
-  return tokens.every((token) => lower.includes(token));
+  return textContainsAllSearchTokens(haystack, rawQuery);
 }
 
 export function filterIntegrations(

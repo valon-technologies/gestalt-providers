@@ -121,6 +121,10 @@ explicit `query` prop or wrap with `SearchHighlightProvider`. Use
 `variant="vivid"` on card surfaces (integrations catalog); default
 `bg-accent-highlight` is for table cells when DataTable bridges context.
 Do not hand-roll `<mark className="bg-accent-vivid">` at call sites.
+Catalog filtering (`lib/integrationSearch.ts`, `lib/catalogFilters.ts`) must
+delegate matching to `search-highlight.ts` — one normalization stack for filter
+and highlight. Strip `"use client"` from vendored copies (Vite SPA; Registry
+carry-over is a no-op here).
 
 ## Held local overrides (discuss before dropping)
 

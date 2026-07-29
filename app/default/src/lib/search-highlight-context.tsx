@@ -2,8 +2,6 @@
  * Vendored Gestalt UI primitive — refresh from the upstream design-system registry when syncing.
  */
 
-"use client";
-
 import { createContext, useContext, type ReactNode } from "react";
 
 export const SearchHighlightQueryContext = createContext("");

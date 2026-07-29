@@ -217,7 +217,7 @@ export function filterCatalogIntegrations(
   },
 ): Integration[] {
   const context = options.context ?? "current_user";
-  const query = options.query.trim().toLowerCase();
+  const query = options.query.trim();
   const filtered = integrations.filter((integration) => {
     if (!matchesConnectionFilter(integration, options.connection, context)) {
       return false;
