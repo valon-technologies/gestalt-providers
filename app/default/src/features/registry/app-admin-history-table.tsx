@@ -216,6 +216,10 @@ function RevisionStatusCell({
     return <span className="text-muted-foreground">—</span>;
   }
 
+  if (!statusLabel || !statusVariant) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-2">
