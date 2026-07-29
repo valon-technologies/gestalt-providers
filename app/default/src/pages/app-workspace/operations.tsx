@@ -18,11 +18,6 @@ import {
   type OperationResourceGroup,
 } from "@/lib/operationGroups";
 import { cn } from "@/lib/cn";
-import {
-  extractSearchSnippet,
-  searchTokensMissingFromText,
-  textContainsAllSearchTokens,
-} from "@/lib/search-highlight";
 import { useScrollSpy } from "@/hooks/use-scroll-spy";
 import { Badge } from "@/components/ui/badge";
 import { Code } from "@/components/ui/code";
@@ -49,20 +44,30 @@ import {
 
 const TOC_ACTIVATION_OFFSET = 112;
 
-/** Shared column grid for the whole operations catalog (one table, many groups). */
+/** Shared column grid applied to every resource-section table. */
 const OPERATIONS_COLUMN_WIDTHS = {
-  operation: "34%",
   method: "6.5rem",
   roles: "11rem",
 } as const;
 
+function OperationsTableColgroup() {
+  return (
+    <colgroup>
+      <col />
+      <col style={{ width: OPERATIONS_COLUMN_WIDTHS.method }} />
+      <col style={{ width: OPERATIONS_COLUMN_WIDTHS.roles }} />
+    </colgroup>
+  );
+}
+
 function operationMethodVariant(
   method: string,
-): "muted" | "info" | "secondary" {
+): "outline" | "info" | "destructive" {
   const upper = method.trim().toUpperCase();
-  if (upper === "GET" || upper === "HEAD") return "muted";
   if (upper === "POST" || upper === "PUT" || upper === "PATCH") return "info";
-  return "secondary";
+  if (upper === "DELETE") return "destructive";
+  // GET, HEAD, and unknown methods: bordered chip — survives accent row washes.
+  return "outline";
 }
 
 function OperationIdCell({
@@ -73,19 +78,6 @@ function OperationIdCell({
   highlightQuery: string;
 }) {
   const description = operation.description?.trim() ?? "";
-  const showSnippet = Boolean(
-    highlightQuery.trim()
-      && description
-      && !textContainsAllSearchTokens(operation.id, highlightQuery),
-  );
-  const snippet = showSnippet
-    ? extractSearchSnippet(
-        description,
-        highlightQuery,
-        48,
-        searchTokensMissingFromText(operation.id, highlightQuery),
-      )
-    : null;
 
   return (
     <div className="min-w-0">
@@ -96,9 +88,9 @@ function OperationIdCell({
           variant="vivid"
         />
       </Code>
-      {snippet ? (
-        <div className="mt-0.5 truncate text-xs text-muted-foreground">
-          <SearchHighlight text={snippet} query={highlightQuery} variant="vivid" />
+      {description ? (
+        <div className="mt-2 text-sm text-muted-foreground text-pretty">
+          <SearchHighlight text={description} query={highlightQuery} variant="vivid" />
         </div>
       ) : null}
     </div>
@@ -162,17 +154,6 @@ function OperationRow({
         )}
       </TableCell>
       <TableCell className="align-baseline text-muted-foreground">
-        {operation.description?.trim() ? (
-          <SearchHighlight
-            text={operation.description.trim()}
-            query={highlightQuery}
-            variant="vivid"
-          />
-        ) : (
-          "—"
-        )}
-      </TableCell>
-      <TableCell className="align-baseline text-muted-foreground">
         {rolesLabel ? (
           <SearchHighlight text={rolesLabel} query={highlightQuery} variant="vivid" />
         ) : (
@@ -183,56 +164,39 @@ function OperationRow({
   );
 }
 
-function OperationsCatalogTable({
-  resourceGroups,
+function OperationResourceSection({
+  group,
   highlightedOperationId,
   highlightQuery,
 }: {
-  resourceGroups: OperationResourceGroup[];
+  group: OperationResourceGroup;
   highlightedOperationId: string | null;
   highlightQuery: string;
 }) {
   return (
-    <Table variant="line" className="table-fixed">
-      <colgroup>
-        <col style={{ width: OPERATIONS_COLUMN_WIDTHS.operation }} />
-        <col style={{ width: OPERATIONS_COLUMN_WIDTHS.method }} />
-        <col />
-        <col style={{ width: OPERATIONS_COLUMN_WIDTHS.roles }} />
-      </colgroup>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Operation</TableHead>
-          <TableHead>Method</TableHead>
-          <TableHead>Description</TableHead>
-          <TableHead>Roles</TableHead>
-        </TableRow>
-      </TableHeader>
-      {resourceGroups.map((group, groupIndex) => (
-        <TableBody key={group.prefix}>
-          <TableRow
-            className="border-b-0 hover:bg-transparent active:bg-transparent"
-            data-testid={`ops-resource-${group.prefix}`}
-          >
-            <TableCell
-              colSpan={4}
-              className={cn(
-                "scroll-mt-28 px-3 pb-2",
-                groupIndex === 0 ? "pt-4" : "pt-10",
-              )}
-            >
-              <h2
-                id={group.sectionId}
-                className="text-xl font-heading text-foreground"
-              >
-                <SearchHighlight
-                  text={group.label}
-                  query={highlightQuery}
-                  variant="vivid"
-                />
-              </h2>
-            </TableCell>
+    <section
+      id={group.sectionId}
+      className="scroll-mt-28"
+      aria-labelledby={`${group.sectionId}-heading`}
+      data-testid={`ops-resource-${group.prefix}`}
+    >
+      <h2
+        id={`${group.sectionId}-heading`}
+        className="text-xl font-heading text-foreground"
+      >
+        <SearchHighlight text={group.label} query={highlightQuery} variant="vivid" />
+      </h2>
+
+      <Table variant="line" className="mt-4 table-fixed">
+        <OperationsTableColgroup />
+        <TableHeader>
+          <TableRow>
+            <TableHead>Operation</TableHead>
+            <TableHead>Method</TableHead>
+            <TableHead>Roles</TableHead>
           </TableRow>
+        </TableHeader>
+        <TableBody>
           {group.operations.map((operation) => (
             <OperationRow
               key={operation.id}
@@ -242,8 +206,8 @@ function OperationsCatalogTable({
             />
           ))}
         </TableBody>
-      ))}
-    </Table>
+      </Table>
+    </section>
   );
 }
 
@@ -466,12 +430,15 @@ export default function AppWorkspaceOperationsPage() {
           className="mt-8 flex gap-8"
           data-testid="app-operations-reference"
         >
-            <div className="min-w-0 flex-1" data-testid="app-operations-list">
-              <OperationsCatalogTable
-                resourceGroups={resourceGroups}
-                highlightedOperationId={highlightedOperationId}
-                highlightQuery={deferredHighlightQuery}
-              />
+            <div className="min-w-0 flex-1 space-y-10" data-testid="app-operations-list">
+              {resourceGroups.map((group) => (
+                <OperationResourceSection
+                  key={group.prefix}
+                  group={group}
+                  highlightedOperationId={highlightedOperationId}
+                  highlightQuery={deferredHighlightQuery}
+                />
+              ))}
             </div>
 
             {tocItems.length > 0 ? (
